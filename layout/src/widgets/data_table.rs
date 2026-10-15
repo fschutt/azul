@@ -1377,8 +1377,65 @@ pub const DATA_TABLE_DRAG_MIME: &str = "application/x-azul-data-table";
 /// What a right click at (`x`, `y`) on `hit` asks for: the row under it
 /// joins the selection (alone, if it was not in it), then a context menu.
 pub(crate) fn context_menu_at(t: &DataTable, hit: Hit, x: f32, y: f32) -> Option<DataTableEvent> {
-    let _ = (t, hit, x, y);
-    None
+    let view = &t.view;
+    let mut next = view.clone();
+    next.drag = DataTableDrag::default();
+    let cell = match hit {
+        Hit::Cell(position, column) => {
+            let row = view.row_at(position, t.row_count).into_option()?;
+            if !view.selection.contains(u64::from(row)) {
+                next = click_select(t, &next, position, false, false);
+            }
+            next.active_column = column;
+            DataTableCellRef::create(row, column)
+        }
+        // Empty space under the rows: a menu for the table itself.
+        Hit::Nothing => {
+            next.selection.clear();
+            DataTableCellRef { row: u32::MAX, column: 0 }
+        }
+        _ => return None,
+    };
+    let mut e = DataTableEvent::create(DataTableEventKind::ContextMenu, next);
+    e.cell = cell;
+    e.x = x;
+    e.y = y;
+    Some(e)
+}
+
+/// What a drag out from the row shown at `position` carries: the selected
+/// rows (that row alone when it is not selected), in the order they show,
+/// as the app's row indices "3,4,7" in `text`.
+pub(crate) fn drag_out(t: &DataTable, position: u32) -> Option<DataTableEvent> {
+    let view = &t.view;
+    let row = view.row_at(position, t.row_count).into_option()?;
+    let mut next = view.clone();
+    next.drag = DataTableDrag::default();
+    if !next.selection.contains(u64::from(row)) {
+        next = click_select(t, &next, position, false, false);
+    }
+    let rows: Vec<u32> = if next.ordered {
+        next.order
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|r| next.selection.contains(u64::from(*r)))
+            .collect()
+    } else {
+        next.selection
+            .keys
+            .as_slice()
+            .iter()
+            .filter_map(|k| u32::try_from(*k).ok())
+            .filter(|r| *r < t.row_count)
+            .collect()
+    };
+    let text: Vec<String> = rows.iter().map(|r| alloc::format!("{r}")).collect();
+    let column = next.active_column;
+    let mut e = DataTableEvent::create(DataTableEventKind::DragStart, next);
+    e.cell = DataTableCellRef::create(row, column);
+    e.text = AzString::from(text.join(","));
+    Some(e)
 }
 
 /// An edit the app is asked to accept: the typed `text` for `cell`.
@@ -2286,6 +2343,16 @@ pub(crate) static DATA_TABLE_ROW_BASE: &[CssPropertyWithConditions] = &[
 
 /// A cell (a header, a filter): its width, its content centred on the
 /// row's line and set by its alignment, clipped.
+/// A cell's icon before its text: its own size, never shrinking, a gap
+/// before the text.
+pub(crate) static DATA_TABLE_ICON_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    simple(CssProperty::const_margin_right(azul_css::props::layout::LayoutMarginRight::const_px(6))),
+];
+
 pub(crate) static DATA_TABLE_CELL_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_display(LayoutDisplay::Flex)),
     simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
@@ -2506,6 +2573,7 @@ pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
         super::themes::decl::on_base(base, skin)
     };
     let DataTableResolved { table, geo, rows } = resolved;
+    let rows_draggable = table.rows_draggable;
     let view = &table.view;
     let columns = table.columns.as_slice();
     let keys = view.sort.len();
@@ -2682,6 +2750,12 @@ pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
                     accessibility_value: value.into(),
                     ..AccessibilityInfo::named(AzString::from(title), AccessibilityRole::GridCell)
                 });
+            if !cell.icon.as_str().is_empty() && !editing_here {
+                node = node.with_child(
+                    Dom::create_icon(cell.icon.clone())
+                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DATA_TABLE_ICON_BASE)),
+                );
+            }
             if !text.as_str().is_empty() {
                 node = node.with_child(text_line(text));
             }
@@ -2695,7 +2769,7 @@ pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
         } else {
             Vec::new()
         };
-        children.push(row_node(
+        let mut row_dom = row_node(
             band.size,
             skin,
             AccessibilityInfo {
@@ -2705,7 +2779,17 @@ pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
                 ..Default::default()
             },
             row_cells,
-        ));
+        );
+        if rows_draggable && row.is_some() {
+            row_dom = row_dom
+                .with_attribute(azul_core::dom::AttributeType::Draggable(true))
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::DragStart),
+                    RefAny::new(RowDrag { position: band.index }),
+                    on_row_drag_start as usize,
+                );
+        }
+        children.push(row_dom);
     }
 
     // The overlays: the cursor's outline, the editor, the notice, the bars.
@@ -3104,6 +3188,20 @@ pub(crate) fn table_key(
         let row = view.cursor_row().into_option()?;
         Some(DataTableCellRef::create(row, column))
     };
+    // The Menu key / Shift+F10: a context menu for the cursor's cell, at
+    // its foot when it is in view.
+    let menu_key = || -> Option<DataTableEvent> {
+        let cell = cursor_cell()?;
+        let mut e = DataTableEvent::create(DataTableEventKind::ContextMenu, view.clone());
+        e.cell = cell;
+        let band = here.and_then(|p| geo.rows.iter().find(|b| b.index == p));
+        let col = geo.columns.iter().find(|c| c.index == column);
+        if let (Some(band), Some(col)) = (band, col) {
+            e.x = col.start;
+            e.y = band.start + band.size;
+        }
+        Some(e)
+    };
 
     match key {
         K::Up => row_move(-1),
@@ -3146,6 +3244,8 @@ pub(crate) fn table_key(
                 Some(e)
             }
         }
+        K::Apps => menu_key(),
+        K::F10 if shift => menu_key(),
         K::Escape if view.drag.kind != DataTableDragKind::None => {
             let mut next = view.clone();
             next.drag = DataTableDrag::default();
@@ -3501,13 +3601,37 @@ pub(crate) fn press(
             Some(start_filter_edit(view, c))
         }
         Hit::Cell(position, c) => {
-            let mut next = click_select(t, view, position, shift, ctrl);
+            // Rows that drag out: a press on a selected row keeps the
+            // selection (the whole of it may be dragged out), and a drag
+            // never extends the selection.
+            let row = view.row_at(position, t.row_count).into_option();
+            let on_selected = t.rows_draggable
+                && !shift
+                && !ctrl
+                && row.is_some_and(|r| view.selection.contains(u64::from(r)));
+            let mut next = if on_selected {
+                let mut kept = view.clone();
+                kept.selection.focus = azul_css::corety::OptionU64::Some(u64::from(row.unwrap_or(0)));
+                kept
+            } else {
+                click_select(t, view, position, shift, ctrl)
+            };
             next.active_column = c;
             reveal_column(t, &mut next, geo, c);
-            next.drag = DataTableDrag {
-                column: position,
-                kind: DataTableDragKind::Select,
-                ..DataTableDrag::default()
+            next.drag = if on_selected {
+                DataTableDrag {
+                    column: position,
+                    kind: DataTableDragKind::Pending,
+                    ..DataTableDrag::default()
+                }
+            } else if t.rows_draggable {
+                DataTableDrag::default()
+            } else {
+                DataTableDrag {
+                    column: position,
+                    kind: DataTableDragKind::Select,
+                    ..DataTableDrag::default()
+                }
             };
             let mut e = DataTableEvent::create(DataTableEventKind::Select, next);
             e.shift = shift;
@@ -3556,7 +3680,8 @@ pub(crate) fn drag_move(
     let view = &t.view;
     let drag = view.drag;
     match drag.kind {
-        DataTableDragKind::None => None,
+        // A pending press that moves is the engine's drag out (DragStart).
+        DataTableDragKind::None | DataTableDragKind::Pending => None,
         DataTableDragKind::ResizeColumn => {
             let size = (drag.start_size + (window_px.0 - drag.start_px)).max(MIN_COLUMN_PX);
             if !size.is_finite() || (size - drag.size).abs() < 0.5 {
@@ -3626,6 +3751,14 @@ pub(crate) fn drag_end(t: &DataTable) -> Option<DataTableEvent> {
     match drag.kind {
         DataTableDragKind::None => None,
         DataTableDragKind::ResizeColumn => Some(resized(next, drag.column, drag.size)),
+        DataTableDragKind::Pending => {
+            let mut e = DataTableEvent::create(
+                DataTableEventKind::Select,
+                click_select(t, &next, drag.column, false, false),
+            );
+            e.index = drag.column;
+            Some(e)
+        }
         _ => Some(DataTableEvent::create(DataTableEventKind::Drag, next)),
     }
 }
@@ -3798,7 +3931,57 @@ pub(crate) fn table_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
             shared.clone(),
             on_table_wheel as usize
         ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            shared.clone(),
+            on_table_right_up as usize
+        ),
     ]
+}
+
+/// A right click: the row under the pointer joins the selection (alone,
+/// when it was not in it), then the app shows its menu.
+extern "C" fn on_table_right_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = context_menu_at(&t, hit_test(&geo, x, y), x, y) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &t, info, event)
+}
+
+/// A row's drag payload: where it is shown.
+struct RowDrag {
+    position: u32,
+}
+
+/// A drag out of a row: the selected rows go on the drag
+/// ([`DATA_TABLE_DRAG_MIME`]) and the app hears `DragStart` to add its own
+/// payload. The table's state is the table node's dataset (the row's
+/// parent).
+extern "C" fn on_row_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(position) = data.downcast_ref::<RowDrag>().map(|d| d.position) else {
+        return Update::DoNothing;
+    };
+    let row_node = info.get_hit_node();
+    let Some(mut shared) = info.get_parent(row_node).and_then(|table| info.get_dataset(table)) else {
+        return Update::DoNothing;
+    };
+    let Some((t, _)) = shared_of(&mut shared) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = drag_out(&t, position) else {
+        return Update::DoNothing;
+    };
+    info.set_drag_data(
+        AzString::from_const_str(DATA_TABLE_DRAG_MIME),
+        event.text.as_str().as_bytes().to_vec(),
+    );
+    deliver(&mut shared, &t, info, event)
 }
 
 /// Hands `event` to the app; a new sort or filter first brings its order
@@ -4017,7 +4200,8 @@ extern "C" fn on_table_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> U
         None if closed_filter => DataTableEvent::create(DataTableEventKind::EditCancel, t.view.clone()),
         None => return Update::DoNothing,
     };
-    if event.view.drag.kind != DataTableDragKind::None {
+    // A pending press stays uncaptured: its move is the engine's drag out.
+    if !matches!(event.view.drag.kind, DataTableDragKind::None | DataTableDragKind::Pending) {
         let node = info.get_hit_node();
         info.capture_pointer(node);
     }
