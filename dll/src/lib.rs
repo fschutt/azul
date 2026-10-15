@@ -22,7 +22,10 @@
 //! ### Optional Features
 //! - `web`: Enable the web backend (serve the app as HTML over HTTP)
 //! - `python-extension`: Build as a Python extension module (PyInit_azul)
+//! - `try-trait` (nightly): `?` on the FFI `Option*` / `Result*` types and in
+//!   callbacks returning `Update`
 
+#![cfg_attr(feature = "try-trait", feature(try_trait_v2))]
 // Lint policy: deny correctness/safety issues, warn on style
 #![deny(improper_ctypes_definitions)]
 #![deny(unused_must_use)]

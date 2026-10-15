@@ -840,6 +840,11 @@ link-dynamic = [
     "rust_api",
 ]
 
+# Nightly only: `?` directly on the FFI Option* / Result* types, and inside a
+# callback returning `Update` (a missing value or an error means "do nothing").
+# Stable Rust gets the same through `Update::with` / `Update::with_result`.
+try-trait = []
+
 # Shared dependencies for build-dll and link-static (not user-facing)
 _internal_deps = [
     "std",
