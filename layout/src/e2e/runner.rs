@@ -3431,6 +3431,7 @@ impl Runner {
             CallbackChange::RemoveThread { .. } => {
                 self.unsupported("RemoveThread", "no thread pump")
             }
+            CallbackChange::StopThread { .. } => self.unsupported("StopThread", "no thread pump"),
 
             // The e2e `paste` op: the content is handed in, so no OS
             // clipboard is needed - the rest is the dll's paste.

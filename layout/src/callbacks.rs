@@ -395,8 +395,16 @@ pub enum CallbackChange {
         /// app thread. The callback itself never knows.
         owner: Option<DomNodeId>,
     },
-    /// Remove an existing thread
+    /// Drop a thread that has finished, or was detached: the engine's own
+    /// retirement of a thread, which waits for nothing. Apps stop a running
+    /// thread with [`CallbackChange::StopThread`].
     RemoveThread {
+        thread_id: ThreadId,
+    },
+    /// Tell a thread to stop and keep listening: its last write-backs still
+    /// run, and it leaves the window once it has finished
+    /// (`LayoutWindow::stop_thread`).
+    StopThread {
         thread_id: ThreadId,
     },
 
@@ -1834,9 +1842,20 @@ impl CallbackInfo {
         }
     }
 
-    /// Remove a thread from this window (applied after callback returns)
+    /// Asks a background thread to stop (applied after the callback returns). The
+    /// worker is sent `TerminateThread`, and the window keeps listening to it: the
+    /// write-backs it sends while it winds down still run, so it can report what it
+    /// did ("stopped after 40 messages"). It leaves the window once it has finished.
+    /// Nothing waits for it on the UI thread, also when it sits in a blocking call;
+    /// one that has not finished two seconds later is detached.
+    pub fn stop_thread(&mut self, thread_id: ThreadId) {
+        self.push_change(CallbackChange::StopThread { thread_id });
+    }
+
+    /// Removes a thread from this window (applied after the callback returns): the
+    /// same as [`Self::stop_thread`], so its last write-backs still arrive.
     pub fn remove_thread(&mut self, thread_id: ThreadId) {
-        self.push_change(CallbackChange::RemoveThread { thread_id });
+        self.stop_thread(thread_id);
     }
 
     /// Stop event propagation (applied after callback returns)
@@ -9574,7 +9593,7 @@ mod autotest_generated {
             assert!(
                 matches!(&changes[2], CallbackChange::RemoveTimer { timer_id } if timer_id.id == usize::MAX)
             );
-            assert!(matches!(&changes[3], CallbackChange::RemoveThread { .. }));
+            assert!(matches!(&changes[3], CallbackChange::StopThread { .. }));
         });
     }
 

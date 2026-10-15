@@ -6732,6 +6732,18 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            // The app stops a thread: it is told `TerminateThread` and stays in the
+            // window, polled as before, until it has finished; its last write-backs
+            // still run. Nothing here waits for the worker.
+            CallbackChange::StopThread { thread_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.stop_thread(thread_id);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // The engine retires a thread that has finished or was detached, so the
+            // drop below joins nothing that still runs.
             CallbackChange::RemoveThread { thread_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     drop(lw.remove_thread(thread_id));

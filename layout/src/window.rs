@@ -2159,13 +2159,15 @@ pub struct LayoutWindow {
     pub icu_localizer: IcuLocalizerHandle,
 }
 
-/// A window that goes away stops its background workers TOGETHER
+/// A window that goes away stops the background workers it still has TOGETHER
 /// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
 /// first and they are waited for on one shared grace period. Dropping the
 /// `threads` map entry by entry made each worker's destructor wait for its
 /// worker before the next one even heard of it - a window closed in the SUM
 /// of its workers' stop times, on the UI thread. One place, so every shell's
-/// close path gets it.
+/// close path gets it. A window that closes while another stays open has
+/// handed its threads over before (`take_threads_for_heir`), so this waits
+/// only when the last window closes.
 impl Drop for LayoutWindow {
     fn drop(&mut self) {
         #[cfg(feature = "std")]
@@ -11873,10 +11875,64 @@ impl LayoutWindow {
         }
     }
 
-    /// Remove a thread from this window (and forget which node owned it)
+    /// Remove a thread from this window (and forget which node owned it). The engine
+    /// retires a thread this way once it has finished or was detached, so dropping it
+    /// waits for nothing; an app stops a running one with [`Self::stop_thread`].
     pub fn remove_thread(&mut self, thread_id: &ThreadId) -> Option<Thread> {
         self.thread_owners.forget(thread_id);
         self.threads.remove(thread_id)
+    }
+
+    /// Tells `thread_id` to stop (`TerminateThread`) and keeps listening to it: its
+    /// write-backs still run in [`Self::run_all_threads`], which retires it once it has
+    /// finished, or detaches it past the grace period. Nothing here waits for the worker,
+    /// so a Cancel answers at once even while the worker sits in a blocking call.
+    /// Returns false when the window has no such thread.
+    pub fn stop_thread(&mut self, thread_id: &ThreadId) -> bool {
+        let Some(thread) = self.threads.get(thread_id) else {
+            return false;
+        };
+        if self.thread_owners.stop(*thread_id) {
+            let _ = thread.send_message(ThreadSendMsg::TerminateThread);
+        }
+        true
+    }
+
+    /// Takes every thread out of this window, which is closing while another window
+    /// stays open, for that window ([`Self::adopt_handed_over_threads`]). The app's
+    /// threads go on there; the ones the app stopped still deliver their last
+    /// write-backs; the workers of this window's nodes are told to stop now and are
+    /// retired there as orphans. So closing a window never waits for a worker.
+    pub fn take_threads_for_heir(
+        &mut self,
+    ) -> Vec<(ThreadId, Thread, crate::managers::thread_owner::HandedOver)> {
+        let threads = core::mem::take(&mut self.threads);
+        let mut handed = Vec::with_capacity(threads.len());
+        for (id, thread) in threads {
+            let (state, tell) = self.thread_owners.hand_over(&id);
+            if tell {
+                let _ = thread.send_message(ThreadSendMsg::TerminateThread);
+            }
+            handed.push((id, thread, state));
+        }
+        handed
+    }
+
+    /// The threads of a window that closed ([`Self::take_threads_for_heir`]): this window
+    /// polls them from now on, each as what it was there. Returns whether any came, so the
+    /// shell starts polling. A thread id this window has already keeps its own thread.
+    pub fn adopt_handed_over_threads(
+        &mut self,
+        threads: Vec<(ThreadId, Thread, crate::managers::thread_owner::HandedOver)>,
+    ) -> bool {
+        let any = !threads.is_empty();
+        for (id, thread, state) in threads {
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.threads.entry(id) {
+                slot.insert(thread);
+                self.thread_owners.adopt(id, state);
+            }
+        }
+        any
     }
 
     /// Takes the app's threads out of this window, which is closing while another window stays
@@ -19796,6 +19852,12 @@ impl LayoutWindow {
                 continue;
             }
 
+            // A thread the app asked to stop (`stop_thread`): it gets no `Tick` any
+            // more, but its write-backs still run - its last word is what the app waits
+            // for. It is retired once it has finished, or detached past the grace
+            // period, so no frame ever waits for it.
+            let stopping = self.thread_owners.stopping(&thread_id);
+
             let hit_dom_node = DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: NodeHierarchyItemId::from_crate_internal(None),
@@ -19825,16 +19887,31 @@ impl LayoutWindow {
                     };
 
                     if !ticked {
-                        let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                        if stopping.is_none() {
+                            let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                        }
                         ticked = true;
                     }
-                    let recv = thread_inner.receiver_try_recv();
+                    // Finished is read BEFORE the queue: a worker that sends its last
+                    // write-back and returns between the two reads would otherwise look
+                    // finished with an empty queue, and its last word would be lost.
                     let is_finished = thread_inner.is_finished();
+                    let recv = thread_inner.receiver_try_recv();
                     let msg = match recv {
                         // Queue empty: a finished worker has now delivered
-                        // everything it ever will, so it can be retired.
+                        // everything it ever will, so it can be retired. So can a
+                        // stopping one that ran out of time (detached).
                         OptionThreadReceiveMsg::None => {
-                            if is_finished {
+                            let given_up = !is_finished
+                                && match stopping {
+                                    Some(told) => crate::managers::thread_owner::detach_if_overdue(
+                                        told,
+                                        thread_inner,
+                                        crate::managers::thread_owner::wall_clock(),
+                                    ),
+                                    None => false,
+                                };
+                            if is_finished || given_up {
                                 all_changes.push(CallbackChange::RemoveThread { thread_id });
                             }
                             break;

@@ -446,9 +446,16 @@ impl TimerCallbackInfo {
         self.callback_info.add_thread(thread_id, thread);
     }
 
-    /// Remove a thread from this window (applied after callback returns)
+    /// Remove a thread from this window (applied after callback returns); see
+    /// [`CallbackInfo::stop_thread`]: its last write-backs still arrive.
     pub fn remove_thread(&mut self, thread_id: ThreadId) {
         self.callback_info.remove_thread(thread_id);
+    }
+
+    /// Ask a thread to stop and keep listening to it (applied after callback
+    /// returns); see [`CallbackInfo::stop_thread`].
+    pub fn stop_thread(&mut self, thread_id: ThreadId) {
+        self.callback_info.stop_thread(thread_id);
     }
 
     /// Stop event propagation (applied after callback returns)
@@ -1581,8 +1588,8 @@ mod autotest_generated {
             assert_eq!(thread_id, id);
 
             info.remove_thread(id);
-            let CallbackChange::RemoveThread { thread_id } = env.take_one() else {
-                panic!("expected RemoveThread");
+            let CallbackChange::StopThread { thread_id } = env.take_one() else {
+                panic!("expected StopThread");
             };
             assert_eq!(thread_id, id);
         });

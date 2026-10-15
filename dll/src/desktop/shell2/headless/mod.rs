@@ -2472,9 +2472,9 @@ impl HeadlessWindow {
         }
         let mut opened_by_children = Vec::new();
         let mut a_menu_closed = false;
-        // The app's threads of a child that closed go on in this window, as every shell hands
-        // them to a window that stays open (`common::thread_handover`).
-        let mut inherited = std::collections::BTreeMap::new();
+        // The threads of a child that closed go on (or wind down) in this window, as every
+        // shell hands them to a window that stays open (`common::thread_handover`).
+        let mut inherited = Vec::new();
         let mut inherited_keyring_ops = 0_u32;
         self.children.retain_mut(|child| {
             child.pump_once(false);
@@ -2483,7 +2483,7 @@ impl HeadlessWindow {
             a_menu_closed |= !open && child.is_menu_window();
             if !open {
                 if let Some(lw) = child.common.layout_window.as_mut() {
-                    inherited.append(&mut lw.take_app_threads());
+                    inherited.append(&mut lw.take_threads_for_heir());
                     inherited_keyring_ops += core::mem::take(&mut lw.keyring_manager.in_flight);
                 }
             }
@@ -2491,7 +2491,7 @@ impl HeadlessWindow {
         });
         let adopted = self.common.layout_window.as_mut().is_some_and(|lw| {
             lw.keyring_manager.mark_requests_dispatched(inherited_keyring_ops);
-            lw.adopt_threads(inherited)
+            lw.adopt_handed_over_threads(inherited)
         });
         if adopted {
             PlatformWindow::start_thread_poll_timer(self);

@@ -29,6 +29,18 @@
 //! must not die because the button that started it re-rendered as a progress
 //! bar.
 //!
+//! A thread the APP stops (`CallbackInfo::stop_thread`, or `remove_thread`) takes the
+//! same path with one difference: it is still the app's, so its write-backs keep
+//! running until it has finished. A worker usually has a last word after
+//! `TerminateThread` ("stopped after 40 of 100 messages"), and an app that never hears
+//! it waits for ever. Nothing on the UI thread waits for the worker: it is polled with
+//! the others and retired once finished, or detached past [`ORPHAN_GRACE`].
+//!
+//! A window that closes while another stays open hands ALL its threads to that window
+//! ([`ThreadOwnerManager::hand_over`]): the app's go on, the ones being stopped keep
+//! their last word, and the workers of its nodes become orphans there. Only the last
+//! window waits for its workers ([`stop_all`]), because the process ends with it.
+//!
 //! TIMERS follow the same rule (THREADS8): a timer one of a node's lifecycle
 //! callbacks started - the map's 250 ms tile sweep - belongs to the node.
 //! When the node unmounts, `LayoutWindow::remap_node_ids` drops it from the
@@ -84,7 +96,7 @@ pub fn wall_clock() -> Option<std::time::Instant> {
     }
 }
 
-/// When an orphan was told to stop.
+/// When a worker was told to stop: an orphan, or a thread the app stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Orphaned {
     /// `None` on targets without a clock (they run no threads either).
@@ -119,11 +131,26 @@ impl Orphaned {
 pub struct ThreadOwnerManager {
     owners: BTreeMap<ThreadId, DomNodeId>,
     orphans: BTreeMap<ThreadId, Orphaned>,
+    /// App threads told to stop ([`Self::stop`]): still the app's, so their write-backs
+    /// run until they have finished; retired then, or detached past [`ORPHAN_GRACE`].
+    stopping: BTreeMap<ThreadId, Orphaned>,
     timer_owners: BTreeMap<TimerId, DomNodeId>,
     /// Timers whose node unmounted. The window drops them from its timer map
     /// at the unmount (they never fire again); the shell takes this list
     /// ([`Self::take_timers_to_stop`]) to stop their OS timers as well.
     timers_to_stop: Vec<TimerId>,
+}
+
+/// What a thread is when its window closes and hands it to a window that stays open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandedOver {
+    /// An app thread at work: the new window polls it as its own.
+    Running,
+    /// An app thread the app asked to stop: its last write-backs still run.
+    Stopping(Orphaned),
+    /// A worker of a node (of the closed window, or one that unmounted): told to stop,
+    /// its write-backs dropped.
+    Orphaned(Orphaned),
 }
 
 /// Where `owner` is after a rebuild of `dom`: the node it became, or `None`
@@ -169,6 +196,56 @@ impl ThreadOwnerManager {
     pub fn forget(&mut self, thread_id: &ThreadId) {
         self.owners.remove(thread_id);
         self.orphans.remove(thread_id);
+        self.stopping.remove(thread_id);
+    }
+
+    /// The app asked `thread_id` to stop. It is nobody's node's any more, and its
+    /// write-backs keep running until it has finished. Returns false when it was told
+    /// to stop before (an orphan, or a second stop), so `TerminateThread` goes out once.
+    pub fn stop(&mut self, thread_id: ThreadId) -> bool {
+        if self.orphans.contains_key(&thread_id) || self.stopping.contains_key(&thread_id) {
+            return false;
+        }
+        self.owners.remove(&thread_id);
+        self.stopping.insert(thread_id, Orphaned::now());
+        true
+    }
+
+    /// When the app asked `thread_id` to stop, if it did.
+    #[must_use]
+    pub fn stopping(&self, thread_id: &ThreadId) -> Option<Orphaned> {
+        self.stopping.get(thread_id).copied()
+    }
+
+    /// Takes `thread_id` out of this manager, because its window closes and hands it to
+    /// a window that stays open ([`Self::adopt`] there). A worker of one of the window's
+    /// nodes is orphaned now, since its node goes with the window; the `bool` says the
+    /// caller must tell it to stop.
+    pub fn hand_over(&mut self, thread_id: &ThreadId) -> (HandedOver, bool) {
+        let owned = self.owners.remove(thread_id).is_some();
+        if let Some(told) = self.orphans.remove(thread_id) {
+            return (HandedOver::Orphaned(told), false);
+        }
+        if let Some(told) = self.stopping.remove(thread_id) {
+            return (HandedOver::Stopping(told), false);
+        }
+        if owned {
+            return (HandedOver::Orphaned(Orphaned::now()), true);
+        }
+        (HandedOver::Running, false)
+    }
+
+    /// A thread a closing window handed over ([`Self::hand_over`]): it stays what it was.
+    pub fn adopt(&mut self, thread_id: ThreadId, state: HandedOver) {
+        match state {
+            HandedOver::Running => {}
+            HandedOver::Stopping(told) => {
+                self.stopping.insert(thread_id, told);
+            }
+            HandedOver::Orphaned(told) => {
+                self.orphans.insert(thread_id, told);
+            }
+        }
     }
 
     /// `timer_id` belongs to `owner` from now on: one of `owner`'s lifecycle
@@ -263,19 +340,34 @@ pub fn poll_orphan(
     if inner.is_finished() {
         return true;
     }
-    if orphaned.is_overdue(now) {
-        drop(inner.thread_handle.take());
-        eprintln!(
-            "[azul][thread] a worker whose node unmounted (or whose window closed) did not stop \
-             within {} ms of TerminateThread; it was DETACHED (it ends with the process)",
-            ORPHAN_GRACE.as_millis()
-        );
-        return true;
-    }
-    false
+    detach_if_overdue(orphaned, &mut inner, now)
 }
 
-/// Stop EVERY worker in `threads` - the window they belong to is going away.
+/// Gives up on a worker that was told to stop [`ORPHAN_GRACE`] ago and still runs: its
+/// join handle is dropped, which detaches it, so retiring it never waits on the UI
+/// thread. Returns whether it did. Such a worker is usually stuck in a blocking call (a
+/// device read, a network request without a timeout); it ends with the process.
+#[cfg(all(feature = "std", feature = "text_layout"))]
+pub fn detach_if_overdue(
+    told: Orphaned,
+    inner: &mut crate::thread::ThreadInner,
+    now: Option<std::time::Instant>,
+) -> bool {
+    if !told.is_overdue(now) {
+        return false;
+    }
+    drop(inner.thread_handle.take());
+    eprintln!(
+        "[azul][thread] a worker did not stop within {} ms of TerminateThread; it was DETACHED \
+         (it ends with the process)",
+        ORPHAN_GRACE.as_millis()
+    );
+    true
+}
+
+/// Stop EVERY worker in `threads` - the last window is going away, and the process
+/// with it. A window that closes while another stays open hands its threads over
+/// instead ([`ThreadOwnerManager::hand_over`]) and waits for nothing.
 ///
 /// All of them are told `TerminateThread` first and then polled TOGETHER
 /// against one shared [`ORPHAN_GRACE`] (a worker still running after it is
@@ -396,6 +488,76 @@ mod tests {
         m.bind(t, node(child, 2));
         let map = NodeIdMap::from_pairs([(NodeId::new(0), NodeId::new(0))]);
         assert_eq!(m.remap_node_ids(ROOT, &map, &[child]), vec![t]);
+    }
+
+    #[test]
+    fn a_thread_the_app_stops_is_told_once_and_is_nobodys_node_any_more() {
+        let mut m = ThreadOwnerManager::default();
+        let t = ThreadId::unique();
+        m.bind(t, node(ROOT, 3));
+        assert!(m.stop(t), "the first stop tells the worker");
+        assert!(!m.stop(t), "a second stop does not tell it again");
+        assert!(m.stopping(&t).is_some());
+        assert!(
+            m.orphaned(&t).is_none(),
+            "it is not an orphan: its write-backs still run"
+        );
+        assert_eq!(m.owner(&t), None);
+        // Its node unmounting later does not orphan it.
+        assert!(m
+            .remap_node_ids(ROOT, &NodeIdMap::default(), &[])
+            .is_empty());
+        m.forget(&t);
+        assert!(m.stopping(&t).is_none());
+    }
+
+    #[test]
+    fn an_orphan_is_never_stopped_a_second_time() {
+        let mut m = ThreadOwnerManager::default();
+        let t = ThreadId::unique();
+        m.bind(t, node(ROOT, 3));
+        let _ = m.remap_node_ids(ROOT, &NodeIdMap::default(), &[]);
+        assert!(!m.stop(t), "it was told to stop when its node unmounted");
+        assert!(m.stopping(&t).is_none(), "and its write-backs stay dropped");
+    }
+
+    #[test]
+    fn a_closing_window_hands_each_thread_over_as_what_it_was() {
+        let mut m = ThreadOwnerManager::default();
+        let app = ThreadId::unique();
+        let stopped = ThreadId::unique();
+        let of_a_node = ThreadId::unique();
+        let orphan = ThreadId::unique();
+        m.bind(of_a_node, node(ROOT, 1));
+        m.bind(orphan, node(ROOT, 2));
+        let map = NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(1))]);
+        assert_eq!(m.remap_node_ids(ROOT, &map, &[]), vec![orphan]);
+        assert!(m.stop(stopped));
+
+        assert_eq!(m.hand_over(&app), (HandedOver::Running, false));
+        assert!(matches!(
+            m.hand_over(&stopped),
+            (HandedOver::Stopping(_), false)
+        ));
+        assert!(
+            matches!(m.hand_over(&of_a_node), (HandedOver::Orphaned(_), true)),
+            "a worker of the closing window's node is orphaned now and must be told to stop"
+        );
+        assert!(matches!(
+            m.hand_over(&orphan),
+            (HandedOver::Orphaned(_), false)
+        ));
+        assert_eq!(m.orphan_count(), 0, "nothing stays behind");
+        assert!(m.stopping(&stopped).is_none());
+
+        let mut heir = ThreadOwnerManager::default();
+        heir.adopt(app, HandedOver::Running);
+        heir.adopt(stopped, HandedOver::Stopping(Orphaned::now()));
+        heir.adopt(of_a_node, HandedOver::Orphaned(Orphaned::now()));
+        assert_eq!(heir.owner(&app), None);
+        assert!(heir.orphaned(&app).is_none() && heir.stopping(&app).is_none());
+        assert!(heir.stopping(&stopped).is_some());
+        assert!(heir.orphaned(&of_a_node).is_some());
     }
 
     // --- Timers: the same rule as threads (THREADS8) ---------------------
