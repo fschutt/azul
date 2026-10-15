@@ -1798,10 +1798,16 @@ def many_small(ctx):
         took = time.time() - started
         data = len(bucket_keys(stack, drive, "data/"))
         logs = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        # A pass that finds nothing new: the folder scanned, nothing sent.
+        laptop.wait_passes("two quiet passes", 2, drive, timeout=600)
+        quiet = pass_durations(laptop, drive)[-2:]
         expect(peak[0] < 2048, "AzDrive used %.0f MB for %d small files" % (peak[0], count))
         expect(data <= count // 100, "%d objects in data/ for %d small files" % (data, count))
-        return "%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log entries" % (
-            count, took, peak[0], data, logs)
+        expect(all(d < 15 for d in quiet),
+               "a pass that finds nothing new over %d files takes %s s: with the 30 s poll "
+               "AzDrive is busy all the time" % (count, quiet))
+        return "%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log entries, quiet " \
+               "passes %s s" % (count, took, peak[0], data, logs, quiet)
     finally:
         laptop.stop()
         stack.stop()
