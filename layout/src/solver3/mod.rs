@@ -1402,6 +1402,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _ = (0xDD00_0005u32);
         }
 
+        // The layout roots below the tree root whose box came out another
+        // size: the boxes sized by their content around them follow.
+        let mut resized: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
@@ -1508,6 +1511,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
             // niche-Result-mis-discriminated) Err.
+            let size_before = new_tree
+                .get(LayoutNodeId::new(root_idx))
+                .and_then(|n| n.used_size);
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1532,6 +1538,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
+            if !is_tree_root {
+                let size_after = new_tree
+                    .get(LayoutNodeId::new(root_idx))
+                    .and_then(|n| n.used_size);
+                // A box built fresh has no size to compare with: it may
+                // have changed.
+                let changed = match (size_before, size_after) {
+                    (Some(was), Some(now)) => {
+                        (was.width - now.width).abs() > 0.01
+                            || (was.height - now.height).abs() > 0.01
+                    }
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+                if changed {
+                    resized.insert(root_idx);
+                }
+            }
 
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
@@ -1614,6 +1638,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // viewport-change. Nodes whose intrinsics genuinely changed are
             // already in the set from reconciliation; the root layout_root
             // above re-resolves every SIZE against the new inner width.
+            continue;
+        }
+
+        // A re-solved box that changed size changes the boxes sized by their
+        // content around it: lay them out again from the nearest ancestor of
+        // definite height (or the tree root), which re-stacks what follows
+        // them. A root whose parent's height is definite needs nothing more:
+        // its siblings were re-stacked above.
+        let regrow: std::collections::BTreeSet<usize> = resized
+            .iter()
+            .map(|&idx| cache::root_for_resized(&new_tree, idx))
+            .filter(|idx| !recon_result.layout_roots.contains(idx))
+            .collect();
+        if !regrow.is_empty() {
+            recon_result.layout_roots = cache::outermost_layout_roots(&regrow, |idx| {
+                new_tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+            });
             continue;
         }
 

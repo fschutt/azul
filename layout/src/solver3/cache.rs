@@ -1050,6 +1050,36 @@ pub(crate) fn outermost_layout_roots(
         .collect()
 }
 
+/// Where a layout root that came out another size must be laid out again
+/// from: up through its ancestors whose height follows their content (no
+/// definite `height`), to the child of the first one with a definite
+/// height, or to the tree root. `idx` itself when its parent's height is
+/// definite: re-stacking its siblings is then all that moves.
+#[must_use]
+pub(crate) fn root_for_resized(tree: &LayoutTree, idx: usize) -> usize {
+    use azul_css::props::layout::LayoutHeight;
+
+    let mut root = idx;
+    // A parent chain is at most as long as the tree; the bound keeps a
+    // corrupt (cyclic) chain from hanging the pass.
+    for _ in 0..tree.nodes.len() {
+        let Some(parent) = tree.get(LayoutNodeId::new(root)).and_then(|n| n.parent) else {
+            break;
+        };
+        let definite = tree
+            .warm(LayoutNodeId::new(parent))
+            .is_some_and(|w| match &w.computed_style.height {
+                Some(LayoutHeight::Px(v)) => v.to_percent().is_none(),
+                _ => false,
+            });
+        if definite {
+            break;
+        }
+        root = parent;
+    }
+    root
+}
+
 /// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
 /// of one root.
 pub(crate) fn lift_to_slot_container(
