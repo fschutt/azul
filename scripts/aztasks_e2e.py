@@ -21,7 +21,10 @@
        `aztasks/settings.json`; Escape closes it; flora + dark screenshot;
     7. restarts AzTasks on the same folder without `--sample` and `--view scheduled`: the
        spawned task is listed (`#task-<new>`), the completed one is in Completed (Cmd+6), and
-       the counts match the files.
+       the counts match the files;
+    8. types into the completed task's title (no Enter) and closes the window at once: the
+       close waits for the write (`AZTASKS_CLOSE_WAITS`), the app ends, and the title is in
+       the task's file.
 
 Usage (from the azul repository, after building libazul with the debug server and AzTasks;
 run it through scratchpad/run_capped.sh, one app at a time):
@@ -415,6 +418,24 @@ def run(args, logs, out, data_dir):
         app.frame(2)
         app.until("the completed task in Completed", lambda: app.has(app.sel("task-%s") % ferns))
         app.screenshot(os.path.join(out, "restart-completed.png"))
+
+        # An edit, the window closed at once: the words typed into the detail pane's title
+        # (no Enter, no blur) are written before the window goes.
+        app.click(app.sel("task-%s") % ferns)
+        app.until("the task's details", lambda: app.has(app.sel("detail-title")))
+        app.text_input(app.sel("detail-title"), " kept on close")
+        app.must("close")
+        # `until` gives up when the app ends, and here it must end.
+        deadline = time.time() + 30
+        while app.alive() and time.time() < deadline:
+            time.sleep(0.2)
+        if app.alive():
+            raise Failure("AzTasks did not close once its writes landed")
+        if not app.printed("AZTASKS_CLOSE_WAITS", r"\d+"):
+            raise Failure("the close did not wait for the title's write")
+        if "kept on close" not in read_task(data_dir, ferns_list, ferns).get("title", ""):
+            raise Failure("the title typed before the close is not in the task's file")
+        log("an edit made just before the close is in the task's file")
         log("PASS")
         return True
     except Failure as e:
