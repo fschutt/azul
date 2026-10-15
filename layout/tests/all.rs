@@ -1147,3 +1147,5 @@ mod a_background_image_is_sized_placed_and_repeated_as_css_says;
 mod a_span_is_one_box_around_all_of_its_text;
 #[path = "a_parent_grows_with_its_restyled_child.rs"]
 mod a_parent_grows_with_its_restyled_child;
+#[path = "a_tweened_block_margin_moves_its_box_on_the_retained_tree.rs"]
+mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
