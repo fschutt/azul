@@ -51,6 +51,36 @@ pub const STYLES: [(&str, &str); 6] = [
     ("azwriter-style-code", "font-size: 12px; font-family: monospace;"),
 ];
 
+/// The Font group's families: a key of the resources and the CSS family it sets (empty: the
+/// paper's own face).
+pub const FONT_FAMILIES: [(&str, &str); 4] = [
+    ("azwriter-font-default", ""),
+    ("azwriter-font-serif", "serif"),
+    ("azwriter-font-sans-serif", "sans-serif"),
+    ("azwriter-font-monospace", "monospace"),
+];
+
+/// The Font group's sizes in px, Word's list around the paper's 13 px.
+pub const FONT_SIZES: [f32; 15] =
+    [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 36.0, 48.0, 72.0];
+
+/// The paper's text size (the Normal style), shown while the caret's text has no size of its
+/// own.
+pub const DEFAULT_FONT_SIZE: f32 = 13.0;
+
+/// The family combo's entry for the caret's `family` (the default one for an unknown family).
+#[must_use]
+pub fn font_family_index(_family: &str) -> usize {
+    0
+}
+
+/// The size combo's entry for the caret's size `px` (0: the paper's): the nearest size of the
+/// list, the smaller of two as near.
+#[must_use]
+pub fn font_size_index(_px: f32) -> usize {
+    0
+}
+
 /// The block kind of gallery style `index` (`None` past the end).
 #[must_use]
 pub fn style_kind(index: usize) -> Option<RichBlockKind> {
@@ -365,6 +395,29 @@ mod tests {
         assert!(shown.iter().any(|t| t == "DATEI"), "{shown:?}");
         assert!(shown.iter().any(|t| t == "START"), "the tab beside it: {shown:?}");
         assert!(!shown.iter().any(|t| t == "FILE"), "{shown:?}");
+    }
+
+    /// Word 2010's HOME tab starts with the Clipboard group: Paste, Cut and Copy.
+    #[test]
+    fn the_home_tab_starts_with_the_clipboard_group() {
+        crate::l10n::in_english();
+        let st = AppState::new(RefAny::new(()), std::path::PathBuf::from("data"), false);
+        let shown = texts(&ribbon(&RefAny::new(()), &st));
+        for word in ["Clipboard", "Paste", "Cut", "Copy"] {
+            assert!(shown.iter().any(|t| t == word), "{word} is missing: {shown:?}");
+        }
+    }
+
+    #[test]
+    fn the_font_combos_show_the_carets_family_and_the_nearest_size() {
+        assert_eq!(font_family_index(""), 0, "the paper's face");
+        assert_eq!(FONT_FAMILIES[font_family_index("monospace")].1, "monospace");
+        assert_eq!(font_family_index("Comic Sans"), 0, "an unknown family shows the default");
+        assert_eq!(FONT_SIZES[font_size_index(0.0)], DEFAULT_FONT_SIZE, "no size of its own");
+        assert_eq!(FONT_SIZES[font_size_index(13.0)], 13.0);
+        assert_eq!(FONT_SIZES[font_size_index(15.0)], 14.0, "between 14 and 16: the smaller");
+        assert_eq!(FONT_SIZES[font_size_index(17.5)], 18.0);
+        assert_eq!(FONT_SIZES[font_size_index(500.0)], 72.0);
     }
 
     #[test]
