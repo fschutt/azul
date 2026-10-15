@@ -94,6 +94,7 @@ dependencies = [
  "azcloud-kit",
  "azul-appkit",
  "azul-dll",
+ "azul-fonts-calmet",
  "azul-pay",
  "azul-search",
  "azul-search-index",
@@ -1418,6 +1419,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-fonts-calmet"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "brotli-decompressor",
+]
+
+[[package]]
 name = "azul-icons-haiku"
 version = "0.1.0"
 dependencies = [
@@ -1436,6 +1445,7 @@ dependencies = [
  "allsorts-azul",
  "azul-core",
  "azul-css",
+ "azul-fonts-calmet",
  "base64 0.22.1",
  "brotli-decompressor",
  "chrono",
@@ -1577,6 +1587,7 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "azul-dll",
+ "base64 0.22.1",
  "blake3",
  "brotli",
  "chacha20poly1305",
@@ -1585,6 +1596,7 @@ dependencies = [
  "hkdf",
  "hmac 0.12.1",
  "http",
+ "md-5 0.11.0",
  "opendal",
  "roxmltree 0.21.1",
  "serde",
