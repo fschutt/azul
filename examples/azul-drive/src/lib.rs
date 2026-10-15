@@ -173,6 +173,8 @@ pub mod find;
 mod find_tests;
 #[cfg(test)]
 mod sync_tests;
+#[cfg(test)]
+mod chaos_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
