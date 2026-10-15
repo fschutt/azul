@@ -1135,13 +1135,19 @@ pub fn regenerate_layout(
         let unmatched: Vec<String> = pending
             .entered
             .iter()
-            .filter_map(|n| pending.new_node_data.get(n.index()).map(|nd| (n, nd)))
+            .filter_map(|n| {
+                styled_dom
+                    .node_data
+                    .as_container()
+                    .get(*n)
+                    .map(|nd| (n, nd))
+            })
             .map(|(n, nd)| format!("#{} {}", n.index(), describe(nd)))
             .collect();
         eprintln!(
             "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
             pending.old_node_data.len(),
-            pending.new_node_data.len(),
+            pending.new_node_count,
             pending.node_moves.len(),
             unmatched.len(),
             unmatched

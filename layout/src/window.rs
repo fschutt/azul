@@ -15774,9 +15774,8 @@ impl LayoutWindow {
         self.pending_css_dirty = Some((dom_id, restyled.clone()));
         self.reconciled_dom = Some(dom_id);
 
-        let new_node_data: Vec<azul_core::dom::NodeData> =
-            styled_dom.node_data.as_ref().to_vec();
-        let autofocus = first_entered_autofocus(&new_node_data, unmatched_new.iter().copied());
+        let autofocus =
+            first_entered_autofocus(styled_dom.node_data.as_ref(), unmatched_new.iter().copied());
         PendingReconciliation {
             autofocus,
             node_moves: diff.node_moves,
@@ -15785,8 +15784,7 @@ impl LayoutWindow {
             unmounted,
             first_rects,
             exit_rects,
-            new_node_data,
-            new_hierarchy,
+            new_node_count: styled_dom.node_data.len(),
             entered: unmatched_new.into_iter().collect(),
             events: diff.events,
             old_node_data,
@@ -15837,13 +15835,37 @@ impl LayoutWindow {
     /// which is a different mechanism from "sample a transform for a node that
     /// exists".
     pub fn finish_reconciliation(&mut self, dom_id: DomId, pending: &PendingReconciliation) {
+        // The new tree as it was laid out: the arena `begin_reconciliation`
+        // numbered. A tree of another size is not that arena (no layout ran for
+        // it), so nothing below may read node data by the pending's ids.
+        let laid_out: Option<(
+            &[azul_core::dom::NodeData],
+            &[azul_core::styled_dom::NodeHierarchyItem],
+        )> = self
+            .layout_results
+            .get(&dom_id)
+            .map(|r| {
+                (
+                    r.styled_dom.node_data.as_ref(),
+                    r.styled_dom.node_hierarchy.as_ref(),
+                )
+            })
+            .filter(|(nd, _)| nd.len() == pending.new_node_count);
+        let (new_node_data, new_hierarchy): (
+            &[azul_core::dom::NodeData],
+            &[azul_core::styled_dom::NodeHierarchyItem],
+        ) = match laid_out {
+            Some(tree) => tree,
+            None => (&[], &[]),
+        };
+
         // Rebuilt wholesale: after a rebuild the previous NodeIds are
         // meaningless, and a surviving stale entry would push this frame's
         // transform onto whatever unrelated node inherited the array slot.
         self.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
             &pending.node_moves,
-            &pending.new_node_data,
-            &pending.new_hierarchy,
+            new_node_data,
+            new_hierarchy,
         )
         .into_iter()
         .collect();
@@ -15865,8 +15887,8 @@ impl LayoutWindow {
                 };
                 let correspondences = azul_core::animation::correspondences_from_moves(
                     core::slice::from_ref(&m),
-                    &pending.new_node_data,
-                    &pending.new_hierarchy,
+                    new_node_data,
+                    new_hierarchy,
                     |old_id| pending.first_rects.get(&old_id).copied(),
                     |new_id| {
                         self.get_node_bounds(dom_id, new_id)
@@ -15884,7 +15906,7 @@ impl LayoutWindow {
         // matching in-flight zombie so a remount reverses instead of
         // double-painting.
         for node_id in &pending.mounted {
-            if node_id.index() >= pending.new_node_data.len() {
+            if node_id.index() >= new_node_data.len() {
                 continue;
             }
             // THE MID-FLIGHT CATCH: a mount whose reconciliation identity
@@ -15897,8 +15919,8 @@ impl LayoutWindow {
             // in-flight change the zombie animation from -out to -in".
             let mount_key =
                 azul_core::animation::AnimKey(azul_core::diff::calculate_reconciliation_key(
-                    &pending.new_node_data,
-                    &pending.new_hierarchy,
+                    new_node_data,
+                    new_hierarchy,
                     *node_id,
                 ));
             let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
@@ -31919,10 +31941,11 @@ pub struct PendingReconciliation {
     /// change (colour, shadow) must NOT invalidate geometry, and conflating the
     /// two would throw away the reuse this is meant to enable.
     pub restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
-    /// The new tree, needed by `finish` to compute reconciliation keys.
-    pub new_node_data: Vec<azul_core::dom::NodeData>,
-    /// The new hierarchy, same reason.
-    pub new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem>,
+    /// How many nodes the new tree has. `finish` reads the new tree's nodes from
+    /// the laid-out result instead of a copy of the arena (a copy cost a deep
+    /// clone and drop of every node per rebuild), and does no keyed work when the
+    /// laid-out tree is not the one reconciled here.
+    pub new_node_count: usize,
     /// EVERY node of the new tree with no counterpart in the old one: each
     /// node of a mounted subtree (not only its root, which is what
     /// [`Self::mounted`] holds), and on the first frame every node. What a
