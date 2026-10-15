@@ -44,9 +44,8 @@ pub fn hand_over_background_work<C: PlatformWindow, H: PlatformWindow>(
     let threads = from.take_threads_for_heir();
     let keyring_ops = core::mem::take(&mut from.keyring_manager.in_flight);
     to.keyring_manager.mark_requests_dispatched(keyring_ops);
-    let has_threads = to.adopt_handed_over_threads(threads);
-    if has_threads {
-        heir.start_thread_poll_timer();
+    if to.adopt_handed_over_threads(threads) {
+        heir.sync_thread_poll_timer();
     }
     if keyring_ops > 0 {
         heir.sync_capability_pump_timer();

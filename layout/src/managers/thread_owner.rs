@@ -217,6 +217,14 @@ impl ThreadOwnerManager {
         self.stopping.get(thread_id).copied()
     }
 
+    /// Whether a thread was told to stop and has not left yet (an orphan or a thread
+    /// the app stopped): the window polls until each has finished, because only the
+    /// poll notices when one runs out of its grace period.
+    #[must_use]
+    pub fn has_threads_winding_down(&self) -> bool {
+        !self.orphans.is_empty() || !self.stopping.is_empty()
+    }
+
     /// Takes `thread_id` out of this manager, because its window closes and hands it to
     /// a window that stays open ([`Self::adopt`] there). A worker of one of the window's
     /// nodes is orphaned now, since its node goes with the window; the `bool` says the

@@ -2494,7 +2494,7 @@ impl HeadlessWindow {
             lw.adopt_handed_over_threads(inherited)
         });
         if adopted {
-            PlatformWindow::start_thread_poll_timer(self);
+            PlatformWindow::sync_thread_poll_timer(self);
         }
         if inherited_keyring_ops > 0 {
             PlatformWindow::sync_capability_pump_timer(self);

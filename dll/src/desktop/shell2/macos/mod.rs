@@ -276,6 +276,59 @@ pub fn wake_all_windows() {
     }
 }
 
+/// A worker sent its window something, or ended (`azul_layout::thread::set_thread_wake`).
+/// It runs on the worker's thread, so it only queues [`poll_threads_on_main`] on the
+/// main queue. This replaces a 16 ms poll timer per window with live workers: an app
+/// with a permanent worker (AzMonitor's sampler) woke sixty times a second for it.
+extern "C" fn wake_main_for_threads() {
+    extern "C" {
+        static _dispatch_main_q: std::ffi::c_void;
+        fn dispatch_async_f(
+            queue: *const std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            work: extern "C" fn(*mut std::ffi::c_void),
+        );
+    }
+    // SAFETY: libdispatch's main queue lives for the whole process, and the work
+    // function takes no context.
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(_dispatch_main_q),
+            std::ptr::null_mut(),
+            poll_threads_on_main,
+        );
+    }
+}
+
+/// The main queue's half of [`wake_main_for_threads`]: every window with workers runs
+/// their write-backs now, as its poll timer's tick does.
+extern "C" fn poll_threads_on_main(_context: *mut std::ffi::c_void) {
+    use crate::desktop::shell2::common::event::PlatformWindow;
+
+    // Taken first: a worker that sends while the windows are polled wakes again.
+    let _ = azul_layout::thread::take_thread_wake();
+    for wptr in registry::get_all_window_ptrs() {
+        if wptr.is_null() {
+            continue;
+        }
+        // SAFETY: the registry holds live windows only, and this runs on the main
+        // thread from the run loop, outside every window method.
+        let window = unsafe { &mut *wptr };
+        let has_threads = window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| !lw.threads.is_empty());
+        if !has_threads {
+            continue;
+        }
+        if window.process_timers_and_threads() {
+            window.request_redraw();
+        }
+        window.request_frame_if_pending();
+    }
+}
+
 fn primary_screen_height() -> Option<f64> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
@@ -5652,6 +5705,10 @@ impl MacOSWindow {
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
+        // A worker wakes the main queue when it has something to say, so no window
+        // polls its workers every frame (`wake_main_for_threads`).
+        azul_layout::thread::set_thread_wake(Some(wake_main_for_threads));
+
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
         crate::desktop::shell2::common::resolve_initial_background_color(

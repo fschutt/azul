@@ -11997,6 +11997,22 @@ impl LayoutWindow {
         any
     }
 
+    /// Whether this window's threads need a poll every frame. A worker wakes the event
+    /// loop when it sends something or ends (`thread::set_thread_wake`), so the poll
+    /// is only needed where no shell installed that wake, for a worker that asked
+    /// for a `Tick` each frame (`Thread::with_frame_ticks`), and while a thread told
+    /// to stop has not left (the poll is what notices its grace period ran out).
+    /// AzMonitor's sampler used to keep its window waking sixty times a second.
+    #[must_use]
+    pub fn thread_poll_needed(&self) -> bool {
+        if self.threads.is_empty() {
+            return false;
+        }
+        !crate::thread::thread_wake_installed()
+            || self.thread_owners.has_threads_winding_down()
+            || self.threads.values().any(Thread::wants_frame_ticks)
+    }
+
     /// Get a reference to a thread
     pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
         self.threads.get(thread_id)
@@ -19953,8 +19969,10 @@ impl LayoutWindow {
                         break;
                     };
 
+                    // The frame pulse goes only to a worker that asked for it
+                    // (`Thread::with_frame_ticks`), never to one told to stop.
                     if !ticked {
-                        if stopping.is_none() {
+                        if stopping.is_none() && thread_inner.wants_frame_ticks {
                             let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
                         }
                         ticked = true;

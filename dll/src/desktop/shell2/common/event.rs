@@ -5210,6 +5210,21 @@ pub trait PlatformWindow {
     /// - **Wayland**: Close thread polling timerfd
     fn stop_thread_poll_timer(&mut self);
 
+    /// Run the thread poll timer exactly while this window's threads need a poll
+    /// each frame (`LayoutWindow::thread_poll_needed`): where the backend installed
+    /// a thread wake, a worker wakes the loop itself and the timer runs only for
+    /// workers that asked for frame ticks or are winding down.
+    fn sync_thread_poll_timer(&mut self) {
+        let needed = self
+            .get_layout_window()
+            .is_some_and(azul_layout::window::LayoutWindow::thread_poll_needed);
+        if needed {
+            self.start_thread_poll_timer();
+        } else {
+            self.stop_thread_poll_timer();
+        }
+    }
+
     /// Add threads to the thread pool.
     ///
     /// Threads are stored in `layout_window.threads` and polled periodically by
@@ -6717,18 +6732,10 @@ pub trait PlatformWindow {
                     self.request_regeneration_all_windows();
                     return ProcessEventResult::DoNothing;
                 }
-                let had_threads = self
-                    .get_layout_window()
-                    .map(|lw| !lw.threads.is_empty())
-                    .unwrap_or(false);
-
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.add_thread_owned_by(*thread_id, thread.clone(), *owner);
                 }
-
-                if !had_threads {
-                    self.start_thread_poll_timer();
-                }
+                self.sync_thread_poll_timer();
                 ProcessEventResult::DoNothing
             }
 
@@ -6739,6 +6746,8 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let _ = lw.stop_thread(thread_id);
                 }
+                // A thread winding down is polled until it leaves (its grace period).
+                self.sync_thread_poll_timer();
                 ProcessEventResult::DoNothing
             }
 
@@ -6748,15 +6757,7 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     drop(lw.remove_thread(thread_id));
                 }
-
-                let has_threads = self
-                    .get_layout_window()
-                    .map(|lw| !lw.threads.is_empty())
-                    .unwrap_or(false);
-
-                if !has_threads {
-                    self.stop_thread_poll_timer();
-                }
+                self.sync_thread_poll_timer();
                 ProcessEventResult::DoNothing
             }
 
