@@ -11571,3 +11571,29 @@ mod leather_ribbon_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod theme_font_tests {
+    use super::{font_caps_for, FONT_CAPS};
+    use azul_css::props::basic::font::StyleFontFamily;
+
+    fn names(v: &azul_css::props::basic::font::StyleFontFamilyVec) -> Vec<String> {
+        v.as_ref()
+            .iter()
+            .map(|f| match f {
+                StyleFontFamily::System(name) => name.as_str().to_string(),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_apps_theme_font_comes_first_and_floras_face_after_it() {
+        assert_eq!(
+            names(&font_caps_for(Some("\"Calmet UI\", \"EB Garamond\""))),
+            ["Calmet UI", "EB Garamond", "Georgia", "Times New Roman", "serif"]
+        );
+        assert_eq!(font_caps_for(None), FONT_CAPS, "without one, flora's own face");
+        assert_eq!(font_caps_for(Some("  ")), FONT_CAPS, "an empty choice is none");
+    }
+}
