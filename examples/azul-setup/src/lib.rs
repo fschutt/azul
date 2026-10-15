@@ -26,6 +26,9 @@
 //! `AZSETUP_SETTINGS <event>` from the settings window.
 
 pub mod model;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 
 use azul::{
     app::{GlobalHotkey, HotkeyModifiers},
