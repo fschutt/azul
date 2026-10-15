@@ -1139,3 +1139,5 @@ mod a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone;
 mod tab_buttons_and_leather_commands_answer_every_state;
 #[path = "a_pie_marker_paints_its_disc_and_wedge.rs"]
 mod a_pie_marker_paints_its_disc_and_wedge;
+#[path = "bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder.rs"]
+mod bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder;
