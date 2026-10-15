@@ -7,7 +7,7 @@ node layout, AzDrive's stdout markers and the files on disk:
      1. This PC: the drive tiles; the chrome - the ribbon (no title row: its tab strip is the
         title bar; at This PC the Computer and View tabs; the tab content closed at rest,
         Computer's drive commands once it shows), the window title (the path), the address row
-        (round Back / Forward, Recent, Up, the breadcrumb box with its location icon, crumbs and
+        (round Back / Forward, Up, the breadcrumb box with its location icon, crumbs and
         chevrons, Refresh); Finder's body - the source list's FAVORITES (Quick access, the
         sample's Documents / Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add
         drive..."), This PC's row selected; the content filling its pane; no status bar (no
@@ -670,9 +670,13 @@ def run(args, logs):
             raise Failure("a title row shows over the ribbon (its tabs are the title bar)")
         app.until("the window title is the path",
                   lambda: app.printed("AZDRIVE_TITLE", re.escape("This PC - AzDrive")))
-        # The address row: Back, Forward, Recent, Up; the breadcrumb box with its icon, the crumb
-        # This PC and its chevron; Refresh between the box and the search box.
-        app.until("the address row's arrows", lambda: len(app.nodes_with_class(BAR_NAV)) >= 4)
+        # The address row: Back, Forward, Up (the design has no Recent locations button); the
+        # breadcrumb box with its icon, the crumb This PC and its chevron; Refresh between the
+        # box and the search box.
+        app.until("the address row's arrows", lambda: len(app.nodes_with_class(BAR_NAV)) >= 3)
+        if len(app.nodes_with_class(BAR_NAV)) != 3:
+            raise Failure("the address row has %d arrows, not Back, Forward and Up"
+                          % len(app.nodes_with_class(BAR_NAV)))
         app.until("the breadcrumb box", lambda: app.nodes_with_class(BAR_BOX))
         app.until("the location icon", lambda: app.nodes_with_class(BAR_ICON))
         app.until("the This PC crumb", lambda: "This PC" in bar_texts(app, BAR_CRUMB))

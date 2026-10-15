@@ -27,7 +27,8 @@ use crate::{
 
 // ==== The address bar ====
 
-/// Explorer's address row (azul's AddressBar): round Back and Forward, Recent locations, Up, the
+/// Explorer's address row (azul's AddressBar): round Back and Forward, Up (the design has no
+/// Recent locations button: Back and Forward keep the way), the
 /// breadcrumb box - the place's icon, a crumb per step with a chevron that drops its folders,
 /// the first steps folded into « when the path is long, a click on the empty part for the typed
 /// path, Refresh at its end - and "Search <folder>". `width` is the window's (the bar folds its
@@ -57,7 +58,7 @@ pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
             place_up(&s.place).is_some(),
         )
         .with_editing(s.editing_path)
-        .with_recent(true)
+        .with_recent(false)
         .with_on_event(app.clone(), on_address as AddressBarOnEventCallbackType)
         .dom()
 }

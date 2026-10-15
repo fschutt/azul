@@ -5,7 +5,7 @@
 //! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
 //! strip is the window's title bar - its tabs are buttons on the leather whose content opens
 //! while a tab is hovered and locks on a double click, and its right end holds the location
-//! tabs' button -, over the address row (round Back / Forward, Recent locations, Up, the
+//! tabs' button -, over the address row (round Back / Forward, Up, the
 //! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
 //! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
 //! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
