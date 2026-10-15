@@ -29,7 +29,8 @@
 //! toggles, Shift extends from the anchor); a press on an item that is
 //! already selected keeps the selection until the release, so the whole
 //! selection can be dragged out; a press on empty space starts a rubber
-//! band that selects the items it crosses (Ctrl adds them); a double-click
+//! band that selects the items it crosses (Ctrl adds them) and, dragged
+//! past the top or bottom edge, scrolls the rows under it; a double-click
 //! activates; a right click reports a context menu (selecting the item
 //! first). DRAG OUT goes through the engine's drag and drop: every item is
 //! draggable; `DragStart` puts the dragged items' indices on the drag
@@ -41,9 +42,14 @@
 //! item or one row (Shift extends, Ctrl / Cmd moves the focus alone),
 //! Page Up / Down by a screen, Home / End to the ends, Ctrl+A selects all,
 //! Ctrl+Space toggles the focused item, Enter activates, the Menu key or
-//! Shift+F10 reports a context menu, Escape clears the selection, a letter
+//! Shift+F10 reports a context menu, F2 edits the focused item's name in
+//! place (Enter or leaving the field reports it, Escape gives it up),
+//! Escape clears the selection, a letter
 //! or digit selects the next item whose label starts with it (type-ahead,
 //! around the end; the data callback is asked until one matches).
+//!
+//! A name wraps to two lines and ends in an ellipsis where it goes on. The
+//! focused item's ring shows only while the grid has the focus.
 //!
 //! ACCESSIBILITY: the grid is a `List` that is `Multiselectable`, its value
 //! says how many items are selected; every item shown is a `ListItem` named
@@ -461,8 +467,28 @@ impl IconGridEvent {
 /// The event that ends an edit in place with the name `text`: `Renamed`
 /// with the new name, or `None` when nothing is being renamed.
 pub(crate) fn rename_commit(g: &IconGrid, text: &str) -> Option<IconGridEvent> {
-    let _ = (g, text);
-    None
+    let index = g.view.renaming.into_option()?;
+    Some(renamed_event(g, index, text))
+}
+
+/// `Renamed` for item `index` with the name `text`; the edit ends.
+fn renamed_event(g: &IconGrid, index: usize, text: &str) -> IconGridEvent {
+    let mut next = g.view.clone();
+    next.renaming = OptionUsize::None;
+    next.drag = IconGridDrag::default();
+    let mut e = IconGridEvent::create(IconGridEventKind::Renamed, next);
+    e.index = OptionUsize::Some(index);
+    e.text = AzString::from(text);
+    e
+}
+
+/// `Rename` for item `index` with the edit given up.
+fn rename_cancelled(g: &IconGrid, index: usize) -> IconGridEvent {
+    let mut next = g.view.clone();
+    next.renaming = OptionUsize::None;
+    let mut e = IconGridEvent::create(IconGridEventKind::Rename, next);
+    e.index = OptionUsize::Some(index);
+    e
 }
 
 /// Callback invoked for an action in the grid.
@@ -846,11 +872,13 @@ pub(crate) fn item_rect(geo: &Geometry, index: usize) -> Option<(f32, f32, f32, 
 }
 
 /// The items whose cells the rectangle from (`x0`, `y0`) to (`x1`, `y1`)
-/// (px in the grid, either way round) crosses, ascending.
-pub(crate) fn marquee_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<u64> {
+/// crosses, where the y are px from the FIRST row (not from the view's top),
+/// ascending: a rubber band whose anchor scrolled out of view.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn band_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<u64> {
     let (left, right) = (x0.min(x1).max(0.0), x0.max(x1));
     let (top, bottom) = (y0.min(y1).max(0.0), y0.max(y1));
-    if geo.columns == 0 || right < 0.0 || bottom < 0.0 {
+    if geo.columns == 0 || geo.rows == 0 || right < 0.0 || bottom < 0.0 {
         return Vec::new();
     }
     let first_column = steps(left, geo.cell_width, false);
@@ -858,8 +886,8 @@ pub(crate) fn marquee_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -
         return Vec::new();
     }
     let last_column = steps(right, geo.cell_width, false).min(geo.columns - 1);
-    let first_row = geo.top + steps(top, geo.cell_height, false);
-    let last_row = geo.top + steps(bottom, geo.cell_height, false);
+    let first_row = steps(top, geo.cell_height, false);
+    let last_row = steps(bottom, geo.cell_height, false).min(geo.rows - 1);
     let mut keys = Vec::new();
     for row in first_row..=last_row {
         for column in first_column..=last_column {
@@ -946,6 +974,8 @@ pub(crate) fn press(
                 start_y: y,
                 x,
                 y,
+                // The row the band is anchored to, should the grid scroll.
+                start_top: geo.top as f32,
                 kind: IconGridDragKind::Marquee,
                 ..IconGridDrag::default()
             };
@@ -983,9 +1013,27 @@ pub(crate) fn drag_move(g: &IconGrid, geo: &Geometry, x: f32, y: f32, window_y: 
         IconGridDragKind::None | IconGridDragKind::Pending => None,
         IconGridDragKind::Marquee => {
             let d = &view.drag;
-            let mut keys = d.base.as_slice().to_vec();
-            keys.extend(marquee_keys(geo, d.start_x, d.start_y, x, y));
+            // Past the top or the bottom edge the rows scroll under the band:
+            // a row for every cell height (or part of one) the pointer is
+            // beyond the edge.
+            let rows = if y < 0.0 {
+                -((-y / geo.cell_height).ceil().max(1.0) as i64)
+            } else if y > geo.height {
+                ((y - geo.height) / geo.cell_height).ceil().max(1.0) as i64
+            } else {
+                0
+            };
             let mut next = view.clone();
+            if rows != 0 {
+                next.top_row = scroll_by(g, geo, rows).top_row;
+            }
+            let top = next.top_row.min(geo.max_top) as f32;
+            // The band from the first row down: its anchor where it was
+            // pressed, its end under the pointer.
+            let anchor_y = d.start_y + d.start_top * geo.cell_height;
+            let end_y = y + top * geo.cell_height;
+            let mut keys = d.base.as_slice().to_vec();
+            keys.extend(band_keys(geo, d.start_x, anchor_y, x, end_y));
             next.drag.x = x;
             next.drag.y = y;
             next.selection.select_keys(U64Vec::from_vec(keys));
@@ -1110,6 +1158,12 @@ pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift:
             on_focus(IconGridEventKind::Select, next)
         }
         K::Return | K::NumpadEnter => on_focus(IconGridEventKind::Activate, next),
+        K::F2 if !shift && !ctrl => {
+            let index = usize::try_from(focus?).ok()?;
+            next.renaming = OptionUsize::Some(index);
+            reveal(&mut next, geo, index);
+            on_focus(IconGridEventKind::Rename, next)
+        }
         K::Apps => on_focus(IconGridEventKind::ContextMenu, next),
         K::F10 if shift => on_focus(IconGridEventKind::ContextMenu, next),
         K::Escape if !view.selection.is_empty() => {
@@ -1278,9 +1332,34 @@ fn thumb_base(size: f32) -> Vec<CssPropertyWithConditions> {
     ]
 }
 
-/// An item's name: as [`label_base`] for now.
+/// An item's name: the cell's width, centred, wrapping to two lines at
+/// most, the second ending in an ellipsis where the name goes on; a word
+/// too long for a line breaks.
 fn name_base() -> Vec<CssPropertyWithConditions> {
-    label_base()
+    use azul_css::props::style::{StyleLineClamp, StyleOverflowWrap};
+
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::simple(CssProperty::const_width(azul_css::props::layout::LayoutWidth::Px(
+            azul_css::props::basic::pixel::PixelValue::const_percent(100)
+        ))),
+        decl::simple(CssProperty::const_text_align(azul_css::props::style::StyleTextAlign::Center)),
+        decl::simple(CssProperty::from(StyleLineClamp { max_lines: 2 })),
+        decl::simple(CssProperty::from(StyleOverflowWrap::Anywhere)),
+        decl::overflow_x_hidden(),
+        decl::overflow_y_hidden(),
+    ]
+}
+
+/// The name field's box: the cell's width.
+fn rename_base() -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::simple(CssProperty::const_width(azul_css::props::layout::LayoutWidth::Px(
+            azul_css::props::basic::pixel::PixelValue::const_percent(100)
+        ))),
+        decl::display_flex(),
+    ]
 }
 
 /// The label: the cell's width, centred, on one line, clipped.
@@ -1395,9 +1474,13 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
             None => thumb.with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_base(icon_px))),
         };
         let thumb = thumb.with_children(DomVec::from_vec(in_thumb));
-        let label = crate::widgets::widget_p_with_text(item.label.clone())
-            .with_class(AzString::from_const_str(LABEL_CLASS))
-            .with_css_props(part(&label_base(), &look.label));
+        let label = if view.renaming.into_option() == Some(index) {
+            rename_field(&shared, index, item.label.clone(), grid.theme)
+        } else {
+            crate::widgets::widget_p_with_text(item.label.clone())
+                .with_class(AzString::from_const_str(LABEL_CLASS))
+                .with_css_props(part(&name_base(), &look.label))
+        };
         // The extra lines under the label, in order.
         let mut parts = alloc::vec![thumb, label];
         for line in item.lines.as_ref() {
@@ -1415,7 +1498,8 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
             classes.push(Class(AzString::from_const_str(ITEM_SELECTED_CLASS)));
         }
         if is_focused {
-            style = stacked(style, &look.item_focused);
+            // Its ring is the grid's rule (`focus_ring_sheet`): it shows
+            // only while the grid has the focus.
             classes.push(Class(AzString::from_const_str(ITEM_FOCUSED_CLASS)));
         }
         let name = if item.name.as_str().is_empty() {
@@ -1461,8 +1545,11 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
     // The rubber band, while one is drawn.
     let drag = &view.drag;
     if drag.kind == IconGridDragKind::Marquee {
-        let (left, top) = (drag.start_x.min(drag.x).max(0.0), drag.start_y.min(drag.y).max(0.0));
-        let (right, bottom) = (drag.start_x.max(drag.x), drag.start_y.max(drag.y));
+        // The anchor moves with its row when the grid scrolled under the
+        // band; the band stays inside the grid.
+        let anchor_y = drag.start_y + (drag.start_top - geo.top as f32) * geo.cell_height;
+        let (left, top) = (drag.start_x.min(drag.x).max(0.0), anchor_y.min(drag.y).max(0.0));
+        let (right, bottom) = (drag.start_x.max(drag.x), anchor_y.max(drag.y).min(geo.height));
         children.push(
             Dom::create_div()
                 .with_class(AzString::from_const_str(MARQUEE_CLASS))
@@ -1505,7 +1592,159 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
             ..Default::default()
         })
         .with_callbacks(grid_callbacks(&shared).into())
+        .with_component_css(focus_ring_sheet(&look.item_focused))
         .with_children(DomVec::from_vec(children))
+}
+
+/// The focused item's ring as the grid's own rules: `.grid:focus
+/// .item-focused { <ring> }`, one rule per declaration of the theme's ring
+/// (its conditions kept: the dark twin, the theme block). Above the items'
+/// inline style, so the ring wins over the item's resting border while the
+/// grid has the focus, and is not there at all without it.
+fn focus_ring_sheet(ring: &[CssPropertyWithConditions]) -> azul_css::css::Css {
+    use azul_css::css::{
+        rule_priority, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector,
+        CssRuleBlock,
+    };
+    let path = || CssPath {
+        selectors: alloc::vec![
+            CssPathSelector::Class(AzString::from_const_str(GRID_CLASS)),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
+            CssPathSelector::Children,
+            CssPathSelector::Class(AzString::from_const_str(ITEM_FOCUSED_CLASS)),
+        ]
+        .into(),
+    };
+    Css {
+        rules: ring
+            .iter()
+            .map(|decl| CssRuleBlock {
+                path: path(),
+                declarations: alloc::vec![CssDeclaration::Static(decl.property.clone())].into(),
+                conditions: decl.apply_if.clone(),
+                priority: rule_priority::WIDGETS,
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        ..Css::default()
+    }
+}
+
+/// What the name field of the item being renamed carries.
+struct RenameData {
+    /// The grid's shared part (its latest view and the app's hook).
+    shared: RefAny,
+    /// The item renamed.
+    index: usize,
+    /// The edit was reported (Enter, Escape): the focus leaving the field
+    /// afterwards reports nothing more.
+    done: bool,
+}
+
+/// The field an item's name is edited in, in its label's place: the name
+/// as its text, focused when it appears (`AfterMount`).
+fn rename_field(shared: &RefAny, index: usize, name: AzString, theme: OptionUiTheme) -> Dom {
+    use azul_core::{callbacks::CoreCallback, dom::ComponentEventFilter, refany::OptionRefAny};
+
+    use crate::widgets::text_input::{
+        TextInput, TextInputOnFocusLostCallbackType, TextInputOnVirtualKeyDownCallbackType,
+    };
+
+    let data = RefAny::new(RenameData {
+        shared: shared.clone(),
+        index,
+        done: false,
+    });
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_rename_key;
+    let on_blur: TextInputOnFocusLostCallbackType = on_rename_focus_lost;
+    let mut input = TextInput::create()
+        .with_text(name)
+        .with_accessibility_name(AzString::from_const_str("Name"))
+        .with_on_virtual_key_down(data.clone(), on_key)
+        .with_on_focus_lost(data, on_blur);
+    if let Some(theme) = theme.into_option() {
+        input = input.with_theme(theme);
+    }
+    Dom::create_div()
+        .with_class(AzString::from_const_str(RENAME_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(rename_base()))
+        .with_callbacks(
+            alloc::vec![CoreCallbackData {
+                event: EventFilter::Component(ComponentEventFilter::AfterMount),
+                callback: CoreCallback {
+                    cb: on_rename_mounted as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: shared.clone(),
+            }]
+            .into(),
+        )
+        .with_child(input.dom())
+}
+
+/// The name field appeared: it takes the focus (the caret in the name).
+extern "C" fn on_rename_mounted(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let node = info.get_hit_node();
+    info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
+    Update::DoNothing
+}
+
+/// Reports the end of an edit once: the event `make` builds from the
+/// grid's latest state and the item renamed.
+fn end_rename(
+    data: &mut RefAny,
+    info: CallbackInfo,
+    make: impl FnOnce(&IconGrid, usize) -> IconGridEvent,
+) -> Update {
+    let claimed = match data.downcast_mut::<RenameData>() {
+        Some(mut r) if !r.done => {
+            r.done = true;
+            Some((r.shared.clone(), r.index))
+        }
+        _ => None,
+    };
+    let Some((mut shared, index)) = claimed else {
+        return Update::DoNothing;
+    };
+    let Some((g, _)) = shared_of(&mut shared) else {
+        return Update::DoNothing;
+    };
+    let event = make(&g, index);
+    deliver(&mut shared, &g, info, event)
+}
+
+/// Enter takes the name, Escape gives the edit up; every other key is the
+/// field's own.
+extern "C" fn on_rename_key(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::text_input::TextInputState,
+) -> crate::widgets::text_input::OnTextInputReturn {
+    use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let update = match key {
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+            let text = state.get_text();
+            end_rename(&mut data, info, |g, index| renamed_event(g, index, text.as_str()))
+        }
+        Some(VirtualKeyCode::Escape) => end_rename(&mut data, info, rename_cancelled),
+        _ => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// The field lost the focus (a click elsewhere, Tab): the name is taken,
+/// as Explorer takes it.
+extern "C" fn on_rename_focus_lost(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::text_input::TextInputState,
+) -> Update {
+    let text = state.get_text();
+    end_rename(&mut data, info, |g, index| renamed_event(g, index, text.as_str()))
 }
 
 // ==== The callbacks: one set on the grid node, the grid hit-tests itself ====
@@ -1558,7 +1797,9 @@ extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = ks.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
-    if ks.alt_down() {
+    // While a name is edited the keys are the field's (they reach the grid
+    // on their way up).
+    if ks.alt_down() || g.view.renaming.is_some() {
         return Update::DoNothing;
     }
     let Some(event) = grid_key(&g, &geo, key, ks.shift_down(), ks.primary_down()) else {
@@ -1867,8 +2108,8 @@ mod icon_grid_tests {
     fn a_rubber_band_selects_the_cells_it_crosses() {
         let (asked, log) = fresh();
         let geo = geometry(&grid(&asked, &log));
-        assert_eq!(marquee_keys(&geo, 150.0, 120.0, 10.0, 10.0), vec![0, 1, 4, 5]);
-        assert_eq!(marquee_keys(&geo, 386.0, 10.0, 387.0, 20.0), Vec::<u64>::new(), "past the columns");
+        assert_eq!(band_keys(&geo, 150.0, 120.0, 10.0, 10.0), vec![0, 1, 4, 5]);
+        assert_eq!(band_keys(&geo, 386.0, 10.0, 387.0, 20.0), Vec::<u64>::new(), "past the columns");
     }
 
     // ---- the rubber band past an edge, renaming, names, the focus ring ----
@@ -2196,7 +2437,7 @@ mod icon_grid_tests {
                 &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(48)))],
                 &look.icon,
             ));
-            let label = Dom::create_div().with_css_props(part(&label_base(), &look.label));
+            let label = Dom::create_div().with_css_props(part(&name_base(), &look.label));
             let items: Vec<&Dom> =
                 dom.children.as_ref().iter().filter(|c| theme_checks::has_class(c, ITEM_CLASS)).collect();
             assert!(!items.is_empty());
