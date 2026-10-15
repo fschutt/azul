@@ -13149,6 +13149,10 @@ mod tests {
     // write-back still runs (`tests/thread_stop.rs`).
     mod thread_stop;
 
+    // A node with `autofocus` takes the focus when it mounts, also when its window opens
+    // (`tests/autofocus.rs`).
+    mod autofocus;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
