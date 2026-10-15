@@ -115,6 +115,7 @@ pub fn measure_dom(doc: &RichTextDoc) -> Dom {
     let editor = RichTextEditor::create(RichTextEditorState::create(doc.clone()))
         .with_read_only(true)
         .with_font_size(FONT_PX)
+        .with_body_points(crate::ribbon::DEFAULT_FONT_SIZE)
         .with_paragraph_spacing(SPACING_PX);
     let pages = editor.page_doms(vec![0u32], 0, 1);
     pages

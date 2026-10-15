@@ -81,6 +81,8 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         .with_id(ids::DOC_HOST)
         .with_accessibility_name(s("azwriter-document"))
         .with_font_size((paginate::FONT_PX * zoom).round())
+        // The body is 11 pt (FONT_PX at 100 %): a run's own size in points scales with it.
+        .with_body_points(crate::ribbon::DEFAULT_FONT_SIZE)
         .with_paragraph_spacing((paginate::SPACING_PX * zoom).round())
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType);
     let mut canvas = Dom::create_div().with_id(ids::CANVAS).with_css(

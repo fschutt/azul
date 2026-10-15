@@ -10,6 +10,7 @@ use azul::{
         RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
     },
     dom::Dom,
+    option::OptionString,
     str::String as AzString,
     widgets::{
         DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize, RichTextCommand,
@@ -60,13 +61,15 @@ pub const FONT_FAMILIES: [(&str, &str); 4] = [
     ("azwriter-font-monospace", "monospace"),
 ];
 
-/// The Font group's sizes in px, Word's list around the paper's 13 px.
-pub const FONT_SIZES: [f32; 15] =
-    [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 36.0, 48.0, 72.0];
+/// The Font group's sizes in points, Word's list.
+pub const FONT_SIZES: [f32; 17] = [
+    8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0,
+    72.0,
+];
 
-/// The paper's text size (the Normal style), shown while the caret's text has no size of its
-/// own.
-pub const DEFAULT_FONT_SIZE: f32 = 13.0;
+/// The paper's text size in points (the Normal style, the editors' body size), shown while the
+/// caret's text has no size of its own.
+pub const DEFAULT_FONT_SIZE: f32 = 11.0;
 
 /// The family combo's entry for the caret's `family` (the default one for an unknown family).
 #[must_use]
@@ -78,11 +81,11 @@ pub fn font_family_index(family: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// The size combo's entry for the caret's size `px` (0: the paper's): the nearest size of the
-/// list, the smaller of two as near.
+/// The size combo's entry for the caret's size in `points` (0: the paper's): the nearest size
+/// of the list, the smaller of two as near.
 #[must_use]
-pub fn font_size_index(px: f32) -> usize {
-    let px = if px > 0.0 { px } else { DEFAULT_FONT_SIZE };
+pub fn font_size_index(points: f32) -> usize {
+    let px = if points > 0.0 { points } else { DEFAULT_FONT_SIZE };
     let mut best = 0;
     for (i, size) in FONT_SIZES.iter().enumerate() {
         if (size - px).abs() < (FONT_SIZES[best] - px).abs() {
@@ -179,7 +182,12 @@ extern "C" fn on_font_family(mut data: RefAny, mut info: CallbackInfo, index: us
     let Some((_, css)) = FONT_FAMILIES.get(index) else {
         return Update::DoNothing;
     };
-    let cmd = RichTextCommand::SetFontFamily(AzString::from(*css));
+    let family = if css.is_empty() {
+        OptionString::None
+    } else {
+        OptionString::Some(AzString::from(*css))
+    };
+    let cmd = RichTextCommand::SetFontFamily(family);
     crate::commands::run(&mut app, Command::Rich(cmd), &mut info)
 }
 
@@ -188,10 +196,12 @@ extern "C" fn on_font_size(mut data: RefAny, mut info: CallbackInfo, index: usiz
     let Some(mut app) = data.downcast_ref::<GalleryRef>().map(|g| g.app.clone()) else {
         return Update::DoNothing;
     };
-    let Some(px) = FONT_SIZES.get(index).copied() else {
+    let Some(points) = FONT_SIZES.get(index).copied() else {
         return Update::DoNothing;
     };
-    crate::commands::run(&mut app, Command::Rich(RichTextCommand::SetFontSize(px)), &mut info)
+    // The editor keeps sizes in half points (22 is 11 pt), as word processors do.
+    let half_points = (points * 2.0).round() as u16;
+    crate::commands::run(&mut app, Command::Rich(RichTextCommand::SetFontSize(half_points)), &mut info)
 }
 
 extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
@@ -219,7 +229,10 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
     // The family and size combos show the caret's; a pick sets the selection's.
     let family_labels: Vec<&str> = FONT_FAMILIES.iter().map(|(name, _)| *name).collect();
     let families = DropDown::create(azul_appkit::l10n::labels(&family_labels))
-        .with_selected(editor.map_or(0, |e| font_family_index(e.current_font_family().as_str())))
+        .with_selected(editor.map_or(0, |e| match e.current_font().family {
+            OptionString::Some(family) => font_family_index(family.as_str()),
+            OptionString::None => 0,
+        }))
         .with_accessibility_name(s("azwriter-font-family"))
         .with_on_choice_change(
             RefAny::new(GalleryRef { app: app.clone() }),
@@ -228,7 +241,9 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
     let size_labels: Vec<String> = FONT_SIZES.iter().map(|px| format!("{px}")).collect();
     let size_refs: Vec<&str> = size_labels.iter().map(String::as_str).collect();
     let sizes = DropDown::create(azul_appkit::l10n::labels(&size_refs))
-        .with_selected(font_size_index(editor.map_or(0.0, |e| e.current_font_size())))
+        .with_selected(font_size_index(
+            editor.map_or(0.0, |e| f32::from(e.current_font().half_points) / 2.0),
+        ))
         .with_accessibility_name(s("azwriter-font-size"))
         .with_on_choice_change(
             RefAny::new(GalleryRef { app: app.clone() }),
@@ -484,7 +499,7 @@ mod tests {
         assert_eq!(FONT_FAMILIES[font_family_index("monospace")].1, "monospace");
         assert_eq!(font_family_index("Comic Sans"), 0, "an unknown family shows the default");
         assert_eq!(FONT_SIZES[font_size_index(0.0)], DEFAULT_FONT_SIZE, "no size of its own");
-        assert_eq!(FONT_SIZES[font_size_index(13.0)], 13.0);
+        assert_eq!(FONT_SIZES[font_size_index(10.5)], 10.5);
         assert_eq!(FONT_SIZES[font_size_index(15.0)], 14.0, "between 14 and 16: the smaller");
         assert_eq!(FONT_SIZES[font_size_index(17.5)], 18.0);
         assert_eq!(FONT_SIZES[font_size_index(500.0)], 72.0);
