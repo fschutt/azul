@@ -71,8 +71,8 @@ const BANNER: &str = "position: absolute; left: 50%; top: 48px; width: 460px; ma
                       padding: 12px 16px; border-radius: 12px; background: #0b6e4f; color: #ffffff; \
                       box-shadow: 0px 2px 10px rgba(0,0,0,0.35);";
 const BANNER_NIGHT: &str = "background: #1d2226; color: #e8eaed;";
-const BANNER_ICON: &str = "font-family: 'Material Icons'; font-size: 44px;";
-const BANNER_ICON_CAR: &str = "font-family: 'Material Icons'; font-size: 64px;";
+const BANNER_ICON: &str = "font-size: 44px;";
+const BANNER_ICON_CAR: &str = "font-size: 64px;";
 const BANNER_DISTANCE: &str = "font-size: 26px; font-weight: bold;";
 const BANNER_DISTANCE_CAR: &str = "font-size: 38px; font-weight: bold;";
 const BANNER_TEXT: &str = "font-size: 15px; white-space: normal;";
@@ -693,7 +693,9 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
         .with_child(
             Dom::create_div()
                 .with_css(if car { BANNER_ICON_CAR } else { BANNER_ICON })
-                .with_child(Dom::create_span_with_text(icon)),
+                // The maneuver as the icon set's glyph: a span in an icon font family shows
+                // the icon's name as text ("turn_right").
+                .with_child(Dom::create_icon(icon)),
         )
         .with_child(words);
 
