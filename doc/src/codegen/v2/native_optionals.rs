@@ -452,7 +452,7 @@ fn python_takes_and_gives_none_raises_errors_and_downcasts_the_resume_result() {
             "fn parse(s: String) -> PyResult<AzUrl> {",
             "pub struct PyOpaqueRefAny {",
             "None => Py::new(py, PyOpaqueRefAny { refany }).ok().map(|o| o.into_any()),",
-            "extract::<PyRef<'_, PyOpaqueRefAny>>()",
+            "extract::<pyo3::PyRef<'_, PyOpaqueRefAny>>()",
         ],
     );
 }
