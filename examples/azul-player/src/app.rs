@@ -436,8 +436,27 @@ pub fn wall_clock() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let local = secs.saturating_add_signed(local_offset_s());
+    clock_text(secs, local_offset_s())
+}
+
+/// The time of day `utc_secs` (seconds since 1970, UTC) shows at `offset_s` from UTC.
+#[must_use]
+pub fn clock_text(utc_secs: u64, offset_s: i64) -> String {
+    let local = utc_secs.saturating_add_signed(offset_s);
     format!("{}:{:02}", (local / 3600) % 24, (local / 60) % 60)
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::clock_text;
+
+    /// West of Greenwich an hour after midnight UTC is still the evening before.
+    #[test]
+    fn a_negative_offset_turns_the_clock_back_across_midnight() {
+        assert_eq!(clock_text(3600, -2 * 3600), "23:00");
+        assert_eq!(clock_text(86_400 + 45 * 60, 3600), "1:45");
+        assert_eq!(clock_text(0, 5 * 3600 + 30 * 60), "5:30", "India is half an hour off");
+    }
 }
 
 /// The local time's offset from UTC in seconds, read once from the system (`date +%z`; 0 when
