@@ -79,10 +79,15 @@ fn entries_of(objects: &Objects, root: &ObjectId) -> Result<Vec<CachedEntry>, Me
                 modified: None,
             },
             Mode::File => {
-                let pointer = pointer::decode(objects.blob(&id)?).map_err(|reason| {
-                    MetaError::Corrupt {
-                        key: path.clone(),
-                        reason,
+                let blob = objects.blob(&id)?;
+                let pointer = pointer::decode(blob).map_err(|reason| {
+                    if pointer::newer_format(blob).is_some() {
+                        MetaError::Unsupported(format!("\"{path}\": {reason}"))
+                    } else {
+                        MetaError::Corrupt {
+                            key: path.clone(),
+                            reason,
+                        }
                     }
                 })?;
                 CachedEntry {

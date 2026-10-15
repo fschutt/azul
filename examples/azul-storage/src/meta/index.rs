@@ -72,6 +72,7 @@ pub(super) fn to_drive(e: MetaError) -> DriveError {
         MetaError::Conflict { key } => DriveError::Conflict { key },
         MetaError::Drive(e) => e,
         MetaError::Corrupt { key, reason } => DriveError::Corrupt { key, reason },
+        MetaError::Unsupported(why) => DriveError::Unsupported(why),
         MetaError::Sealed { key, reason } => DriveError::Corrupt {
             key,
             reason: format!("it does not open with this drive's key: {reason}"),
@@ -93,12 +94,16 @@ fn entry_of(
     match entry_at(&local.objects, root, path)? {
         Some(entry) if entry.mode == Mode::File => {
             let blob = local.objects.blob(&entry.id)?;
-            pointer::decode(blob)
-                .map(Some)
-                .map_err(|reason| MetaError::Corrupt {
-                    key: path.to_string(),
-                    reason,
-                })
+            pointer::decode(blob).map(Some).map_err(|reason| {
+                if pointer::newer_format(blob).is_some() {
+                    MetaError::Unsupported(format!("\"{path}\": {reason}"))
+                } else {
+                    MetaError::Corrupt {
+                        key: path.to_string(),
+                        reason,
+                    }
+                }
+            })
         }
         _ => Ok(None),
     }
@@ -411,9 +416,13 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
                         if key.starts_with(prefix) {
                             let blob = repo.objects().blob(&entry.id).map_err(to_drive)?;
                             let pointer = pointer::decode(blob).map_err(|reason| {
-                                DriveError::Corrupt {
-                                    key: key.clone(),
-                                    reason,
+                                if pointer::newer_format(blob).is_some() {
+                                    DriveError::Unsupported(format!("\"{key}\": {reason}"))
+                                } else {
+                                    DriveError::Corrupt {
+                                        key: key.clone(),
+                                        reason,
+                                    }
                                 }
                             })?;
                             found.push((key, pointer));
