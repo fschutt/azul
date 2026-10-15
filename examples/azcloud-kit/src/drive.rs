@@ -79,6 +79,23 @@ pub struct AzlinDrive {
     failover: Arc<Failover>,
     /// Where the node list is kept between starts, if anywhere.
     nodes_file: Option<PathBuf>,
+    /// When (by `clock`) a refusal without a body last made the drive ask for fresh credentials:
+    /// such a refusal could be expired credentials, or anything else - asked once in a while,
+    /// never on every request.
+    bodyless_refresh: Mutex<Option<u64>>,
+}
+
+/// How long a refusal without a body waits before it makes the drive ask for fresh
+/// credentials again (seconds).
+const BODYLESS_REFRESH_EVERY: u64 = 600;
+
+/// Whether `e` is a 400 or 403 that says nothing more (a HEAD's answer has no body): expired
+/// credentials look like that too.
+fn bodyless_refusal(e: &DriveError) -> bool {
+    matches!(e, DriveError::Service(service)
+        if matches!(service.status, 400 | 403)
+            && service.azlin_error.is_none()
+            && matches!(service.code.as_str(), "BadRequest" | "Forbidden"))
 }
 
 impl fmt::Debug for AzlinDrive {
@@ -166,6 +183,7 @@ impl AzlinDrive {
             clock: Box::new(now_unix),
             failover: Arc::new(Failover::new(&config.endpoint)),
             nodes_file: None,
+            bodyless_refresh: Mutex::new(None),
         })
     }
 
@@ -423,8 +441,29 @@ impl AzlinDrive {
                 let bucket = self.after_refusal(&key)?;
                 call(&bucket)
             }
+            // Expired credentials cannot say so in a HEAD's answer: fresh ones are asked for
+            // once in a while, and the call goes again.
+            Err(e) if bodyless_refusal(&e) && self.bodyless_refresh_due() => {
+                let bucket = self.after_refusal(&key)?;
+                call(&bucket)
+            }
             other => other,
         }
+    }
+
+    /// Whether a refusal without a body may make the drive ask for fresh credentials now (not
+    /// within [`BODYLESS_REFRESH_EVERY`] of the last time); takes the turn when it may.
+    fn bodyless_refresh_due(&self) -> bool {
+        let now = (self.clock)();
+        let mut last = self
+            .bodyless_refresh
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if last.is_some_and(|at| now < at.saturating_add(BODYLESS_REFRESH_EVERY)) {
+            return false;
+        }
+        *last = Some(now);
+        true
     }
 }
 
