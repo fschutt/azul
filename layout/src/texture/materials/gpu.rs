@@ -183,6 +183,18 @@ fn link(gl: &GenericGlContext, version: &str) -> Result<u32, String> {
 }
 
 /// A texture of `rgba` bytes (`width` x `height`, rows from the top).
+/// The shader's number for `material` (`surf` in shader.glsl: 0 leather,
+/// 1 aluminium, 2 denim, else vellum) - not the tile tables' index, which
+/// orders denim before aluminium.
+const fn shader_material(material: Material) -> i32 {
+    match material {
+        Material::Leather => 0,
+        Material::Aluminium => 1,
+        Material::BlueJeans => 2,
+        Material::Vellum => 3,
+    }
+}
+
 fn upload(gl: &GenericGlContext, width: usize, height: usize, rgba: &[u8], repeat: bool, mips: bool) -> u32 {
     let id = gl.gen_textures(1).first().copied().unwrap_or(0);
     if id == 0 {
@@ -362,7 +374,7 @@ impl ContextState {
             i1("uShape", i32::from(shape.is_some()));
             f1("uShapeRange", shape.map_or(1.0, super::ShapeField::range));
             f4("uBevel", u.bevel);
-            i1("uMat", material_index(material) as i32);
+            i1("uMat", shader_material(material));
             i1("uSource", source);
             f1("uTileNormal", if material == Material::Leather { 1.0 } else { 0.0 });
             f1("uMacroPeriod", macro_period);
