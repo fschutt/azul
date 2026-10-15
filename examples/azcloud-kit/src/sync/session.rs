@@ -301,9 +301,15 @@ pub struct SyncProblem {
 }
 
 impl SyncProblem {
-    /// The problem `e` is, when the errors table words it.
+    /// The problem `e` is, when the errors table words it: a storage node's or the token
+    /// server's answer, or no connection. A refusal the drive words itself (`Denied`: no key for
+    /// an encrypted drive on this device yet, a read-only grant) keeps its own words - the table
+    /// would say "sign in again" where the user must unlock the drive.
     #[must_use]
     pub fn of(e: &CloudError) -> Option<SyncProblem> {
+        if matches!(e.root(), CloudError::Drive(azul_storage::DriveError::Denied { .. })) {
+            return None;
+        }
         UserError::from_cloud_error(e).map(|user| SyncProblem {
             code: user.code.as_str().to_string(),
             request_id: user.request_id,
