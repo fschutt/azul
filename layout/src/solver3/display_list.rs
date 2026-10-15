@@ -7977,6 +7977,7 @@ where
                     dom_id,
                     inline_layout,
                     cached_layout.dense.as_deref(),
+                    cached_layout.overflow.line_clamped,
                     own_content_width,
                 )
             });
@@ -8927,6 +8928,10 @@ where
     /// - `line-clamp` on the last line it keeps, where it dropped lines after it (CSS Overflow 4
     ///   `block-ellipsis: auto`, as Chrome's `-webkit-line-clamp` draws it).
     ///
+    /// `clamped` comes from the cached layout's own overflow record: under
+    /// dense-text retention `layout` is the shared empty sentinel, whose
+    /// overflow never says the lines were clamped.
+    ///
     /// `None` when neither applies, or the lines are not left-to-right
     /// horizontal ones.
     fn text_overflow_ellipsis(
@@ -8934,6 +8939,7 @@ where
         dom_id: NodeId,
         layout: &UnifiedLayout,
         dense: Option<&crate::text3::dense::DenseText>,
+        clamped: bool,
         content_width: f32,
     ) -> Option<TextOverflowEllipsis> {
         use azul_css::props::{
@@ -8969,7 +8975,6 @@ where
                         | LayoutOverflow::Clip
                 )
             );
-        let clamped = layout.overflow.line_clamped;
         if !text_overflow && !clamped {
             return None;
         }
