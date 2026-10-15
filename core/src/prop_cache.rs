@@ -1188,6 +1188,16 @@ pub struct CssPropertyCache {
     /// Zero after a DOM merge that brought rules the retained stylesheet does
     /// not hold: re-running the cascade then would drop them.
     pub left_state_mask: u32,
+
+    /// Per node (sparse): the `(state, property)` pairs a stylesheet rule
+    /// ABOVE `rule_priority::INLINE` set for it (a rice at `widgets`, a
+    /// `force` sheet). The node's own declarations of such a property lose
+    /// to that rule, as a higher cascade origin wins; [`Self::inline_properties`]
+    /// leaves them out, so every reader of inline style agrees. A rule for
+    /// the resting state overrules the property's inline declarations of
+    /// every state, a rule for a state only that state's.
+    pub inline_overruled:
+        alloc::collections::BTreeMap<usize, Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)>>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1446,6 +1456,29 @@ impl CssPropertyCache {
             .filter(move |p| p.state == state)
             .map(|p| &p.prop_type)
     }
+}
+
+/// Whether a node's own declaration `prop` (under `conditions`) loses to a
+/// rule above `rule_priority::INLINE` that set the same property: for the
+/// resting state, in every state; for a state, in that state.
+fn inline_is_overruled(
+    overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)],
+    prop: &CssProperty,
+    conditions: &azul_css::dynamic_selector::DynamicSelectorVec,
+) -> bool {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+    let ty = prop.get_type();
+    let state = conditions
+        .as_slice()
+        .iter()
+        .find_map(|c| match c {
+            DynamicSelector::PseudoState(s) => Some(*s),
+            _ => None,
+        })
+        .unwrap_or(PseudoStateType::Normal);
+    overruled
+        .iter()
+        .any(|(s, t)| *t == ty && (*s == PseudoStateType::Normal || *s == state))
 }
 
 /// Returns true if `prop`'s value cannot be fully represented in the compact
@@ -1768,6 +1801,7 @@ impl CssPropertyCache {
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
         self.left_state_mask = 0;
+        self.inline_overruled.clear();
         // What the compounds left of a rule's subject read (`.btn:hover
         // .ink`): the nodes' states as they are now, and the window's
         // activation for `:backdrop`.
@@ -1837,8 +1871,12 @@ impl CssPropertyCache {
                 // A rule that defines or reads a custom property resolves PER
                 // NODE (each node sees its own variables), so it cannot ride
                 // the one-value-for-every-node global bucket.
+                // A rule above the inline declarations (a `widgets` rice) has
+                // to beat them and the author's rules node by node, which the
+                // global bucket - read below every matched rule - cannot.
                 let is_global_only = selectors.len() == 1
                     && matches!(selectors.first(), Some(CssPathSelector::Global))
+                    && rule.priority <= azul_css::css::rule_priority::INLINE
                     && !rule
                         .declarations
                         .as_ref()
@@ -1963,6 +2001,20 @@ impl CssPropertyCache {
                                 Some(ancestor_states),
                             ) {
                                 continue;
+                            }
+                            if rule_block.priority > azul_css::css::rule_priority::INLINE {
+                                let overruled =
+                                    self.inline_overruled.entry(node_index).or_default();
+                                for ty in rule_block
+                                    .declarations
+                                    .as_slice()
+                                    .iter()
+                                    .filter_map(CssDeclaration::get_type)
+                                {
+                                    if !overruled.contains(&(state, ty)) {
+                                        overruled.push((state, ty));
+                                    }
+                                }
                             }
                             // Every declaration: properties, `env()` / `var()`
                             // references and custom-property definitions.
@@ -2805,6 +2857,7 @@ impl CssPropertyCache {
             resolved_zooms: crate::sync::OnceLock::new(),
             inherited_from_host: Vec::new(),
             left_state_mask: 0,
+            inline_overruled: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -2847,6 +2900,11 @@ impl CssPropertyCache {
                 .map(|(node, resolved)| (node + offset, resolved)),
         );
         self.variables_depend_on_context |= other.variables_depend_on_context;
+        self.inline_overruled.extend(
+            core::mem::take(&mut other.inline_overruled)
+                .into_iter()
+                .map(|(node, overruled)| (node + offset, overruled)),
+        );
         // The merged cache keeps only this DOM's stylesheet, so a cascade it
         // re-ran would lose the other's rules: stop re-running it for
         // states then (the rules stay as they were cascaded).
@@ -2958,6 +3016,14 @@ impl CssPropertyCache {
         } else {
             self.resolved_inline.get(&node_index)
         };
+        let overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)] =
+            if self.inline_overruled.is_empty() {
+                &[]
+            } else {
+                self.inline_overruled
+                    .get(&node_index)
+                    .map_or(&[][..], Vec::as_slice)
+            };
         let mut ordinal = 0usize;
         node_data
             .style
@@ -2984,6 +3050,9 @@ impl CssPropertyCache {
                 CssDeclaration::CustomProperty(_) => None,
             })
             .chain(resolved.into_iter().flat_map(ResolvedInline::variants))
+            .filter(move |(prop, conditions)| {
+                overruled.is_empty() || !inline_is_overruled(overruled, prop, conditions)
+            })
     }
 
     /// The value of the custom property `--name` (pass it without `--`) that
