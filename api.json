@@ -187594,6 +187594,9 @@
                                 "app_id": {
                                     "type": "String"
                                 },
+                                "theme_font": {
+                                    "type": "String"
+                                },
                                 "mode": {
                                     "type": "OptionDarkLightMode"
                                 },
@@ -187930,6 +187933,38 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_light(light)"
+                            },
+                            "set_theme_font": {
+                                "doc": [
+                                    "In-place [`Self::with_theme_font`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "families": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme_font(families)"
+                            },
+                            "with_theme_font": {
+                                "doc": [
+                                    "Set the theme's words and capitals in `families`, a CSS `font-family`",
+                                    "list (see [`Self::theme_font`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "families": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_theme_font(families)"
                             }
                         },
                         "repr": "C"

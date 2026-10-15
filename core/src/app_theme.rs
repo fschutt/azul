@@ -41,6 +41,10 @@ mod state {
     /// The app's choice; `None` until `App::create` publishes one.
     pub(super) static APP_THEME: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
+    /// The typeface the app sets its theme in; empty for the theme's own.
+    pub(super) static APP_THEME_FONT: std::sync::RwLock<String> =
+        std::sync::RwLock::new(String::new());
+
     std::thread_local! {
         /// The theme the DOM being built on this thread is for, while a
         /// [`super::ThemeScope`] is entered.
@@ -127,6 +131,40 @@ fn report_theme_choice(name: &str) {
     for warning in chain.warnings {
         crate::diagnostics::emit(alloc::format!("[azul][warn] {warning}"));
     }
+}
+
+/// Publish the typeface the app sets its theme in (`AppConfig::theme_font`), a
+/// CSS `font-family` list such as `"Calmet UI", "EB Garamond"`: a theme's
+/// widgets set their words and capitals in it, the theme's own faces after it
+/// for what it lacks. Empty gives the theme its own face back. Widgets read it
+/// when they build their DOM, so a window takes it at its next rebuild.
+pub fn set_app_theme_font(families: &str) {
+    #[cfg(feature = "std")]
+    {
+        use alloc::string::ToString;
+        let mut slot = state::APP_THEME_FONT
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *slot = families.trim().to_string();
+    }
+    #[cfg(not(feature = "std"))]
+    let _ = families;
+}
+
+/// The typeface the app sets its theme in ([`set_app_theme_font`]), `None`
+/// where it named none.
+#[must_use]
+pub fn app_theme_font() -> Option<AzString> {
+    #[cfg(feature = "std")]
+    {
+        let slot = state::APP_THEME_FONT
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !slot.is_empty() {
+            return Some(AzString::from(slot.as_str()));
+        }
+    }
+    None
 }
 
 /// The theme the DOM being built on this thread is for: the innermost

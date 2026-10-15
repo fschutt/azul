@@ -1452,6 +1452,33 @@ const CAPS_FAMILIES: &[StyleFontFamily] = &[
 pub(crate) const FONT_CAPS: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(CAPS_FAMILIES);
 
+/// The UI hand flora sets its words and capitals in: the app's typeface
+/// first where it named one (`AppConfig::theme_font`), then [`FONT_CAPS`] for
+/// what that face lacks; [`FONT_CAPS`] alone otherwise.
+#[must_use]
+pub(crate) fn font_caps() -> StyleFontFamilyVec {
+    font_caps_for(azul_core::app_theme::app_theme_font().as_ref().map(AzString::as_str))
+}
+
+/// [`font_caps`] for the app's typeface `app_font` (a CSS `font-family`
+/// list); a list that does not parse is left out.
+pub(crate) fn font_caps_for(app_font: Option<&str>) -> StyleFontFamilyVec {
+    let Some(families) = app_font
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .and_then(|f| azul_css::props::basic::font::parse_style_font_family(f).ok())
+    else {
+        return FONT_CAPS;
+    };
+    let mut out: Vec<StyleFontFamily> = families.as_ref().to_vec();
+    for family in CAPS_FAMILIES {
+        if !out.contains(family) {
+            out.push(family.clone());
+        }
+    }
+    StyleFontFamilyVec::from_vec(out)
+}
+
 /// A command's capitals: the specimen's 13.5px bold small capitals tracked
 /// .06em, as 11px capitals.
 pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
@@ -1470,7 +1497,7 @@ pub(crate) const TAB_BUTTON_CAPS: (f32, f32) = (11.5, 0.08);
 pub(crate) fn tab_button_caps() -> Vec<CssPropertyWithConditions> {
     let (px, em) = TAB_BUTTON_CAPS;
     alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::px(px))),
         super::decl::bold(),
         CssPropertyWithConditions::simple(CssProperty::TextTransform(
@@ -1485,7 +1512,7 @@ pub(crate) fn tab_button_caps() -> Vec<CssPropertyWithConditions> {
 #[must_use]
 pub(crate) fn caps((px, em): (isize, f32)) -> Vec<CssPropertyWithConditions> {
     alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())),
         super::decl::font_size(px),
         super::decl::bold(),
         CssPropertyWithConditions::simple(CssProperty::TextTransform(
@@ -2123,9 +2150,6 @@ pub(crate) fn well() -> [CssPropertyWithConditions; 2] {
     )
 }
 
-/// `--font-serif`: running text in flora is Garamond too - the same stack as
-/// the capitals, set upright.
-pub(crate) const SERIF_FAMILY: StyleFontFamilyVec = FONT_CAPS;
 
 /// A flora field at rest: a solid 1px `--fl-bd2` rule at the house radius
 /// around field paper, sunk by the well, in the house ink - each light value
@@ -2492,7 +2516,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         // The value is written in Garamond, in the house ink.
         label_style.retain(|p| p.property.get_type() != CssPropertyType::FontFamily);
         label_style.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
-            SERIF_FAMILY,
+            font_caps(),
         )));
         label_style.extend(super::decl::themed_ink(LIGHT_INK, DARK_INK));
     } else {
@@ -3227,7 +3251,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             // The text is written in Garamond, in the house ink.
             v.retain(|p| p.property.get_type() != CssPropertyType::FontFamily);
             v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
-                SERIF_FAMILY,
+                font_caps(),
             )));
             v.extend(super::decl::themed_ink(LIGHT_INK, DARK_INK));
             v
@@ -3340,7 +3364,7 @@ pub(crate) fn flora_dropdown_wrapper_style() -> Vec<CssPropertyWithConditions> {
     v.push(CssPropertyWithConditions::simple(CssProperty::const_font_size(
         StyleFontSize::const_px(14),
     )));
-    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())));
     v.extend(super::decl::padding(3, 6, 3, 8));
     v.extend(field_skin());
     v.extend(picker_field_states());
@@ -4213,7 +4237,7 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(280))),
         P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(520))),
         P::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-        P::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        P::simple(CssProperty::const_font_family(font_caps())),
     ]);
     panel.extend(decl::padding(0, 14, 12, 14));
     panel.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD5, DARK_BD5));
@@ -5111,7 +5135,7 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     // back), then flora's oak.
     let mut tip = t::TIP_BASE.to_vec();
     tip.push(decl::font_size(13));
-    tip.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
+    tip.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())));
     tip.extend(decl::padding(4, 9, 4, 9));
     tip.extend(decl::radius(3));
     tip.extend(decl::themed_border(
@@ -6048,7 +6072,7 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())),
     ];
     container.extend(decl::border(1));
     container.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
@@ -7476,7 +7500,7 @@ const TAB_CAPS_TRACK: f32 = 0.08;
 /// the same height.
 fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
     use super::decl;
-    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())));
     v.push(decl::font_size(TAB_CAPS_PX));
     v.push(decl::semibold());
     v.push(decl::letter_spacing_em(TAB_CAPS_TRACK));
@@ -8649,7 +8673,7 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     type C = CssPropertyWithConditions;
     let mut bar = vec![
         C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        C::simple(CssProperty::const_font_family(font_caps())),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
@@ -8696,7 +8720,7 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
 
     let mut label = vec![
         C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        C::simple(CssProperty::const_font_family(font_caps())),
     ];
     label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
@@ -8798,7 +8822,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
         v
     };
 
-    let mut menu = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    let mut menu = vec![px(14), C::simple(CssProperty::const_font_family(font_caps()))];
     menu.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     menu.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
     menu.extend(decl::border(1));
@@ -8857,7 +8881,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     ];
     number.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
 
-    let mut place_label = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    let mut place_label = vec![px(14), C::simple(CssProperty::const_font_family(font_caps()))];
     place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
     let mut pin = row(CssProperty::const_height(LayoutHeight::const_px(26)));
@@ -8876,7 +8900,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
 
     let mut sub_label = vec![
         px(14),
-        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        C::simple(CssProperty::const_font_family(font_caps())),
         decl::semibold(),
     ];
     sub_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
@@ -8931,12 +8955,12 @@ pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> 
 /// A font declaration pair: the chrome size and flora's hand - Garamond
 /// (`--font-serif` / `--font-caps`, the bundled EB Garamond first), the face
 /// every flora surface writes in; what a shell's content inherits.
-const fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_caps())),
     ]
 }
 

@@ -1047,6 +1047,14 @@ pub struct AppConfig {
     ///
     /// 8-aligned (a string), so it sits with the other 8-aligned fields.
     pub app_id: AzString,
+    /// The typeface the app sets its theme in, a CSS `font-family` list
+    /// (`"Calmet UI", "EB Garamond"`): the theme's widgets set their words
+    /// and capitals in it, the theme's own faces after it for the characters
+    /// it lacks. Empty (the default): the theme's own face (EB Garamond for
+    /// flora). Register a face the app ships with [`Self::add_font`].
+    ///
+    /// 8-aligned (a string), so it sits with the other 8-aligned fields.
+    pub theme_font: AzString,
     /// The app's MODE: `None` (the default, "system") follows the desktop's
     /// light / dark setting, and every change of it; `Some(mode)` pins every
     /// window of the app to light or dark, whatever the desktop says. Not
@@ -1217,6 +1225,19 @@ impl AppConfig {
         self.theme = name;
     }
 
+    /// Set the theme's words and capitals in `families`, a CSS `font-family`
+    /// list (see [`Self::theme_font`]).
+    #[must_use]
+    pub fn with_theme_font(mut self, families: AzString) -> Self {
+        self.set_theme_font(families);
+        self
+    }
+
+    /// In-place [`Self::with_theme_font`].
+    pub fn set_theme_font(&mut self, families: AzString) {
+        self.theme_font = families;
+    }
+
     /// Light every window of the app with `light` (see [`Self::light`]).
     #[must_use]
     pub const fn with_light(mut self, light: crate::light::Light) -> Self {
@@ -1311,6 +1332,8 @@ impl AppConfig {
             theme: AzString::from_const_str(azul_css::dynamic_selector::DEFAULT_APP_THEME),
             // Not declared: the platform's id, else the executable's.
             app_id: AzString::from_const_str(""),
+            // The theme's own face.
+            theme_font: AzString::from_const_str(""),
             // Follow the desktop.
             mode: crate::window::OptionDarkLightMode::None,
             light: crate::light::Light::DEFAULT,

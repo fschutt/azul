@@ -219,6 +219,9 @@ impl App {
         // builds and styles for it; `CallbackInfo::set_theme` switches it
         // (a DOM rebuild of every window).
         azul_core::app_theme::set_app_theme(app_config.theme.as_str());
+        // The typeface the theme's widgets set their words in, where the app
+        // names one.
+        azul_core::app_theme::set_app_theme_font(app_config.theme_font.as_str());
         // The app's ONE light: every window's materials, their bevels and
         // sheen, and the shadows that follow the light are lit from it;
         // `CallbackInfo::set_app_light` moves it for all of them.

@@ -471,7 +471,7 @@ impl TabOverview {
         ];
         head.extend(decl::padding(9, 14, 6, 14));
         if theme == UiTheme::Flora {
-            head.push(C::simple(P::const_font_family(flora::FONT_CAPS)));
+            head.push(C::simple(P::const_font_family(flora::font_caps())));
         }
         // The capitals a size step under the tab buttons' 11.5px.
         head.push(C::simple(P::const_font_size(StyleFontSize::px(10.5))));
