@@ -2689,20 +2689,14 @@ impl HeadlessWindow {
             }
         }
 
-        // Rebuild CPU hit-tester from new layout results
-        if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend
-                .hit_tester
-                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
-
-        // Also rebuild the SHARED hit-tester that the common event-dispatch path
-        // reads (perform_hit_test → update_hit_test_at). `cpu_backend.hit_tester`
-        // above only feeds the headless render/screenshot path; pointer events
-        // (real or synthetic via the debug server) resolve their target node
-        // through `common.cpu_hit_tester`. Without this rebuild that tester stays
-        // empty, so every click hit-tests to nothing and widget callbacks (e.g. a
-        // button's on_click) never fire — clicks silently do nothing in headless.
+        // Rebuild the SHARED hit-tester that the common event-dispatch path
+        // reads (perform_hit_test → update_hit_test_at): pointer events (real
+        // or synthetic via the debug server) resolve their target node through
+        // `common.cpu_hit_tester`. Without this rebuild that tester stays
+        // empty, so every click hit-tests to nothing and widget callbacks (e.g.
+        // a button's on_click) never fire. It is the only one: the backend's
+        // own `cpu_backend.hit_tester` is read by nothing here, and rebuilding
+        // it too walked every laid-out node a second time per pass.
         self.common.rebuild_cpu_hit_tester();
 
         // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
@@ -2908,15 +2902,9 @@ impl HeadlessWindow {
             }
         }
 
-        // Same finalize tail as regenerate_layout: the backend's own
-        // hit-tester (common's was rebuilt inside `incremental_relayout`),
-        // CPU frame, damage.
-        if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend
-                .hit_tester
-                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
-
+        // Same finalize tail as regenerate_layout: the CPU frame and its
+        // damage (the shared hit tester was rebuilt inside
+        // `incremental_relayout`).
         self.paint_cpu_frame();
 
         // Same as regenerate_layout_inner above: a completed frame must not
@@ -2931,14 +2919,9 @@ impl HeadlessWindow {
     /// blink) is regenerated from the existing layout first.
     /// Paint the layout a relayout-only request says already ran (its raiser
     /// laid the existing StyledDom out and rebuilt the shared hit tester):
-    /// the backend's own hit tester, then the CPU frame - the finalize tail of
-    /// [`Self::relayout_existing_dom`] without its layout pass.
+    /// the CPU frame - the finalize tail of [`Self::relayout_existing_dom`]
+    /// without its layout pass.
     fn paint_laid_out(&mut self) -> Result<(), String> {
-        if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend
-                .hit_tester
-                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
         self.paint_cpu_frame();
         Ok(())
     }
