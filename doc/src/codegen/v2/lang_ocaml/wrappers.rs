@@ -360,6 +360,8 @@ enum ArgPass {
     },
     /// Everything else: the Ctypes value as-is.
     Raw,
+    /// An owned Option: accept an OCaml `option`, pass the FFI option.
+    Opt(OcOpt),
 }
 
 struct ArgPlan {
@@ -397,11 +399,252 @@ fn is_primitive(t: &str) -> bool {
     )
 }
 
+/// An Option mirror at the OCaml surface: `'a option` both ways. `inner`
+/// is how the payload crosses; `none` / `some` / `delete` are the FFI
+/// bindings, `into_some` the generated payload view (struct payloads only:
+/// without it a return keeps the raw option).
+#[derive(Clone)]
+pub(super) struct OcOpt {
+    none: String,
+    some: String,
+    pub(super) delete: Option<String>,
+    into_some: Option<String>,
+    inner: OcInner,
+}
+
+#[derive(Clone)]
+pub(super) enum OcInner {
+    /// `string`: `azul_az_string` in, `azul_string_of_az` out.
+    Str,
+    /// A wrapper record: moved in (`.raw`, marked disposed), cloned out
+    /// into a fresh record.
+    Record { name: String, clone: Option<String> },
+    /// A C enum: its OCaml module (`DarkLightMode`), crossing as the `int`
+    /// discriminant (`to_int` in, `of_int` out).
+    Enum(String),
+    /// The FFI value itself (`int`, a raw struct).
+    Raw(String),
+}
+
+impl OcOpt {
+    pub(super) fn user_type(&self) -> String {
+        oc_inner_type(&self.inner)
+    }
+
+    /// The FFI option for the OCaml option `id`.
+    pub(super) fn to_ffi(&self, id: &str) -> String {
+        let some = match &self.inner {
+            OcInner::Str => "(azul_az_string __v)".to_string(),
+            OcInner::Record { .. } => "(__v.disposed <- true; __v.raw)".to_string(),
+            OcInner::Enum(m) => format!("({}.to_int __v)", m),
+            OcInner::Raw(_) => "__v".to_string(),
+        };
+        format!(
+            "(match {} with None -> {} () | Some __v -> {} {})",
+            id, self.none, self.some, some
+        )
+    }
+
+    /// The OCaml option for the FFI option `expr`, which is released (its
+    /// payload copied out first); `None` when the payload cannot be read.
+    pub(super) fn of_ffi(&self, expr: &str) -> Option<String> {
+        let into = self.into_some.as_ref()?;
+        let take = oc_take(&self.inner)?;
+        let release = self
+            .delete
+            .as_ref()
+            .map(|d| format!(" {} (Ctypes.addr __o);", d))
+            .unwrap_or_default();
+        Some(format!(
+            "(let __o = {} in let __v = Option.map {} ({} __o) in{} __v)",
+            expr, take, into, release
+        ))
+    }
+}
+
+/// A Result mirror at the OCaml surface: `('ok, 'err) result`. Each side is
+/// taken apart like an Option payload; a unit Ok is `()`.
+#[derive(Clone)]
+struct OcRes {
+    ffi: String,
+    ok: Option<OcInner>,
+    err: OcInner,
+    delete: Option<String>,
+}
+
+/// The function that takes a payload view over: the text, a fresh record
+/// (a deep copy), or the value itself. `None` when the payload has no deep
+/// copy to take.
+fn oc_take(inner: &OcInner) -> Option<String> {
+    Some(match inner {
+        OcInner::Str => "azul_string_of_az".to_string(),
+        OcInner::Record { name, clone: Some(c) } => {
+            format!("(fun __p -> make_{} ({} (Ctypes.addr __p)))", name, c)
+        }
+        OcInner::Record { clone: None, .. } => return None,
+        OcInner::Enum(m) => format!("(fun __p -> Option.get ({}.of_int __p))", m),
+        OcInner::Raw(_) => "(fun __p -> __p)".to_string(),
+    })
+}
+
+fn oc_inner_type(inner: &OcInner) -> String {
+    match inner {
+        OcInner::Str => "string".to_string(),
+        OcInner::Record { name, .. } => name.clone(),
+        OcInner::Enum(m) => format!("{}.t", m),
+        OcInner::Raw(t) => t.clone(),
+    }
+}
+
+impl OcRes {
+    fn user_type(&self) -> String {
+        format!(
+            "({}, {}) result",
+            self.ok.as_ref().map(oc_inner_type).unwrap_or_else(|| "unit".to_string()),
+            oc_inner_type(&self.err)
+        )
+    }
+
+    fn of_ffi(&self, expr: &str) -> Option<String> {
+        let ok = match &self.ok {
+            Some(o) => format!(
+                "Ok ({} (Option.get ({}_intoOk __r)))",
+                oc_take(o)?,
+                self.ffi
+            ),
+            None => "Ok ()".to_string(),
+        };
+        let err = format!(
+            "Error ({} (Option.get ({}_intoErr __r)))",
+            oc_take(&self.err)?,
+            self.ffi
+        );
+        let release = self
+            .delete
+            .as_ref()
+            .map(|d| format!(" {} (Ctypes.addr __r);", d))
+            .unwrap_or_default();
+        Some(format!(
+            "(let __r = {} in let __v = if {}_is_ok __r then {} else {} in{} __v)",
+            expr, self.ffi, ok, err, release
+        ))
+    }
+}
+
+/// The payload shape of `payload` for a Result side; only struct payloads
+/// have the generated `intoOk` / `intoErr` view.
+fn oc_payload(payload: &str, ir: &CodegenIR, records: &BTreeSet<&str>) -> Option<OcInner> {
+    let s = ir.find_struct(payload)?;
+    if matches!(
+        s.category,
+        TypeCategory::VecRef
+            | TypeCategory::Boxed
+            | TypeCategory::Recursive
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return None;
+    }
+    Some(if is_string_type(ir, payload) {
+        OcInner::Str
+    } else if records.contains(payload) {
+        OcInner::Record {
+            name: ocaml_wrapper_type_name(payload),
+            clone: ir
+                .functions
+                .iter()
+                .find(|f| f.class_name == payload && f.kind == FunctionKind::DeepCopy)
+                .map(|f| ocaml_binding_name(&f.c_name)),
+        }
+    } else {
+        OcInner::Raw(map_type_to_ocaml_typ(payload, ir))
+    })
+}
+
+fn oc_result(t: &str, ir: &CodegenIR, records: &BTreeSet<&str>) -> Option<OcRes> {
+    let t = t.trim();
+    // The `intoOk` / `intoErr` views exist for these names (types.rs).
+    if !t.starts_with("Result") {
+        return None;
+    }
+    let (ok, err) = ir.result_payloads(t)?;
+    let ok = match ok {
+        Some(o) => Some(oc_payload(o, ir, records)?),
+        None => None,
+    };
+    let res = OcRes {
+        ffi: ocaml_ffi_type_name(t),
+        ok,
+        err: oc_payload(err?, ir, records)?,
+        delete: ir
+            .functions
+            .iter()
+            .find(|f| f.class_name == t && f.kind == FunctionKind::Delete)
+            .map(|f| ocaml_binding_name(&f.c_name)),
+    };
+    res.of_ffi("x")?;
+    Some(res)
+}
+
+pub(super) fn oc_option(t: &str, ir: &CodegenIR, records: &BTreeSet<&str>) -> Option<OcOpt> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if is_refany_type(payload, ir) || is_callback_wrapper(ir, payload) {
+        return None;
+    }
+    let none = ir.variant_constructor(t, "None")?;
+    let some = ir.variant_constructor(t, "Some")?;
+    let binding = |kind: FunctionKind, class: &str| {
+        ir.functions
+            .iter()
+            .find(|f| f.class_name == class && f.kind == kind)
+            .map(|f| ocaml_binding_name(&f.c_name))
+    };
+    let c_enum = ir.find_enum(payload).is_some_and(|p| !p.is_union);
+    let inner = if is_string_type(ir, payload) {
+        OcInner::Str
+    } else if records.contains(payload) {
+        OcInner::Record {
+            name: ocaml_wrapper_type_name(payload),
+            clone: binding(FunctionKind::DeepCopy, payload),
+        }
+    } else if c_enum {
+        let t = map_type_to_ocaml_typ(payload, ir);
+        OcInner::Enum(t.trim_end_matches(".t").to_string())
+    } else {
+        OcInner::Raw(map_type_to_ocaml_typ(payload, ir))
+    };
+    // The payload view types.rs generates for struct and C enum payloads.
+    let into_some = (c_enum
+        || ir.find_struct(payload).is_some_and(|s| {
+            !matches!(
+                s.category,
+                TypeCategory::VecRef
+                    | TypeCategory::Boxed
+                    | TypeCategory::Recursive
+                    | TypeCategory::DestructorOrClone
+                    | TypeCategory::GenericTemplate
+            )
+        }))
+    .then(|| format!("{}_intoSome", ocaml_ffi_type_name(t)));
+    Some(OcOpt {
+        none: ocaml_binding_name(&none.c_name),
+        some: ocaml_binding_name(&some.c_name),
+        delete: binding(FunctionKind::Delete, t),
+        into_some,
+        inner,
+    })
+}
+
 impl ArgPlan {
     fn build(a: &FunctionArg, ir: &CodegenIR, records: &BTreeSet<&str>) -> ArgPlan {
         let id = sanitize_identifier(&to_snake_case(&a.name));
         let t = a.type_name.trim();
         let (sig, pass, scalar) = match a.ref_kind {
+            ArgRefKind::Owned if oc_option(t, ir, records).is_some() => {
+                let o = oc_option(t, ir, records).unwrap();
+                (format!("{} option", o.user_type()), ArgPass::Opt(o), false)
+            }
             ArgRefKind::Owned => {
                 let host_kind = if is_callback_wrapper(ir, t) {
                     host_invoker_kinds(ir).find(|cb| wrapper_name(cb) == t)
@@ -453,6 +696,7 @@ impl ArgPlan {
         match &self.pass {
             ArgPass::Record(r) => format!("({} : {})", self.id, r),
             ArgPass::RefAny(_) => format!("({} : ref_any)", self.id),
+            ArgPass::Opt(o) => format!("({} : {} option)", self.id, o.user_type()),
             _ => self.id.clone(),
         }
     }
@@ -477,6 +721,7 @@ impl ArgPlan {
                 }
             }
             ArgPass::Raw => self.id.clone(),
+            ArgPass::Opt(o) => o.to_ffi(&self.id),
         }
     }
 
@@ -494,6 +739,10 @@ enum RetPlan {
     UnitEnum(String),
     /// Anything else: the Ctypes value as-is.
     Raw(String),
+    /// An Option whose payload can be read: an OCaml `option`.
+    Opt(OcOpt),
+    /// A Result whose sides can be read: an OCaml `result`.
+    Res(OcRes),
 }
 
 impl RetPlan {
@@ -504,6 +753,12 @@ impl RetPlan {
         }
         if records.contains(t) {
             return RetPlan::Record(ocaml_wrapper_type_name(t));
+        }
+        if let Some(o) = oc_option(t, ir, records).filter(|o| o.of_ffi("x").is_some()) {
+            return RetPlan::Opt(o);
+        }
+        if let Some(r) = oc_result(t, ir, records) {
+            return RetPlan::Res(r);
         }
         if let Some(m) = unit_enum_module(t, ir) {
             return RetPlan::UnitEnum(m);
@@ -517,6 +772,8 @@ impl RetPlan {
             RetPlan::Record(r) => r.clone(),
             RetPlan::UnitEnum(m) => format!("{}.t", m),
             RetPlan::Raw(t) => t.clone(),
+            RetPlan::Opt(o) => format!("{} option", o.user_type()),
+            RetPlan::Res(r) => r.user_type(),
         }
     }
 
@@ -530,6 +787,8 @@ impl RetPlan {
                  discriminant\")",
                 m, call, m
             ),
+            RetPlan::Opt(o) => o.of_ffi(call).unwrap_or_else(|| call.to_string()),
+            RetPlan::Res(r) => r.of_ffi(call).unwrap_or_else(|| call.to_string()),
         }
     }
 
@@ -2512,6 +2771,26 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
     }
     builder.line("| _ -> None");
     builder.dedent();
+
+    // The enum a callback answers with (`Update`): run a body in which a
+    // missing value (`None`, from a `let*` chain) or an error (`Error _`,
+    // written to stderr) means "nothing to do" - the first variant, which is
+    // what the engine answers for a skipped callback.
+    if ir.callback_return_unit_enums().iter().any(|c| c.name == e.name) {
+        if let Some(first) = e.variants.first() {
+            let fallback = variant(&first.name);
+            let name = format!("or_{}", to_snake_case(&first.name));
+            builder.line(&format!(
+                "let {} (f : unit -> t option) : t = match f () with Some u -> u | None -> {}",
+                name, fallback
+            ));
+            builder.line(&format!(
+                "let {}_on_error (f : unit -> (t, 'e) result) : t = match f () with Ok u -> u | \
+                 Error _ -> prerr_endline \"azul: a callback failed\"; {}",
+                name, fallback
+            ));
+        }
+    }
 
     let mut seen: Vec<FunctionKind> = Vec::new();
     for f in ir.functions_for_class(&e.name) {
