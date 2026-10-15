@@ -952,7 +952,7 @@ fn ruby_has_delete(option_ty: &str, ir: &CodegenIR) -> bool {
 /// True when the IR's struct for `payload_ty` is categorised as
 /// String (TypeCategory::String) — same J.3 type-driven predicate
 /// used by the JVM/CLR fix.
-fn ruby_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
+pub(super) fn ruby_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
     use super::super::ir::TypeCategory;
     ir.find_struct(payload_ty)
         .map(|s| matches!(s.category, TypeCategory::String))
@@ -961,7 +961,7 @@ fn ruby_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
 
 /// True when the IR has a wrapper class for `payload_ty` (struct
 /// with `_delete`, not in an excluded category).
-fn ruby_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
+pub(super) fn ruby_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
     use super::super::ir::{FunctionKind, TypeCategory};
     let Some(s) = ir.find_struct(payload_ty) else {
         return false;

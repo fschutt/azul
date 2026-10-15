@@ -64,6 +64,50 @@ fn class_fn<'a>(ir: &'a CodegenIR, class: &str, kind: FunctionKind) -> Option<&'
         .find(|f| f.class_name == class && f.kind == kind)
 }
 
+/// An Option mirror the Ruby surface shows as `nil` / the value: a parameter
+/// or field setter takes either (`Azul._opt_in`), a getter gives either
+/// (`to_opt`, which every Option struct has).
+struct RbOpt {
+    native: String,
+    none_fn: String,
+    some_fn: String,
+    map: &'static str,
+}
+
+fn ruby_option(t: &str, ir: &CodegenIR) -> Option<RbOpt> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if super::managed::is_refany_type_name(payload, ir)
+        || super::super::managed_host_invoker::is_callback_wrapper(ir, payload)
+    {
+        return None;
+    }
+    let none = ir.variant_constructor(t, "None")?;
+    let some = ir.variant_constructor(t, "Some")?;
+    let map = if super::types::ruby_payload_is_string(payload, ir) {
+        "->(v) { Azul._az_string(v) }"
+    } else if super::types::ruby_payload_has_wrapper(payload, ir) {
+        "->(v) { Azul._own(v) }"
+    } else {
+        "->(v) { v }"
+    };
+    Some(RbOpt {
+        native: format!("Native::Az{}", t),
+        none_fn: ruby_attach_name(&none.c_name),
+        some_fn: ruby_attach_name(&some.c_name),
+        map,
+    })
+}
+
+impl RbOpt {
+    fn into_raw(&self, value: &str) -> String {
+        format!(
+            "Azul._opt_in({}, :{}, :{}, {}, {})",
+            self.native, self.none_fn, self.some_fn, value, self.map
+        )
+    }
+}
+
 /// Ruby attach name of the `kind` export on `class`, if the IR has one.
 fn class_fn_rb(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String> {
     class_fn(ir, class, kind).map(|f| ruby_attach_name(&f.c_name))
@@ -621,6 +665,46 @@ fn emit_field_accessors(
     for (f, shape) in accessible_fields(s, ir, config) {
         let key = super::types::ruby_field_name(&f.name);
         let method = ruby_accessor_name(&key);
+        // An Option field reads as nil / the value (a copy) and is written from
+        // nil / the value.
+        if let Some(o) = ruby_option(&f.type_name, ir) {
+            let t = f.type_name.trim();
+            let copy = match class_fn_rb(ir, t, FunctionKind::DeepCopy) {
+                Some(c) => format!("Native.{}(Azul._fields(self)[:{}].to_ptr)", c, key),
+                None => format!("Azul._fields(self)[:{}]", key),
+            };
+            if !RUBY_OBJECT_METHODS.contains(&method.as_str()) && emitted_names.insert(method.clone()) {
+                builder.line(&format!("# The `{}` field: nil when it is None, else a copy of the value.", f.name));
+                builder.line(&format!("def {}", method));
+                builder.indent();
+                builder.line(&format!("{}.to_opt", copy));
+                builder.dedent();
+                builder.line("end");
+                builder.blank();
+                emitted = true;
+            }
+            let setter = format!("{}=", method);
+            if emitted_names.insert(setter.clone()) {
+                builder.line(&format!(
+                    "# Replaces the `{}` field with nil (None) or a value; the old value is released.",
+                    f.name
+                ));
+                builder.line(&format!("def {}(value)", setter));
+                builder.indent();
+                builder.line("_s = Azul._fields(self)");
+                builder.line(&format!("_v = {}", o.into_raw("value")));
+                if let Some(d) = class_fn_rb(ir, t, FunctionKind::Delete) {
+                    builder.line(&format!("Native.{}(_s[:{}])", d, key));
+                }
+                builder.line(&format!("_s[:{}] = _v", key));
+                builder.line("Azul._consume(value)");
+                builder.dedent();
+                builder.line("end");
+                builder.blank();
+                emitted = true;
+            }
+            continue;
+        }
         let doc = f
             .doc
             .as_deref()
@@ -1430,6 +1514,11 @@ fn emit_refany_wrap_lines(
 fn arg_pass_expr(a: &FunctionArg, name: &str, ir: &CodegenIR) -> String {
     if a.callback_info.is_some() {
         return name.to_string();
+    }
+    if matches!(a.ref_kind, ArgRefKind::Owned) {
+        if let Some(o) = ruby_option(&a.type_name, ir) {
+            return o.into_raw(name);
+        }
     }
     if is_az_string_owned_arg(a, ir) {
         return format!("Azul._az_string({})", name);

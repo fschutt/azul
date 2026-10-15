@@ -136,6 +136,36 @@ If the library cannot be found at run time, put `libazul.dylib` / `libazul.so` n
 to `azul.rb` or point `AZ_LIB_DIR` at its directory - note that `DYLD_LIBRARY_PATH` 
 does not work with the macOS system Ruby.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is `nil` or the value: a parameter takes `nil` for 
+"none", a field or a return value is `nil` when there is nothing, so `&.` reads a 
+whole chain. A failed call (an `Err`) raises; an exception raised inside a callback 
+is logged and the callback does nothing.
+
+A folder picker. Before, the start folder had to be a `Native::AzOptionString`, the 
+picked path was a view of a raw `OptionFilePath`, and the resume callback's `result` 
+arrived as `nil`, so the downcast never matched. Now:
+
+```ruby
+on_pick_folder = lambda do |model, _info, result|
+  path = Azul::FileOpenResult.downcast(result)&.path
+  next Azul::Update::DoNothing if path.nil? # not a folder pick, or cancelled
+  model.folder = path.inner
+  Azul::Update::RefreshDom
+end
+
+on_choose_folder = lambda do |model, _info|
+  Azul::FileDialog.open_directory('Choose a folder', nil, model, on_pick_folder)
+  Azul::Update::DoNothing
+end
+
+on_open_link = lambda do |model, _info|
+  Azul::Url.parse(model.link) # an Err raises: logged, the callback does nothing
+  Azul::Update::RefreshDom
+end
+```
+
 ## Build and run
 
 ```sh
