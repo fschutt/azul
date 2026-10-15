@@ -119,6 +119,14 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_status_bar(status_bar(&s))
             .dom()
     };
+    // Values typed into the form that no saved filled copy holds ask "Save changes?" before
+    // the window closes; Save makes the filled copy and closes once it is saved.
+    let document = s.doc.as_ref().map_or_else(|| String::from("AzPdf"), |d| d.title.clone());
+    let content = kit::close_guard(content, &document)
+        .with_dirty(s.form.unsaved())
+        .with_asking(s.asking_close)
+        .with_on_event(data.clone(), crate::on_close_guard)
+        .dom();
     ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
         .with_accent(ShellThemeAccent::Clay)
         .body()

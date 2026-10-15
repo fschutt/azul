@@ -897,11 +897,13 @@ impl FormValues {
     /// Whether values were filled in that no saved copy holds.
     #[must_use]
     pub fn unsaved(&self) -> bool {
-        false
+        self.values != self.kept
     }
 
     /// A filled copy with `values` was saved.
-    pub fn keep(&mut self, _values: &[(String, String)]) {}
+    pub fn keep(&mut self, values: &[(String, String)]) {
+        self.kept = values.iter().cloned().collect();
+    }
 }
 
 /// The name a filled copy of `title` is offered under.
