@@ -66,6 +66,8 @@ use azul_appkit::{
     ui::{self as kit, AppSection},
 };
 
+use azul_pim::write_queue::MainClose;
+
 use crate::book::{self, Filter, SortBy, ALPHABET};
 use crate::contact::{Address, Birthday, Contact, Labeled};
 use crate::dupes::{self, MergePlan, Pair, Pick};
@@ -222,6 +224,9 @@ pub struct ContactsApp {
     /// The navigation pane's two groups.
     pub nav_open: [bool; 2],
     pub notice: String,
+    /// The contact files on their way to the drive, and the window's close held while they
+    /// land (a close no longer drops a save that was still being written).
+    pub writes: azul_appkit::files::PendingWrites,
     /// Delete was pressed: ask first.
     pub confirm_delete: bool,
     /// Pairs the user said are not duplicates (by UID).
@@ -283,6 +288,7 @@ impl ContactsApp {
             reading: Reading::Card,
             nav_open: [true, true],
             notice: String::new(),
+            writes: azul_appkit::files::PendingWrites::default(),
             confirm_delete: false,
             ignored,
             export_version: version,
@@ -1471,10 +1477,33 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ShellThemeScope::create(root)
         .with_accent(ShellThemeAccent::Blue)
         .body()
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app.clone(), on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::CloseRequested), app, on_close_requested)
 }
 
 // ==== Callbacks: files ====
+
+/// The window is asked to close: it waits for the contact files on their way (their answer
+/// closes it, `on_files_done`), and says once what could not be written.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<ContactsApp>() else {
+        return Update::DoNothing;
+    };
+    match s.writes.close_requested() {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
+            println!("AZCONTACTS_CLOSE_WAITS");
+            info.prevent_window_close();
+            Update::DoNothing
+        }
+        MainClose::Tell => {
+            let failed = s.writes.failed();
+            s.notice = t_args("azcontacts-not-written-close", &[("count", Arg::from(failed))]);
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
+    }
+}
 
 /// Runs `f` on the app's state; the window is rebuilt afterwards.
 fn with_app(
@@ -1536,7 +1565,11 @@ fn avatar(s: &ContactsApp, c: &Contact, size: AvatarSize) -> Dom {
     a.dom()
 }
 
-fn write_files(s: &ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
+fn write_files(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
+    if jobs.is_empty() {
+        return;
+    }
+    s.writes.started();
     kit::spawn_file_jobs(info, &s.data_root, jobs, app.clone(), tag, on_files_done);
 }
 
@@ -1790,6 +1823,17 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             }
             if failed > 0 {
                 s.notice = t_args("azcontacts-not-written", &[("count", Arg::from(failed))]);
+            }
+            match s.writes.answered(&reply.outcomes) {
+                Some(MainClose::Close) => {
+                    println!("AZCONTACTS_CLOSED_AFTER_WRITES");
+                    info.close_window();
+                }
+                Some(_) => {
+                    let failed = s.writes.failed();
+                    s.notice = t_args("azcontacts-not-written-close", &[("count", Arg::from(failed))]);
+                }
+                None => {}
             }
         }
         _ => {}

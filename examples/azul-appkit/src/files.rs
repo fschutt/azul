@@ -81,17 +81,21 @@ pub struct PendingWrites {
 
 impl PendingWrites {
     /// A batch of writes was spawned.
-    pub fn started(&mut self) {}
+    pub fn started(&mut self) {
+        self.in_flight += 1;
+    }
 
     /// A batch's answer: `Some(Close)` when a held close goes now, `Some(Tell)` when writes
     /// failed (the window stays and says so), `None` otherwise.
-    pub fn answered(&mut self, _outcomes: &[FileOutcome]) -> Option<MainClose> {
-        None
+    pub fn answered(&mut self, outcomes: &[FileOutcome]) -> Option<MainClose> {
+        self.in_flight = self.in_flight.saturating_sub(1);
+        self.failed += outcomes.iter().filter(|o| o.error().is_some()).count();
+        self.hold.landed(self.in_flight > 0, self.failed)
     }
 
     /// The window is asked to close: what the request does now.
     pub fn close_requested(&mut self) -> MainClose {
-        MainClose::Close
+        self.hold.request(self.in_flight > 0, self.failed)
     }
 
     /// Writes that did not land.
