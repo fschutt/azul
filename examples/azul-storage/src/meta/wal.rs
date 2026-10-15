@@ -836,7 +836,12 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         let known = synced.version.clone();
         let log_key = keys::log(entry.seq, &attempt_id());
         let sealed_entry = self.seal(&log_key, entry)?;
-        self.bucket.create(&log_key, &sealed_entry)?;
+        match self.bucket.create(&log_key, &sealed_entry) {
+            // The key holds this attempt's random id, so nobody else writes it: a conflict is
+            // this very create, sent again after its answer was lost.
+            Ok(_) | Err(MetaError::Conflict { .. }) => {}
+            Err(e) => return Err(e),
+        }
 
         let mut next = synced.manifest.clone();
         next.head_seq = entry.seq;
@@ -862,25 +867,58 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 });
                 Ok(true)
             }
-            Err(MetaError::Conflict { .. } | MetaError::Raced { .. }) => {
-                // Nothing was swapped, and nobody else names this key: removing
-                // it is safe. A race (409) is tried again like a lost swap.
-                let _ = self.bucket.remove(&log_key);
-                Ok(false)
+            Err(lost @ (MetaError::Conflict { .. } | MetaError::Raced { .. })) => {
+                // Another device swapped first - or this very swap landed, its answer got lost
+                // and the request, sent again, met the version it had made. A fresh read
+                // decides.
+                let names_entry =
+                    |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
+                match self.swap_landed(names_entry)? {
+                    Some(true) => Ok(true),
+                    // A lost race: nothing names the entry, and nobody else writes its key.
+                    Some(false) if matches!(lost, MetaError::Conflict { .. }) => {
+                        let _ = self.bucket.remove(&log_key);
+                        Ok(false)
+                    }
+                    // A race (409) may be this swap itself, still under way: the entry stays
+                    // (one nothing names is only space; a named one removed would break the
+                    // repository) and the publish is tried again.
+                    Some(false) => Ok(false),
+                    None => Err(lost),
+                }
             }
             Err(e) => {
                 // The swap may have landed and only the answer got lost.
-                if let Ok(Some((bytes, version))) = self.bucket.read(keys::MANIFEST) {
-                    if let Ok(manifest) = self.open_sealed::<Manifest>(keys::MANIFEST, &bytes) {
-                        if manifest.log.iter().any(|r| r.key == log_key) {
-                            self.adopt(manifest, Some(version))?;
-                            return Ok(true);
-                        }
-                    }
+                let names_entry =
+                    |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
+                match self.swap_landed(names_entry)? {
+                    Some(true) => Ok(true),
+                    _ => Err(e),
                 }
-                Err(e)
             }
         }
+    }
+
+    /// Whether the manifest in the bucket now is one this device's swap made (`mine` says so);
+    /// it is adopted then. `None` when the bucket cannot be read now. After a swap whose
+    /// outcome is unknown this decides, never the swap's own error.
+    fn swap_landed(
+        &mut self,
+        mine: impl Fn(&Manifest) -> bool,
+    ) -> Result<Option<bool>, MetaError> {
+        let (bytes, version) = match self.bucket.read(keys::MANIFEST) {
+            Ok(Some(found)) => found,
+            Ok(None) => return Ok(Some(false)),
+            Err(_) => return Ok(None),
+        };
+        let Ok(manifest) = self.open_sealed::<Manifest>(keys::MANIFEST, &bytes) else {
+            return Ok(None);
+        };
+        if !mine(&manifest) {
+            return Ok(Some(false));
+        }
+        self.adopt(manifest, Some(version))?;
+        Ok(Some(true))
     }
 
     /// Replaces the manifest from `known` (or creates it when this device has
@@ -929,7 +967,8 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             let key = keys::checkpoint(checkpoint.seq, &attempt_id());
             let sealed = self.seal(&key, &checkpoint)?;
             match self.bucket.create(&key, &sealed) {
-                Ok(_) => {}
+                // A random attempt id: a conflict is this create, sent again.
+                Ok(_) | Err(MetaError::Conflict { .. }) => {}
                 Err(MetaError::Raced { .. }) => {
                     back_off(attempt);
                     continue;
@@ -962,14 +1001,21 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     });
                     return Ok(cp_ref);
                 }
-                Err(MetaError::Conflict { .. }) => {
-                    let _ = self.bucket.remove(&key);
+                Err(lost) => {
+                    // As in a publish: the swap may have landed with its answer lost; only a
+                    // manifest that does not name the checkpoint lets the race be lost.
+                    let names = |manifest: &Manifest| {
+                        manifest.checkpoint.as_ref().is_some_and(|c| c.key == key)
+                    };
+                    match (self.swap_landed(names)?, &lost) {
+                        (Some(true), _) => return Ok(cp_ref),
+                        (Some(false), MetaError::Conflict { .. }) => {
+                            let _ = self.bucket.remove(&key);
+                        }
+                        (Some(false), MetaError::Raced { .. }) => back_off(attempt),
+                        _ => return Err(lost),
+                    }
                 }
-                Err(MetaError::Raced { .. }) => {
-                    let _ = self.bucket.remove(&key);
-                    back_off(attempt);
-                }
-                Err(e) => return Err(e),
             }
         }
         Err(MetaError::Contended {

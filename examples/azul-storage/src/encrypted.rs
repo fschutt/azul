@@ -980,9 +980,9 @@ impl<D: Drive> EncryptedDrive<D> {
         match self.inner.put_if(&key, bytes, &Precondition::Absent) {
             Ok(_) => Ok(()),
             Err(DriveError::Unsupported(_)) => self.inner.put(&key, bytes),
-            Err(DriveError::Conflict { .. }) => Err(DriveError::Protocol(String::from(
-                "a new object's random id was taken: write again",
-            ))),
+            // The id is 128 random bits, so the object under it is this very write: its answer
+            // was lost and the request, sent again, met the object it had made.
+            Err(DriveError::Conflict { .. }) => Ok(()),
             Err(e) => Err(e),
         }
     }
@@ -1019,12 +1019,30 @@ impl<D: Drive> EncryptedDrive<D> {
                 self.release(released);
                 Ok(info)
             }
+            // The change landed and only its answer got lost.
+            Err(_) if self.names_object(path, &id) => Ok(info),
             Err(e) => {
-                // Nothing names the new object: it goes.
-                let _ = self.inner.delete(&id.bucket_key());
+                if self.may_drop_new_object(&e, path, &id) {
+                    let _ = self.inner.delete(&id.bucket_key());
+                }
                 Err(e)
             }
         }
+    }
+
+    /// Whether the index names the object `id` at `path` now (a read; false when it cannot
+    /// tell).
+    fn names_object(&self, path: &str, id: &ObjectId) -> bool {
+        matches!(self.index.get(path), Ok(Some(entry)) if entry.object_id() == Some(*id))
+    }
+
+    /// Whether a new object `id` that a failed index change would have named at `path` may go
+    /// from the bucket: only when the index refused the change for good (a conflict) and does
+    /// not name the object. After any other error the change may have landed with its answer
+    /// lost; the object stays then (one nothing names is garbage for a collector, while a name
+    /// without its object loses the file).
+    fn may_drop_new_object(&self, error: &DriveError, path: &str, id: &ObjectId) -> bool {
+        matches!(error, DriveError::Conflict { .. }) && !self.names_object(path, id)
     }
 
     /// Deletes released objects from the bucket. Best effort: an object the bucket refused to
@@ -1168,9 +1186,11 @@ impl<D: Drive> EncryptedDrive<D> {
                 self.release(released);
                 Ok(Rewrite::Replaced(summary))
             }
+            Err(_) if self.names_object(path, &id) => Ok(Rewrite::Replaced(summary)),
             Err(e) => {
-                // Nothing names the new object: it goes.
-                let _ = self.inner.delete(&id.bucket_key());
+                if self.may_drop_new_object(&e, path, &id) {
+                    let _ = self.inner.delete(&id.bucket_key());
+                }
                 match e {
                     DriveError::Conflict { .. } => Ok(Rewrite::Conflict),
                     other => Err(other),
@@ -1243,9 +1263,11 @@ impl<D: Drive> EncryptedDrive<D> {
                 self.release(released);
                 Ok(own)
             }
+            Err(_) if self.names_object(path, &id) => Ok(own),
             Err(e) => {
-                // Nothing names the new object: it goes.
-                let _ = self.inner.delete(&id.bucket_key());
+                if self.may_drop_new_object(&e, path, &id) {
+                    let _ = self.inner.delete(&id.bucket_key());
+                }
                 Err(e)
             }
         }
@@ -1450,8 +1472,14 @@ impl<D: Drive> EncryptedDrive<D> {
                         break;
                     };
                     let (i, _, entry, _) = live.remove(at);
+                    let id = entry.object_id();
+                    if id.is_some_and(|id| self.names_object(&key, &id)) {
+                        // This very change landed before, its answer lost.
+                        results[i] = Some(Ok(info_of(key.clone(), &entry).etag));
+                        continue;
+                    }
                     // Nothing names its object: it goes.
-                    if let Some(id) = entry.object_id() {
+                    if let Some(id) = id {
                         let _ = self.inner.delete(&id.bucket_key());
                     }
                     results[i] = Some(Err(DriveError::Conflict { key }));
