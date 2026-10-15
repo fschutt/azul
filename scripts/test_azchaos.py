@@ -153,6 +153,21 @@ class TheFaults(ProxyCase):
         self.assertEqual(answers, [200, 503, 200, 200])
         self.assertEqual(self.put("q", b"x")[0], 200)
 
+    def test_an_injected_answer_to_a_head_has_no_body_and_the_connection_goes_on(self):
+        self.put("h.txt", b"12345")
+        self.proxy.add(op="HeadObject", action="azlin", azlin_error="credentials_revoked",
+                       times=1)
+        host, port = self.proxy.address
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+        conn.request("HEAD", "/%s/h.txt" % BUCKET)
+        response = conn.getresponse()
+        self.assertEqual((response.status, response.read()), (403, b""))
+        self.assertEqual(response.getheader("x-azlin-error"), "credentials_revoked")
+        # The next answer on the same connection is read as an answer, not as the HEAD's body.
+        conn.request("GET", "/__azchaos/health")
+        self.assertEqual(conn.getresponse().status, 200)
+        conn.close()
+
     def test_an_azlin_error_answer_carries_its_s3_code_and_header_and_is_not_forwarded(self):
         self.proxy.add(op="PutObject", action="azlin", azlin_error="quota_exceeded")
         status, headers, body = self.put("full.txt", b"x")
