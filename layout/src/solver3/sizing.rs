@@ -787,39 +787,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // because a display:block element with only inline children gets
                 // FormattingContext::Inline (meaning "establishes IFC for its children"),
                 // which is different from being an inline element itself.
-                let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .and_then(|c| c.dom_node_id)
-                        .is_some_and(|dom_id| {
-                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                            // Text nodes are inline-level
-                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-                                return false;
-                            }
-                            let display = get_display_type(self.ctx.styled_dom, dom_id);
-                            display.creates_block_context()
-                        })
-                });
-
-                let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .and_then(|c| c.dom_node_id)
-                        .is_some_and(|dom_id| {
-                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-                                return true;
-                            }
-                            let display = get_display_type(self.ctx.styled_dom, dom_id);
-                            matches!(
-                                display,
-                                LayoutDisplay::Inline
-                                    | LayoutDisplay::InlineBlock
-                                    | LayoutDisplay::InlineFlex
-                                    | LayoutDisplay::InlineGrid
-                                    | LayoutDisplay::InlineTable
-                            )
-                        })
-                });
+                let (has_block_child, has_inline_child) = self.child_levels(tree, node_index);
 
                 // IFC root only if there are inline children and NO block children.
                 // If there are block children, text nodes get anonymous block wrappers.
@@ -912,13 +880,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             FormattingContext::InlineBlock => {
                 // Inline-block IS an atomic inline - it needs its own intrinsic size.
                 // Check layout tree children AND direct DOM text children (text nodes
-                // are not in the layout tree, only in the DOM).
-                let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .is_some_and(|c| matches!(c.formatting_context, FormattingContext::Inline))
-                });
+                // are not in the layout tree, only in the DOM). A child's LEVEL is
+                // its `display` (`child_levels`): a block holding only text
+                // establishes an inline formatting context of its own, yet it
+                // stacks in the inline-block's flow - read by its formatting
+                // context, `<div>a</div><div>b</div>` measured as the line "ab".
+                let (has_block_child, has_inline_child) = self.child_levels(tree, node_index);
+                let has_inline_children = has_inline_child && !has_block_child;
 
-                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                let has_direct_text = if has_block_child {
+                    false
+                } else if let Some(dom_id) = node.dom_node_id {
                     let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
                     dom_id.az_children(node_hierarchy).any(|child_id| {
                         let child_node_data =
@@ -950,6 +922,45 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
             _ => self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics),
         }
+    }
+
+    /// Whether the layout children of `node_index` include a block-level box
+    /// and an inline-level one (`(block, inline)`), read by their `display`,
+    /// not their formatting context: a block holding only text establishes
+    /// an inline formatting context, yet it is a block in its parent's flow.
+    /// A text node is inline-level; an anonymous box (no DOM node) counts as
+    /// neither.
+    fn child_levels(&self, tree: &LayoutTree, node_index: usize) -> (bool, bool) {
+        let mut block = false;
+        let mut inline = false;
+        for &child_idx in tree.children(node_index) {
+            let Some(dom_id) = tree
+                .get(LayoutNodeId::new(child_idx))
+                .and_then(|c| c.dom_node_id)
+            else {
+                continue;
+            };
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+                inline = true;
+                continue;
+            }
+            let display = get_display_type(self.ctx.styled_dom, dom_id);
+            if display.creates_block_context() {
+                block = true;
+            }
+            if matches!(
+                display,
+                LayoutDisplay::Inline
+                    | LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineFlex
+                    | LayoutDisplay::InlineGrid
+                    | LayoutDisplay::InlineTable
+            ) {
+                inline = true;
+            }
+        }
+        (block, inline)
     }
 
     // +spec:intrinsic-sizing:ea2c2c - §5.1 min-content size = size as float with auto; max-content
