@@ -538,6 +538,12 @@ mod set {
         let mut pixmap = AzulPixmap::new(w, h)?;
         pixmap.fill(0, 0, 0, 0);
         if !glyphs.is_empty() {
+            // Bold asked of a face with no bold cut is drawn thickened, as
+            // the DOM's text is (synthetic bold).
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                style.bold,
+                Some(parsed.pdf_font_metrics.us_weight_class).filter(|w| *w > 0),
+            );
             // The face, registered in a one-font manager the glyph path
             // resolves it from (`render_text_run_to_pixmap`'s way).
             let font_ref: FontRef = crate::parsed_font_to_font_ref(parsed);
@@ -554,7 +560,7 @@ mod set {
             let mut glyph_cache = GlyphCache::new();
             super::super::raster::render_text(
                 &glyphs,
-                FontHash::from_hash(hash),
+                FontHash::from_hash(hash).with_synthetic_bold(synthetic_bold),
                 size,
                 style.color,
                 &mut pixmap,
@@ -710,6 +716,10 @@ mod set {
                 return;
             }
             let hash = parsed.hash;
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                bold,
+                Some(parsed.pdf_font_metrics.us_weight_class).filter(|w| *w > 0),
+            );
             if self.fonts.is_none() {
                 self.fonts = FontManager::new(FcFontCache::default()).ok();
             }
@@ -729,7 +739,7 @@ mod set {
             };
             super::super::raster::render_text(
                 &glyphs,
-                FontHash::from_hash(hash),
+                FontHash::from_hash(hash).with_synthetic_bold(synthetic_bold),
                 size_px,
                 color,
                 pixmap,
