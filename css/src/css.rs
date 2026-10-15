@@ -199,6 +199,17 @@ impl Css {
     #[must_use]
     pub fn parse_inline(style: &str) -> Self {
         let mut css = Self::parse_scoped(style);
+        // A node's own style is read as its declarations, never selector
+        // matched, so it cannot reach its `::before` / `::after` (generated
+        // nodes, see `Dom::with_css`): such a block would land on the node.
+        css.rules.retain(|rule| {
+            !rule.path.selectors.as_ref().iter().any(|s| {
+                matches!(
+                    s,
+                    CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+                )
+            })
+        });
         for rule in css.rules.as_mut() {
             rule.lower_node_pseudo_states();
         }
@@ -2132,12 +2143,20 @@ impl CssPath {
         // The wrapper `*`, alone or with pseudo-classes only: `with_css`'s
         // nested `:hover { .. }` block is `*:hover` - the OWNER's hover, as
         // inline as the declarations around it. Scoped to the subtree it
-        // matched every hovered child too.
+        // matched every hovered child too. Its nested `::after { .. }` is
+        // `* > ::after`, the owner's own pseudo-element, as inline.
         let selectors = self.selectors.as_ref();
+        let is_pseudo_element = |s: &CssPathSelector| {
+            matches!(
+                s,
+                CssPathSelector::DirectChildren
+                    | CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+            )
+        };
         let is_bare_global = matches!(selectors.first(), Some(CssPathSelector::Global))
             && selectors[1..]
                 .iter()
-                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
+                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)) || is_pseudo_element(s));
         let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
