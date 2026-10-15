@@ -8172,6 +8172,8 @@ fn azul_android_init() {
 mod header_tests;
 #[cfg(test)]
 mod startup_tests;
+#[cfg(test)]
+mod guest_tests;
 
 #[cfg(test)]
 mod service_down_tests {

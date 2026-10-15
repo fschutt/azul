@@ -335,9 +335,13 @@ struct Posted {
     seq: u64,
 }
 
+/// The name a person without one goes by on the wire: the Worker's word, the same in every
+/// language. The window shows it in its own (`ui::person_name`).
+pub const GUEST: &str = "Guest";
+
 /// A name as the Worker keeps a knock's: control, zero-width and bidi-override characters out,
-/// whitespace runs one space, at most [`MAX_NAME_CHARS`] characters, "Guest" when nothing is left
-/// (the Worker's `cleanName`, so its `validName` takes it unchanged).
+/// whitespace runs one space, at most [`MAX_NAME_CHARS`] characters, [`GUEST`] when nothing is
+/// left (the Worker's `cleanName`, so its `validName` takes it unchanged).
 #[must_use]
 pub fn clean_name(raw: &str) -> String {
     let forbidden = |c: char| {
@@ -352,7 +356,7 @@ pub fn clean_name(raw: &str) -> String {
     let clipped: String = collapsed.chars().take(MAX_NAME_CHARS).collect();
     let clipped = clipped.trim();
     if clipped.is_empty() {
-        String::from("Guest")
+        String::from(GUEST)
     } else {
         clipped.to_string()
     }

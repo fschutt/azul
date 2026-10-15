@@ -660,6 +660,12 @@ pub(crate) fn tile_id(t: &TileView) -> String {
     format!("{}{who}_{kind}", ids::TILE_PREFIX)
 }
 
+/// Another person's name as the window shows it: as they gave it, the nameless one's
+/// ([`crate::chatroom::GUEST`]) in the window's language.
+pub(crate) fn person_name(name: &str) -> String {
+    name.to_string()
+}
+
 /// A person's name as the window shows it: this side's own with "(you)" after it.
 pub(crate) fn shown_name(name: &str, me: bool) -> String {
     if me {
