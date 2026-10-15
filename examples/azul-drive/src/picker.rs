@@ -605,6 +605,11 @@ pub(crate) fn answer_keys(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
 /// Fetches the objects of `refs` into `<cache>/picked/<drive id>/` through the transfer queue;
 /// its end answers ([`copy_finished`]).
 fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str, refs: Vec<CloudRef>) {
+    let Some(first) = refs.first() else {
+        return;
+    };
+    // The selection is of one folder: its copies land under the same folder of the cache.
+    let prefix = crate::fileops::parent_of(&first.key);
     let Some(source) = crate::open_current(s) else {
         answer(info, s, &PickAnswer::error(t("azdrive-pick-drive-closed")));
         return;
@@ -623,8 +628,6 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
             size: r.size,
         })
         .collect();
-    // The selection is of one folder: its copies land under the same folder of the cache.
-    let prefix = crate::fileops::parent_of(&refs[0].key);
     let target: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(root.clone()));
     if let Some(picker) = s.picker.as_mut() {
         picker.copying = Some(PendingCopy {
