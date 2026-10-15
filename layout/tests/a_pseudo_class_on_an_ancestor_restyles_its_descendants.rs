@@ -208,3 +208,33 @@ fn a_rule_whose_ancestor_is_not_in_the_state_leaves_the_descendant_alone() {
     assert_eq!(background(&styled, ink), Some(GREEN));
     assert!(!changed.contains(&ink), "{changed:?}");
 }
+
+/// A rebuilt DOM is cascaded at rest, then the window hands it its states
+/// flag by flag (the hovered nodes, the focus and its ancestors). Its rules
+/// that name a state left of their subject must then see those states.
+#[test]
+fn a_dom_given_its_states_after_the_cascade_catches_up_with_them() {
+    let mut styled = styled(
+        r##"<style>
+            .ring { background: #00ff00; width: 10px; height: 10px; }
+            .frame:focus-within .ring { background: #ff0000; }
+        </style>
+        <div class="frame"><div class="ring"></div><div class="field">f</div></div>"##,
+    );
+    let ring = with_class(&styled, "ring");
+    let field = with_class(&styled, "field");
+    {
+        let mut nodes = styled.styled_nodes.as_container_mut();
+        nodes[field].styled_node_state.focused = true;
+    }
+    styled.raise_focus_within(field);
+    let frame = with_class(&styled, "frame");
+    assert!(styled.styled_nodes.as_container()[frame].styled_node_state.focus_within);
+    assert_eq!(background(&styled, ring), Some(GREEN), "not cascaded yet");
+    assert!(styled.restyle_for_raised_states(), "a left-state rule is live");
+    assert_eq!(background(&styled, ring), Some(RED));
+    assert!(
+        !styled.restyle_for_raised_states() || background(&styled, ring) == Some(RED),
+        "running it again changes nothing"
+    );
+}
