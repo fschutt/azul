@@ -38,7 +38,9 @@ fn cloud(refused: &'static [&'static str]) -> Arc<Fake> {
                 ),
             });
         }
-        let signed_with = header(call, "authorization").unwrap_or_default().to_string();
+        let signed_with = header(call, "authorization")
+            .unwrap_or_default()
+            .to_string();
         if refused
             .iter()
             .any(|key| signed_with.contains(&format!("Credential={key}/")))
@@ -66,8 +68,7 @@ fn cloud(refused: &'static [&'static str]) -> Arc<Fake> {
 
 /// The drive of the first bundle (AKID1, good for hours by its clock).
 fn drive(fake: &Arc<Fake>, dir: &TempDir) -> AzlinDrive {
-    let first =
-        DriveBundle::parse(&bundle("AKID1", "2026-10-09T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-09T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let keyring = Arc::new(MemoryKeyring::new());
     keyring
         .set(&keyring_key("d_1"), &first.session().to_keyring_secret())
@@ -120,5 +121,34 @@ fn a_head_the_bucket_keeps_refusing_without_a_body_does_not_spend_a_token_each_t
         refreshes(&fake),
         1,
         "one refresh to rule out expired credentials, not one per HEAD"
+    );
+}
+
+#[test]
+fn a_request_refused_for_a_skewed_clock_says_the_clock_is_off() {
+    use azul_storage::{DriveError, ServiceError};
+
+    use crate::user_errors::{Class, Code, Lang, UserError};
+
+    let skewed = DriveError::Service(ServiceError {
+        status: 403,
+        code: String::from("RequestTimeTooSkewed"),
+        message: String::from(
+            "The difference between the request time and the current time is too large.",
+        ),
+        ..ServiceError::default()
+    });
+    let user = UserError::from_drive_error(&skewed).expect("the table words it");
+    assert_eq!(user.code, Code::ClockSkew);
+    assert_eq!(user.class(), Class::Fatal);
+    assert!(
+        user.message(Lang::En).contains("clock"),
+        "{}",
+        user.message(Lang::En)
+    );
+    assert!(
+        user.message(Lang::De).contains("Uhr"),
+        "{}",
+        user.message(Lang::De)
     );
 }

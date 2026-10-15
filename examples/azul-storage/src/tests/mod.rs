@@ -26,6 +26,8 @@ mod fake_bucket;
 mod multipart;
 /// Uploads that must hold the bytes a scan named, resumed after a dropped connection.
 mod checked_upload;
+/// A request refused because this computer's clock is off, with or without a body.
+mod clock_skew;
 /// An S3 drive's requests through a router (the endpoint failover's seam).
 mod router;
 /// A request and its answer as HTTP/1.1 bytes (S3 over iroh).
