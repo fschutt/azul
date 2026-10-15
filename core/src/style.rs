@@ -785,6 +785,11 @@ fn match_pseudo_selector(
             expected_path_ending,
             is_last_content_group,
         ),
+        CssPathPseudoSelector::FocusWithin => match_interactive_pseudo(
+            &CssPathPseudoSelector::FocusWithin,
+            expected_path_ending,
+            is_last_content_group,
+        ),
         CssPathPseudoSelector::Backdrop => match_interactive_pseudo(
             &CssPathPseudoSelector::Backdrop,
             expected_path_ending,

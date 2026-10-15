@@ -1667,8 +1667,8 @@ impl CssPropertyCache {
             css::{
                 CssDeclaration,
                 CssPathPseudoSelector::{
-                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, Hover,
-                    Placeholder, SeatFocus,
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, FocusWithin,
+                    Hover, Placeholder, SeatFocus,
                 },
                 CssPathSelector, CssRuleBlock,
             },
@@ -1858,19 +1858,20 @@ impl CssPropertyCache {
                 // path ends with, the resting pass takes every other rule. A
                 // node's entries come out pass by pass in this order, and rule
                 // by rule (cascade order) within a pass.
-                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 10] = [
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 11] = [
                     (None, PseudoStateType::Normal),
                     (Some(Hover), PseudoStateType::Hover),
                     (Some(Active), PseudoStateType::Active),
                     (Some(Focus), PseudoStateType::Focus),
                     (Some(SeatFocus), PseudoStateType::SeatFocus),
                     (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(FocusWithin), PseudoStateType::FocusWithin),
                     (Some(Dragging), PseudoStateType::Dragging),
                     (Some(DragOver), PseudoStateType::DragOver),
                     (Some(Placeholder), PseudoStateType::Placeholder),
                     (Some(Backdrop), PseudoStateType::Backdrop),
                 ];
-                let backdrop_pass: u16 = 1 << 9;
+                let backdrop_pass: u16 = 1 << (passes.len() - 1);
                 // Per rule, one bit per pass it ends in; and the same bits
                 // only where its @-conditions hold under this context. Both
                 // belong to the rule, so they are answered once, not per node.
@@ -2035,6 +2036,7 @@ impl CssPropertyCache {
                 PseudoStateType::Active,
                 PseudoStateType::Focus,
                 PseudoStateType::FocusVisible,
+                PseudoStateType::FocusWithin,
                 PseudoStateType::SeatFocus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
@@ -3280,7 +3282,9 @@ impl CssPropertyCache {
         //   through to the host's normal value, which is what makes an
         //   unstyled prompt inherit the field's font.
         // - `:focus-visible` > `:focus` (a ring declared for seen focus wins
-        //   over the plain focus face) > `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
+        //   over the plain focus face) > `:focus-within` (a frame's ring for
+        //   the focus inside it; on a focused node `:focus` says more) >
+        //   `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
         //   focus) > `:active` > `:dragging` > `:drag-over` (both above
         //   `:hover`) > `:hover`.
         // - `:backdrop` (GTK: the window is not the active one). A WINDOW
@@ -3295,6 +3299,7 @@ impl CssPropertyCache {
             (node_state.placeholder, PseudoStateType::Placeholder),
             (node_state.focus_visible, PseudoStateType::FocusVisible),
             (node_state.focused, PseudoStateType::Focus),
+            (node_state.focus_within, PseudoStateType::FocusWithin),
             (node_state.seat_focused, PseudoStateType::SeatFocus),
             (node_state.active, PseudoStateType::Active),
             (node_state.dragging, PseudoStateType::Dragging),

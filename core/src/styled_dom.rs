@@ -2189,6 +2189,55 @@ impl StyledDom {
         )
     }
 
+    /// `:focus-within` on/off for `nodes`.
+    #[must_use]
+    pub fn restyle_nodes_focus_within(&mut self, nodes: &[NodeId], on: bool) -> RestyleNodes {
+        self.restyle_nodes_state(
+            nodes,
+            on,
+            |state, val| state.focus_within = val,
+            azul_css::dynamic_selector::PseudoStateType::FocusWithin,
+        )
+    }
+
+    /// `node` and its ancestors up to the root, `node` first; empty for an
+    /// id outside this DOM.
+    fn self_and_ancestors(&self, node: NodeId) -> Vec<NodeId> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut chain = Vec::new();
+        let mut next = (node.index() < hierarchy.len()).then_some(node);
+        while let Some(n) = next {
+            chain.push(n);
+            next = hierarchy[n].parent_id();
+        }
+        chain
+    }
+
+    /// Which nodes drop and which take `:focus-within` when the focus moves
+    /// from `lost` to `gained`: the two ancestor chains without the part
+    /// they share, which holds the focus before and after.
+    fn focus_within_change(
+        &self,
+        lost: Option<NodeId>,
+        gained: Option<NodeId>,
+    ) -> (Vec<NodeId>, Vec<NodeId>) {
+        let old_chain = lost.map(|n| self.self_and_ancestors(n)).unwrap_or_default();
+        let new_chain = gained
+            .map(|n| self.self_and_ancestors(n))
+            .unwrap_or_default();
+        let dropped = old_chain
+            .iter()
+            .copied()
+            .filter(|n| !new_chain.contains(n))
+            .collect();
+        let taken = new_chain
+            .iter()
+            .copied()
+            .filter(|n| !old_chain.contains(n))
+            .collect();
+        (dropped, taken)
+    }
+
     /// `:focus-visible` on/off for `nodes`.
     #[must_use]
     pub fn restyle_nodes_focus_visible(&mut self, nodes: &[NodeId], visible: bool) -> RestyleNodes {
@@ -2542,6 +2591,18 @@ impl StyledDom {
             }
             if let Some(new) = focus.gained_focus {
                 let changes = self.restyle_nodes_focus(&[new], true);
+                process_changes(changes);
+            }
+            // `:focus-within` follows the focus up the tree: the chain the
+            // focus left drops it, the chain it entered takes it, and the
+            // ancestors both share keep it without a restyle.
+            let (dropped, taken) = self.focus_within_change(focus.lost_focus, focus.gained_focus);
+            if !dropped.is_empty() {
+                let changes = self.restyle_nodes_focus_within(&dropped, false);
+                process_changes(changes);
+            }
+            if !taken.is_empty() {
+                let changes = self.restyle_nodes_focus_within(&taken, true);
                 process_changes(changes);
             }
         }

@@ -474,6 +474,7 @@ pub fn pseudo_selector_from_str<'a>(
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
         "focus-visible" => Ok(CssPathPseudoSelector::FocusVisible),
+        "focus-within" => Ok(CssPathPseudoSelector::FocusWithin),
         "seat-focus" => Ok(CssPathPseudoSelector::SeatFocus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),
