@@ -1033,6 +1033,28 @@ mod tests {
     }
 
     #[test]
+    fn a_scope_follows_its_nodes_and_takes_in_their_generated_nodes() {
+        // Old arena: 0 (root) > 1 (leaf), 2 > 3. Node 1 got a `::before` (two
+        // new nodes after it), node 2 an `::after` (two new nodes at the end).
+        let moved = Moved {
+            old_to_new: alloc::vec![0, 1, 4, 5],
+            old_end: alloc::vec![3, 1, 3, 3],
+            new_end: alloc::vec![7, 3, 7, 5],
+            new_len: 8,
+        };
+        let range = |start, end| CssScopeRange { start, end };
+        assert_eq!(moved.range(range(0, 3)), range(0, 7), "the whole document");
+        assert_eq!(
+            moved.range(range(1, 1)),
+            range(1, 3),
+            "a leaf's subtree takes in its generated nodes"
+        );
+        assert_eq!(moved.range(range(2, 2)), range(4, 4), "a single node stays one");
+        assert_eq!(moved.range(range(2, 3)), range(4, 7));
+        assert_eq!(moved.range(range(9, 9)), range(13, 13), "past the end stays past it");
+    }
+
+    #[test]
     fn a_reset_by_a_sibling_replaces_the_counter_and_a_childs_ends_with_its_parent() {
         let mut counters = Counters::default();
         // Siblings 1 and 2 under node 0 both reset `c`: one counter, not two.

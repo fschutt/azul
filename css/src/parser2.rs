@@ -5487,4 +5487,42 @@ mod invalid_selector_tests {
             Ok(CssPathPseudoSelector::Last)
         );
     }
+
+    #[test]
+    fn a_generated_pseudo_element_is_a_child_of_its_host() {
+        use crate::css::CssPathSelector::{Class, DirectChildren, Global, PseudoSelector, Type};
+        let (rules, warnings) = parse(
+            "div::before { content: \"a\"; } p:after { content: \"b\"; } \
+             ::after { content: \"c\"; } .go:hover::after { content: \"d\"; }",
+        );
+        assert_eq!(warnings, 0, "both spellings parse");
+        assert_eq!(
+            rules[0].path.selectors.as_ref(),
+            &[Type(NodeTypeTag::Div), DirectChildren, Type(NodeTypeTag::Before)]
+        );
+        assert_eq!(
+            rules[2].path.selectors.as_ref(),
+            &[Global, DirectChildren, Type(NodeTypeTag::After)],
+            "a bare pseudo-element has any element for its host"
+        );
+        assert_eq!(
+            rules[3].path.selectors.as_ref(),
+            &[
+                Class("go".into()),
+                DirectChildren,
+                Type(NodeTypeTag::After),
+                PseudoSelector(CssPathPseudoSelector::Hover),
+            ],
+            "the host's state moves onto the pseudo-element, which shares it"
+        );
+        assert_eq!(
+            paths(&rules),
+            ["div::before", "p::after", "*::after", ".go::after:hover"]
+        );
+        assert_eq!(
+            parse_css_path(".go::after:hover").map(|p| p.selectors.as_ref().to_vec()),
+            Ok(rules[3].path.selectors.as_ref().to_vec()),
+            "the printed path parses back to the same path"
+        );
+    }
 }
