@@ -572,7 +572,7 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
                     let extension = key.rsplit_once('.').map_or("", |(_, ext)| ext).to_string();
                     match files.bytes(&media, drive.as_ref()) {
                         Ok(bytes) => AudioFileDecoder::create(
-                            U8Vec::from_vec(bytes.as_ref().clone()),
+                            U8Vec::from_vec(bytes.to_vec()),
                             AzString::from(extension),
                         ),
                         Err(e) => {
