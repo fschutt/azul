@@ -205,7 +205,9 @@ def body(args, logs, out):
     tmp = tempfile.mkdtemp(prefix="azsetup-target-")
 
     def start(name, extra):
-        app = e2e.App(name, binary, ["--data-dir", data_dir] + extra, args.debug_port, logs, args.timeout)
+        # The checks read English words, whatever the system's language.
+        app = e2e.App(name, binary, ["--data-dir", data_dir, "--language", "en"] + extra,
+                      args.debug_port, logs, args.timeout)
         app.out = out
         app.until("the debug server", lambda: app.op("wait_frame") is not None)
         return app

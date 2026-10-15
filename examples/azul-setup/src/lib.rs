@@ -64,7 +64,9 @@ use azul_appkit::{
     ui as kit,
 };
 
-use crate::model::{Copier, Frame, Screen, Step, COMPONENTS, LICENSE, MB, SCREENS, STEPS};
+use azul_appkit::l10n::{t_args, t_label, Arg};
+
+use crate::model::{Copier, Frame, Logged, Screen, Step, COMPONENTS, LICENSE, MB, SCREENS, STEPS};
 
 /// What azul-appkit's switches know about AzSetup (`--screen` names a
 /// wizard step, the settings or the About box).
@@ -88,9 +90,9 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keys AzSetup answers.
 pub const SHORTCUTS: [Shortcut; 3] = [
-    Shortcut::new("Setup", "F1", "About AzSetup"),
-    Shortcut::new("Setup", "Escape", "Close the About box, or ask to exit Setup"),
-    Shortcut::new("Setup", "Tab", "Move between the page's controls and the buttons"),
+    Shortcut::new("azsetup-group-setup", "F1", "azsetup-shortcut-about"),
+    Shortcut::new("azsetup-group-setup", "Escape", "azsetup-shortcut-escape"),
+    Shortcut::new("azsetup-group-setup", "Tab", "azsetup-shortcut-tab"),
 ];
 
 // ==== State ====
@@ -134,6 +136,122 @@ fn strs(items: &[&str]) -> StringVec {
     StringVec::from_vec(items.iter().map(|t| s(t)).collect())
 }
 
+/// A line of the copying's log, said.
+fn log_line(line: &Logged) -> AzString {
+    let (key, path) = match line {
+        Logged::Created(path) => ("azsetup-log-created", path),
+        Logged::Copied(path) => ("azsetup-log-copied", path),
+    };
+    AzString::from(t_args(key, &[("path", Arg::from(path.as_str()))]))
+}
+
+/// A key of the resources, said in the window's language.
+fn w(key: &str) -> AzString {
+    azul_appkit::l10n::label(key)
+}
+
+/// Keys of the resources, said (a choice's options).
+fn words(keys: &[&str]) -> StringVec {
+    azul_appkit::l10n::labels(keys)
+}
+
+/// `keys` said in the language of this pass; words that are no key stay as they are (a page
+/// the widget handed back already said).
+fn said_strings(keys: &StringVec) -> StringVec {
+    StringVec::from_vec(keys.as_ref().iter().map(|key| w(key.as_str())).collect())
+}
+
+fn said_option(option: &WizardOption) -> WizardOption {
+    let mut said = option.clone();
+    said.label = w(option.label.as_str());
+    said.description = w(option.description.as_str());
+    said
+}
+
+fn said_option_vec(options: &WizardOptionVec) -> WizardOptionVec {
+    WizardOptionVec::from_vec(options.as_ref().iter().map(said_option).collect())
+}
+
+/// The components page as the window says it (its rows and intro are keys in the state).
+fn said_components(page: &WizardComponentsPage) -> WizardComponentsPage {
+    let mut said = page.clone();
+    let rows: Vec<WizardComponent> = page
+        .components
+        .as_ref()
+        .iter()
+        .map(|c| {
+            let mut row = c.clone();
+            row.label = w(c.label.as_str());
+            row.description = w(c.description.as_str());
+            row
+        })
+        .collect();
+    said.components = WizardComponentVec::from_vec(rows);
+    said.intro = w(page.intro.as_str());
+    said
+}
+
+/// The options page as the window says it.
+fn said_options_page(page: &WizardOptionsPage) -> WizardOptionsPage {
+    let mut said = page.clone();
+    said.options = said_option_vec(&page.options);
+    said.intro = w(page.intro.as_str());
+    said
+}
+
+/// The finish page as the window says it.
+fn said_finish(page: &WizardFinishPage) -> WizardFinishPage {
+    let mut said = page.clone();
+    said.title = w("azsetup-finish-title");
+    said.text = paragraphs(&["azsetup-finish-done", "azsetup-finish-where"]);
+    said.options = said_option_vec(&page.options);
+    said
+}
+
+fn said_choice(choice: &ShellSettingChoice) -> ShellSettingChoice {
+    let mut said = choice.clone();
+    said.options = said_strings(&choice.options);
+    said
+}
+
+fn said_value(value: &ShellSettingValue) -> ShellSettingValue {
+    match value {
+        ShellSettingValue::Choice(choice) => ShellSettingValue::Choice(said_choice(choice)),
+        ShellSettingValue::Radio(choice) => ShellSettingValue::Radio(said_choice(choice)),
+        other => other.clone(),
+    }
+}
+
+/// The AzOffice settings as the window says them: the categories, every setting's label,
+/// section, help and choices (the dialog in the state keeps keys).
+fn said_settings(dialog: &ShellSettingsDialog) -> ShellSettingsDialog {
+    let mut said = dialog.clone();
+    said.categories = said_strings(&dialog.categories);
+    let settings: Vec<ShellSetting> = dialog
+        .settings
+        .as_ref()
+        .iter()
+        .map(|setting| {
+            let mut row = setting.clone();
+            row.label = w(setting.label.as_str());
+            row.help = w(setting.help.as_str());
+            row.section = w(setting.section.as_str());
+            row.value = said_value(&setting.value);
+            row.default_value = said_value(&setting.default_value);
+            row.applied = said_value(&setting.applied);
+            row
+        })
+        .collect();
+    said.settings = ShellSettingVec::from_vec(settings);
+    said
+}
+
+/// Paragraphs of the resources' keys, a blank line between them.
+fn paragraphs(keys: &[&str]) -> AzString {
+    let said: Vec<String> = keys.iter().map(|key| azul_appkit::l10n::t(key)).collect();
+    AzString::from(said.join("\n\n"))
+}
+
 /// `<home>/AzOffice`, or a folder next to the program.
 fn default_folder() -> String {
     let home = FilePath::get_home_dir()
@@ -151,6 +269,8 @@ fn free_space(path: &str) -> Option<u64> {
         .map(|d| d.free)
 }
 
+/// The components page with keys of the resources for its words: the pages are made before
+/// the window knows its language, and the layout says them ([`said_components`]).
 fn components_page() -> WizardComponentsPage {
     let rows: Vec<WizardComponent> = COMPONENTS
         .iter()
@@ -162,35 +282,31 @@ fn components_page() -> WizardComponentsPage {
                 .with_description(s(description))
         })
         .collect();
-    WizardComponentsPage::create(WizardComponentVec::from_vec(rows)).with_intro(s(
-        "Select the components you want to install; clear the ones you do not.",
-    ))
+    WizardComponentsPage::create(WizardComponentVec::from_vec(rows))
+        .with_intro(s("azsetup-components-intro"))
 }
 
 fn options_page() -> WizardOptionsPage {
     WizardOptionsPage::create(WizardOptionVec::from_vec(vec![
-        WizardOption::create(s("Create a desktop shortcut"), true),
-        WizardOption::create(s("Add AzOffice to the PATH"), false)
-            .with_description(s("So a terminal finds azwriter, azsheets and azslides.")),
-        WizardOption::create(s("Just for me"), true).with_group(1),
-        WizardOption::create(s("For everyone on this computer"), false)
+        WizardOption::create(s("azsetup-option-shortcut"), true),
+        WizardOption::create(s("azsetup-option-path"), false)
+            .with_description(s("azsetup-option-path-text")),
+        WizardOption::create(s("azsetup-option-just-me"), true).with_group(1),
+        WizardOption::create(s("azsetup-option-everyone"), false)
             .with_group(1)
-            .with_description(s("Needs administrator rights.")),
+            .with_description(s("azsetup-option-everyone-text")),
     ]))
 }
 
 fn finish_page() -> WizardFinishPage {
     WizardFinishPage::create(
-        s("Completing the AzOffice Setup Wizard"),
-        s(
-            "Setup has finished installing AzOffice on your computer.\n\nThe programs are in your \
-           applications folder.",
-        ),
+        s("azsetup-finish-title"),
+        s("azsetup-finish-done"),
     )
     .with_logo(s("check_circle"))
     .with_options(WizardOptionVec::from_vec(vec![
-        WizardOption::create(s("Launch AzOffice now"), true),
-        WizardOption::create(s("Open the AzOffice settings"), false),
+        WizardOption::create(s("azsetup-finish-launch"), true),
+        WizardOption::create(s("azsetup-finish-settings"), false),
     ]))
 }
 
@@ -339,44 +455,44 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
     let settings = vec![
         ShellSetting::create(
             s("general.reopen"),
-            s("Reopen the last documents"),
+            s("azsetup-set-reopen"),
             0,
-            s("Startup"),
+            s("azsetup-group-startup"),
             ShellSettingValue::Toggle(true),
         )
-        .with_help(s("Open what was open when AzOffice closed.")),
+        .with_help(s("azsetup-set-reopen-help")),
         ShellSetting::create(
             s("general.start"),
-            s("Start screen"),
+            s("azsetup-set-start"),
             0,
-            s("Startup"),
+            s("azsetup-group-startup"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
-                strs(&["Recent documents", "Blank document", "Templates"]),
+                strs(&["azsetup-start-recent", "azsetup-start-blank", "azsetup-start-templates"]),
                 0,
             )),
         ),
         ShellSetting::create(
             s("general.folder"),
-            s("Documents folder"),
+            s("azsetup-set-folder"),
             0,
-            s("Files"),
+            s("azsetup-group-files"),
             ShellSettingValue::Path(s(&documents)),
         )
-        .with_help(s("Where Save puts a new document.")),
+        .with_help(s("azsetup-set-folder-help")),
         ShellSetting::create(
             s("general.autosave"),
-            s("Autosave every"),
+            s("azsetup-set-autosave"),
             0,
-            s("Files"),
+            s("azsetup-group-files"),
             ShellSettingValue::Number(
                 ShellSettingNumber::create(10.0, 1.0, 120.0).with_unit(s("min")),
             ),
         ),
         ShellSetting::create(
             s("general.language"),
-            s("Interface language"),
+            s("azsetup-set-language"),
             0,
-            s("Language"),
+            s("azsetup-group-language"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
                 strs(&["English", "Deutsch", "Francais"]),
                 0,
@@ -386,17 +502,17 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
         .with_keywords(s("locale translation")),
         ShellSetting::create(
             s("editing.author"),
-            s("Author name"),
+            s("azsetup-set-author"),
             1,
-            s("Text"),
+            s("azsetup-group-text"),
             ShellSettingValue::Text(s("")),
         )
-        .with_help(s("Written into every new document's properties.")),
+        .with_help(s("azsetup-set-author-help")),
         ShellSetting::create(
             s("editing.font_size"),
-            s("Default font size"),
+            s("azsetup-set-font-size"),
             1,
-            s("Text"),
+            s("azsetup-group-text"),
             ShellSettingValue::Number(
                 ShellSettingNumber::create(11.0, 6.0, 72.0).with_unit(s("pt")),
             ),
@@ -404,23 +520,23 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
         .with_keywords(s("zoom text")),
         ShellSetting::create(
             s("editing.palette"),
-            s("Command palette"),
+            s("azsetup-set-palette"),
             1,
-            s("Keyboard"),
+            s("azsetup-group-keyboard"),
             shortcut(true, true, VirtualKeyCode::P),
         ),
         ShellSetting::create(
             s("editing.quick_open"),
-            s("Quick open"),
+            s("azsetup-set-quick-open"),
             1,
-            s("Keyboard"),
+            s("azsetup-group-keyboard"),
             shortcut(true, false, VirtualKeyCode::P),
         ),
         ShellSetting::create(
             s("appearance.theme"),
-            s("Theme"),
+            s("azsetup-set-theme"),
             2,
-            s("Theme"),
+            s("azsetup-group-theme"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
                 strs(&["Flat", "Flora"]),
                 0,
@@ -432,50 +548,55 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
         ))),
         ShellSetting::create(
             s("appearance.mode"),
-            s("Mode"),
+            s("azsetup-set-mode"),
             2,
-            s("Theme"),
+            s("azsetup-group-theme"),
             ShellSettingValue::Radio(ShellSettingChoice::create(
-                strs(&["Light", "Dark", "System"]),
+                strs(&["azsetup-mode-light", "azsetup-mode-dark", "azsetup-mode-system"]),
                 2,
             )),
         )
         .with_keywords(s("dark light night")),
         ShellSetting::create(
             s("appearance.accent"),
-            s("Accent colour"),
+            s("azsetup-set-accent"),
             2,
-            s("Colours"),
+            s("azsetup-group-colours"),
             ShellSettingValue::Color(ColorU::rgba(47, 74, 133, 255)),
         ),
         ShellSetting::create(
             s("appearance.zoom"),
-            s("Interface zoom"),
+            s("azsetup-set-zoom"),
             2,
-            s("Size"),
+            s("azsetup-group-size"),
             ShellSettingValue::Slider(
                 ShellSettingNumber::create(100.0, 50.0, 200.0).with_unit(s("%")),
             ),
         ),
         ShellSetting::create(
             s("advanced.gpu"),
-            s("Hardware acceleration"),
+            s("azsetup-set-gpu"),
             3,
-            s("Performance"),
+            s("azsetup-group-performance"),
             ShellSettingValue::Toggle(true),
         )
         .with_requires_restart(true)
-        .with_help(s("Draw with the graphics card.")),
+        .with_help(s("azsetup-set-gpu-help")),
         ShellSetting::create(
             s("advanced.telemetry"),
-            s("Send usage statistics"),
+            s("azsetup-set-telemetry"),
             3,
-            s("Privacy"),
+            s("azsetup-group-privacy"),
             ShellSettingValue::Toggle(false),
         )
-        .with_help(s("AzOffice sends nothing; this is a demonstration.")),
+        .with_help(s("azsetup-set-telemetry-help")),
     ];
-    ShellSettingsDialog::create(strs(&["General", "Editing", "Appearance", "Advanced"]))
+    ShellSettingsDialog::create(strs(&[
+        "azsetup-cat-general",
+        "azsetup-cat-editing",
+        "azsetup-cat-appearance",
+        "azsetup-cat-advanced",
+    ]))
         .with_category_icons(strs(&["tune", "edit", "palette", "build"]))
         .with_settings(ShellSettingVec::from_vec(with_remembered(settings, theme, mode, saved)))
         .with_apply_mode(ShellSettingsApplyMode::platform())
@@ -492,10 +613,12 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
     match s_.step {
         Step::Welcome => (
             WizardWelcomePage::create(
-                s("Welcome to the AzOffice Setup Wizard"),
-                s("This will install AzOffice 1.0 on your computer.\n\nIt is recommended that you \
-                   close all other applications before continuing.\n\nClick Next to continue, or \
-                   Cancel to exit Setup."),
+                w("azsetup-welcome-title"),
+                paragraphs(&[
+                    "azsetup-welcome-install",
+                    "azsetup-welcome-close",
+                    "azsetup-welcome-next",
+                ]),
             )
             .with_logo(s("install_desktop"))
             .dom(),
@@ -510,8 +633,7 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
         }
         Step::Destination => {
             let mut p = WizardDestinationPage::create(s(&s_.path), s_.components.total_bytes())
-                .with_intro(s("Setup will install AzOffice into the following folder. To use \
-                               another folder, type it or click Browse."))
+                .with_intro(w("azsetup-destination-intro"))
                 .with_on_event(app.clone(), on_page);
             if let Some(free) = s_.available {
                 p = p.with_available(free);
@@ -520,11 +642,11 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
             (p.dom(), reason)
         }
         Step::Components => {
-            let p = s_.components.clone().with_on_event(app.clone(), on_page);
+            let p = said_components(&s_.components).with_on_event(app.clone(), on_page);
             let reason = p.blocked_reason();
             (p.dom(), reason)
         }
-        Step::Options => (s_.options.clone().with_on_event(app.clone(), on_page).dom(), s("")),
+        Step::Options => (said_options_page(&s_.options).with_on_event(app.clone(), on_page).dom(), s("")),
         Step::Ready => {
             let ticked: Vec<String> = s_
                 .components
@@ -532,7 +654,7 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
                 .as_ref()
                 .iter()
                 .filter(|c| c.checked && c.size_bytes > 0)
-                .map(|c| c.label.as_str().to_string())
+                .map(|c| t_label(c.label.as_str()))
                 .collect();
             let tasks: Vec<String> = s_
                 .options
@@ -540,31 +662,30 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
                 .as_ref()
                 .iter()
                 .filter(|o| o.checked)
-                .map(|o| o.label.as_str().to_string())
+                .map(|o| t_label(o.label.as_str()))
                 .collect();
             let p = WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
-                .with_intro(s("Setup is ready to copy AzOffice onto this computer. Review the \
-                               choices below; go back to change one."))
-                .with_row(s("Destination folder"), s(&s_.path))
-                .with_row(s("Components"), s(&ticked.join(", ")))
-                .with_row(s("Additional tasks"), s(&tasks.join(", ")));
+                .with_intro(w("azsetup-ready-intro"))
+                .with_row(w("azsetup-row-destination"), s(&s_.path))
+                .with_row(w("azsetup-row-components"), s(&ticked.join(", ")))
+                .with_row(w("azsetup-row-tasks"), s(&tasks.join(", ")));
             (p.dom(), s(""))
         }
         Step::Installing => {
             let done = s_.copier.is_done();
             let p = WizardProgressPage::create(s_.copier.percent())
-                .with_status(s(if done {
-                    "Installation complete."
+                .with_status(w(if done {
+                    "azsetup-installed"
                 } else {
-                    "Installing AzOffice..."
+                    "azsetup-installing"
                 }))
                 .with_current_item(s(&s_.copier.current))
-                .with_log(StringVec::from_vec(s_.copier.log.iter().map(|l| s(l)).collect()))
+                .with_log(StringVec::from_vec(s_.copier.log.iter().map(log_line).collect()))
                 .with_show_log(s_.show_log)
                 .with_on_event(app.clone(), on_page);
-            (p.dom(), s(if done { "" } else { "Copying files..." }))
+            (p.dom(), if done { s("") } else { w("azsetup-copying") })
         }
-        Step::Finish => (s_.finish.clone().with_on_event(app.clone(), on_page).dom(), s("")),
+        Step::Finish => (said_finish(&s_.finish).with_on_event(app.clone(), on_page).dom(), s("")),
     }
 }
 
@@ -576,25 +697,25 @@ fn wizard(s_: &Setup, app: &RefAny) -> Dom {
         Frame::Rail => WizardLayoutStyle::Rail,
         Frame::Side => WizardLayoutStyle::SidePanel,
     };
-    let labels: Vec<AzString> = STEPS.iter().map(|st| s(st.label())).collect();
-    WizardLayout::create(s("AzOffice Setup"), StringVec::from_vec(labels))
+    let labels: Vec<AzString> = STEPS.iter().map(|st| w(st.label())).collect();
+    WizardLayout::create(w("azsetup-title"), StringVec::from_vec(labels))
         .with_current_step(s_.step.index())
         .with_style(style)
-        .with_subtitle(s(s_.step.subtitle()))
+        .with_subtitle(w(s_.step.subtitle()))
         .with_icon(s("install_desktop"))
         .with_labels(
-            s("< Back"),
-            s(if s_.step == Step::Ready {
-                "Install"
+            w("azsetup-back"),
+            w(if s_.step == Step::Ready {
+                "azsetup-install"
             } else {
-                "Next >"
+                "azsetup-next"
             }),
-            s("Finish"),
-            s(if s_.step == Step::Finish {
-                ""
+            w("azsetup-finish"),
+            if s_.step == Step::Finish {
+                s("")
             } else {
-                "Cancel"
-            }),
+                w("azsetup-cancel")
+            },
         )
         .with_validation(reason)
         .with_can_go_back(s_.step.can_go_back())
@@ -608,34 +729,28 @@ fn wizard(s_: &Setup, app: &RefAny) -> Dom {
 fn modals(s_: &Setup, app: &RefAny) -> Vec<Dom> {
     let question = MessageBox::create(
         MessageBoxKind::Question,
-        s("Exit Setup?"),
-        s(
-            "Setup is not complete. If you exit now, AzOffice will not be installed.\n\nYou may \
-           run Setup again at another time.",
-        ),
+        w("azsetup-exit-title"),
+        paragraphs(&["azsetup-exit-text", "azsetup-exit-later"]),
     )
-    .with_buttons(strs(&["Yes", "No"]), 1)
+    .with_buttons(words(&["azsetup-yes", "azsetup-no"]), 1)
     .with_on_event(app.clone(), on_confirm)
     .dom();
-    let about = AboutDialog::create(s("AzOffice Setup"), s("Version 1.0.0"))
+    let about = AboutDialog::create(w("azsetup-title"), w("azsetup-version"))
         .with_icon(s("install_desktop"))
-        .with_description(s(
-            "A demonstration of azul's install wizard pages, settings dialog \
-                             and standard dialogs. It installs nothing.",
-        ))
-        .with_copyright(s("Copyright 2026 the azul contributors"))
+        .with_description(w("azsetup-about-text"))
+        .with_copyright(w("azsetup-copyright"))
         .with_credit(s("azul"), s("MIT"))
         .with_credit(s("Material Icons"), s("Apache-2.0"))
         .with_on_event(app.clone(), on_about)
         .dom();
     vec![
         Modal::create(question)
-            .with_title(s("AzOffice Setup"))
+            .with_title(w("azsetup-title"))
             .with_open(s_.confirm_cancel)
             .with_on_close(app.clone(), on_modal_close)
             .dom(),
         Modal::create(about)
-            .with_title(s("About AzOffice Setup"))
+            .with_title(w("azsetup-about-title"))
             .with_open(s_.about_open)
             .with_on_close(app.clone(), on_modal_close)
             .dom(),
@@ -672,7 +787,9 @@ fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>, wizard:
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
+    // The layout's language says the words; reading the mode makes a light / dark switch
+    // rebuild the window.
+    azul_appkit::l10n::begin_layout(&info);
     let _mode = info.get_mode();
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<Setup>() else {
@@ -680,7 +797,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     window_root(
         wizard(&guard, &app),
-        "AzOffice Setup",
+        &azul_appkit::l10n::t("azsetup-title"),
         &app,
         modals(&guard, &app),
         true,
@@ -688,17 +805,16 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 extern "C" fn settings_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     let _mode = info.get_mode();
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<Setup>() else {
         return Dom::create_body();
     };
-    let dialog = guard
-        .settings
-        .clone()
+    let dialog = said_settings(&guard.settings)
         .with_on_event(app.clone(), on_settings)
         .dom();
-    window_root(dialog, "AzOffice Settings", &app, Vec::new(), false)
+    window_root(dialog, &azul_appkit::l10n::t("azsetup-settings-title"), &app, Vec::new(), false)
 }
 
 // ==== Callbacks ====
@@ -710,7 +826,7 @@ fn ticked(components: &WizardComponentsPage) -> Vec<(String, u64)> {
         .as_ref()
         .iter()
         .filter(|c| c.checked)
-        .map(|c| (c.label.as_str().to_string(), c.size_bytes))
+        .map(|c| (t_label(c.label.as_str()), c.size_bytes))
         .collect()
 }
 
@@ -972,7 +1088,7 @@ fn setup_window(kit_ref: &RefAny) -> WindowCreateOptions {
         (WizardLayoutSize::Compact.width(), WizardLayoutSize::Compact.height() + 34.0),
         on_window_created,
     );
-    window.window_state.title = s("AzOffice Setup");
+    window.window_state.title = w("azsetup-title");
     window
 }
 
@@ -980,7 +1096,7 @@ fn setup_window(kit_ref: &RefAny) -> WindowCreateOptions {
 fn settings_window() -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(settings_layout);
     window.window_state.size.dimensions = LogicalSize::create(920.0, 640.0);
-    window.window_state.title = s("AzOffice Settings");
+    window.window_state.title = w("azsetup-settings-title");
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window
 }
@@ -990,7 +1106,7 @@ fn first_settings_window(kit_ref: &RefAny) -> WindowCreateOptions {
     kit::keep_default_size(kit_ref);
     let mut window =
         kit::window_options(kit_ref, settings_layout, (920.0, 640.0), (640.0, 480.0), on_window_created);
-    window.window_state.title = s("AzOffice Settings");
+    window.window_state.title = w("azsetup-settings-title");
     window
 }
 
@@ -1034,6 +1150,15 @@ pub fn start() {
             },
         )
     };
+    // The words first: the pages built below are said in the language chosen (`--language`,
+    // Settings; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let path = default_folder();
     let state = Setup {
         step,
@@ -1052,7 +1177,6 @@ pub fn start() {
         kit: kit_ref.clone(),
     };
     announce(state.step);
-    let config = kit::app_config(&kit_ref);
     let app = App::create(RefAny::new(state), config);
     let window = if screen == Screen::Settings {
         println!("AZSETUP_SCREEN settings");
