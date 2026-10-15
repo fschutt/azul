@@ -318,6 +318,10 @@ azdrive-preview-folder = Ein Ordner: Öffne ihn, um zu sehen, was er enthält.
 azdrive-queue-waiting = { $count } in der Warteschlange
 azdrive-queue-progress = { $done } von { $total } ({ $percent } %)
 azdrive-undo-rename = Umbenennen von „{ $name }“ rückgängig machen
+azdrive-close-waits = { $count ->
+    [one] Eine Übertragung oder Synchronisierung läuft noch: AzDrive schließt, wenn sie endet. Schließe noch einmal, um sie anzuhalten.
+   *[other] { $count } Übertragungen oder Synchronisierungen laufen noch: AzDrive schließt, wenn sie enden. Schließe noch einmal, um sie anzuhalten.
+ }
 azdrive-undo-delete = Löschen von { $count ->
         [one] einem Element
        *[other] { $count } Elementen

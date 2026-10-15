@@ -148,6 +148,7 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// The window's close while transfers, sync passes or an encryption run.
 mod closing;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
@@ -903,6 +904,9 @@ pub(crate) struct DriveState {
     /// The Azlin Bridge's settings (Options > Drives), read when the Options open.
     pub(crate) bridge: ui_bridge::BridgeView,
     pub clipboard: Option<ClipboardItems>,
+    /// A close was held while work ran (`closing`): the window closes once it ended, and a
+    /// second close stops it.
+    pub closing: bool,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
     pub undo: Vec<UndoOp>,
@@ -2918,6 +2922,7 @@ pub(crate) extern "C" fn on_job_done(
     }
     #[cfg(feature = "encryption")]
     encryption::show_pending_sheet(s);
+    closing::after_job(&mut info, s);
     Update::RefreshDom
 }
 
@@ -3081,6 +3086,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             EventFilter::Window(WindowEventFilter::Resized),
             app.clone(),
             actions::on_resized,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            closing::on_close_requested,
         );
     if s.column_drag.is_some() {
         body = body
@@ -3465,6 +3475,7 @@ pub fn start() {
             ui_bridge::BridgeView::default()
         },
         clipboard: None,
+        closing: false,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
         undo: Vec::new(),

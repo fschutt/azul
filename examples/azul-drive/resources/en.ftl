@@ -320,6 +320,10 @@ azdrive-preview-folder = A folder: open it to see what it holds.
 azdrive-queue-waiting = { $count } waiting
 azdrive-queue-progress = { $done } of { $total } ({ $percent }%)
 azdrive-undo-rename = Undo rename of "{ $name }"
+azdrive-close-waits = { $count ->
+    [one] A transfer or sync still runs: AzDrive closes when it ends. Close again to stop it.
+   *[other] { $count } transfers or syncs still run: AzDrive closes when they end. Close again to stop them.
+ }
 azdrive-undo-delete = Undo delete of { $count ->
         [one] one item
        *[other] { $count } items
