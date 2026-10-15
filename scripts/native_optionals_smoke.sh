@@ -241,6 +241,7 @@ smoke_lua() {
 smoke_ocaml() {
   local out="$WORK_DIR/ocaml"; rm -rf "$out"; mkdir -p "$out"
   cp "$CODEGEN_DIR"/ocaml/*.ml "$CODEGEN_DIR"/ocaml/*.mli "$out/" 2>/dev/null
+  rm -f "$out/hello_world.ml"
   cp "$SRC_DIR/ocaml.ml" "$out/smoke.ml" || return 1
   printf '(lang dune 3.0)\n' > "$out/dune-project"
   cat > "$out/dune" <<'DUNE'
@@ -265,10 +266,16 @@ DUNE
 smoke_cpp() {
   local out="$WORK_DIR/cpp"; mkdir -p "$out"
   local CXX; CXX="$(command -v clang++ || command -v g++)"
+  # A Command Line Tools install whose own libc++ headers are incomplete
+  # finds no <cstdint>; the SDK's copy is complete.
+  local extra=()
+  if [ "$(uname -s)" = Darwin ] && ! printf '#include <cstdint>\n' | "$CXX" -std=c++17 -x c++ -fsyntax-only - 2>/dev/null; then
+    extra=(-nostdinc++ -isystem "$(xcrun --show-sdk-path)/usr/include/c++/v1")
+  fi
   local std hdr
   for pair in "17:azul17.hpp" "2b:azul23.hpp"; do
     std="${pair%%:*}"; hdr="${pair#*:}"
-    "$CXX" -std=c++"$std" -O0 -w -I"$CODEGEN_DIR" -DAZUL_HEADER="\"$hdr\"" "$SRC_DIR/cpp.cpp" \
+    "$CXX" -std=c++"$std" -O0 -w "${extra[@]}" -I"$CODEGEN_DIR" -DAZUL_HEADER="\"$hdr\"" "$SRC_DIR/cpp.cpp" \
       -L"$LIB_DIR" -lazul -Wl,-rpath,"$LIB_DIR" -o "$out/smoke$std" || return 1
     "$out/smoke$std" || return 1
   done

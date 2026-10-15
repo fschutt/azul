@@ -1153,6 +1153,58 @@ pub fn generate_vec_from_std_vector_impl(
     }
 }
 
+/// Emit the constructors that let a parameter of an Option type take
+/// `std::nullopt`, a `std::optional<T>` or the value itself (C++17 and
+/// later): `FileDialog::openDirectory("Pick", std::nullopt, ...)`. A wrapper
+/// payload is moved in (`release()`); the template takes anything the
+/// payload type can be built from (a string literal for a `String`).
+pub fn emit_option_from_std_optional(
+    code: &mut String,
+    class_name: &str,
+    c_type_name: &str,
+    inner_type: &str,
+    c_inner_type: &str,
+    ir: &CodegenIR,
+) {
+    let wrapped = type_has_wrapper(inner_type, ir);
+    let payload = if wrapped { inner_type } else { c_inner_type };
+    let from_optional = if wrapped {
+        "std::move(*v).release()"
+    } else {
+        "*v"
+    };
+    let from_value = if wrapped {
+        format!("{}(std::forward<U>(u)).release()", payload)
+    } else {
+        format!("{}(std::forward<U>(u))", payload)
+    };
+    code.push_str(&format!(
+        "    {c}(std::nullopt_t) noexcept : inner_({ct}_none()) {{}}\r\n",
+        c = class_name,
+        ct = c_type_name
+    ));
+    code.push_str(&format!(
+        "    {c}(std::optional<{p}> v) : inner_(v ? {ct}_some({f}) : {ct}_none()) {{}}\r\n",
+        c = class_name,
+        p = payload,
+        ct = c_type_name,
+        f = from_optional
+    ));
+    code.push_str(&format!(
+        "    template <class U, class = std::enable_if_t<std::is_constructible<{p}, U&&>::value && \
+         !std::is_same<std::decay_t<U>, {c}>::value && !std::is_same<std::decay_t<U>, {ct}>::value>>\r\n",
+        p = payload,
+        c = class_name,
+        ct = c_type_name
+    ));
+    code.push_str(&format!(
+        "    {c}(U&& u) : inner_({ct}_some({v})) {{}}\r\n",
+        c = class_name,
+        ct = c_type_name,
+        v = from_value
+    ));
+}
+
 /// Emit `toStdOptional()` (+ the implicit `operator std::optional<T>`) for an
 /// Option wrapper class (C++17 and later). When the payload has a
 /// non-prefixed wrapper class, the conversion yields
