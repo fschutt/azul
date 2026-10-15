@@ -1149,3 +1149,5 @@ mod a_span_is_one_box_around_all_of_its_text;
 mod a_parent_grows_with_its_restyled_child;
 #[path = "a_tweened_block_margin_moves_its_box_on_the_retained_tree.rs"]
 mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
+#[path = "a_superscript_rises_by_its_parent_inline_boxs_font_size.rs"]
+mod a_superscript_rises_by_its_parent_inline_boxs_font_size;
