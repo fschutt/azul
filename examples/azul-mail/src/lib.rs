@@ -234,6 +234,10 @@ pub(crate) struct MailApp {
     // -- compose windows --
     pub(crate) composes: Vec<ui_compose::Compose>,
     pub(crate) next_compose: u64,
+    /// File > Exit was chosen while message windows were open: each closes through its own
+    /// guard ("Save changes?", a send's answer), then the main window
+    /// (`ui_compose::quit_after_messages`). A Cancel on one of the questions clears it.
+    pub(crate) quitting: bool,
 
     // -- the To-Do bar --
     /// The Azlin data root (the kit's): the shared task store is under it.
@@ -401,6 +405,7 @@ impl MailApp {
             notice: String::new(),
             azlin_bans: HashMap::new(),
             composes: Vec::new(),
+            quitting: false,
             next_compose: 1,
             data_root,
             tasks: todo.tasks,

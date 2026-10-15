@@ -192,17 +192,25 @@ impl Compose {
     /// Closing the window waits: the mail is being sent, and the answer (sent, in the Outbox,
     /// refused) comes to this window.
     fn close_waits(&self) -> bool {
-        false
+        matches!(self.status, ComposeStatus::Sending)
     }
 
-    /// Whether the answer `done` to Send closes the window.
+    /// Whether the answer `done` to Send closes the window: a sent mail's always does; a mail
+    /// in the Outbox closes it when the user closed it while it was sent (the window says it
+    /// waits otherwise); a refusal never does, the window must say why.
     fn closes_after_send(&self, done: &send::SendStatus) -> bool {
-        matches!(done, send::SendStatus::Sent { .. })
+        match done {
+            send::SendStatus::Sent { .. } => true,
+            send::SendStatus::Queued { .. } => self.close_after_send,
+            send::SendStatus::Failed { .. } => false,
+        }
     }
 
-    /// Whether File > Exit (`quitting`) closes this window now.
-    pub(crate) fn closes_for_quit(&self, _quitting: bool) -> bool {
-        false
+    /// Whether File > Exit (`quitting`) closes this window now: once, through its own close
+    /// guard. A window that asks "Save changes?" or waits for its send's answer is closing
+    /// already.
+    pub(crate) fn closes_for_quit(&self, quitting: bool) -> bool {
+        quitting && !self.asking_close && !self.close_after_send
     }
 
     /// Sending, or sent to the Outbox: Send would send it twice.
@@ -375,10 +383,63 @@ extern "C" fn on_compose_created(mut data: RefAny, mut info: CallbackInfo) -> Up
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
-        Timer::create(compose_ref(&app, id), on_caret_timer, get_time)
+        Timer::create(compose_ref(&app, id), on_caret_timer, get_time.clone())
             .with_interval(Duration::System(SystemTimeDiff::from_millis(40))),
     );
+    // Only this window can close itself: File > Exit in the main window sets `quitting`,
+    // and this timer closes the window through its own guard.
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(compose_ref(&app, id), on_quit_watch, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(QUIT_WATCH_MS))),
+    );
     Update::DoNothing
+}
+
+/// How often a window looks whether File > Exit asks it to close.
+const QUIT_WATCH_MS: u64 = 400;
+
+/// File > Exit: this message window closes through its own guard (`closes_for_quit`).
+extern "C" fn on_quit_watch(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let closes = with_compose(&mut app, id, |s, at, _| s.composes[at].closes_for_quit(s.quitting))
+        .unwrap_or(false);
+    if closes {
+        let mut callback_info = info.callback_info;
+        callback_info.close_window();
+    }
+    TimerCallbackReturn::continue_unchanged()
+}
+
+/// File > Exit with message windows open (Outlook asks about each, then quits): every message
+/// window closes through its own guard (`on_quit_watch`), and the main window once they are
+/// all gone. A Cancel on one of their questions clears `quitting`, and the main window stays.
+pub(crate) fn quit_after_messages(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
+    s.quitting = true;
+    println!("AZMAIL_EXIT_ASKS {}", s.composes.len());
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_main_quit_watch, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(QUIT_WATCH_MS))),
+    );
+}
+
+/// The main window's half of File > Exit: it closes once no message window is left, and stops
+/// watching when a Cancel kept one open.
+extern "C" fn on_main_quit_watch(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let state = data.downcast_ref::<MailApp>().map(|s| (s.quitting, s.composes.is_empty()));
+    match state {
+        Some((true, true)) => {
+            let mut callback_info = info.callback_info;
+            callback_info.close_window();
+            TimerCallbackReturn::terminate_unchanged()
+        }
+        Some((true, false)) => TimerCallbackReturn::continue_unchanged(),
+        _ => TimerCallbackReturn::terminate_unchanged(),
+    }
 }
 
 /// Puts the caret at the top of the editor once the host is there (a few frames at most).
@@ -959,6 +1020,12 @@ extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInf
         return Update::DoNothing;
     };
     let held = with_compose(&mut app, id, |s, at, _| {
+        if s.composes[at].close_waits() {
+            // The send's answer comes to this window: it closes once it is there.
+            s.composes[at].close_after_send = true;
+            println!("AZMAIL_COMPOSE_CLOSE_WAITS {}", s.composes[at].window_id);
+            return true;
+        }
         if s.composes[at].close_asks() {
             s.composes[at].asking_close = true;
             println!("AZMAIL_COMPOSE_ASK_SAVE {}", s.composes[at].window_id);
@@ -1102,6 +1169,8 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
             }
             ComposeAction::CloseCancel => {
                 s.composes[at].asking_close = false;
+                // Outlook's File > Exit stops at a Cancel: the main window stays.
+                s.quitting = false;
                 Update::RefreshDom
             }
             ComposeAction::Save | ComposeAction::Send | ComposeAction::CloseSave => {
@@ -1403,6 +1472,10 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
     };
     with_app(&mut app, |s, _| {
         let at = s.composes.iter().position(|c| c.id == id);
+        let closes = match (&done, at) {
+            (OutgoingDone::Sent(status), Some(at)) => s.composes[at].closes_after_send(status),
+            _ => false,
+        };
         let update = match done {
             OutgoingDone::Sent(send::SendStatus::Sent { message_id }) => {
                 println!("AZMAIL_SEND_DONE {window_id} sent {message_id}");
@@ -1425,13 +1498,23 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                         "azmail-compose-in-outbox",
                         &[("subject", Arg::from(s.composes[at].subject.as_str()))],
                     );
+                    if closes {
+                        // Closed while it was sent: the Outbox has it, the window goes.
+                        let c = s.composes.remove(at);
+                        println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+                        info.close_window();
+                    }
                 }
                 Update::RefreshDomAllWindows
             }
             OutgoingDone::Sent(send::SendStatus::Failed { reason }) => {
                 println!("AZMAIL_SEND_DONE {window_id} failed {reason}");
                 if let Some(at) = at {
-                    s.composes[at].status = ComposeStatus::Failed(reason);
+                    let c = &mut s.composes[at];
+                    c.status = ComposeStatus::Failed(reason);
+                    // A close that waited for the answer stays undone: the window says why
+                    // the mail was refused, a new close asks about it.
+                    c.close_after_send = false;
                 }
                 Update::RefreshDomAllWindows
             }
@@ -1464,6 +1547,7 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                     let c = &mut s.composes[at];
                     c.status = ComposeStatus::Problem(t_text(&text));
                     c.close_after_save = false;
+                    c.close_after_send = false;
                 }
                 Update::RefreshDom
             }
