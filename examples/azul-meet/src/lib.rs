@@ -176,6 +176,7 @@ mod chat;
 mod chatroom;
 mod crypto;
 mod direct;
+mod direct_call;
 mod identity;
 mod ids;
 /// A room's invite key from the invite secret of its link (CRYPTO.md section 4); public, since
@@ -461,6 +462,9 @@ struct RoomSession {
     /// minutes.
     schedule_start: String,
     schedule_minutes: String,
+    /// The call is a direct one (`direct_call.rs`): no room on the meetings service, nothing
+    /// announced, polled or left there.
+    direct: bool,
 }
 
 /// A room this side is making: its invite (the id and the secret made here, CRYPTO.md section 4),
@@ -520,7 +524,27 @@ impl RoomSession {
             busy: false,
             busy_polls: 0,
             trouble: false,
+            direct: false,
         }
+    }
+
+    /// Into a direct call: the call screen, with no room of the meetings service behind it.
+    fn enter_direct(&mut self) {
+        self.session = self.session.wrapping_add(1);
+        self.stage = Stage::InRoom;
+        self.direct = true;
+        self.waiting = None;
+        self.close_waiting();
+        self.straight_in = false;
+        self.room_id.clear();
+        self.code.clear();
+        self.link.clear();
+        self.copied = false;
+        self.peers.clear();
+        self.dialed.clear();
+        self.polls = 0;
+        self.announced_at = None;
+        self.busy = false;
     }
 
     fn enter(&mut self, found: RoomInfo) {
@@ -542,6 +566,7 @@ impl RoomSession {
     fn leave(&mut self) {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::Start;
+        self.direct = false;
         self.waiting = None;
         self.close_waiting();
         self.created = false;
@@ -605,6 +630,9 @@ impl RoomSession {
     fn next_job(&mut self, signer: Option<(&crypto::Identity, u64)>) -> Option<HttpJob> {
         if self.stage == Stage::Waiting {
             return self.waiting_job();
+        }
+        if self.direct {
+            return None;
         }
         if self.stage != Stage::InRoom {
             return None;
@@ -768,6 +796,9 @@ struct MeetState {
     index: roomlist::RoomIndex,
     /// The room the room view shows; `None` outside it.
     open_room: Option<String>,
+    /// Direct calls: the screen, the call being made or coming in, the people in one, the recent
+    /// calls (`direct.rs`, `direct_call.rs`).
+    direct: direct::DirectState,
     /// The room view's "Copy link" was clicked.
     room_copied: bool,
     /// Who is on the stage of the speaker view, from the levels of the audio each peer sends.
@@ -907,6 +938,7 @@ impl MeetState {
             chats: BTreeMap::new(),
             index: roomlist::RoomIndex::default(),
             open_room: None,
+            direct: direct::DirectState::default(),
             room_copied: false,
             speaker: speaker::ActiveSpeaker::new(),
             panel: SidePanel::People,
@@ -1067,6 +1099,7 @@ fn remote_name(s: &MeetState, node_id: &str) -> String {
         .as_ref()
         .and_then(|room| room.peers.iter().find(|p| p.node_id == node_id))
         .map(|p| p.name.clone())
+        .or_else(|| s.direct.name_of(node_id))
         .unwrap_or_else(|| short_id(node_id).to_string())
 }
 
@@ -1086,6 +1119,7 @@ fn ui_screen(s: &MeetState) -> ui::UiScreen {
         return ui::UiScreen::Settings;
     }
     match s.room.as_ref().map(|room| room.stage) {
+        Some(Stage::Start | Stage::Opening) | None if s.direct.open => ui::UiScreen::Direct,
         Some(Stage::Start | Stage::Opening) if s.open_room.is_some() => ui::UiScreen::Room,
         Some(Stage::Start | Stage::Opening) | None => ui::UiScreen::Lobby,
         Some(Stage::Waiting) => ui::UiScreen::Waiting,
@@ -1635,6 +1669,16 @@ const ACTIONS: ui::Actions = ui::Actions {
     relay_text: on_relay_text,
     relay_key: on_relay_key,
     relay_blur: on_relay_blur,
+    direct_open: direct_call::on_open,
+    direct_back: direct_call::on_back,
+    direct_form: direct_call::on_form,
+    direct_copy: direct_call::on_copy,
+    direct_text: direct_call::on_text,
+    direct_call: direct_call::on_call,
+    direct_recent: direct_call::on_recent,
+    direct_cancel: direct_call::on_cancel,
+    direct_accept: direct_call::on_accept,
+    direct_decline: direct_call::on_decline,
 };
 
 fn meet_layout(mut data: RefAny) -> Dom {
@@ -1691,6 +1735,8 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
     match event.kind {
         IrohEventKind::Ready => {
             eprintln!("[azmeet] {}: iroh endpoint ready", s.name);
+            // For scripts: how another AzMeet calls this one directly (`direct_call.rs`).
+            println!("AZMEET_DIRECT_ADDRESS {}", event.text.as_str());
             if let Some(room) = s.room.as_mut() {
                 room.ticket = event.text.as_str().to_string();
             }
@@ -1699,6 +1745,10 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
         }
         IrohEventKind::PeerConnected => {
             let node_id = event.text.as_str().to_string();
+            // A direct call's connection (made, expected, or someone calling).
+            if let Some(changed) = direct_call::on_connected(s, event.peer, &node_id) {
+                return changed;
+            }
             if !accepts_peers(s) {
                 // Not in a meeting (after Leave): a peer that still dials is refused.
                 if let Some(endpoint) = s.endpoint.as_ref() {
@@ -1733,8 +1783,9 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
         }
         IrohEventKind::PeerDisconnected => {
             s.pending.retain(|p| p.handle != event.peer);
+            let direct_changed = direct_call::on_disconnected(s, event.peer);
             let Some(pos) = s.remotes.iter().position(|r| r.handle == event.peer) else {
-                return false;
+                return direct_changed;
             };
             let gone = s.remotes.remove(pos);
             drop_audio(s, Some(gone.key));
@@ -1752,6 +1803,8 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             );
             s.link_status = format!("disconnected: {}", event.text.as_str());
             network_changed(s, false);
+            // The last other person of a direct call left: the call is over.
+            direct_call::end_if_alone(s);
             true
         }
         IrohEventKind::Error => {
@@ -4224,6 +4277,10 @@ fn receive_item(
 ) -> bool {
     let conn = event.peer;
     let bytes = event.data.as_slice();
+    // A direct call's hello, answer or roster, from a peer or from a connection still waiting.
+    if let Some(msg) = direct::decode(bytes) {
+        return direct_call::on_message(s, conn, msg);
+    }
     let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
         // A connection waiting for its signed announcement: what it says about itself is kept
         // for when it is confirmed (`settle_pending`); its media is not taken.
@@ -6149,21 +6206,27 @@ fn refresh_ticket(s: &mut MeetState) {
 /// the peers list; on the start screen, ask a meeting server that did not answer again now and
 /// then.
 extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let job = match data.downcast_mut::<MeetState>() {
+    let (job, direct_changed) = match data.downcast_mut::<MeetState>() {
         Some(mut guard) => {
             let s = &mut *guard;
+            // A direct call nobody took, a connection that never said hello.
+            let direct_changed = direct_call::tick(s);
             refresh_ticket(s);
             let ts = call_signer_ts(s);
             let signer = s.identity.as_ref().zip(ts);
             let job = s.room.as_mut().and_then(|room| room.next_job(signer));
-            job.or_else(|| server_retry(s))
+            (job.or_else(|| server_retry(s)), direct_changed)
         }
-        None => None,
+        None => (None, false),
     };
     if let Some(job) = job {
         spawn_http(&mut info.callback_info, data.clone(), job);
     }
-    TimerCallbackReturn::continue_unchanged()
+    if direct_changed {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
 }
 
 /// Every [`CHAT_TICK_MS`]: each room's next request (`ChatRoom::next_call`), on its Thread.
@@ -7410,11 +7473,12 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     let room = s.room.as_mut()?;
     // An ended meeting is gone from the server already.
     let job = match s.identity.as_ref() {
-        Some(me) if room.stage == Stage::InRoom && !room.node_id.is_empty() => {
+        Some(me) if room.stage == Stage::InRoom && !room.node_id.is_empty() && !room.direct => {
             Some(HttpJob::leave(room, me, ts))
         }
         _ => None,
     };
+    s.direct.end_call();
     eprintln!("[azmeet] {}: left meeting {}", s.name, room.code);
     room.leave();
     job
@@ -8024,6 +8088,7 @@ fn apply_launch_args(s: &mut MeetState) {
     s.join_camera_off = prefs.join_camera_off;
     s.mic_name = prefs.microphone;
     s.speaker_name = prefs.speaker;
+    s.direct.recents = direct::recents_from_text(prefs.direct_calls.as_deref().unwrap_or_default());
 }
 
 pub fn start() {

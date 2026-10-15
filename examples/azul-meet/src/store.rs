@@ -50,6 +50,8 @@ pub const CAMERA: &str = "camera";
 pub const MIRROR: &str = "mirror";
 pub const JOIN_MUTED: &str = "join_muted";
 pub const JOIN_CAMERA_OFF: &str = "join_camera_off";
+/// The recent direct calls, as JSON (`direct.rs`): kept on this device's data, never sent.
+pub const DIRECT_CALLS: &str = "direct_calls";
 /// The longest meeting folder name.
 const MAX_FOLDER: usize = 64;
 /// The video qualities as the settings file names them, in the settings' order (automatic up to
@@ -83,6 +85,8 @@ pub struct Prefs {
     pub join_muted: bool,
     /// A meeting is joined with the camera off: the waiting room's switch starts off.
     pub join_camera_off: bool,
+    /// The recent direct calls, as `direct::recents_to_text` writes them; `None`: none yet.
+    pub direct_calls: Option<String>,
 }
 
 impl Default for Prefs {
@@ -100,6 +104,7 @@ impl Default for Prefs {
             mirror: true,
             join_muted: false,
             join_camera_off: false,
+            direct_calls: None,
         }
     }
 }
@@ -135,6 +140,7 @@ impl Prefs {
             mirror: settings.get_bool(MIRROR, defaults.mirror),
             join_muted: settings.get_bool(JOIN_MUTED, defaults.join_muted),
             join_camera_off: settings.get_bool(JOIN_CAMERA_OFF, defaults.join_camera_off),
+            direct_calls: text(DIRECT_CALLS),
         }
     }
 
@@ -146,6 +152,7 @@ impl Prefs {
             (NAME, &self.name),
             (MICROPHONE, &self.microphone),
             (SPEAKER, &self.speaker),
+            (DIRECT_CALLS, &self.direct_calls),
         ] {
             match value {
                 Some(value) => settings.set(key, value),
