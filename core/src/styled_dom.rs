@@ -148,7 +148,7 @@ pub struct ActiveChange {
 
 /// Whether `state` has the interaction state `ty` raised; `false` for the
 /// states a node does not change on its own (`:disabled`, `:checked`, ...).
-const fn state_is_raised(
+pub(crate) const fn state_is_raised(
     state: &StyledNodeState,
     ty: azul_css::dynamic_selector::PseudoStateType,
 ) -> bool {
@@ -1438,12 +1438,14 @@ impl StyledDom {
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
+        // A new DOM's nodes are in no interaction state yet.
         let _restyle_tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
             &non_leaf_nodes,
             &html_tree.as_ref(),
+            &[],
         );
 
         // Retain the author stylesheet on the cache (this used to `drop(css)` to
@@ -1959,12 +1961,22 @@ impl StyledDom {
         // the STALE `compact_cache` (display/overflow reads) and are intentionally
         // discarded — we regenerate them below AFTER the compact cache and
         // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
+        // The states the nodes are in now: a rule that names a state left of
+        // its subject (`.btn:hover .ink`) holds by them.
+        let states: Vec<StyledNodeState> = self
+            .styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect();
         let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
             &self.non_leaf_nodes,
             &self.cascade_info.as_container(),
+            &states,
         );
 
         // Keep the stylesheet for later structural restyles (inserted nodes).
@@ -2509,7 +2521,166 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
-        v.into_iter().collect()
+        let mut changes: RestyleNodes = v.into_iter().collect();
+        self.restyle_left_state_rules(&nodes, &old_node_states, pseudo_state_type, &mut changes);
+        changes
+    }
+
+    /// What a state change of `changed` restyles through the rules that name
+    /// the state LEFT of their subject (`.btn:hover .ink` for a hovered
+    /// `.btn`, `.anchor:hover + .tip`), merged into `out`.
+    ///
+    /// Such a rule holds by the state its anchor was in when the cascade ran,
+    /// so the cascade runs again, whole: the rule can set any property on any
+    /// node it selects, and inheritance hands it further down. That happens
+    /// only when the stylesheet names this state left of a subject and one of
+    /// the changed nodes can anchor such a compound; any other state change
+    /// costs a bit test. The nodes in reach (below an anchor, below its
+    /// parent with a sibling combinator) compare what they resolved before
+    /// and after, for the properties the anchored rules declare.
+    #[allow(clippy::too_many_lines)] // one pass: find anchors, snapshot, re-cascade, compare
+    fn restyle_left_state_rules(
+        &mut self,
+        changed: &[NodeId],
+        old_states: &[StyledNodeState],
+        state: azul_css::dynamic_selector::PseudoStateType,
+        out: &mut RestyleNodes,
+    ) {
+        let bit = crate::style::state_bit(state);
+        if changed.is_empty() || self.get_css_property_cache().left_state_mask & bit == 0 {
+            return;
+        }
+
+        // The rules a changed node can anchor, and what they declare. A
+        // custom property defined there can feed any property.
+        let mut anchors: Vec<NodeId> = Vec::new();
+        let mut prop_types: Vec<CssPropertyType> = Vec::new();
+        let mut every_type = false;
+        let mut siblings = false;
+        {
+            let cache = self.get_css_property_cache();
+            let node_data = self.node_data.as_container();
+            let cascade_info = self.cascade_info.as_container();
+            for rule in cache.retained_author_css.rules.as_ref() {
+                if crate::style::left_state_bits(&rule.path) & bit == 0 {
+                    continue;
+                }
+                let mut anchored = false;
+                for n in changed {
+                    if crate::style::can_anchor(
+                        &rule.path,
+                        state,
+                        *n,
+                        cascade_info[*n],
+                        &node_data[*n],
+                    ) {
+                        anchored = true;
+                        if !anchors.contains(n) {
+                            anchors.push(*n);
+                        }
+                    }
+                }
+                if !anchored {
+                    continue;
+                }
+                siblings |= crate::style::has_sibling_combinator(&rule.path);
+                for declaration in rule.declarations.as_ref() {
+                    match declaration.get_type() {
+                        Some(ty) if !prop_types.contains(&ty) => prop_types.push(ty),
+                        Some(_) => {}
+                        None => every_type = true,
+                    }
+                }
+            }
+        }
+        if anchors.is_empty() {
+            return;
+        }
+        if every_type {
+            prop_types = CssPropertyType::ALL.to_vec();
+        }
+
+        let reach: Vec<NodeId> = {
+            let hierarchy = self.node_hierarchy.as_container();
+            let mut roots: Vec<NodeId> = anchors
+                .iter()
+                .map(|a| {
+                    if siblings {
+                        hierarchy[*a].parent_id().unwrap_or(*a)
+                    } else {
+                        *a
+                    }
+                })
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let mut reach = Vec::new();
+            for root in roots {
+                let last = (root.index() + hierarchy.subtree_len(root)).min(hierarchy.len() - 1);
+                reach.extend((root.index() + 1..=last).map(NodeId::new));
+            }
+            reach.sort();
+            reach.dedup();
+            reach
+        };
+        // A changed node in reach resolved under the state it just left.
+        let state_before = |node: NodeId, now: StyledNodeState| {
+            changed
+                .iter()
+                .position(|c| *c == node)
+                .and_then(|i| old_states.get(i).copied())
+                .unwrap_or(now)
+        };
+
+        let before: Vec<Option<CssProperty>> = {
+            let cache = self.get_css_property_cache();
+            let node_data = self.node_data.as_container();
+            let styled = self.styled_nodes.as_container();
+            let mut before = Vec::with_capacity(reach.len() * prop_types.len());
+            for node in &reach {
+                let then = state_before(*node, styled[*node].styled_node_state);
+                for ty in &prop_types {
+                    before.push(
+                        cache
+                            .get_property_slow(&node_data[*node], node, &then, ty)
+                            .cloned(),
+                    );
+                }
+            }
+            before
+        };
+
+        let css = self.get_css_property_cache().retained_author_css.clone();
+        self.restyle(css);
+
+        let cache = self.get_css_property_cache();
+        let node_data = self.node_data.as_container();
+        let styled = self.styled_nodes.as_container();
+        let mut before = before.into_iter();
+        for node in &reach {
+            let now = styled[*node].styled_node_state;
+            let then = state_before(*node, now);
+            for ty in &prop_types {
+                let old = before.next().flatten();
+                let new = cache.get_property_slow(&node_data[*node], node, &now, ty);
+                // The node's own state change may have reported this
+                // property already, against the same starting value: the
+                // comparison here covers both changes, so it replaces it.
+                let entry = out.entry(*node).or_default();
+                entry.retain(|c| c.current_prop.get_type() != *ty);
+                if old.as_ref() != new {
+                    entry.push(ChangedCssProperty {
+                        previous_state: then,
+                        previous_prop: old.unwrap_or_else(|| CssProperty::auto(*ty)),
+                        current_state: now,
+                        current_prop: new.map_or_else(|| CssProperty::auto(*ty), Clone::clone),
+                    });
+                }
+                if entry.is_empty() {
+                    out.remove(node);
+                }
+            }
+        }
     }
 
     /// Unified entry point for all CSS restyle operations.
@@ -2847,6 +3018,7 @@ impl StyledDom {
         // table and dropped every conditional declaration, and only a
         // re-run can tell whether the real context agrees.
         let theme_changed;
+        let activation_changed;
         {
             let cache = self.get_css_property_cache_mut();
             let same = cache.dynamic_context.as_deref() == Some(&context);
@@ -2858,6 +3030,10 @@ impl StyledDom {
                 .dynamic_context
                 .as_deref()
                 .is_none_or(|c| c.mode != context.mode);
+            activation_changed = cache
+                .dynamic_context
+                .as_deref()
+                .is_none_or(|c| c.window_focused != context.window_focused);
             cache.dynamic_context = Some(Box::new(context));
             // A new generation even when nothing below re-runs: a context
             // change is a cascade input, and the DL cache keys on this.
@@ -2882,7 +3058,13 @@ impl StyledDom {
         // `env()` needs the full re-run even with an EMPTY author sheet -
         // which `restyle_retained` would skip.
         let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
-        if author_conditional || variables_conditional {
+        // `.window:backdrop .title`: a rule that names the window's
+        // activation left of its subject was matched under the old one.
+        let backdrop_left = activation_changed
+            && self.get_css_property_cache().left_state_mask
+                & crate::style::state_bit(azul_css::dynamic_selector::PseudoStateType::Backdrop)
+                != 0;
+        if author_conditional || variables_conditional || backdrop_left {
             // Full: author cascade (variables included) + the tail;
             // `restyle` ends with the `:backdrop` sync (S2).
             let css = self

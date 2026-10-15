@@ -1179,6 +1179,15 @@ pub struct CssPropertyCache {
     /// (`StyledDom::create_from_dom_inheriting`) or re-seeded with a restyle
     /// (`StyledDom::set_inherited_from_host`) when the host's values move.
     pub inherited_from_host: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
+
+    /// The states the last restyle's rules name LEFT of their subject
+    /// (`.btn:hover .ink`), one `style::state_bit` each. Such a rule holds by
+    /// the state its anchor was in when the cascade ran, so a state change
+    /// re-runs the cascade - only for a state set here, which keeps every
+    /// other hover or focus change free (`StyledDom::restyle_nodes_state`).
+    /// Zero after a DOM merge that brought rules the retained stylesheet does
+    /// not hold: re-running the cascade then would drop them.
+    pub left_state_mask: u32,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1662,6 +1671,7 @@ impl CssPropertyCache {
         node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
@@ -1757,6 +1767,14 @@ impl CssPropertyCache {
         // build_compact_cache_with_inheritance for each node, avoiding
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
+        self.left_state_mask = 0;
+        // What the compounds left of a rule's subject read (`.btn:hover
+        // .ink`): the nodes' states as they are now, and the window's
+        // activation for `:backdrop`.
+        let ancestor_states = crate::style::AncestorStates {
+            nodes: node_states,
+            window_inactive: dyn_ctx.as_deref().is_some_and(|c| !c.window_focused),
+        };
 
         // A node's presentational hints (its markup attributes' style,
         // `rule_priority::PRESENTATIONAL`) come FIRST among its stylesheet
@@ -1902,6 +1920,13 @@ impl CssPropertyCache {
                 // inheritance walk below its backdrop tier.
                 any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
                 let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+                self.left_state_mask = specific_rules
+                    .iter()
+                    .zip(&takes_part)
+                    .filter(|(_, bits)| **bits != 0)
+                    .fold(0, |mask, (rule, _)| {
+                        mask | crate::style::left_state_bits(&rule.path)
+                    });
 
                 // Each node is tried only against the rules that can match it:
                 // the unscoped ones and those of the `with_css` scopes around
@@ -1927,13 +1952,14 @@ impl CssPropertyCache {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element(
+                            if !crate::style::matches_html_element_in(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
                                 node_data,
                                 html_tree,
                                 pseudo.clone(),
+                                Some(ancestor_states),
                             ) {
                                 continue;
                             }
@@ -2770,6 +2796,7 @@ impl CssPropertyCache {
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
             resolved_zooms: crate::sync::OnceLock::new(),
             inherited_from_host: Vec::new(),
+            left_state_mask: 0,
         }
     }
 
@@ -2812,6 +2839,12 @@ impl CssPropertyCache {
                 .map(|(node, resolved)| (node + offset, resolved)),
         );
         self.variables_depend_on_context |= other.variables_depend_on_context;
+        // The merged cache keeps only this DOM's stylesheet, so a cascade it
+        // re-ran would lose the other's rules: stop re-running it for
+        // states then (the rules stay as they were cascaded).
+        if !other.retained_author_css.is_empty() {
+            self.left_state_mask = 0;
+        }
 
         self.node_count += other.node_count;
         // Indices shifted — invalidate the font-size cache too.
