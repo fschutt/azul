@@ -55,6 +55,9 @@ pub(crate) struct FakeS3 {
     race: Mutex<Option<Race>>,
     /// Every request, as `METHOD key`.
     pub log: Mutex<Vec<String>>,
+    /// Part uploads still answered before the connection drops for every next one
+    /// ([`FakeS3::take_parts`]); `None`: all are.
+    parts_left: Mutex<Option<usize>>,
 }
 
 fn reply(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> HttpReply {
@@ -186,6 +189,27 @@ impl FakeS3 {
     /// Forgets the request log.
     pub fn clear_log(&self) {
         lock(&self.log).clear();
+    }
+
+    /// After `n` more part uploads, every next one gets no answer at all, as over a connection
+    /// that dropped (the part is not stored); `None` answers them all again.
+    pub fn take_parts(&self, n: Option<usize>) {
+        *lock(&self.parts_left) = n;
+    }
+
+    /// Whether `call` is a part upload the connection drops ([`FakeS3::take_parts`]).
+    fn drops(&self, call: &HttpCall) -> bool {
+        if call.method != Method::Put || !call.url.contains("partNumber=") {
+            return false;
+        }
+        match lock(&self.parts_left).as_mut() {
+            None => false,
+            Some(0) => true,
+            Some(left) => {
+                *left -= 1;
+                false
+            }
+        }
     }
 
     /// The answer to one request.
@@ -565,6 +589,9 @@ pub(crate) struct S3Handle(pub Arc<FakeS3>);
 
 impl Transport for S3Handle {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        if self.0.drops(call) {
+            return Err(String::from("connection reset by peer"));
+        }
         Ok(self.0.answer(call))
     }
 }
@@ -632,5 +659,14 @@ impl RemoteStore for S3Bucket {
 
     fn fetch_to(&self, key: &str, size: u64, dest: &std::path::Path) -> CloudResult<bool> {
         RemoteStore::fetch_to(&self.bucket, key, size, dest)
+    }
+
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &azul_storage::checked::FileCheck,
+    ) -> CloudResult<Option<u64>> {
+        RemoteStore::put_file(&self.bucket, key, path, check)
     }
 }

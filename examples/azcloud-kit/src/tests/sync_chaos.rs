@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     error::{CloudError, CloudResult},
-    store::{Conditional, RemoteObject, RemoteStore},
+    store::{Conditional, RemoteObject, RemoteStore, BIG_BLOB},
     sync::{
         local::{self, hash_bytes},
         remote::{blob_key, index_key},
@@ -268,4 +268,129 @@ fn a_file_dated_in_the_future_does_not_hold_a_pass_back() {
         "a folder that does not change waited {:?} because a file's date lies ahead",
         started.elapsed()
     );
+}
+
+/// Bytes of a file of twelve parts of 1 MiB (it goes up as a multipart upload).
+fn twelve_parts() -> Vec<u8> {
+    (0..BIG_BLOB as usize + 3 * 1024 * 1024 + 11)
+        .map(|i| (i % 251) as u8)
+        .collect()
+}
+
+#[test]
+fn a_big_file_cut_off_by_a_dropped_connection_resumes_with_the_parts_it_lacked() {
+    let resume = TempDir::new("azcloud-chaos-resume");
+    let mut store = S3Bucket::new();
+    store.bucket.set_part_size(1024 * 1024);
+    store.bucket.set_resume_dir(resume.path());
+    let laptop = Device::new("laptop-resume");
+    let bytes = twelve_parts();
+    laptop.write("video.bin", &bytes);
+    let blob = blob_key(PREFIX, &hash_bytes(&bytes));
+    // The connection drops after four parts: the run cannot finish the file.
+    store.take_parts(Some(4));
+    let _ = laptop.sync_with(&store, &laptop.opts());
+    assert!(store.read(&blob).is_none());
+    store.take_parts(None);
+    store.clear_log();
+    let report = laptop.sync(&store);
+    assert!(report.errors.is_empty(), "{}", report.summary());
+    assert_eq!(store.read(&blob).as_deref(), Some(&bytes[..]));
+    assert_eq!(store.count("PARTS"), 1, "the bucket says what it holds");
+    assert_eq!(
+        store.count_under("PUT", &blob),
+        8,
+        "the eight parts it lacked, never the first four again"
+    );
+    assert_eq!(
+        store.count_under("POST", &blob),
+        1,
+        "one Complete, no new upload started"
+    );
+}
+
+/// A drive whose PUTs of one key get no answer (a connection that drops for that request).
+struct OneCut {
+    inner: Arc<S3Bucket>,
+    cut: String,
+}
+
+impl RemoteStore for OneCut {
+    fn get_unless(&self, key: &str, etag: Option<&str>) -> CloudResult<Conditional> {
+        self.inner.get_unless(key, etag)
+    }
+    fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
+        self.inner.fetch(key, size)
+    }
+    fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
+        if key == self.cut {
+            return Err(CloudError::Drive(DriveError::Transport(String::from(
+                "connection reset by peer",
+            ))));
+        }
+        self.inner.put(key, data)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> CloudResult<Option<String>> {
+        self.inner.put_if(key, data, if_match)
+    }
+    fn head(&self, key: &str) -> CloudResult<Option<u64>> {
+        self.inner.head(key)
+    }
+    fn delete(&self, key: &str) -> CloudResult<()> {
+        self.inner.delete(key)
+    }
+    fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
+        self.inner.list(prefix)
+    }
+}
+
+#[test]
+fn a_transient_failure_of_one_upload_lets_the_other_files_reach_the_drive() {
+    let bucket = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-chaos-one-cut");
+    let state = TempDir::new("azcloud-chaos-one-cut-state");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        fs::write(folder.path().join(name), name.as_bytes()).unwrap();
+    }
+    let cut: Arc<dyn RemoteStore> = Arc::new(OneCut {
+        inner: bucket.clone(),
+        cut: blob_key("", &hash_bytes(b"b.txt")),
+    });
+    let pass = session_over(cut, &folder, &state)
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("one file's dropped connection fails that file, not the pass");
+    let report = pass.report.expect("a sync pass");
+    assert_eq!(
+        report
+            .file_errors
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["b.txt"]
+    );
+    let index = RemoteIndex::parse(&bucket.read(&index_key("")).expect("an index")).unwrap();
+    assert!(index.files.contains_key("a.txt") && index.files.contains_key("c.txt"));
+    assert!(!index.files.contains_key("b.txt"));
+    assert!(matches!(
+        pass.states.state_of("b.txt"),
+        Some(FileState::Error(_))
+    ));
+    // The next pass sends the one that waited, and only it.
+    bucket.clear_log();
+    session_over(bucket.clone(), &folder, &state)
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(
+        bucket.count_under("PUT", ".azlin/blobs/"),
+        1,
+        "{:?}",
+        bucket.log
+    );
+    let index = RemoteIndex::parse(&bucket.read(&index_key("")).unwrap()).unwrap();
+    assert!(index.files.contains_key("b.txt"));
 }
