@@ -1614,6 +1614,23 @@ pub enum SystemColorRef {
     /// sidebar's glyph (`system:icon`). The desktop's secondary label colour
     /// where the platform names no icon ink; flora's `--fl-icon` under flora.
     Icon,
+    // --- appended (discriminants 25..30), so the ones before keep theirs ---
+    /// Something went wrong or cannot be undone: an error line, a destructive
+    /// command, a failed sync (`system:danger`). Reads as ink on the window
+    /// and on a field, and works as a fill under [`Self::DangerText`].
+    Danger,
+    /// The ink on a [`Self::Danger`] fill (`system:danger-text`).
+    DangerText,
+    /// Something needs care: a caution note, a quota running out
+    /// (`system:warning`). Ink and fill, like [`Self::Danger`].
+    Warning,
+    /// The ink on a [`Self::Warning`] fill (`system:warning-text`).
+    WarningText,
+    /// Something finished well: a saved file, a passed check
+    /// (`system:success`). Ink and fill, like [`Self::Danger`].
+    Success,
+    /// The ink on a [`Self::Success`] fill (`system:success-text`).
+    SuccessText,
 }
 
 /// The ink `system:accent-text` paints on `accent`: the platform's own
@@ -1654,7 +1671,7 @@ const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
 
 impl SystemColorRef {
     /// Every reference, in declaration (= discriminant) order.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 31] = [
         Self::Text,
         Self::Background,
         Self::Accent,
@@ -1680,6 +1697,12 @@ impl SystemColorRef {
         Self::PlaceholderText,
         Self::TextSelectionBackground,
         Self::Icon,
+        Self::Danger,
+        Self::DangerText,
+        Self::Warning,
+        Self::WarningText,
+        Self::Success,
+        Self::SuccessText,
     ];
 
     /// The slot of `colors` this reference names - `None` when the platform
@@ -1712,6 +1735,12 @@ impl SystemColorRef {
             Self::PlaceholderText => colors.placeholder_text,
             Self::TextSelectionBackground => colors.text_selection_background,
             Self::Icon => colors.icon,
+            Self::Danger => colors.danger,
+            Self::DangerText => colors.danger_text,
+            Self::Warning => colors.warning,
+            Self::WarningText => colors.warning_text,
+            Self::Success => colors.success,
+            Self::SuccessText => colors.success_text,
         }
     }
 
@@ -1729,10 +1758,11 @@ impl SystemColorRef {
     /// system_colors`), and this is how a `system:` keyword turns into the
     /// colour that theme wants.
     ///
-    /// `system:accent-text` is the one keyword resolved as a PAIR: it is the
-    /// ink that sits on `system:accent`, so it must read on it
-    /// ([`readable_accent_ink`]). `system:icon` left empty is the palette's
-    /// own secondary label colour: no desktop names an icon ink.
+    /// `system:accent-text` and the `-text` inks of danger, warning and
+    /// success are resolved as PAIRS: each is the ink that sits on its
+    /// colour, so it must read on it ([`readable_accent_ink`]) whatever the
+    /// palette filled in. `system:icon` left empty is the palette's own
+    /// secondary label colour: no desktop names an icon ink.
     #[must_use]
     pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
         let own = self.get(colors).into_option().unwrap_or_else(|| {
@@ -1742,11 +1772,9 @@ impl SystemColorRef {
                 self.fallback(dark)
             }
         });
-        match self {
-            Self::AccentText => {
-                readable_accent_ink(Self::Accent.resolve_for_theme(colors, dark), own)
-            }
-            _ => own,
+        match self.ink_of() {
+            Some(fill) => readable_accent_ink(fill.resolve_for_theme(colors, dark), own),
+            None => own,
         }
     }
 
@@ -1806,6 +1834,33 @@ impl SystemColorRef {
             (Self::ControlBackground, true) => c(30, 30, 30, 255),
             (Self::TextSelectionBackground, false) => c(179, 215, 255, 255),
             (Self::TextSelectionBackground, true) => c(63, 99, 139, 255),
+            // The semantic colours are deep enough by day and light enough
+            // at night to read as text on the window and on a field (4.5:1),
+            // and their inks read on them as fills.
+            (Self::Danger, false) => c(196, 43, 28, 255),
+            (Self::Danger, true) => c(255, 153, 164, 255),
+            (Self::Warning, false) => c(138, 90, 0, 255),
+            (Self::Warning, true) => c(255, 185, 0, 255),
+            (Self::Success, false) => c(15, 123, 15, 255),
+            (Self::Success, true) => c(108, 203, 95, 255),
+            (Self::DangerText | Self::WarningText | Self::SuccessText, false) => {
+                c(255, 255, 255, 255)
+            }
+            (Self::DangerText | Self::WarningText | Self::SuccessText, true) => c(0, 0, 0, 255),
+        }
+    }
+
+    /// The colour this reference is the ink ON, for the keywords that name
+    /// an ink for a fill (`accent-text` on `accent`, `danger-text` on
+    /// `danger`, ...); `None` for every other keyword.
+    #[must_use]
+    pub const fn ink_of(&self) -> Option<Self> {
+        match self {
+            Self::AccentText => Some(Self::Accent),
+            Self::DangerText => Some(Self::Danger),
+            Self::WarningText => Some(Self::Warning),
+            Self::SuccessText => Some(Self::Success),
+            _ => None,
         }
     }
 
@@ -1838,6 +1893,12 @@ impl SystemColorRef {
             Self::PlaceholderText => "system:placeholder-text",
             Self::TextSelectionBackground => "system:text-selection-background",
             Self::Icon => "system:icon",
+            Self::Danger => "system:danger",
+            Self::DangerText => "system:danger-text",
+            Self::Warning => "system:warning",
+            Self::WarningText => "system:warning-text",
+            Self::Success => "system:success",
+            Self::SuccessText => "system:success-text",
         }
     }
 
@@ -1919,6 +1980,12 @@ impl SystemColorRef {
             22 => Some(Self::PlaceholderText),
             23 => Some(Self::TextSelectionBackground),
             24 => Some(Self::Icon),
+            25 => Some(Self::Danger),
+            26 => Some(Self::DangerText),
+            27 => Some(Self::Warning),
+            28 => Some(Self::WarningText),
+            29 => Some(Self::Success),
+            30 => Some(Self::SuccessText),
             _ => None,
         }
     }
@@ -2725,6 +2792,12 @@ mod tests {
             placeholder_text: OptionColorU::None,
             text_selection_background: OptionColorU::None,
             icon: OptionColorU::None,
+            danger: OptionColorU::None,
+            danger_text: OptionColorU::None,
+            warning: OptionColorU::None,
+            warning_text: OptionColorU::None,
+            success: OptionColorU::None,
+            success_text: OptionColorU::None,
         };
 
         // Test resolution of system colors

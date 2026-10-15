@@ -732,6 +732,20 @@ pub struct SystemColors {
     /// `secondary_text` (`SystemColorRef::Icon`); an app theme with its own
     /// icon ink fills it (flora's `--fl-icon`).
     pub icon: OptionColorU,
+    /// An error, a destructive command, a failed job (`system:danger`): ink on
+    /// the window and a fill. Empty on most desktops; the keyword then answers
+    /// a neutral red that reads in the current mode.
+    pub danger: OptionColorU,
+    /// Text on a `danger` fill (`system:danger-text`).
+    pub danger_text: OptionColorU,
+    /// A caution, a limit coming close (`system:warning`), ink and fill.
+    pub warning: OptionColorU,
+    /// Text on a `warning` fill (`system:warning-text`).
+    pub warning_text: OptionColorU,
+    /// A finished or passed state (`system:success`), ink and fill.
+    pub success: OptionColorU,
+    /// Text on a `success` fill (`system:success-text`).
+    pub success_text: OptionColorU,
 }
 
 /// Common system font settings.
@@ -1951,7 +1965,13 @@ impl SystemStyle {
     "control_background": {},
     "placeholder_text": {},
     "text_selection_background": {},
-    "icon": {}
+    "icon": {},
+    "danger": {},
+    "danger_text": {},
+    "warning": {},
+    "warning_text": {},
+    "success": {},
+    "success_text": {}
   }},
   "fonts": {{
     "ui_font": {},
@@ -2060,6 +2080,12 @@ impl SystemStyle {
             opt_color(self.colors.placeholder_text),
             opt_color(self.colors.text_selection_background),
             opt_color(self.colors.icon),
+            opt_color(self.colors.danger),
+            opt_color(self.colors.danger_text),
+            opt_color(self.colors.warning),
+            opt_color(self.colors.warning_text),
+            opt_color(self.colors.success),
+            opt_color(self.colors.success_text),
             // fonts
             opt_str(&self.fonts.ui_font),
             opt_f32(self.fonts.ui_font_size),

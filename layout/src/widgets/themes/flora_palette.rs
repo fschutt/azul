@@ -31,6 +31,8 @@
 //! | `link`                                  | `--fl-qt` (brass ink)  | `--fl-qt`              |
 //! | `find-highlight`                        | `--fl-gla`             | `--fl-gla`             |
 //! | `icon` (a monochrome glyph's ink)       | `--fl-icon`            | `--fl-icon`            |
+//! | `danger` / `warning` / `success`        | clay / amber / leaf stone | the stone's glow    |
+//! | `danger-text` / `warning-text` / `success-text` | `--fl-on-acc`  | `--fl-sur` (the night leaf) |
 //!
 //! Two choices the CSS does not spell out for a keyword:
 //!
@@ -45,6 +47,11 @@
 //! * `find-highlight`: flora has no highlighter, and brass is never a fill
 //!   ("metal lives on borders only"); the stone's halo (`--fl-gla`, the glow
 //!   at 55 %) marks a match without becoming a selection.
+//! * `danger`, `warning` and `success` are the stones flora already cuts its
+//!   error lines, warning badges and success badges from, so an app's error
+//!   text matches the widgets' invalid ring and danger badge. At night they
+//!   take the glow, like `accent`, and the ink on them is the night leaf: the
+//!   deep tone the accent uses reads only about 3:1 on these glows.
 
 use azul_css::{
     props::basic::color::{ColorU, OptionColorU},
@@ -101,6 +108,18 @@ pub const fn system_colors(dark: bool, ramp: FloraAccentRamp) -> SystemColors {
         )
     };
     let icon = if dark { f::DARK_ICON } else { f::LIGHT_ICON };
+    // A stone and the ink on it: the stone by day under flora's on-stone
+    // paper, its glow at night under the night leaf.
+    const fn semantic(stone: f::FloraStone, dark: bool) -> (OptionColorU, OptionColorU) {
+        if dark {
+            (OptionColorU::Some(stone.glow), OptionColorU::Some(f::DARK_SUR))
+        } else {
+            (OptionColorU::Some(stone.stone), OptionColorU::Some(f::LIGHT_ON_ACC))
+        }
+    }
+    let (danger, danger_text) = semantic(f::STONE_CLAY, dark);
+    let (warning, warning_text) = semantic(f::STONE_AMBER, dark);
+    let (success, success_text) = semantic(f::STONE_LEAF, dark);
     let (accent, accent_text) = if dark {
         (ramp.glow, ramp.deep)
     } else {
@@ -137,6 +156,12 @@ pub const fn system_colors(dark: bool, ramp: FloraAccentRamp) -> SystemColors {
         placeholder_text: some(soft2),
         text_selection_background: some(selection),
         icon: some(icon),
+        danger,
+        danger_text,
+        warning,
+        warning_text,
+        success,
+        success_text,
     }
 }
 
@@ -157,7 +182,7 @@ mod tests {
     use crate::widgets::themes::spin::FloraSpin;
 
     /// Every `system:` keyword under flora, by day and at night.
-    const ALL: [R; 25] = [
+    const ALL: [R; 31] = [
         R::Text,
         R::Background,
         R::Accent,
@@ -183,6 +208,12 @@ mod tests {
         R::PlaceholderText,
         R::TextSelectionBackground,
         R::Icon,
+        R::Danger,
+        R::DangerText,
+        R::Warning,
+        R::WarningText,
+        R::Success,
+        R::SuccessText,
     ];
 
     #[test]
