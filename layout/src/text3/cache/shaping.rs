@@ -207,7 +207,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                             sc.source_cluster_id.start_byte_in_run =
                                 u32::try_from(byte.max(0)).unwrap_or(u32::MAX);
                             sc.source_node_id = current.source_node_id;
-                            sc.style = current.style.clone();
+                            sc.style = restamped_style(&sc.style, &current.style);
                         }
                     }
                 }
@@ -914,7 +914,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )) = orig
                         {
                             // Reassign rendering-affecting style (color, background, etc.)
-                            cluster.style = orig_style.clone();
+                            cluster.style = restamped_style(&cluster.style, orig_style);
                             cluster.source_content_index = *orig_source;
                             cluster.source_node_id = *orig_nid;
                             // Fix the byte offset to be relative to the original logical run:
@@ -923,7 +923,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             cluster.source_cluster_id.source_run = orig_source.run_index;
                             cluster.source_cluster_id.start_byte_in_run =
                                 (byte_pos - range_start + *orig_run_offset) as u32;
-                            cluster.style = orig_style.clone();
                             // §3.2 3c: the finalized offset is item-relative, so
                             // stamp the item's shared text Arc it slices into.
                             cluster.source_text = orig_text.clone();
@@ -1433,12 +1432,44 @@ fn synthesized_small_caps<T: ParsedFontTrait>(
     if own {
         return None;
     }
+    Some((Arc::new(small_capitals_style(style)), all))
+}
+
+/// The style synthesized small capitals are shaped and drawn in: `style` at
+/// [`SYNTHESIZED_SMALL_CAPS_SCALE`] of its size, its tracking kept at the
+/// full size's, and `font-variant-caps` normal - which is also how a shaped
+/// cluster is told to be one of them ([`restamped_style`]).
+fn small_capitals_style(style: &StyleProperties) -> StyleProperties {
+    use super::FontVariantCaps as Caps;
     let mut small = style.clone();
     small.font_size_px = style.font_size_px * SYNTHESIZED_SMALL_CAPS_SCALE;
     small.font_variant_caps = Caps::Normal;
     small.letter_spacing = Spacing::PxF(style.letter_spacing.resolve_px(style.font_size_px));
     small.word_spacing = Spacing::PxF(style.word_spacing.resolve_px(style.font_size_px));
-    Some((Arc::new(small), all))
+    small
+}
+
+/// The style a shaped cluster takes when it is stamped with its item's
+/// `item` style (a shaping cache hit, a merged run split back into its
+/// items): the item's - or, for a synthesized small capital, the item's at
+/// the small capitals' size. A cluster shaped as one carries
+/// `font-variant-caps: normal` under an item that asks for small capitals;
+/// stamping it with the item's own style drew it at the full size again.
+fn restamped_style(
+    shaped: &Arc<StyleProperties>,
+    item: &Arc<StyleProperties>,
+) -> Arc<StyleProperties> {
+    use super::FontVariantCaps as Caps;
+    let small = shaped.font_variant_caps == Caps::Normal
+        && matches!(
+            item.font_variant_caps,
+            Caps::SmallCaps | Caps::AllSmallCaps | Caps::PetiteCaps | Caps::AllPetiteCaps
+        );
+    if small {
+        Arc::new(small_capitals_style(item))
+    } else {
+        item.clone()
+    }
 }
 
 /// The capital of `c` where it is one character as long in UTF-8 as `c`
