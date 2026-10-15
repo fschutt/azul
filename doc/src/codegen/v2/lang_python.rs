@@ -975,7 +975,7 @@ pub struct PyObjectWrapper {
 /// A value the runtime made (a file dialog's answer) on its way to a Python
 /// callback. Python cannot look inside; it hands the object back to a
 /// `downcast` (`FileOpenResult.downcast(result)`), which reads the RefAny.
-#[pyclass(name = "OpaqueRefAny", module = "azul", unsendable)]
+#[pyclass(name = "OpaqueRefAny", module = "azul", dict, unsendable)]
 pub struct PyOpaqueRefAny {
     pub refany: azul_core::refany::RefAny,
 }
