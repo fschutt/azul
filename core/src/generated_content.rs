@@ -479,7 +479,7 @@ impl CssPropertyCache {
                 let host = hierarchy
                     .get(index)
                     .and_then(NodeHierarchyItem::parent_id)
-                    .map(NodeId::index);
+                    .map(|n| n.index());
                 let host_display = host.and_then(|h| self.declared_display(node_data, h));
                 if host_display != Some(LayoutDisplay::InlineListItem) {
                     self.css_props.push_to(
@@ -812,7 +812,7 @@ fn walk_counters(
             open.pop();
             continue;
         }
-        let parent = hierarchy[i].parent_id().map(NodeId::index);
+        let parent = hierarchy[i].parent_id().map(|n| n.index());
 
         // Almost no element declares a counter: the compact cache's bit
         // skips the two cascade lookups (the resting state only, like every
