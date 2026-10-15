@@ -2199,7 +2199,7 @@ fn bfc_place_children<T: ParsedFontTrait>(
             // wrap at its width. CSS 2.2 § 10.3.1: For inline elements, available width
             // = containing block width.
             let display = get_display_property(ctx.styled_dom, child_dom_id).unwrap_or_default();
-            let child_content_size = if display == LayoutDisplay::Inline {
+            let child_content_size = if crate::solver3::getters::is_inline_box_display(display) {
                 // Inline elements use the containing block's content-box width
                 LogicalSize::new(
                     children_containing_block_size.width,

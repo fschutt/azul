@@ -3688,6 +3688,16 @@ pub fn get_display_property(
     get_display_property_internal(styled_dom, id, node_state)
 }
 
+/// Whether `display` makes an inline BOX - a span its parent's line flows
+/// through, its text in the parent's inline formatting context: `inline`,
+/// and `inline list-item` (an inline box that is a list item, its marker a
+/// generated `::marker` child). An atomic inline (`inline-block`, ...) is
+/// none.
+#[must_use]
+pub const fn is_inline_box_display(display: LayoutDisplay) -> bool {
+    matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineListItem)
+}
+
 /// CSS Display Module Level 3: Blockification of display values.
 ///
 /// When an element is floated, absolutely positioned, or is the root element,
@@ -3701,6 +3711,8 @@ pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
+        // An inline list item stays a list item (CSS Display 3 s2.7).
+        LayoutDisplay::InlineListItem => LayoutDisplay::ListItem,
         // Per CSS Display 3 §2.7: inline-block blockifies to block
         // (for legacy reasons, loses its flow-root nature)
         LayoutDisplay::InlineBlock => LayoutDisplay::Block,

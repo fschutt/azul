@@ -399,7 +399,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
-            if display == LayoutDisplay::Inline {
+            if crate::solver3::getters::is_inline_box_display(display) {
                 // Regular inline element - collect its text children
                 let span_style = get_style_properties(
                     ctx.styled_dom,
@@ -659,7 +659,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         }
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
-        if display != LayoutDisplay::Inline {
+        if !crate::solver3::getters::is_inline_box_display(display) {
             // This is an atomic inline-level box (e.g., inline-block, image):
             // its size and baseline go to text3 with it.
             let shape = measure_atomic_inline(
@@ -1205,7 +1205,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_map,
                 )?;
             }
-            LayoutDisplay::Inline => {
+            LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
                 // Nested inline span - recurse with child's style
                 debug_info!(
                     ctx,

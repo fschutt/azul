@@ -4113,7 +4113,7 @@ pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> b
     };
     if matches!(node_data.get_node_type(), NodeType::Text(_))
         || is_replaced_element(node_data)
-        || get_display_type(styled_dom, node_id) != LayoutDisplay::Inline
+        || !crate::solver3::getters::is_inline_box_display(get_display_type(styled_dom, node_id))
         || is_out_of_flow_positioned(styled_dom, node_id)
         || is_floated(styled_dom, node_id)
     {
@@ -4689,7 +4689,7 @@ fn collect_box_props(
         // vertical margins zeroed +spec:replaced-elements:f07118 - non-replaced elements
         // have rendering dictated by CSS model "These properties apply to all elements, but
         // vertical margins will not have  any effect on non-replaced inline elements."
-        LayoutDisplay::Inline => {
+        LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
             let is_replaced = node_data.is_sized_replaced_node();
             if is_replaced {
                 unresolved_margin
@@ -5268,7 +5268,9 @@ fn determine_formatting_context_for_display(
         // +spec:display-property:37bcf3 - inline outer display type generates an inline box
         // +spec:display-property:30a935 - outer display without inner defaults to flow
         // (block/inline both use flow context)
-        LayoutDisplay::Inline => FormattingContext::Inline,
+        // An inline list item is an inline box (its marker is a generated
+        // `::marker` child, inline like its text).
+        LayoutDisplay::Inline | LayoutDisplay::InlineListItem => FormattingContext::Inline,
         // +spec:block-formatting-context:97b03b - flow-root always establishes a new BFC;
         // block/list-item may establish one based on other conditions
         // +spec:display-property:0bac26 - list-item limited to flow layout inner types

@@ -7218,7 +7218,7 @@ where
             // over an `<img>` showed both copies on the frontpage screenshot.
             let is_atomic_inline = display.is_atomic_inline();
 
-            if is_atomic_inline || display == LayoutDisplay::Inline {
+            if is_atomic_inline || super::getters::is_inline_box_display(display) {
                 debug_info!(
                     self.ctx,
                     "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, \
@@ -9391,8 +9391,9 @@ where
             .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         while let Some(n) = node {
             if Some(n) == root
-                || get_display_property(self.ctx.styled_dom, Some(n)).unwrap_or_default()
-                    != LayoutDisplay::Inline
+                || !super::getters::is_inline_box_display(
+                    get_display_property(self.ctx.styled_dom, Some(n)).unwrap_or_default(),
+                )
             {
                 break;
             }

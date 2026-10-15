@@ -868,7 +868,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     && !is_anonymous_wrapper
                     && tree
                         .warm(LayoutNodeId::new(node_index))
-                        .is_some_and(|w| w.computed_style.display == LayoutDisplay::Inline);
+                        .is_some_and(|w| {
+                            super::getters::is_inline_box_display(w.computed_style.display)
+                        });
                 if is_text_node || has_text_in_subtree || is_anonymous_wrapper || !is_inline_box {
                     // Case 1, 2 or 4: measure the inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
@@ -1863,9 +1865,9 @@ fn text_run_style<T: ParsedFontTrait>(
     let inline_box = ctx.styled_dom.node_hierarchy.as_container()[text_id]
         .parent_id()
         .filter(|&parent| {
-            get_display_property(ctx.styled_dom, Some(parent)).unwrap_or_default()
-                == LayoutDisplay::Inline
-                && !laid_out_as_block(tree, parent)
+            super::getters::is_inline_box_display(
+                get_display_property(ctx.styled_dom, Some(parent)).unwrap_or_default(),
+            ) && !laid_out_as_block(tree, parent)
         });
     match inline_box {
         Some(parent) => {
@@ -1900,9 +1902,9 @@ fn inline_box_chain<T: ParsedFontTrait>(
     let mut boxes = Vec::new();
     let mut node = Some(innermost);
     while let Some(id) = node {
-        let is_inline_box = get_display_property(ctx.styled_dom, Some(id)).unwrap_or_default()
-            == LayoutDisplay::Inline
-            && !laid_out_as_block(tree, id);
+        let is_inline_box = super::getters::is_inline_box_display(
+            get_display_property(ctx.styled_dom, Some(id)).unwrap_or_default(),
+        ) && !laid_out_as_block(tree, id);
         if !is_inline_box {
             break;
         }
@@ -1930,7 +1932,7 @@ fn laid_out_as_block(tree: &LayoutTree, dom_id: NodeId) -> bool {
         .get(&dom_id)
         .and_then(|nodes| nodes.first())
         .and_then(|&node| tree.warm(node))
-        .is_some_and(|w| w.computed_style.display != LayoutDisplay::Inline)
+        .is_some_and(|w| !super::getters::is_inline_box_display(w.computed_style.display))
 }
 
 /// Helper to process layout tree children for inline content collection.
@@ -2011,7 +2013,7 @@ fn process_layout_children<T: ParsedFontTrait>(
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
 
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
-        if display.unwrap_or_default() == LayoutDisplay::Inline {
+        if super::getters::is_inline_box_display(display.unwrap_or_default()) {
             // Recursively collect content from inline children
             // This is CRITICAL for proper intrinsic width calculation!
             debug_log!(ctx, "Recursing into inline child at node {}", child_index);
@@ -2430,7 +2432,9 @@ pub fn calculate_used_size_for_node(
     // +spec:width-calculation:972e86 - §10.3.1: width property does not apply to inline
     // non-replaced elements For inline non-replaced elements, override any explicit width to
     // Auto.
-    let css_width = if display.unwrap_or_default() == LayoutDisplay::Inline && !is_replaced {
+    let css_width = if super::getters::is_inline_box_display(display.unwrap_or_default())
+        && !is_replaced
+    {
         MultiValue::Exact(LayoutWidth::Auto)
     } else {
         css_width
@@ -2441,7 +2445,9 @@ pub fn calculate_used_size_for_node(
     // +spec:height-calculation:c03717 - height does not apply to inline non-replaced elements
     // CSS 2.2 §10.6.1 / CSS Inline 3 §6.4: height property does not apply to
     // inline, non-replaced elements. Override any explicit height to Auto.
-    let css_height = if display.unwrap_or_default() == LayoutDisplay::Inline && !is_replaced {
+    let css_height = if super::getters::is_inline_box_display(display.unwrap_or_default())
+        && !is_replaced
+    {
         MultiValue::Exact(LayoutHeight::Auto)
     } else {
         css_height
@@ -2611,7 +2617,7 @@ pub fn calculate_used_size_for_node(
                             .min(preferred)
                             .max(0.0)
                     }
-                    LayoutDisplay::Inline => {
+                    LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
                         // For inline elements, 'auto' width is the intrinsic/max-content width
                         intrinsic.max_content_width
                     }
@@ -2868,7 +2874,7 @@ pub fn calculate_used_size_for_node(
                     | LayoutDisplay::Grid => 0.0,
                     // Inline: height property does not apply (§10.6.1), handled earlier
                     // via css_height override, but be explicit anyway.
-                    LayoutDisplay::Inline => 0.0,
+                    LayoutDisplay::Inline | LayoutDisplay::InlineListItem => 0.0,
                     // Shrink-to-fit and intrinsically-sized: keep using intrinsic pre-layout.
                     _ => intrinsic.max_content_height,
                 },
