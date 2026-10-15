@@ -59,6 +59,12 @@ pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
         )
         .with_editing(s.editing_path)
         .with_recent(false)
+        // The design's key cap in the search box (it hides while the box has the focus).
+        .with_search_shortcut(AzString::from(if cfg!(target_os = "macos") {
+            "\u{2318}F"
+        } else {
+            "Ctrl+F"
+        }))
         .with_on_event(app.clone(), on_address as AddressBarOnEventCallbackType)
         .dom()
 }
