@@ -935,6 +935,9 @@ pub fn get_ua_property(
 
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
+        // CSS 2.2 s12.1: `::before` and `::after` are inline unless their
+        // rule says otherwise.
+        (NT::Before | NT::After, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
         // No underline here: only a LINK (`<a href>`) is underlined, see
         // `get_ua_link_property`.

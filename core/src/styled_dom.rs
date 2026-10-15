@@ -1384,6 +1384,22 @@ impl StyledDom {
 
         static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
 
+        // The `::before` / `::after` nodes the stylesheet's `content` rules
+        // make join the tree first: everything below reads the final arena.
+        let node_hierarchy: NodeHierarchyItemVec =
+            if crate::generated_content::insert_generated_nodes(&mut compact_dom, &mut css) {
+                compact_dom
+                    .node_hierarchy
+                    .as_ref()
+                    .internal
+                    .iter()
+                    .map(|i| (*i).into())
+                    .collect::<Vec<NodeHierarchyItem>>()
+                    .into()
+            } else {
+                node_hierarchy
+            };
+
         // HTML's presentational hints (`<table width cellpadding>`, `<td
         // bgcolor align nowrap>`): the attributes the XML loaders keep on
         // the node become inline declarations in front of each element's
@@ -1481,6 +1497,14 @@ impl StyledDom {
             &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
+        // The generated nodes' text, from what the cascade resolved (before
+        // the prune drops the entries the counters read).
+        let _ = crate::generated_content::fill_generated_text(
+            &mut compact_dom.node_data.internal,
+            node_hierarchy.as_container().internal,
+            &css_property_cache,
+            &[],
+        );
         let pre_prune = if cascade_dbg {
             Some(css_property_cache.memory_breakdown())
         } else {
@@ -1983,6 +2007,8 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().retained_author_css = css;
 
         self.recascade_ua_inheritance_and_compact();
+        // `content` and the counters may have moved with the cascade.
+        let _ = self.refill_generated_text();
         // The new sheet may add or drop `:backdrop` rules.
         self.sync_backdrop_state();
     }
@@ -2523,6 +2549,20 @@ impl StyledDom {
 
         let mut changes: RestyleNodes = v.into_iter().collect();
         self.restyle_left_state_rules(&nodes, &old_node_states, pseudo_state_type, &mut changes);
+        // A generated node whose `content` follows the state (`.go:hover::after`)
+        // shows another text now.
+        let content_moved = {
+            let node_data = self.node_data.as_container();
+            changes.iter().any(|(node, props)| {
+                node_data[*node].is_generated_content()
+                    && props
+                        .iter()
+                        .any(|c| c.current_prop.get_type() == CssPropertyType::Content)
+            })
+        };
+        if content_moved {
+            let _ = self.refill_generated_text();
+        }
         changes
     }
 

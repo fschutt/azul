@@ -82,12 +82,19 @@ pub struct AncestorStates<'a> {
     /// Whether the window is not the active one. `:backdrop` names that
     /// window state, so it holds for every node then.
     pub window_inactive: bool,
+    /// Every interaction pseudo-class holds: what a rule COULD select in
+    /// some state. Generated content asks this when it decides which hosts
+    /// get a `::before` node at all.
+    pub every_state: bool,
 }
 
 impl AncestorStates<'_> {
     /// Whether `node` is in the state `pseudo` names. Structural
     /// pseudo-classes are not states and never hold here.
     fn holds(&self, node: NodeId, pseudo: &CssPathPseudoSelector) -> bool {
+        if self.every_state {
+            return true;
+        }
         if matches!(pseudo, CssPathPseudoSelector::Backdrop) {
             return self.window_inactive;
         }
@@ -292,6 +299,14 @@ fn find_non_anonymous_parent(
     None
 }
 
+/// Whether a node counts among its parent's element children for the
+/// structural pseudo-classes and the sibling combinators: not a text node
+/// and not generated content, which is no element of the document (a
+/// `ul::before` must not make the first `li` the second child).
+const fn is_element_sibling(node_data: &NodeData) -> bool {
+    !node_data.is_text_node() && !node_data.is_generated_content()
+}
+
 /// Find the first previous sibling of a node that the `+`/`~` combinators can target:
 /// an element, skipping anonymous boxes AND non-element (text) nodes.
 ///
@@ -305,7 +320,7 @@ fn find_non_anonymous_prev_sibling(
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].previous_sibling_id();
     while let Some(n) = next {
-        if !node_data[n].is_anonymous() && !node_data[n].is_text_node() {
+        if !node_data[n].is_anonymous() && is_element_sibling(&node_data[n]) {
             return Some(n);
         }
         next = node_hierarchy[n].previous_sibling_id();
@@ -434,7 +449,7 @@ pub fn construct_html_cascade_tree(
         // We count only element siblings when computing index_in_parent.
         let element_index_in_parent = parent_id
             .preceding_siblings(node_hierarchy)
-            .filter(|sib_id| !node_data[*sib_id].is_text_node())
+            .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
             .count();
 
         let parent_html_matcher = CascadeInfo {
@@ -445,7 +460,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
                 while let Some(sib_id) = next {
-                    if !node_data[sib_id].is_text_node() {
+                    if is_element_sibling(&node_data[sib_id]) {
                         is_last_element = false;
                         break;
                     }
@@ -460,7 +475,7 @@ pub fn construct_html_cascade_tree(
         // Count only element children for index_in_parent
         let mut element_idx: u32 = 0;
         for child_id in parent_id.children(node_hierarchy) {
-            let is_text = node_data[child_id].is_text_node();
+            let is_text = !is_element_sibling(&node_data[child_id]);
 
             // Find whether this is the last element child (skip trailing text nodes)
             let is_last_element_child = if is_text {
@@ -469,7 +484,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last = true;
                 let mut next = node_hierarchy[child_id].next_sibling;
                 while let Some(sib_id) = next {
-                    if !node_data[sib_id].is_text_node() {
+                    if is_element_sibling(&node_data[sib_id]) {
                         is_last = false;
                         break;
                     }
@@ -829,7 +844,12 @@ fn match_single_selector(
         // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
         // must apply. Subtree-scoped and unscoped `*` rules keep refusing
         // text nodes.
-        Global => !node_data.is_text_node() || node_scoped_to_self,
+        // Nor generated content: `*` selects elements, and a `::before` is
+        // selected by its own node type (`div > ::before`).
+        Global => {
+            (!node_data.is_text_node() && !node_data.is_generated_content())
+                || node_scoped_to_self
+        }
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
         // (`CssPath::push_front_scope`):

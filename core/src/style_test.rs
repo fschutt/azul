@@ -161,6 +161,7 @@ mod autotest_generated {
             states.map(|nodes| AncestorStates {
                 nodes,
                 window_inactive: false,
+                every_state: false,
             }),
         )
     }

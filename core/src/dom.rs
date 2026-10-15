@@ -3504,6 +3504,14 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
     }
 
+    /// Whether this node is generated content: a `::before` or `::after`
+    /// the styling made for its parent from a `content` rule, not a node
+    /// the DOM was built with (see `crate::generated_content`).
+    #[must_use]
+    pub const fn is_generated_content(&self) -> bool {
+        matches!(self.node_type, NodeType::Before | NodeType::After)
+    }
+
     /// Whether this node is drawn as part of its parent and takes its
     /// interaction states (see `NodeDataExt::part_of_parent`).
     #[must_use]
