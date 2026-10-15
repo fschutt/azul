@@ -33,6 +33,9 @@ pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.
 pub mod log_gate;
+/// A top-level window owned by the window that opened it: above it, minimised and
+/// closed with it.
+pub mod owned_window;
 /// Ending the process from a thread that is not the UI thread: the worker
 /// asks, the run loop exits with everything else stopped.
 pub mod process_exit;
