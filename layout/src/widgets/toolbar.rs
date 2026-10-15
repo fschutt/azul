@@ -24,11 +24,14 @@
 //! activation. An icon-only tool is named by its label and shows it as a
 //! tooltip under the pointer.
 //!
-//! OVERFLOW: the app says how wide the bar may be
-//! ([`Toolbar::with_available_width`], 0 = no limit, like the data table's
-//! viewport). The toolbar estimates each item's width ([`item_width`]: the
-//! padding, the 20 px icon, the label at 0.6 em a character, the menu
-//! arrow), and when they do not fit the items at the END move, one by one,
+//! OVERFLOW: the bar measures itself. After every layout that changes its
+//! size it reports a `Resize` event with its width and its tools' measured
+//! widths; the app stores them and builds the bar with them
+//! ([`Toolbar::with_available_width`], [`Toolbar::with_measured_widths`];
+//! 0 = no limit, like the data table's viewport). An item not measured yet
+//! counts its estimate ([`item_width`]: the padding, the 20 px icon, the
+//! label at 0.6 em a character, the menu arrow). When they do not fit, the
+//! items at the END move, one by one,
 //! into the menu of a "more" button (`more_horiz`) at the end of the bar -
 //! except the ones marked [`ToolbarItem::never_overflow`] (the search
 //! field). In the menu a button is an entry, a toggle a check entry, a menu
@@ -637,9 +640,17 @@ fn label_px(label: &str) -> f32 {
 /// [`fit`] with the widths the bar measured (`measured`, whole px by item
 /// index) in place of the estimates.
 #[must_use]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn fit_measured(items: &[ToolbarItem], measured: &[u32], available: f32) -> ToolbarFit {
-    let _ = measured;
-    fit(items, available)
+    let widths: Vec<f32> = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| match measured.get(index).copied().filter(|w| *w > 0) {
+            Some(w) => w as f32,
+            None => item_width(item),
+        })
+        .collect();
+    fit_widths(items, &widths, available)
 }
 
 /// What the bar reports after a layout at `bar_width` px, its shown items
@@ -647,6 +658,7 @@ pub(crate) fn fit_measured(items: &[ToolbarItem], measured: &[u32], available: f
 /// `Resize` event when the width or a measured width differs from what the
 /// bar was built with (`available`, `measured`), else nothing.
 #[must_use]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn resize_report(
     items: &[ToolbarItem],
     shown: &[usize],
@@ -655,8 +667,38 @@ pub(crate) fn resize_report(
     bar_width: f32,
     node_widths: &[f32],
 ) -> Option<ToolbarEvent> {
-    let _ = (items, shown, available, measured, bar_width, node_widths);
-    None
+    let before: Vec<u32> = (0..items.len()).map(|i| measured.get(i).copied().unwrap_or(0)).collect();
+    let mut widths = before.clone();
+    for (position, &index) in shown.iter().enumerate() {
+        let Some(item) = items.get(index) else {
+            continue;
+        };
+        // The tools and the embedded controls; a separator and a spacer
+        // keep their fixed widths.
+        let measurable = matches!(
+            item.kind,
+            ToolbarItemKind::Button
+                | ToolbarItemKind::Toggle
+                | ToolbarItemKind::MenuButton
+                | ToolbarItemKind::Custom
+        );
+        let Some(&node) = node_widths.get(position) else {
+            continue;
+        };
+        if measurable && node.is_finite() && node > 0.0 {
+            // The tool and the gap after it, whole px rounded up.
+            widths[index] = (node + TOOLBAR_ITEM_GAP_PX).ceil() as u32;
+        }
+    }
+    let whole = |px: f32| if px.is_finite() && px > 0.0 { px.round() as u32 } else { 0 };
+    let width = whole(bar_width);
+    if width == whole(available) && widths == before {
+        return None;
+    }
+    let mut event = ToolbarEvent::create(ToolbarEventKind::Resize, 0, AzString::from_const_str(""));
+    event.width = width;
+    event.widths = U32Vec::from_vec(widths);
+    Some(event)
 }
 
 /// Which of `items` fit into `available` px (0 = everything): from the
@@ -666,6 +708,11 @@ pub(crate) fn resize_report(
 #[must_use]
 pub(crate) fn fit(items: &[ToolbarItem], available: f32) -> ToolbarFit {
     let widths: Vec<f32> = items.iter().map(item_width).collect();
+    fit_widths(items, &widths, available)
+}
+
+/// [`fit`] with each item `widths[index]` px wide.
+fn fit_widths(items: &[ToolbarItem], widths: &[f32], available: f32) -> ToolbarFit {
     let total: f32 = widths.iter().sum();
     let mut shown = alloc::vec![true; items.len()];
     if available.is_finite() && available > 0.0 && total > available {
@@ -918,6 +965,13 @@ struct ToolbarShared {
     on_event: OptionToolbarOnEvent,
     items: Vec<ToolbarItem>,
     overflow: Vec<usize>,
+    /// The items in the bar, in order: the root's children, the "more"
+    /// button after them (the resize handler measures them).
+    shown: Vec<usize>,
+    /// The width the bar was built for (0: no limit).
+    available: f32,
+    /// The measured widths it was built with, by item index.
+    measured: Vec<u32>,
 }
 
 /// A tool's payload: its index (or [`MORE_INDEX`]) and the shared part.
@@ -938,10 +992,11 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
         on_event,
         available_width,
         theme,
-        measured_widths: _,
+        measured_widths,
     } = toolbar;
     let mut items = items.into_library_owned_vec();
-    let fitted = fit(&items, available_width);
+    let measured = measured_widths.into_library_owned_vec();
+    let fitted = fit_measured(&items, &measured, available_width);
     // The embedded controls go into the DOM; the shared items keep the rest.
     let mut contents: Vec<Option<Dom>> = items
         .iter_mut()
@@ -951,6 +1006,9 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
         on_event,
         items: items.clone(),
         overflow: fitted.overflow.clone(),
+        shown: fitted.shown.clone(),
+        available: available_width,
+        measured,
     });
 
     let mut children: Vec<Dom> = Vec::with_capacity(fitted.shown.len() + 1);
@@ -1014,7 +1072,33 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
             accessibility_name: Some(accessibility_name).into(),
             ..Default::default()
         })
+        // The bar hears its own size: it measures itself after a layout.
+        .with_callback(
+            EventFilter::Component(azul_core::dom::ComponentEventFilter::NodeResized),
+            shared.clone(),
+            on_toolbar_resized as usize,
+        )
         .with_children(DomVec::from_vec(children))
+}
+
+/// The bar was laid out at a new size: it measures itself and its items
+/// and reports them when they differ from what it was built with.
+extern "C" fn on_toolbar_resized(mut data: RefAny, info: CallbackInfo) -> Update {
+    let bar = info.get_hit_node();
+    let Some(size) = info.get_node_size(bar) else {
+        return Update::DoNothing;
+    };
+    let node_widths: Vec<f32> = crate::widgets::roving::children_of(&info, bar)
+        .into_iter()
+        .map(|node| info.get_node_size(node).map_or(0.0, |s| s.width))
+        .collect();
+    let event = data.downcast_ref::<ToolbarShared>().and_then(|s| {
+        resize_report(&s.items, &s.shown, s.available, &s.measured, size.width, &node_widths)
+    });
+    match event {
+        Some(event) => emit(&mut data, info, event),
+        None => Update::DoNothing,
+    }
 }
 
 /// One tool: the `Button` widget in the toolbar's look (a quiet key; a
