@@ -103,6 +103,10 @@ Phase `crypto` (three devices in one encrypted chat room; CRYPTO.md):
        them;
    10. screenshots (azmeet-crypto-*.png), stops the apps.
 
+Every chat message of a call also travels over the call's connections (kind 8): the receiver
+prints AZMEET_PEER_CHAT for it before the meetings service brings it (ARCHITECTURE.md, "Chat
+over the peers").
+
 Phase `dial` (a direct call: no meetings service at any point, ARCHITECTURE.md "Direct calls"):
     1. starts Ada and Ben with a meetings service address nothing answers at and no relay;
     2. reads Ada's address (AZMEET_DIRECT_ADDRESS <ticket>, her endpoint's full ticket);
@@ -654,6 +658,10 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
           deadline, procs)
     log("%s printed AZMEET_CHAT %s: %s" % (receiver.tag, sender_name, text))
+    # It came over the call's connections, before the meetings service brought it.
+    until("%s's message from the peers (AZMEET_PEER_CHAT) on %s's stdout" % (sender_name, receiver.tag),
+          lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_PEER_CHAT"),
+          deadline, procs)
     if not any(t.startswith("Chat (") for t in receiver.texts()):
         # The receiver's chat may already be open (the answer goes to Ada, whose chat is open).
         if not any(text in t for t in receiver.texts()):

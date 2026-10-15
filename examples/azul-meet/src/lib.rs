@@ -187,6 +187,7 @@ mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 mod pace;
+mod peer_chat;
 mod rate;
 mod roomlist;
 mod rooms;
@@ -799,6 +800,9 @@ struct MeetState {
     /// Direct calls: the screen, the call being made or coming in, the people in one, the recent
     /// calls (`direct.rs`, `direct_call.rs`).
     direct: direct::DirectState,
+    /// What the peers' chat records changed, by room, until the pump shows it
+    /// (`peer_chat::take_changes`).
+    peer_chat: Vec<(String, chatroom::Changes)>,
     /// The room view's "Copy link" was clicked.
     room_copied: bool,
     /// Who is on the stage of the speaker view, from the levels of the audio each peer sends.
@@ -939,6 +943,7 @@ impl MeetState {
             index: roomlist::RoomIndex::default(),
             open_room: None,
             direct: direct::DirectState::default(),
+            peer_chat: Vec::new(),
             room_copied: false,
             speaker: speaker::ActiveSpeaker::new(),
             panel: SidePanel::People,
@@ -1974,6 +1979,25 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         drain_decoders(&mut s, &mut pictures);
         drain_encoders(&mut s, &endpoint);
+        // This side's chat messages to the peers of the call.
+        peer_chat::flush(&mut s, &endpoint);
+    }
+    // What the peers' chat records changed: the lines, the files, the window.
+    let chat_changes = data
+        .downcast_mut::<MeetState>()
+        .map(|mut s| peer_chat::take_changes(&mut s))
+        .unwrap_or_default();
+    for (room, changes) in chat_changes {
+        let app = data.clone();
+        let applied = data
+            .downcast_mut::<MeetState>()
+            .map(|mut s| apply_chat_changes(&mut s, &mut info.callback_info, &app, &room, changes));
+        if let Some((update, follow_up)) = applied {
+            refresh |= matches!(update, Update::RefreshDom);
+            if let Some(job) = follow_up {
+                spawn_http(&mut info.callback_info, app, job);
+            }
+        }
     }
     for ((peer, track), picture) in pictures {
         show_picture(&mut info, peer, track, picture);
@@ -4281,9 +4305,15 @@ fn receive_item(
 ) -> bool {
     let conn = event.peer;
     let bytes = event.data.as_slice();
-    // A direct call's hello, answer or roster, from a peer or from a connection still waiting.
-    if let Some(msg) = direct::decode(bytes) {
-        return direct_call::on_message(s, conn, msg);
+    if event.kind == IrohEventKind::Message {
+        // A direct call's hello, answer or roster, from a peer or a connection still waiting.
+        if let Some(msg) = direct::decode(bytes) {
+            return direct_call::on_message(s, conn, msg);
+        }
+        // A chat message over the peers.
+        if let Some(record) = chatroom::ChatRecord::decode(bytes) {
+            return peer_chat::on_record(s, endpoint, conn, record);
+        }
     }
     let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
         // A connection waiting for its signed announcement: what it says about itself is kept
