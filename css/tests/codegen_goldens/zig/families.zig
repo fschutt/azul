@@ -18,6 +18,8 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(C.AzStyleFontVariantNumericValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantNumeric{ .lining_nums = false, .oldstyle_nums = false, .proportional_nums = false, .tabular_nums = true, .diagonal_fractions = false, .stacked_fractions = false, .ordinal = false, .slashed_zero = false } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(C.AzStyleFontVariantCapsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantCaps_SmallCaps } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(C.AzStyleFontFeatureSettingsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontFeatureSettings{ .inner = C.AzString_copyFromBytes("\"liga\" 0, \"tnum\"", 0, 16) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textJustify(C.AzLayoutTextJustify_InterWord)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_verticalAlign(C.AzStyleVerticalAlign_middle())),
@@ -67,7 +69,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
                 }, 2)
             )
         ),
-    }, 48);
+    }, 50);
 }
 
 // CSS: .box

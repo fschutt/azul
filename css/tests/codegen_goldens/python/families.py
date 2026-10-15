@@ -16,6 +16,8 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.W600)),
         CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic)),
         CssPropertyWithConditions.simple(CssProperty.FontVariantNumeric(StyleFontVariantNumericValue.Exact(_with(StyleFontVariantNumeric.default(), lining_nums=False, oldstyle_nums=False, proportional_nums=False, tabular_nums=True, diagonal_fractions=False, stacked_fractions=False, ordinal=False, slashed_zero=False)))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantCaps(StyleFontVariantCapsValue.Exact(StyleFontVariantCaps.SmallCaps))),
+        CssPropertyWithConditions.simple(CssProperty.FontFeatureSettings(StyleFontFeatureSettingsValue.Exact(_with(StyleFontFeatureSettings.default(), inner="\"liga\" 0, \"tnum\"")))),
         CssPropertyWithConditions.simple(CssProperty.text_align(StyleTextAlign.Center)),
         CssPropertyWithConditions.simple(CssProperty.text_justify(LayoutTextJustify.InterWord)),
         CssPropertyWithConditions.simple(CssProperty.vertical_align(StyleVerticalAlign.Middle())),

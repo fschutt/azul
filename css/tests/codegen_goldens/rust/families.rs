@@ -31,6 +31,8 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
         CssPropertyWithConditions::simple(CssProperty::font_style(StyleFontStyle::Italic)),
         CssPropertyWithConditions::simple(CssProperty::FontVariantNumeric(StyleFontVariantNumericValue::Exact(StyleFontVariantNumeric { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false }))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantCaps(StyleFontVariantCapsValue::Exact(StyleFontVariantCaps::SmallCaps))),
+        CssPropertyWithConditions::simple(CssProperty::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(StyleFontFeatureSettings { inner: azul::str::String::from("\"liga\" 0, \"tnum\"") }))),
         CssPropertyWithConditions::simple(CssProperty::text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::text_justify(LayoutTextJustify::InterWord)),
         CssPropertyWithConditions::simple(CssProperty::vertical_align(StyleVerticalAlign::Middle)),

@@ -47,6 +47,8 @@ function style_text()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_W600)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_Italic)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantNumeric(az_union(Azul.AzStyleFontVariantNumericValue, Azul.AzStyleFontVariantNumericValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantNumeric(false, false, false, true, false, false, false, false)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantCaps(az_union(Azul.AzStyleFontVariantCapsValue, Azul.AzStyleFontVariantCapsValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantCaps_SmallCaps))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontFeatureSettings(az_union(Azul.AzStyleFontFeatureSettingsValue, Azul.AzStyleFontFeatureSettingsValueVariant_Exact, UInt8(6), Azul.AzStyleFontFeatureSettings(Azul.az_string("\"liga\" 0, \"tnum\""))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textAlign(Azul.AzStyleTextAlign_Center)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textJustify(Azul.AzLayoutTextJustify_InterWord)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_verticalAlign(Azul.AzStyleVerticalAlign_middle())),

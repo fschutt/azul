@@ -34,6 +34,8 @@ pub const FAMILIES: &str = r#"
     font-weight: 600;
     font-style: italic;
     font-variant-numeric: tabular-nums;
+    font-variant-caps: small-caps;
+    font-feature-settings: "liga" 0, "tnum";
     text-align: center;
     text-justify: inter-word;
     vertical-align: middle;

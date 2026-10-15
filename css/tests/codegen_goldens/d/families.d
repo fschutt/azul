@@ -20,6 +20,8 @@ CssPropertyWithConditions[] styleText()
         CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
         CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
         CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumericValue.exact(StyleFontVariantNumeric(false, false, false, true, false, false, false, false)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
+        CssPropertyWithConditions.simple(CssProperty.fontFeatureSettings(StyleFontFeatureSettingsValue.exact(StyleFontFeatureSettings("\"liga\" 0, \"tnum\"")))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
         CssPropertyWithConditions.simple(CssProperty.textJustify(LayoutTextJustify.interWord)),
         CssPropertyWithConditions.simple(CssProperty.verticalAlign(StyleVerticalAlign.middle())),

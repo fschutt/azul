@@ -44,6 +44,8 @@
       (css-property-with-conditions-simple (css-property-font-weight AzStyleFontWeight_W600))
       (css-property-with-conditions-simple (css-property-font-style AzStyleFontStyle_Italic))
       (css-property-with-conditions-simple (css-property-font-variant-numeric (css-union _AzStyleFontVariantNumericValue AzStyleFontVariantNumericValue_Variant_Exact-tag set-AzStyleFontVariantNumericValue_Variant_Exact-variant-tag! AzStyleFontVariantNumericValue_Tag_Exact set-AzStyleFontVariantNumericValue_Variant_Exact-payload! (make-AzStyleFontVariantNumeric #f #f #f #t #f #f #f #f))))
+      (css-property-with-conditions-simple (css-property-font-variant-caps (css-union _AzStyleFontVariantCapsValue AzStyleFontVariantCapsValue_Variant_Exact-tag set-AzStyleFontVariantCapsValue_Variant_Exact-variant-tag! AzStyleFontVariantCapsValue_Tag_Exact set-AzStyleFontVariantCapsValue_Variant_Exact-payload! AzStyleFontVariantCaps_SmallCaps)))
+      (css-property-with-conditions-simple (css-property-font-feature-settings (css-union _AzStyleFontFeatureSettingsValue AzStyleFontFeatureSettingsValue_Variant_Exact-tag set-AzStyleFontFeatureSettingsValue_Variant_Exact-variant-tag! AzStyleFontFeatureSettingsValue_Tag_Exact set-AzStyleFontFeatureSettingsValue_Variant_Exact-payload! (make-AzStyleFontFeatureSettings (string->azul-string "\"liga\" 0, \"tnum\"")))))
       (css-property-with-conditions-simple (css-property-text-align AzStyleTextAlign_Center))
       (css-property-with-conditions-simple (css-property-text-justify AzLayoutTextJustify_InterWord))
       (css-property-with-conditions-simple (css-property-vertical-align (style-vertical-align-middle)))

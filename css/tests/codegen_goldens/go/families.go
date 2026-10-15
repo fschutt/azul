@@ -19,6 +19,8 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.StyleFontWeight_W600)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.StyleFontStyle_Italic)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantNumeric(azul.AzStyleFontVariantNumericValue_Exact(azul.AzStyleFontVariantNumeric{LiningNums: false, OldstyleNums: false, ProportionalNums: false, TabularNums: true, DiagonalFractions: false, StackedFractions: false, Ordinal: false, SlashedZero: false}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantCaps(azul.AzStyleFontVariantCapsValue_Exact(azul.StyleFontVariantCaps_SmallCaps))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontFeatureSettings(azul.AzStyleFontFeatureSettingsValue_Exact(azul.AzStyleFontFeatureSettings{Inner: azul.Str("\"liga\" 0, \"tnum\"").Raw()}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textAlign(azul.StyleTextAlign_Center)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textJustify(azul.LayoutTextJustify_InterWord)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_verticalAlign(azul.AzStyleVerticalAlign_Middle())),
@@ -68,7 +70,7 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 				}[0], 2),
 			),
 		),
-	}[0], 48)
+	}[0], 50)
 }
 
 // CSS: .box

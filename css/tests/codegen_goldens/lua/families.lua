@@ -7,7 +7,7 @@ local M = {}
 
 -- CSS: .text
 function M.style_text()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[48]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[50]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 51, g = 102, b = 153, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(14.0) }))),
         C.AzCssPropertyWithConditions_simple(
@@ -21,6 +21,8 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(ffi.new('AzStyleFontVariantNumericValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantNumeric', { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_SmallCaps } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(ffi.new('AzStyleFontFeatureSettingsValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontFeatureSettings', { inner = azul._az_string("\"liga\" 0, \"tnum\"") }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textJustify(C.AzLayoutTextJustify_InterWord)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_verticalAlign(C.AzStyleVerticalAlign_middle())),
@@ -70,7 +72,7 @@ function M.style_text()
                 }), 2)
             )
         ),
-    }), 48)
+    }), 50)
 end
 
 -- CSS: .box

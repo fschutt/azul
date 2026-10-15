@@ -15,6 +15,8 @@ sub css_str {
 # CSS: .text
 # dropped a value these bindings cannot build: the Perl bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / fromItem())
 # dropped a value these bindings cannot build: `StyleFontVariantNumericValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontFeatureSettingsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleInitialLetterValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleLineClampValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleHangingPunctuationValue` is a fake-layout record in the Perl bindings (tag + byte blob)

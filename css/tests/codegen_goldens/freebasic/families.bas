@@ -7,6 +7,8 @@ End Function
 
 ' CSS: .text
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantNumericValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantCapsValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontFeatureSettingsValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleInitialLetterValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleLineClampValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleHangingPunctuationValue` (or for the CssPropertyValue<T> in its payload)

@@ -70,6 +70,8 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N::AzStyleFontWeight::W600)),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N::AzStyleFontStyle::Italic)),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_numeric(AzulCodegen.union(N::AzStyleFontVariantNumericValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantNumeric, lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_caps(AzulCodegen.union(N::AzStyleFontVariantCapsValue, :Exact, 6, N::AzStyleFontVariantCaps::SmallCaps))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_feature_settings(AzulCodegen.union(N::AzStyleFontFeatureSettingsValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontFeatureSettings, inner: Azul._az_string("\"liga\" 0, \"tnum\""))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_align(N::AzStyleTextAlign::Center)),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_justify(N::AzLayoutTextJustify::InterWord)),
       N.az_css_property_with_conditions_simple(N.az_css_property_vertical_align(N.az_style_vertical_align_middle())),

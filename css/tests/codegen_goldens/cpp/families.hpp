@@ -23,6 +23,8 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600)),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric([]{ AzStyleFontVariantNumericValue v{}; v.Exact = AzStyleFontVariantNumericValueVariant_Exact{ AzStyleFontVariantNumericValue_Tag_Exact, AzStyleFontVariantNumeric{ false, false, false, true, false, false, false, false } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps([]{ AzStyleFontVariantCapsValue v{}; v.Exact = AzStyleFontVariantCapsValueVariant_Exact{ AzStyleFontVariantCapsValue_Tag_Exact, AzStyleFontVariantCaps_SmallCaps }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontFeatureSettings([]{ AzStyleFontFeatureSettingsValue v{}; v.Exact = AzStyleFontFeatureSettingsValueVariant_Exact{ AzStyleFontFeatureSettingsValue_Tag_Exact, AzStyleFontFeatureSettings{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"liga\" 0, \"tnum\""), 0, 16) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord)),
             AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
@@ -76,7 +78,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
                 )
             ),
         }.data(),
-        48
+        50
     );
 }
 

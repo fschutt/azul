@@ -37,6 +37,8 @@ let style_text () =
     (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (StyleFontWeight.to_int StyleFontWeight.W600)));
     (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (StyleFontStyle.to_int StyleFontStyle.Italic)));
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantNumeric (az_union az_style_font_variant_numeric_value 6 (Some (az_payload az_style_font_variant_numeric (az_struct az_style_font_variant_numeric [ (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_lining_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_oldstyle_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_proportional_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_tabular_nums true); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_diagonal_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_stacked_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_ordinal false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_slashed_zero false) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantCaps (az_union az_style_font_variant_caps_value 6 (Some (az_payload az_style_font_variant_caps (StyleFontVariantCaps.to_int StyleFontVariantCaps.SmallCaps))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontFeatureSettings (az_union az_style_font_feature_settings_value 6 (Some (az_payload az_style_font_feature_settings (az_struct az_style_font_feature_settings [ (fun v -> Ctypes.setf v az_style_font_feature_settings_field_inner (azul_az_string "\"liga\" 0, \"tnum\"")) ]))))));
     (azCssPropertyWithConditions_simple (azCssProperty_textAlign (StyleTextAlign.to_int StyleTextAlign.Center)));
     (azCssPropertyWithConditions_simple (azCssProperty_textJustify (LayoutTextJustify.to_int LayoutTextJustify.InterWord)));
     (azCssPropertyWithConditions_simple (azCssProperty_verticalAlign (azStyleVerticalAlign_middle ())));
@@ -88,7 +90,7 @@ let style_text () =
         ])) (Unsigned.Size_t.of_int 2))
       )
     )
-  ])) (Unsigned.Size_t.of_int 48))
+  ])) (Unsigned.Size_t.of_int 50))
 
 (* CSS: .box *)
 let style_box () =
