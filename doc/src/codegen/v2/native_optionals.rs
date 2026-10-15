@@ -82,3 +82,24 @@ fn a_rust_callback_uses_question_mark_on_stable_and_nightly() {
         "every Option mirror is `?`-able under try-trait"
     );
 }
+
+#[test]
+fn swift_takes_and_gives_optionals_throws_errors_and_lets_a_callback_throw() {
+    let path = "azul.swift";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            // `nil` in, `T?` out, an Err is a thrown error.
+            "public static func openDirectory<T: AnyObject>(_ title: String, defaultPath: String?, \
+             data: T, onResult: @escaping (T, CallbackInfo, RefAny) throws -> Update) -> RequestId {",
+            "public static func downcast(_ result: AnyObject) -> FileOpenResult? {",
+            "public var path: FilePath? {",
+            "public static func parse(_ s: String) throws -> Url {",
+            // A callback may `try`: the error is logged and the callback does nothing.
+            "        let __ur = try onResult(__u0, __u1, __u2)",
+            "AzCallbackInfo_log(&__log, AzAppLogLevel(rawValue: 1), _Native.azString(\"azul: a callback threw \\(error)\"))",
+        ],
+    );
+}
