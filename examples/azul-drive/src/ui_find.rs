@@ -30,10 +30,12 @@ use crate::{
 
 /// The columns: their headers, their widths (px), the column a click sorts by (`None`: Match
 /// puts the results back in the ranked order).
+/// Match takes the room the others leave (its width is its least), so Size ends at the list's
+/// right edge in the design's 300 px preview beside a 228 px navigation pane.
 const COLUMNS: [(&str, f32, Option<Column>); 4] = [
-    ("azdrive-find-column-name", 300.0, Some(Column::Name)),
-    ("azdrive-find-column-match", 420.0, None),
-    ("azdrive-find-column-modified", 136.0, Some(Column::Modified)),
+    ("azdrive-find-column-name", 240.0, Some(Column::Name)),
+    ("azdrive-find-column-match", 290.0, None),
+    ("azdrive-find-column-modified", 150.0, Some(Column::Modified)),
     ("azdrive-find-column-size", 80.0, Some(Column::Size)),
 ];
 
@@ -337,8 +339,9 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
         let mut cell = Dom::create_div()
             .with_class(ids::COLUMN_CLASS)
             .with_css(format!(
-                "{} width: {width}px; min-width: {width}px; {}",
+                "{} width: {width}px; min-width: {width}px; {} {}",
                 look::COLUMN,
+                if column.is_none() { "flex-grow: 1;" } else { "" },
                 if sorted { look::COLUMN_SORTED } else { "" }
             ))
             .with_child(Dom::create_span_with_text(label(header)).with_css(
@@ -474,7 +477,11 @@ pub(crate) fn row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom
     let line = s.find.as_ref().and_then(|f| f.lines.get(&entry.key));
     let [name, matched, modified, size] = COLUMNS.map(|(_, width, _)| width);
     row.add_child(cell(name, "", ui_view::name_cell_marked(s, app, entry, 16.0, query)));
-    row.add_child(cell(matched, "white-space: normal;", snippet_cell(s, entry, line, query)));
+    row.add_child(cell(
+        matched,
+        "white-space: normal; flex-grow: 1;",
+        snippet_cell(s, entry, line, query),
+    ));
     row.add_child(cell(
         modified,
         "opacity: 0.8; font-variant-numeric: tabular-nums;",
