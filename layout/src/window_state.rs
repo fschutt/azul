@@ -58,6 +58,11 @@ pub struct WindowCreateOptions {
     pub size_to_content: bool,
     /// If true, enables hot-reloading of CSS and resources
     pub hot_reload: bool,
+    /// An OWNED top-level window: it stays above the window that opened it (its
+    /// callback's window, filled in as `parent_window_id` when that is 0),
+    /// minimises and comes back with it, and is asked to close when it closes. For
+    /// an Options window, an editor, a presenter's console.
+    pub owned: bool,
 }
 
 impl Default for WindowCreateOptions {
@@ -69,6 +74,7 @@ impl Default for WindowCreateOptions {
             mode: azul_core::window::OptionDarkLightMode::None,
             size_to_content: false,
             hot_reload: false,
+            owned: false,
             parent_window_id: 0,
             background_color_light: OptionColorU::None,
             background_color_dark: OptionColorU::None,

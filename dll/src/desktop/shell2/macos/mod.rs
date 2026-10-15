@@ -5883,6 +5883,9 @@ impl MacOSWindow {
         let is_dialog_child = options.window_state.flags.window_type
             == azul_core::window::WindowType::Dialog
             && options.parent_window_id != 0;
+        // An owned top-level window (`WindowCreateOptions::owned`): a full window,
+        // ordered with its owner like a dialog - above it, minimised with it.
+        let is_owned_window = options.owned && options.parent_window_id != 0;
         let style_mask = if is_dialog_child {
             NSWindowStyleMask::Titled | NSWindowStyleMask::Closable
         } else {
@@ -6067,7 +6070,7 @@ impl MacOSWindow {
         // floating level, which kept the colour picker on top of every other
         // application after its parent was sent to the background. A dialog
         // window orders with its parent the same way.
-        if is_popup_child || is_dialog_child {
+        if is_popup_child || is_dialog_child || is_owned_window {
             if let Some(parent) = unsafe {
                 registry::get_window(
                     options.parent_window_id as usize as *mut objc2::runtime::AnyObject,
@@ -6498,6 +6501,8 @@ impl MacOSWindow {
             undo_manager,
         );
         common.layout_window = Some(layout_window);
+        common.owner_window_id =
+            crate::desktop::shell2::common::owned_window::owner_of(&options);
         common.renderer_resources = renderer_resources;
         common.render_api = wr_render_api;
         common.renderer = wr_renderer;
@@ -9497,6 +9502,8 @@ fn queue_window_free(window_ptr: *mut MacOSWindow) {
 /// Must only be called from the event loop, i.e. outside any window delegate
 /// callback or `&mut MacOSWindow` borrow.
 pub(crate) fn drain_closed_windows() {
+    use crate::desktop::shell2::common::event::PlatformWindow;
+
     let pending: Vec<*mut MacOSWindow> =
         PENDING_WINDOW_FREES.with(|q| std::mem::take(&mut *q.borrow_mut()));
     for window_ptr in pending {
@@ -9505,6 +9512,17 @@ pub(crate) fn drain_closed_windows() {
         // queued, so this is its sole owner and the box is freed exactly once.
         // The registry no longer holds it, so no heir below is the same window.
         unsafe {
+            // The windows it owns (`WindowCreateOptions::owned`) are asked to close
+            // with it, each through its own close guard.
+            let closing_id = (*window_ptr).registry_window_id();
+            if closing_id != 0 {
+                for owned in registry::get_all_window_ptrs() {
+                    if owned != window_ptr && (*owned).common.owner_window_id == closing_id {
+                        (*owned).request_close_by_app();
+                        (*owned).request_redraw();
+                    }
+                }
+            }
             // The app's threads and keyring ops go on in a window that stays open (a compose
             // window whose main window closed), not stopped with this one.
             for heir in registry::get_all_window_ptrs() {

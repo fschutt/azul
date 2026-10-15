@@ -3112,6 +3112,9 @@ pub struct CommonWindowState {
     /// runs as its own ([`PlatformWindow::run_menu_picks`]). Every menu it opens - and their
     /// submenus - carries a clone (`desktop::menu::show_menu`).
     pub menu_picks: crate::desktop::menu::MenuPicks,
+    /// The platform id of the window that owns this one (`WindowCreateOptions::owned`),
+    /// 0 for a window nobody owns. The owner's close asks this window to close.
+    pub owner_window_id: u64,
 }
 
 impl CommonWindowState {
@@ -3454,6 +3457,7 @@ impl CommonWindowState {
             scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
             menu_release_owed: false,
             menu_picks: crate::desktop::menu::MenuPicks::default(),
+            owner_window_id: 0,
         }
     }
 
@@ -6392,7 +6396,9 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::CreateNewWindow { options } => {
-                self.queue_window_create(options.clone());
+                // An owned window's owner is the window whose callback opened it.
+                let creator = self.registry_window_id();
+                self.queue_window_create(super::owned_window::with_owner(options, creator));
                 ProcessEventResult::DoNothing
             }
 

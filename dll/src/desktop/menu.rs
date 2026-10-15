@@ -620,6 +620,7 @@ pub fn show_menu(
         mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
+        owned: false,
         // A menu opened FROM a menu is placed AGAINST that menu: the
         // `RelativeToParentWindow` offset above is measured from
         // `parent_window_position`, and the backend needs to be told which

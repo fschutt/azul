@@ -381,10 +381,12 @@ impl Win32Window {
         // (with WS_EX_TOOLWINDOW, see create_hwnd) has no taskbar button —
         // instead of HWND_TOPMOST floating over every other application. A
         // dialog window (`anchor="dialog"`) is owned the same way, with its frame.
-        let owner_hwnd: Option<HWND> = if matches!(
-            options.window_state.flags.window_type,
-            azul_core::window::WindowType::Menu | azul_core::window::WindowType::Dialog
-        ) && options.parent_window_id != 0
+        let owner_hwnd: Option<HWND> = if (options.owned
+            || matches!(
+                options.window_state.flags.window_type,
+                azul_core::window::WindowType::Menu | azul_core::window::WindowType::Dialog
+            ))
+            && options.parent_window_id != 0
         {
             registry::get_window(options.parent_window_id as usize as HWND)
                 .map(|_| options.parent_window_id as usize as HWND)
@@ -814,6 +816,8 @@ impl Win32Window {
             undo_manager,
         );
         common.layout_window = Some(layout_window);
+        common.owner_window_id =
+            crate::desktop::shell2::common::owned_window::owner_of(&options);
         common.gl_context_ptr = gl_context_ptr;
         common.renderer = renderer;
         common.render_api = render_api;
