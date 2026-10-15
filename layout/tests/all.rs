@@ -1171,3 +1171,5 @@ mod before_and_after_generate_content;
 mod inline_list_items_carry_their_marker;
 #[path = "an_svg_stroke_without_a_width_is_one_unit_wide.rs"]
 mod an_svg_stroke_without_a_width_is_one_unit_wide;
+#[path = "a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part.rs"]
+mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
