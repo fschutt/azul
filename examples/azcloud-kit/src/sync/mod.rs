@@ -1162,6 +1162,10 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
         outcomes.push((job.key.clone(), job.hash.clone(), outcome));
     }
     let mut abandoned = BTreeSet::new();
+    // The first upload that failed by itself (no connection, a busy node), and whether any
+    // went through.
+    let mut passing: Option<CloudError> = None;
+    let mut any_sent = false;
     for (key, hash, outcome) in outcomes {
         let outcome = match outcome {
             Ok(outcome) => outcome,
@@ -1172,6 +1176,7 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
                 report.errors.push(format!("upload {key}: {e}"));
                 report.file_errors.push((key.clone(), e.to_string()));
                 abandoned.insert(key);
+                passing.get_or_insert(e);
                 continue;
             }
             Err(e) => return Err(e),
@@ -1181,10 +1186,12 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
                 known.insert(hash);
                 report.blobs_up += 1;
                 report.bytes_up += bytes;
+                any_sent = true;
             }
             Outcome::Existed => {
                 known.insert(hash);
                 report.blobs_reused += 1;
+                any_sent = true;
             }
             Outcome::Changed(why) => {
                 report.changed_during_sync.push(format!("{key}: {why}"));
@@ -1193,6 +1200,13 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
             Outcome::Cancelled => {
                 abandoned.insert(key);
             }
+        }
+    }
+    // Nothing went through at all: the run fails with it, and the app says the drive cannot be
+    // reached (a node down, no connection) instead of "files cannot sync".
+    if let Some(e) = passing {
+        if !any_sent {
+            return Err(e);
         }
     }
     // An action whose content no upload confirmed (its twin under another
