@@ -514,6 +514,45 @@ azul_core::impl_managed_callback! {
     extra_args:     [ event: IconGridEvent ],
 }
 
+/// A group of the grid's items under a header ("Today", "Folders"): from
+/// item `start` up to the next group's start (or the end). Groups are in
+/// the order of their starts; items before the first group have no header.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IconGridGroup {
+    /// The group's first item.
+    pub start: usize,
+    /// What its header says.
+    pub label: AzString,
+}
+
+impl IconGridGroup {
+    /// A group from item `start`, headed `label`.
+    #[must_use]
+    pub const fn create(start: usize, label: AzString) -> Self {
+        Self { start, label }
+    }
+}
+
+azul_css::impl_option!(IconGridGroup, OptionIconGridGroup, copy = false, [Debug, Clone, PartialEq, Eq]);
+azul_css::impl_vec!(
+    IconGridGroup,
+    IconGridGroupVec,
+    IconGridGroupVecDestructor,
+    IconGridGroupVecDestructorType,
+    IconGridGroupVecSlice,
+    OptionIconGridGroup
+);
+azul_css::impl_vec_clone!(IconGridGroup, IconGridGroupVec, IconGridGroupVecDestructor);
+azul_css::impl_vec_debug!(IconGridGroup, IconGridGroupVec);
+azul_css::impl_vec_partialeq!(IconGridGroup, IconGridGroupVec);
+azul_css::impl_vec_mut!(IconGridGroup, IconGridGroupVec);
+
+/// A group header's height, px.
+pub(crate) const GROUP_HEADER_PX: f32 = 28.0;
+/// The class of a group's header.
+pub(crate) const GROUP_HEADER_CLASS: &str = "__azul-native-icon-grid-group";
+
 /// The icon grid (module docs).
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -544,6 +583,9 @@ pub struct IconGrid {
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: OptionUiTheme,
+    /// The groups the items fall into, each under its header; none: one
+    /// run of items.
+    pub groups: IconGridGroupVec,
 }
 
 impl IconGrid {
@@ -565,7 +607,20 @@ impl IconGrid {
             cell_height: 104.0,
             icon_size: 48.0,
             theme: OptionUiTheme::None,
+            groups: IconGridGroupVec::from_const_slice(&[]),
         }
+    }
+
+    /// The groups the items fall into (in the order of their starts).
+    pub fn set_groups(&mut self, groups: IconGridGroupVec) {
+        self.groups = groups;
+    }
+
+    /// [`Self::set_groups`] for the builder chain.
+    #[must_use]
+    pub fn with_groups(mut self, groups: IconGridGroupVec) -> Self {
+        self.set_groups(groups);
+        self
     }
 
     /// The view (what the last event carried).
@@ -2215,6 +2270,77 @@ mod icon_grid_tests {
             .filter(|rule| rule.path.selectors.as_ref().ends_with(&want))
             .collect();
         assert_eq!(rules.len(), look.item_focused.len(), "one rule per ring declaration");
+    }
+
+    // ---- groups ----
+
+    /// 18 items in three groups (5, 3, 10) in a 400 x 600 grid of 4
+    /// columns: each group starts a row under its 28 px header.
+    fn grouped(asked: &Asked, log: &Log) -> IconGrid {
+        IconGrid::create(18, 400.0, 600.0)
+            .with_data_source(RefAny::new(asked.clone()), items as IconGridDataSourceCallbackType)
+            .with_on_event(RefAny::new(log.clone()), record as IconGridOnEventCallbackType)
+            .with_groups(IconGridGroupVec::from_vec(vec![
+                IconGridGroup::create(0, AzString::from("Today")),
+                IconGridGroup::create(5, AzString::from("Yesterday")),
+                IconGridGroup::create(8, AzString::from("Older")),
+            ]))
+    }
+
+    /// Each group starts a new row under its header: Today's five items
+    /// take a row and one more, Yesterday's header comes next.
+    #[test]
+    fn groups_start_their_rows_under_their_headers() {
+        let (asked, log) = fresh();
+        let geo = geometry(&grouped(&asked, &log));
+        assert_eq!(geo.columns, 4);
+        // Today: header, [0..4], [4]; Yesterday: header, [5..8]; Older:
+        // header, [8..12], [12..16], [16..18].
+        assert_eq!(item_rect(&geo, 0), Some((0.0, 28.0, 96.0, 104.0)));
+        assert_eq!(item_rect(&geo, 4), Some((0.0, 132.0, 96.0, 104.0)));
+        assert_eq!(item_rect(&geo, 7), Some((192.0, 264.0, 96.0, 104.0)));
+        assert_eq!(item_rect(&geo, 8), Some((0.0, 396.0, 96.0, 104.0)));
+        assert_eq!(hit_test(&geo, 10.0, 10.0), Hit::Empty, "a header is no item");
+        assert_eq!(hit_test(&geo, 10.0, 30.0), Hit::Item(0));
+        assert_eq!(hit_test(&geo, 200.0, 270.0), Hit::Item(7));
+        assert_eq!(hit_test(&geo, 300.0, 140.0), Hit::Empty, "past Today's last item");
+    }
+
+    /// Up and Down move to the row above or below in the same column,
+    /// across a header, onto the row's last item when it is shorter.
+    #[test]
+    fn up_and_down_cross_the_headers_in_their_column() {
+        let (asked, log) = fresh();
+        let down = |focus: u64| {
+            let g = with_selection(grouped(&asked, &log), &[focus], focus);
+            let e = grid_key(&g, &geometry(&g), K::Down, false, false).expect("a move");
+            e.index.into_option()
+        };
+        let up = |focus: u64| {
+            let g = with_selection(grouped(&asked, &log), &[focus], focus);
+            let e = grid_key(&g, &geometry(&g), K::Up, false, false).expect("a move");
+            e.index.into_option()
+        };
+        assert_eq!(down(2), Some(4), "onto the short row's only item");
+        assert_eq!(down(4), Some(5), "across Yesterday's header");
+        assert_eq!(down(6), Some(9), "across Older's header, same column");
+        assert_eq!(up(9), Some(6));
+        assert_eq!(up(5), Some(4));
+    }
+
+    /// The headers are drawn: one per group, saying its label.
+    #[test]
+    fn each_group_shows_its_header() {
+        let (asked, log) = fresh();
+        let dom = grouped(&asked, &log).with_theme(UiTheme::Flat).dom();
+        let headers: Vec<String> = dom
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| theme_checks::has_class(c, GROUP_HEADER_CLASS))
+            .filter_map(text_of)
+            .collect();
+        assert_eq!(headers, vec!["Today", "Yesterday", "Older"]);
     }
 
     // ---- the pointer ----
