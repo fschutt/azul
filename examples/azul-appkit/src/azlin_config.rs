@@ -561,8 +561,15 @@ impl EndpointsSection {
     /// ([`EndpointsSection::get`]), another key's string as written (trimmed); `None` = no
     /// opinion.
     #[must_use]
-    pub fn named(&self, _name: &str) -> Option<&str> {
-        None
+    pub fn named(&self, name: &str) -> Option<&str> {
+        if let Some(endpoint) = Endpoint::ALL.iter().find(|e| e.key() == name) {
+            return self.get(*endpoint);
+        }
+        self.rest
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
 
     /// Sets (with `None`: clears) the address of `endpoint`; a value the file

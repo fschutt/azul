@@ -606,17 +606,6 @@ pub const TOKEN_URL_FLAG: &str = "--azlin-token-url";
 pub const S3_URL_FLAG: &str = "--azlin-s3-url";
 /// The section of the shared Azlin config (`~/.azlin/config.json`) with the endpoints.
 pub const CONFIG_SECTION: &str = "endpoints";
-/// The spellings of the token server's key in that section this reader takes, until azul-appkit's
-/// typed accessor of the section replaces [`endpoints_from_config`].
-const CONFIG_TOKEN_KEYS: [&str; 5] = [
-    "token",
-    "token_url",
-    "tokenUrl",
-    "token_server",
-    "tokenServer",
-];
-/// The same for the S3 endpoint.
-const CONFIG_S3_KEYS: [&str; 4] = ["s3", "s3_url", "s3Url", "storage"];
 
 /// Where the Azlin services are, as this run was told.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -666,25 +655,16 @@ impl Endpoints {
     }
 }
 
-/// The `endpoints` section of the shared Azlin config's text; nothing for a file that is not a
-/// config or has no such section.
+/// The `endpoints` section of the shared Azlin config's text, read as azul-appkit reads it for
+/// every app (the addresses checked); nothing for a file that is not a config or has no such
+/// section.
 pub fn endpoints_from_config(json: &str) -> Endpoints {
-    let Ok(Value::Object(config)) = serde_json::from_str::<Value>(json) else {
-        return Endpoints::default();
-    };
-    let Some(Value::Object(section)) = config.get(CONFIG_SECTION) else {
-        return Endpoints::default();
-    };
-    let pick = |keys: &[&str]| {
-        said(
-            keys.iter()
-                .find_map(|key| section.get(*key).and_then(Value::as_str))
-                .map(str::to_string),
-        )
-    };
+    use azul_appkit::azlin_config::{AzlinConfig, Endpoint};
+    let (config, _) = AzlinConfig::parse(json);
+    let address = |endpoint: Endpoint| config.endpoints.get(endpoint).map(str::to_string);
     Endpoints {
-        token_url: pick(&CONFIG_TOKEN_KEYS),
-        s3_url: pick(&CONFIG_S3_KEYS),
+        token_url: address(Endpoint::Token),
+        s3_url: address(Endpoint::S3),
     }
 }
 
