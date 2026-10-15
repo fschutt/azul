@@ -36,6 +36,7 @@ use std::collections::BTreeSet;
 use anyhow::Result;
 
 use super::{
+    options::cs_option,
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
@@ -139,7 +140,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
 /// are passed/returned as wrapper classes (consumed on by-value
 /// transfer), while methods-only value types (`ColorU`, `NodeId`, …)
 /// cross as their raw `Az*` structs, exactly like in C.
-fn is_owning_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
+pub(super) fn is_owning_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
     has_wrapper_class(type_name, ir) && has_delete_function(type_name, ir)
 }
 
@@ -387,6 +388,7 @@ pub fn generate_wrappers(
     builder.blank();
 
     emit_field_runtime(builder, ir);
+    super::options::emit_option_bridge(builder, ir);
 
     // `App.run(window)` blocks inside the native event loop for the app's
     // lifetime, which `Dispose(false)` has to know about (see
@@ -817,6 +819,7 @@ fn emit_wrapper_class(
             continue;
         }
         emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
+        emit_typed_data_callback_overload(builder, &class_name, func, ir);
     }
 
     // The struct's fields as properties (`opts.WindowState.Title = "x"`).
@@ -961,6 +964,7 @@ fn emit_enum_wrapper_class(
             continue;
         }
         emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
+        emit_typed_data_callback_overload(builder, &class_name, func, ir);
     }
 
     emit_cs_equals_hashcode_if_supported(builder, &e.name, &e.traits, &class_name, ir);
@@ -1597,6 +1601,14 @@ enum CsFieldShape {
         delete: Option<String>,
         clone: Option<String>,
     },
+    /// An Option, read and written as its C# nullable (`options`). With a
+    /// `_delete` the getter converts a deep copy (no `_clone`: no getter)
+    /// and the setter releases the old value first.
+    Opt {
+        opt: super::options::CsOption,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
 }
 
 /// Does `t` carry a callback, a callback wrapper or the type-erased
@@ -1678,6 +1690,13 @@ fn cs_field_shape(
         return None;
     }
     let delete = has_delete_function(t, ir).then(|| format!("NativeMethods.{}_delete", ffi_type_name(t)));
+    if let Some(opt) = cs_option(t, ir) {
+        return Some(CsFieldShape::Opt {
+            opt,
+            delete,
+            clone: format_clone_call_cs(t, ir),
+        });
+    }
     if ir
         .find_struct(t)
         .is_some_and(|s| matches!(s.category, TypeCategory::String))
@@ -1814,7 +1833,9 @@ fn emit_field_properties(
                 CsFieldShape::Wrapper { class, delete } => (
                     class.clone(),
                     Some(vec![
-                        format!("return {class}.__View(() =>"),
+                        // Qualified: inside a class with a `Dom()` method a
+                        // bare `Dom` names the method (CS0119).
+                        format!("return global::Azul.{class}.__View(() =>"),
                         "{".to_string(),
                         format!(">{guard}"),
                         format!(">return ref {fid};"),
@@ -1862,6 +1883,28 @@ fn emit_field_properties(
                         )
                     };
                     (ty.clone(), getter, setter, what)
+                }
+                CsFieldShape::Opt { opt, delete, clone } => {
+                    let ffi = ffi_type_name(f.type_name.trim());
+                    let getter = match (delete, clone) {
+                        (None, _) => Some(vec![format!("return {};", opt.take(&fid))]),
+                        (Some(_), Some(c)) => Some(vec![format!(
+                            "return {};",
+                            opt.take(&format!("__AzDerive.Call<{ffi}, {ffi}>({fid}, {c})"))
+                        )]),
+                        (Some(_), None) => None,
+                    };
+                    let mut setter = vec![format!("var __nv = {};", opt.into_raw("value"))];
+                    if let Some(d) = delete {
+                        setter.push(format!("__AzDerive.Consume({fid}, {d});"));
+                    }
+                    setter.push(format!("{fid} = __nv;"));
+                    let what = format!(
+                        "The `{}` field as a nullable (null is None): reading copies it out, \
+                         assigning releases the old value.",
+                        f.name
+                    );
+                    (opt.native(), getter, setter, what)
                 }
             };
 
@@ -1985,6 +2028,9 @@ pub(crate) fn cs_param_type(a: &FunctionArg, ir: &CodegenIR) -> String {
         .is_some_and(|s| matches!(s.category, TypeCategory::String));
     if owned && is_string {
         "string".to_string()
+    } else if let Some(opt) = owned.then(|| cs_option(&a.type_name, ir)).flatten() {
+        // `null` is None; see `options`.
+        opt.native()
     } else if owned && is_owning_wrapper(a.type_name.trim(), ir) {
         // C# wrapper class name strips the `Az` prefix.
         a.type_name.trim().to_string()
@@ -1992,6 +2038,141 @@ pub(crate) fn cs_param_type(a: &FunctionArg, ir: &CodegenIR) -> String {
         map_type_to_csharp(&a.type_name, ir)
     } else {
         "IntPtr".to_string()
+    }
+}
+
+/// A typed overload for every method that takes a `RefAny` data argument
+/// followed by a callback wrapper (`FileDialog.OpenDirectory(title,
+/// default_path, data, on_result)`): the data is any object `T` and the
+/// callback the typed delegate of its kind, both wrapped and registered
+/// inside, the same way the smart `On<Event><T>` builders do it. Those
+/// builders cover the `with_on_*` setters, so those are skipped here.
+fn emit_typed_data_callback_overload(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+) {
+    if func.kind.is_trait_function() || smart_callback_setter_info(func).is_some() {
+        return;
+    }
+    let user_args = cs_user_args(func);
+    let is_refany = |a: &FunctionArg| {
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            && ir
+                .find_struct(a.type_name.trim())
+                .is_some_and(|s| matches!(s.category, TypeCategory::RefAny))
+    };
+    let wrapper_of = |a: &FunctionArg| {
+        a.callback_info
+            .as_ref()
+            .filter(|c| matches!(a.ref_kind, ArgRefKind::Owned) && c.callback_wrapper_name == a.type_name.trim())
+            .map(|c| c.callback_wrapper_name.clone())
+    };
+    let Some(data_at) = (0..user_args.len().saturating_sub(1))
+        .find(|&i| is_refany(user_args[i]) && wrapper_of(user_args[i + 1]).is_some())
+    else {
+        return;
+    };
+    let wrapper = wrapper_of(user_args[data_at + 1]).unwrap_or_default();
+    let Some(typed) = typed_delegate_info_for_kind(&wrapper, ir) else {
+        return;
+    };
+    let mut params = Vec::new();
+    let mut call = Vec::new();
+    for (j, a) in user_args.iter().enumerate() {
+        let name = sanitize_identifier(&a.name);
+        if j == data_at {
+            params.push(format!("T {}", name));
+            call.push(format!("new RefAny(HostInvoker.RefanyCreate({}))", name));
+        } else if j == data_at + 1 {
+            params.push(format!("HostInvoker.{} {}", typed.delegate_name(), name));
+            call.push(format!(
+                "new {}(HostInvoker.Register{}<T>({}))",
+                sanitize_class_name(&wrapper),
+                wrapper,
+                name
+            ));
+        } else {
+            params.push(format!("{} {}", cs_param_type(a, ir), name));
+            call.push(name);
+        }
+    }
+    let is_static = matches!(
+        func.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default
+    );
+    let ret = cs_displayed_return(class_name, func, ir);
+    let method = idiomatic_method_name(&func.method_name);
+    builder.line(&format!(
+        "/// <summary>Typed {}: `{}` is handed back to the callback as `T`; RefAny wrapping \
+         and callback registration happen inside.</summary>",
+        method,
+        sanitize_identifier(&user_args[data_at].name)
+    ));
+    builder.line(&format!(
+        "public {}{} {}<T>({}) where T : class",
+        if is_static { "static " } else { "" },
+        ret,
+        method,
+        params.join(", ")
+    ));
+    builder.line("{");
+    builder.indent();
+    let invoke = format!("{}({})", method, call.join(", "));
+    if ret == "void" {
+        builder.line(&format!("{};", invoke));
+    } else {
+        builder.line(&format!("return {};", invoke));
+    }
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// The return type a wrapper method declares: the class itself, an owning
+/// wrapper class, an Option's nullable, a Result's Ok type, or the FFI type.
+fn cs_displayed_return(class_name: &str, func: &FunctionDef, ir: &CodegenIR) -> String {
+    let return_cs = func
+        .return_type
+        .as_ref()
+        .map(|r| map_type_to_csharp(r, ir))
+        .unwrap_or_else(|| "void".to_string());
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .is_some_and(|r| r.trim() == func.class_name);
+    if returns_self {
+        return class_name.to_string();
+    }
+    let idiom = classify_return(func, ir);
+    if matches!(idiom, ReturnIdiom::Plain) {
+        if let Some(r) = func
+            .return_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| is_owning_wrapper(r, ir))
+        {
+            return r.to_string();
+        }
+    }
+    match &idiom {
+        ReturnIdiom::Plain => return_cs,
+        ReturnIdiom::Option {
+            payload_ty,
+            ref_kind,
+        } => {
+            let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+            let display = payload_display_cs(&raw, ir);
+            // Value-type payloads (primitives + structs) become
+            // `Nullable<T>`; wrapper-class payloads (`Dom?`) and `string?`
+            // use the same spelling as a nullable-reference annotation.
+            format!("{}?", display)
+        }
+        ReturnIdiom::Result {
+            payload_ty,
+            ref_kind,
+        } => payload_display_cs(&ref_kind_field_type(payload_ty, ref_kind, ir), ir),
     }
 }
 
@@ -2103,9 +2284,16 @@ fn emit_wrapper_method(
     let mut pre_call_lines: Vec<String> = Vec::new();
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
+        let owned_option = matches!(a.ref_kind, ArgRefKind::Owned)
+            .then(|| cs_option(&a.type_name, ir))
+            .flatten();
         if is_raw_callback_arg(a) {
             pre_call_lines.push(format!("HostInvoker.__Pin({});", raw_name));
             call_args.push(raw_name);
+        } else if let Some(opt) = owned_option {
+            let local = format!("__{}_opt", raw_name.trim_start_matches('@'));
+            pre_call_lines.push(format!("var {} = {};", local, opt.into_raw(&raw_name)));
+            call_args.push(local);
         } else if is_az_string_owned_arg(a) {
             // C# keyword-escapes with `@` prefix; strip it so local var
             // names like `__@class_bytes` (invalid) become
@@ -2143,13 +2331,12 @@ fn emit_wrapper_method(
             ));
             call_args.push(az_name);
         } else if is_wrapper_class_owned_arg(a) {
-            // Every wrapper class exposes `public Az<T> Raw => _inner;`
-            // — reach in directly. No struct-to-pointer marshal needed
-            // because C# struct-field-assignment is a byte copy.
-            call_args.push(format!("{}.Raw", raw_name));
-            // C ABI takes by-value; the caller's wrapper is now
-            // ownership-transferred. Mark consumed.
-            consume_after_call.push(raw_name.clone());
+            // The C ABI takes the value and frees it. `__Take()` moves an
+            // owned wrapper in (and disarms its finalizer); a borrowed one
+            // - a callback argument the engine frees after the callback,
+            // like a resume callback's `result` handed to `Downcast` - is
+            // deep-copied first, so it is never freed twice.
+            call_args.push(format!("{}.__Take()", raw_name));
         } else {
             call_args.push(raw_name);
         }
@@ -2228,38 +2415,7 @@ fn emit_wrapper_method(
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    let displayed_return = if returns_self {
-        class_name.to_string()
-    } else if let Some(ref wrapper) = returns_wrapper_other {
-        wrapper.clone()
-    } else {
-        match &idiom {
-            ReturnIdiom::Plain => return_cs.clone(),
-            ReturnIdiom::Option {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                let display = payload_display_cs(&raw, ir);
-                // Value-type payloads (primitives + structs) become
-                // `Nullable<T>`; wrapper-class payloads (`Dom?`) use the
-                // same `T?` spelling as a nullable-reference annotation.
-                // `string` is already a reference type.
-                if display == "string" {
-                    "string".to_string()
-                } else {
-                    format!("{}?", display)
-                }
-            }
-            ReturnIdiom::Result {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                payload_display_cs(&raw, ir)
-            }
-        }
-    };
+    let displayed_return = cs_displayed_return(class_name, func, ir);
 
     builder.line(&format!(
         "{} {} {}({})",
@@ -2593,7 +2749,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 
 /// Pick a safe C# class name. We use the IR type name verbatim (no `Az`
 /// prefix) because the wrapper lives inside `namespace Azul`.
-fn sanitize_class_name(raw: &str) -> String {
+pub(super) fn sanitize_class_name(raw: &str) -> String {
     sanitize_identifier(raw)
 }
 
@@ -2902,7 +3058,7 @@ pub(crate) mod tests {
         let out = gen();
         let c = class_body(&out, "WindowCreateOptions");
         assert!(c.contains("public FullWindowState WindowState\n"), "{c}");
-        assert!(c.contains("return FullWindowState.__View(() =>"), "{c}");
+        assert!(c.contains("return global::Azul.FullWindowState.__View(() =>"), "{c}");
         assert!(c.contains("return ref _inner.window_state;"), "{c}");
         assert!(c.contains("var __nv = value.__Take();"), "{c}");
         assert!(

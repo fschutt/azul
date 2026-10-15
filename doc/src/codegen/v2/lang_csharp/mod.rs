@@ -41,6 +41,7 @@ pub mod csproj;
 pub mod derives;
 pub mod functions;
 pub mod managed;
+pub mod options;
 pub mod types;
 pub mod wrappers;
 

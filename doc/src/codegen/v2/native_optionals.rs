@@ -155,7 +155,7 @@ fn csharp_takes_and_gives_nullables_and_registers_a_typed_resume_callback() {
             "public static AzRequestId OpenDirectory(string title, string? default_path, RefAny data, \
              ResumeCallback on_result)",
             "var __default_path_opt = __AzOpt.InOptionString(default_path);",
-            "public FilePath? Path",
+            "public global::Azul.FilePath? Path",
             "public string? Light",
             "public static FileOpenResult? Downcast(RefAny result)",
             // The engine's `result` is deep-copied into the downcast, never freed twice.

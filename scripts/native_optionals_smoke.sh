@@ -88,6 +88,27 @@ smoke_crystal() {
   "$out/smoke"
 }
 
+# ---- C# ---------------------------------------------------------------------
+# A console project around the generated Azul.cs; libazul next to it, where
+# the generated DllImportResolver looks.
+smoke_csharp() {
+  local out="$WORK_DIR/csharp"; rm -rf "$out"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/Azul.cs" "$SRC_DIR/csharp.cs" "$out/" || return 1
+  cp "$LIB_DIR"/libazul.* "$out/" 2>/dev/null
+  cat > "$out/Smoke.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>
+XML
+  ( cd "$out" && dotnet run -c Release )
+}
+
 status=0
 for lang in "${LANGS[@]}"; do
   echo "=== native optionals [$lang] ==="
