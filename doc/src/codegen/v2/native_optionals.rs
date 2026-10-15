@@ -371,3 +371,29 @@ fn lua_takes_and_gives_nil() {
         ],
     );
 }
+
+#[test]
+fn ocaml_takes_and_gives_options_and_results() {
+    let path = "ocaml/azul_api_dialog.mli";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "val open_directory : string -> string option -> ref_any -> ",
+            "val downcast : ref_any -> file_open_result option",
+            "val get_path : t -> file_path option",
+            "val set_path : t -> file_path option -> unit",
+        ],
+    );
+    let path = "ocaml/azul_api_url.mli";
+    let text = generated(path);
+    assert_contains(path, &text, &["val parse : string -> (url, "]);
+    let path = "ocaml/azul_enums_callbacks.ml";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &["let or_do_nothing (f : unit -> t option) : t = match f () with Some u -> u | None -> DoNothing"],
+    );
+}
