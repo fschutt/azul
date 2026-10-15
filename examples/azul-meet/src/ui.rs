@@ -192,6 +192,8 @@ pub(crate) struct LobbyView {
     /// The meetings service answered its last check. The start screen says only when it did
     /// not; its address and status are in Settings > Meetings.
     pub server_ok: bool,
+    /// The meetings service is being asked for the first time (the window opened first).
+    pub server_pending: bool,
     /// No meetings service is set at all.
     pub server_unset: bool,
     pub join_text: String,
@@ -2104,6 +2106,7 @@ mod tests {
         LobbyView {
             opening: false,
             server_ok,
+            server_pending: false,
             server_unset,
             join_text: String::new(),
             schedule_start: String::new(),

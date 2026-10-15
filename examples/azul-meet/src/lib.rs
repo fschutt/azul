@@ -412,6 +412,9 @@ struct RoomSession {
     server_status: String,
     /// The meeting server answered its last check.
     server_ok: bool,
+    /// The meeting server has not answered the check of its address yet (at the start, or
+    /// after a new address): the start screen says nothing about it meanwhile.
+    server_pending: bool,
     /// Counts the checks of the meeting server; the answer to an older one is ignored.
     checks: u32,
     /// Where the iroh endpoint relays (`relay_for`): `--relay`, the settings' choice, the shared
@@ -497,6 +500,7 @@ impl RoomSession {
             relay_status: String::new(),
             server_status: String::new(),
             server_ok: false,
+            server_pending: false,
             checks: 0,
             relay,
             worker,
@@ -1434,6 +1438,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
     let lobby = s.room.as_ref().map(|room| ui::LobbyView {
         opening: room.stage == Stage::Opening,
         server_ok: room.server_ok,
+        server_pending: room.server_pending,
         server_unset: room.worker.is_empty(),
         join_text: room.join_text.clone(),
         schedule_start: room.schedule_start.clone(),
@@ -8089,6 +8094,14 @@ fn relay_for(worker: &str, saved: Option<&str>) -> Relay {
     rooms::relay_choice(setting, &host)
 }
 
+/// The room session the window starts with, for the meetings service at `worker` (`from`:
+/// where its address came from) and the relays `relay`.
+fn room_at_start(worker: String, relay: Relay, _from: &str) -> RoomSession {
+    let mut room = RoomSession::new(worker, relay);
+    room.checked_at = wall_ms();
+    room
+}
+
 /// The window with the start screen, talking to the meeting server at `worker` (none when
 /// empty; `from`: where its address came from); `answer` says whether it accepted a connection
 /// at start. An unreachable or missing server is said on the start screen and, with a Retry
@@ -8183,6 +8196,8 @@ fn azul_android_init() {
 
 #[cfg(test)]
 mod header_tests;
+#[cfg(test)]
+mod startup_tests;
 
 #[cfg(test)]
 mod service_down_tests {
