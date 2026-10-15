@@ -1295,9 +1295,15 @@ def clock_skew(ctx):
         write(future, b"made on a computer whose clock is a day ahead\n")
         ahead = time.time() + 86400
         os.utime(future, (ahead, ahead))
-        laptop.wait_passes("passes over the future file", 3, drive, timeout=150)
+        written_at = time.time()
+        try:
+            laptop.wait_passes("passes over the future file", 3, drive, timeout=150)
+        except Failure:
+            pass  # judged by the pass times below
         durations = pass_durations(laptop, drive)
-        slow = [d for d in durations[-2:] if d > 10]
+        running = [round(time.time() - at, 1) for at, line in laptop.timeline()[-1:]
+                   if line.startswith("AZDRIVE_SYNC_STARTED") and at > written_at]
+        slow = [d for d in durations[-2:] + running if d > 10]
         no_silent_failure(laptop, drive)
         checks = Checks()
         raw = raw_errors([skewed])
