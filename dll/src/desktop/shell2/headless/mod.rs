@@ -13153,6 +13153,9 @@ mod tests {
     // (`tests/autofocus.rs`).
     mod autofocus;
 
+    // A click that rebuilds the page lays it out once (`tests/click_cost.rs`).
+    mod click_cost;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
