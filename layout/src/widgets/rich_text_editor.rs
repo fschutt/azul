@@ -59,13 +59,14 @@ use azul_core::{
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions, impl_option, impl_vec,
     impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_mut, impl_vec_partialeq, AzString,
+    OptionString,
 };
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::rich_text::{
         doc::{
-            typed_shortcut, RichAlign, RichBlock, RichBlockKind, RichCheck, RichFormat,
+            typed_shortcut, RichAlign, RichBlock, RichBlockKind, RichCheck, RichFont, RichFormat,
             RichFormats, RichImage, RichRun, RichTable, RichTextDoc,
         },
         history::{RichEditGroup, RichTextHistory},
@@ -88,22 +89,26 @@ pub const RICH_TEXT_HOST_CLASS: &str = "__azul-native-rich-text-editor-host";
 
 // ==== The state the app keeps ====
 
-/// The typing style: the formats text typed at a caret takes after a format
-/// toggle at that caret (Ctrl/Cmd+B with nothing selected). Kept while text
-/// is inserted where the last insertion ended, dropped by anything else.
+/// The typing style: the formats and the font text typed at a caret takes
+/// after a format toggle or a font choice at that caret (Ctrl/Cmd+B, a font
+/// size picked with nothing selected). Kept while text is inserted where the
+/// last insertion ended, dropped by anything else.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct RichTypingStyle {
     /// The block the caret is in.
     pub block: usize,
     /// The caret's byte in the block's text.
     pub at: usize,
     pub formats: RichFormats,
+    /// The family and size typed text takes (the run's own, unless picked).
+    pub font: RichFont,
 }
 
 impl_option!(
     RichTypingStyle,
     OptionRichTypingStyle,
+    copy = false,
     [Debug, Clone, PartialEq, Eq]
 );
 
@@ -170,6 +175,19 @@ pub enum RichTextCommand {
     ToggleCheck,
     Undo,
     Redo,
+    /// The selection takes this font family (`None`: the editor's own); at
+    /// a caret, the text typed next.
+    SetFontFamily(OptionString),
+    /// The selection takes this size in half points (22 is 11 pt; 0 is the
+    /// editor's body size); at a caret, the text typed next.
+    SetFontSize(u16),
+    /// The selection goes to the clipboard and out of the document.
+    Cut,
+    /// The selection goes to the clipboard.
+    Copy,
+    /// The clipboard's content replaces the selection (or goes in at the
+    /// caret), as Ctrl/Cmd+V does.
+    Paste,
 }
 
 /// The size of a new table.
@@ -396,6 +414,10 @@ pub struct RichTextEditor {
     pub markdown_shortcuts: bool,
     /// A read-only view (a version, a print): no editing, no callbacks.
     pub read_only: bool,
+    /// The point size the body text stands for (a word processor's 11), so
+    /// a run's own size in points draws in proportion to `font_size` and
+    /// follows a zoom. 0 takes `font_size` at 96 dpi (`font_size * 0.75`).
+    pub body_points: f32,
 }
 
 impl RichTextEditor {
@@ -416,6 +438,7 @@ impl RichTextEditor {
             markdown_shortcuts: true,
             read_only: false,
             theme: crate::widgets::themes::OptionUiTheme::None,
+            body_points: 0.0,
         }
     }
 
@@ -508,6 +531,18 @@ impl RichTextEditor {
     #[must_use]
     pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
+        self
+    }
+
+    /// The point size the body text stands for (0: `font_size` at 96 dpi).
+    pub const fn set_body_points(&mut self, points: f32) {
+        self.body_points = points;
+    }
+
+    /// [`Self::set_body_points`] for the builder chain.
+    #[must_use]
+    pub const fn with_body_points(mut self, points: f32) -> Self {
+        self.set_body_points(points);
         self
     }
 
@@ -1444,6 +1479,14 @@ impl RichTextEditorState {
         self.formats_at(self.caret_block, self.caret_byte)
     }
 
+    /// The font text typed at the caret takes: the typing style's when one
+    /// was set there, else the run before the caret's (a ribbon's font and
+    /// size boxes). An empty family or a size of 0 is the editor's own.
+    #[must_use]
+    pub fn current_font(&self) -> RichFont {
+        RichFont::create()
+    }
+
     /// The kind of the caret's block.
     #[must_use]
     pub fn current_kind(&self) -> RichBlockKind {
@@ -1746,7 +1789,7 @@ impl RichTextEditorState {
     /// The typing style for an edit of `block` from `old` to `new`, moved
     /// past the inserted text; `None` (and dropped) for any other edit.
     fn typing_for(&mut self, block: usize, old: &str, new: &str) -> Option<RichFormats> {
-        let typing = self.typing.as_ref().copied()?;
+        let typing = self.typing.as_ref().cloned()?;
         self.typing = OptionRichTypingStyle::None;
         let (prefix, suffix) = crate::widgets::rich_text::doc::text_diff(old, new);
         let removed = old.len() - prefix - suffix;
@@ -1754,11 +1797,12 @@ impl RichTextEditorState {
         if typing.block != block || removed != 0 || inserted == 0 || prefix != typing.at {
             return None;
         }
+        let formats = typing.formats;
         self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
             at: prefix + inserted,
             ..typing
         });
-        Some(typing.formats)
+        Some(formats)
     }
 
     /// Folds the engine's unsynced text edits of the host into the document
@@ -2044,6 +2088,7 @@ impl RichTextEditorState {
                         block,
                         at: byte,
                         formats,
+                        font: RichFont::create(),
                     });
                     if paint {
                         if let (Some(host), Some(f)) = (target, engine_format(*format)) {
@@ -2147,6 +2192,11 @@ impl RichTextEditorState {
             }
             RichTextCommand::RemoveLink => self.link_spans(&spans, block, byte, None),
             RichTextCommand::ToggleCheck => self.doc.toggle_check(block),
+            RichTextCommand::SetFontFamily(_)
+            | RichTextCommand::SetFontSize(_)
+            | RichTextCommand::Cut
+            | RichTextCommand::Copy
+            | RichTextCommand::Paste => false,
         };
         if !changed {
             return Update::DoNothing;
@@ -2781,7 +2831,7 @@ mod tests {
             .lock()
             .expect("log")
             .last()
-            .and_then(|s| s.typing.as_ref().copied())
+            .and_then(|s| s.typing.as_ref().cloned())
             .expect("the typing style was reported");
         assert!(typing.formats.bold);
         // Heading 1 (after the five formats): the caret's block - the
@@ -2796,6 +2846,106 @@ mod tests {
         let state = log.lock().expect("log").last().cloned().expect("a state");
         assert_eq!(state.doc.blocks()[0].kind, RichBlockKind::Paragraph);
         assert!(state.history.can_undo(), "the change is one undo step");
+    }
+
+    /// A button of the app's own (a ribbon's size box) that runs `command`
+    /// on `editor`, the way the built-in toolbar's buttons do.
+    fn command_button(editor: &RichTextEditor, command: RichTextCommand) -> Dom {
+        let data = editor.editor_data().expect("an editable editor has data");
+        Dom::create_div().with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(ToolbarRef {
+                editor: data,
+                command,
+            }),
+            Callback::from_ptr(on_toolbar_click),
+        )
+    }
+
+    fn georgia(half_points: u16) -> RichFont {
+        RichFont::create()
+            .with_family(OptionString::Some(AzString::from("Georgia")))
+            .with_half_points(half_points)
+    }
+
+    /// A run in its own font draws in that family, at its size in points
+    /// against the body's: 22 pt in an editor whose 15 px body text stands
+    /// for 11 pt is twice the body, 30 px - and a zoomed editor (a larger
+    /// `font_size`) scales it with the rest.
+    #[test]
+    fn a_run_in_its_own_font_draws_its_family_at_its_size_against_the_body() {
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
+            RichBlockKind::Paragraph,
+            vec![RichRun::plain("Hello "), RichRun::plain("world").with_font(georgia(44))],
+        )]);
+        for (font_px, want_px) in [(15.0_f32, 30.0_f32), (30.0, 60.0)] {
+            let dom = RichTextEditor::create(RichTextEditorState::create(doc.clone()))
+                .with_font_size(font_px)
+                .with_body_points(11.0)
+                .content_dom();
+            let styled = StyledDom::create_from_dom(dom);
+            let world = styled
+                .node_data
+                .as_ref()
+                .iter()
+                .position(|n| matches!(n.get_node_type(), NodeType::Text(t) if t.as_ref().as_str() == "world"))
+                .expect("the run's text");
+            let props = crate::solver3::getters::get_style_properties(
+                &styled,
+                NodeId::new(world),
+                None,
+                azul_css::props::basic::PhysicalSize::new(800.0, 600.0),
+            );
+            assert!(
+                (props.font_size_px - want_px).abs() < 0.01,
+                "body {font_px}px: 22 pt drew at {}px",
+                props.font_size_px
+            );
+            let crate::text3::cache::FontStack::Stack(stack) = &props.font_stack else {
+                panic!("a family stack");
+            };
+            assert_eq!(stack.first().map(|f| f.family.as_str()), Some("Georgia"));
+        }
+    }
+
+    /// The engine's structural edits clone the editor's own elements: a run
+    /// in its own font reads back with that font from its clone.
+    #[test]
+    fn a_run_in_its_own_font_reads_back_from_what_the_editor_renders() {
+        let runs = vec![
+            RichRun::plain("plain "),
+            RichRun::plain("set").with_font(georgia(30)),
+            RichRun::plain(" big").with_font(RichFont::create().with_half_points(48)),
+        ];
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(RichBlockKind::Paragraph, runs.clone())]);
+        let dom = RichTextEditor::create(RichTextEditorState::create(doc)).content_dom();
+        let blocks = rich_html::blocks_from_doms(dom.children.as_ref());
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].runs, runs);
+    }
+
+    /// A size picked with nothing selected is the typing style: the text
+    /// typed next takes it, the document does not change, and the ribbon's
+    /// size box reads it back.
+    #[test]
+    fn a_font_size_picked_at_a_caret_is_the_typing_style() {
+        let (editor, log) = logged(fixtures::sample().with_theme(UiTheme::Flat));
+        let button = command_button(&editor, RichTextCommand::SetFontSize(28));
+        let styled = StyledDom::create_from_dom(Dom::create_body().with_children(
+            vec![editor.content_dom(), button].into(),
+        ));
+        let clickable = clickables(&styled);
+        let (update, _) = rv::fire(
+            &styled,
+            node(*clickable.last().expect("the size button")),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("the button takes the click");
+        assert_eq!(update, Update::DoNothing, "the document did not change");
+        let state = log.lock().expect("log").last().cloned().expect("a state");
+        let typing = state.typing.as_ref().cloned().expect("a typing style");
+        assert_eq!(typing.font.half_points, 28);
+        assert_eq!(state.current_font().half_points, 28);
     }
 
     #[test]

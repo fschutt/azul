@@ -120,6 +120,189 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
+// ==== Fonts ====
+
+/// The font a run is set in: a family and a size, each left empty for the
+/// editor's own (the body text's).
+///
+/// The size is in half points, the unit word processors store (22 is 11 pt,
+/// 21 is 10.5 pt): an exact integer a document can compare, merge and save.
+/// The editor draws it relative to its body size
+/// (`RichTextEditor::body_points`), so a zoomed page scales it with the rest.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct RichFont {
+    /// A CSS family name or family list (`Georgia`, `"EB Garamond", serif`);
+    /// `None` is the editor's font.
+    pub family: OptionString,
+    /// The size in half points; 0 is the editor's body size.
+    pub half_points: u16,
+}
+
+impl RichFont {
+    /// The editor's own font (no family, the body size).
+    #[must_use]
+    pub const fn create() -> Self {
+        Self {
+            family: OptionString::None,
+            half_points: 0,
+        }
+    }
+
+    /// Neither a family nor a size of its own.
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        self.family.is_none() && self.half_points == 0
+    }
+
+    /// The font with this family (`None`: the editor's).
+    #[must_use]
+    pub fn with_family(mut self, family: OptionString) -> Self {
+        self.family = family;
+        self
+    }
+
+    /// The font at this size in half points (0: the body size).
+    #[must_use]
+    pub const fn with_half_points(mut self, half_points: u16) -> Self {
+        self.half_points = half_points;
+        self
+    }
+
+    /// The family, if the run has one of its own.
+    #[must_use]
+    pub fn family_str(&self) -> Option<&str> {
+        self.family.as_ref().map(AzString::as_str)
+    }
+
+    /// The size in points (`half_points / 2`), or `None` for the body size.
+    #[must_use]
+    pub fn points(&self) -> Option<f32> {
+        (self.half_points > 0).then(|| f32::from(self.half_points) / 2.0)
+    }
+
+    /// The font's declarations as a `style` attribute writes them, sizes in
+    /// points (`font-family: 'EB Garamond', serif; font-size: 10.5pt`);
+    /// empty for the editor's own font. Markdown and HTML carry fonts so.
+    #[must_use]
+    pub fn style_attr(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(family) = self.family_str() {
+            parts.push(alloc::format!("font-family: {}", family_css(family)));
+        }
+        if self.half_points > 0 {
+            parts.push(alloc::format!("font-size: {}pt", half_points_text(self.half_points)));
+        }
+        parts.join("; ")
+    }
+
+    /// The font a `style` attribute names: its `font-family` and its
+    /// `font-size` (in `pt`, or `px` at 96 dpi); everything else is ignored.
+    #[must_use]
+    pub fn from_style_attr(style: &str) -> Self {
+        let mut font = Self::create();
+        for declaration in style.split(';') {
+            let Some((name, value)) = declaration.split_once(':') else {
+                continue;
+            };
+            let value = value.trim();
+            match name.trim().to_ascii_lowercase().as_str() {
+                "font-family" => font.family = normalize_family(value),
+                "font-size" => {
+                    let lower = value.to_ascii_lowercase();
+                    let points = if let Some(pt) = lower.strip_suffix("pt") {
+                        pt.trim().parse::<f32>().ok()
+                    } else if let Some(px) = lower.strip_suffix("px") {
+                        px.trim().parse::<f32>().ok().map(|px| px * 0.75)
+                    } else {
+                        None
+                    };
+                    if let Some(points) = points.filter(|p| p.is_finite() && *p > 0.0) {
+                        // Whole half points: the unit the model keeps.
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let half = (points * 2.0).round().min(f32::from(u16::MAX)) as u16;
+                        font.half_points = half.max(1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        font
+    }
+}
+
+/// `half_points` as a point count: `21` -> `10.5`, `48` -> `24`.
+fn half_points_text(half_points: u16) -> String {
+    if half_points % 2 == 0 {
+        alloc::format!("{}", half_points / 2)
+    } else {
+        alloc::format!("{}.5", half_points / 2)
+    }
+}
+
+/// The generic families CSS names without quotes.
+const GENERIC_FAMILIES: [&str; 9] = [
+    "serif",
+    "sans-serif",
+    "monospace",
+    "cursive",
+    "fantasy",
+    "system-ui",
+    "ui-serif",
+    "ui-sans-serif",
+    "ui-monospace",
+];
+
+/// A family list in the one form the model keeps: names without quotes,
+/// trimmed, `, ` between them, and no character that could end a CSS value
+/// or an attribute (`;` `{` `}` quotes, angle brackets, backslashes). `None`
+/// when nothing is left (the editor's own font).
+#[must_use]
+pub fn normalize_family(family: &str) -> OptionString {
+    let names: Vec<String> = family
+        .split(',')
+        .map(|name| {
+            name.chars()
+                .filter(|&c| !matches!(c, ';' | '{' | '}' | '"' | '\'' | '<' | '>' | '\\' | '&') && !c.is_control())
+                .collect::<String>()
+                .trim()
+                .to_string()
+        })
+        .filter(|name| !name.is_empty())
+        .collect();
+    if names.is_empty() {
+        OptionString::None
+    } else {
+        OptionString::Some(AzString::from(names.join(", ")))
+    }
+}
+
+/// A family list of the model as a CSS `font-family` value: every name in
+/// single quotes except the generic families (`'EB Garamond', serif`).
+#[must_use]
+pub fn family_css(family: &str) -> String {
+    family
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| {
+            if GENERIC_FAMILIES.contains(&name.to_ascii_lowercase().as_str()) {
+                name.to_string()
+            } else {
+                alloc::format!("'{name}'")
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+impl_option!(
+    RichFont,
+    OptionRichFont,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash]
+);
+
 // ==== Runs ====
 
 /// One stretch of text in one format (and, optionally, one link).
@@ -130,6 +313,8 @@ pub struct RichRun {
     /// The run is (part of) a link to this URL.
     pub link: OptionString,
     pub formats: RichFormats,
+    /// The run's family and size; the default is the editor's own.
+    pub font: RichFont,
 }
 
 impl RichRun {
@@ -140,6 +325,7 @@ impl RichRun {
             text,
             link: OptionString::None,
             formats: RichFormats::create(),
+            font: RichFont::create(),
         }
     }
 
@@ -160,6 +346,13 @@ impl RichRun {
     #[must_use]
     pub const fn with_formats(mut self, formats: RichFormats) -> Self {
         self.formats = formats;
+        self
+    }
+
+    /// The run in this font.
+    #[must_use]
+    pub fn with_font(mut self, font: RichFont) -> Self {
+        self.font = font;
         self
     }
 
@@ -199,7 +392,8 @@ impl RichRun {
         self.formats == other.formats && self.link_str() == other.link_str()
     }
 
-    /// No format and no link: rendered as a bare text node.
+    /// No format, no link and the editor's own font: rendered as a bare
+    /// text node.
     #[must_use]
     pub const fn is_plain(&self) -> bool {
         self.formats.is_empty() && self.link.is_none()
@@ -217,6 +411,7 @@ impl RichRun {
             text: AzString::from(text),
             link: self.link.clone(),
             formats: self.formats,
+            font: self.font.clone(),
         }
     }
 }
@@ -1138,6 +1333,18 @@ impl RichTextDoc {
         new_text: &str,
         typing: Option<RichFormats>,
     ) -> bool {
+        self.sync_block_text_with(index, new_text, typing, None)
+    }
+
+    /// [`Self::sync_block_text`] with the typing style's font too: the new
+    /// middle takes `font` (when given) instead of the run's.
+    pub(crate) fn sync_block_text_with(
+        &mut self,
+        index: usize,
+        new_text: &str,
+        typing: Option<RichFormats>,
+        font: Option<RichFont>,
+    ) -> bool {
         let Some(block) = self.block_mut(index) else {
             return false;
         };
@@ -1174,6 +1381,7 @@ impl RichTextDoc {
         if let Some(style) = typing {
             template.formats = style;
         }
+        let _ = font;
         let replacement: Vec<RichRun> = if middle.is_empty() {
             Vec::new()
         } else {
@@ -1612,6 +1820,29 @@ impl RichTextDoc {
     pub fn formats_at(&self, index: usize, at: usize) -> RichFormats {
         self.run_at(index, at)
             .map_or(RichFormats::create(), |r| r.formats)
+    }
+
+    /// The font text typed at byte `at` of block `index` continues: the run
+    /// before the caret's (the run after it at a block's start).
+    #[must_use]
+    pub fn font_at(&self, index: usize, at: usize) -> RichFont {
+        let _ = (index, at);
+        RichFont::create()
+    }
+
+    /// Sets the family (`family`, when given) and the size (`half_points`,
+    /// when given) of bytes `start..end` of block `index`; the other part of
+    /// each run's font stays. Returns whether anything changed.
+    pub fn set_font(
+        &mut self,
+        index: usize,
+        start: usize,
+        end: usize,
+        family: Option<OptionString>,
+        half_points: Option<u16>,
+    ) -> bool {
+        let _ = (index, start, end, family, half_points);
+        false
     }
 
     /// The link under byte `at` of block `index` (the run before the caret).
@@ -2306,6 +2537,43 @@ mod tests {
         assert_eq!(doc.image_srcs().as_ref(), &[AzString::from("a.png")]);
         assert!(!doc.is_blank());
         assert!(RichTextDoc::create().is_blank());
+    }
+
+    fn georgia(half_points: u16) -> RichFont {
+        RichFont::create()
+            .with_family(OptionString::Some(AzString::from("Georgia")))
+            .with_half_points(half_points)
+    }
+
+    #[test]
+    fn a_font_set_over_a_range_cuts_the_runs_and_the_caret_reads_it_back() {
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("Hello world")])]);
+        assert!(doc.set_font(0, 6, 11, Some(OptionString::Some(AzString::from("Georgia"))), Some(28)));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![plain("Hello "), plain("world").with_font(georgia(28))]
+        );
+        assert_eq!(doc.font_at(0, 8), georgia(28));
+        assert_eq!(doc.font_at(0, 3), RichFont::create());
+        assert!(!runs(&doc, 0)[1].is_plain(), "a run in its own font is no bare text");
+        // The size alone changes; the family stays.
+        assert!(doc.set_font(0, 6, 11, None, Some(36)));
+        assert_eq!(doc.font_at(0, 8), georgia(36));
+        // The same font again changes nothing.
+        assert!(!doc.set_font(0, 6, 11, None, Some(36)));
+        // Back to the editor's font: one plain run again.
+        assert!(doc.set_font(0, 0, 11, Some(OptionString::None), Some(0)));
+        assert_eq!(runs(&doc, 0), vec![plain("Hello world")]);
+    }
+
+    #[test]
+    fn typing_after_a_run_in_its_own_font_continues_that_font() {
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![
+            plain("ab"),
+            plain("cd").with_font(georgia(24)),
+        ])]);
+        assert!(doc.sync_block_text(0, "abcdX", None));
+        assert_eq!(runs(&doc, 0), vec![plain("ab"), plain("cdX").with_font(georgia(24))]);
     }
 
     #[test]

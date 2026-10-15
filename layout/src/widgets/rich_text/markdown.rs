@@ -855,6 +855,35 @@ mod tests {
         round_trip(SAMPLE);
     }
 
+    /// Markdown has no fonts: a run in its own family or size is written as
+    /// a `span` with exactly those two declarations (HTML Markdown keeps),
+    /// and reads back as the same run - AzWriter's file keeps its fonts.
+    #[test]
+    fn a_run_in_its_own_font_round_trips_as_a_styled_span() {
+        use crate::widgets::rich_text::doc::{RichBlock, RichFont};
+        use azul_css::OptionString;
+
+        let font = RichFont::create()
+            .with_family(OptionString::Some(AzString::from("EB Garamond")))
+            .with_half_points(21);
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
+            RichBlockKind::Paragraph,
+            vec![
+                plain("Set in "),
+                plain("Garamond").with_format(RichFormat::Bold).with_font(font.clone()),
+                plain(" and "),
+                plain("big").with_font(RichFont::create().with_half_points(48)),
+            ],
+        )]);
+        let markdown = doc_to_markdown(&doc);
+        assert_eq!(
+            markdown,
+            "Set in **<span style=\"font-family: 'EB Garamond'; font-size: 10.5pt\">Garamond</span>** \
+             and <span style=\"font-size: 24pt\">big</span>\n"
+        );
+        assert_eq!(markdown_to_doc(&markdown), doc);
+    }
+
     #[test]
     fn the_sample_note_parses_into_the_flat_blocks() {
         let doc = markdown_to_doc(SAMPLE);

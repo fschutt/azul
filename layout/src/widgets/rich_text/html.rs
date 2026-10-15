@@ -777,6 +777,28 @@ mod tests {
         assert_eq!(doc_to_plain_text(&link_is_text), "https://example.org\n");
     }
 
+    /// A mail written in a family or a size of its own carries it: the run
+    /// is a `span` with the font's declarations inside its other tags.
+    #[test]
+    fn a_run_in_its_own_font_is_a_styled_span_in_the_html_part() {
+        use crate::widgets::rich_text::doc::RichFont;
+
+        let font = RichFont::create()
+            .with_family(azul_css::OptionString::Some(AzString::from("Georgia")))
+            .with_half_points(28);
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
+            RichBlockKind::Paragraph,
+            vec![plain("Dear "), bold("Ann").with_font(font)],
+        )]);
+        let html = doc_to_html(&doc);
+        assert!(
+            html.contains(
+                "<div>Dear <b><span style=\"font-family: 'Georgia'; font-size: 14pt\">Ann</span></b></div>"
+            ),
+            "{html}"
+        );
+    }
+
     #[test]
     fn the_html_part_nests_quotes_and_lists_and_escapes_text() {
         let html = doc_to_html(&sample_doc());
