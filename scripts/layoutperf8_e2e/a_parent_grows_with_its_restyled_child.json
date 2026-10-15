@@ -1,7 +1,7 @@
 {
  "name": "a_parent_grows_with_its_restyled_child",
- "description": "LAYOUTPERF8 (latent bug C, NOT fixed - expected failure). A stylesheet change of an empty block child's height (20 -> 60px) must grow its auto-height parent to 60 and move the parent's next sibling to y=60, as a fresh layout does. On the wave-7 build the child is 60 tall, the parent stays 20 and #after stays at y=20 (it overlaps): the child is re-solved as its own layout root (a block in a block is not lifted), reposition_clean_subtrees only re-stacks the root's own siblings, and nothing re-sizes the ancestors. A child that holds text is lifted to its parent (its formatting context is Inline), which hides this. Plan in scripts/LAYOUTPERF8_2026_10_03.md. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
- "expect": "fail",
+ "description": "LAYOUTPERF8 latent bug C. A stylesheet change of an empty block child's height (20 -> 60px) must grow its auto-height parent to 60 and move the parent's next sibling to y=60, as a fresh layout does. On the wave-7 build the child is 60 tall, the parent stays 20 and #after stays at y=20 (it overlaps): the child is re-solved as its own layout root (a block in a block is not lifted), reposition_clean_subtrees only re-stacks the root's own siblings, and nothing re-sizes the ancestors. Now a layout root whose size changed is laid out again from its nearest ancestor of definite height. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
+ "expect": "pass",
  "setup": {"window_width": 400, "window_height": 300, "dpi": 96},
  "steps": [
   {"op": "mount",

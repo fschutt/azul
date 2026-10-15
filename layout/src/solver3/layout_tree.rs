@@ -1760,6 +1760,62 @@ impl LayoutTree {
         })
     }
 
+    /// Reads the margins, borders, paddings and layout style of the box
+    /// `node_index` from the cascade again, as a box built fresh gets them.
+    /// The retained tree of a pass that skips the reconcile (a frame of a
+    /// layout-property tween) still holds what the OLD cascade said; the
+    /// boxes its css dirt names are restyled with this before they are laid
+    /// out, or an animated margin would not move.
+    pub(crate) fn restyle_node(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_index: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        viewport_size: LogicalSize,
+    ) {
+        let Some((dom_id, is_root)) = self
+            .nodes
+            .get(node_index)
+            .and_then(|n| Some((n.dom_node_id?, n.parent.is_none())))
+        else {
+            return;
+        };
+        // An anonymous box or a pseudo element shares its DOM node with
+        // another box; only the element's own box is restyled here.
+        if self
+            .warm
+            .get(node_index)
+            .is_some_and(|w| w.pseudo_element.is_some())
+        {
+            return;
+        }
+        let collected = collect_box_props(styled_dom, dom_id, debug_messages, viewport_size);
+        if let Some(hot) = self.nodes.get_mut(node_index) {
+            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(&collected.resolved);
+        }
+        if let Some(cold) = self.cold.get_mut(node_index) {
+            cold.unresolved_box_props = collected.unresolved;
+        }
+        if let Some(warm) = self.warm.get_mut(node_index) {
+            let mut style = compute_layout_style(styled_dom, dom_id);
+            if is_root {
+                // The viewport's overflow, as `create_node_from_dom` reads it.
+                use azul_css::props::layout::LayoutOverflow;
+                if style.overflow_x == LayoutOverflow::Visible {
+                    style.overflow_x = LayoutOverflow::Auto;
+                } else if style.overflow_x == LayoutOverflow::Clip {
+                    style.overflow_x = LayoutOverflow::Hidden;
+                }
+                if style.overflow_y == LayoutOverflow::Visible {
+                    style.overflow_y = LayoutOverflow::Auto;
+                } else if style.overflow_y == LayoutOverflow::Clip {
+                    style.overflow_y = LayoutOverflow::Hidden;
+                }
+            }
+            warm.computed_style = style;
+        }
+    }
+
     /// Re-resolve box properties for a node with the actual containing block size.
     pub(crate) fn resolve_box_props(
         &mut self,
@@ -4057,7 +4113,7 @@ pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> b
     };
     if matches!(node_data.get_node_type(), NodeType::Text(_))
         || is_replaced_element(node_data)
-        || get_display_type(styled_dom, node_id) != LayoutDisplay::Inline
+        || !crate::solver3::getters::is_inline_box_display(get_display_type(styled_dom, node_id))
         || is_out_of_flow_positioned(styled_dom, node_id)
         || is_floated(styled_dom, node_id)
     {
@@ -4074,6 +4130,46 @@ pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> b
         })
 }
 
+/// Whether the inline box `a`, broken around the blocks it holds (CSS 2.2
+/// s9.2.1.1, [`split_inlines_around_blocks`]), goes on BEFORE and AFTER its
+/// part that holds `node`: true where one of its in-flow blocks lies before
+/// (after) `node` in document order. Its start edge (margin, border,
+/// padding) belongs on its first part only, its end edge on its last.
+/// `(false, false)` for an inline box that holds no block.
+#[must_use]
+pub(crate) fn inline_box_split_around(
+    styled_dom: &StyledDom,
+    a: NodeId,
+    node: NodeId,
+) -> (bool, bool) {
+    if !inline_holds_a_block(styled_dom, a) {
+        return (false, false);
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let (mut before, mut after) = (false, false);
+    let mut stack: Vec<NodeId> = a.az_children(&hierarchy).collect();
+    while let Some(n) = stack.pop() {
+        if n == node {
+            continue;
+        }
+        let splits = get_display_type(styled_dom, n) != LayoutDisplay::None
+            && is_block_level(styled_dom, n)
+            && !is_out_of_flow_positioned(styled_dom, n)
+            && !is_floated(styled_dom, n);
+        if splits {
+            if n.index() < node.index() {
+                before = true;
+            } else {
+                after = true;
+            }
+            // What the block holds is its own flow.
+            continue;
+        }
+        stack.extend(n.az_children(&hierarchy));
+    }
+    (before, after)
+}
+
 /// A block container's `children` (in order, `display: none` already gone)
 /// with every inline box that holds a block ([`inline_holds_a_block`])
 /// replaced by its own children, recursively - the boxes the container's box
@@ -4084,11 +4180,12 @@ pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> b
 /// CSS 2.2 s9.2.1.1: such an inline box "is broken around the block-level
 /// box": the inline content before and after it goes into anonymous block
 /// boxes (`in_flow_block_level_mask` then makes them), the block becomes
-/// their sibling. The inline box keeps no box of its own here - its style
-/// reaches the content around the block through the cascade (colour, font,
-/// text decoration), but its own background, border and padding are not
-/// drawn on the fragments (the split inline's fragment boxes are not built).
-/// Before, the block was "inlinified" into the line and had no box at all.
+/// their sibling. The inline box keeps no layout box of its own here: its
+/// style reaches the content around the block through the cascade (colour,
+/// font, text decoration), its edges move the pen of its parts and its
+/// background and border are painted around them by the display list, the
+/// start edge on the first part and the end edge on the last
+/// ([`inline_box_split_around`]).
 #[must_use]
 pub(crate) fn split_inlines_around_blocks(
     styled_dom: &StyledDom,
@@ -4633,7 +4730,7 @@ fn collect_box_props(
         // vertical margins zeroed +spec:replaced-elements:f07118 - non-replaced elements
         // have rendering dictated by CSS model "These properties apply to all elements, but
         // vertical margins will not have  any effect on non-replaced inline elements."
-        LayoutDisplay::Inline => {
+        LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
             let is_replaced = node_data.is_sized_replaced_node();
             if is_replaced {
                 unresolved_margin
@@ -5212,7 +5309,9 @@ fn determine_formatting_context_for_display(
         // +spec:display-property:37bcf3 - inline outer display type generates an inline box
         // +spec:display-property:30a935 - outer display without inner defaults to flow
         // (block/inline both use flow context)
-        LayoutDisplay::Inline => FormattingContext::Inline,
+        // An inline list item is an inline box (its marker is a generated
+        // `::marker` child, inline like its text).
+        LayoutDisplay::Inline | LayoutDisplay::InlineListItem => FormattingContext::Inline,
         // +spec:block-formatting-context:97b03b - flow-root always establishes a new BFC;
         // block/list-item may establish one based on other conditions
         // +spec:display-property:0bac26 - list-item limited to flow layout inner types

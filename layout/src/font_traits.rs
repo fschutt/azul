@@ -96,6 +96,14 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     fn has_gsub_feature(&self, _script: Script, _tag: [u8; 4]) -> bool {
         true
     }
+
+    /// The face's weight class (OS/2 `usWeightClass`, 100-900). The display
+    /// list thickens text that asks for bold from a lighter face (synthetic
+    /// bold). A backend that cannot tell says `None`, and its faces are
+    /// drawn as they are.
+    fn weight_class(&self) -> Option<u16> {
+        None
+    }
 }
 
 /// Trait for loading fonts from raw bytes.

@@ -297,6 +297,34 @@ impl PaginationSnapshot {
             .into()
     }
 
+    /// Root-to-node child-index DOM path of the TEXT node the first line of
+    /// break `index`'s next page begins in, when the break splits a block
+    /// ([`Self::break_line_path`] names the block, this the text node inside
+    /// it). With [`Self::break_line_text_byte`] it says where to cut the
+    /// DOM's own text: the page view of an editor renders the block from
+    /// there. EMPTY when the break splits no block or its line starts in
+    /// generated content.
+    #[must_use]
+    pub fn break_line_text_path(&self, index: usize) -> azul_css::corety::U32Vec {
+        self.as_analysis()
+            .and_then(|a| a.structural.get(index))
+            .and_then(|b| b.line_text.as_ref())
+            .map_or_else(azul_css::corety::U32Vec::new, |t| t.path.clone().into())
+    }
+
+    /// The byte of the text node [`Self::break_line_text_path`] names that
+    /// the first line of break `index`'s next page begins at: its first
+    /// letter, counted in the DOM's text (whitespace as written, not as the
+    /// line layout collapsed it). `None` when the break splits no block.
+    #[must_use]
+    pub fn break_line_text_byte(&self, index: usize) -> azul_css::corety::OptionU32 {
+        self.as_analysis()
+            .and_then(|a| a.structural.get(index))
+            .and_then(|b| b.line_text.as_ref())
+            .map(|t| t.byte)
+            .into()
+    }
+
     /// An empty handle (0 pages - the failure value).
     #[must_use]
     pub const fn empty() -> Self {

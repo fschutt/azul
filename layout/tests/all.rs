@@ -1151,6 +1151,28 @@ mod a_workers_send_wakes_the_ui_thread;
 mod a_node_in_a_virtual_view_comes_in_with_its_animation;
 #[path = "a_layout_tween_frame_patches_its_nodes_compact_entry.rs"]
 mod a_layout_tween_frame_patches_its_nodes_compact_entry;
+#[path = "bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder.rs"]
+mod bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder;
+#[path = "a_background_image_is_sized_placed_and_repeated_as_css_says.rs"]
+mod a_background_image_is_sized_placed_and_repeated_as_css_says;
+#[path = "a_span_is_one_box_around_all_of_its_text.rs"]
+mod a_span_is_one_box_around_all_of_its_text;
+#[path = "a_parent_grows_with_its_restyled_child.rs"]
+mod a_parent_grows_with_its_restyled_child;
+#[path = "a_tweened_block_margin_moves_its_box_on_the_retained_tree.rs"]
+mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
+#[path = "a_superscript_rises_by_its_parent_inline_boxs_font_size.rs"]
+mod a_superscript_rises_by_its_parent_inline_boxs_font_size;
+#[path = "an_inline_boxs_edges_resolve_their_units_and_zoom.rs"]
+mod an_inline_boxs_edges_resolve_their_units_and_zoom;
+#[path = "an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one.rs"]
+mod an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one;
+#[path = "a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte.rs"]
+mod a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte;
+#[path = "a_font_registered_at_runtime_draws_the_text_that_names_it.rs"]
+mod a_font_registered_at_runtime_draws_the_text_that_names_it;
+#[path = "set_text_wraps_aligns_and_runs_right_to_left.rs"]
+mod set_text_wraps_aligns_and_runs_right_to_left;
 #[path = "focus_within_holds_on_every_ancestor_of_the_focused_node.rs"]
 mod focus_within_holds_on_every_ancestor_of_the_focused_node;
 #[path = "a_pseudo_class_on_an_ancestor_restyles_its_descendants.rs"]
@@ -1159,3 +1181,9 @@ mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
 mod before_and_after_generate_content;
 #[path = "inline_list_items_carry_their_marker.rs"]
 mod inline_list_items_carry_their_marker;
+#[path = "an_svg_stroke_without_a_width_is_one_unit_wide.rs"]
+mod an_svg_stroke_without_a_width_is_one_unit_wide;
+#[path = "a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part.rs"]
+mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
+#[path = "a_relayout_that_changes_nothing_takes_the_retained_tree.rs"]
+mod a_relayout_that_changes_nothing_takes_the_retained_tree;

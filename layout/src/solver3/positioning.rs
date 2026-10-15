@@ -993,7 +993,7 @@ pub(crate) fn inline_relative_offset(
         if !matches!(node_data[id].get_node_type(), NodeType::Text(_)) {
             let display =
                 get_display_property(styled_dom, Some(id)).unwrap_or(LayoutDisplay::Inline);
-            if display != LayoutDisplay::Inline {
+            if !super::getters::is_inline_box_display(display) {
                 block = Some(id);
                 break;
             }

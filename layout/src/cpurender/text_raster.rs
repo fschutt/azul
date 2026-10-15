@@ -27,8 +27,42 @@ use azul_css::{props::basic::ColorU, AzString};
 pub const TEXT_RASTER_MAX_SIZE_PX: f32 = 4096.0;
 pub const TEXT_RASTER_MAX_SIDE_PX: u32 = 16384;
 
+/// Where a set text's lines sit in their box ([`TextRasterStyle::with_align`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TextRasterAlign {
+    /// At the start of the line: the left of a left-to-right paragraph, the
+    /// right of a right-to-left one.
+    #[default]
+    Start,
+    /// In the middle.
+    Center,
+    /// At the end of the line: the right of a left-to-right paragraph.
+    End,
+    /// At the left, whatever the direction.
+    Left,
+    /// At the right, whatever the direction.
+    Right,
+}
+
+/// The base direction of a set text's paragraphs
+/// ([`TextRasterStyle::with_direction`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TextRasterDirection {
+    /// Each paragraph's first strong letter decides (Unicode bidi P2 / P3):
+    /// Hebrew or Arabic runs right to left, Latin left to right.
+    #[default]
+    Auto,
+    /// Left to right.
+    Ltr,
+    /// Right to left.
+    Rtl,
+}
+
 /// How [`text_image`] / [`draw_text`] set a text: the font, its size, the
-/// line spacing and the colour.
+/// line spacing and the colour, the box it wraps in, where its lines sit
+/// and its direction.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRasterStyle {
@@ -47,6 +81,15 @@ pub struct TextRasterStyle {
     pub bold: bool,
     /// The italic face of the family (the regular one where it has none).
     pub italic: bool,
+    /// The width the lines wrap in, in image pixels: they break at spaces
+    /// (a word wider than it between its letters), and the image is this
+    /// wide. 0 (or not a finite positive number): no wrapping, the image is
+    /// as wide as the widest line.
+    pub max_width: f32,
+    /// Where each line sits in the box (or in the widest line).
+    pub align: TextRasterAlign,
+    /// The paragraphs' base direction.
+    pub direction: TextRasterDirection,
 }
 
 impl TextRasterStyle {
@@ -60,7 +103,36 @@ impl TextRasterStyle {
             color,
             bold: false,
             italic: false,
+            max_width: 0.0,
+            align: TextRasterAlign::Start,
+            direction: TextRasterDirection::Auto,
         }
+    }
+
+    /// Wraps the lines in `max_width` image pixels ([`Self::max_width`]).
+    #[must_use]
+    pub const fn with_max_width(mut self, max_width: f32) -> Self {
+        self.max_width = max_width;
+        self
+    }
+
+    /// Sets each line `align` in its box.
+    #[must_use]
+    pub const fn with_align(mut self, align: TextRasterAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Sets the paragraphs' base direction.
+    #[must_use]
+    pub const fn with_direction(mut self, direction: TextRasterDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    /// The wrapping width in use, `None` for no wrapping.
+    fn wrap_width(&self) -> Option<f32> {
+        (self.max_width.is_finite() && self.max_width > 0.0).then_some(self.max_width)
     }
 
     #[must_use]
@@ -112,7 +184,10 @@ mod set {
     use azul_css::props::basic::FontRef;
     use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, OwnedFontSource, PatternMatch};
 
-    use super::{TextPixels, TextRasterStyle, TEXT_RASTER_MAX_SIDE_PX, TEXT_RASTER_MAX_SIZE_PX};
+    use super::{
+        TextPixels, TextRasterAlign, TextRasterStyle, TEXT_RASTER_MAX_SIDE_PX,
+        TEXT_RASTER_MAX_SIZE_PX,
+    };
     use crate::{
         cpurender::AzulPixmap,
         font::parsed::ParsedFont,
@@ -176,6 +251,192 @@ mod set {
         )
     }
 
+    /// One run of a set line in one direction: its glyphs in reading order.
+    struct SetRun {
+        glyphs: Vec<crate::text3::cache::Glyph>,
+        /// Right to left: placed last glyph first.
+        rtl: bool,
+    }
+
+    /// One line of a set text: its runs in visual order (left to right), how
+    /// wide they are, and its paragraph's direction (for `Start` / `End`).
+    struct SetLine {
+        runs: Vec<SetRun>,
+        width: f32,
+        rtl: bool,
+    }
+
+    /// `text` shaped in `direction` with the text engine, `None` when it does
+    /// not shape.
+    fn shape(
+        parsed: &ParsedFont,
+        text: &str,
+        rtl: bool,
+        shaping: &StyleProperties,
+    ) -> Option<Vec<crate::text3::cache::Glyph>> {
+        if text.is_empty() {
+            return Some(Vec::new());
+        }
+        let script = detect_script(text).unwrap_or(Script::Latin);
+        let direction = if rtl {
+            BidiDirection::Rtl
+        } else {
+            BidiDirection::Ltr
+        };
+        shape_text_for_parsed_font(
+            parsed,
+            text,
+            script,
+            Language::EnglishUS,
+            direction,
+            shaping,
+        )
+        .ok()
+    }
+
+    /// How far `glyphs` move the pen.
+    fn advance(glyphs: &[crate::text3::cache::Glyph]) -> f32 {
+        glyphs.iter().map(|g| g.advance + g.kerning).sum()
+    }
+
+    /// The byte ranges of `paragraph` (from `start` to `end` in it) its
+    /// lines hold when they wrap in `max` (no wrapping when `None`): lines
+    /// break after the spaces between words, the spaces at a break hang
+    /// (left out of the line), and a word wider than `max` breaks between
+    /// its letters. The last line keeps everything to `end`.
+    fn wrap(
+        paragraph: &str,
+        start: usize,
+        end: usize,
+        max: Option<f32>,
+        measure: &dyn Fn(&str) -> f32,
+    ) -> Vec<core::ops::Range<usize>> {
+        let Some(max) = max else {
+            return vec![start..end];
+        };
+        let is_space = |c: char| c == ' ' || c == '\t';
+        // (word start, word end, end after its spaces)
+        let mut words = Vec::new();
+        let text = &paragraph[start..end];
+        let mut at = 0;
+        while at < text.len() {
+            let word_end = text[at..]
+                .find(is_space)
+                .map_or(text.len(), |i| at + i);
+            let spaces_end = text[word_end..]
+                .find(|c: char| !is_space(c))
+                .map_or(text.len(), |i| word_end + i);
+            words.push((start + at, start + word_end, start + spaces_end));
+            at = spaces_end;
+        }
+        let slack = 0.01;
+        let mut lines = Vec::new();
+        let mut line_start = start;
+        let mut line_end = start;
+        let mut line_width = 0.0_f32;
+        for (word_start, word_end, spaces_end) in words {
+            let word = measure(&paragraph[word_start..word_end]);
+            let spaces = measure(&paragraph[word_end..spaces_end]);
+            if line_end > line_start && line_width + word > max + slack {
+                lines.push(line_start..line_end);
+                line_start = word_start;
+                line_width = 0.0;
+            }
+            if line_width <= 0.0 && word > max + slack {
+                // Between its letters: as many as fit on each line.
+                let mut piece_start = word_start;
+                let mut piece_width = 0.0_f32;
+                for (i, ch) in paragraph[word_start..word_end].char_indices() {
+                    let at = word_start + i;
+                    let letter = measure(&paragraph[at..at + ch.len_utf8()]);
+                    if piece_width > 0.0 && piece_width + letter > max + slack {
+                        lines.push(piece_start..at);
+                        piece_start = at;
+                        piece_width = 0.0;
+                    }
+                    piece_width += letter;
+                }
+                line_start = piece_start;
+                line_width = piece_width + spaces;
+                line_end = word_end;
+                continue;
+            }
+            line_width += word + spaces;
+            line_end = word_end;
+        }
+        lines.push(line_start..end);
+        lines
+    }
+
+    /// The lines of `text` set in `style`: its paragraphs (at `\n`), each in
+    /// its direction (`style.direction`, `Auto` from its first strong
+    /// letter), wrapped in `style.max_width`, each line's runs in the visual
+    /// order of the Unicode bidi algorithm, shaped in their own direction.
+    #[allow(clippy::too_many_lines)] // one pass: paragraphs, lines, runs
+    fn set_lines(
+        parsed: &ParsedFont,
+        text: &str,
+        style: &TextRasterStyle,
+        shaping: &StyleProperties,
+    ) -> Option<Vec<SetLine>> {
+        use unicode_bidi::{BidiInfo, Level};
+
+        use super::TextRasterDirection;
+
+        let measure = |s: &str| shape(parsed, s, false, shaping).map_or(0.0, |g| advance(&g));
+        let level = match style.direction {
+            TextRasterDirection::Auto => None,
+            TextRasterDirection::Ltr => Some(Level::ltr()),
+            TextRasterDirection::Rtl => Some(Level::rtl()),
+        };
+        let mut lines = Vec::new();
+        for paragraph in text.split('\n') {
+            let paragraph = paragraph.strip_suffix('\r').unwrap_or(paragraph);
+            if paragraph.is_empty() {
+                lines.push(SetLine {
+                    runs: Vec::new(),
+                    width: 0.0,
+                    rtl: style.direction == TextRasterDirection::Rtl,
+                });
+                continue;
+            }
+            let bidi = BidiInfo::new(paragraph, level);
+            for info in &bidi.paragraphs {
+                let rtl = info.level.is_rtl();
+                for range in wrap(
+                    paragraph,
+                    info.range.start,
+                    info.range.end,
+                    style.wrap_width(),
+                    &measure,
+                ) {
+                    if range.is_empty() {
+                        lines.push(SetLine {
+                            runs: Vec::new(),
+                            width: 0.0,
+                            rtl,
+                        });
+                        continue;
+                    }
+                    let (levels, visual) = bidi.visual_runs(info, range.clone());
+                    let mut runs = Vec::with_capacity(visual.len());
+                    let mut width = 0.0_f32;
+                    for run in visual {
+                        let run_rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
+                        let glyphs = shape(parsed, &paragraph[run.clone()], run_rtl, shaping)?;
+                        width += advance(&glyphs);
+                        runs.push(SetRun {
+                            glyphs,
+                            rtl: run_rtl,
+                        });
+                    }
+                    lines.push(SetLine { runs, width, rtl });
+                }
+            }
+        }
+        Some(lines)
+    }
+
     /// `text` set in `style` with the first line's box at (`dx`, `dy`) (the
     /// fractional offset of a draw), as premultiplied RGBA8 as big as the
     /// lines' boxes plus that offset. `None`: no text, no usable size, no
@@ -216,26 +477,33 @@ mod set {
             ..StyleProperties::default()
         };
 
+        let set_lines = set_lines(&parsed, text, style, &shaping)?;
+        // The box the lines align in: the wrapping width, else the widest
+        // line.
+        let width = style.wrap_width().unwrap_or_else(|| {
+            set_lines
+                .iter()
+                .map(|line| line.width)
+                .fold(0.0_f32, f32::max)
+        });
         let mut glyphs = Vec::new();
-        let mut width = 0.0f32;
-        let mut lines = 0usize;
-        for (i, line) in text.split('\n').enumerate() {
-            lines = i + 1;
-            let line = line.strip_suffix('\r').unwrap_or(line);
+        for (i, line) in set_lines.iter().enumerate() {
             let baseline = dy + i as f32 * step + ascent;
-            let mut pen = dx;
-            if !line.is_empty() {
-                let script = detect_script(line).unwrap_or(Script::Latin);
-                let shaped = shape_text_for_parsed_font(
-                    &parsed,
-                    line,
-                    script,
-                    Language::EnglishUS,
-                    BidiDirection::Ltr,
-                    &shaping,
-                )
-                .ok()?;
-                for g in &shaped {
+            let free = (width - line.width).max(0.0);
+            let offset = match (style.align, line.rtl) {
+                (TextRasterAlign::Left, _)
+                | (TextRasterAlign::Start, false)
+                | (TextRasterAlign::End, true) => 0.0,
+                (TextRasterAlign::Right, _)
+                | (TextRasterAlign::Start, true)
+                | (TextRasterAlign::End, false) => free,
+                (TextRasterAlign::Center, _) => free * 0.5,
+            };
+            let mut pen = dx + offset;
+            for run in &line.runs {
+                // A right-to-left run's glyphs come in reading order: its
+                // last one stands leftmost.
+                let mut place = |g: &crate::text3::cache::Glyph| {
                     glyphs.push(GlyphInstance {
                         index: u32::from(g.glyph_id),
                         point: LogicalPosition {
@@ -248,10 +516,15 @@ mod set {
                         },
                     });
                     pen += g.advance + g.kerning;
+                };
+                if run.rtl {
+                    run.glyphs.iter().rev().for_each(&mut place);
+                } else {
+                    run.glyphs.iter().for_each(&mut place);
                 }
             }
-            width = width.max(pen - dx);
         }
+        let lines = set_lines.len();
         let height = line_box + lines.saturating_sub(1) as f32 * step;
         let w = (width + dx).ceil();
         let h = (height + dy).ceil();
@@ -265,6 +538,12 @@ mod set {
         let mut pixmap = AzulPixmap::new(w, h)?;
         pixmap.fill(0, 0, 0, 0);
         if !glyphs.is_empty() {
+            // Bold asked of a face with no bold cut is drawn thickened, as
+            // the DOM's text is (synthetic bold).
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                style.bold,
+                Some(parsed.pdf_font_metrics.us_weight_class).filter(|w| *w > 0),
+            );
             // The face, registered in a one-font manager the glyph path
             // resolves it from (`render_text_run_to_pixmap`'s way).
             let font_ref: FontRef = crate::parsed_font_to_font_ref(parsed);
@@ -281,7 +560,7 @@ mod set {
             let mut glyph_cache = GlyphCache::new();
             super::super::raster::render_text(
                 &glyphs,
-                FontHash { font_hash: hash },
+                FontHash::from_hash(hash).with_synthetic_bold(synthetic_bold),
                 size,
                 style.color,
                 &mut pixmap,
@@ -437,6 +716,10 @@ mod set {
                 return;
             }
             let hash = parsed.hash;
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                bold,
+                Some(parsed.pdf_font_metrics.us_weight_class).filter(|w| *w > 0),
+            );
             if self.fonts.is_none() {
                 self.fonts = FontManager::new(FcFontCache::default()).ok();
             }
@@ -456,7 +739,7 @@ mod set {
             };
             super::super::raster::render_text(
                 &glyphs,
-                FontHash { font_hash: hash },
+                FontHash::from_hash(hash).with_synthetic_bold(synthetic_bold),
                 size_px,
                 color,
                 pixmap,

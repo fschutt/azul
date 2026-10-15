@@ -116,13 +116,14 @@ pub(super) fn is_hanging_marker(item: &ShapedItem) -> bool {
     matches!(item, ShapedItem::Cluster(c) if c.marker_position_outside == Some(true))
 }
 
-/// How far the inline box (`<span>`) around the cluster `items[idx]` moves
-/// the pen before and after it: its start margin + border + padding on the
-/// box's FIRST cluster, its end ones on its LAST (`InlineBorderInfo::
-/// left_advance` / `right_advance`), `(0, 0)` for every other item. A box
-/// is told apart from its neighbours by its runs' shared
-/// `Arc<StyleProperties>` (each inline box's text gets its own `Arc`,
-/// `fc::collect_inline_span_recursive` / `sizing::text_run_style`).
+/// How far the inline boxes (`<span>`s) around the cluster `items[idx]`
+/// move the pen before and after it: the start margin + border + padding of
+/// every box that begins at it, the end ones of every box that ends after
+/// it, `(0, 0)` for every other item. A box begins where the cluster before
+/// it is not inside it ([`StyleProperties::inline_boxes`] names the boxes by
+/// node), so a span's edges sit around all of its text, the text of the
+/// spans nested in it included, and the edges of the outer span count as
+/// well as the inner one's.
 ///
 /// The ONE rule the placement (`position_one_line`) and the intrinsic scan
 /// (`measure_intrinsic_widths`) share: an inline box's padding widens its
@@ -130,9 +131,55 @@ pub(super) fn is_hanging_marker(item: &ShapedItem) -> bool {
 /// (a float of `<span style="padding-left: 40px">Y</span>` is 40px wider
 /// than one of `<span>Y</span>`, as in Chrome).
 pub(super) fn inline_box_edge_advances(items: &[ShapedItem], idx: usize) -> (f32, f32) {
+    inline_box_edge_advances_between(items, idx, None, None)
+}
+
+/// [`inline_box_edge_advances`] for `items` that are one stretch of a longer
+/// list (a line): `before` / `after` are the boxes of the nearest clusters
+/// beyond its ends, `None` where nothing comes. A box that goes on past the
+/// end of a line is split there and has no edge at the split (CSS 2.2
+/// s9.4.2).
+pub(super) fn inline_box_edge_advances_between(
+    items: &[ShapedItem],
+    idx: usize,
+    before: Option<&[InlineBoxEdge]>,
+    after: Option<&[InlineBoxEdge]>,
+) -> (f32, f32) {
     let Some(ShapedItem::Cluster(c)) = items.get(idx) else {
         return (0.0, 0.0);
     };
+    let chain = &c.style.inline_boxes;
+    if !chain.is_empty() {
+        // The nearest clusters on either side: an atomic inline or a break
+        // between two pieces of a span's text does not end the span.
+        let prev = items[..idx]
+            .iter()
+            .rev()
+            .find_map(ShapedItem::as_cluster)
+            .map(|p| &*p.style.inline_boxes)
+            .or(before);
+        let next = items[idx + 1..]
+            .iter()
+            .find_map(ShapedItem::as_cluster)
+            .map(|n| &*n.style.inline_boxes)
+            .or(after);
+        let inside = |boxes: Option<&[InlineBoxEdge]>, edge: &InlineBoxEdge| {
+            boxes.is_some_and(|b| b.iter().any(|e| e.node == edge.node))
+        };
+        let left: f32 = chain
+            .iter()
+            .filter(|&e| !inside(prev, e))
+            .map(|e| e.left)
+            .sum();
+        let right: f32 = chain
+            .iter()
+            .filter(|&e| !inside(next, e))
+            .map(|e| e.right)
+            .sum();
+        return (left, right);
+    }
+    // A style built without its boxes (a test, a synthesized run): its own
+    // box, told apart from its neighbours by the `Arc` its runs share.
     let Some(border) = c.style.border.as_ref().filter(|b| b.moves_the_pen()) else {
         return (0.0, 0.0);
     };

@@ -528,6 +528,16 @@ pub struct LayoutCache {
     /// DOM handed in (`OverridesOnlyStamp::of`); the css dirt of the pass
     /// names what to lay out again.
     pub overrides_only_hint: Option<OverridesOnlyStamp>,
+    /// The CSS diff for the next PAGED pass on this cache
+    /// (`paged_layout`), which has no `css_dirty` argument of its own: a
+    /// caller that keeps a paged cache across restyles puts the restyled
+    /// nodes here, and the paged reconcile builds them fresh with the new
+    /// cascade's box props, as `layout_document`'s does. Taken by the pass.
+    pub paged_css_dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    /// The runtime font registry's generation this cache was laid out at
+    /// (`text3::fontreg::generation`): when a face is registered, the next
+    /// pass drops the tree and lays the document out cold.
+    pub font_epoch: u64,
     /// Census: did the LAST `layout_document` take a reconcile-skip branch
     /// (resize-only or overrides-only)? The external observable that
     /// distinguishes "skipped the walk" from "walked and found everything
@@ -1048,6 +1058,36 @@ pub(crate) fn outermost_layout_roots(
             true
         })
         .collect()
+}
+
+/// Where a layout root that came out another size must be laid out again
+/// from: up through its ancestors whose height follows their content (no
+/// definite `height`), to the child of the first one with a definite
+/// height, or to the tree root. `idx` itself when its parent's height is
+/// definite: re-stacking its siblings is then all that moves.
+#[must_use]
+pub(crate) fn root_for_resized(tree: &LayoutTree, idx: usize) -> usize {
+    use azul_css::props::layout::LayoutHeight;
+
+    let mut root = idx;
+    // A parent chain is at most as long as the tree; the bound keeps a
+    // corrupt (cyclic) chain from hanging the pass.
+    for _ in 0..tree.nodes.len() {
+        let Some(parent) = tree.get(LayoutNodeId::new(root)).and_then(|n| n.parent) else {
+            break;
+        };
+        let definite = tree
+            .warm(LayoutNodeId::new(parent))
+            .is_some_and(|w| match &w.computed_style.height {
+                Some(LayoutHeight::Px(v)) => v.to_percent().is_none(),
+                _ => false,
+            });
+        if definite {
+            break;
+        }
+        root = parent;
+    }
+    root
 }
 
 /// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
@@ -3094,7 +3134,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         // the containing block, not from the element's own intrinsic size.
         // CSS 2.2 § 10.3.1: Inline, non-replaced elements use containing block width.
         let available_width = match display {
-            LayoutDisplay::Inline => containing_block_size.width,
+            LayoutDisplay::Inline | LayoutDisplay::InlineListItem => containing_block_size.width,
             _ => inner_size.width,
         };
 
@@ -4721,15 +4761,13 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
     SubtreeHash(hasher.finish())
 }
 
-/// Computes CSS counter values for all nodes in the layout tree.
-///
-/// This function traverses the tree in document order and processes counter-reset
-/// and counter-increment properties. The computed values are stored in cache.counters.
-///
-/// CSS counters work with a stack-based scoping model:
-/// - `counter-reset` creates a new scope and sets the counter to a value
-/// - `counter-increment` increments the counter in the current scope
-/// - When leaving a subtree, counter scopes are popped
+/// The number of every list item, for the markers layout makes, keyed
+/// `(layout node, "list-item")`: what `fc::list_markers` reads. The numbers
+/// come from the one counter walk the document's generated content counts
+/// with (`azul_core::generated_content::list_item_numbers`: resets, `<ol
+/// start / reversed>`, `<li value>`, `counter-increment`, inline list items
+/// too); a box shares its element's number (a list item's `::marker` box
+/// carries the item's DOM node).
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher
                                   // HashMap/HashSet
 pub fn compute_counters(
@@ -4737,300 +4775,16 @@ pub fn compute_counters(
     tree: &LayoutTree,
     counters: &mut HashMap<(usize, String), i32>,
 ) {
-    // Track counter stacks: counter_name -> Vec<value>
-    // Each entry in the Vec represents a nested scope
-    let mut counter_stacks: HashMap<String, Vec<i32>> = HashMap::new();
-
-    // Stack to track which counters were reset at each tree level
-    // When we pop back up the tree, we need to pop these counter scopes
-    let mut scope_stack: Vec<Vec<String>> = Vec::new();
-
-    // The `list-item` scope depths of the open `<ol reversed>` lists: an
-    // item whose list counts down steps by -1.
-    let mut reversed_lists: Vec<usize> = Vec::new();
-
-    compute_counters_recursive(
-        styled_dom,
-        tree,
-        tree.root,
-        counters,
-        &mut counter_stacks,
-        &mut scope_stack,
-        &mut reversed_lists,
-    );
-}
-
-/// An HTML attribute an element carries as a custom attribute (`reversed`,
-/// `start`), by name.
-fn custom_attribute<'a>(node_data: &'a azul_core::dom::NodeData, name: &str) -> Option<&'a str> {
-    node_data.attributes().as_ref().iter().find_map(|a| match a {
-        azul_core::dom::AttributeType::Custom(nv) if nv.attr_name.as_str().eq_ignore_ascii_case(name) => {
-            Some(nv.value.as_str())
-        }
-        _ => None,
-    })
-}
-
-/// The `list-item` counter an `<ol reversed>` starts at: its `start`, else
-/// (CSS Lists 3 s4.4.2, the reversed counter's initial value, as Chrome
-/// numbers) the value its items count down from - its number of items, or,
-/// when an item before the end sets the counter (`<li value>`), that value
-/// plus the items before it, so they count down INTO it (`a b c=30` gives
-/// 32 31 30) - plus one, which its first item's step takes away. `None` for
-/// a list that counts up.
-fn reversed_list_start(
-    styled_dom: &StyledDom,
-    dom_id: NodeId,
-    node_data: &azul_core::dom::NodeData,
-) -> Option<i32> {
-    if !matches!(node_data.get_node_type(), NodeType::Ol) {
-        return None;
-    }
-    custom_attribute(node_data, "reversed")?;
-    let start = custom_attribute(node_data, "start")
-        .and_then(|s| s.trim().parse::<i32>().ok())
-        .unwrap_or_else(|| {
-            let hierarchy = styled_dom.node_hierarchy.as_container();
-            let data = styled_dom.node_data.as_container();
-            let mut items = 0_i32;
-            for child in dom_id.az_children(&hierarchy) {
-                if !matches!(data[child].get_node_type(), NodeType::Li) {
-                    continue;
-                }
-                if let Some(value) = list_item_value(&data[child]) {
-                    return value.saturating_add(items);
-                }
-                items = items.saturating_add(1);
-            }
-            items
-        });
-    Some(start.saturating_add(1))
-}
-
-/// An `<li value>`'s number: the item's own, the next items count on from it.
-fn list_item_value(node_data: &azul_core::dom::NodeData) -> Option<i32> {
-    if !matches!(node_data.get_node_type(), NodeType::Li) {
-        return None;
-    }
-    node_data.attributes().as_ref().iter().find_map(|a| match a {
-        azul_core::dom::AttributeType::Value(v) => v.as_str().trim().parse::<i32>().ok(),
-        _ => None,
-    })
-}
-
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
-                                 // (one branch per case)
-fn compute_counters_recursive(
-    styled_dom: &StyledDom,
-    tree: &LayoutTree,
-    node_idx: usize,
-    counters: &mut HashMap<(usize, String), i32>,
-    counter_stacks: &mut HashMap<String, Vec<i32>>,
-    scope_stack: &mut Vec<Vec<String>>,
-    reversed_lists: &mut Vec<usize>,
-) {
-    let Some(node) = tree.get(LayoutNodeId::new(node_idx)) else {
-        return;
-    };
-
-    // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
-    // Pseudo-elements inherit counter values from their parent element
-    // but don't participate in counter-reset or counter-increment themselves
-    if tree
-        .warm(LayoutNodeId::new(node_idx))
-        .and_then(|w| w.pseudo_element.as_ref())
-        .is_some()
-    {
-        // Store the parent's counter values for this pseudo-element
-        // so it can be looked up during marker text generation
-        if let Some(parent_idx) = node.parent {
-            // Copy all counter values from parent to this pseudo-element
-            let parent_counters: Vec<_> = counters
-                .iter()
-                .filter(|((idx, _), _)| *idx == parent_idx)
-                .map(|((_, name), &value)| (name.clone(), value))
-                .collect();
-
-            for (counter_name, value) in parent_counters {
-                counters.insert((node_idx, counter_name), value);
-            }
-        }
-
-        // Don't recurse to children of pseudo-elements
-        // (pseudo-elements shouldn't have children in normal circumstances)
+    let numbers = azul_core::generated_content::list_item_numbers(styled_dom);
+    if numbers.is_empty() {
         return;
     }
-
-    // Only process real DOM nodes, not anonymous boxes
-    let Some(dom_id) = node.dom_node_id else {
-        // For anonymous boxes, just recurse to children
-        for &child_idx in tree.children(node_idx) {
-            compute_counters_recursive(
-                styled_dom,
-                tree,
-                child_idx,
-                counters,
-                counter_stacks,
-                scope_stack,
-                reversed_lists,
-            );
-        }
-        return;
-    };
-
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    let cache = &styled_dom.css_property_cache.ptr;
-
-    // Track which counters we reset at this level (for cleanup later)
-    let mut reset_counters_at_this_level = Vec::new();
-
-    // CSS Lists §3: display: list-item automatically increments the "list-item" counter
-    // Check if this is a list-item
-    let display = {
-        use crate::solver3::getters::get_display_property;
-        get_display_property(styled_dom, Some(dom_id)).exact()
-    };
-    let is_list_item = matches!(display, Some(LayoutDisplay::ListItem));
-
-    // FAST PATH: almost no nodes declare counter-reset/counter-increment.
-    // Single-bit check in compact cache lets us skip two cascade walks per node.
-    // The bit describes the NORMAL state only (like every compact-cache fast
-    // path): a hovered / focused node takes the cascade walk, whose Normal
-    // tier still applies under the state - skipping it instead dropped a
-    // hovered list's `counter-reset` and renumbered its items.
-    let has_counter_css = !node_state.is_normal()
-        || cache
-            .compact_cache
-            .as_ref()
-            .is_none_or(|cc| cc.has_counter(dom_id.index()));
-
-    // Process counter-reset (now properly typed)
-    let counter_reset = if has_counter_css {
-        cache
-            .get_counter_reset(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property())
-    } else {
-        None
-    };
-
-    if let Some(counter_reset) = counter_reset {
-        let counter_name_str = counter_reset.counter_name.as_str();
-        if counter_name_str != "none" {
-            let counter_name = counter_name_str.to_string();
-            let reset_value = counter_reset.value;
-
-            // Reset the counter by pushing a new scope
-            counter_stacks
-                .entry(counter_name.clone())
-                .or_default()
-                .push(reset_value);
-            reset_counters_at_this_level.push(counter_name);
-        }
-    }
-
-    // HTML's `<ol reversed>`: its `list-item` scope starts at its `start`
-    // (else its number of items) plus one, and its items count DOWN.
-    let reversed_here = if let Some(initial) = reversed_list_start(styled_dom, dom_id, node_data) {
-        let stack = counter_stacks.entry("list-item".to_string()).or_default();
-        if reset_counters_at_this_level.iter().any(|n| n == "list-item") {
-            if let Some(top) = stack.last_mut() {
-                *top = initial;
-            }
-        } else {
-            stack.push(initial);
-            reset_counters_at_this_level.push("list-item".to_string());
-        }
-        reversed_lists.push(stack.len());
-        true
-    } else {
-        false
-    };
-
-    // Process counter-increment (now properly typed)
-    let counter_inc = if has_counter_css {
-        cache
-            .get_counter_increment(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property())
-    } else {
-        None
-    };
-
-    if let Some(counter_inc) = counter_inc {
-        let counter_name_str = counter_inc.counter_name.as_str();
-        if counter_name_str != "none" {
-            let counter_name = counter_name_str.to_string();
-            let inc_value = counter_inc.value;
-
-            // Increment the counter in the current scope
-            let stack = counter_stacks.entry(counter_name).or_default();
-            if stack.is_empty() {
-                // Auto-initialize if counter doesn't exist
-                stack.push(inc_value);
-            } else if let Some(current) = stack.last_mut() {
-                *current += inc_value;
-            }
-        }
-    }
-
-    // CSS Lists §3: display: list-item automatically increments "list-item" counter
-    // (by -1 in an `<ol reversed>`); an `<li value>` then SETS it (the
-    // `counter-set` of HTML's presentational hint): its own number, the next
-    // items count on from it.
-    if is_list_item {
-        let counter_name = "list-item".to_string();
-        let stack = counter_stacks.entry(counter_name).or_default();
-        let step = if !stack.is_empty() && reversed_lists.last() == Some(&stack.len()) {
-            -1
-        } else {
-            1
+    for idx in 0..tree.nodes.len() {
+        let Some(dom_id) = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id) else {
+            continue;
         };
-        if stack.is_empty() {
-            // Auto-initialize if counter doesn't exist
-            stack.push(1);
-        } else if let Some(current) = stack.last_mut() {
-            *current += step;
-        }
-        if let Some(value) = list_item_value(node_data) {
-            if let Some(current) = stack.last_mut() {
-                *current = value;
-            }
-        }
-    }
-
-    // Store the current counter values for this node
-    for (counter_name, stack) in counter_stacks.iter() {
-        if let Some(&value) = stack.last() {
-            counters.insert((node_idx, counter_name.clone()), value);
-        }
-    }
-
-    // Push scope tracking for cleanup
-    scope_stack.push(reset_counters_at_this_level.clone());
-
-    // Recurse to children
-    for &child_idx in tree.children(node_idx) {
-        compute_counters_recursive(
-            styled_dom,
-            tree,
-            child_idx,
-            counters,
-            counter_stacks,
-            scope_stack,
-            reversed_lists,
-        );
-    }
-
-    if reversed_here {
-        reversed_lists.pop();
-    }
-
-    // Pop counter scopes that were created at this level
-    if let Some(reset_counters) = scope_stack.pop() {
-        for counter_name in reset_counters {
-            if let Some(stack) = counter_stacks.get_mut(&counter_name) {
-                stack.pop();
-            }
+        if let Some(&value) = numbers.get(&dom_id) {
+            counters.insert((idx, "list-item".to_string()), value);
         }
     }
 }

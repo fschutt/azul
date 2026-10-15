@@ -416,6 +416,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // line counts). The 0x60BC4 marker exposes the iteration count.
         #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_line_iters: usize = 0;
+        // The inline boxes of the last cluster of the line before, for the
+        // edges of a span the wrap splits (`position_one_line_between`).
+        let mut before_chain: Option<Arc<[InlineBoxEdge]>> = None;
         while !cursor.is_done() {
             #[cfg(feature = "web_lift")]
             {
@@ -665,8 +668,18 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 is_last_line || line_ends_with_forced_break,
             );
 
-            let (mut line_pos_items, line_height) = position_one_line(
+            // The spans on the lines around this one: a span the wrap
+            // splits has no edge at the split.
+            let after_chain = cursor
+                .partial_remainder
+                .iter()
+                .chain(cursor.items.get(cursor.next_item_index..).unwrap_or(&[]))
+                .find_map(ShapedItem::as_cluster)
+                .map(|c| c.style.inline_boxes.clone());
+            let (mut line_pos_items, line_height) = position_one_line_between(
                 &line_items,
+                before_chain.as_deref(),
+                after_chain.as_deref(),
                 &line_constraints,
                 line_top_y,
                 line_index,
@@ -677,6 +690,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 debug_messages,
                 fonts,
             );
+
+            before_chain = line_items
+                .iter()
+                .rev()
+                .find_map(ShapedItem::as_cluster)
+                .map(|c| c.style.inline_boxes.clone())
+                .or(before_chain);
 
             // Track whether the next line follows a forced break
             is_after_forced_break = line_ends_with_forced_break;
@@ -1403,11 +1423,50 @@ pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 #[allow(clippy::match_same_arms)]
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
+#[allow(clippy::too_many_arguments)]
+pub fn position_one_line<T: ParsedFontTrait>(
+    line_items: &[ShapedItem],
+    line_constraints: &LineConstraints,
+    line_top_y: f32,
+    line_index: usize,
+    text_align: TextAlign,
+    base_direction: BidiDirection,
+    is_last_line: bool,
+    constraints: &UnifiedConstraints,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    fonts: &LoadedFonts<T>,
+) -> (Vec<PositionedItem>, f32) {
+    position_one_line_between(
+        line_items,
+        None,
+        None,
+        line_constraints,
+        line_top_y,
+        line_index,
+        text_align,
+        base_direction,
+        is_last_line,
+        constraints,
+        debug_messages,
+        fonts,
+    )
+}
+
+/// [`position_one_line`] for a line between others: `before` / `after` are
+/// the inline boxes of the nearest clusters on the lines before and after
+/// it, so a span split by the line wrap gets no edge at the split
+/// ([`inline_box_edge_advances_between`]).
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::match_same_arms)]
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
                                                                // layout/render/parse routine (one
                                                                // branch per case)
-pub fn position_one_line<T: ParsedFontTrait>(
+pub fn position_one_line_between<T: ParsedFontTrait>(
     line_items: &[ShapedItem],
+    before: Option<&[InlineBoxEdge]>,
+    after: Option<&[InlineBoxEdge]>,
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
@@ -1519,6 +1578,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // nowrap/pre case above, and the same answer — paint-time clipping
         // handles visual overflow; the positioner must not drop content.
         let is_last_segment = segment_idx + 1 >= line_constraints.segments.len();
+        let segment_start = item_cursor;
         let mut segment_items = Vec::new();
         let mut current_segment_width = 0.0;
         while item_cursor < line_items.len() {
@@ -1604,8 +1664,28 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // the line is aligned by: a centred `<span style="margin-right:
         // -0.08em">` (a tracked label giving its last tracking back) sat
         // where the margin was not, and a padded span half its padding off.
+        // The boxes on either side of this segment: the line's other
+        // segments, then the lines around it.
+        let segment_before = line_items[..segment_start]
+            .iter()
+            .rev()
+            .find_map(ShapedItem::as_cluster)
+            .map(|c| &*c.style.inline_boxes)
+            .or(before);
+        let segment_after = line_items[item_cursor..]
+            .iter()
+            .find_map(ShapedItem::as_cluster)
+            .map(|c| &*c.style.inline_boxes)
+            .or(after);
         let inline_offsets: Vec<(f32, f32)> = (0..justified_segment_items.len())
-            .map(|idx| inline_box_edge_advances(&justified_segment_items, idx))
+            .map(|idx| {
+                inline_box_edge_advances_between(
+                    &justified_segment_items,
+                    idx,
+                    segment_before,
+                    segment_after,
+                )
+            })
             .collect();
         let final_segment_width: f32 = justified_segment_items
             .iter()

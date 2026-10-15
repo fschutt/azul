@@ -88,7 +88,7 @@ pub struct MemoryFace {
 /// Style attributes parsed from a font's bytes (OS/2 + `head`), used to index a
 /// registered face in [`FontManager::memory_families`].
 #[derive(Debug, Clone, Copy)]
-pub(super) struct FaceStyle {
+pub(crate) struct FaceStyle {
     weight: FcWeight,
     italic: bool,
     oblique: bool,
@@ -112,7 +112,7 @@ impl Default for FaceStyle {
 /// rust-fontconfig (which reads OS/2 `usWeightClass`/`usWidthClass` and the
 /// `head` italic bit). Falls back to upright Normal when the font can't be
 /// parsed, so registration never fails on a malformed face.
-pub(super) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
+pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     let Some(faces) = rust_fontconfig::FcParseFontBytes(bytes, family) else {
         return FaceStyle::default();
     };
@@ -167,10 +167,59 @@ pub fn set_app_fonts(fonts: &[azul_core::resources::NamedFont]) {
     }
 }
 
+/// The fontconfig pattern an in-memory face of `family` goes into the font
+/// cache with: its own weight and style, and `coverage` as its code points.
+pub(crate) fn memory_font_pattern(
+    family: &str,
+    style: &FaceStyle,
+    coverage: Vec<UnicodeRange>,
+) -> rust_fontconfig::FcPattern {
+    let flag = |on: bool| {
+        if on {
+            PatternMatch::True
+        } else {
+            PatternMatch::False
+        }
+    };
+    rust_fontconfig::FcPattern {
+        name: Some(family.to_string()),
+        family: Some(family.to_string()),
+        italic: flag(style.italic),
+        oblique: flag(style.oblique),
+        bold: flag(style.weight >= FcWeight::Bold),
+        weight: style.weight,
+        stretch: style.stretch,
+        unicode_ranges: coverage,
+        ..Default::default()
+    }
+}
+
+/// The index entry of an in-memory face `id` of the style `style`.
+pub(crate) fn memory_face(
+    id: FontId,
+    unicode_ranges: Vec<UnicodeRange>,
+    style: &FaceStyle,
+    tier: MemoryFontTier,
+) -> MemoryFace {
+    MemoryFace {
+        tier,
+        font_match: rust_fontconfig::FontMatch {
+            id,
+            unicode_ranges,
+            fallbacks: Vec::new(),
+        },
+        weight: style.weight,
+        italic: style.italic,
+        oblique: style.oblique,
+        stretch: style.stretch,
+        weight_axis: style.weight_axis,
+    }
+}
+
 /// The code points the face `bytes` maps to a glyph, exactly: its best
 /// Unicode cmap, as rust-fontconfig reads it for a font on disk. Empty for
 /// bytes that are no font.
-fn cmap_coverage(bytes: &[u8]) -> Vec<UnicodeRange> {
+pub(crate) fn cmap_coverage(bytes: &[u8]) -> Vec<UnicodeRange> {
     rust_fontconfig::FcParseFontBytes(bytes, "")
         .and_then(|faces| faces.into_iter().next())
         .map(|(pattern, _)| pattern.unicode_ranges)
@@ -453,29 +502,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             self.index_memory_face(&norm, id, ranges, &style, tier);
             id
         } else {
-            let pattern = rust_fontconfig::FcPattern {
-                name: Some(family.to_string()),
-                family: Some(family.to_string()),
-                italic: if style.italic {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                oblique: if style.oblique {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                bold: if style.weight >= FcWeight::Bold {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                weight: style.weight,
-                stretch: style.stretch,
-                unicode_ranges: coverage.clone(),
-                ..Default::default()
-            };
+            let pattern = memory_font_pattern(family, &style, coverage.clone());
             let id = FontId::new();
             self.fc_cache.with_memory_font_with_id(
                 id,
@@ -502,19 +529,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         style: &FaceStyle,
         tier: MemoryFontTier,
     ) {
-        let face = MemoryFace {
-            tier,
-            font_match: rust_fontconfig::FontMatch {
-                id,
-                unicode_ranges,
-                fallbacks: Vec::new(),
-            },
-            weight: style.weight,
-            italic: style.italic,
-            oblique: style.oblique,
-            stretch: style.stretch,
-            weight_axis: style.weight_axis,
-        };
+        let face = memory_face(id, unicode_ranges, style, tier);
         let faces = self.memory_families.entry(norm.to_string()).or_default();
         if let Some(slot) = faces.iter_mut().find(|f| f.font_match.id == id) {
             *slot = face;
@@ -674,6 +689,27 @@ impl<T: ParsedFontTrait> FontManager<T> {
                     face.ranges.clone(),
                     MemoryFontTier::Fallback,
                 );
+            }
+        }
+        self.register_runtime_fonts();
+    }
+
+    /// Index the faces registered at runtime (`crate::text3::fontreg`) in
+    /// this manager, putting each in its font cache under the id the
+    /// registry gave it. Called with the bundled faces, so a new manager
+    /// and a replaced font cache ([`Self::replace_fc_cache`]) have them; a
+    /// window's chain resolution adds them on its own
+    /// (`fontreg::with_runtime_faces`).
+    pub fn register_runtime_fonts(&mut self) {
+        for (norm, face) in crate::text3::fontreg::ensure_in(&self.fc_cache) {
+            let faces = self.memory_families.entry(norm).or_default();
+            if let Some(slot) = faces
+                .iter_mut()
+                .find(|f| f.font_match.id == face.font_match.id)
+            {
+                *slot = face;
+            } else {
+                faces.push(face);
             }
         }
     }
@@ -946,7 +982,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Panics if the internal font-cache mutex is poisoned.
     #[must_use]
     pub fn embedded_fonts_dropped(&self) -> u64 {
-        self.condemned_embedded_fonts.lock().unwrap().dropped
+        // A face registered at runtime (`crate::text3::fontreg`) changes
+        // what the window's font stacks resolve to just the same: the
+        // registry's generation counts in, so the window resolves again.
+        self.condemned_embedded_fonts
+            .lock()
+            .unwrap()
+            .dropped
+            .wrapping_add(crate::text3::fontreg::generation())
     }
 
     /// EMBEDDED FONT GC: the `StyleFontFamily::Ref` faces no display list of

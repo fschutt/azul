@@ -20,6 +20,7 @@
 //! HTML's `<ol start reversed>` and `<li value>`.
 
 use alloc::{
+    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
@@ -758,15 +759,19 @@ fn display_of(
         .and_then(|v| v.get_property().copied())
 }
 
-/// The text of every generated node, `(its text node, the text)`, counting
-/// the document's counters in document order on the way.
-#[allow(clippy::too_many_lines)] // one walk: scopes, resets, increments, the text
-fn generated_texts(
+/// Walks the document in order, counting its counters (CSS Lists 3 s4), and
+/// hands every element to `visit` with the counters in scope once it has
+/// reset, incremented and set its own: `(index, id, node, parent, counters)`.
+/// An element with `display: none` makes no box, so it and its subtree count
+/// nothing and are not visited.
+#[allow(clippy::too_many_lines)] // one walk: scopes, resets, increments, the visit
+fn walk_counters(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
     cache: &CssPropertyCache,
     states: &[StyledNodeState],
-) -> Vec<(usize, String)> {
+    mut visit: impl FnMut(usize, NodeId, &NodeData, Option<usize>, &Counters),
+) {
     let n = node_data.len().min(hierarchy.len());
     // The last node of every subtree: where the counters its children made end.
     let mut end: Vec<usize> = (0..n).collect();
@@ -779,10 +784,14 @@ fn generated_texts(
     }
 
     let mut counters = Counters::default();
-    let mut quote_depth = 0_usize;
     let mut open: Vec<usize> = Vec::new();
-    let mut out = Vec::new();
+    // The end of the `display: none` subtree the walk is in, if any.
+    let mut hidden_until: Option<usize> = None;
     for (i, node) in node_data.iter().enumerate().take(n) {
+        if hidden_until.is_some_and(|last| i <= last) {
+            continue;
+        }
+        hidden_until = None;
         while let Some(&top) = open.last() {
             if end[top] >= i {
                 break;
@@ -797,12 +806,30 @@ fn generated_texts(
         }
         let id = NodeId::new(i);
         let state = states.get(i).copied().unwrap_or_default();
+        let display = display_of(cache, node, id, &state);
+        if display == Some(LayoutDisplay::None) {
+            hidden_until = Some(end[i]);
+            open.pop();
+            continue;
+        }
         let parent = hierarchy[i].parent_id().map(NodeId::index);
 
-        let reset = cache
-            .get_counter_reset(node, &id, &state)
-            .and_then(CssPropertyValue::get_property)
-            .filter(|r| r.counter_name.as_str() != "none");
+        // Almost no element declares a counter: the compact cache's bit
+        // skips the two cascade lookups (the resting state only, like every
+        // compact fast path).
+        let may_count = !state.is_normal()
+            || cache
+                .compact_cache
+                .as_ref()
+                .is_none_or(|cc| cc.has_counter(i));
+        let reset = if may_count {
+            cache
+                .get_counter_reset(node, &id, &state)
+                .and_then(CssPropertyValue::get_property)
+                .filter(|r| r.counter_name.as_str() != "none")
+        } else {
+            None
+        };
         if let Some(r) = reset {
             counters.reset(r.counter_name.as_str(), r.value, i, parent);
         }
@@ -817,17 +844,21 @@ fn generated_texts(
             }
         }
 
-        let increment = cache
-            .get_counter_increment(node, &id, &state)
-            .and_then(CssPropertyValue::get_property)
-            .filter(|c| c.counter_name.as_str() != "none");
+        let increment = if may_count {
+            cache
+                .get_counter_increment(node, &id, &state)
+                .and_then(CssPropertyValue::get_property)
+                .filter(|c| c.counter_name.as_str() != "none")
+        } else {
+            None
+        };
         if let Some(c) = increment {
             counters.increment(c.counter_name.as_str(), c.value, i, parent);
         }
         // A list item steps the `list-item` counter unless its own
         // `counter-increment` names that counter (CSS Lists 3 s4.6).
         let list_item = matches!(
-            display_of(cache, node, id, &state),
+            display,
             Some(LayoutDisplay::ListItem | LayoutDisplay::InlineListItem)
         );
         if list_item && increment.is_none_or(|c| c.counter_name.as_str() != "list-item") {
@@ -838,41 +869,92 @@ fn generated_texts(
             counters.set("list-item", value, i, parent);
         }
 
-        if matches!(node.get_node_type(), NodeType::Marker) {
-            let Some(text_node) = hierarchy[i].first_child_id(id) else {
-                continue;
-            };
-            let text = parent
-                .filter(|p| {
-                    let host_state = states.get(*p).copied().unwrap_or_default();
-                    display_of(cache, &node_data[*p], NodeId::new(*p), &host_state)
-                        == Some(LayoutDisplay::InlineListItem)
-                })
-                .map_or_else(String::new, |p| {
-                    let host_state = states.get(p).copied().unwrap_or_default();
-                    let style = cache
-                        .get_list_style_type(&node_data[p], &NodeId::new(p), &host_state)
-                        .and_then(CssPropertyValue::get_property)
-                        .copied()
-                        .unwrap_or_default();
-                    marker_text(counters.value("list-item"), style)
-                });
-            out.push((text_node.index(), text));
-        } else if node.is_generated_content() {
-            let Some(text_node) = hierarchy[i].first_child_id(id) else {
-                continue;
-            };
-            let host = parent.map(|p| &node_data[p]);
-            let text = cache
-                .get_content(node, &id, &state)
-                .and_then(CssPropertyValue::get_property)
-                .map_or_else(String::new, |content| {
-                    content_text(content.inner.as_str(), host, &counters, &mut quote_depth)
-                });
-            out.push((text_node.index(), text));
-        }
+        visit(i, id, node, parent, &counters);
     }
+}
+
+/// The text of every generated node, `(its text node, the text)`, counting
+/// the document's counters in document order on the way.
+fn generated_texts(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    cache: &CssPropertyCache,
+    states: &[StyledNodeState],
+) -> Vec<(usize, String)> {
+    let mut quote_depth = 0_usize;
+    let mut out = Vec::new();
+    walk_counters(
+        node_data,
+        hierarchy,
+        cache,
+        states,
+        |i, id, node, parent, counters| {
+            if matches!(node.get_node_type(), NodeType::Marker) {
+                let Some(text_node) = hierarchy[i].first_child_id(id) else {
+                    return;
+                };
+                let text = parent
+                    .filter(|p| {
+                        let host_state = states.get(*p).copied().unwrap_or_default();
+                        display_of(cache, &node_data[*p], NodeId::new(*p), &host_state)
+                            == Some(LayoutDisplay::InlineListItem)
+                    })
+                    .map_or_else(String::new, |p| {
+                        let host_state = states.get(p).copied().unwrap_or_default();
+                        let style = cache
+                            .get_list_style_type(&node_data[p], &NodeId::new(p), &host_state)
+                            .and_then(CssPropertyValue::get_property)
+                            .copied()
+                            .unwrap_or_default();
+                        marker_text(counters.value("list-item"), style)
+                    });
+                out.push((text_node.index(), text));
+            } else if node.is_generated_content() {
+                let Some(text_node) = hierarchy[i].first_child_id(id) else {
+                    return;
+                };
+                let host = parent.map(|p| &node_data[p]);
+                let text = cache
+                    .get_content(node, &id, &states.get(i).copied().unwrap_or_default())
+                    .and_then(CssPropertyValue::get_property)
+                    .map_or_else(String::new, |content| {
+                        content_text(content.inner.as_str(), host, counters, &mut quote_depth)
+                    });
+                out.push((text_node.index(), text));
+            }
+        },
+    );
     out
+}
+
+/// The number every list item shows (its `list-item` counter, CSS Lists 3
+/// s4.6: `counter-reset`, `<ol start / reversed>`, `<li value>` and
+/// `counter-increment` taken into account), by DOM node: block list items,
+/// whose marker the layout makes, and inline ones alike. One walk of the
+/// document; an element with `display: none` counts nothing.
+#[must_use]
+pub fn list_item_numbers(styled_dom: &StyledDom) -> BTreeMap<NodeId, i32> {
+    let states: Vec<StyledNodeState> = styled_dom
+        .styled_nodes
+        .as_container()
+        .internal
+        .iter()
+        .map(|n| n.styled_node_state)
+        .collect();
+    let node_data = styled_dom.node_data.as_container().internal;
+    let hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let cache = &styled_dom.css_property_cache.ptr;
+    let mut numbers = BTreeMap::new();
+    walk_counters(node_data, hierarchy, cache, &states, |i, id, node, _, counters| {
+        let state = states.get(i).copied().unwrap_or_default();
+        if matches!(
+            display_of(cache, node, id, &state),
+            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineListItem)
+        ) {
+            numbers.insert(id, counters.value("list-item"));
+        }
+    });
+    numbers
 }
 
 /// Writes the text of every generated node from its `content`, counting the

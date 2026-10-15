@@ -6,6 +6,7 @@
 //! - `cache`: unified text layout cache (`UnifiedLayout`)
 //! - `default`: default text shaping and line-breaking
 //! - `edit`: text editing operations
+//! - `fontreg`: fonts an app registers by family name while it runs
 //! - `glyphs`: glyph positioning and cluster mapping
 //! - `knuth_plass`: Knuth-Plass line-breaking algorithm
 //! - `mock_fonts`: built-in test fonts with exactly known metrics
@@ -17,6 +18,7 @@ pub mod cache;
 pub mod default;
 pub mod dense;
 pub mod edit;
+pub mod fontreg;
 pub mod glyphs;
 pub mod knuth_plass;
 pub mod mock_fonts;

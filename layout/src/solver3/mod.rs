@@ -760,6 +760,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // diff for paint-dirty classification. The dom-id sanity check guards
     // against a stale hint meeting a swapped DOM.
     drop(doc_setup_span);
+    // A face registered at runtime (`text3::fontreg`) changes the face text
+    // naming its family is drawn in: what this cache laid out and shaped
+    // with the fallback is stale, so the document is laid out cold once.
+    let font_epoch = crate::text3::fontreg::generation();
+    if cache.font_epoch != font_epoch {
+        cache.font_epoch = font_epoch;
+        cache.tree = None;
+        cache.cached_display_list = None;
+        cache.resize_only_hint = false;
+        cache.overrides_only_hint = None;
+    }
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
     // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
     // node - only the user override the tween walks (`tick_animations` arms
@@ -775,7 +786,25 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         .take()
         .is_some_and(|stamp| stamp == cache::OverridesOnlyStamp::of(new_dom));
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
-    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only)
+    // NO-CHANGE SKIP: the producer's diff proved every node unchanged with
+    // its ancestors, on the structure and the style tier
+    // (`LayoutCache::dom_diff_clean`), the cascade moved nothing that lays
+    // out, and the viewport is the one laid out: the reconcile could only
+    // rebuild the retained tree (4-7 ms of a page like AzWidgets'). Content
+    // the overlay holds (an edited text, a swapped image) is no part of that
+    // diff, so a window with any keeps reconciling.
+    let unchanged = !resize_only
+        && !overrides_only
+        && content_overlay.is_none_or(crate::overlay::ContentOverlay::is_empty)
+        && cache.viewport == Some(viewport)
+        && css_dirty
+            .iter()
+            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+        && cache
+            .dom_diff_clean
+            .as_ref()
+            .is_some_and(|clean| clean.len() == dom_len_for_hint && clean.iter().all(|c| *c));
+    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
         && cache.tree.as_ref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
@@ -783,10 +812,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }) {
         let _p = crate::probe::Probe::span(if resize_only {
             "reconcile_skipped_resize_only"
-        } else {
+        } else if overrides_only {
             "reconcile_skipped_overrides_only"
+        } else {
+            "reconcile_skipped_unchanged"
         });
         cache.last_reconcile_was_skipped = true;
+        // The one-shot diff is spent either way.
+        cache.dom_diff_clean = None;
         let tree = cache.tree.take().expect("checked is_some above");
         // DL-patching input: the sizes the PREVIOUS pass computed — the
         // layout pass below overwrites used_size in place (same tree
@@ -953,6 +986,26 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
+            // A pass that skipped the reconcile kept the tree of the old
+            // cascade: the boxes the css dirt names read their margins,
+            // borders, paddings and layout style again, as the reconcile
+            // builds a restyled box fresh (an override-animated margin
+            // moves its box).
+            if cache.last_reconcile_was_skipped {
+                for (dom_id_dirty, scope) in css_dirty {
+                    if *scope == azul_css::props::property::RelayoutScope::None {
+                        continue;
+                    }
+                    let idx = new_tree
+                        .dom_to_layout
+                        .get(dom_id_dirty)
+                        .and_then(|v| v.first())
+                        .map(|id| id.index());
+                    if let Some(idx) = idx {
+                        new_tree.restyle_node(new_dom, idx, &mut None, viewport.size);
+                    }
+                }
+            }
             let any_columns = multicol::dom_declares_columns(new_dom);
             let node_of = |idx: usize| {
                 new_tree.nodes.get(idx).map(|n| {
@@ -1402,6 +1455,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _ = (0xDD00_0005u32);
         }
 
+        // The layout roots below the tree root whose box came out another
+        // size: the boxes sized by their content around them follow.
+        let mut resized: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
@@ -1508,6 +1564,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
             // niche-Result-mis-discriminated) Err.
+            let size_before = new_tree
+                .get(LayoutNodeId::new(root_idx))
+                .and_then(|n| n.used_size);
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1532,6 +1591,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
+            if !is_tree_root {
+                let size_after = new_tree
+                    .get(LayoutNodeId::new(root_idx))
+                    .and_then(|n| n.used_size);
+                // A box built fresh has no size to compare with: it may
+                // have changed.
+                let changed = match (size_before, size_after) {
+                    (Some(was), Some(now)) => {
+                        (was.width - now.width).abs() > 0.01
+                            || (was.height - now.height).abs() > 0.01
+                    }
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+                if changed {
+                    resized.insert(root_idx);
+                }
+            }
 
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
@@ -1614,6 +1691,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // viewport-change. Nodes whose intrinsics genuinely changed are
             // already in the set from reconciliation; the root layout_root
             // above re-resolves every SIZE against the new inner width.
+            continue;
+        }
+
+        // A re-solved box that changed size changes the boxes sized by their
+        // content around it: lay them out again from the nearest ancestor of
+        // definite height (or the tree root), which re-stacks what follows
+        // them. A root whose parent's height is definite needs nothing more:
+        // its siblings were re-stacked above.
+        let regrow: std::collections::BTreeSet<usize> = resized
+            .iter()
+            .map(|&idx| cache::root_for_resized(&new_tree, idx))
+            .filter(|idx| !recon_result.layout_roots.contains(idx))
+            .collect();
+        if !regrow.is_empty() {
+            recon_result.layout_roots = cache::outermost_layout_roots(&regrow, |idx| {
+                new_tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+            });
             continue;
         }
 

@@ -2686,6 +2686,45 @@ pub fn get_background_repeats(
         .unwrap_or_default()
 }
 
+/// The `background-size` values declared on `node_id` (CSS Backgrounds 3
+/// s3.9), one per layer in layer order like [`get_background_repeats`].
+/// Empty when none is declared: every image then takes its own size.
+#[must_use]
+pub fn get_background_sizes(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundSize> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_size(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// The `background-position` values declared on `node_id` (CSS Backgrounds
+/// 3 s3.6), one per layer in layer order like [`get_background_repeats`].
+/// Empty when none is declared: every image then sits in the top left
+/// corner of its positioning area.
+#[must_use]
+pub fn get_background_positions(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundPosition> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_position(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
 /// [`get_background_contents`] before its `system:` colours are resolved:
 /// the node's own layers, or - for an `<html>` whose own paint nothing - its
 /// `<body>`'s ([`body_background_propagated_to`]).
@@ -3168,6 +3207,49 @@ fn resolve_system_border_colors(
     }
 }
 
+/// What an inline box (a `<span>`) paints around its fragments on the
+/// lines: its background and its border, with the padding the background
+/// covers and the font size its content area is measured by.
+#[derive(Debug, Clone)]
+pub struct InlineBoxPaint {
+    /// The background colour, `None` when transparent (the PDF runs' form).
+    pub background_color: Option<ColorU>,
+    /// Every background layer, the colour included, in paint order.
+    pub background_content: Vec<azul_css::props::style::StyleBackgroundContent>,
+    /// Border widths and colours, padding and horizontal margins, in px.
+    pub border: Option<crate::text3::cache::InlineBorderInfo>,
+    /// The box's own font size: its content area is that font's height.
+    pub font_size_px: f32,
+}
+
+/// What the inline box `node_id` paints ([`InlineBoxPaint`]), `None` when it
+/// paints nothing: no background and no border wider than zero.
+#[must_use]
+pub fn get_inline_box_paint(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> Option<InlineBoxPaint> {
+    let background = get_background_color(styled_dom, node_id, node_state);
+    let background_color = (background.a > 0).then_some(background);
+    let background_content = get_background_contents(styled_dom, node_id, node_state);
+    let border_info = get_border_info(styled_dom, node_id, node_state);
+    let border = get_inline_border_info(styled_dom, node_id, node_state, &border_info, viewport);
+    let has_border = border
+        .as_ref()
+        .is_some_and(|b| b.top > 0.0 || b.right > 0.0 || b.bottom > 0.0 || b.left > 0.0);
+    if background_color.is_none() && background_content.is_empty() && !has_border {
+        return None;
+    }
+    Some(InlineBoxPaint {
+        background_color,
+        background_content,
+        border,
+        font_size_px: get_element_font_size_in_viewport(styled_dom, node_id, node_state, viewport),
+    })
+}
+
 /// Convert `BorderInfo` to `InlineBorderInfo` for inline elements
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
@@ -3183,34 +3265,44 @@ fn get_inline_border_info(
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
 
-    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
-    // against the real viewport instead of being treated as raw pixels, and an
-    // `em` against the element's own font size (a label's `margin-right:
-    // -0.08em` gives back its tracking, which is 0.08em of ITS size).
-    fn resolve_padding(mv: MultiValue<PixelValue>, viewport: PhysicalSize, em: (f32, f32)) -> f32 {
-        match mv {
-            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
-                &pv,
-                0.0,
-                em.0,
-                em.1,
-                viewport.width,
-                viewport.height,
-            ),
-            _ => 0.0,
-        }
-    }
+    // Every edge of the inline box in px, resolved like a block's: viewport
+    // units against the real viewport, an `em` against the element's own
+    // font size (a label's `margin-right: -0.08em` gives back its tracking,
+    // which is 0.08em of ITS size), a `rem` against the root's, and the
+    // result scaled by the box's zoom (`scale_length_for_zoom`, the one rule
+    // of every length the solver resolves).
     let em = (
         get_element_font_size_in_viewport(styled_dom, node_id, node_state, viewport),
         get_root_font_size(styled_dom, node_state),
     );
+    let zoom = (
+        get_effective_zoom(styled_dom, node_id),
+        get_effective_zoom(styled_dom, NodeId::new(0)),
+    );
+    let length_px = |pv: &PixelValue| {
+        let resolved = super::calc::resolve_pixel_value_with_viewport(
+            pv,
+            0.0,
+            em.0,
+            em.1,
+            viewport.width,
+            viewport.height,
+        );
+        scale_length_for_zoom(pv.metric, resolved, zoom.0, zoom.1)
+    };
+    let resolve_padding = |mv: MultiValue<PixelValue>, _viewport: PhysicalSize, _em: (f32, f32)| {
+        match mv {
+            MultiValue::Exact(pv) => length_px(&pv),
+            _ => 0.0,
+        }
+    };
 
     macro_rules! border_width_px {
         ($field:expr) => {
             $field
                 .as_ref()
                 .and_then(|v| v.get_property())
-                .map(|w| w.inner.number.get())
+                .map(|w| length_px(&w.inner))
                 .unwrap_or(0.0)
         };
     }
@@ -3596,6 +3688,16 @@ pub fn get_display_property(
     get_display_property_internal(styled_dom, id, node_state)
 }
 
+/// Whether `display` makes an inline BOX - a span its parent's line flows
+/// through, its text in the parent's inline formatting context: `inline`,
+/// and `inline list-item` (an inline box that is a list item, its marker a
+/// generated `::marker` child). An atomic inline (`inline-block`, ...) is
+/// none.
+#[must_use]
+pub const fn is_inline_box_display(display: LayoutDisplay) -> bool {
+    matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineListItem)
+}
+
 /// CSS Display Module Level 3: Blockification of display values.
 ///
 /// When an element is floated, absolutely positioned, or is the root element,
@@ -3609,6 +3711,8 @@ pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
+        // An inline list item stays a list item (CSS Display 3 s2.7).
+        LayoutDisplay::InlineListItem => LayoutDisplay::ListItem,
         // Per CSS Display 3 §2.7: inline-block blockifies to block
         // (for legacy reasons, loses its flow-root nature)
         LayoutDisplay::InlineBlock => LayoutDisplay::Block,
@@ -6357,6 +6461,10 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
+    // The faces the app registered while it runs match by family like the
+    // manager's own (`text3::fontreg`), put into this cache first.
+    let memory_families =
+        crate::text3::fontreg::with_runtime_faces(&font_manager.memory_families, fc_cache);
 
     // Fast path (rust-fontconfig 4.2): when a registry is attached
     // we can resolve each stack by cmap-probing candidate files
@@ -6372,12 +6480,10 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
-            let mut fast = resolve_font_chains_fast(
-                &collected,
-                registry,
-                &used_chars,
-                &font_manager.memory_families,
-            );
+            // The registry's cache loads what the probe resolves.
+            let _ = crate::text3::fontreg::ensure_in(&registry.shared_cache());
+            let mut fast =
+                resolve_font_chains_fast(&collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
             return fast;
         }
@@ -6392,7 +6498,7 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
         fc_cache,
         font_manager.registry.as_deref(),
         Some(&scripts),
-        &font_manager.memory_families,
+        &memory_families,
     );
 
     let used_chars = collect_used_codepoints(styled_dom);

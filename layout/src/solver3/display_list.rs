@@ -214,6 +214,186 @@ pub(crate) fn background_tiles(
     tiles
 }
 
+/// Where one tile of a background image goes (CSS Backgrounds 3 s3.6 and
+/// s3.9): sized by `size` - the image's `intrinsic` size when none is given
+/// (the positioning area's for an image without one, a gradient), `contain`
+/// / `cover` scaled to fit inside / cover the area with the image's
+/// proportions, lengths and percentages of the area - and placed in
+/// `positioning` (the padding box) by `position`, a percentage aligning that
+/// point of the tile with the same point of the area. `None` when the tile
+/// has no area: the layer is not drawn.
+#[must_use]
+pub(crate) fn background_tile(
+    positioning: LogicalRect,
+    intrinsic: Option<LogicalSize>,
+    size: Option<azul_css::props::style::StyleBackgroundSize>,
+    position: Option<azul_css::props::style::StyleBackgroundPosition>,
+) -> Option<LogicalRect> {
+    use azul_css::props::{
+        basic::pixel::DEFAULT_FONT_SIZE,
+        style::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical, StyleBackgroundSize,
+        },
+    };
+
+    let area = positioning.size;
+    let intrinsic = intrinsic.filter(|s| s.width > 0.0 && s.height > 0.0);
+    let tile = match (size, intrinsic) {
+        (Some(StyleBackgroundSize::ExactSize(exact)), _) => LogicalSize::new(
+            exact
+                .width
+                .to_pixels_internal(area.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+            exact
+                .height
+                .to_pixels_internal(area.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+        ),
+        (Some(StyleBackgroundSize::Contain | StyleBackgroundSize::Cover), Some(own)) => {
+            let fit_x = area.width / own.width;
+            let fit_y = area.height / own.height;
+            let scale = if matches!(size, Some(StyleBackgroundSize::Cover)) {
+                fit_x.max(fit_y)
+            } else {
+                fit_x.min(fit_y)
+            };
+            LogicalSize::new(own.width * scale, own.height * scale)
+        }
+        (_, Some(own)) => own,
+        (_, None) => area,
+    };
+    if !(tile.width.is_finite() && tile.height.is_finite())
+        || tile.width <= 0.0
+        || tile.height <= 0.0
+    {
+        return None;
+    }
+    // A percentage `p` puts the tile's point at `p` on the area's point at
+    // `p`: an offset of `p * (area - tile)`. A length is the offset itself.
+    let offset = |value: azul_css::props::basic::PixelValue, free: f32| {
+        value.to_percent().map_or_else(
+            || value.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+            |p| p.get() * free,
+        )
+    };
+    let free_x = area.width - tile.width;
+    let free_y = area.height - tile.height;
+    let (x, y) = match position {
+        None => (0.0, 0.0),
+        Some(pos) => (
+            match pos.horizontal {
+                BackgroundPositionHorizontal::Left => 0.0,
+                BackgroundPositionHorizontal::Center => free_x * 0.5,
+                BackgroundPositionHorizontal::Right => free_x,
+                BackgroundPositionHorizontal::Exact(v) => offset(v, free_x),
+            },
+            match pos.vertical {
+                BackgroundPositionVertical::Top => 0.0,
+                BackgroundPositionVertical::Center => free_y * 0.5,
+                BackgroundPositionVertical::Bottom => free_y,
+                BackgroundPositionVertical::Exact(v) => offset(v, free_y),
+            },
+        ),
+    };
+    if !(x.is_finite() && y.is_finite()) {
+        return None;
+    }
+    Some(LogicalRect::new(
+        LogicalPosition::new(positioning.origin.x + x, positioning.origin.y + y),
+        tile,
+    ))
+}
+
+/// The declared `background-size`, `-position` and `-repeat` lists of a
+/// box with image or gradient layers, and each image layer's own size,
+/// read once per box for all of its layers.
+pub(crate) struct BackgroundPlacement {
+    /// `background-size`, one per layer in layer order (empty: none declared).
+    sizes: Vec<azul_css::props::style::StyleBackgroundSize>,
+    /// `background-position`, one per layer in layer order (empty: none declared).
+    positions: Vec<azul_css::props::style::StyleBackgroundPosition>,
+    /// `background-repeat`, one per layer in layer order (empty: `repeat`).
+    repeats: Vec<azul_css::props::style::StyleBackgroundRepeat>,
+    /// Each layer's intrinsic size: an image's pixels as CSS px, `None` for
+    /// a colour, a gradient and a callback image (which is drawn at the size
+    /// it is asked for).
+    intrinsic: Vec<Option<LogicalSize>>,
+}
+
+impl BackgroundPlacement {
+    /// The placement lists of `node_id`, `None` when all of `layers` are
+    /// colours.
+    pub(crate) fn of(
+        styled_dom: &azul_core::styled_dom::StyledDom,
+        node_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layers: &[azul_css::props::style::StyleBackgroundContent],
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Option<Self> {
+        use azul_css::props::style::StyleBackgroundContent;
+
+        let placed = |l: &StyleBackgroundContent| {
+            !matches!(
+                l,
+                StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+            )
+        };
+        if !layers.iter().any(placed) {
+            return None;
+        }
+        let intrinsic = layers
+            .iter()
+            .map(|l| match l {
+                StyleBackgroundContent::Image(id) => image_cache
+                    .get_css_image_id(id)
+                    .filter(|image| !image.is_callback())
+                    .map(azul_core::resources::ImageRef::get_size)
+                    .filter(|s| s.width > 0.0 && s.height > 0.0),
+                _ => None,
+            })
+            .collect();
+        Some(Self {
+            sizes: super::getters::get_background_sizes(styled_dom, node_id, node_state),
+            positions: super::getters::get_background_positions(styled_dom, node_id, node_state),
+            repeats: super::getters::get_background_repeats(styled_dom, node_id, node_state),
+            intrinsic,
+        })
+    }
+
+    /// The first tile of layer `i` of `layers` placed in `positioning` and
+    /// how it repeats; `None` to draw the layer over its painting area as one
+    /// item. That is a colour, and an image without an intrinsic size (a
+    /// gradient, a material) for which no size and no position is declared:
+    /// filling the area keeps such a layer one seamless item.
+    pub(crate) fn tile(
+        &self,
+        positioning: LogicalRect,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        i: usize,
+        layers: usize,
+    ) -> Option<(LogicalRect, azul_css::props::style::StyleBackgroundRepeat)> {
+        use azul_css::props::style::{StyleBackgroundContent, StyleBackgroundRepeat};
+
+        if matches!(
+            layer,
+            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+        ) {
+            return None;
+        }
+        let size = layer_value(&self.sizes, layers, i);
+        let position = layer_value(&self.positions, layers, i);
+        let intrinsic = self.intrinsic.get(i).copied().flatten();
+        if intrinsic.is_none() && size.is_none() && position.is_none() {
+            return None;
+        }
+        let repeat =
+            layer_value(&self.repeats, layers, i).unwrap_or(StyleBackgroundRepeat::PatternRepeat);
+        // A tile with no area draws nothing: an empty tile list says so.
+        let tile = background_tile(positioning, intrinsic, size, position).unwrap_or_else(|| {
+            LogicalRect::new(positioning.origin, LogicalSize::new(0.0, 0.0))
+        });
+        Some((tile, repeat))
+    }
+}
+
 /// The value a per-layer background list (`background-clip`,
 /// `background-repeat`, ...) gives layer `layer` of `layers`; `None` for an
 /// empty list (every layer then takes the property's initial value).
@@ -3331,6 +3511,50 @@ impl DisplayListBuilder {
         }
     }
 
+    /// One image or gradient layer drawn from `tile` (placed by
+    /// [`background_tile`]), repeated per `repeat` over its painting area
+    /// `area` and cut to it with the area's `radius`. A tile that is exactly
+    /// the area is drawn as one item, rounded like the area, without a clip.
+    pub(crate) fn push_background_layer_placed(
+        &mut self,
+        area: LogicalRect,
+        radius: BorderRadius,
+        tile: LogicalRect,
+        repeat: azul_css::props::style::StyleBackgroundRepeat,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        image_cache: &azul_core::resources::ImageCache,
+    ) {
+        let overlaps = |t: &LogicalRect| {
+            t.origin.x < area.origin.x + area.size.width
+                && t.origin.x + t.size.width > area.origin.x
+                && t.origin.y < area.origin.y + area.size.height
+                && t.origin.y + t.size.height > area.origin.y
+        };
+        let tiles: Vec<LogicalRect> = background_tiles(tile, area, repeat)
+            .into_iter()
+            .filter(|t| t.size.width > 0.0 && t.size.height > 0.0 && overlaps(t))
+            .collect();
+        let same = |a: f32, b: f32| (a - b).abs() < 0.001;
+        match tiles.as_slice() {
+            [] => {}
+            [only]
+                if same(only.origin.x, area.origin.x)
+                    && same(only.origin.y, area.origin.y)
+                    && same(only.size.width, area.size.width)
+                    && same(only.size.height, area.size.height) =>
+            {
+                self.push_background_layer(area, layer, radius, image_cache);
+            }
+            _ => {
+                self.push_clip(area, radius);
+                for t in tiles {
+                    self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+                }
+                self.pop_clip();
+            }
+        }
+    }
+
     /// Paint backgrounds and border for inline text elements.
     ///
     /// Similar to `DisplayListGenerator::paint_box_decorations` (a box's
@@ -3943,7 +4167,8 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
         generator.canvas_painted = [Some(root_dom_id), body];
         let layers = get_background_contents(generator.ctx.styled_dom, root_dom_id, &root_state);
         if !layers.is_empty() {
-            // `background-repeat` belongs to the element the layers came from.
+            // `background-repeat`, `-size` and `-position` belong to the
+            // element the layers came from.
             let source = body.unwrap_or(root_dom_id);
             let source_state = generator.get_styled_node_state(source);
             let repeats = crate::solver3::getters::get_background_repeats(
@@ -3951,11 +4176,25 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
                 source,
                 &source_state,
             );
+            let placement = BackgroundPlacement::of(
+                generator.ctx.styled_dom,
+                source,
+                &source_state,
+                &layers,
+                generator.ctx.image_cache,
+            );
             let canvas_rect = generator.ctx.canvas_rect;
-            let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
+            let root_box = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
             for (i, layer) in layers.iter().enumerate() {
                 let repeat = layer_value(&repeats, layers.len(), i)
                     .unwrap_or(azul_css::props::style::StyleBackgroundRepeat::PatternRepeat);
+                // An image is sized and placed by the root's box as if it
+                // were painted for the root alone (CSS Backgrounds 3
+                // s2.11.1); a layer without a placement takes the whole box.
+                let tile = placement
+                    .as_ref()
+                    .and_then(|p| p.tile(root_box, layer, i, layers.len()))
+                    .map_or(root_box, |(tile, _)| tile);
                 builder.push_background_layer_tiled(
                     canvas_rect,
                     tile,
@@ -4459,6 +4698,22 @@ where
             open_clips: Vec::new(),
             canvas_painted: [None, None],
         }
+    }
+
+    /// The face a run is drawn in: `font_hash`, thickened (synthetic bold)
+    /// when the run asks for bold and the face has no bold cut, the way
+    /// Chrome draws a bold word in a family with only a regular face.
+    fn run_face(&self, font_hash: u64, asks_for_bold: bool) -> FontHash {
+        let face = FontHash::from_hash(font_hash);
+        if !asks_for_bold {
+            return face;
+        }
+        let face_weight = self
+            .ctx
+            .font_manager
+            .get_font_by_hash(font_hash)
+            .and_then(|font| font.weight_class());
+        face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
     }
 
     /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
@@ -6155,11 +6410,12 @@ where
         let azul_core::dom::SvgNodeData::Path(path) = node_data.get(dom_id)?.get_svg_data()? else {
             return None;
         };
+        // `stroke-width` is 1 (a user unit) unless declared (SVG 2 s13.5.1).
         let width = border_info
             .widths
             .top
             .and_then(CssPropertyValue::get_property_owned)
-            .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0))?;
+            .map_or(1.0, |w| w.inner.to_pixels_internal(0.0, 16.0, 16.0));
         if !width.is_finite() || width <= 0.0 {
             return None;
         }
@@ -6724,6 +6980,17 @@ where
         !parent_is_replaced
     }
 
+    /// How `dom_id` sizes, places and repeats its image and gradient layers,
+    /// `None` when every layer is a colour (nothing to place).
+    fn background_placement(
+        &self,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layers: &[azul_css::props::style::StyleBackgroundContent],
+    ) -> Option<BackgroundPlacement> {
+        BackgroundPlacement::of(self.ctx.styled_dom, dom_id, node_state, layers, self.ctx.image_cache)
+    }
+
     /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
     /// Appendix E): its OUTER shadows (below everything, around the border
     /// box), its background layers - within its `background-clip` box
@@ -6788,6 +7055,7 @@ where
             // border (a metal edge).
             let clips =
                 super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let placement = self.background_placement(dom_id, node_state, background_contents);
             let layers = background_contents.len();
             for (i, layer) in background_contents.iter().enumerate() {
                 let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
@@ -6798,7 +7066,21 @@ where
                         inset_radius(padding_radius, padding),
                     ),
                 };
-                builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+                // Images and gradients are placed in the padding box (the
+                // initial `background-origin`).
+                match placement.as_ref().and_then(|p| p.tile(padding_box, layer, i, layers)) {
+                    Some((tile, repeat)) => builder.push_background_layer_placed(
+                        area,
+                        radius,
+                        tile,
+                        repeat,
+                        layer,
+                        self.ctx.image_cache,
+                    ),
+                    None => {
+                        builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+                    }
+                }
             }
         }
         // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
@@ -6937,7 +7219,7 @@ where
             // over an `<img>` showed both copies on the frontpage screenshot.
             let is_atomic_inline = display.is_atomic_inline();
 
-            if is_atomic_inline || display == LayoutDisplay::Inline {
+            if is_atomic_inline || super::getters::is_inline_box_display(display) {
                 debug_info!(
                     self.ctx,
                     "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, \
@@ -8261,9 +8543,7 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 builder.push_text_run(
                     core::mem::take(&mut run),
-                    FontHash {
-                        font_hash: run_hash,
-                    },
+                    self.run_face(run_hash, style.asks_for_bold()),
                     style.font_size_px,
                     color,
                     content_box,
@@ -8285,9 +8565,7 @@ where
         if !run.is_empty() {
             builder.push_text_run(
                 run,
-                FontHash {
-                    font_hash: run_hash,
-                },
+                self.run_face(run_hash, style.asks_for_bold()),
                 style.font_size_px,
                 color,
                 content_box,
@@ -9043,6 +9321,7 @@ where
         Some(TextOverflowEllipsis {
             glyphs,
             font_size_px: style.font_size_px,
+            asks_for_bold: style.asks_for_bold(),
             color: super::getters::get_used_text_color(sd, dom_id, &state),
             cuts,
         })
@@ -9052,6 +9331,7 @@ where
     /// glyphs it replaces are left out of the runs), the content box's top
     /// left at `origin`.
     fn paint_ellipses(
+        &self,
         builder: &mut DisplayListBuilder,
         ellipsis: &TextOverflowEllipsis,
         origin: LogicalPosition,
@@ -9069,7 +9349,7 @@ where
                 if g.font_hash != run_hash && !run.is_empty() {
                     builder.push_text_run(
                         core::mem::take(&mut run),
-                        FontHash::from_hash(run_hash),
+                        self.run_face(run_hash, ellipsis.asks_for_bold),
                         ellipsis.font_size_px,
                         ellipsis.color,
                         clip_rect,
@@ -9088,7 +9368,7 @@ where
             if !run.is_empty() {
                 builder.push_text_run(
                     run,
-                    FontHash::from_hash(run_hash),
+                    self.run_face(run_hash, ellipsis.asks_for_bold),
                     ellipsis.font_size_px,
                     ellipsis.color,
                     clip_rect,
@@ -9096,6 +9376,230 @@ where
                     uniform_bg,
                 );
             }
+        }
+    }
+
+    /// The inline boxes (spans) around the text node `text`, the outermost
+    /// first: its parents up to the IFC root `root` (`None` for an anonymous
+    /// one) or the first one that is no inline box.
+    fn inline_ancestors(&self, text: NodeId, root: Option<NodeId>) -> Vec<NodeId> {
+        use crate::solver3::getters::get_display_property;
+
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut out = Vec::new();
+        let mut node = hierarchy
+            .get(text)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        while let Some(n) = node {
+            if Some(n) == root
+                || !super::getters::is_inline_box_display(
+                    get_display_property(self.ctx.styled_dom, Some(n)).unwrap_or_default(),
+                )
+            {
+                break;
+            }
+            out.push(n);
+            node = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        out.reverse();
+        out
+    }
+
+    /// What the inline box `node` paints, looked up once per IFC paint.
+    fn inline_box_paint<'m>(
+        &self,
+        node: NodeId,
+        paints: &'m mut BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>>,
+    ) -> Option<&'m super::getters::InlineBoxPaint> {
+        paints
+            .entry(node)
+            .or_insert_with(|| {
+                let state = self.get_styled_node_state(node);
+                super::getters::get_inline_box_paint(
+                    self.ctx.styled_dom,
+                    node,
+                    &state,
+                    azul_css::props::basic::PhysicalSize::new(
+                        self.ctx.viewport_size.width,
+                        self.ctx.viewport_size.height,
+                    ),
+                )
+            })
+            .as_ref()
+    }
+
+    /// Paints the background and the border of every inline box (span) of
+    /// one IFC that has one, one rectangle per box per line (CSS 2.2 s9.4.2,
+    /// s10.8), the outer boxes first, before the text. A box's fragment on a
+    /// line runs from its first to its last cluster there, all of its
+    /// descendants' text included, widened by the margins, borders and
+    /// paddings of the spans inside it that begin or end there, and by its
+    /// own border and padding where it begins (its first cluster's
+    /// neighbour is outside it) or ends; at a split by the wrap it has
+    /// none. Its height is its own font's content area plus its vertical
+    /// padding and border. Returns the text nodes whose runs it painted
+    /// for: their own run backgrounds are not painted again.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)] // one walk: the fragments, then their rectangles
+    fn paint_inline_box_fragments(
+        &self,
+        builder: &mut DisplayListBuilder,
+        items: &[PositionedItem],
+        root: Option<NodeId>,
+        origin: LogicalPosition,
+        shifts: &BTreeMap<NodeId, LogicalPosition>,
+        ancestors: &mut BTreeMap<NodeId, Vec<NodeId>>,
+        paints: &mut BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>>,
+    ) {
+        use crate::text3::cache::get_item_vertical_metrics_approx;
+
+        /// One box on one line: its first and last cluster (indices into
+        /// `clusters`) and the baselines its height hangs from.
+        struct Fragment {
+            node: NodeId,
+            line: usize,
+            first: usize,
+            last: usize,
+            /// The baseline of the box's own text on the line, if it has any.
+            own_baseline: Option<f32>,
+            /// The baseline of its first cluster, the fallback.
+            baseline: f32,
+        }
+
+        // The clusters in paint order (item index, text node): a cluster's
+        // neighbours here are the ones the line layout compared.
+        let clusters: Vec<(usize, NodeId)> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| match &item.item {
+                ShapedItem::Cluster(c) => c.source_node_id.map(|t| (i, t)),
+                _ => None,
+            })
+            .collect();
+        for &(_, text) in &clusters {
+            if !ancestors.contains_key(&text) {
+                let found = self.inline_ancestors(text, root);
+                ancestors.insert(text, found);
+            }
+        }
+        let anc = |text: NodeId| ancestors.get(&text).map_or(&[][..], Vec::as_slice);
+
+        let mut fragments: Vec<Fragment> = Vec::new();
+        let mut open: BTreeMap<(NodeId, usize), usize> = BTreeMap::new();
+        for (j, &(i, text)) in clusters.iter().enumerate() {
+            let item = &items[i];
+            let baseline = item.position.y + get_item_vertical_metrics_approx(&item.item).0;
+            let boxes = anc(text).to_vec();
+            for (depth, &node) in boxes.iter().enumerate() {
+                if self.inline_box_paint(node, paints).is_none() {
+                    continue;
+                }
+                let key = (node, item.line_index);
+                let f = match open.get(&key) {
+                    Some(&f) => {
+                        fragments[f].last = j;
+                        f
+                    }
+                    None => {
+                        fragments.push(Fragment {
+                            node,
+                            line: item.line_index,
+                            first: j,
+                            last: j,
+                            own_baseline: None,
+                            baseline,
+                        });
+                        open.insert(key, fragments.len() - 1);
+                        fragments.len() - 1
+                    }
+                };
+                if depth + 1 == boxes.len() && fragments[f].own_baseline.is_none() {
+                    fragments[f].own_baseline = Some(baseline);
+                }
+            }
+        }
+        // Outer boxes first: a DOM node's index comes before its children's.
+        fragments.sort_by_key(|f| (f.node.index(), f.line));
+
+        let chain_of = |j: usize| match clusters.get(j).map(|&(i, _)| &items[i].item) {
+            Some(ShapedItem::Cluster(c)) => &c.style.inline_boxes[..],
+            _ => &[][..],
+        };
+        for f in &fragments {
+            let Some(paint) = paints.get(&f.node).and_then(Option::as_ref) else {
+                continue;
+            };
+            let (i0, t0) = clusters[f.first];
+            let (i1, t1) = clusters[f.last];
+            let before = f.first.checked_sub(1);
+            let after = (f.last + 1 < clusters.len()).then_some(f.last + 1);
+            // A box broken around a block it holds has its start edge on
+            // its first part only and its end edge on its last.
+            let (goes_on_before, _) = crate::solver3::layout_tree::inline_box_split_around(
+                self.ctx.styled_dom,
+                f.node,
+                t0,
+            );
+            let (_, goes_on_after) = crate::solver3::layout_tree::inline_box_split_around(
+                self.ctx.styled_dom,
+                f.node,
+                t1,
+            );
+            let opens =
+                !goes_on_before && !before.is_some_and(|b| anc(clusters[b].1).contains(&f.node));
+            let closes =
+                !goes_on_after && !after.is_some_and(|a| anc(clusters[a].1).contains(&f.node));
+            // The spans inside this box that begin at its first cluster (end
+            // at its last) put their edges inside this box.
+            let inner = |j: usize, text: NodeId, neighbour: Option<usize>, left: bool| -> f32 {
+                let boxes = anc(text);
+                let deeper = boxes
+                    .iter()
+                    .position(|n| *n == f.node)
+                    .map_or(&[][..], |p| &boxes[p + 1..]);
+                let other = neighbour.map_or(&[][..], |n| chain_of(n));
+                chain_of(j)
+                    .iter()
+                    .filter(|e| deeper.contains(&e.node) && !other.iter().any(|o| o.node == e.node))
+                    .map(|e| if left { e.left } else { e.right })
+                    .sum()
+            };
+            let inner_left = inner(f.first, t0, before, true);
+            let inner_right = inner(f.last, t1, after, false);
+            let border = paint.border.map(|mut b| {
+                b.is_first_fragment = opens;
+                b.is_last_fragment = closes;
+                b.is_rtl = false;
+                b
+            });
+            let (left_inset, right_inset, top_inset, bottom_inset) =
+                border.as_ref().map_or((0.0, 0.0, 0.0, 0.0), |b| {
+                    (b.left_inset(), b.right_inset(), b.top_inset(), b.bottom_inset())
+                });
+            let x0 = items[i0].position.x - inner_left - left_inset;
+            let x1 = items[i1].position.x + items[i1].item.bounds().width + inner_right + right_inset;
+            if x1.is_nan() || x0.is_nan() || x1 <= x0 {
+                continue;
+            }
+            let shift = shifts.get(&t0).copied().unwrap_or_else(LogicalPosition::zero);
+            let baseline = f.own_baseline.unwrap_or(f.baseline);
+            let ascent = paint.font_size_px * APPROX_ASCENT_RATIO;
+            let rect = LogicalRect::new(
+                LogicalPosition::new(
+                    origin.x + shift.x + x0,
+                    origin.y + shift.y + baseline - ascent - top_inset,
+                ),
+                LogicalSize::new(x1 - x0, paint.font_size_px + top_inset + bottom_inset),
+            );
+            builder.push_inline_backgrounds_and_border(
+                rect,
+                paint.background_color,
+                &paint.background_content,
+                border.as_ref(),
+                self.ctx.image_cache,
+            );
         }
     }
 
@@ -9344,9 +9848,68 @@ where
         // Precomputed at CachedInlineLayout store time — the run-grouping
         // walk used to re-run here on EVERY paint of every IFC.
 
-        // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
-        // This must happen BEFORE rendering text so that backgrounds appear behind text.
+        // FIRST PASS: the backgrounds and borders of the inline boxes, BEFORE
+        // the text. A span that paints is painted per line around all of
+        // its text, its nested spans' text included
+        // (`paint_inline_box_fragments`); a run whose own style carries a
+        // background no span around it explains (a synthesized run) paints
+        // it under itself.
+        let ifc_root = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(source_node_index))
+            .and_then(|n| n.dom_node_id);
+        let mut ancestors: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+        let mut box_paints: BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>> =
+            BTreeMap::new();
+        // Text node -> whether a span around it paints.
+        let mut in_painting_box: BTreeMap<NodeId, bool> = BTreeMap::new();
+        for run in glyph_runs {
+            let Some(text) = run.source_node_id else {
+                continue;
+            };
+            if in_painting_box.contains_key(&text) {
+                continue;
+            }
+            let boxes = self.inline_ancestors(text, ifc_root);
+            let paints = boxes
+                .iter()
+                .any(|&b| self.inline_box_paint(b, &mut box_paints).is_some());
+            ancestors.insert(text, boxes);
+            in_painting_box.insert(text, paints);
+        }
+        if in_painting_box.values().any(|p| *p) {
+            let expanded;
+            let items: &[PositionedItem] = if layout.items.is_empty() {
+                expanded = dense_view
+                    .map(crate::text3::dense::DenseText::to_unified_items)
+                    .unwrap_or_default();
+                &expanded
+            } else {
+                &layout.items
+            };
+            let shifts: BTreeMap<NodeId, LogicalPosition> = glyph_runs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, run)| Some((run.source_node_id?, shift_of_run(i))))
+                .collect();
+            self.paint_inline_box_fragments(
+                builder,
+                items,
+                ifc_root,
+                container_rect.origin,
+                &shifts,
+                &mut ancestors,
+                &mut box_paints,
+            );
+        }
         for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            if glyph_run
+                .source_node_id
+                .is_some_and(|text| in_painting_box.get(&text).copied().unwrap_or(false))
+            {
+                continue;
+            }
             // The run's origin: the IFC's content box, moved by the
             // relatively positioned inline boxes around its text.
             let shift = shift_of_run(i);
@@ -9514,7 +10077,7 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             normal,
-                            FontHash::from_hash(glyph_run.font_hash),
+                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
                             live_color,
                             clip_rect,
@@ -9526,7 +10089,7 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             selected,
-                            FontHash::from_hash(glyph_run.font_hash),
+                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
                             *selected_color,
                             clip_rect,
@@ -9540,7 +10103,7 @@ where
                 None => {
                     builder.push_text_run(
                         offset_glyphs,
-                        FontHash::from_hash(glyph_run.font_hash),
+                        self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                         glyph_run.font_size_px,
                         live_color,
                         clip_rect,
@@ -9620,7 +10183,7 @@ where
         // The ellipses, after the text they end (in the root's colour, on the
         // background the IFC proved).
         if let Some(ellipsis) = ellipsis {
-            Self::paint_ellipses(
+            self.paint_ellipses(
                 builder,
                 ellipsis,
                 container_rect.origin,
@@ -12517,6 +13080,9 @@ pub(crate) fn line_clamp_cut(
 struct TextOverflowEllipsis {
     glyphs: Vec<crate::text3::cache::Glyph>,
     font_size_px: f32,
+    /// The root's text asks for bold: the ellipsis is thickened like the
+    /// text it ends when its face has no bold cut.
+    asks_for_bold: bool,
     color: ColorU,
     cuts: Vec<EllipsisCut>,
 }

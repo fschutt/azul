@@ -332,6 +332,13 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 continue;
             };
 
+            // A part of an inline box broken around a block it holds (CSS
+            // 2.2 s9.2.1.1): the child sits in that box, whose edges move the
+            // pen on its first and last part.
+            let split_chain = split_inline_parent(ctx.styled_dom, dom_id)
+                .map(|parent| crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id))
+                .filter(|chain| !chain.is_empty());
+
             let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
 
             // Check if this is a text node
@@ -352,6 +359,14 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                let style = match split_chain.clone() {
+                    Some(chain) => {
+                        let mut own = (*style).clone();
+                        own.inline_boxes = chain;
+                        Arc::new(own)
+                    }
+                    None => style,
+                };
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
                     dom_id,
@@ -399,14 +414,18 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
-            if display == LayoutDisplay::Inline {
+            if crate::solver3::getters::is_inline_box_display(display) {
                 // Regular inline element - collect its text children
-                let span_style = get_style_properties(
+                let mut span_style = get_style_properties(
                     ctx.styled_dom,
                     dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                // Inside a part of a broken inline box, as text is above.
+                if let Some(chain) = split_chain.clone() {
+                    span_style.inline_boxes = chain;
+                }
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -659,7 +678,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         }
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
-        if display != LayoutDisplay::Inline {
+        if !crate::solver3::getters::is_inline_box_display(display) {
             // This is an atomic inline-level box (e.g., inline-block, image):
             // its size and baseline go to text3 with it.
             let shape = measure_atomic_inline(
@@ -881,6 +900,18 @@ pub(super) fn nested_vertical_align(
 // recursively inlinified it recursively inlinifies all of its in-flow children, so that no
 // block-level descendants break up the inline formatting context in which it participates.
 // +spec:display-property:aee879 - recursively inlinifies in-flow children of inline boxes
+/// The inline box `node` (a child of an anonymous inline formatting context)
+/// sits in when that box was broken around a block it holds and `node` is
+/// one of its parts (CSS 2.2 s9.2.1.1): the parent, when it is an inline box
+/// that holds a block. `None` for anything else.
+fn split_inline_parent(styled_dom: &StyledDom, node: NodeId) -> Option<NodeId> {
+    let parent = styled_dom.node_hierarchy.as_container()[node].parent_id()?;
+    let display = get_display_property(styled_dom, Some(parent)).unwrap_or_default();
+    (crate::solver3::getters::is_inline_box_display(display)
+        && crate::solver3::layout_tree::inline_holds_a_block(styled_dom, parent))
+    .then_some(parent)
+}
+
 /// Recursively collects inline content from an inline span (display: inline) element.
 ///
 /// According to CSS Inline Layout Module Level 3 §2:
@@ -914,6 +945,22 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
         "[collect_inline_span_recursive] Processing inline span {:?}",
         span_dom_id
     );
+    // The span's text carries the boxes around it and, when the span moves
+    // the pen itself, the span's own edge last (`StyleProperties::
+    // inline_boxes`).
+    let own_box = text3::cache::InlineBoxEdge::of(span_dom_id, span_style);
+    let with_own_box;
+    let span_style = match own_box {
+        Some(edge) => {
+            let mut style = span_style.clone();
+            let mut boxes = style.inline_boxes.to_vec();
+            boxes.push(edge);
+            style.inline_boxes = boxes.into();
+            with_own_box = style;
+            &with_own_box
+        }
+        None => span_style,
+    };
 
     // Get DOM children of this span
     let span_dom_children: Vec<NodeId> = span_dom_id
@@ -1189,7 +1236,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_map,
                 )?;
             }
-            LayoutDisplay::Inline => {
+            LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
                 // Nested inline span - recurse with child's style
                 debug_info!(
                     ctx,
@@ -1208,6 +1255,8 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 // 3 §2.1: an inline box decorates everything in it).
                 child_style.text_decoration =
                     child_style.text_decoration.with(span_style.text_decoration);
+                // And sits inside this span's box and the ones around it.
+                child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -1282,6 +1331,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 child_style.vertical_align = nested_align(child_style.vertical_align);
                 child_style.text_decoration =
                     child_style.text_decoration.with(span_style.text_decoration);
+                child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,

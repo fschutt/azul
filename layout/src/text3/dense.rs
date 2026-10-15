@@ -1307,6 +1307,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 && r.background_content == style.background_content
                 && r.border == style.border
                 && r.font_size_px == style.font_size_px
+                && r.asks_for_bold == style.asks_for_bold()
                 && r.text_decoration == style.text_decoration
                 && r.source_node_id == source_node_id
         });
@@ -1323,6 +1324,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 border: style.border,
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
+                asks_for_bold: style.asks_for_bold(),
                 text_decoration: style.text_decoration,
                 is_ime_preview: false,
                 source_node_id,

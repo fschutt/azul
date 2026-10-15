@@ -3922,6 +3922,7 @@ fn render_glyphs_lcd(
     let Some(max_ink_w) = glyph_ink_reach(em_px) else {
         return;
     };
+    let embolden_px = synthetic_bold_px(font_hash, em_px);
 
     let agg_color = Rgba8::new(
         u32::from(color.r),
@@ -4000,7 +4001,7 @@ fn render_glyphs_lcd(
         // Cells are rasterized once per (glyph, ppem, scale, 1/3-px bucket)
         // and replayed here at an integer offset. `int_x` is in whole pixels
         // and the cells' x axis is in stripes, hence the *3.
-        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_lcd(
+        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_lcd_emboldened(
             font_hash.font_hash,
             glyph_index,
             ppem,
@@ -4009,6 +4010,7 @@ fn render_glyphs_lcd(
             scale,
             is_hinted,
             hint_correction,
+            embolden_px,
         ) else {
             continue;
         };
@@ -4147,6 +4149,18 @@ fn font_resolution_failed(font_hash: u64) {
 #[cfg(not(feature = "std"))]
 const fn font_resolution_failed(_font_hash: u64) {}
 
+/// How far each side of a glyph moves out when the run is drawn in
+/// synthetic bold ([`FontHash::synthetic_bold`]), in device pixels; 0 for a
+/// face drawn as it is. Keyed on the size in device pixels, the one size
+/// `WebRender`'s glyph rasterizer sees, so both renderers draw the same stems.
+fn synthetic_bold_px(font_hash: FontHash, effective_px: f32) -> f32 {
+    if font_hash.synthetic_bold {
+        super::embolden::synthetic_bold_strength_px(effective_px)
+    } else {
+        0.0
+    }
+}
+
 /// A `FontManager` with no faces at all, for tests whose display list carries no
 /// text. The CPU renderer has exactly ONE font source, so "no fonts" has to be
 /// spelled as an empty manager rather than as an absent one.
@@ -4259,6 +4273,11 @@ fn render_text_prerendered_lcd(
 
     use crate::glyph_cache::LcdGlyphTile;
     let _ = renderer_resources;
+    // The tiles are the face's own glyphs: a thickened run takes the
+    // normal path, which builds its cells from the thickened outline.
+    if font_hash.synthetic_bold {
+        return false;
+    }
     let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash.font_hash) else {
         return false;
     };
@@ -4618,6 +4637,7 @@ pub(super) fn render_text(
     let Some(ink_reach) = glyph_ink_reach(effective_px) else {
         return;
     };
+    let embolden_px = synthetic_bold_px(font_hash, effective_px);
 
     // Create renderer infrastructure once, reuse for all glyphs in this text run.
     // Batches all glyph cells into a single rasterizer pass when possible.
@@ -4659,7 +4679,7 @@ pub(super) fn render_text(
             )
             .is_some_and(|c| c.is_hinted);
 
-        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells(
+        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_emboldened(
             font_hash.font_hash,
             glyph_index,
             ppem,
@@ -4668,6 +4688,7 @@ pub(super) fn render_text(
             scale,
             is_hinted,
             hint_correction,
+            embolden_px,
         ) else {
             continue;
         };
@@ -6686,7 +6707,7 @@ pub fn render_text_run_to_pixmap(
     let fm: FontManager<FontRef> =
         FontManager::new(rust_fontconfig::FcFontCache::default()).ok()?;
     fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
-    let font_hash = FontHash { font_hash: hash };
+    let font_hash = FontHash::from_hash(hash);
 
     // 3. Shape the string (simple per-char advances; tooltips are short, single-line and unstyled,
     //    so the full bidi/complex shaper isn't reachable here — same simplification as the
@@ -6900,7 +6921,7 @@ mod text_shadow_tests {
         let fm: FontManager<FontRef> =
             FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
         fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
-        (rr, fm, FontHash { font_hash: hash })
+        (rr, fm, FontHash::from_hash(hash))
     }
 
     /// Shape a string into glyph instances with a baseline at (x, y).
@@ -9827,9 +9848,7 @@ mod autotest_generated {
                         height: 16.0,
                     },
                 }],
-                font_hash: FontHash {
-                    font_hash: 0xdead_beef,
-                },
+                font_hash: FontHash::from_hash(0xdead_beef),
                 font_size_px: 16.0,
                 color: BLACK,
                 clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
@@ -9862,7 +9881,7 @@ mod autotest_generated {
             let dl = DisplayList {
                 items: vec![DisplayListItem::Text {
                     glyphs,
-                    font_hash: FontHash { font_hash: 1 },
+                    font_hash: FontHash::from_hash(1),
                     font_size_px: 16.0,
                     color,
                     clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
@@ -11176,7 +11195,7 @@ pub(super) mod lcd_pretile_tests {
         let fm: FontManager<FontRef> =
             FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
         fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
-        (rr, fm, FontHash { font_hash: hash })
+        (rr, fm, FontHash::from_hash(hash))
     }
 
     fn shape(
