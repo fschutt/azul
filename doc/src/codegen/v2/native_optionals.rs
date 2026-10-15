@@ -456,3 +456,22 @@ fn python_takes_and_gives_none_raises_errors_and_downcasts_the_resume_result() {
         ],
     );
 }
+
+/// Pascal has no optional type of its own (FPC's `TNullable` is not in
+/// every compiler the unit supports): an Option or a Result is read with an
+/// overloaded `AzTryGet*` that copies the payload out or answers False.
+#[test]
+fn pascal_reads_options_and_results_with_try_get() {
+    let path = "azul.pas";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "function AzTryGetSome(const O: TAzOptionFilePath; out V: TAzFilePath): Boolean; overload; inline;",
+            "function AzTryGetOk(const R: TAzResultUrlUrlParseError; out V: TAzUrl): Boolean; overload; inline;",
+            "function AzTryGetErr(const R: TAzResultUrlUrlParseError; out E: TAzUrlParseError): Boolean; overload; inline;",
+            "  Result := O.Tag = 1;\n  if Result then V := O.Payload_Some;\n",
+        ],
+    );
+}
