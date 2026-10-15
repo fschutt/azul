@@ -97,6 +97,18 @@ pub enum MoneySymbolPosition {
     After,
 }
 
+/// How the whole part of an amount is grouped.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum MoneyGrouping {
+    /// Groups of three (`1,234,567`).
+    #[default]
+    Thousands,
+    /// The Indian system: the last three digits, then groups of two
+    /// (`12,34,567` - lakhs and crores).
+    Indian,
+}
+
 /// How a locale writes an amount: its decimal point, its grouping separator
 /// and where the currency goes. Separators are Unicode code points (`u32`,
 /// as `TextInputState::text` holds them); a grouping separator of `0` means
@@ -114,6 +126,8 @@ pub struct MoneyLocale {
     /// A space between the amount and the currency (`1,00 EUR`, not
     /// `1,00EUR`).
     pub symbol_spaced: bool,
+    /// How the whole part is grouped (by thousands, or the Indian way).
+    pub grouping: MoneyGrouping,
 }
 
 impl Default for MoneyLocale {
@@ -220,6 +234,7 @@ impl MoneyLocale {
             group_separator,
             symbol_position,
             symbol_spaced: true,
+            grouping: MoneyGrouping::Thousands,
         }
     }
 
@@ -231,7 +246,22 @@ impl MoneyLocale {
             group_separator: ',' as u32,
             symbol_position: MoneySymbolPosition::Before,
             symbol_spaced: false,
+            grouping: MoneyGrouping::Thousands,
         }
+    }
+
+    /// `12,34,567.89`, the rupee sign before it (English and the languages
+    /// of India: the Indian grouping, lakhs and crores).
+    #[must_use]
+    pub const fn en_in() -> Self {
+        Self::en_us().with_grouping(MoneyGrouping::Indian)
+    }
+
+    /// The same locale grouped `grouping`.
+    #[must_use]
+    pub const fn with_grouping(mut self, grouping: MoneyGrouping) -> Self {
+        self.grouping = grouping;
+        self
     }
 
     /// `1.234,56`, `1.234,56 EUR` (German and most of continental Europe).
@@ -349,6 +379,7 @@ impl MoneyLocale {
                 MoneySymbolPosition::Before
             },
             symbol_spaced: !english,
+            grouping: MoneyGrouping::Thousands,
         }
     }
 
@@ -752,6 +783,12 @@ fn read_number(
 /// thousands grouping (the money input, the data table's counts, the
 /// chart's values).
 #[must_use]
+/// [`group_digits`] grouped `grouping`.
+pub(crate) fn group_digits_as(digits: &str, separator: Option<char>, grouping: MoneyGrouping) -> String {
+    let _ = grouping;
+    group_digits(digits, separator)
+}
+
 pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
     let count = digits.chars().count();
     let mut out = String::with_capacity(digits.len() + count / 3 * 3);
@@ -1634,6 +1671,27 @@ mod money_tests {
         );
         let ungrouped = MoneyLocale::en_us().with_separators('.' as u32, 0);
         assert_eq!(format_money(123_456, &ungrouped, 2, None), "1234.56");
+    }
+
+    /// India groups the last three digits, then pairs: lakhs and crores,
+    /// written, read, named by its tags and read off a sample.
+    #[test]
+    fn an_indian_locale_groups_in_lakhs_and_crores() {
+        assert_eq!(group_digits_as("1234567", Some(','), MoneyGrouping::Indian), "12,34,567");
+        assert_eq!(group_digits_as("123456789", Some(','), MoneyGrouping::Indian), "12,34,56,789");
+        assert_eq!(group_digits_as("123", Some(','), MoneyGrouping::Indian), "123");
+        assert_eq!(group_digits_as("1234", Some(','), MoneyGrouping::Indian), "1,234");
+        let india = MoneyLocale::en_in();
+        let inr = MoneyCurrency::create(AzString::from("INR"), AzString::from("\u{20B9}"), 2);
+        assert_eq!(format_money(123_456_789, &india, 2, None), "12,34,567.89");
+        assert_eq!(parse_money("12,34,567.89", &india, &inr), Ok(Some(123_456_789)));
+        assert_eq!(parse_money("1,234,567.89", &india, &inr), Err(MoneyInputError::Invalid));
+        assert_eq!(parse_money("12,34,5", &india, &inr), Err(MoneyInputError::Incomplete));
+        for tag in ["en-IN", "hi-IN", "hi"] {
+            assert_eq!(MoneyLocale::from_tag(AzString::from(tag)).grouping, MoneyGrouping::Indian, "{tag}");
+        }
+        assert_eq!(MoneyLocale::from_sample(AzString::from("12,34,567.89")).grouping, MoneyGrouping::Indian);
+        assert_eq!(MoneyLocale::from_sample(AzString::from("1,234,567.89")).grouping, MoneyGrouping::Thousands);
     }
 
     #[test]
