@@ -9378,6 +9378,215 @@ where
         }
     }
 
+    /// The inline boxes (spans) around the text node `text`, the outermost
+    /// first: its parents up to the IFC root `root` (`None` for an anonymous
+    /// one) or the first one that is no inline box.
+    fn inline_ancestors(&self, text: NodeId, root: Option<NodeId>) -> Vec<NodeId> {
+        use crate::solver3::getters::get_display_property;
+
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut out = Vec::new();
+        let mut node = hierarchy
+            .get(text)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        while let Some(n) = node {
+            if Some(n) == root
+                || get_display_property(self.ctx.styled_dom, Some(n)).unwrap_or_default()
+                    != LayoutDisplay::Inline
+            {
+                break;
+            }
+            out.push(n);
+            node = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        out.reverse();
+        out
+    }
+
+    /// What the inline box `node` paints, looked up once per IFC paint.
+    fn inline_box_paint<'m>(
+        &self,
+        node: NodeId,
+        paints: &'m mut BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>>,
+    ) -> Option<&'m super::getters::InlineBoxPaint> {
+        paints
+            .entry(node)
+            .or_insert_with(|| {
+                let state = self.get_styled_node_state(node);
+                super::getters::get_inline_box_paint(
+                    self.ctx.styled_dom,
+                    node,
+                    &state,
+                    azul_css::props::basic::PhysicalSize::new(
+                        self.ctx.viewport_size.width,
+                        self.ctx.viewport_size.height,
+                    ),
+                )
+            })
+            .as_ref()
+    }
+
+    /// Paints the background and the border of every inline box (span) of
+    /// one IFC that has one, one rectangle per box per line (CSS 2.2 s9.4.2,
+    /// s10.8), the outer boxes first, before the text. A box's fragment on a
+    /// line runs from its first to its last cluster there, all of its
+    /// descendants' text included, widened by the margins, borders and
+    /// paddings of the spans inside it that begin or end there, and by its
+    /// own border and padding where it begins (its first cluster's
+    /// neighbour is outside it) or ends; at a split by the wrap it has
+    /// none. Its height is its own font's content area plus its vertical
+    /// padding and border. Returns the text nodes whose runs it painted
+    /// for: their own run backgrounds are not painted again.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)] // one walk: the fragments, then their rectangles
+    fn paint_inline_box_fragments(
+        &self,
+        builder: &mut DisplayListBuilder,
+        items: &[PositionedItem],
+        root: Option<NodeId>,
+        origin: LogicalPosition,
+        shifts: &BTreeMap<NodeId, LogicalPosition>,
+        ancestors: &mut BTreeMap<NodeId, Vec<NodeId>>,
+        paints: &mut BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>>,
+    ) {
+        use crate::text3::cache::get_item_vertical_metrics_approx;
+
+        /// One box on one line: its first and last cluster (indices into
+        /// `clusters`) and the baselines its height hangs from.
+        struct Fragment {
+            node: NodeId,
+            line: usize,
+            first: usize,
+            last: usize,
+            /// The baseline of the box's own text on the line, if it has any.
+            own_baseline: Option<f32>,
+            /// The baseline of its first cluster, the fallback.
+            baseline: f32,
+        }
+
+        // The clusters in paint order (item index, text node): a cluster's
+        // neighbours here are the ones the line layout compared.
+        let clusters: Vec<(usize, NodeId)> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| match &item.item {
+                ShapedItem::Cluster(c) => c.source_node_id.map(|t| (i, t)),
+                _ => None,
+            })
+            .collect();
+        for &(_, text) in &clusters {
+            if !ancestors.contains_key(&text) {
+                let found = self.inline_ancestors(text, root);
+                ancestors.insert(text, found);
+            }
+        }
+        let anc = |text: NodeId| ancestors.get(&text).map_or(&[][..], Vec::as_slice);
+
+        let mut fragments: Vec<Fragment> = Vec::new();
+        let mut open: BTreeMap<(NodeId, usize), usize> = BTreeMap::new();
+        for (j, &(i, text)) in clusters.iter().enumerate() {
+            let item = &items[i];
+            let baseline = item.position.y + get_item_vertical_metrics_approx(&item.item).0;
+            let boxes = anc(text).to_vec();
+            for (depth, &node) in boxes.iter().enumerate() {
+                if self.inline_box_paint(node, paints).is_none() {
+                    continue;
+                }
+                let key = (node, item.line_index);
+                let f = match open.get(&key) {
+                    Some(&f) => {
+                        fragments[f].last = j;
+                        f
+                    }
+                    None => {
+                        fragments.push(Fragment {
+                            node,
+                            line: item.line_index,
+                            first: j,
+                            last: j,
+                            own_baseline: None,
+                            baseline,
+                        });
+                        open.insert(key, fragments.len() - 1);
+                        fragments.len() - 1
+                    }
+                };
+                if depth + 1 == boxes.len() && fragments[f].own_baseline.is_none() {
+                    fragments[f].own_baseline = Some(baseline);
+                }
+            }
+        }
+        // Outer boxes first: a DOM node's index comes before its children's.
+        fragments.sort_by_key(|f| (f.node.index(), f.line));
+
+        let chain_of = |j: usize| match clusters.get(j).map(|&(i, _)| &items[i].item) {
+            Some(ShapedItem::Cluster(c)) => &c.style.inline_boxes[..],
+            _ => &[][..],
+        };
+        for f in &fragments {
+            let Some(paint) = paints.get(&f.node).and_then(Option::as_ref) else {
+                continue;
+            };
+            let (i0, t0) = clusters[f.first];
+            let (i1, t1) = clusters[f.last];
+            let before = f.first.checked_sub(1);
+            let after = (f.last + 1 < clusters.len()).then_some(f.last + 1);
+            let opens = !before.is_some_and(|b| anc(clusters[b].1).contains(&f.node));
+            let closes = !after.is_some_and(|a| anc(clusters[a].1).contains(&f.node));
+            // The spans inside this box that begin at its first cluster (end
+            // at its last) put their edges inside this box.
+            let inner = |j: usize, text: NodeId, neighbour: Option<usize>, left: bool| -> f32 {
+                let boxes = anc(text);
+                let deeper = boxes
+                    .iter()
+                    .position(|n| *n == f.node)
+                    .map_or(&[][..], |p| &boxes[p + 1..]);
+                let other = neighbour.map_or(&[][..], |n| chain_of(n));
+                chain_of(j)
+                    .iter()
+                    .filter(|e| deeper.contains(&e.node) && !other.iter().any(|o| o.node == e.node))
+                    .map(|e| if left { e.left } else { e.right })
+                    .sum()
+            };
+            let inner_left = inner(f.first, t0, before, true);
+            let inner_right = inner(f.last, t1, after, false);
+            let border = paint.border.map(|mut b| {
+                b.is_first_fragment = opens;
+                b.is_last_fragment = closes;
+                b.is_rtl = false;
+                b
+            });
+            let (left_inset, right_inset, top_inset, bottom_inset) =
+                border.as_ref().map_or((0.0, 0.0, 0.0, 0.0), |b| {
+                    (b.left_inset(), b.right_inset(), b.top_inset(), b.bottom_inset())
+                });
+            let x0 = items[i0].position.x - inner_left - left_inset;
+            let x1 = items[i1].position.x + items[i1].item.bounds().width + inner_right + right_inset;
+            if x1.is_nan() || x0.is_nan() || x1 <= x0 {
+                continue;
+            }
+            let shift = shifts.get(&t0).copied().unwrap_or_else(LogicalPosition::zero);
+            let baseline = f.own_baseline.unwrap_or(f.baseline);
+            let ascent = paint.font_size_px * APPROX_ASCENT_RATIO;
+            let rect = LogicalRect::new(
+                LogicalPosition::new(
+                    origin.x + shift.x + x0,
+                    origin.y + shift.y + baseline - ascent - top_inset,
+                ),
+                LogicalSize::new(x1 - x0, paint.font_size_px + top_inset + bottom_inset),
+            );
+            builder.push_inline_backgrounds_and_border(
+                rect,
+                paint.background_color,
+                &paint.background_content,
+                border.as_ref(),
+                self.ctx.image_cache,
+            );
+        }
+    }
+
     /// Converts the rich layout information from `text3` into drawing commands.
     ///
     /// `ellipsis`: the root's `text-overflow: ellipsis`, where it cuts lines
@@ -9623,9 +9832,68 @@ where
         // Precomputed at CachedInlineLayout store time — the run-grouping
         // walk used to re-run here on EVERY paint of every IFC.
 
-        // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
-        // This must happen BEFORE rendering text so that backgrounds appear behind text.
+        // FIRST PASS: the backgrounds and borders of the inline boxes, BEFORE
+        // the text. A span that paints is painted per line around all of
+        // its text, its nested spans' text included
+        // (`paint_inline_box_fragments`); a run whose own style carries a
+        // background no span around it explains (a synthesized run) paints
+        // it under itself.
+        let ifc_root = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(source_node_index))
+            .and_then(|n| n.dom_node_id);
+        let mut ancestors: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+        let mut box_paints: BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>> =
+            BTreeMap::new();
+        // Text node -> whether a span around it paints.
+        let mut in_painting_box: BTreeMap<NodeId, bool> = BTreeMap::new();
+        for run in glyph_runs {
+            let Some(text) = run.source_node_id else {
+                continue;
+            };
+            if in_painting_box.contains_key(&text) {
+                continue;
+            }
+            let boxes = self.inline_ancestors(text, ifc_root);
+            let paints = boxes
+                .iter()
+                .any(|&b| self.inline_box_paint(b, &mut box_paints).is_some());
+            ancestors.insert(text, boxes);
+            in_painting_box.insert(text, paints);
+        }
+        if in_painting_box.values().any(|p| *p) {
+            let expanded;
+            let items: &[PositionedItem] = if layout.items.is_empty() {
+                expanded = dense_view
+                    .map(crate::text3::dense::DenseText::to_unified_items)
+                    .unwrap_or_default();
+                &expanded
+            } else {
+                &layout.items
+            };
+            let shifts: BTreeMap<NodeId, LogicalPosition> = glyph_runs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, run)| Some((run.source_node_id?, shift_of_run(i))))
+                .collect();
+            self.paint_inline_box_fragments(
+                builder,
+                items,
+                ifc_root,
+                container_rect.origin,
+                &shifts,
+                &mut ancestors,
+                &mut box_paints,
+            );
+        }
         for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            if glyph_run
+                .source_node_id
+                .is_some_and(|text| in_painting_box.get(&text).copied().unwrap_or(false))
+            {
+                continue;
+            }
             // The run's origin: the IFC's content box, moved by the
             // relatively positioned inline boxes around its text.
             let shift = shift_of_run(i);

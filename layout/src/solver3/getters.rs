@@ -3207,6 +3207,49 @@ fn resolve_system_border_colors(
     }
 }
 
+/// What an inline box (a `<span>`) paints around its fragments on the
+/// lines: its background and its border, with the padding the background
+/// covers and the font size its content area is measured by.
+#[derive(Debug, Clone)]
+pub struct InlineBoxPaint {
+    /// The background colour, `None` when transparent (the PDF runs' form).
+    pub background_color: Option<ColorU>,
+    /// Every background layer, the colour included, in paint order.
+    pub background_content: Vec<azul_css::props::style::StyleBackgroundContent>,
+    /// Border widths and colours, padding and horizontal margins, in px.
+    pub border: Option<crate::text3::cache::InlineBorderInfo>,
+    /// The box's own font size: its content area is that font's height.
+    pub font_size_px: f32,
+}
+
+/// What the inline box `node_id` paints ([`InlineBoxPaint`]), `None` when it
+/// paints nothing: no background and no border wider than zero.
+#[must_use]
+pub fn get_inline_box_paint(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> Option<InlineBoxPaint> {
+    let background = get_background_color(styled_dom, node_id, node_state);
+    let background_color = (background.a > 0).then_some(background);
+    let background_content = get_background_contents(styled_dom, node_id, node_state);
+    let border_info = get_border_info(styled_dom, node_id, node_state);
+    let border = get_inline_border_info(styled_dom, node_id, node_state, &border_info, viewport);
+    let has_border = border
+        .as_ref()
+        .is_some_and(|b| b.top > 0.0 || b.right > 0.0 || b.bottom > 0.0 || b.left > 0.0);
+    if background_color.is_none() && background_content.is_empty() && !has_border {
+        return None;
+    }
+    Some(InlineBoxPaint {
+        background_color,
+        background_content,
+        border,
+        font_size_px: get_element_font_size_in_viewport(styled_dom, node_id, node_state, viewport),
+    })
+}
+
 /// Convert `BorderInfo` to `InlineBorderInfo` for inline elements
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
