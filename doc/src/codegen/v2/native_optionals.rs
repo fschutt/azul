@@ -317,3 +317,21 @@ fn go_takes_nil_and_gives_ok_pairs_and_errors() {
         ],
     );
 }
+
+#[test]
+fn node_takes_and_gives_null_and_passes_the_resume_result_to_downcast() {
+    let path = "node/azul.js";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "_optIn(OptionString, 'AzOptionString', defaultPath, _azString)",
+            "get path() { return _optTake(lib.AzOptionFilePath_clone(this._ptr.path), lib.AzOptionFilePath_delete,",
+            "set light(v) { const nv = _optIn(OptionString, 'AzOptionString', v, _azString);",
+            // The resume callback's result reaches `downcast` as a RefAny.
+            "const ret = fn(_refanyFromPtr(arg0), arg1, _refanyArg(arg2));",
+            "function _refanyArg(ptr) {",
+        ],
+    );
+}
