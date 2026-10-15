@@ -346,34 +346,23 @@ const SAMPLE_PNG: &[u8] = &[
 ];
 
 /// A short fading 440 Hz tone as a 16-bit mono WAV: the sample sound.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss)]
 fn chime_wav() -> Vec<u8> {
     const RATE: u32 = 8_000;
     const COUNT: u32 = RATE * 3 / 10;
     const SECONDS: f32 = COUNT as f32 / RATE as f32;
-    let data: Vec<u8> = (0..COUNT)
-        .flat_map(|i| {
+    // 12000 of i16's 32767: a quiet chime, not a full-scale tone.
+    const LEVEL: f32 = 12_000.0 / 32_767.0;
+    let samples: Vec<f32> = (0..COUNT)
+        .map(|i| {
             let t = i as f32 / RATE as f32;
             let fade = 1.0 - t / SECONDS;
-            let sample = ((t * 440.0 * std::f32::consts::TAU).sin() * fade * 12_000.0) as i16;
-            sample.to_le_bytes()
+            (t * 440.0 * std::f32::consts::TAU).sin() * fade * LEVEL
         })
         .collect();
-    let mut out = Vec::with_capacity(44 + data.len());
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&RATE.to_le_bytes());
-    out.extend_from_slice(&(RATE * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    out.extend_from_slice(&data);
-    out
+    azul::widgets::Waveform::encode_wav(azul::vec::F32Vec::from(samples), RATE, 1)
+        .as_ref()
+        .to_vec()
 }
 
 /// The sample files: (key, bytes). A key ending in `/` is an empty folder.
