@@ -1365,6 +1365,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                     shared.clone(),
                     DatePickerWeekStart::Monday,
                     true,
+                    !inline,
                     look
                 ),
             ],
@@ -1379,6 +1380,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                     shared.clone(),
                     week_start,
                     false,
+                    !inline,
                     look
                 ),
             ],
@@ -1603,13 +1605,16 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
         shared,
         DatePickerWeekStart::Sunday,
         false,
+        true,
         &DatePickerLook::established(),
     )
 }
 
 /// The day grid, rows starting on `start`. With `whole_week`, every day in
 /// the selected day's ROW is highlighted - the week picker's selection.
-#[allow(clippy::needless_pass_by_value)] // shared RefAny handle cloned per day cell
+/// With `take_focus` (a popup's grid), the Tab-stop day asks for the focus
+/// when it mounts; an inline calendar's never does.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // shared RefAny handle cloned per day cell
 fn build_grid_with(
     year: u32,
     month: u32,
@@ -1618,6 +1623,7 @@ fn build_grid_with(
     shared: RefAny,
     start: DatePickerWeekStart,
     whole_week: bool,
+    take_focus: bool,
     look: &DatePickerLook,
 ) -> Dom {
     let leading = start.leading_blanks(year, month);
@@ -1672,9 +1678,10 @@ fn build_grid_with(
         .with_accessibility_name(name)
         .with_tab_index(tab_index)
         .with_key((DAY_CELL_KEY, year, month, day));
-        if day == stop_day {
-            // The day the calendar asks focus for: when its popup opens, and
-            // when a rebuild took the focused day away.
+        if take_focus && day == stop_day {
+            // The day a popup asks focus for: when it opens, and when a
+            // rebuild took the focused day away. An inline calendar is part
+            // of the page and leaves the focus where it is.
             cell = cell.with_attribute(AttributeType::Autofocus);
         }
         cell
