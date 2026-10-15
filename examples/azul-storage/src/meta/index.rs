@@ -296,6 +296,19 @@ fn change_path(change: &IndexChange) -> &str {
 struct Inner<B: Bucket, S: Sealer> {
     repo: MetaRepo<B, S>,
     last_poll: Option<u64>,
+    /// The last listing's entries, folded by its delimiter and sorted: its next page at the same
+    /// tree is cut from them instead of walking the tree and reading every pointer again (a
+    /// listing of N entries in pages of P would cost N * N / P). Any change of the tree makes a
+    /// new root, and the next listing walks again.
+    listed: Option<Listing>,
+}
+
+/// One listing of [`Inner::listed`]: the tree, the request it answers, its keys.
+struct Listing {
+    root: ObjectId,
+    prefix: String,
+    delimiter: Option<String>,
+    keys: Vec<(String, Option<IndexEntry>)>,
 }
 
 /// The drive index as a [`NameIndex`]: an [`EncryptedDrive`] over it keeps its
@@ -314,6 +327,7 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
             inner: Mutex::new(Inner {
                 repo,
                 last_poll: None,
+                listed: None,
             }),
             poll_every: DEFAULT_POLL_SECS,
         }
@@ -383,11 +397,17 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         if reserved(prefix) {
             return Ok(IndexPage::default());
         }
-        let mut inner = self.fresh(request.refresh)?;
+        let mut guard = self.fresh(request.refresh)?;
+        let inner = &mut *guard;
         let repo = &mut inner.repo;
         let Some(root) = repo.root().map_err(to_drive)? else {
             return Ok(IndexPage::default());
         };
+        if let Some(listing) = inner.listed.as_ref().filter(|l| {
+            l.root == root && l.prefix == request.prefix && l.delimiter == request.delimiter
+        }) {
+            return Ok(page_from(&listing.keys, request));
+        }
         let folder_part = folder_of(prefix);
         let one_level = request.delimiter.as_deref() == Some("/");
         // (key, entry) of everything that may be listed; folders as their markers.
@@ -441,7 +461,15 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
                 }
             }
         }
-        Ok(page_of(found, request))
+        let keys = sorted_keys(found, request);
+        let page = page_from(&keys, request);
+        inner.listed = Some(Listing {
+            root,
+            prefix: request.prefix.clone(),
+            delimiter: request.delimiter.clone(),
+            keys,
+        });
+        Ok(page)
     }
 
     fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<DataId>, DriveError> {
@@ -453,10 +481,13 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
     }
 }
 
-/// One page of `found` for `request`, with S3's semantics as the memory index
-/// has them: keys below the next delimiter after the prefix collapse into one
-/// folder, sorted, after the continuation, `max_keys` at most.
-fn page_of(found: Vec<(String, IndexEntry)>, request: &ListRequest) -> IndexPage {
+/// The keys of `found` for `request`, with S3's semantics as the memory index has them: keys
+/// below the next delimiter after the prefix collapse into one folder (`None`), sorted, each
+/// once.
+fn sorted_keys(
+    found: Vec<(String, IndexEntry)>,
+    request: &ListRequest,
+) -> Vec<(String, Option<IndexEntry>)> {
     let mut keys: Vec<(String, Option<IndexEntry>)> = Vec::with_capacity(found.len());
     for (key, entry) in found {
         let rest = &key[request.prefix.len()..];
@@ -472,24 +503,30 @@ fn page_of(found: Vec<(String, IndexEntry)>, request: &ListRequest) -> IndexPage
     }
     keys.sort_by(|a, b| a.0.cmp(&b.0));
     keys.dedup_by(|a, b| a.0 == b.0);
-    if let Some(after) = request.continuation.as_deref() {
-        keys.retain(|(key, _)| key.as_str() > after);
-    }
+    keys
+}
+
+/// One page of the sorted `keys` for `request`: after the continuation, `max_keys` at most.
+fn page_from(keys: &[(String, Option<IndexEntry>)], request: &ListRequest) -> IndexPage {
+    let start = match request.continuation.as_deref() {
+        Some(after) => keys.partition_point(|(key, _)| key.as_str() <= after),
+        None => 0,
+    };
+    let rest = &keys[start..];
     let size = if request.max_keys == 0 {
         DEFAULT_PAGE_SIZE as usize
     } else {
         request.max_keys as usize
     };
-    let next = (keys.len() > size).then(|| keys[size - 1].0.clone());
-    keys.truncate(size);
+    let next = (rest.len() > size).then(|| rest[size - 1].0.clone());
     let mut page = IndexPage {
         next,
         ..IndexPage::default()
     };
-    for (key, entry) in keys {
+    for (key, entry) in rest.iter().take(size) {
         match entry {
-            Some(entry) => page.entries.push((key, entry)),
-            None => page.folders.push(key),
+            Some(entry) => page.entries.push((key.clone(), entry.clone())),
+            None => page.folders.push(key.clone()),
         }
     }
     page
