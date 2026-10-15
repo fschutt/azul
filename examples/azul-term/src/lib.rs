@@ -85,7 +85,8 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::StyledTextRunVec,
     widgets::{
-        AboutDialog, InfoBar, Modal, ModalState, StandardDialogEvent, TabsInTitlebar,
+        AboutDialog, InfoBar, MessageBox, MessageBoxKind, Modal, ModalState, StandardDialogEvent,
+        StandardDialogEventKind, TabsInTitlebar,
         TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
         TerminalViewEventKind,
     },
@@ -297,6 +298,8 @@ pub struct AppState {
     pub follow_reported: Option<bool>,
     /// A close that would stop a running program, asked about before it happens.
     pub asking: Option<CloseQuestion>,
+    /// The user said the window may close with its programs: the next close request passes.
+    pub close_confirmed: bool,
 }
 
 /// What closing would cut off, shown as a question before it happens.
@@ -324,6 +327,7 @@ impl AppState {
             since_render: 0,
             follow_reported: None,
             asking: None,
+            close_confirmed: false,
         }
     }
 
@@ -396,8 +400,21 @@ impl AppState {
 
     /// Closes tab `index` unless `job` (the program in its terminal's foreground) runs: then
     /// the close is asked about first. Returns whether the window closes.
-    pub fn request_close_tab(&mut self, index: usize, _job: Option<String>) -> bool {
+    pub fn request_close_tab(&mut self, index: usize, job: Option<String>) -> bool {
+        if let Some(program) = job.filter(|_| index < self.tabs.len()) {
+            println!("AZTERM_CLOSE_ASKS {index} {program}");
+            self.asking = Some(CloseQuestion::Tab { index, program });
+            return false;
+        }
         self.close_tab(index)
+    }
+
+    /// The programs running in the foreground of the tabs' terminals.
+    pub fn running_programs(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| tab.session.foreground_job())
+            .collect()
     }
 
     /// Activates tab `index`.
@@ -426,7 +443,8 @@ impl AppState {
             WindowKey::NewTab => self.open_tab(),
             WindowKey::CloseTab => {
                 let active = self.active;
-                return self.close_tab(active);
+                let job = self.tabs.get(active).and_then(|tab| tab.session.foreground_job());
+                return self.request_close_tab(active, job);
             }
             WindowKey::NextTab => self.cycle_tab(1),
             WindowKey::PreviousTab => self.cycle_tab(-1),
@@ -878,7 +896,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         children.push(pane(&app, st));
         column(children)
     };
-    let root = column(vec![content, about_modal(&app, st)]);
+    let root = column(vec![content, about_modal(&app, st), close_question(&app, st)]);
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_menu_bar(menu_bar(&app))
@@ -889,9 +907,98 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            app,
+            app.clone(),
             on_key,
         )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app,
+            on_close_requested,
+        )
+}
+
+/// The question before a close stops a running program (open while `asking`): Close goes on,
+/// Cancel keeps the program and the tab. A terminal's SIGHUP is no undo.
+fn close_question(app: &RefAny, st: &AppState) -> Dom {
+    use azul_appkit::l10n::{t, t_args, Arg};
+    let (title, text) = match &st.asking {
+        Some(CloseQuestion::Tab { program, .. }) => (
+            t("azterm-close-tab-title"),
+            t_args("azterm-close-tab-text", &[("program", Arg::from(program.as_str()))]),
+        ),
+        Some(CloseQuestion::Window { programs }) => (
+            t("azterm-close-window-title"),
+            t_args(
+                "azterm-close-window-text",
+                &[("programs", Arg::from(programs.join(", ")))],
+            ),
+        ),
+        None => (String::new(), String::new()),
+    };
+    let question = MessageBox::create(MessageBoxKind::Warning, AzString::from(title), AzString::from(text))
+        .with_buttons(
+            azul_appkit::l10n::labels(&["azterm-close-anyway", "kit-button-cancel"]),
+            1,
+        )
+        .with_on_event(app.clone(), on_close_answer)
+        .dom()
+        .with_id(ids::CLOSE_QUESTION);
+    Modal::create(question)
+        .with_title(AzString::from(ABOUT.name))
+        .with_open(st.asking.is_some())
+        .with_on_close(app.clone(), on_close_question_dismissed)
+        .dom()
+}
+
+/// The window is asked to close: with programs running in its tabs it asks first (once the
+/// user said Close, the request passes).
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut st) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    if st.close_confirmed {
+        return Update::DoNothing;
+    }
+    let programs = st.running_programs();
+    if programs.is_empty() {
+        return Update::DoNothing;
+    }
+    println!("AZTERM_CLOSE_ASKS window {}", programs.join(","));
+    st.asking = Some(CloseQuestion::Window { programs });
+    info.prevent_window_close();
+    Update::RefreshDom
+}
+
+/// The answer to the close question: Close (button 0) closes the tab or the window and with
+/// it the program; anything else keeps them.
+extern "C" fn on_close_answer(mut data: RefAny, mut info: CallbackInfo, event: StandardDialogEvent) -> Update {
+    let Some(mut st) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let question = st.asking.take();
+    let close = matches!(event.kind, StandardDialogEventKind::Button) && event.index == 0;
+    match (question, close) {
+        (Some(CloseQuestion::Tab { index, .. }), true) => {
+            let closes = st.close_tab(index);
+            drop(st);
+            after_tabs(&mut info, closes)
+        }
+        (Some(CloseQuestion::Window { .. }), true) => {
+            st.close_confirmed = true;
+            println!("AZTERM_CLOSE");
+            info.close_window();
+            Update::DoNothing
+        }
+        _ => Update::RefreshDom,
+    }
+}
+
+/// The question's modal was closed (Escape, its close button): Cancel.
+extern "C" fn on_close_question_dismissed(mut data: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.asking = None;
+    }
+    Update::RefreshDom
 }
 
 // ==== The terminal's callbacks ====
@@ -1267,9 +1374,10 @@ extern "C" fn on_tab_close_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     };
     // The tab under the button must not take the click as well.
     info.stop_propagation();
-    let closes = app
-        .downcast_mut::<AppState>()
-        .is_some_and(|mut st| st.close_tab(index));
+    let closes = app.downcast_mut::<AppState>().is_some_and(|mut st| {
+        let job = st.tabs.get(index).and_then(|tab| tab.session.foreground_job());
+        st.request_close_tab(index, job)
+    });
     after_tabs(&mut info, closes)
 }
 

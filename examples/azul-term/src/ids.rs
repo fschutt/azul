@@ -28,3 +28,5 @@ pub const EMPTY: AzString = AzString::from_const_str("__azterm_empty");
 pub const SETTINGS_VIEW: AzString = AzString::from_const_str("__azterm_settings-view");
 /// The About dialog's frame.
 pub const ABOUT: AzString = AzString::from_const_str("__azterm_about");
+/// The question before a close stops a running program.
+pub const CLOSE_QUESTION: AzString = AzString::from_const_str("__azterm_close-question");
