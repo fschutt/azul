@@ -230,12 +230,12 @@ pub fn glob_matches(pattern: &str, name: &str) -> bool {
     let (mut p, mut n) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while n < name.len() {
-        match pattern.get(p) {
+        match pattern.get(p).copied() {
             Some('*') => {
                 star = Some((p, n));
                 p += 1;
             }
-            Some(&c) if c == '?' || c == name[n] => {
+            Some(c) if c == '?' || c == name[n] => {
                 p += 1;
                 n += 1;
             }
