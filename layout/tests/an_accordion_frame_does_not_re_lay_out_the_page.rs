@@ -166,12 +166,14 @@ fn an_accordion_frame_fits_its_time_budget() {
         return;
     }
     let _serialised = crate::probe_lock();
-    // The best of three, in CPU time: a frame is measured, not the machine's
-    // other work.
-    let took = (0..3)
-        .map(|_| mid_tween_frame_cost(80).2)
-        .min()
-        .expect("three runs");
+    // The best of three, in CPU time on a performance core: a frame is
+    // measured, not the machine's other work or the core it was given.
+    let took = crate::thread_cpu_clock::on_a_performance_core(|| {
+        (0..3)
+            .map(|_| mid_tween_frame_cost(80).2)
+            .min()
+            .expect("three runs")
+    });
     restore_ambient_recording();
     eprintln!("[an_accordion_frame] mid-tween frame on 80 cards: {took:?}");
     assert!(

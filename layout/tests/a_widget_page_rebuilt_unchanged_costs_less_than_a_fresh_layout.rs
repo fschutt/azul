@@ -116,11 +116,14 @@ fn a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout() {
     // shared with the rest of the suite) weighs on both sides alike.
     let mut lw = fresh_window(&fonts);
     let _ = lay_out(&mut lw, page());
-    let (mut fresh, mut rebuilt) = (Duration::MAX, Duration::MAX);
-    for _ in 0..5 {
-        fresh = fresh.min(lay_out(&mut fresh_window(&fonts), page()));
-        rebuilt = rebuilt.min(lay_out(&mut lw, page()));
-    }
+    let (fresh, rebuilt) = crate::thread_cpu_clock::on_a_performance_core(|| {
+        let (mut fresh, mut rebuilt) = (Duration::MAX, Duration::MAX);
+        for _ in 0..5 {
+            fresh = fresh.min(lay_out(&mut fresh_window(&fonts), page()));
+            rebuilt = rebuilt.min(lay_out(&mut lw, page()));
+        }
+        (fresh, rebuilt)
+    });
     eprintln!("[a_widget_page_rebuilt] fresh layout {fresh:?}, unchanged rebuild {rebuilt:?}");
     assert!(
         rebuilt < fresh,

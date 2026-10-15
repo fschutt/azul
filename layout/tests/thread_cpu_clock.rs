@@ -8,8 +8,71 @@
 //! only while the thread runs, so a budget on it holds under load and stays
 //! as tight as it was written. Where the platform has no such clock (other
 //! than macOS, iOS, Linux and Android) it is the wall clock.
+//!
+//! On a machine with performance and efficiency cores (Apple silicon) the CPU
+//! time of the same work depends on the core it ran on, so a budget is
+//! measured inside [`on_a_performance_core`].
 
 use std::time::Duration;
+
+/// macOS's `QOS_CLASS_USER_INTERACTIVE`: the class macOS runs on the
+/// performance cores first.
+pub const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+extern "C" {
+    fn pthread_self() -> *mut core::ffi::c_void;
+    fn pthread_get_qos_class_np(
+        thread: *mut core::ffi::c_void,
+        qos_class: *mut u32,
+        relative_priority: *mut i32,
+    ) -> i32;
+    fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+}
+
+/// The calling thread's QoS class (`None` where there are no classes).
+pub fn qos_class_of_this_thread() -> Option<u32> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let (mut class, mut priority) = (0u32, 0i32);
+        // SAFETY: both out-pointers point to live locals; `pthread_self` is
+        // the calling thread.
+        let rc = unsafe { pthread_get_qos_class_np(pthread_self(), &mut class, &mut priority) };
+        (rc == 0).then_some(class)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        None
+    }
+}
+
+/// Runs `measure` with the calling thread in the user-interactive class, so
+/// it runs on a performance core while the suite's other tests run at the
+/// default class, then gives the thread its own class back. Elsewhere it
+/// just runs `measure`.
+pub fn on_a_performance_core<R>(measure: impl FnOnce() -> R) -> R {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let before = qos_class_of_this_thread();
+        // SAFETY: sets the calling thread's own class; a failure leaves it as
+        // it was, which only makes the measurement as noisy as before.
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+        let result = measure();
+        // A thread that had no class of its own (0, unspecified) cannot be
+        // given that back; it gets the default class, which it ran at.
+        let back = match before {
+            Some(class) if class != 0 => class,
+            _ => 0x15,
+        };
+        // SAFETY: as above.
+        unsafe { pthread_set_qos_class_self_np(back, 0) };
+        result
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        measure()
+    }
+}
 
 /// A point on the calling thread's CPU clock.
 #[derive(Debug, Clone, Copy)]
