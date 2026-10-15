@@ -4166,6 +4166,13 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             cache.arrived.retain(|_, at| now - *at < TILE_FADE_SECS);
             if tiles_settle > now {
                 cache.fade_until = cache.fade_until.max(tiles_settle);
+                #[cfg(feature = "std")]
+                if map_debug() {
+                    std::eprintln!(
+                        "[map] fade: {} tile(s) fading in until {tiles_settle:.3} (now {now:.3})",
+                        cache.arrived.len()
+                    );
+                }
             }
             out
         }
@@ -4528,6 +4535,15 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         let frame = cache.labels.place(&label_candidates, &label_view, now);
         if frame.settled_at > now {
             cache.fade_until = cache.fade_until.max(frame.settled_at);
+            #[cfg(feature = "std")]
+            if map_debug() {
+                std::eprintln!(
+                    "[map] fade: labels fading until {:.3} (now {now:.3}, {} candidates, {} drawn)",
+                    frame.settled_at,
+                    label_candidates.len(),
+                    frame.placed.len()
+                );
+            }
         }
         for placed in &frame.placed {
             let label = match placed.from {
