@@ -2686,6 +2686,45 @@ pub fn get_background_repeats(
         .unwrap_or_default()
 }
 
+/// The `background-size` values declared on `node_id` (CSS Backgrounds 3
+/// s3.9), one per layer in layer order like [`get_background_repeats`].
+/// Empty when none is declared: every image then takes its own size.
+#[must_use]
+pub fn get_background_sizes(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundSize> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_size(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// The `background-position` values declared on `node_id` (CSS Backgrounds
+/// 3 s3.6), one per layer in layer order like [`get_background_repeats`].
+/// Empty when none is declared: every image then sits in the top left
+/// corner of its positioning area.
+#[must_use]
+pub fn get_background_positions(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundPosition> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_position(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
 /// [`get_background_contents`] before its `system:` colours are resolved:
 /// the node's own layers, or - for an `<html>` whose own paint nothing - its
 /// `<body>`'s ([`body_background_propagated_to`]).

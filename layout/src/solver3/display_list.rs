@@ -214,6 +214,186 @@ pub(crate) fn background_tiles(
     tiles
 }
 
+/// Where one tile of a background image goes (CSS Backgrounds 3 s3.6 and
+/// s3.9): sized by `size` - the image's `intrinsic` size when none is given
+/// (the positioning area's for an image without one, a gradient), `contain`
+/// / `cover` scaled to fit inside / cover the area with the image's
+/// proportions, lengths and percentages of the area - and placed in
+/// `positioning` (the padding box) by `position`, a percentage aligning that
+/// point of the tile with the same point of the area. `None` when the tile
+/// has no area: the layer is not drawn.
+#[must_use]
+pub(crate) fn background_tile(
+    positioning: LogicalRect,
+    intrinsic: Option<LogicalSize>,
+    size: Option<azul_css::props::style::StyleBackgroundSize>,
+    position: Option<azul_css::props::style::StyleBackgroundPosition>,
+) -> Option<LogicalRect> {
+    use azul_css::props::{
+        basic::pixel::DEFAULT_FONT_SIZE,
+        style::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical, StyleBackgroundSize,
+        },
+    };
+
+    let area = positioning.size;
+    let intrinsic = intrinsic.filter(|s| s.width > 0.0 && s.height > 0.0);
+    let tile = match (size, intrinsic) {
+        (Some(StyleBackgroundSize::ExactSize(exact)), _) => LogicalSize::new(
+            exact
+                .width
+                .to_pixels_internal(area.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+            exact
+                .height
+                .to_pixels_internal(area.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+        ),
+        (Some(StyleBackgroundSize::Contain | StyleBackgroundSize::Cover), Some(own)) => {
+            let fit_x = area.width / own.width;
+            let fit_y = area.height / own.height;
+            let scale = if matches!(size, Some(StyleBackgroundSize::Cover)) {
+                fit_x.max(fit_y)
+            } else {
+                fit_x.min(fit_y)
+            };
+            LogicalSize::new(own.width * scale, own.height * scale)
+        }
+        (_, Some(own)) => own,
+        (_, None) => area,
+    };
+    if !(tile.width.is_finite() && tile.height.is_finite())
+        || tile.width <= 0.0
+        || tile.height <= 0.0
+    {
+        return None;
+    }
+    // A percentage `p` puts the tile's point at `p` on the area's point at
+    // `p`: an offset of `p * (area - tile)`. A length is the offset itself.
+    let offset = |value: azul_css::props::basic::PixelValue, free: f32| {
+        value.to_percent().map_or_else(
+            || value.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+            |p| p.get() * free,
+        )
+    };
+    let free_x = area.width - tile.width;
+    let free_y = area.height - tile.height;
+    let (x, y) = match position {
+        None => (0.0, 0.0),
+        Some(pos) => (
+            match pos.horizontal {
+                BackgroundPositionHorizontal::Left => 0.0,
+                BackgroundPositionHorizontal::Center => free_x * 0.5,
+                BackgroundPositionHorizontal::Right => free_x,
+                BackgroundPositionHorizontal::Exact(v) => offset(v, free_x),
+            },
+            match pos.vertical {
+                BackgroundPositionVertical::Top => 0.0,
+                BackgroundPositionVertical::Center => free_y * 0.5,
+                BackgroundPositionVertical::Bottom => free_y,
+                BackgroundPositionVertical::Exact(v) => offset(v, free_y),
+            },
+        ),
+    };
+    if !(x.is_finite() && y.is_finite()) {
+        return None;
+    }
+    Some(LogicalRect::new(
+        LogicalPosition::new(positioning.origin.x + x, positioning.origin.y + y),
+        tile,
+    ))
+}
+
+/// The declared `background-size`, `-position` and `-repeat` lists of a
+/// box with image or gradient layers, and each image layer's own size,
+/// read once per box for all of its layers.
+pub(crate) struct BackgroundPlacement {
+    /// `background-size`, one per layer in layer order (empty: none declared).
+    sizes: Vec<azul_css::props::style::StyleBackgroundSize>,
+    /// `background-position`, one per layer in layer order (empty: none declared).
+    positions: Vec<azul_css::props::style::StyleBackgroundPosition>,
+    /// `background-repeat`, one per layer in layer order (empty: `repeat`).
+    repeats: Vec<azul_css::props::style::StyleBackgroundRepeat>,
+    /// Each layer's intrinsic size: an image's pixels as CSS px, `None` for
+    /// a colour, a gradient and a callback image (which is drawn at the size
+    /// it is asked for).
+    intrinsic: Vec<Option<LogicalSize>>,
+}
+
+impl BackgroundPlacement {
+    /// The placement lists of `node_id`, `None` when all of `layers` are
+    /// colours.
+    pub(crate) fn of(
+        styled_dom: &azul_core::styled_dom::StyledDom,
+        node_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layers: &[azul_css::props::style::StyleBackgroundContent],
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Option<Self> {
+        use azul_css::props::style::StyleBackgroundContent;
+
+        let placed = |l: &StyleBackgroundContent| {
+            !matches!(
+                l,
+                StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+            )
+        };
+        if !layers.iter().any(placed) {
+            return None;
+        }
+        let intrinsic = layers
+            .iter()
+            .map(|l| match l {
+                StyleBackgroundContent::Image(id) => image_cache
+                    .get_css_image_id(id)
+                    .filter(|image| !image.is_callback())
+                    .map(azul_core::resources::ImageRef::get_size)
+                    .filter(|s| s.width > 0.0 && s.height > 0.0),
+                _ => None,
+            })
+            .collect();
+        Some(Self {
+            sizes: super::getters::get_background_sizes(styled_dom, node_id, node_state),
+            positions: super::getters::get_background_positions(styled_dom, node_id, node_state),
+            repeats: super::getters::get_background_repeats(styled_dom, node_id, node_state),
+            intrinsic,
+        })
+    }
+
+    /// The first tile of layer `i` of `layers` placed in `positioning` and
+    /// how it repeats; `None` to draw the layer over its painting area as one
+    /// item. That is a colour, and an image without an intrinsic size (a
+    /// gradient, a material) for which no size and no position is declared:
+    /// filling the area keeps such a layer one seamless item.
+    pub(crate) fn tile(
+        &self,
+        positioning: LogicalRect,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        i: usize,
+        layers: usize,
+    ) -> Option<(LogicalRect, azul_css::props::style::StyleBackgroundRepeat)> {
+        use azul_css::props::style::{StyleBackgroundContent, StyleBackgroundRepeat};
+
+        if matches!(
+            layer,
+            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+        ) {
+            return None;
+        }
+        let size = layer_value(&self.sizes, layers, i);
+        let position = layer_value(&self.positions, layers, i);
+        let intrinsic = self.intrinsic.get(i).copied().flatten();
+        if intrinsic.is_none() && size.is_none() && position.is_none() {
+            return None;
+        }
+        let repeat =
+            layer_value(&self.repeats, layers, i).unwrap_or(StyleBackgroundRepeat::PatternRepeat);
+        // A tile with no area draws nothing: an empty tile list says so.
+        let tile = background_tile(positioning, intrinsic, size, position).unwrap_or_else(|| {
+            LogicalRect::new(positioning.origin, LogicalSize::new(0.0, 0.0))
+        });
+        Some((tile, repeat))
+    }
+}
+
 /// The value a per-layer background list (`background-clip`,
 /// `background-repeat`, ...) gives layer `layer` of `layers`; `None` for an
 /// empty list (every layer then takes the property's initial value).
@@ -3331,6 +3511,50 @@ impl DisplayListBuilder {
         }
     }
 
+    /// One image or gradient layer drawn from `tile` (placed by
+    /// [`background_tile`]), repeated per `repeat` over its painting area
+    /// `area` and cut to it with the area's `radius`. A tile that is exactly
+    /// the area is drawn as one item, rounded like the area, without a clip.
+    pub(crate) fn push_background_layer_placed(
+        &mut self,
+        area: LogicalRect,
+        radius: BorderRadius,
+        tile: LogicalRect,
+        repeat: azul_css::props::style::StyleBackgroundRepeat,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        image_cache: &azul_core::resources::ImageCache,
+    ) {
+        let overlaps = |t: &LogicalRect| {
+            t.origin.x < area.origin.x + area.size.width
+                && t.origin.x + t.size.width > area.origin.x
+                && t.origin.y < area.origin.y + area.size.height
+                && t.origin.y + t.size.height > area.origin.y
+        };
+        let tiles: Vec<LogicalRect> = background_tiles(tile, area, repeat)
+            .into_iter()
+            .filter(|t| t.size.width > 0.0 && t.size.height > 0.0 && overlaps(t))
+            .collect();
+        let same = |a: f32, b: f32| (a - b).abs() < 0.001;
+        match tiles.as_slice() {
+            [] => {}
+            [only]
+                if same(only.origin.x, area.origin.x)
+                    && same(only.origin.y, area.origin.y)
+                    && same(only.size.width, area.size.width)
+                    && same(only.size.height, area.size.height) =>
+            {
+                self.push_background_layer(area, layer, radius, image_cache);
+            }
+            _ => {
+                self.push_clip(area, radius);
+                for t in tiles {
+                    self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+                }
+                self.pop_clip();
+            }
+        }
+    }
+
     /// Paint backgrounds and border for inline text elements.
     ///
     /// Similar to `DisplayListGenerator::paint_box_decorations` (a box's
@@ -3943,7 +4167,8 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
         generator.canvas_painted = [Some(root_dom_id), body];
         let layers = get_background_contents(generator.ctx.styled_dom, root_dom_id, &root_state);
         if !layers.is_empty() {
-            // `background-repeat` belongs to the element the layers came from.
+            // `background-repeat`, `-size` and `-position` belong to the
+            // element the layers came from.
             let source = body.unwrap_or(root_dom_id);
             let source_state = generator.get_styled_node_state(source);
             let repeats = crate::solver3::getters::get_background_repeats(
@@ -3951,11 +4176,25 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
                 source,
                 &source_state,
             );
+            let placement = BackgroundPlacement::of(
+                generator.ctx.styled_dom,
+                source,
+                &source_state,
+                &layers,
+                generator.ctx.image_cache,
+            );
             let canvas_rect = generator.ctx.canvas_rect;
-            let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
+            let root_box = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
             for (i, layer) in layers.iter().enumerate() {
                 let repeat = layer_value(&repeats, layers.len(), i)
                     .unwrap_or(azul_css::props::style::StyleBackgroundRepeat::PatternRepeat);
+                // An image is sized and placed by the root's box as if it
+                // were painted for the root alone (CSS Backgrounds 3
+                // s2.11.1); a layer without a placement takes the whole box.
+                let tile = placement
+                    .as_ref()
+                    .and_then(|p| p.tile(root_box, layer, i, layers.len()))
+                    .map_or(root_box, |(tile, _)| tile);
                 builder.push_background_layer_tiled(
                     canvas_rect,
                     tile,
@@ -6740,6 +6979,17 @@ where
         !parent_is_replaced
     }
 
+    /// How `dom_id` sizes, places and repeats its image and gradient layers,
+    /// `None` when every layer is a colour (nothing to place).
+    fn background_placement(
+        &self,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layers: &[azul_css::props::style::StyleBackgroundContent],
+    ) -> Option<BackgroundPlacement> {
+        BackgroundPlacement::of(self.ctx.styled_dom, dom_id, node_state, layers, self.ctx.image_cache)
+    }
+
     /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
     /// Appendix E): its OUTER shadows (below everything, around the border
     /// box), its background layers - within its `background-clip` box
@@ -6804,6 +7054,7 @@ where
             // border (a metal edge).
             let clips =
                 super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let placement = self.background_placement(dom_id, node_state, background_contents);
             let layers = background_contents.len();
             for (i, layer) in background_contents.iter().enumerate() {
                 let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
@@ -6814,7 +7065,21 @@ where
                         inset_radius(padding_radius, padding),
                     ),
                 };
-                builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+                // Images and gradients are placed in the padding box (the
+                // initial `background-origin`).
+                match placement.as_ref().and_then(|p| p.tile(padding_box, layer, i, layers)) {
+                    Some((tile, repeat)) => builder.push_background_layer_placed(
+                        area,
+                        radius,
+                        tile,
+                        repeat,
+                        layer,
+                        self.ctx.image_cache,
+                    ),
+                    None => {
+                        builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+                    }
+                }
             }
         }
         // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
