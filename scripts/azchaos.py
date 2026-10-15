@@ -835,9 +835,13 @@ class ChaosProxy:
             time.sleep(step / float(bps))
 
     def _answer(self, sock, request, entry, status, body=b"", headers=None):
-        self._send(sock, answer_bytes(status, body, headers))
+        data = answer_bytes(status, body, headers)
+        if request.method.upper() == "HEAD" and body:
+            # A HEAD's answer names its body's length but never carries it.
+            data = data[:len(data) - len(body)]
+        self._send(sock, data)
         entry["status"] = status
-        entry["received"] = len(body)
+        entry["received"] = 0 if request.method.upper() == "HEAD" else len(body)
         return not request.wants_close()
 
     def _handle(self, sock, reader, request, entry):
