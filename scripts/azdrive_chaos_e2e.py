@@ -745,6 +745,211 @@ def names(ctx):
         stack.stop()
 
 
+def statuses_seen(laptop, drive_id=None):
+    """Every distinct status line the laptop printed, in order."""
+    seen = []
+    for line in laptop.lines("AZDRIVE_SYNC_STATUS", drive_id):
+        said = line.split(" ", 1)[1] if " " in line else ""
+        if said not in seen:
+            seen.append(said)
+    return seen
+
+
+def raw_errors(statuses):
+    """Status lines that show a technical error to the user (an HTTP code, an S3 code, a Rust
+    error's words) instead of a sentence."""
+    technical = re.compile(r"HTTP \d{3}|x-azlin-error|Error\b|\(os error|InternalError|SlowDown|"
+                           r"ExpiredToken|InvalidAccessKeyId|RequestTimeTooSkewed|"
+                           r"Connection refused|Connection reset|no answer from|https?://|"
+                           r"timed out|errno", re.I)
+    return [s for s in statuses if s.startswith("azdrive-sync-status-failed") and
+            technical.search(s)]
+
+
+def blob_writes(stack, drive_id):
+    """How often each blob key of the drive was written and landed (forwarded, 2xx)."""
+    return {k: n for k, n in stack.proxy.writes(key=r"^\.azlin/blobs/").items()}
+
+
+@scenario("server-errors")
+def server_errors(ctx):
+    """A node's transient errors: retried, nothing duplicated, the status plain."""
+    stack, drive, laptop, _ = plain_world(ctx, "server-errors")
+    proxy = stack.proxy
+    try:
+        folder = laptop.folder(drive)
+        steps = [
+            ("503 unavailable (Retry-After 0), twice", dict(
+                op="PutObject", key=r"^\.azlin/blobs/", action="azlin",
+                azlin_error="unavailable", times=2)),
+            ("500 InternalError, five times", dict(
+                op="PutObject", key=r"^\.azlin/blobs/", action="status", status=500,
+                code="InternalError", times=5)),
+            ("409 stale map (x-azlin-map), once", dict(
+                op="PutObject", key=r"^\.azlin/", action="stale_map", epoch=7, times=1)),
+            ("maintenance (Retry-After 30), once", dict(
+                op="PutObject", key=r"^\.azlin/index", action="azlin",
+                azlin_error="maintenance", times=1)),
+            ("the index read answers 500 three times", dict(
+                op=("GetObject", "HeadObject"), key=r"^\.azlin/index", action="status",
+                status=500, code="InternalError", times=3)),
+            # Last: the node named in the hint answers from then on (the failover keeps it
+            # first for ten minutes), so the proxy sees no more requests.
+            ("a 503 that names another node (x-azlin-alt-endpoints)", dict(
+                op="PutObject", key=r"^\.azlin/blobs/", action="azlin",
+                azlin_error="unavailable", alt_endpoints=stack.stack.s3_url, times=1)),
+        ]
+        notes = []
+        for i, (what, rule) in enumerate(steps):
+            fault = proxy.add(**rule)
+            data = ("file %d under %s\n" % (i, what)).encode("utf-8") * 50
+            write(os.path.join(folder, "e%d.txt" % i), data)
+            started = time.time()
+            laptop.wait_settled(what, drive, timeout=120)
+            proxy.clear()
+            notes.append("%s: applied %d, settled in %.0f s" % (what, fault.applied,
+                                                                time.time() - started))
+            no_silent_failure(laptop, drive)
+        twice = {k: n for k, n in blob_writes(stack, drive).items() if n > 1}
+        expect(not twice, "blobs written more than once: %s" % twice)
+        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+               stack.unfinished_uploads())
+        raw = raw_errors(statuses_seen(laptop, drive))
+        expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
+        return "; ".join(notes)
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("flap-upload")
+def flap_upload(ctx):
+    """The network flaps while 30 small files and a 120 MiB file go up; lost requests and lost
+    answers on top. Every file arrives once, the big one resumes per part."""
+    stack, drive, laptop, _ = plain_world(ctx, "flap-upload")
+    proxy = stack.proxy
+    try:
+        folder = laptop.folder(drive)
+        versions = {}
+        big = os.path.join(folder, "video.bin")
+        versions["video.bin"] = random_file(big, 120 * MIB)
+        for i in range(30):
+            data = os.urandom(1000 + i * 1500)
+            write(os.path.join(folder, "small", "s%02d.bin" % i), data)
+            versions["small/s%02d.bin" % i] = hashlib.sha256(data).hexdigest()
+        proxy.add(op=("PutObject", "UploadPart"), action="reset_before", probability=0.08,
+                  seed=11)
+        proxy.add(op=("PutObject", "UploadPart", "CompleteMultipartUpload"),
+                  action="reset_after", probability=0.08, seed=12)
+        proxy.flap(up=2.5, down=1.5)
+        time.sleep(45)
+        proxy.stop_flap()
+        proxy.clear()
+        laptop.wait_settled("after the flapping", drive, timeout=300)
+        here, there = tree(folder), stack.drive_tree(drive)
+        nothing_lost(versions, [here])
+        nothing_lost(versions, [there])
+        no_silent_failure(laptop, drive)
+        big_key = [k for k in stack.proxy.writes(key=r"^\.azlin/blobs/") if k.endswith(
+            stack.index(drive)["files"]["video.bin"]["hash"])]
+        parts = proxy.requests(op="UploadPart", key=r"^\.azlin/blobs/")
+        forwarded = [p for p in parts if p["forwarded"]]
+        expected_parts = (120 * MIB + 16 * MIB - 1) // (16 * MIB)
+        expect(len(forwarded) <= 2 * expected_parts,
+               "the 120 MiB file's parts were sent %d times for %d parts: an upload is not "
+               "resumed per part after a network drop" % (len(forwarded), expected_parts))
+        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+               stack.unfinished_uploads())
+        raw = raw_errors(statuses_seen(laptop, drive))
+        expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
+        return "settled; %d part uploads for %d parts; %s; statuses %s" % (
+            len(forwarded), expected_parts, big_key, statuses_seen(laptop, drive))
+    finally:
+        proxy.stop_flap()
+        laptop.stop()
+        stack.stop()
+
+
+# The points of a pass where kill-every-step kills AzDrive: (name, the rule that holds the
+# request there, whether the request was forwarded when it is held).
+KILL_POINTS = [
+    ("index read", dict(op=("GetObject", "HeadObject"), key=r"^\.azlin/index\.json$",
+                        action="stall"), False),
+    ("before the first blob", dict(op="PutObject", key=r"^\.azlin/blobs/", action="stall",
+                                   nth=1), False),
+    ("after the third blob landed", dict(op="PutObject", key=r"^\.azlin/blobs/",
+                                         action="stall_after", nth=3), True),
+    ("in the big file's second part", dict(op="UploadPart", action="stall", nth=2), False),
+    ("after the big file's Complete landed", dict(op="CompleteMultipartUpload",
+                                                  action="stall_after"), True),
+    ("before the index write", dict(op="PutObject", key=r"^\.azlin/index\.json$",
+                                    action="stall"), False),
+    ("after the index write landed", dict(op="PutObject", key=r"^\.azlin/index\.json$",
+                                          action="stall_after"), True),
+    ("in the downloads", dict(op="GetObject", key=r"^\.azlin/blobs/", action="stall", nth=2),
+     False),
+]
+
+
+@scenario("kill-every-step")
+def kill_every_step(ctx):
+    """AzDrive killed at every step of a pass that uploads and downloads, then started again:
+    the drive and both folders converge, nothing is lost, no big blob goes up twice."""
+    stack, drive, laptop, desktop = plain_world(ctx, "kill-every-step", desktop=True)
+    proxy = stack.proxy
+    desk = os.path.join(desktop.root, "folder")
+    notes = []
+    try:
+        folder = laptop.folder(drive)
+        versions = {}
+        for n, (point, rule, _) in enumerate(KILL_POINTS):
+            # This round's changes: new files here (one big), new files there.
+            for i in range(4):
+                data = ("round %d file %d\n" % (n, i)).encode("utf-8") * (200 + i)
+                write(os.path.join(folder, "r%d" % n, "up%d.txt" % i), data)
+                versions["r%d/up%d.txt" % (n, i)] = hashlib.sha256(data).hexdigest()
+            versions["r%d/big.bin" % n] = random_file(os.path.join(folder, "r%d" % n,
+                                                                   "big.bin"), 24 * MIB)
+            for i in range(3):
+                data = ("from the desktop, round %d, %d\n" % (n, i)).encode("utf-8") * 30
+                write(os.path.join(desk, "d%d" % n, "down%d.txt" % i), data)
+                versions["d%d/down%d.txt" % (n, i)] = hashlib.sha256(data).hexdigest()
+            fault = proxy.add(**rule)
+            desktop.sync(desk)
+            deadline = time.time() + 120
+            while time.time() < deadline and proxy.held() == 0:
+                time.sleep(0.05)
+            if proxy.held() == 0:
+                notes.append("%s: never reached (applied %d)" % (point, fault.applied))
+                proxy.clear()
+                laptop.wait_settled("after %s" % point, drive)
+                continue
+            laptop.kill()
+            proxy.clear()
+            proxy.release()
+            laptop.start()
+            laptop.wait_settled("after a kill %s" % point, drive, timeout=180)
+            desktop.sync(desk)
+            here, there, theirs = tree(folder), stack.drive_tree(drive), tree(desk)
+            nothing_lost(versions, [here])
+            nothing_lost(versions, [there])
+            nothing_lost(versions, [theirs])
+            expect(here == there, "%s: the folder and the drive differ: %s" % (
+                point, sorted(set(here.items()) ^ set(there.items()))[:6]))
+            no_silent_failure(laptop, drive)
+            notes.append("%s: converged" % point)
+        big = {k: n for k, n in blob_writes(stack, drive).items() if n > 1 and
+               os.path.getsize(os.path.join(stack.bucket_dir(drive), *k.split("/"))) > 8 * MIB}
+        expect(not big, "big blobs went up twice: %s" % big)
+        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+               stack.unfinished_uploads())
+        small_twice = sum(1 for n in blob_writes(stack, drive).values() if n > 1)
+        return "; ".join(notes) + "; small blobs sent again after a kill: %d" % small_twice
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
 class CaseSensitiveImage:
     """A small case-sensitive APFS disk image, attached without root (hdiutil)."""
 
