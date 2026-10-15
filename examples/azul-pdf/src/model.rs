@@ -599,6 +599,12 @@ pub fn page_face<D, P>(resizing: bool, dom: Option<D>, picture: Option<P>) -> Pa
     }
 }
 
+/// What page `page` shows while the window is dragged: its picture at `width` (the settled
+/// scale's).
+pub fn drag_picture<T: Clone>(cache: &mut PageCache<T>, page: usize, width: u32) -> Option<T> {
+    cache.get(page, width)
+}
+
 /// The widest a page's picture is drawn, px: a picture is RGBA, so a page
 /// 1600 px wide is ~13 MB. A drag at a higher zoom shows it scaled up.
 pub const MAX_PICTURE_WIDTH: u32 = 1600;
