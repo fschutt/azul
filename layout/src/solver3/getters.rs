@@ -6180,6 +6180,29 @@ pub fn resolve_font_chains_with_registry(
         // bold system face, and SF Pro Text below 17px).
         select_variable_instances(&mut chain, weight, canonical_key.optical_size, fc_cache);
 
+        // Which face each family of the stack came to, under TEXTDBG.
+        if env_flag!("TEXTDBG") {
+            for group in &chain.css_fallbacks {
+                let faces: Vec<String> = group
+                    .fonts
+                    .iter()
+                    .map(|m| {
+                        fc_cache.get_metadata_by_id(&m.id).map_or_else(
+                            || format!("{:?}", m.id),
+                            |p| {
+                                format!(
+                                    "{}{}",
+                                    p.name.or(p.family).unwrap_or_default(),
+                                    if fc_cache.is_memory_font(&m.id) { " (memory)" } else { "" }
+                                )
+                            },
+                        )
+                    })
+                    .collect();
+                eprintln!("[TEXTDBG] CHAIN   {} -> {faces:?}", group.css_name);
+            }
+        }
+
         chains.insert(cache_key, chain);
     }
 
