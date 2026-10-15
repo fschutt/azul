@@ -321,7 +321,9 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             Place::Folder { .. } => None,
             _ => Some(String::from("azdrive-why-pin-folder")),
         },
-        Action::Copy | Action::Cut | Action::CopyPath | Action::MoveToMenu | Action::CopyToMenu
+        // Copy path copies the open folder's path when nothing is selected.
+        Action::CopyPath => need_folder(),
+        Action::Copy | Action::Cut | Action::MoveToMenu | Action::CopyToMenu
         | Action::DeleteMenu | Action::Delete | Action::DeletePermanently | Action::Zip
         | Action::Share | Action::Email => need_selection(),
         Action::Paste => need_folder().or_else(|| {
@@ -1932,18 +1934,22 @@ pub(crate) fn item_location(s: &DriveState, drive_id: &str, item_key: &str) -> S
 
 /// Copy path: the selected items' locations on the system clipboard.
 /// The keys Copy path copies: the selected items', else the open folder's own.
-pub(crate) fn keys_to_copy(selected: Vec<String>, _folder: &str) -> Vec<String> {
-    selected
+pub(crate) fn keys_to_copy(selected: Vec<String>, folder: &str) -> Vec<String> {
+    if selected.is_empty() {
+        vec![folder.to_string()]
+    } else {
+        selected
+    }
 }
 
 fn copy_path(info: &mut CallbackInfo, s: &mut DriveState) {
     let Some(drive_id) = s.current_drive_id() else {
         return;
     };
-    let text = s
-        .selected_entries()
+    let selected: Vec<String> = s.selected_entries().iter().map(|e| e.key.clone()).collect();
+    let text = keys_to_copy(selected, s.prefix())
         .iter()
-        .map(|e| item_location(s, &drive_id, &e.key))
+        .map(|key| item_location(s, &drive_id, key))
         .collect::<Vec<_>>()
         .join("\n");
     let lines = text.lines().count();
