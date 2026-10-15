@@ -334,7 +334,7 @@ class Laptop:
     pass every `poll` seconds, its keyring a file of the run."""
 
     def __init__(self, ctx, stack, tag, drives, port=None, poll=1, env=None, member="laptop",
-                 folder_root=None):
+                 folder_root=None, session_expires_in=None):
         self.ctx = ctx
         self.stack = stack
         self.tag = tag
@@ -349,7 +349,15 @@ class Laptop:
         for drive_id, name in drives:
             bundle = stack.family(drive_id, member)
             entries.append(bundle["drive"])
-            keyring["azul-storage/s3/" + drive_id] = azlin_session(bundle)
+            session = azlin_session(bundle)
+            if session_expires_in is not None:
+                # A session about to run out: the first request refreshes it, and the refresh
+                # brings the node list (its addresses, its iroh ids) - as an app that has run
+                # before has it in its nodes file.
+                kept = json.loads(session)
+                kept["expires_at"] = int(time.time()) + session_expires_in
+                session = json.dumps(kept)
+            keyring["azul-storage/s3/" + drive_id] = session
             root = folder_root or os.path.join(self.home, "AzDrive")
             folder = os.path.join(root, name)
             self.folders[drive_id] = folder
@@ -537,6 +545,18 @@ class Laptop:
             what, self.status(drive_id), self.passes(drive_id)[-3:]))
 
 
+def status_after_passes(laptop, drive_id, count=2, timeout=None):
+    """The status line once `count` more passes ended (not the "Syncing" of one that runs)."""
+    laptop.wait_passes("%d passes" % count, count, drive_id, timeout)
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        current = laptop.status(drive_id) or ""
+        if not current.startswith("azdrive-sync-status-syncing"):
+            return current
+        time.sleep(0.05)
+    return laptop.status(drive_id)
+
+
 class Desktop:
     """The `azcloud` CLI as another device (its own HOME, state folder and token family)."""
 
@@ -715,8 +735,7 @@ def special_files(ctx):
         write(os.path.join(folder, "locked", "inside.txt"), b"in a folder nobody may list\n")
         os.chmod(os.path.join(folder, "locked"), 0)
         try:
-            laptop.wait_passes("a pass over the special files", 3, drive)
-            status = laptop.status(drive)
+            status = status_after_passes(laptop, drive, 3)
             there = stack.drive_tree(drive)
             expect("plain.txt" in there and "sub/deep.txt" in there,
                    "the ordinary files did not sync: %s" % sorted(there))
@@ -1014,8 +1033,7 @@ def offline_conflict(ctx):
         write(os.path.join(folder, "plan.txt"), b"version 2 from the laptop, offline\n")
         write(os.path.join(desk, "plan.txt"), b"version 2 from the desktop\n")
         desktop.sync(desk)
-        laptop.wait_passes("passes while offline", 2, drive)
-        offline_status = laptop.status(drive)
+        offline_status = status_after_passes(laptop, drive, 2)
         expect(offline_status != UP_TO_DATE, "offline, the status says Up to date")
         stack.proxy.network("up")
         laptop.app.until("the conflict question", lambda: laptop.app.printed(
@@ -1184,10 +1202,9 @@ def long_names(ctx):
                 made[name.strip("/")] = hashlib.sha256(data).hexdigest()
             except OSError as e:
                 log("cannot make %r here: %s" % (name[:60], e))
-        laptop.wait_passes("passes over the names", 4, drive)
+        status = status_after_passes(laptop, drive, 4)
         there = stack.drive_tree(drive)
         missing = [n for n in made if n not in there]
-        status = laptop.status(drive)
         if missing:
             expect(status != UP_TO_DATE,
                    "silent failure: Up to date while %d names never sync: %s" % (
@@ -1207,8 +1224,7 @@ def clock_skew(ctx):
         folder = laptop.folder(drive)
         stack.proxy.clock_offset = 20 * 60
         write(os.path.join(folder, "skewed.txt"), b"signed with a clock 20 minutes off\n")
-        laptop.wait_passes("passes against a skewed node", 2, drive)
-        skewed = laptop.status(drive)
+        skewed = status_after_passes(laptop, drive, 2)
         expect(skewed != UP_TO_DATE, "the status says Up to date while every request is refused")
         stack.proxy.clock_offset = 0
         laptop.wait_settled("the clocks agree again", drive)
@@ -1257,8 +1273,7 @@ def quota(ctx):
             data = os.urandom(MIB)
             write(os.path.join(folder, "q%d.bin" % i), data)
             versions["q%d" % i] = hashlib.sha256(data).hexdigest()
-        laptop.wait_passes("passes against the quota", 3, drive)
-        full = laptop.status(drive)
+        full = status_after_passes(laptop, drive, 3)
         expect(full != UP_TO_DATE, "the drive is full and the status says Up to date")
         nothing_lost(versions, [tree(folder)])
         raw = raw_errors([full])
@@ -1295,8 +1310,7 @@ def revoked(ctx):
         stack.proxy.release()
         revoked_at = time.time()
         laptop.app.until("a pass refused", lambda: laptop.failures(drive))
-        time.sleep(1)
-        status = laptop.status(drive)
+        status = status_after_passes(laptop, drive, 0)
         # A removed device stops: it does not knock every second with refused credentials.
         passes_before = len(laptop.passes(drive))
         time.sleep(10)
@@ -1380,7 +1394,7 @@ def disk_full(ctx):
         laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")],
                         folder_root=os.path.join(image.mount, "AzDrive"))
         laptop.start()
-        laptop.wait_passes("passes onto the full disk", 3, drive)
+        status = status_after_passes(laptop, drive, 3)
         folder = laptop.folder(drive)
         here = tree(folder)
         for i in range(5):
@@ -1389,7 +1403,6 @@ def disk_full(ctx):
         partial = [n for n in os.listdir(folder) if n not in here]
         expect("big.bin" not in here or here["big.bin"] == versions["big"],
                "a partial big.bin is in the folder")
-        status = laptop.status(drive)
         expect(status != UP_TO_DATE, "the disk is full, big.bin is not here, and the status "
                                      "says Up to date")
         nothing_lost(versions, [stack.drive_tree(drive)])
@@ -1417,7 +1430,7 @@ def dns(ctx):
         stack.state.s3_url = url
         stack.state.set_nodes([azlin_mock_stack.node_entry("n1", url, addresses=["127.0.0.1"])])
         drive = stack.signup("Chaos drive")["drive"]["id"]
-        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")])
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")], session_expires_in=120)
         laptop.start()
         laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=120)
         write(os.path.join(laptop.folder(drive), "no-dns.txt"), b"over the node's address\n")
@@ -1449,7 +1462,7 @@ def iroh_lane(ctx):
             iroh_addrs=["%s:%d" % sink.address])])
         drive = stack.signup("Chaos drive")["drive"]["id"]
         laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")],
-                        env={"AZCLOUD_TRANSPORT": "auto"})
+                        env={"AZCLOUD_TRANSPORT": "auto"}, session_expires_in=120)
         started = time.time()
         laptop.start()
         laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=300)
