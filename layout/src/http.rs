@@ -1602,11 +1602,16 @@ pub fn http_request_with_config(
     // GET/HEAD/DELETE (terminated by `.call()`) and `WithBody` for
     // POST/PUT/PATCH (terminated by `.send()`). The two are different types,
     // so the header application is written out per branch.
-    let response = if method.takes_body() {
+    // A DELETE may say what it removes in a body (a signed request); ureq
+    // builds DELETE without one unless asked to send it.
+    let sends_body = method.takes_body()
+        || (matches!(method, HttpMethod::Delete) && body.is_some_and(|b| !b.is_empty()));
+    let response = if sends_body {
         let mut request = match method {
             HttpMethod::Put => agent.put(url),
             HttpMethod::Patch => agent.patch(url),
-            // `takes_body()` admits only POST/PUT/PATCH here.
+            HttpMethod::Delete => agent.delete(url).force_send_body(),
+            // `sends_body` admits only POST here otherwise.
             _ => agent.post(url),
         };
         if !config.user_agent.as_str().is_empty() {
@@ -3161,6 +3166,10 @@ mod delete_body_tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the server saw the request");
         assert!(request_line.starts_with("DELETE "), "{request_line}");
-        assert_eq!(body, b"{\"key\":1}".to_vec(), "the DELETE arrived without its body");
+        assert_eq!(
+            body,
+            b"{\"key\":1}".to_vec(),
+            "the DELETE arrived without its body"
+        );
     }
 }
