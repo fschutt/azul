@@ -609,9 +609,7 @@ mod engine {
                 {
                     if p.sparse.items.is_empty() && !p.dense.clusters.is_empty() {
                         for run in &p.dense.runs {
-                            let key = FontHash {
-                                font_hash: run.font_hash,
-                            };
+                            let key = FontHash::from_hash(run.font_hash);
                             if font_data.contains_key(&key) {
                                 continue;
                             }
@@ -634,9 +632,7 @@ mod engine {
                     for positioned in &unified.items {
                         if let ShapedItem::Cluster(cluster) = &positioned.item {
                             for glyph in &cluster.glyphs {
-                                let key = FontHash {
-                                    font_hash: glyph.font_hash,
-                                };
+                                let key = FontHash::from_hash(glyph.font_hash);
                                 if font_data.contains_key(&key) {
                                     continue;
                                 }

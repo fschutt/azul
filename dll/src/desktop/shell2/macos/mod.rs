@@ -6332,6 +6332,8 @@ impl MacOSWindow {
 
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
+        // Read before the window state takes its fields out of `options`.
+        let owner_window_id = crate::desktop::shell2::common::owned_window::owner_of(&options);
         let current_window_state = FullWindowState {
             window_id: options.window_state.window_id.clone(),
             title: options.window_state.title.clone(),
@@ -6501,8 +6503,7 @@ impl MacOSWindow {
             undo_manager,
         );
         common.layout_window = Some(layout_window);
-        common.owner_window_id =
-            crate::desktop::shell2::common::owned_window::owner_of(&options);
+        common.owner_window_id = owner_window_id;
         common.renderer_resources = renderer_resources;
         common.render_api = wr_render_api;
         common.renderer = wr_renderer;

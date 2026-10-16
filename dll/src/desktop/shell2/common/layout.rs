@@ -1132,16 +1132,11 @@ pub fn regenerate_layout(
                 .collect();
             format!("{:?} {}", nd.get_node_type(), classes.join(" "))
         };
+        let nodes = styled_dom.node_data.as_container();
         let unmatched: Vec<String> = pending
             .entered
             .iter()
-            .filter_map(|n| {
-                styled_dom
-                    .node_data
-                    .as_container()
-                    .get(*n)
-                    .map(|nd| (n, nd))
-            })
+            .filter_map(|n| nodes.get(*n).map(|nd| (n, nd)))
             .map(|(n, nd)| format!("#{} {}", n.index(), describe(nd)))
             .collect();
         eprintln!(
