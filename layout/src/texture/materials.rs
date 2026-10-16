@@ -1246,6 +1246,26 @@ pub(crate) fn render_key(
     h.finish()
 }
 
+std::thread_local! {
+    /// How many material surfaces this thread had a shader draw
+    /// ([`renders_on_this_thread`]).
+    static RENDERS_ON_THIS_THREAD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many material surfaces a shader drew for this thread: the CPU's
+/// (a render cache miss) or the GPU's. A material is drawn when something
+/// it is drawn from changes, never per frame; this is what tests count. Per
+/// thread, so tests running side by side do not see each other's renders.
+#[must_use]
+pub fn renders_on_this_thread() -> u64 {
+    RENDERS_ON_THIS_THREAD.with(std::cell::Cell::get)
+}
+
+/// One more surface drawn for this thread ([`renders_on_this_thread`]).
+pub(crate) fn count_render() {
+    RENDERS_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
+}
+
 /// The renders kept, at most this many bytes of pixels ...
 const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 /// ... and this many renders.
@@ -1277,6 +1297,7 @@ pub fn render_material(
             return found;
         }
     }
+    count_render();
     let Some(image) = render_material_pixels(material, width, height, dpr, params, scene)
         .and_then(ImageRef::new_rawimage)
     else {

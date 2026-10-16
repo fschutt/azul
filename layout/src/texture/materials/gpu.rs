@@ -414,6 +414,7 @@ impl ContextState {
                 i1(name, unit as i32);
             }
             gl.draw_arrays(gl::TRIANGLES, 0, 3);
+            super::count_render();
             for unit in 0..samplers.len() {
                 gl.active_texture(gl::TEXTURE0 + unit as u32);
                 gl.bind_texture(gl::TEXTURE_2D, 0);
