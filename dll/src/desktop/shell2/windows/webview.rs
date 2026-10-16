@@ -419,20 +419,20 @@ type GetString = unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> HRESUL
 type GetObject = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT;
 type WithString = unsafe extern "system" fn(*mut c_void, *const u16) -> HRESULT;
 type AddHandler = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut i64) -> HRESULT;
-type RefCount = unsafe extern "system" fn(*mut c_void) -> u32;
+type ComRefCountFn = unsafe extern "system" fn(*mut c_void) -> u32;
 type QueryInterface =
     unsafe extern "system" fn(*mut Handler, *const Guid, *mut *mut c_void) -> HRESULT;
 
 unsafe fn add_ref(this: *mut c_void) {
     if !this.is_null() {
-        let f: RefCount = unsafe { slot(this, slots::ADD_REF) };
+        let f: ComRefCountFn = unsafe { slot(this, slots::ADD_REF) };
         unsafe { f(this) };
     }
 }
 
 unsafe fn release(this: *mut c_void) {
     if !this.is_null() {
-        let f: RefCount = unsafe { slot(this, slots::RELEASE) };
+        let f: ComRefCountFn = unsafe { slot(this, slots::RELEASE) };
         unsafe { f(this) };
     }
 }

@@ -517,7 +517,7 @@ impl AddressBar {
         self
     }
 
-    /// The shortcut hint at the search field's end ("⌘F"; empty: none).
+    /// The shortcut hint at the search field's end, such as "Ctrl+F" (empty: none).
     pub fn set_search_shortcut(&mut self, shortcut: AzString) {
         self.search_shortcut = shortcut;
     }

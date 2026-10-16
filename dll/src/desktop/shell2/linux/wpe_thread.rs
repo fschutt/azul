@@ -70,11 +70,11 @@ pub(super) struct Mail {
     /// For the app's callbacks, oldest first.
     pub reports: Vec<WebViewReport>,
     /// The newest frame of each view (an older one is never drawn).
-    pub frames: BTreeMap<WebViewId, Frame>,
+    pub frames: BTreeMap<WebViewId, WpeFrame>,
 }
 
 /// One frame of a page: tightly packed BGRA, premultiplied, device pixels.
-pub(super) struct Frame {
+pub(super) struct WpeFrame {
     pub width: usize,
     pub height: usize,
     pub pixels: Vec<u8>,
@@ -424,7 +424,7 @@ unsafe extern "C" fn on_shm_buffer(data: *mut c_void, buffer: *mut c_void) {
                 if let Ok(mut mail) = sink.mailbox.lock() {
                     mail.frames.insert(
                         sink.id,
-                        Frame {
+                        WpeFrame {
                             width,
                             height,
                             pixels,

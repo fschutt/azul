@@ -296,6 +296,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "azul-storage",
+ "chrono",
  "serde",
  "serde_json",
 ]
@@ -392,6 +393,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "azul-pim",
  "azul-storage",
  "serde",
  "serde_json",

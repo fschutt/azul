@@ -8079,6 +8079,9 @@
                                 },
                                 "hot_reload": {
                                     "type": "bool"
+                                },
+                                "owned": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -12628,20 +12631,6 @@
                                     }
                                 ],
                                 "fn_body": "object.add_thread(thread_id, thread)"
-                            },
-                            "remove_thread": {
-                                "doc": [
-                                    "Remove a thread from this window (applied after callback returns)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "thread_id": "ThreadId"
-                                    }
-                                ],
-                                "fn_body": "object.remove_thread(thread_id)"
                             },
                             "stop_propagation": {
                                 "doc": [
@@ -20475,6 +20464,79 @@
                                     }
                                 ],
                                 "fn_body": "object.set_drag_image(id, offset)"
+                            },
+                            "paste_from_clipboard": {
+                                "doc": [
+                                    "Paste what the system clipboard holds into the focused node after the",
+                                    "callback returns, as a user's Ctrl+V would: the focused node's `Paste`",
+                                    "callbacks run first (and may `prevent_default` it), then the engine's",
+                                    "paste. Set the focus first to choose where the text lands."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.paste_from_clipboard()"
+                            },
+                            "register_font": {
+                                "doc": [
+                                    "Registers the font `bytes` under the family name `family` for the",
+                                    "whole app, while it runs: text whose `font-family` names it is drawn",
+                                    "in it at each window's next layout (return `Update::RefreshDom` to",
+                                    "lay out at once). Weight and style come from the face itself, so the",
+                                    "faces of one family are registered one by one. Returns `false` for",
+                                    "bytes that are no font."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "family": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.register_font(family, bytes)"
+                            },
+                            "stop_thread": {
+                                "doc": [
+                                    "Asks a background thread to stop (applied after the callback returns). The",
+                                    "worker is sent `TerminateThread`, and the window keeps listening to it: the",
+                                    "write-backs it sends while it winds down still run, so it can report what it",
+                                    "did (\"stopped after 40 messages\"). It leaves the window once it has finished.",
+                                    "Nothing waits for it on the UI thread, also when it sits in a blocking call;",
+                                    "one that has not finished two seconds later is detached."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "thread_id": "ThreadId"
+                                    }
+                                ],
+                                "fn_body": "object.stop_thread(thread_id)"
+                            },
+                            "remove_thread": {
+                                "doc": [
+                                    "Removes a thread from this window (applied after the callback returns): the",
+                                    "same as [`Self::stop_thread`], so its last write-backs still arrive."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "thread_id": "ThreadId"
+                                    }
+                                ],
+                                "fn_body": "object.remove_thread(thread_id)"
                             }
                         },
                         "repr": "C"
@@ -43857,7 +43919,8 @@
                                 "Marker": {},
                                 "Grid": {},
                                 "InlineGrid": {},
-                                "Contents": {}
+                                "Contents": {},
+                                "InlineListItem": {}
                             }
                         ],
                         "repr": "C"
@@ -52750,6 +52813,24 @@
                                 },
                                 "icon": {
                                     "type": "OptionColorU"
+                                },
+                                "danger": {
+                                    "type": "OptionColorU"
+                                },
+                                "danger_text": {
+                                    "type": "OptionColorU"
+                                },
+                                "warning": {
+                                    "type": "OptionColorU"
+                                },
+                                "warning_text": {
+                                    "type": "OptionColorU"
+                                },
+                                "success": {
+                                    "type": "OptionColorU"
+                                },
+                                "success_text": {
+                                    "type": "OptionColorU"
                                 }
                             }
                         ],
@@ -53430,7 +53511,13 @@
                                 "ControlBackground": {},
                                 "PlaceholderText": {},
                                 "TextSelectionBackground": {},
-                                "Icon": {}
+                                "Icon": {},
+                                "Danger": {},
+                                "DangerText": {},
+                                "Warning": {},
+                                "WarningText": {},
+                                "Success": {},
+                                "SuccessText": {}
                             }
                         ],
                         "functions": {
@@ -61217,6 +61304,54 @@
                                     "type": "LogicalPosition"
                                 },
                                 "fn_body": "azul_layout::widgets::map::MapWidget::px_at_latlon(viewport, coord, container)"
+                            },
+                            "update_camera": {
+                                "doc": [
+                                    "Moves the map built at `node` (the root of its `dom()`) to `viewport` in place: the",
+                                    "map's own view is drawn again and the tiles the new camera needs are fetched, but the",
+                                    "app's DOM is not rebuilt. A navigation follows the car with it. The zoom stays inside",
+                                    "the layer's range, the tilt and the turn are clamped as a drag would; the",
+                                    "`on_viewport_changed` hook does not fire, the app asked for the move. False when",
+                                    "`node` is not a map's root."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "viewport": "MapViewport"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "{ let mut info = info; azul_layout::widgets::map::MapWidget::update_camera(&mut info, node, viewport) }"
+                            },
+                            "update_overlays": {
+                                "doc": [
+                                    "Replaces the lines, areas and markers of the map built at `node` (the root of its",
+                                    "`dom()`) in place: the map's view is drawn again with them, the app's DOM is not",
+                                    "rebuilt. The parts of lines that did not change are not cut again. False when `node`",
+                                    "is not a map's root."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "overlays": "MapOverlayVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "{ let mut info = info; azul_layout::widgets::map::MapWidget::update_overlays(&mut info, node, overlays) }"
                             }
                         },
                         "repr": "C"
@@ -71882,6 +72017,9 @@
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "auto_dismiss_ms": {
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -72077,6 +72215,38 @@
                                     "type": "Toast"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_auto_dismiss": {
+                                "doc": [
+                                    "How long the toast stays once it is on screen, in ms; 0 keeps it",
+                                    "until it is closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "ms": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_auto_dismiss(ms)"
+                            },
+                            "with_auto_dismiss": {
+                                "doc": [
+                                    "[`Self::set_auto_dismiss`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "ms": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Toast"
+                                },
+                                "fn_body": "object.with_auto_dismiss(ms)"
                             }
                         },
                         "repr": "C"
@@ -81338,6 +81508,9 @@
                                 },
                                 "available_width": {
                                     "type": "f32"
+                                },
+                                "search_shortcut": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -81717,6 +81890,37 @@
                                     }
                                 ],
                                 "fn_body": "object.set_available_width(px)"
+                            },
+                            "set_search_shortcut": {
+                                "doc": [
+                                    "The shortcut hint at the search field's end, such as \"Ctrl+F\" (empty: none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "shortcut": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_search_shortcut(shortcut)"
+                            },
+                            "with_search_shortcut": {
+                                "doc": [
+                                    "[`Self::set_search_shortcut`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "shortcut": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_search_shortcut(shortcut)"
                             }
                         },
                         "repr": "C"
@@ -96021,6 +96225,27 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.to_markdown().into()"
+                            },
+                            "font_at": {
+                                "doc": [
+                                    "The font text typed at byte `at` of block `index` continues: the run",
+                                    "before the caret's (the run after it at a block's start)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    },
+                                    {
+                                        "at": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichFont"
+                                },
+                                "fn_body": "object.font_at(index, at)"
                             }
                         },
                         "repr": "C"
@@ -96182,6 +96407,9 @@
                                 },
                                 "read_only": {
                                     "type": "bool"
+                                },
+                                "body_points": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -96669,6 +96897,65 @@
                                     "type": "RichTextEditor"
                                 },
                                 "fn_body": "object.with_line_height(factor)"
+                            },
+                            "page_doms_at": {
+                                "doc": [
+                                    "[`Self::page_doms`] with pages that may start inside a block",
+                                    "(`page_starts`, one per page, in order): a page starting at byte `b`",
+                                    "of a block shows the block's text from `b`, the page before ends",
+                                    "with the text up to `b`. Both parts are the one block of the",
+                                    "document: typing, a caret, a selection and an edit in either part",
+                                    "land at their place in the whole block."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "page_starts": "RichPageStartVec"
+                                    },
+                                    {
+                                        "first_page": "usize"
+                                    },
+                                    {
+                                        "page_count": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomVec"
+                                },
+                                "fn_body": "object.page_doms_at(page_starts, first_page, page_count)"
+                            },
+                            "set_body_points": {
+                                "doc": [
+                                    "The point size the body text stands for (0: `font_size` at 96 dpi)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "points": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_body_points(points)"
+                            },
+                            "with_body_points": {
+                                "doc": [
+                                    "[`Self::set_body_points`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "points": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichTextEditor"
+                                },
+                                "fn_body": "object.with_body_points(points)"
                             }
                         },
                         "repr": "C"
@@ -96759,6 +97046,9 @@
                                 },
                                 "formats": {
                                     "type": "RichFormats"
+                                },
+                                "font": {
+                                    "type": "RichFont"
                                 }
                             }
                         ],
@@ -96902,6 +97192,23 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_plain()"
+                            },
+                            "with_font": {
+                                "doc": [
+                                    "The run in this font."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "font": "RichFont"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichRun"
+                                },
+                                "fn_body": "object.with_font(font)"
                             }
                         },
                         "repr": "C"
@@ -97089,7 +97396,16 @@
                                 "RemoveLink": {},
                                 "ToggleCheck": {},
                                 "Undo": {},
-                                "Redo": {}
+                                "Redo": {},
+                                "SetFontFamily": {
+                                    "type": "OptionString"
+                                },
+                                "SetFontSize": {
+                                    "type": "u16"
+                                },
+                                "Cut": {},
+                                "Copy": {},
+                                "Paste": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -97424,6 +97740,22 @@
                                     "type": "Update"
                                 },
                                 "fn_body": "object.apply_command(info, command)"
+                            },
+                            "current_font": {
+                                "doc": [
+                                    "The font text typed at the caret takes: the typing style's when one",
+                                    "was set there, else the run before the caret's (a ribbon's font and",
+                                    "size boxes). An empty family or a size of 0 is the editor's own."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichFont"
+                                },
+                                "fn_body": "object.current_font()"
                             }
                         },
                         "repr": "C"
@@ -97814,7 +98146,6 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "Copy",
                             "PartialEq",
                             "Eq",
                             "Hash",
@@ -97830,6 +98161,9 @@
                                 },
                                 "formats": {
                                     "type": "RichFormats"
+                                },
+                                "font": {
+                                    "type": "RichFont"
                                 }
                             }
                         ],
@@ -99890,6 +100224,9 @@
                                 },
                                 "read_only": {
                                     "type": "bool"
+                                },
+                                "rows_draggable": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -100419,6 +100756,37 @@
                                     "type": "DataTable"
                                 },
                                 "fn_body": "object.with_viewport(width, height)"
+                            },
+                            "set_rows_draggable": {
+                                "doc": [
+                                    "Whether the rows drag out of the table."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "draggable": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_rows_draggable(draggable)"
+                            },
+                            "with_rows_draggable": {
+                                "doc": [
+                                    "[`Self::set_rows_draggable`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "draggable": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DataTable"
+                                },
+                                "fn_body": "object.with_rows_draggable(draggable)"
                             }
                         },
                         "repr": "C"
@@ -100684,7 +101052,8 @@
                                 "Select": {},
                                 "ResizeColumn": {},
                                 "ScrollRows": {},
-                                "ScrollColumns": {}
+                                "ScrollColumns": {},
+                                "Pending": {}
                             }
                         ],
                         "repr": "C"
@@ -101296,6 +101665,9 @@
                                 },
                                 "value": {
                                     "type": "f64"
+                                },
+                                "icon": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -101331,6 +101703,39 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::data_table::DataTableCell::empty()"
+                            }
+                        },
+                        "functions": {
+                            "set_icon": {
+                                "doc": [
+                                    "The icon before the text (a Material icon name; empty: none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "[`Self::set_icon`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DataTableCell"
+                                },
+                                "fn_body": "object.with_icon(icon)"
                             }
                         },
                         "repr": "C"
@@ -101448,6 +101853,12 @@
                                 },
                                 "ctrl": {
                                     "type": "bool"
+                                },
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -101496,7 +101907,9 @@
                                 "ResizeColumn": {},
                                 "Activate": {},
                                 "Copy": {},
-                                "Drag": {}
+                                "Drag": {},
+                                "ContextMenu": {},
+                                "DragStart": {}
                             }
                         ],
                         "repr": "C"
@@ -104117,6 +104530,9 @@
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "groups": {
+                                    "type": "IconGridGroupVec"
                                 }
                             }
                         ],
@@ -104478,6 +104894,37 @@
                                     "type": "IconGrid"
                                 },
                                 "fn_body": "object.with_viewport(width, height)"
+                            },
+                            "set_groups": {
+                                "doc": [
+                                    "The groups the items fall into (in the order of their starts)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "groups": "IconGridGroupVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_groups(groups)"
+                            },
+                            "with_groups": {
+                                "doc": [
+                                    "[`Self::set_groups`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "groups": "IconGridGroupVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGrid"
+                                },
+                                "fn_body": "object.with_groups(groups)"
                             }
                         },
                         "repr": "C"
@@ -104629,6 +105076,9 @@
                                 },
                                 "top_row": {
                                     "type": "usize"
+                                },
+                                "renaming": {
+                                    "type": "OptionUsize"
                                 }
                             }
                         ],
@@ -104736,6 +105186,9 @@
                                 },
                                 "ctrl": {
                                     "type": "bool"
+                                },
+                                "text": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -104776,7 +105229,9 @@
                                 "Activate": {},
                                 "ContextMenu": {},
                                 "DragStart": {},
-                                "Drag": {}
+                                "Drag": {},
+                                "Rename": {},
+                                "Renamed": {}
                             }
                         ],
                         "repr": "C"
@@ -105359,6 +105814,9 @@
                                 },
                                 "show_shuffle_repeat": {
                                     "type": "bool"
+                                },
+                                "size": {
+                                    "type": "MediaControlsSize"
                                 }
                             }
                         ],
@@ -105588,6 +106046,37 @@
                                     "type": "MediaControls"
                                 },
                                 "fn_body": "object.with_volume(volume)"
+                            },
+                            "set_size": {
+                                "doc": [
+                                    "How big the controls are and what they sit on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "size": "MediaControlsSize"
+                                    }
+                                ],
+                                "fn_body": "object.set_size(size)"
+                            },
+                            "with_size": {
+                                "doc": [
+                                    "[`Self::set_size`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "size": "MediaControlsSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MediaControls"
+                                },
+                                "fn_body": "object.with_size(size)"
                             }
                         },
                         "repr": "C"
@@ -106353,6 +106842,9 @@
                                 },
                                 "symbol_spaced": {
                                     "type": "bool"
+                                },
+                                "grouping": {
+                                    "type": "MoneyGrouping"
                                 }
                             }
                         ],
@@ -106434,6 +106926,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::money_input::MoneyLocale::from_tag(tag)"
+                            },
+                            "en_in": {
+                                "doc": [
+                                    "`12,34,567.89`, the rupee sign before it (English and the languages",
+                                    "of India: the Indian grouping, lakhs and crores)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::money_input::MoneyLocale::en_in()"
                             }
                         },
                         "functions": {
@@ -106456,6 +106956,23 @@
                                     "type": "MoneyLocale"
                                 },
                                 "fn_body": "object.with_separators(decimal_separator, group_separator)"
+                            },
+                            "with_grouping": {
+                                "doc": [
+                                    "The same locale grouped `grouping`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "grouping": "MoneyGrouping"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MoneyLocale"
+                                },
+                                "fn_body": "object.with_grouping(grouping)"
                             }
                         },
                         "repr": "C"
@@ -107113,6 +107630,12 @@
                                 },
                                 "show_times": {
                                     "type": "bool"
+                                },
+                                "chapter_titles": {
+                                    "type": "StringVec"
+                                },
+                                "thumbnails": {
+                                    "type": "SeekThumbnailVec"
                                 }
                             }
                         ],
@@ -107376,6 +107899,68 @@
                                     "type": "SeekBar"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_chapter_titles": {
+                                "doc": [
+                                    "The chapters' titles, one per start in `chapters`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "titles": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_chapter_titles(titles)"
+                            },
+                            "set_thumbnails": {
+                                "doc": [
+                                    "Pictures of the media at times, for the hover tip."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "thumbnails": "SeekThumbnailVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_thumbnails(thumbnails)"
+                            },
+                            "with_chapter_titles": {
+                                "doc": [
+                                    "[`Self::set_chapter_titles`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "titles": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekBar"
+                                },
+                                "fn_body": "object.with_chapter_titles(titles)"
+                            },
+                            "with_thumbnails": {
+                                "doc": [
+                                    "[`Self::set_thumbnails`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "thumbnails": "SeekThumbnailVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekBar"
+                                },
+                                "fn_body": "object.with_thumbnails(thumbnails)"
                             }
                         },
                         "repr": "C"
@@ -109540,6 +110125,9 @@
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "measured_widths": {
+                                    "type": "U32Vec"
                                 }
                             }
                         ],
@@ -109746,6 +110334,37 @@
                                     "type": "Toolbar"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_measured_widths": {
+                                "doc": [
+                                    "The items' measured widths (a `Resize` event's `widths`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "widths": "U32Vec"
+                                    }
+                                ],
+                                "fn_body": "object.set_measured_widths(widths)"
+                            },
+                            "with_measured_widths": {
+                                "doc": [
+                                    "[`Self::set_measured_widths`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "widths": "U32Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Toolbar"
+                                },
+                                "fn_body": "object.with_measured_widths(widths)"
                             }
                         },
                         "repr": "C"
@@ -110177,6 +110796,12 @@
                                 },
                                 "pressed": {
                                     "type": "bool"
+                                },
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "widths": {
+                                    "type": "U32Vec"
                                 }
                             }
                         ],
@@ -110217,7 +110842,8 @@
                             {
                                 "Activate": {},
                                 "Toggle": {},
-                                "Choose": {}
+                                "Choose": {},
+                                "Resize": {}
                             }
                         ],
                         "repr": "C"
@@ -110408,6 +111034,28 @@
                                     "type": "Waveform"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "encode_wav": {
+                                "doc": [
+                                    "`samples` (interleaved, `channels` of them, `-1.0..=1.0`) as a 16-bit",
+                                    "PCM WAV file at `sample_rate` Hz ([`wav_pcm16`]): a recording, a test",
+                                    "tone, a sample sound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "samples": "F32Vec"
+                                    },
+                                    {
+                                        "sample_rate": "u32"
+                                    },
+                                    {
+                                        "channels": "u16"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "azul_layout::widgets::waveform::Waveform::encode_wav(samples, sample_rate, channels)"
                             }
                         },
                         "repr": "C"
@@ -112107,6 +112755,9 @@
                                 },
                                 "casing_width": {
                                     "type": "f32"
+                                },
+                                "dash": {
+                                    "type": "MapLineDash"
                                 }
                             }
                         ],
@@ -112177,6 +112828,23 @@
                                     "type": "MapPolyline"
                                 },
                                 "fn_body": "object.with_casing(color, width)"
+                            },
+                            "with_dash": {
+                                "doc": [
+                                    "The line `dash`ed: solid, dashed or dotted."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "dash": "MapLineDash"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolyline"
+                                },
+                                "fn_body": "object.with_dash(dash)"
                             }
                         },
                         "repr": "C"
@@ -113005,6 +113673,540 @@
                             {
                                 "ptr": {
                                     "type": "TabOverviewItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IconGridGroup": {
+                        "external": "azul_layout::widgets::icon_grid::IconGridGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start": {
+                                    "type": "usize"
+                                },
+                                "label": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A group from item `start`, headed `label`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::icon_grid::IconGridGroup::create(start, label)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapLineDash": {
+                        "external": "azul_layout::widgets::map::overlay::MapLineDash",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Solid": {},
+                                "Dashed": {},
+                                "Dotted": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MediaControlsSize": {
+                        "external": "azul_layout::widgets::media_controls::MediaControlsSize",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Regular": {},
+                                "Compact": {},
+                                "Large": {},
+                                "Overlay": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MoneyGrouping": {
+                        "external": "azul_layout::widgets::money_input::MoneyGrouping",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Thousands": {},
+                                "Indian": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RichFont": {
+                        "external": "azul_layout::widgets::rich_text::doc::RichFont",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "family": {
+                                    "type": "OptionString"
+                                },
+                                "half_points": {
+                                    "type": "u16"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The editor's own font (no family, the body size)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::rich_text::doc::RichFont::create()"
+                            },
+                            "from_style_attr": {
+                                "doc": [
+                                    "The font a `style` attribute names: its `font-family` and its",
+                                    "`font-size` (in `pt`, or `px` at 96 dpi); everything else is ignored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::rich_text::doc::RichFont::from_style_attr(style.as_str())"
+                            }
+                        },
+                        "functions": {
+                            "is_default": {
+                                "doc": [
+                                    "Neither a family nor a size of its own."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_default()"
+                            },
+                            "style_attr": {
+                                "doc": [
+                                    "The font's declarations as a `style` attribute writes them, sizes in",
+                                    "points (`font-family: 'EB Garamond', serif; font-size: 10.5pt`);",
+                                    "empty for the editor's own font. Markdown and HTML carry fonts so."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.style_attr().into()"
+                            },
+                            "with_family": {
+                                "doc": [
+                                    "The font with this family (`None`: the editor's)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "family": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichFont"
+                                },
+                                "fn_body": "object.with_family(family)"
+                            },
+                            "with_half_points": {
+                                "doc": [
+                                    "The font at this size in half points (0: the body size)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "half_points": "u16"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichFont"
+                                },
+                                "fn_body": "object.with_half_points(half_points)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SeekThumbnail": {
+                        "external": "azul_layout::widgets::seek_bar::SeekThumbnail",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "at_s": {
+                                    "type": "f32"
+                                },
+                                "image": {
+                                    "type": "ImageRef"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The picture `image`, standing from `at_s` seconds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "at_s": "f32"
+                                    },
+                                    {
+                                        "image": "ImageRef"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::seek_bar::SeekThumbnail::create(at_s, image)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IconGridGroupVecSlice": {
+                        "external": "azul_layout::widgets::icon_grid::IconGridGroupVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IconGridGroup",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SeekThumbnailVecSlice": {
+                        "external": "azul_layout::widgets::seek_bar::SeekThumbnailVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SeekThumbnail",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RichPageStart": {
+                        "external": "azul_layout::widgets::rich_text_editor::RichPageStart",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "block": {
+                                    "type": "u32"
+                                },
+                                "byte": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A page starting at byte `byte` of block `block`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "block": "u32"
+                                    },
+                                    {
+                                        "byte": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::rich_text_editor::RichPageStart::create(block, byte)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RichPageStartVecSlice": {
+                        "external": "azul_layout::widgets::rich_text_editor::RichPageStartVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RichPageStart",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ToastStack": {
+                        "external": "azul_layout::widgets::toast::ToastStack",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "toasts": {
+                                    "type": "ToastVec"
+                                },
+                                "max_visible": {
+                                    "type": "usize"
+                                },
+                                "bottom_inset": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "An empty stack: three at once, 24 px above the bottom edge."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::toast::ToastStack::create()"
+                            }
+                        },
+                        "functions": {
+                            "add_toast": {
+                                "doc": [
+                                    "Adds `toast` as the newest."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "toast": "Toast"
+                                    }
+                                ],
+                                "fn_body": "object.add_toast(toast)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The stack's DOM: a column centred on the parent's bottom edge (the",
+                                    "parent must be positioned), each toast a card in it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_bottom_inset": {
+                                "doc": [
+                                    "The distance of the lowest toast from the bottom edge, in px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_bottom_inset(px)"
+                            },
+                            "set_max_visible": {
+                                "doc": [
+                                    "How many toasts show at once."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "max_visible": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_max_visible(max_visible)"
+                            },
+                            "with_bottom_inset": {
+                                "doc": [
+                                    "[`Self::set_bottom_inset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastStack"
+                                },
+                                "fn_body": "object.with_bottom_inset(px)"
+                            },
+                            "with_max_visible": {
+                                "doc": [
+                                    "[`Self::set_max_visible`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max_visible": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastStack"
+                                },
+                                "fn_body": "object.with_max_visible(max_visible)"
+                            },
+                            "with_toast": {
+                                "doc": [
+                                    "[`Self::add_toast`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "toast": "Toast"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastStack"
+                                },
+                                "fn_body": "object.with_toast(toast)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ToastVecSlice": {
+                        "external": "azul_layout::widgets::toast::ToastVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Toast",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -127725,6 +128927,15 @@
                                 },
                                 "italic": {
                                     "type": "bool"
+                                },
+                                "max_width": {
+                                    "type": "f32"
+                                },
+                                "align": {
+                                    "type": "TextRasterAlign"
+                                },
+                                "direction": {
+                                    "type": "TextRasterDirection"
                                 }
                             }
                         ],
@@ -127792,8 +129003,101 @@
                                     "type": "TextRasterStyle"
                                 },
                                 "fn_body": "object.with_italic(italic)"
+                            },
+                            "with_align": {
+                                "doc": [
+                                    "Sets each line `align` in its box."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "align": "TextRasterAlign"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_align(align)"
+                            },
+                            "with_direction": {
+                                "doc": [
+                                    "Sets the paragraphs' base direction."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "direction": "TextRasterDirection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_direction(direction)"
+                            },
+                            "with_max_width": {
+                                "doc": [
+                                    "Wraps the lines in `max_width` image pixels ([`Self::max_width`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max_width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_max_width(max_width)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "TextRasterAlign": {
+                        "external": "azul_layout::cpurender::text_raster::TextRasterAlign",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Start": {},
+                                "Center": {},
+                                "End": {},
+                                "Left": {},
+                                "Right": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextRasterDirection": {
+                        "external": "azul_layout::cpurender::text_raster::TextRasterDirection",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Ltr": {},
+                                "Rtl": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -128914,7 +130218,8 @@
                                 "DragOver": {},
                                 "Root": {},
                                 "Placeholder": {},
-                                "FocusVisible": {}
+                                "FocusVisible": {},
+                                "FocusWithin": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -173762,6 +175067,859 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "IconGridGroupVec": {
+                        "external": "azul_layout::widgets::icon_grid::IconGridGroupVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IconGridGroup",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "IconGridGroupVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `IconGridGroupVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IconGridGroupVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `IconGridGroupVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridGroupVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "icon_grid_group_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "icon_grid_group_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "icon_grid_group_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `IconGridGroupVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "IconGridGroup"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridGroupVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `IconGridGroupVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const IconGridGroup"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridGroupVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIconGridGroup"
+                                },
+                                "fn_body": "icon_grid_group_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `IconGridGroupVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridGroupVecSlice"
+                                },
+                                "fn_body": "icon_grid_group_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridGroupVecSlice"
+                                },
+                                "fn_body": "icon_grid_group_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IconGridGroupVecDestructor": {
+                        "external": "azul_layout::widgets::icon_grid::IconGridGroupVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "IconGridGroupVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "IconGridGroupVecDestructorType": {
+                        "external": "azul_layout::widgets::icon_grid::IconGridGroupVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "IconGridGroupVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "SeekThumbnailVec": {
+                        "external": "azul_layout::widgets::seek_bar::SeekThumbnailVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SeekThumbnail",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SeekThumbnailVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SeekThumbnailVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SeekThumbnailVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SeekThumbnailVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekThumbnailVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "seek_thumbnail_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "seek_thumbnail_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "seek_thumbnail_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SeekThumbnailVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SeekThumbnail"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekThumbnailVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SeekThumbnailVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SeekThumbnail"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekThumbnailVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSeekThumbnail"
+                                },
+                                "fn_body": "seek_thumbnail_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SeekThumbnailVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekThumbnailVecSlice"
+                                },
+                                "fn_body": "seek_thumbnail_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SeekThumbnailVecSlice"
+                                },
+                                "fn_body": "seek_thumbnail_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SeekThumbnailVecDestructor": {
+                        "external": "azul_layout::widgets::seek_bar::SeekThumbnailVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SeekThumbnailVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SeekThumbnailVecDestructorType": {
+                        "external": "azul_layout::widgets::seek_bar::SeekThumbnailVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "SeekThumbnailVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "RichPageStartVec": {
+                        "external": "azul_layout::widgets::rich_text_editor::RichPageStartVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RichPageStart",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RichPageStartVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RichPageStartVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RichPageStartVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RichPageStartVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichPageStartVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "rich_page_start_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "rich_page_start_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "rich_page_start_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RichPageStartVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RichPageStart"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichPageStartVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RichPageStartVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RichPageStart"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichPageStartVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRichPageStart"
+                                },
+                                "fn_body": "rich_page_start_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RichPageStartVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichPageStartVecSlice"
+                                },
+                                "fn_body": "rich_page_start_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RichPageStartVecSlice"
+                                },
+                                "fn_body": "rich_page_start_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RichPageStartVecDestructor": {
+                        "external": "azul_layout::widgets::rich_text_editor::RichPageStartVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RichPageStartVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RichPageStartVecDestructorType": {
+                        "external": "azul_layout::widgets::rich_text_editor::RichPageStartVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "RichPageStartVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "ToastVec": {
+                        "external": "azul_layout::widgets::toast::ToastVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Toast",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ToastVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ToastVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ToastVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ToastVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "toast_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "toast_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "toast_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ToastVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "Toast"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ToastVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const Toast"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionToast"
+                                },
+                                "fn_body": "toast_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ToastVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastVecSlice"
+                                },
+                                "fn_body": "toast_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ToastVecSlice"
+                                },
+                                "fn_body": "toast_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ToastVecDestructor": {
+                        "external": "azul_layout::widgets::toast::ToastVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ToastVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ToastVecDestructorType": {
+                        "external": "azul_layout::widgets::toast::ToastVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "ToastVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },
@@ -184749,6 +186907,106 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionIconGridGroup": {
+                        "external": "azul_layout::widgets::icon_grid::OptionIconGridGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "IconGridGroup",
+                                    "doc": [
+                                        "Some value of type IconGridGroup"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSeekThumbnail": {
+                        "external": "azul_layout::widgets::seek_bar::OptionSeekThumbnail",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "SeekThumbnail",
+                                    "doc": [
+                                        "Some value of type SeekThumbnail"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRichPageStart": {
+                        "external": "azul_layout::widgets::rich_text_editor::OptionRichPageStart",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RichPageStart",
+                                    "doc": [
+                                        "Some value of type RichPageStart"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionToast": {
+                        "external": "azul_layout::widgets::toast::OptionToast",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "Toast",
+                                    "doc": [
+                                        "Some value of type Toast"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -189461,6 +191719,56 @@
                                 "fn_body": "azul_layout::thread::Thread::create(thread_initialize_data, writeback_data, callback)"
                             }
                         },
+                        "functions": {
+                            "set_frame_ticks": {
+                                "doc": [
+                                    "[`Self::with_frame_ticks`] on a thread that exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "ticks": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_frame_ticks(ticks)"
+                            },
+                            "wants_frame_ticks": {
+                                "doc": [
+                                    "Whether this worker asked for a `Tick` every frame ([`Self::with_frame_ticks`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.wants_frame_ticks()"
+                            },
+                            "with_frame_ticks": {
+                                "doc": [
+                                    "Whether this worker gets a `ThreadSendMsg::Tick` every frame. Off by default:",
+                                    "a worker that only reports what it did needs no pulse, and a window keeps",
+                                    "its frame poll running only for the workers that asked for one (a worker",
+                                    "that paces itself by the frames, a game loop's)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "ticks": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Thread"
+                                },
+                                "fn_body": "object.with_frame_ticks(ticks)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ThreadId": {
@@ -192061,6 +194369,49 @@
                                     "type": "OptionU32"
                                 },
                                 "fn_body": "object.break_line_start_run(index)"
+                            },
+                            "break_line_text_byte": {
+                                "doc": [
+                                    "The byte of the text node [`Self::break_line_text_path`] names that",
+                                    "the first line of break `index`'s next page begins at: its first",
+                                    "letter, counted in the DOM's text (whitespace as written, not as the",
+                                    "line layout collapsed it). `None` when the break splits no block."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU32"
+                                },
+                                "fn_body": "object.break_line_text_byte(index)"
+                            },
+                            "break_line_text_path": {
+                                "doc": [
+                                    "Root-to-node child-index DOM path of the TEXT node the first line of",
+                                    "break `index`'s next page begins in, when the break splits a block",
+                                    "([`Self::break_line_path`] names the block, this the text node inside",
+                                    "it). With [`Self::break_line_text_byte`] it says where to cut the",
+                                    "DOM's own text: the page view of an editor renders the block from",
+                                    "there. EMPTY when the break splits no block or its line starts in",
+                                    "generated content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U32Vec"
+                                },
+                                "fn_body": "object.break_line_text_path(index)"
                             }
                         },
                         "repr": "C"

@@ -804,14 +804,14 @@ pub(crate) struct Geometry {
     /// A grouped grid's lines, top to bottom (its headers and its rows of
     /// items; `rows` counts them and `top` is one of them); empty for a
     /// grid without groups, whose lines are its uniform rows.
-    pub lines: Vec<GridLine>,
+    pub lines: Vec<IconGridLine>,
     /// Where each of `lines` starts, px from the first line.
     pub tops: Vec<f32>,
 }
 
 /// One line of a grouped grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GridLine {
+pub(crate) enum IconGridLine {
     /// The header of group `.0`.
     Header(usize),
     /// A row of `count` items from item `first`.
@@ -832,7 +832,7 @@ impl Geometry {
     /// The height of line `line`.
     fn line_height(&self, line: usize) -> f32 {
         match self.lines.get(line) {
-            Some(GridLine::Header(_)) => GROUP_HEADER_PX,
+            Some(IconGridLine::Header(_)) => GROUP_HEADER_PX,
             _ => self.cell_height,
         }
     }
@@ -840,7 +840,7 @@ impl Geometry {
     /// The line of a grouped grid holding item `index`, and its column.
     fn line_of(&self, index: usize) -> Option<(usize, usize)> {
         self.lines.iter().enumerate().find_map(|(l, line)| match *line {
-            GridLine::Items { first, count } if index >= first && index < first + count => {
+            IconGridLine::Items { first, count } if index >= first && index < first + count => {
                 Some((l, index - first))
             }
             _ => None,
@@ -858,12 +858,12 @@ impl Geometry {
 /// The lines of `count` items in `columns` columns, grouped as `groups`
 /// says: the items before the first group, then each group's header and
 /// its rows (a group starts a row).
-fn group_lines(groups: &[IconGridGroup], count: usize, columns: usize) -> Vec<GridLine> {
-    fn rows(lines: &mut Vec<GridLine>, from: usize, to: usize, columns: usize) {
+fn group_lines(groups: &[IconGridGroup], count: usize, columns: usize) -> Vec<IconGridLine> {
+    fn rows(lines: &mut Vec<IconGridLine>, from: usize, to: usize, columns: usize) {
         let mut first = from;
         while first < to {
             let n = (to - first).min(columns);
-            lines.push(GridLine::Items { first, count: n });
+            lines.push(IconGridLine::Items { first, count: n });
             first += n;
         }
     }
@@ -873,22 +873,22 @@ fn group_lines(groups: &[IconGridGroup], count: usize, columns: usize) -> Vec<Gr
     rows(&mut lines, 0, starts.first().copied().unwrap_or(count), columns);
     for (k, &start) in starts.iter().enumerate() {
         let end = starts.get(k + 1).copied().unwrap_or(count).max(start);
-        lines.push(GridLine::Header(k));
+        lines.push(IconGridLine::Header(k));
         rows(&mut lines, start, end, columns);
     }
     lines
 }
 
 /// Where each of `lines` starts, px from the first.
-fn line_tops(lines: &[GridLine], cell_height: f32) -> Vec<f32> {
+fn line_tops(lines: &[IconGridLine], cell_height: f32) -> Vec<f32> {
     let mut y = 0.0_f32;
     lines
         .iter()
         .map(|line| {
             let top = y;
             y += match line {
-                GridLine::Header(_) => GROUP_HEADER_PX,
-                GridLine::Items { .. } => cell_height,
+                IconGridLine::Header(_) => GROUP_HEADER_PX,
+                IconGridLine::Items { .. } => cell_height,
             };
             top
         })
@@ -990,8 +990,8 @@ fn grouped_geometry(g: &IconGrid, width: f32, height: f32, cell_width: f32, cell
     let mut columns = steps(body_width, cell_width, true);
     let mut lines = group_lines(groups, count, columns);
     let mut tops = line_tops(&lines, cell_height);
-    let total = |lines: &[GridLine], tops: &[f32]| match (lines.last(), tops.last()) {
-        (Some(GridLine::Header(_)), Some(t)) => t + GROUP_HEADER_PX,
+    let total = |lines: &[IconGridLine], tops: &[f32]| match (lines.last(), tops.last()) {
+        (Some(IconGridLine::Header(_)), Some(t)) => t + GROUP_HEADER_PX,
         (Some(_), Some(t)) => t + cell_height,
         _ => 0.0,
     };
@@ -1013,7 +1013,7 @@ fn grouped_geometry(g: &IconGrid, width: f32, height: f32, cell_width: f32, cell
         if tops[l] - origin >= height {
             break;
         }
-        if let GridLine::Items { first: f, count: n } = *line {
+        if let IconGridLine::Items { first: f, count: n } = *line {
             first = first.min(f);
             end = end.max(f + n);
         }
@@ -1073,7 +1073,7 @@ pub(crate) fn hit_test(geo: &Geometry, x: f32, y: f32) -> Hit {
         // A header is no item; past a row's items is empty space.
         let column = steps(x, geo.cell_width, false);
         return match geo.line_at(y).map(|l| geo.lines[l]) {
-            Some(GridLine::Items { first, count }) if column < count => Hit::Item(first + column),
+            Some(IconGridLine::Items { first, count }) if column < count => Hit::Item(first + column),
             _ => Hit::Empty,
         };
     }
@@ -1135,7 +1135,7 @@ pub(crate) fn band_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -> V
         let mut keys = Vec::new();
         for (l, line) in geo.lines.iter().enumerate() {
             let (line_top, line_bottom) = (geo.tops[l], geo.tops[l] + geo.line_height(l));
-            if let GridLine::Items { first, count } = *line {
+            if let IconGridLine::Items { first, count } = *line {
                 if line_bottom > top && line_top <= bottom && first_column < count {
                     for column in first_column..=last_column.min(count - 1) {
                         keys.push((first + column) as u64);
@@ -1175,7 +1175,7 @@ fn reveal(view: &mut IconGridView, geo: &Geometry, index: usize) {
             return;
         };
         // A group's first row shows with its header.
-        let from = if line > 0 && matches!(geo.lines[line - 1], GridLine::Header(_)) {
+        let from = if line > 0 && matches!(geo.lines[line - 1], IconGridLine::Header(_)) {
             line - 1
         } else {
             line
@@ -1381,7 +1381,7 @@ fn row_neighbour(geo: &Geometry, index: usize, down: bool) -> Option<usize> {
     let mut l = line;
     loop {
         l = if down { l + 1 } else { l.checked_sub(1)? };
-        if let GridLine::Items { first, count } = *geo.lines.get(l)? {
+        if let IconGridLine::Items { first, count } = *geo.lines.get(l)? {
             return Some(first + column.min(count.saturating_sub(1)));
         }
     }
@@ -1864,7 +1864,7 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
         if y >= geo.height {
             break;
         }
-        if let GridLine::Header(group) = *line {
+        if let IconGridLine::Header(group) = *line {
             let label = grid
                 .groups
                 .as_ref()

@@ -713,6 +713,10 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone
     // would capture every text type.
     ("TextRasterStyle", "image"),
+    // The set text's alignment and direction travel in that style, so they
+    // live beside it.
+    ("TextRasterAlign", "image"),
+    ("TextRasterDirection", "image"),
     // The voice echo canceller (VIDEO8): no keyword matched, so it landed in
     // "misc" and AzMeet's `azul::audio::EchoCanceller` did not resolve; it
     // belongs beside `AudioEncoder` / `AudioDecoder` in audio. In full - "Echo"
