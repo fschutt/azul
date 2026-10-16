@@ -1187,3 +1187,5 @@ mod an_svg_stroke_without_a_width_is_one_unit_wide;
 mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
 #[path = "a_relayout_that_changes_nothing_takes_the_retained_tree.rs"]
 mod a_relayout_that_changes_nothing_takes_the_retained_tree;
+#[path = "a_disabled_command_on_the_leather_has_grey_words_and_no_gold.rs"]
+mod a_disabled_command_on_the_leather_has_grey_words_and_no_gold;
