@@ -1511,8 +1511,11 @@ struct DeferredRender {
     /// Which surface it is for (the node and the material): a newer render
     /// of the same surface replaces it while it waits.
     surface: u64,
-    /// What it renders ([`render_key`]).
+    /// What it renders ([`render_key`]): its frame goes into the render
+    /// cache under it, where the window finds it when it asks again.
     key: u64,
+    /// The material, its size in device px, the scale and what it is drawn
+    /// from: the arguments of [`render_material_pixels`].
     material: Material,
     size: [u32; 2],
     dpr: f32,
@@ -1523,7 +1526,10 @@ struct DeferredRender {
 /// The renders waiting for the worker, oldest first, and the keys of every
 /// render waiting or being drawn.
 struct DeferredRenders {
+    /// The renders the worker has not started, oldest first.
     waiting: Vec<DeferredRender>,
+    /// The keys of every render waiting or being drawn: a window asking
+    /// again for one of them queues nothing.
     pending: std::collections::BTreeSet<u64>,
     /// Whether the worker thread runs.
     worker: bool,

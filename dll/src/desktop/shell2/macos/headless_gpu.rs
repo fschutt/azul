@@ -416,12 +416,19 @@ pub(crate) fn draw_gpu_materials(
 /// samples, the framebuffer and the program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GlStateProbe {
+    /// Whether blending is on.
     pub blend: bool,
+    /// Whether the scissor test is on.
     pub scissor: bool,
+    /// Whether the depth test is on.
     pub depth: bool,
+    /// The active texture unit.
     pub active_texture: i32,
+    /// The 2D texture bound to each of the units 0..3.
     pub textures: [i32; 4],
+    /// The framebuffer bound.
     pub framebuffer: i32,
+    /// The program in use.
     pub program: i32,
 }
 

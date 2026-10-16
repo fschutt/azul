@@ -10288,12 +10288,20 @@ impl LayoutWindow {
         /// A layer whose callback is asked: what its frame is drawn from, and
         /// what the callback reads through its bounds and extras.
         struct Ask {
+            /// The layer.
             slot: BackgroundSlot,
+            /// What its frame is drawn from now: remembered once it is.
             inputs: BackgroundCallbackInputs,
+            /// The callback image the layer declares.
             declared: ImageRef,
+            /// The layer's rect, logical px: the frame's size and place.
             bounds: LogicalRect,
+            /// The layer's corner radii.
             radii: [f32; 4],
+            /// The node's custom properties (into its styled DOM, valid
+            /// until phase 3 mutates anything).
             custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+            /// The node's clip path, owned: the extras point into it.
             clip_path: Option<azul_css::props::layout::shape::ClipPath>,
         }
 
