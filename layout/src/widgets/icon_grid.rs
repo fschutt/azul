@@ -2553,7 +2553,9 @@ mod icon_grid_tests {
     fn the_focused_items_ring_shows_only_while_the_grid_has_the_focus() {
         use azul_css::css::{CssPathPseudoSelector, CssPathSelector};
         let (asked, log) = fresh();
-        let g = with_selection(grid(&asked, &log), &[1], 1).with_theme(UiTheme::Flat);
+        // The focused item is not selected: a selected item's own edge is the
+        // accent at night, the same colour the ring has.
+        let g = with_selection(grid(&asked, &log), &[0], 1).with_theme(UiTheme::Flat);
         let look = look_for(OptionUiTheme::Some(UiTheme::Flat));
         let dom = g.dom();
         let focused = dom
