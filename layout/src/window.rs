@@ -1786,7 +1786,7 @@ pub struct LayoutWindow {
     /// lags adopts the light at its next frame (`u64::MAX` = never adopted).
     pub app_light_generation: u64,
     /// The cursor's sheen on each node that draws a built-in material in a
-    /// window WebRender draws (none where the CPU draws), eased on the
+    /// window `WebRender` draws (none where the CPU draws), eased on the
     /// animation clock ([`Self::step_material_sheen`]) and drawn as a layer
     /// over the material through its GPU values (the GPU cache's sheen
     /// channel), never by drawing the material again.
@@ -10098,7 +10098,7 @@ impl LayoutWindow {
     /// a DOM without one. The solver's structural-identity cache may hold a
     /// clone of this very list, so `make_mut` copies and the cache would keep
     /// the PRE-PATCH list: the next relayout over the same tree (a hover, a
-    /// RefreshDom without structural change) would serve it back, and with
+    /// `RefreshDom` without structural change) would serve it back, and with
     /// unchanged inputs nothing would patch it again (`AzPaint`'s stroke
     /// vanished until a resize). The patched list goes to the cache when it
     /// was serving this one. ROOT only: the cache is the root DOM's.
@@ -10271,7 +10271,7 @@ impl LayoutWindow {
     /// with its context (a callback draws into a GL texture there) before
     /// that frame's images are registered.
     ///
-    /// The built-in materials' sheen comes with it: in a window WebRender
+    /// The built-in materials' sheen comes with it: in a window `WebRender`
     /// draws (`drawn_by_webrender`) every material surface gets its sheen
     /// layer's keys and values ([`Self::sync_sheen_keys`]); a window the CPU
     /// draws has none. Returns whether a display list was built again for a

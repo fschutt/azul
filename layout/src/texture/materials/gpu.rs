@@ -234,7 +234,7 @@ const SAMPLER_UNITS: usize = 4;
 /// unit, the texture bound to each unit the shader samples, and whether
 /// blending, the scissor and the depth test are on. The draw runs in the
 /// middle of the GL frame path - after an app's canvas callbacks, before
-/// WebRender - and each of them finds the state it left.
+/// `WebRender` - and each of them finds the state it left.
 struct SavedGlState {
     /// The framebuffer drawn into (the window's, or a renderer's target).
     framebuffer: i32,

@@ -4217,7 +4217,7 @@ mod material_gpu_tests {
     }
 
     /// The material shader draws in the middle of the GL frame path, between
-    /// an app's canvas callbacks and WebRender: whatever it binds or turns
+    /// an app's canvas callbacks and `WebRender`: whatever it binds or turns
     /// off for its own draw it puts back.
     #[test]
     fn a_material_drawn_on_the_gpu_leaves_the_gl_state_it_found() {

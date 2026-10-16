@@ -78,7 +78,7 @@ pub struct GpuValueCache {
     pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// The cursor's SHEEN over a material (keyed by the material's node): the
     /// transform that moves the sheen's highlight to the cursor. A channel of
-    /// its own, minted by the layout window for a window WebRender draws; the
+    /// its own, minted by the layout window for a window `WebRender` draws; the
     /// display list opens a sheen layer over a material exactly where its node
     /// has both sheen keys.
     pub sheen_transform_keys: HashMap<NodeId, TransformKey>,

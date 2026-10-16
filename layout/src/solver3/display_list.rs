@@ -7010,7 +7010,7 @@ where
     /// that covers `area`: a radial highlight, cut to the layer's rounded
     /// rect, whose opacity (the sheen's eased amount) and place (the cursor)
     /// are GPU values - the sheen channel of the GPU cache, which the window
-    /// keys only where WebRender draws it. So the cursor moves it without a
+    /// keys only where `WebRender` draws it. So the cursor moves it without a
     /// new frame of the material or a new display list. Returns whether the
     /// layer has a sheen.
     #[allow(clippy::too_many_arguments)] // the layer's resolved pieces

@@ -1458,7 +1458,7 @@ pub struct ChromaPlane {
 }
 
 /// One new frame of an in-place-replaced image (a video tile, a background
-/// layer's callback frame), to hand to WebRender under its slot's stable key.
+/// layer's callback frame), to hand to `WebRender` under its slot's stable key.
 #[derive(Debug, Clone)]
 pub struct OverlayImageUpload {
     /// The slot's stable key (`RendererResources::image_slots`); the Y
@@ -3112,7 +3112,7 @@ pub fn build_image_only_transaction(
 /// CPU hosts' `prepare_frame_cpu`). One call per submitted frame, before the
 /// frame's images are registered or its lists translated. Returns whether a
 /// display list was built again (a material's sheen layer appeared or went):
-/// the lists must go to WebRender anew.
+/// the lists must go to `WebRender` anew.
 #[must_use]
 fn prepare_frame_content_gl(
     layout_window: &mut LayoutWindow,
@@ -3150,9 +3150,9 @@ fn prepare_frame_content_gl(
 /// lives on. Every texture is stamped with this epoch in the texture cache:
 /// it lives while its slot shows it.
 ///
-/// `changed`: the set of textures handed to WebRender differs from the one
+/// `changed`: the set of textures handed to `WebRender` differs from the one
 /// handed over last time. `new_slot`: a key was added, so the display lists
-/// WebRender holds do not name it yet and must go again.
+/// `WebRender` holds do not name it yet and must go again.
 fn register_overlay_textures(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
