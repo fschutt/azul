@@ -966,6 +966,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // laid out (the cold one: every node) made a relayout of an
             // unchanged page read as a whole-page re-measure.
             cache.last_intrinsic_dirty = 0;
+            // A skip path above took the retained tree out of the cache to
+            // lay it out as this pass's tree. Serving the cached list ends
+            // the pass here, so the tree goes back where the next pass and
+            // the window read it (a reconciled pass left the cache's own
+            // tree in place).
+            if cache.last_reconcile_was_skipped {
+                cache.tree = Some(*new_tree);
+            }
             return Ok(dl);
         }
     }
