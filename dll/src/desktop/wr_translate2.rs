@@ -3563,3 +3563,116 @@ mod overlay_upload_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod gl_texture_lifetime_tests {
+    //! A GL texture WebRender draws lives as long as a display list draws it.
+    //! WebRender looks an external image up at every render, and an image
+    //! the texture cache no longer holds is drawn from texture 0: black.
+
+    use std::rc::Rc;
+
+    use azul_core::{
+        dom::Dom,
+        geom::{LogicalSize, PhysicalSize},
+        gl::{GenericGlContext, GlContextPtr, Texture, TextureFlags},
+        resources::{image_ref_hash_to_external_image_id, ImageRef, RawImageFormat, RendererResources},
+        styled_dom::StyledDom,
+        window::RendererType,
+    };
+    use azul_css::props::basic::ColorU;
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::{register_frame_resources, WrTransaction};
+    use crate::desktop::{gl_texture_cache, gl_texture_integration};
+
+    /// An 8 x 8 GL texture as an image. The context is a null one: every GL
+    /// call is a no-op, which is all the cache's bookkeeping needs.
+    fn gl_image() -> ImageRef {
+        // SAFETY: `GenericGlContext` is `repr(C)` and holds only function
+        // pointers, for which all-zero (null) is valid; the loader checks each
+        // for null before it calls it.
+        let null_gl = Rc::new(unsafe { core::mem::zeroed::<GenericGlContext>() });
+        ImageRef::new_gltexture(Texture::create(
+            42,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSize { width: 8, height: 8 },
+            ColorU::TRANSPARENT,
+            GlContextPtr::new(RendererType::Software, null_gl),
+            RawImageFormat::BGRA8,
+        ))
+    }
+
+    fn lay_out(lw: &mut LayoutWindow, dom: Dom) {
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the window lays out");
+    }
+
+    /// One frame of the GPU path as far as the texture cache sees it: the
+    /// display list's images are registered, the list goes out at a new
+    /// epoch, WebRender renders it and the cache drops what is older.
+    fn send_frame(lw: &mut LayoutWindow) {
+        let dpi = lw.current_window_state.size.get_hidpi_factor();
+        let mut txn = WrTransaction::new();
+        register_frame_resources(lw, &mut txn, dpi);
+        lw.epoch.increment();
+        gl_texture_integration::remove_old_gl_textures(&lw.document_id, lw.epoch);
+    }
+
+    #[test]
+    fn a_gl_image_a_display_list_draws_keeps_its_texture_over_every_frame() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        // A hover restyle, a resize, a theme switch: each sends the display
+        // list again, and the image is in every one of them.
+        for frame in 0..6 {
+            send_frame(&mut lw);
+            assert!(
+                gl_texture_cache::get_texture(&id).is_some(),
+                "frame {frame}: the display list draws the image, but its texture left the cache \
+                 (WebRender would draw it black)"
+            );
+        }
+    }
+
+    #[test]
+    fn a_gl_image_no_display_list_draws_any_more_lets_its_texture_go() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        send_frame(&mut lw);
+        assert!(gl_texture_cache::get_texture(&id).is_some(), "drawn, so kept");
+        lay_out(&mut lw, Dom::create_body());
+        for _ in 0..6 {
+            send_frame(&mut lw);
+        }
+        assert!(
+            gl_texture_cache::get_texture(&id).is_none(),
+            "a texture no display list has drawn for several frames is freed"
+        );
+    }
+}
