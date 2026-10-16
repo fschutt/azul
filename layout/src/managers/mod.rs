@@ -241,6 +241,18 @@ pub(crate) fn remap_background_slots<V>(
     }
 }
 
+/// [`remap_background_slots`] for a set of background layers.
+pub(crate) fn remap_background_slot_set(
+    set: &mut alloc::collections::BTreeSet<azul_core::resources::BackgroundSlot>,
+    dom: DomId,
+    node_map: &NodeIdMap,
+) {
+    let mut as_map: BTreeMap<azul_core::resources::BackgroundSlot, ()> =
+        core::mem::take(set).into_iter().map(|slot| (slot, ())).collect();
+    remap_background_slots(&mut as_map, dom, node_map);
+    *set = as_map.into_keys().collect();
+}
+
 // ============================================================================
 // THE PRECEDING-SIBLING TEST
 // ============================================================================

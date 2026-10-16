@@ -33,7 +33,9 @@
 //! cached by everything they depend on; the grain (the expensive part) is
 //! cached on its own in tiles of window pixels, so a new light or a growing
 //! height relights without recomputing it. With a GPU context the frame is
-//! drawn by the GPU instead (`gpu`).
+//! drawn by the GPU instead (`gpu`). A window that does not wait for a frame
+//! (a desktop shell's CPU window) gets a large surface drawn on a worker
+//! thread, off the UI thread, and shows what the layer showed until then.
 
 // Per-channel loops over parallel colour arrays (`for c in 0..3`) read
 // clearer indexed than zipped three ways.
@@ -1438,6 +1440,34 @@ const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 /// ... and this many renders.
 const RENDERS_KEPT: usize = 96;
 
+/// The process-wide render cache: render key, frame, its bytes; the most
+/// recently used last. Shared by the UI thread and the deferred renders'
+/// worker.
+static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
+
+/// The frame rendered under `key` before, if the cache still holds it (it
+/// moves to the back: the most recently used).
+fn cached_render(key: u64) -> Option<ImageRef> {
+    let mut cache = RENDERS.lock().ok()?;
+    let i = cache.iter().position(|(k, _, _)| *k == key)?;
+    let entry = cache.remove(i);
+    let found = entry.1.clone();
+    cache.push(entry);
+    Some(found)
+}
+
+/// Keep `image` (`bytes` of pixels) under `key`, the oldest renders going
+/// once the cache holds too many or too much.
+fn remember_render(key: u64, image: &ImageRef, bytes: usize) {
+    if let Ok(mut cache) = RENDERS.lock() {
+        cache.push((key, image.clone(), bytes));
+        let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
+        while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
+            total -= cache.remove(0).2;
+        }
+    }
+}
+
 /// [`render_material_pixels`] as an image, from the process-wide render
 /// cache when the same surface was rendered before (the same `ImageRef`:
 /// nothing is uploaded or repainted again). A transparent pixel for an
@@ -1451,18 +1481,12 @@ pub fn render_material(
     params: &MaterialParams,
     scene: &SurfaceScene,
 ) -> ImageRef {
-    static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
     if width == 0 || height == 0 {
         return transparent_pixel();
     }
     let key = render_key(material, width, height, dpr, params, scene);
-    if let Ok(mut cache) = RENDERS.lock() {
-        if let Some(i) = cache.iter().position(|(k, _, _)| *k == key) {
-            let entry = cache.remove(i);
-            let found = entry.1.clone();
-            cache.push(entry);
-            return found;
-        }
+    if let Some(found) = cached_render(key) {
+        return found;
     }
     count_render();
     let Some(image) = render_material_pixels(material, width, height, dpr, params, scene)
@@ -1470,15 +1494,152 @@ pub fn render_material(
     else {
         return transparent_pixel();
     };
-    if let Ok(mut cache) = RENDERS.lock() {
-        let bytes = width as usize * height as usize * 4;
-        cache.push((key, image.clone(), bytes));
-        let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
-        while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
-            total -= cache.remove(0).2;
-        }
-    }
+    remember_render(key, &image, width as usize * height as usize * 4);
     image
+}
+
+// -- Renders off the UI thread -------------------------------------------------------------------
+
+/// The device pixels from which a window that does not wait (a desktop
+/// shell's CPU window, [`RenderImageCallbackExtras::may_defer`]) gets its
+/// material drawn off the UI thread: the size from which the CPU shader
+/// spreads over several cores, tens of milliseconds and more.
+const DEFER_FROM_PX: u64 = 64 * 1024;
+
+/// One render a window does not wait for.
+struct DeferredRender {
+    /// Which surface it is for (the node and the material): a newer render
+    /// of the same surface replaces it while it waits.
+    surface: u64,
+    /// What it renders ([`render_key`]).
+    key: u64,
+    material: Material,
+    size: [u32; 2],
+    dpr: f32,
+    params: MaterialParams,
+    scene: SurfaceScene,
+}
+
+/// The renders waiting for the worker, oldest first, and the keys of every
+/// render waiting or being drawn.
+struct DeferredRenders {
+    waiting: Vec<DeferredRender>,
+    pending: std::collections::BTreeSet<u64>,
+    /// Whether the worker thread runs.
+    worker: bool,
+}
+
+static DEFERRED: Mutex<DeferredRenders> = Mutex::new(DeferredRenders {
+    waiting: Vec::new(),
+    pending: std::collections::BTreeSet::new(),
+    worker: false,
+});
+/// Wakes the worker for a new render, and [`wait_for_deferred_renders`]
+/// when one is done.
+static DEFERRED_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// `material` for a `width` x `height` device-px rect of `surface`, without
+/// waiting: the frame when the render cache holds it, else `None` - the
+/// render is queued for the worker thread (once: asked again while it waits
+/// or is drawn, nothing more is queued; a newer render of the same surface
+/// replaces a waiting one), and the frame is in the cache when it is done.
+fn render_material_deferred(
+    surface: u64,
+    material: Material,
+    [width, height]: [u32; 2],
+    dpr: f32,
+    params: &MaterialParams,
+    scene: &SurfaceScene,
+) -> Option<ImageRef> {
+    let key = render_key(material, width, height, dpr, params, scene);
+    if let Some(found) = cached_render(key) {
+        return Some(found);
+    }
+    let Ok(mut deferred) = DEFERRED.lock() else {
+        return Some(render_material(material, width, height, dpr, params, scene));
+    };
+    if deferred.pending.contains(&key) {
+        return None;
+    }
+    let superseded: Vec<u64> = deferred
+        .waiting
+        .iter()
+        .filter(|job| job.surface == surface)
+        .map(|job| job.key)
+        .collect();
+    deferred.waiting.retain(|job| job.surface != surface);
+    for old in superseded {
+        deferred.pending.remove(&old);
+    }
+    if !deferred.worker {
+        let spawned = std::thread::Builder::new()
+            .name("azul-materials".into())
+            .spawn(deferred_worker)
+            .is_ok();
+        if !spawned {
+            drop(deferred);
+            return Some(render_material(material, width, height, dpr, params, scene));
+        }
+        deferred.worker = true;
+    }
+    count_render();
+    deferred.pending.insert(key);
+    deferred.waiting.push(DeferredRender {
+        surface,
+        key,
+        material,
+        size: [width, height],
+        dpr,
+        params: *params,
+        scene: scene.clone(),
+    });
+    DEFERRED_CHANGED.notify_all();
+    None
+}
+
+/// The worker: draws the waiting renders, oldest first, into the render
+/// cache. A render that fails leaves a transparent pixel under its key, so
+/// it is not asked for again and again.
+fn deferred_worker() {
+    loop {
+        let job = {
+            let Ok(mut deferred) = DEFERRED.lock() else {
+                return;
+            };
+            loop {
+                if !deferred.waiting.is_empty() {
+                    break deferred.waiting.remove(0);
+                }
+                deferred = match DEFERRED_CHANGED.wait(deferred) {
+                    Ok(guard) => guard,
+                    Err(_) => return,
+                };
+            }
+        };
+        let [width, height] = job.size;
+        let image = render_material_pixels(job.material, width, height, job.dpr, &job.params, &job.scene)
+            .and_then(ImageRef::new_rawimage)
+            .unwrap_or_else(transparent_pixel);
+        remember_render(job.key, &image, width as usize * height as usize * 4);
+        if let Ok(mut deferred) = DEFERRED.lock() {
+            deferred.pending.remove(&job.key);
+        }
+        DEFERRED_CHANGED.notify_all();
+    }
+}
+
+/// Wait until no material render is waiting or being drawn off the UI
+/// thread (a test, a screenshot that must show every surface whole).
+pub fn wait_for_deferred_renders() {
+    let Ok(mut deferred) = DEFERRED.lock() else {
+        return;
+    };
+    while !deferred.pending.is_empty() {
+        deferred = match DEFERRED_CHANGED.wait(deferred) {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+    }
 }
 
 // -- The callback image -------------------------------------------------------------------------
@@ -1586,6 +1747,22 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
                 return frame;
             }
         }
+    }
+    // A window that does not wait gets a large surface drawn off the UI
+    // thread; it keeps what the layer shows and asks again.
+    let large = u64::from(size.width) * u64::from(size.height) >= DEFER_FROM_PX;
+    if large && extras.is_some_and(|e| e.may_defer) {
+        let node = info.get_callback_node_id();
+        let surface = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (node.dom.inner, node.node.into_crate_internal().map(|n| n.index()), material).hash(&mut h);
+            h.finish()
+        };
+        return render_material_deferred(surface, material, [size.width, size.height], dpr, &params, &scene)
+            .unwrap_or_else(|| {
+                crate::callbacks::mark_frame_deferred();
+                transparent_pixel()
+            });
     }
     render_material(material, size.width, size.height, dpr, &params, &scene)
 }

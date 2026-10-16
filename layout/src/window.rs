@@ -1125,6 +1125,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // One small entry per background layer that declares a render
         // callback: bounded by such layers.
         background_callback_inputs: _,
+        // A subset of those layers, for the few frames a render takes.
+        background_callbacks_waiting: _,
         // A light and a counter.
         material_light: _,
         background_frames_generation: _,
@@ -1758,6 +1760,11 @@ pub struct LayoutWindow {
     /// changed ([`Self::invoke_background_image_callbacks_into_overlay`]); its
     /// frame lives in the content overlay's background arm.
     pub background_callback_inputs: BTreeMap<BackgroundSlot, BackgroundCallbackInputs>,
+    /// The background layers whose callback deferred its frame (a large
+    /// material drawn off the UI thread for a CPU window): asked again on
+    /// every frame until it answers, and while any waits the window asks for
+    /// frames ([`Self::needs_animation_frame`]).
+    pub background_callbacks_waiting: BTreeSet<BackgroundSlot>,
     /// The window's own material light (`CallbackInfo::set_material_light`):
     /// the light's colour, strength, ambient share and god rays for every
     /// material here, and - once [`Self::material_light_is_own`] - its
@@ -2622,6 +2629,7 @@ impl LayoutWindow {
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
             background_callback_inputs: BTreeMap::new(),
+            background_callbacks_waiting: BTreeSet::new(),
             material_light: crate::texture::MaterialLight::DEFAULT,
             background_frames_generation: 0,
             material_light_is_own: false,
@@ -10447,9 +10455,16 @@ impl LayoutWindow {
             }
         }
 
+        // A window a desktop shell draws on the CPU does not wait for a slow
+        // callback: it keeps what the layer shows while the frame is drawn
+        // off the UI thread. Headless and test windows (no renderer type)
+        // draw every frame whole.
+        let may_defer = !drawn_by_webrender && self.renderer_type == Some(RendererType::Software);
+
         // Phase 2: ask the callbacks (nothing is mutated until phase 3, so
-        // the custom-property pointers into the styled DOMs stay valid).
-        let mut drawn: Vec<(BackgroundSlot, BackgroundCallbackInputs, ImageRef)> = Vec::new();
+        // the custom-property pointers into the styled DOMs stay valid). A
+        // deferred answer is a stand-in (`true` with it).
+        let mut drawn: Vec<(BackgroundSlot, BackgroundCallbackInputs, ImageRef, bool)> = Vec::new();
         for ask in asks {
             let DecodedImage::Callback(core_callback) = ask.declared.get_data() else {
                 continue;
@@ -10470,6 +10485,7 @@ impl LayoutWindow {
                     .clip_path
                     .as_ref()
                     .map_or(core::ptr::null(), core::ptr::from_ref),
+                may_defer,
             };
             let domnode_id = DomNodeId {
                 dom: ask.slot.dom,
@@ -10491,13 +10507,15 @@ impl LayoutWindow {
             unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
             let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
             let refany = core_callback.refany.clone();
+            let _ = crate::callbacks::take_frame_deferred();
             let produced =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
                     .ok();
+            let deferred = crate::callbacks::take_frame_deferred();
             // A callback answering with another callback would be asked
             // forever: only a drawable frame is kept (a panic is asked again).
             if let Some(frame) = produced.filter(|frame| !frame.is_callback()) {
-                drawn.push((ask.slot, ask.inputs, frame));
+                drawn.push((ask.slot, ask.inputs, frame, deferred));
             }
         }
 
@@ -10505,8 +10523,21 @@ impl LayoutWindow {
         self.content_overlay.retain_backgrounds(|slot| seen.contains(slot));
         self.background_callback_inputs
             .retain(|slot, _| seen.contains(slot));
-        for (slot, inputs, image) in drawn {
-            self.background_callback_inputs.insert(slot, inputs);
+        self.background_callbacks_waiting
+            .retain(|slot| seen.contains(slot));
+        for (slot, inputs, image, deferred) in drawn {
+            if deferred {
+                // Asked again on the next frames (its inputs are not taken
+                // as drawn); the layer keeps the frame it shows, or shows its
+                // base colour through the stand-in before its first one.
+                self.background_callbacks_waiting.insert(slot);
+                if self.content_overlay.background_frame(&slot).is_some() {
+                    continue;
+                }
+            } else {
+                self.background_callbacks_waiting.remove(&slot);
+                self.background_callback_inputs.insert(slot, inputs);
+            }
             let _ = self.apply_content_change(
                 crate::overlay::ContentChange::BackgroundImageCallbackResult { slot, image },
             );
@@ -16230,6 +16261,7 @@ impl LayoutWindow {
             || !self.css_transitions.is_empty()
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
             || self.material_sheen_in_flight()
+            || !self.background_callbacks_waiting.is_empty()
     }
 
     /// Whether the cursor's sheen on a material is still easing, or the
@@ -16464,8 +16496,11 @@ impl LayoutWindow {
         use azul_core::events::ProcessEventResult;
         let relayout = self.take_transition_relayout();
         // A sheen step moved its layer's GPU values: a repaint shows them,
-        // the display list stays.
-        let patched = self.take_transition_patched() | self.material_sheen.take_stepped();
+        // the display list stays. A layer waiting for its frame is asked
+        // again by the repaint's frame preparation.
+        let patched = self.take_transition_patched()
+            | self.material_sheen.take_stepped()
+            | !self.background_callbacks_waiting.is_empty();
         if relayout {
             ProcessEventResult::ShouldIncrementalRelayout
         } else if patched || self.animation_tick_is_values_only() {
@@ -27863,6 +27898,8 @@ impl LayoutWindow {
             // data of a callback it reuses says so with
             // `update_all_image_callbacks`), so the layer keeps its frame.
             background_callback_inputs,
+            // The layers still waiting for a frame follow their nodes.
+            background_callbacks_waiting,
             // The window's light, keyed by nothing.
             material_light: _,
             background_frames_generation: _,
@@ -28176,6 +28213,7 @@ impl LayoutWindow {
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
         crate::managers::remap_background_slots(background_callback_inputs, dom, map);
+        crate::managers::remap_background_slot_set(background_callbacks_waiting, dom, map);
         crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history

@@ -8119,6 +8119,35 @@ pub struct RenderImageCallbackExtras {
     pub custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
     /// The node's `clip-path` (a bevel can follow it); null for none.
     pub clip_path: *const azul_css::props::layout::shape::ClipPath,
+    /// Whether the window takes a frame later: a window a desktop shell draws
+    /// on the CPU shows the layer's previous frame (or its base colour) while
+    /// a slow callback draws the new one off the UI thread. Such a callback
+    /// answers with any frame, calls [`mark_frame_deferred`], and is asked
+    /// again on the window's next frames until it answers for real. Off for
+    /// a window that must draw every frame whole (headless, tests,
+    /// screenshots).
+    pub may_defer: bool,
+}
+
+std::thread_local! {
+    /// Set by a render callback that deferred its frame
+    /// ([`mark_frame_deferred`]), taken by the window that asked it.
+    static FRAME_DEFERRED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Called by a render callback that was allowed to defer
+/// ([`RenderImageCallbackExtras::may_defer`]) and did: its answer is a stand-in,
+/// and the real frame is drawn off the UI thread. The window keeps the frame
+/// the layer shows (its base colour before the first one) and asks again on
+/// its next frames.
+pub fn mark_frame_deferred() {
+    FRAME_DEFERRED.with(|deferred| deferred.set(true));
+}
+
+/// Whether the render callback just invoked on this thread deferred its frame
+/// ([`mark_frame_deferred`]); clears the mark.
+pub(crate) fn take_frame_deferred() -> bool {
+    FRAME_DEFERRED.with(core::cell::Cell::take)
 }
 
 impl RenderImageCallbackExtras {
@@ -8150,6 +8179,7 @@ impl RenderImageCallbackExtras {
             },
             custom_properties: core::ptr::null(),
             clip_path: core::ptr::null(),
+            may_defer: false,
         }
     }
 
