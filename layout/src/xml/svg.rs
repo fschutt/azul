@@ -1598,8 +1598,14 @@ pub fn apply_fxaa_with_config(
     let mut current_viewport = [0_i32; 4];
 
     gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-    gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
-    gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+    gl_context.get_integer_v(
+        gl::FRAMEBUFFER_BINDING,
+        (&mut current_framebuffers[..]).into(),
+    );
+    gl_context.get_integer_v(
+        gl::TEXTURE_BINDING_2D,
+        (&mut current_texture_2d[..]).into(),
+    );
     gl_context.get_integer_v(
         gl::VERTEX_ARRAY_BINDING,
         (&mut current_vertex_array_object[..]).into(),
