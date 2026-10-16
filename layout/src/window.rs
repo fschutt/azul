@@ -10435,7 +10435,10 @@ impl LayoutWindow {
                     environment_generation,
                     highlight,
                 };
-                if self.background_callback_inputs.get(&slot) == Some(&inputs) {
+                // Drawn from these already, and its frame is still there.
+                if self.background_callback_inputs.get(&slot) == Some(&inputs)
+                    && self.content_overlay.background_frame(&slot).is_some()
+                {
                     continue;
                 }
                 // Gone from the cache (the app removed the id): the layer
@@ -10545,6 +10548,10 @@ impl LayoutWindow {
 
         // The sheen: the surfaces whose hover drives it, their layers' keys
         // (a list that gains or loses a layer is built again) and values.
+        // Not where no GPU values are kept at all (the headless web path).
+        if self.skip_gpu_sync {
+            return false;
+        }
         self.material_sheen
             .sync(if drawn_by_webrender { shining } else { BTreeMap::new() });
         let rebuilt = self.sync_sheen_keys();
@@ -10561,6 +10568,14 @@ impl LayoutWindow {
     /// none anywhere else. Returns the DOMs whose keys changed: their display
     /// lists must be built again to open or drop the layers.
     fn sync_sheen_keys(&mut self) -> Vec<DomId> {
+        // Nothing shines and nothing did: no cache is touched.
+        if self.material_sheen.surfaces.is_empty()
+            && self.gpu_state_manager.caches.values().all(|cache| {
+                cache.sheen_opacity_keys.is_empty() && cache.sheen_transform_keys.is_empty()
+            })
+        {
+            return Vec::new();
+        }
         let doms: BTreeSet<DomId> = self
             .gpu_state_manager
             .caches
