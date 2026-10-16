@@ -1457,11 +1457,11 @@ pub struct ChromaPlane {
     pub update: bool,
 }
 
-/// One new frame of an in-place-replaced node image (a video tile), to hand
-/// to WebRender under the node's stable key.
+/// One new frame of an in-place-replaced image (a video tile, a background
+/// layer's callback frame), to hand to WebRender under its slot's stable key.
 #[derive(Debug, Clone)]
 pub struct OverlayImageUpload {
-    /// The node's stable key (`RendererResources::node_image_slots`); the Y
+    /// The slot's stable key (`RendererResources::image_slots`); the Y
     /// plane of an NV12 frame.
     pub key: ImageKey,
     /// `update_image` (the key already holds a frame) rather than
@@ -1482,12 +1482,13 @@ pub struct OverlayImageUpload {
     pub dirty: ImageDirtyRect,
 }
 
-/// Plan the uploads of this frame's in-place-replaced node images.
+/// Plan the uploads of this frame's in-place-replaced images.
 ///
-/// `frames` are the content overlay's images by node, each with the region of
-/// it the renderer has not uploaded yet (`ContentOverlay::image_dirty`). Every
-/// raw frame that is not registered yet goes under its node's stable key: the
-/// node's first frame mints the key (an `add_image`), every later one UPDATES
+/// `frames` are the content overlay's images by slot (a node's image, a
+/// background layer's callback frame), each with the region of it the
+/// renderer has not uploaded yet (`ContentOverlay::image_dirty`). Every raw
+/// frame that is not registered yet goes under its slot's stable key: the
+/// slot's first frame mints the key (an `add_image`), every later one UPDATES
 /// it (pixels only - no new key, so neither the display list nor the scene is
 /// rebuilt), and only its dirty region when the key already holds a frame of
 /// the same pixel shape. The frame's hash resolves to the key, and the frame
@@ -1499,7 +1500,7 @@ pub fn plan_overlay_image_uploads<'a, I>(
     namespace: azul_core::resources::IdNamespace,
 ) -> Vec<OverlayImageUpload>
 where
-    I: Iterator<Item = ((DomId, NodeId), &'a ImageRef, ImageDirtyRect)>,
+    I: Iterator<Item = (azul_core::resources::ImageSlot, &'a ImageRef, ImageDirtyRect)>,
 {
     use azul_core::resources::{DecodedImage, ResolvedImage};
 
@@ -1512,11 +1513,11 @@ where
         if rr.currently_registered_images.contains_key(&hash) {
             continue;
         }
-        let (key, update) = match rr.node_image_slots.get(&slot) {
+        let (key, update) = match rr.image_slots.get(&slot) {
             Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),
             _ => {
                 let key = ImageKey::unique_image_slot(namespace);
-                rr.node_image_slots.insert(slot, key);
+                rr.image_slots.insert(slot, key);
                 (key, false)
             }
         };
@@ -1699,11 +1700,11 @@ fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransacti
         ..
     } = *layout_window;
     let uploads = plan_overlay_image_uploads(
-        content_overlay.iter_images().map(|(slot, image)| {
+        content_overlay.iter_images().map(|(&(dom, node), image)| {
             let pending = content_overlay
-                .image_dirty(slot.0, slot.1)
+                .image_dirty(dom, node)
                 .unwrap_or(ImageDirtyRect::All);
-            (*slot, image, pending)
+            (azul_core::resources::ImageSlot::Node(dom, node), image, pending)
         }),
         renderer_resources,
         namespace,
@@ -3385,6 +3386,8 @@ mod overlay_upload_tests {
     use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
     use webrender::api::{DirtyRect, ImageFormat};
 
+    use azul_core::resources::ImageSlot;
+
     use super::{nv12_plane_descriptors, plan_overlay_image_uploads, translate_dirty_rect};
 
     fn frame(format: RawImageFormat, w: usize, h: usize, fill: u8) -> ImageRef {
@@ -3404,7 +3407,7 @@ mod overlay_upload_tests {
         .expect("a well-formed frame")
     }
 
-    const TILE: (DomId, NodeId) = (DomId { inner: 0 }, NodeId::new(3));
+    const TILE: ImageSlot = ImageSlot::Node(DomId { inner: 0 }, NodeId::new(3));
     const NS: IdNamespace = IdNamespace(7);
 
     #[test]
@@ -3415,7 +3418,7 @@ mod overlay_upload_tests {
         assert_eq!(first.len(), 1);
         assert!(!first[0].update, "the tile's first frame adds its key");
         let key = first[0].key;
-        assert_eq!(rr.node_image_slots.get(&TILE), Some(&key));
+        assert_eq!(rr.image_slots.get(&TILE), Some(&key));
         assert_eq!(
             rr.currently_registered_images
                 .get(&f1.get_hash())

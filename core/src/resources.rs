@@ -2581,6 +2581,33 @@ impl RendererResourcesTrait for RendererResources {
     }
 }
 
+/// A background layer whose image is a render callback (`builtin(leather)`,
+/// `url(id)` naming a `RenderImageCallback`): the frames the callback draws
+/// for the layer belong to it. The engine draws the layer from its slot's
+/// latest frame and renders a new one only when what the frame is drawn
+/// from changes.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BackgroundSlot {
+    /// The DOM the layer is painted in.
+    pub dom: DomId,
+    /// The node whose background it is; `None` for the canvas, which paints
+    /// the root's background over the whole window.
+    pub node: Option<NodeId>,
+    /// The callback image the layer declares: a node with two callback layers
+    /// has two slots.
+    pub declared: ImageRefHash,
+}
+
+/// A picture the renderer replaces in place, frame by frame, under one stable
+/// image key ([`RendererResources::image_slots`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ImageSlot {
+    /// A node's displayed image: a video tile, a canvas.
+    Node(DomId, NodeId),
+    /// A background layer's callback frame.
+    Background(BackgroundSlot),
+}
+
 /// Renderer resources that manage font, image and font instance keys.
 /// `RendererResources` are local to each renderer / window, since the
 /// keys are not shared across renderers
@@ -2627,13 +2654,14 @@ pub struct RendererResources {
     /// renderer ([`Self::delete_font`]) - the fonts a document brought (the
     /// pages of a PDF) go when its pages do.
     pub font_last_seen_epoch: OrderedMap<u64, u32>,
-    /// The image key of every node whose picture is REPLACED IN PLACE: a
-    /// video tile, whose frames arrive through `change_node_image` and live
-    /// in the content overlay. One key per `(DomId, NodeId)` for as long as
-    /// the node shows frames, so a new frame is `update_image` (pixels only:
-    /// no new key, no display-list or scene rebuild). Minted with
-    /// [`ImageKey::unique_image_slot`], so no image ever derives the same key.
-    pub node_image_slots: OrderedMap<(DomId, NodeId), ImageKey>,
+    /// The image key of every picture that is REPLACED IN PLACE: a video
+    /// tile, whose frames arrive through `change_node_image`, and a
+    /// background layer's callback frame - both live in the content overlay.
+    /// One key per [`ImageSlot`] for as long as the slot shows frames, so a
+    /// new frame is `update_image` (pixels only: no new key, no display-list
+    /// or scene rebuild). Minted with [`ImageKey::unique_image_slot`], so no
+    /// image ever derives the same key.
+    pub image_slots: OrderedMap<ImageSlot, ImageKey>,
     /// The Cb,Cr-plane key of every registered NV12 image, by its Y-plane
     /// key: an NV12 image is TWO renderer images (an R8 luma plane and an RG8
     /// chroma plane, views into one buffer).
