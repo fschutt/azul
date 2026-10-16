@@ -91,7 +91,10 @@ pub(crate) fn render_material_gl(
         return None;
     }
     let gl: Rc<GenericGlContext> = gl_ptr.get().clone();
-    STATES.with(|states| {
+    // Before anything is compiled, uploaded or bound: what the frame path
+    // had set up is put back after the draw.
+    let saved = SavedGlState::save(&gl);
+    let frame = STATES.with(|states| {
         let mut states = states.borrow_mut();
         let index = state_index(&mut states, &gl, version);
         let state = &mut states[index];
@@ -99,7 +102,9 @@ pub(crate) fn render_material_gl(
             return None;
         }
         state.draw(gl_ptr, &gl, material, [width, height], dpr, params, scene)
-    })
+    });
+    saved.restore(&gl);
+    frame
 }
 
 /// Whether the material shader compiles and links on `gl` (tests ask, to
@@ -112,11 +117,15 @@ pub fn material_shader_compiles(gl_ptr: &GlContextPtr) -> bool {
         return false;
     }
     let gl = gl_ptr.get().clone();
-    STATES.with(|states| {
+    // Linking the program and uploading the blank texture bind things.
+    let saved = SavedGlState::save(&gl);
+    let compiles = STATES.with(|states| {
         let mut states = states.borrow_mut();
         let index = state_index(&mut states, &gl, version);
         states[index].program != 0
-    })
+    });
+    saved.restore(&gl);
+    compiles
 }
 
 /// The index of `gl`'s state, made now if it has none; states of contexts
@@ -386,9 +395,8 @@ impl ContextState {
         params: &MaterialParams,
         scene: &SurfaceScene,
     ) -> Option<ImageRef> {
-        // Before anything is uploaded or bound: what the frame path had set
-        // up is put back after the draw.
-        let saved = SavedGlState::save(gl);
+        // The caller (`render_material_gl`) saved the context's state and
+        // puts it back: this binds and turns off what the draw needs.
         let u = prepare(material, [width, height], dpr, params, scene);
         let (tile_tex, macro_tex, macro_period) = self.tile_textures(gl, material);
         let source = match params.source {
@@ -417,7 +425,6 @@ impl ContextState {
             if let Some(tex) = shape_tex {
                 gl.delete_textures(&[tex]);
             }
-            saved.restore(gl);
             return None;
         }
 
@@ -492,7 +499,9 @@ impl ContextState {
             super::count_render();
         }
 
-        saved.restore(gl);
+        // The frame's framebuffer is unbound before it goes: the caller puts
+        // back the one the frame path had bound.
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
         if fbo != 0 {
             gl.delete_framebuffers(&[fbo]);
         }
