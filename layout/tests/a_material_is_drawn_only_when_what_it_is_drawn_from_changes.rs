@@ -129,3 +129,39 @@ fn a_resized_material_is_drawn_once_for_its_new_size() {
         "the frame is drawn for the new box"
     );
 }
+
+/// A window a desktop shell draws on the CPU does not wait for a large
+/// surface: the shader runs off the UI thread, the layer shows its base
+/// colour until the frame is ready, and the window keeps asking for frames
+/// until then - then shows it, and asks for none.
+#[test]
+fn a_large_material_in_a_cpu_window_is_drawn_off_the_ui_thread() {
+    let css = "width: 400px; height: 240px; background: builtin(leather);";
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.renderer_type = Some(azul_core::window::RendererType::Software);
+    lay_out(&mut lw, css, LogicalSize::new(400.0, 300.0));
+    let before = renders_on_this_thread();
+    lw.prepare_frame_content();
+    let (stand_in, _) = material_frame(&lw);
+    assert!(
+        stand_in.get_size().width < 400.0,
+        "the first frame shows the base colour while the leather is drawn elsewhere, not a \
+         frame drawn on the UI thread: {:?}",
+        stand_in.get_size()
+    );
+    assert!(lw.needs_animation_frame(), "the window waits for the frame");
+
+    let mut ready = None;
+    for _ in 0..1000 {
+        lw.prepare_frame_content();
+        let (frame, _) = material_frame(&lw);
+        if frame.get_size() == LogicalSize::new(400.0, 240.0) {
+            ready = Some(frame);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(ready.is_some(), "the leather arrives");
+    assert!(!lw.needs_animation_frame(), "and the window goes idle");
+    assert_eq!(renders_on_this_thread() - before, 1, "drawn once");
+}
