@@ -833,6 +833,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
         r.reused_nodes = tree.nodes.len();
         r.fresh_nodes = 0;
+        // The diff proved every node clean, so no node's fingerprint was
+        // computed again: the census counts them all as skipped.
+        if unchanged && !resize_only && !overrides_only {
+            r.fingerprint_skips = dom_len_for_hint;
+        }
         (tree, r)
     } else {
         cache.last_reconcile_was_skipped = false;
