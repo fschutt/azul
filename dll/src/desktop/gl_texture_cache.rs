@@ -115,6 +115,30 @@ pub fn insert_texture_by_id(
     });
 }
 
+/// The texture under `external_image_id` is drawn by a display list sent at
+/// `epoch`: it stays until [`remove_old_epochs`] finds no list of the last
+/// two epochs drew it. Returns whether the cache holds such a texture.
+pub fn keep_alive(
+    document_id: &DocumentId,
+    external_image_id: &ExternalImageId,
+    epoch: Epoch,
+) -> bool {
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let Some(entry) = cache_opt
+            .as_mut()
+            .and_then(|cache| cache.get_mut(document_id))
+            .and_then(|storage| storage.get_mut(external_image_id))
+        else {
+            return false;
+        };
+        if entry.epoch < epoch {
+            entry.epoch = epoch;
+        }
+        true
+    })
+}
+
 /// Remove all textures with epochs older than the threshold.
 ///
 /// This is called after rendering to clean up textures from previous frames.

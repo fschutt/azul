@@ -853,6 +853,19 @@ pub fn collect_image_resource_updates(
         crate::desktop::gl_texture_integration::insert_into_active_gl_textures,
     );
 
+    // A GL image goes into the texture cache once, when it is first added;
+    // the cache frees a texture two epochs after the last list that drew it
+    // was sent. So every list that still draws one renews its stamp here:
+    // WebRender looks the texture up at each render, and one the cache let go
+    // is drawn from texture 0 - black.
+    for image in images_in_display_list.iter().filter(|image| image.is_gl_texture()) {
+        let _ = crate::desktop::gl_texture_cache::keep_alive(
+            &layout_window.document_id,
+            &azul_core::resources::image_ref_hash_to_external_image_id(image.get_hash()),
+            layout_window.epoch,
+        );
+    }
+
     log_debug!(
         LogCategory::Rendering,
         "[collect_image_resource_updates] Generated {} AddImage messages",
