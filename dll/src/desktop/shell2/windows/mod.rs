@@ -1220,6 +1220,10 @@ impl Win32Window {
                 if let Some(lw) = self.common.layout_window.as_mut() {
                     lw.prepare_frame_cpu();
                 }
+                // Like every pass, the content step may leave work: a
+                // background whose callback draws its frame off the UI thread
+                // is asked again on the frames the animation drivers bring.
+                self.arm_animation_drivers_if_needed();
 
                 if let Some(ref layout_window) = self.common.layout_window {
                     let dom_id = DomId { inner: 0 };
