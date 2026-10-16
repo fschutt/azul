@@ -1,16 +1,23 @@
 //! A window draws its materials, its light-following shadows and the cursor's
 //! sheen from the ONE app light: the app sets it once (`AppConfig::with_light`)
 //! or moves it (`CallbackInfo::set_app_light`), and every window adopts it at
-//! its next frame. The cursor's sheen on a material eases in over 140 ms and
-//! out over 320 ms, and asks for frames only while it moves.
+//! its next frame. The cursor's sheen on a material is a layer of its own over
+//! the material, in a window WebRender draws: it eases in over 140 ms and out
+//! over 320 ms, follows the cursor through GPU values (no new frame of the
+//! material, no new display list), and asks for frames only while it moves.
+//! A window the CPU draws has no sheen.
 
 use azul_core::{
     dom::{Dom, DomId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    gl::OptionGlContextPtr,
     id::NodeId,
     light::Light,
-    resources::{AppConfig, ImageRef, RawImageData, RawImageFormat, RendererResources},
+    resources::{
+        AppConfig, ImageRef, OpacityKey, RendererResources, TransformKey,
+    },
     styled_dom::StyledDom,
+    transform::ComputedTransform3D,
     window::CursorPosition,
 };
 use azul_layout::{
@@ -41,6 +48,70 @@ fn lay_out(css: &str) -> LayoutWindow {
     lw
 }
 
+/// [`lay_out`], the first frame prepared the way the GL frame path prepares
+/// it: a window WebRender draws (no GL context here, so the material itself
+/// is drawn on the CPU - the sheen is the same either way).
+fn lay_out_drawn_by_webrender(css: &str) -> LayoutWindow {
+    let mut lw = lay_out(css);
+    lw.prepare_frame_gl(&OptionGlContextPtr::None);
+    lw
+}
+
+/// The sheen layer the display list draws over its material: the keys its
+/// opacity and its transform are bound to, and the highlight's own rect (the
+/// radial gradient, before the transform moves it).
+fn sheen_layer(lw: &LayoutWindow) -> Option<(OpacityKey, TransformKey, LogicalRect)> {
+    let items = items(lw);
+    let material = items
+        .iter()
+        .position(|item| matches!(item, DisplayListItem::Image { .. }))?;
+    let mut opacity = None;
+    let mut transform = None;
+    for item in &items[material + 1..] {
+        match item {
+            DisplayListItem::PushOpacity {
+                opacity_key: Some(key),
+                ..
+            } if opacity.is_none() => opacity = Some(*key),
+            DisplayListItem::PushReferenceFrame { transform_key, .. }
+                if opacity.is_some() && transform.is_none() =>
+            {
+                transform = Some(*transform_key);
+            }
+            DisplayListItem::RadialGradient { bounds, .. } if transform.is_some() => {
+                return Some((opacity?, transform?, *bounds.inner()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// What the GPU binds now under the sheen's keys: its opacity and its
+/// translation (x, y).
+fn sheen_values(lw: &LayoutWindow, opacity: OpacityKey, transform: TransformKey) -> (Option<f32>, Option<[f32; 2]>) {
+    let cache = lw
+        .gpu_state_manager
+        .get_cache(DomId::ROOT_ID)
+        .expect("the window's GPU values");
+    let mut bound_opacity = None;
+    let mut bound_translation = None;
+    cache.for_each_bound_value(
+        DomId::ROOT_ID,
+        |id, value: &ComputedTransform3D| {
+            if id == transform.id {
+                bound_translation = Some([value.m[3][0], value.m[3][1]]);
+            }
+        },
+        |id, value| {
+            if id == opacity.id {
+                bound_opacity = Some(value);
+            }
+        },
+    );
+    (bound_opacity, bound_translation)
+}
+
 fn items(lw: &LayoutWindow) -> Vec<DisplayListItem> {
     lw.get_layout_result(&DomId::ROOT_ID)
         .expect("laid out")
@@ -58,28 +129,6 @@ fn frame(lw: &LayoutWindow) -> (LogicalRect, ImageRef) {
             _ => None,
         })
         .expect("the material is drawn")
-}
-
-/// The mean straight luma of the frame's pixels in the box (`x`, `y`, `w`,
-/// `h`), frame pixels.
-fn mean_luma(image: &ImageRef, (x0, y0, w, h): (usize, usize, usize, usize)) -> f32 {
-    let raw = image.get_rawimage().expect("a CPU frame");
-    let RawImageData::U8(bytes) = &raw.pixels else {
-        panic!("an 8-bit frame");
-    };
-    let b = bytes.as_ref();
-    let mut sum = 0.0;
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            let i = (y * raw.width + x) * 4;
-            let (r, g, bl) = match raw.data_format {
-                RawImageFormat::BGRA8 => (b[i + 2], b[i + 1], b[i]),
-                _ => (b[i], b[i + 1], b[i + 2]),
-            };
-            sum += 0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(bl);
-        }
-    }
-    sum / (w * h) as f32
 }
 
 #[test]
@@ -157,7 +206,7 @@ fn a_box_shadow_that_follows_the_light_falls_away_from_it() {
 
 #[test]
 fn the_cursor_sheen_eases_in_quickly_and_out_slowly() {
-    let mut lw = lay_out("width: 200px; height: 60px; background: builtin(leather);");
+    let mut lw = lay_out_drawn_by_webrender("width: 200px; height: 60px; background: builtin(leather);");
     let node = NodeId::new(1);
     assert_eq!(lw.material_sheen_of(DomId::ROOT_ID, node), Some(0.0), "at rest no sheen");
     assert!(!lw.needs_animation_frame(), "a material at rest asks for no frames");
@@ -171,7 +220,7 @@ fn the_cursor_sheen_eases_in_quickly_and_out_slowly() {
     assert!(lw.step_material_sheen(0.14));
     let amount = lw.material_sheen_of(DomId::ROOT_ID, node).expect("a surface");
     assert!((amount - 0.632).abs() < 0.03, "eased in: {amount}");
-    lw.prepare_frame_content();
+    lw.prepare_frame_gl(&OptionGlContextPtr::None);
     let (_, lit) = frame(&lw);
     assert_eq!(
         unlit.get_hash(),
@@ -191,4 +240,67 @@ fn the_cursor_sheen_eases_in_quickly_and_out_slowly() {
     }
     assert_eq!(lw.material_sheen_of(DomId::ROOT_ID, node), Some(0.0), "settled");
     assert!(!lw.needs_animation_frame(), "a settled sheen asks for no frames");
+}
+
+#[test]
+fn the_sheen_is_a_layer_over_the_material_that_follows_the_cursor() {
+    let mut lw = lay_out_drawn_by_webrender(
+        "width: 200px; height: 60px; background: builtin(leather); --azul-pillow: 76px .16;",
+    );
+    let (material_rect, material) = frame(&lw);
+    let (opacity, transform, highlight) =
+        sheen_layer(&lw).expect("a sheen layer over the leather: an opacity, a reference frame and a radial gradient");
+    assert!(
+        highlight.size.width > 100.0 && highlight.size.height > 100.0,
+        "the highlight reaches well past the cursor (its light hangs 240 px over it): {highlight:?}"
+    );
+    assert_eq!(sheen_values(&lw, opacity, transform).0, Some(0.0), "at rest the sheen is off");
+
+    let renders = azul_layout::texture::materials::renders_on_this_thread();
+    let list = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("laid out")
+        .display_list
+        .clone();
+    for (x, y) in [(100.0, 30.0), (150.0, 20.0)] {
+        lw.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(LogicalPosition::new(x, y));
+        assert!(lw.step_material_sheen(0.14));
+        lw.prepare_frame_gl(&OptionGlContextPtr::None);
+        let (bound_opacity, translation) = sheen_values(&lw, opacity, transform);
+        assert!(bound_opacity.is_some_and(|o| o > 0.3), "the sheen eases in: {bound_opacity:?}");
+        let [tx, ty] = translation.expect("the highlight is moved by a GPU value");
+        assert!(
+            (tx - (x - material_rect.origin.x)).abs() < 0.01
+                && (ty - (y - material_rect.origin.y)).abs() < 0.01,
+            "the highlight sits under the cursor: moved by ({tx}, {ty}) for a cursor at ({x}, {y})"
+        );
+    }
+    assert_eq!(
+        azul_layout::texture::materials::renders_on_this_thread() - renders,
+        0,
+        "the cursor drew the material again"
+    );
+    assert_eq!(frame(&lw).1.get_hash(), material.get_hash(), "the material keeps its frame");
+    assert!(
+        std::sync::Arc::ptr_eq(
+            &list,
+            &lw.get_layout_result(&DomId::ROOT_ID).expect("laid out").display_list
+        ),
+        "a cursor move changes GPU values only: the display list is the one it was"
+    );
+}
+
+#[test]
+fn a_window_the_cpu_draws_has_no_sheen_and_asks_no_frames_for_one() {
+    let mut lw = lay_out("width: 200px; height: 60px; background: builtin(leather);");
+    assert!(sheen_layer(&lw).is_none(), "no sheen layer in a CPU window's display list");
+    lw.current_window_state.mouse_state.cursor_position =
+        CursorPosition::InWindow(LogicalPosition::new(100.0, 30.0));
+    assert!(
+        !lw.needs_animation_frame(),
+        "the cursor over a material in a CPU window asks for no frames: the sheen would repaint \
+         the whole surface per cursor move"
+    );
+    assert_eq!(lw.material_sheen_of(DomId::ROOT_ID, NodeId::new(1)), None);
 }
