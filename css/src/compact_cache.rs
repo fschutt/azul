@@ -3544,7 +3544,7 @@ mod autotest_generated {
 
     #[test]
     fn out_of_range_u8_falls_back_to_css_initial_for_every_enum() {
-        assert_u8_fallback("display", layout_display_from_u8, 23, LayoutDisplay::Block);
+        assert_u8_fallback("display", layout_display_from_u8, 24, LayoutDisplay::Block);
         assert_u8_fallback(
             "position",
             layout_position_from_u8,
