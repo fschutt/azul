@@ -10295,11 +10295,12 @@ impl LayoutWindow {
                     .map(ImageRef::get_hash)
             })
             .collect();
-        // An item that draws a layer's frame names its slot by the frame.
-        let shown: BTreeMap<ImageRefHash, BackgroundSlot> = self
+        // An item that draws a layer's frame names its slot by its node and
+        // the frame (two layers may draw the same frame, never on one node).
+        let shown: BTreeMap<(DomId, Option<NodeId>, ImageRefHash), ImageRefHash> = self
             .content_overlay
             .iter_backgrounds()
-            .map(|(slot, frame)| (frame.get_hash(), *slot))
+            .map(|(slot, frame)| ((slot.dom, slot.node, frame.get_hash()), slot.declared))
             .collect();
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
         let generation = self.background_frames_generation;
@@ -10337,14 +10338,14 @@ impl LayoutWindow {
                     continue;
                 };
                 let hash = image.get_hash();
+                let node = lr.display_list.node_mapping.get(index).copied().flatten();
                 let declared_hash = if declared.contains_key(&hash) {
                     hash
-                } else if let Some(slot) = shown.get(&hash) {
-                    slot.declared
+                } else if let Some(declared_hash) = shown.get(&(*dom_id, node, hash)) {
+                    *declared_hash
                 } else {
                     continue;
                 };
-                let node = lr.display_list.node_mapping.get(index).copied().flatten();
                 // An image node's own callback is the node arm's
                 // (`invoke_image_callbacks_into_overlay`), not a background.
                 if let Some(NodeType::Image(own)) = node
