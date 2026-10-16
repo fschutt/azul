@@ -3141,11 +3141,14 @@ fn prepare_frame_content_gl(
 /// Register the content overlay's GL textures - the callback frames of image
 /// nodes and of background layers - each under its slot's STABLE key: the
 /// slot's first frame is an `add_image`, every later one an `update_image`
-/// (pixels only, so neither the display list nor the scene is rebuilt), and a
-/// frame the key already holds nothing at all. The frame's hash resolves to
-/// the key, and the frame the key showed before is forgotten - never
-/// `DeleteImage`d, the key lives on. Every texture is stamped with this epoch
-/// in the texture cache: it lives while its slot shows it.
+/// (pixels only, so neither the display list nor the scene is rebuilt). A
+/// background frame the key already holds is not sent again: a background
+/// layer's frame never changes under its `ImageRef`. A node's is - a canvas
+/// may draw into the texture it handed over before. The frame's hash
+/// resolves to the key, and the frame the key showed before is forgotten -
+/// never `DeleteImage`d (the image GC would delete the shared key), the key
+/// lives on. Every texture is stamped with this epoch in the texture cache:
+/// it lives while its slot shows it.
 ///
 /// `changed`: the set of textures handed to WebRender differs from the one
 /// handed over last time. `new_slot`: a key was added, so the display lists
@@ -3159,28 +3162,30 @@ fn register_overlay_textures(
     use crate::desktop::gl_texture_cache;
 
     // Collected first: the iteration borrows the window, the registration
-    // mutates it.
+    // mutates it. With each texture: whether it is sent again while the key
+    // holds it already (a node's canvas, see above).
     let mut to_register: Vec<(
         azul_core::resources::ExternalImageId,
         azul_core::resources::ImageRefHash,
         azul_core::gl::Texture,
+        bool,
     )> = Vec::new();
     for ((dom_id, node_id), image_ref) in layout_window.content_overlay.iter_images() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::TextureSlotKey::new(*dom_id, *node_id).to_external_image_id();
-            to_register.push((id, image_ref.get_hash(), texture.clone()));
+            to_register.push((id, image_ref.get_hash(), texture.clone(), true));
         }
     }
     for (slot, image_ref) in layout_window.content_overlay.iter_backgrounds() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::background_texture_id(slot);
-            to_register.push((id, image_ref.get_hash(), texture.clone()));
+            to_register.push((id, image_ref.get_hash(), texture.clone(), false));
         }
     }
 
     let mut result = OverlayUploads::default();
     let mut digest = FrameDigest::new();
-    for (external_image_id, produced_hash, texture) in to_register {
+    for (external_image_id, produced_hash, texture, sent_again) in to_register {
         digest.push_u64(external_image_id.inner);
         digest.push_u64(produced_hash.inner);
 
@@ -3197,7 +3202,8 @@ fn register_overlay_textures(
         };
         let rr = &mut layout_window.renderer_resources;
         let shown = rr.image_key_map.get(&image_key).copied();
-        if shown == Some(produced_hash) {
+        let new_frame = shown != Some(produced_hash);
+        if !new_frame && !sent_again {
             continue;
         }
         let descriptor = texture.get_descriptor();
@@ -3211,17 +3217,25 @@ fn register_overlay_textures(
             ),
             normalized_uvs: false,
         });
-        if let Some(previous) = shown {
-            txn.update_image(wr_key, wr_descriptor, wr_data, &DirtyRect::All);
-            // The previous frame no longer resolves: the key shows this one,
-            // and the image GC must not delete the key for the old hash.
-            rr.currently_registered_images.remove(&previous);
-            rr.image_last_seen_epoch.remove(&previous);
-        } else {
-            txn.add_image(wr_key, wr_descriptor, wr_data, None);
-            result.new_slot = true;
+        match shown {
+            Some(previous) => {
+                txn.update_image(wr_key, wr_descriptor, wr_data, &DirtyRect::All);
+                // The previous frame no longer resolves: the key shows this
+                // one, and the image GC must not delete the key for the old
+                // hash.
+                if previous != produced_hash {
+                    rr.currently_registered_images.remove(&previous);
+                    rr.image_last_seen_epoch.remove(&previous);
+                }
+            }
+            None => {
+                txn.add_image(wr_key, wr_descriptor, wr_data, None);
+                result.new_slot = true;
+            }
         }
-        result.changed = true;
+        // Pixels sent again under an unchanged frame are no reason for a
+        // frame of their own.
+        result.changed |= new_frame;
         // The hash the (chokepoint-patched) display list carries resolves to
         // the stable key, so a later scene rebuild finds it.
         rr.currently_registered_images.insert(
