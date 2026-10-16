@@ -31,9 +31,6 @@ uniform float uScale;      // the pattern's size
 uniform vec3 uL;           // toward the sun
 uniform vec3 uLightColor;
 uniform float uAmbient;
-uniform vec2 uMouse;       // the cursor, logical px in the surface
-uniform float uSheen;      // the sheen's strength times its ease
-uniform float uSheenSize;  // how high the cursor's light hovers, logical px
 uniform sampler2D uEnv;    // the wallpaper behind the window
 uniform vec4 uEnvRect;     // this surface on its screen: x, y (logical px), the screen's width, height
 uniform vec3 uEnvFlat;     // the highlight colour when there is no wallpaper (linear)
@@ -244,16 +241,6 @@ void main() {
   vec3 env = schlick(f0, nv) * mix(studio * 1.1, room, uMetal) * mix(0.25, 1.0, 1.0 - rough) * s.w;
   vec3 satin = uMetal * albedo * (0.22 * hemi + 0.3 * nl);
   vec3 col = (diffuse + satin) * uLightColor + spec * uLightColor * (1.0 - uAmbient) + env * mix(0.55 * (1.0 - 0.5 * rough), 1.0, uMetal);
-  if (uSheen > 0.001) {
-    vec3 Lm = normalize(vec3(uMouse - p, uSheenSize)), Hm = normalize(Lm + V);
-    float nlm = max(dot(n, Lm), 0.0);
-    float am = max(a * mix(1.8, 1.1, uMetal), 0.02);
-    float Dm = uAniso > 0.5 ? ggxAniso(n, Hm, max(am * 0.35, 0.004), max(am * 1.8, 0.02)) : ggx(max(dot(n, Hm), 0.0), am);
-    // a dielectric's 4% reflectance would hide it: a satin finish reflects
-    // a soft light over it at about 25%
-    vec3 fs = mix(vec3(0.25), f0, uMetal);
-    col += uSheen * Dm * smithG(max(nlm, 1e-3), nv, am) * schlick(fs, max(dot(V, Hm), 0.0)) / max(4.0 * nlm * nv, 1e-4) * nlm * uLightColor * mix(1.2, 0.8, uMetal);
-  }
   if (uGlow.w > 0.0) {
     float below = (uSize.y / uDpr) - p.y;
     col += uGlow.rgb * exp(-below / uGlow.w) * (0.55 + 0.45 * s.w) * mix(1.0, 0.5, uMetal);

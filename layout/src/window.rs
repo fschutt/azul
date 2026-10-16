@@ -3235,16 +3235,6 @@ impl LayoutWindow {
             self.update_a11y_tree();
         }
 
-        // A callback image painted as a BACKGROUND layer (a built-in material,
-        // `background: url(id)` naming a callback image) gets its frame for
-        // this pass's rects now: no renderer can draw the declared callback,
-        // and the GL path registers this pass's images before it prepares the
-        // next frame. Before the patch verification below, so the patched and
-        // the wholesale list carry the same frames.
-        if result.is_ok() {
-            self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
-        }
-
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
         // window-resize fast path — so this is the one place `NodeResized`
         // can be derived from what the solve actually produced.
@@ -9054,7 +9044,7 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
-        self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
+        self.invoke_background_image_callbacks_into_overlay(&OptionGlContextPtr::None);
     }
 
     /// The app asked for a new frame of one canvas (`update_image_callback`):
@@ -9068,7 +9058,8 @@ impl LayoutWindow {
     /// callback images painted as backgrounds too.
     pub fn invalidate_all_image_callbacks(&mut self) {
         self.image_callback_inputs.clear();
-        // Not cleared: a patched item is recognised by its frame's entry.
+        // The backgrounds keep their frames until the new ones are drawn: a
+        // new generation is an input every one of them changed.
         self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
     }
 
@@ -9092,11 +9083,6 @@ impl LayoutWindow {
         self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
         // Image nodes: their inputs do not carry the light.
         self.image_callback_inputs.clear();
-        // The backgrounds now, not at the next frame's preparation: the GL
-        // path registers a frame's images before it prepares the frame, and
-        // a frame patched in after that would be missing for one frame -
-        // every frame, while a timer sweeps the rays.
-        self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
         true
     }
 
@@ -9115,7 +9101,7 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(gl_context);
-        self.resolve_background_image_callbacks(gl_context);
+        self.invoke_background_image_callbacks_into_overlay(gl_context);
     }
 
     /// `[focus, selection, scroll]` fingerprints for the journal diff.
@@ -9205,6 +9191,9 @@ impl LayoutWindow {
             | ContentChange::ImageMask {
                 dom_id, node_id, ..
             } => Some((*dom_id, *node_id)),
+            ContentChange::BackgroundImageCallbackResult { slot, .. } => {
+                slot.node.map(|node_id| (slot.dom, node_id))
+            }
             ContentChange::ImageById { .. } => None,
         };
         let is_image_by_id = matches!(&change, ContentChange::ImageById { .. });
@@ -9221,6 +9210,9 @@ impl LayoutWindow {
                 node_id,
                 image,
             } => self.apply_image_change(dom_id, node_id, &image, true, None),
+            ContentChange::BackgroundImageCallbackResult { slot, image } => {
+                self.apply_background_image_change(slot, &image)
+            }
             ContentChange::NodeCss {
                 dom_id,
                 node_id,
@@ -10020,30 +10012,7 @@ impl LayoutWindow {
                 // Patch the stored display list in place: the item keeps its
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
-                if let Some(lr) = self.layout_results.get_mut(&dom_id) {
-                    // The solver's structural-identity cache holds a clone of
-                    // this list, so `make_mut` copies and the cache keeps the
-                    // PRE-PATCH list: the next relayout over the same tree (a
-                    // hover change, a RefreshDom without structural change)
-                    // would serve the stale image back, and the node's inputs
-                    // did not change, so no callback renders it again (MEDIA6:
-                    // AzPaint's stroke vanished until a resize). Hand the
-                    // patched list to the cache when it was serving this one -
-                    // as the CSS transition patch path does. ROOT only: the
-                    // cache is the root DOM's.
-                    let cache_serves_this = dom_id == DomId::ROOT_ID
-                        && self
-                            .layout_cache
-                            .cached_display_list
-                            .as_ref()
-                            .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
-                    Arc::make_mut(&mut lr.display_list).patch_node_image(node_id, image);
-                    if cache_serves_this {
-                        if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                            cached.5 = lr.display_list.clone();
-                        }
-                    }
-                }
+                let _ = self.patch_display_list(dom_id, |list| list.patch_node_image(node_id, image));
                 // THE frame gate of a content update: a tile nobody can see
                 // (scrolled out, below the window, the window minimized)
                 // keeps its patched item for the next frame painted for any
@@ -10065,6 +10034,81 @@ impl LayoutWindow {
         }
 
         ContentChangeResult { tier }
+    }
+
+    /// The background arm of [`Self::apply_content_change`]: a background
+    /// layer's render callback drew `image` for `slot`. The overlay keeps it
+    /// (a display list built later draws it from there), the journal keeps
+    /// the frame before it, and the layer's items in the current list draw it
+    /// at once: patched in place, their geometry unchanged, so a backend's
+    /// display-list diff damages exactly them.
+    fn apply_background_image_change(
+        &mut self,
+        slot: BackgroundSlot,
+        image: &ImageRef,
+    ) -> crate::overlay::ContentChangeResult {
+        use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier};
+
+        let old = self.content_overlay.background_frame(&slot).cloned();
+        if old.as_ref().map(ImageRef::get_hash) == Some(image.get_hash()) {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        }
+        // The items draw the declared callback until the layer's first frame,
+        // then the frame before this one.
+        let mut replaced = vec![slot.declared];
+        replaced.extend(old.as_ref().map(ImageRef::get_hash));
+        let _ = self.content_overlay.set_background(slot, image.clone());
+        self.content_journal.record(AppliedChange::Background {
+            slot,
+            old,
+            new_hash: image.get_hash(),
+        });
+        let damage = self
+            .patch_display_list(slot.dom, |list| {
+                list.patch_background_image(slot.node, &replaced, image)
+            })
+            .flatten();
+        let tier = match (damage, slot.node) {
+            (None, _) => ContentDirtyTier::Unchanged,
+            // A layer nobody can see owes no frame; its items are patched for
+            // the next frame painted for any other reason.
+            (Some(_), Some(node)) if !self.node_is_visible_in_window(slot.dom, node) => {
+                ContentDirtyTier::PaintHidden
+            }
+            (Some(_), _) => ContentDirtyTier::Paint,
+        };
+        ContentChangeResult { tier }
+    }
+
+    /// Change the display list of `dom_id` in place with `patch`, `None` for
+    /// a DOM without one. The solver's structural-identity cache may hold a
+    /// clone of this very list, so `make_mut` copies and the cache would keep
+    /// the PRE-PATCH list: the next relayout over the same tree (a hover, a
+    /// RefreshDom without structural change) would serve it back, and with
+    /// unchanged inputs nothing would patch it again (`AzPaint`'s stroke
+    /// vanished until a resize). The patched list goes to the cache when it
+    /// was serving this one. ROOT only: the cache is the root DOM's.
+    fn patch_display_list<R>(
+        &mut self,
+        dom_id: DomId,
+        patch: impl FnOnce(&mut DisplayList) -> R,
+    ) -> Option<R> {
+        let lr = self.layout_results.get_mut(&dom_id)?;
+        let cache_serves_this = dom_id == DomId::ROOT_ID
+            && self
+                .layout_cache
+                .cached_display_list
+                .as_ref()
+                .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
+        let result = patch(Arc::make_mut(&mut lr.display_list));
+        if cache_serves_this {
+            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                cached.5 = lr.display_list.clone();
+            }
+        }
+        Some(result)
     }
 
     /// Invoke every `RenderImageCallback` image and funnel each produced frame
@@ -10193,55 +10237,45 @@ impl LayoutWindow {
         }
     }
 
-    /// Callback images painted as BACKGROUND layers: `background: url(id)`
-    /// or `builtin(<name>)` naming an image the window's cache holds as a
-    /// `RenderImageCallback` - the built-in materials are such images. The
-    /// display list carries the DECLARED callback image (what the cache holds
-    /// under the id), which no renderer can draw: the CPU raster painted the
-    /// grey "never invoked" placeholder for it and `WebRender` nothing. This
-    /// invokes the callback for each such item's own rect - its size, its
-    /// corner radii and window position, its node's custom properties and
-    /// clip path, the window's light and the cursor's sheen on it
-    /// ([`crate::callbacks::RenderImageCallbackExtras`]) - and patches the
-    /// produced frame into the item. Returns whether it patched any item.
+    /// Draw the frames of the background layers that declare a render
+    /// callback (`background: url(id)` / `builtin(<name>)` naming a callback
+    /// image - the built-in materials are such images) and hand each to the
+    /// content chokepoint: the frame goes into the overlay's background arm,
+    /// and the display list's items of the layer draw it at once. A list
+    /// built later draws it from the overlay
+    /// ([`crate::overlay::ResolvedContent::background_image`]), so no list a
+    /// renderer gets holds a callback for a layer that has a frame.
     ///
-    /// Remembered per item ([`BackgroundFrameKey`] -> [`BackgroundFrame`]): a
-    /// frame at rest is not rendered again; an item the display list rebuilt
-    /// with the declared image gets the remembered frame back; a changed input
-    /// (a new light, a resize, a pressed state's custom property, the sheen
-    /// moving, an explicit `update_all_image_callbacks`) renders it anew.
-    /// Frames no item uses any more are dropped.
+    /// A layer's callback is asked only when what its frame is drawn from
+    /// changed ([`BackgroundCallbackInputs`]): its rect and the scale factor,
+    /// its radii, its node's custom properties and clip path, the window's
+    /// light, its place on the desktop where a point light or a reflected
+    /// wallpaper make that matter. A frame at rest asks nothing; neither does
+    /// the cursor - the sheen is a layer of its own. A layer no list paints
+    /// any more lets its frame go.
     ///
-    /// A window drawn by its GPU (`renderer_type` hardware) resolves only
-    /// where the GL frame path hands its context in - before it translates
-    /// the display list, so a frame is drawn in the frame that needs it - and
-    /// the materials are then drawn by the GPU; every other call returns at
-    /// once there. A CPU window resolves wherever a display list is made
-    /// (the layout funnel, [`Self::regenerate_display_list_for_dom`]), when
-    /// the light changes, when the sheen steps and in every frame's
-    /// preparation. Free when no css id names a callback image and no frame
-    /// is remembered: one pass over the window's css ids.
-    pub fn resolve_background_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) -> bool {
-        use azul_core::resources::{DecodedImage, ImageRefHash};
+    /// The same step as [`Self::invoke_image_callbacks_into_overlay`], for the
+    /// same two callers: the CPU frame's preparation, and the GL frame path
+    /// with its context (a callback draws into a GL texture there) before
+    /// that frame's images are registered.
+    fn invoke_background_image_callbacks_into_overlay(&mut self, gl_context: &OptionGlContextPtr) {
+        use azul_core::resources::DecodedImage;
 
         use crate::solver3::display_list::DisplayListItem;
 
-        struct Render {
-            inputs: BackgroundFrameInputs,
+        /// A layer whose callback is asked: what its frame is drawn from, and
+        /// what the callback reads through its bounds and extras.
+        struct Ask {
+            slot: BackgroundSlot,
+            inputs: BackgroundCallbackInputs,
             declared: ImageRef,
             bounds: LogicalRect,
             radii: [f32; 4],
             custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
             clip_path: Option<azul_css::props::layout::shape::ClipPath>,
-            sheen: f32,
-            cursor: LogicalPosition,
         }
 
-        if gl_context.as_ref().is_none() && self.renderer_type == Some(RendererType::Hardware) {
-            return false;
-        }
         self.adopt_app_light();
-
         let declared: BTreeMap<ImageRefHash, ImageRef> = self
             .image_cache
             .image_id_map
@@ -10249,8 +10283,8 @@ impl LayoutWindow {
             .filter(|image| image.is_callback())
             .map(|image| (image.get_hash(), image.clone()))
             .collect();
-        if declared.is_empty() && self.background_image_frames.is_empty() {
-            return false;
+        if declared.is_empty() && self.background_callback_inputs.is_empty() {
+            return;
         }
         // The built-in materials among them: those shine under the cursor.
         let materials: BTreeSet<ImageRefHash> = crate::texture::Material::ALL
@@ -10261,17 +10295,18 @@ impl LayoutWindow {
                     .map(ImageRef::get_hash)
             })
             .collect();
-        // An item patched before carries its frame: known by the frame's id.
-        let produced: BTreeMap<ImageRefHash, BackgroundFrameKey> = self
-            .background_image_frames
-            .iter()
-            .map(|(key, frame)| (frame.frame.get_hash(), *key))
+        // An item that draws a layer's frame names its slot by the frame.
+        let shown: BTreeMap<ImageRefHash, BackgroundSlot> = self
+            .content_overlay
+            .iter_backgrounds()
+            .map(|(slot, frame)| (frame.get_hash(), *slot))
             .collect();
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
         let generation = self.background_frames_generation;
         let light = self.effective_light();
         let window_origin = self.window_desktop_origin();
         let screen = self.window_screen_rect();
+        let highlight = self.system_highlight_colour();
         // A new wallpaper is a new reflection for every metal.
         #[cfg(feature = "materials")]
         let environment_generation = crate::texture::environment::desktop_generation();
@@ -10285,11 +10320,10 @@ impl LayoutWindow {
             [0, 0]
         };
 
-        // Phase 1: every item that draws a declared callback image or one of
-        // the frames, and what it would be rendered from now.
-        let mut seen: BTreeSet<BackgroundFrameKey> = BTreeSet::new();
-        let mut renders: BTreeMap<BackgroundFrameKey, Render> = BTreeMap::new();
-        let mut patches: BTreeMap<DomId, Vec<(usize, BackgroundFrameKey)>> = BTreeMap::new();
+        // Phase 1: every layer the display lists paint, and the ones whose
+        // inputs changed.
+        let mut seen: BTreeSet<BackgroundSlot> = BTreeSet::new();
+        let mut asks: Vec<Ask> = Vec::new();
         let mut shining: BTreeMap<(DomId, NodeId), (LogicalRect, LogicalRect)> = BTreeMap::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data = lr.styled_dom.node_data.as_container();
@@ -10305,13 +10339,13 @@ impl LayoutWindow {
                 let hash = image.get_hash();
                 let declared_hash = if declared.contains_key(&hash) {
                     hash
-                } else if let Some(key) = produced.get(&hash) {
-                    key.declared
+                } else if let Some(slot) = shown.get(&hash) {
+                    slot.declared
                 } else {
                     continue;
                 };
                 let node = lr.display_list.node_mapping.get(index).copied().flatten();
-                // An image node's own callback is the overlay's
+                // An image node's own callback is the node arm's
                 // (`invoke_image_callbacks_into_overlay`), not a background.
                 if let Some(NodeType::Image(own)) = node
                     .and_then(|n| node_data.get(n))
@@ -10321,19 +10355,21 @@ impl LayoutWindow {
                         continue;
                     }
                 }
-                let rect = *bounds.inner();
-                let key = BackgroundFrameKey {
+                let slot = BackgroundSlot {
                     dom: *dom_id,
                     node,
                     declared: declared_hash,
-                    rect_bits: [
-                        rect.origin.x.to_bits(),
-                        rect.origin.y.to_bits(),
-                        rect.size.width.to_bits(),
-                        rect.size.height.to_bits(),
-                    ],
                 };
-                seen.insert(key);
+                // The first item of a layer is its rect: the tiles of a
+                // repeated layer share one frame.
+                if !seen.insert(slot) {
+                    continue;
+                }
+                let rect = *bounds.inner();
+                if let (Some(n), true) = (node, materials.contains(&declared_hash)) {
+                    let area = sheen_area(self, *dom_id, &lr.styled_dom, n).unwrap_or(rect);
+                    shining.insert((*dom_id, n), (area, rect));
+                }
                 let radii = [
                     border_radius.top_left,
                     border_radius.top_right,
@@ -10361,113 +10397,72 @@ impl LayoutWindow {
                     clip.hash(&mut hasher);
                     custom_properties_hash = hasher.finish();
                 }
-                // The sheen of a material node: the area whose hover drives
-                // it, and its eased amount and cursor now.
-                let (sheen, cursor) = match node {
-                    Some(n) if materials.contains(&declared_hash) => {
-                        let area = sheen_area(self, *dom_id, &lr.styled_dom, n).unwrap_or(rect);
-                        shining.insert((*dom_id, n), (area, rect));
-                        self.material_sheen
-                            .surfaces
-                            .get(&(*dom_id, n))
-                            .filter(|s| s.amount > 0.0)
-                            .map_or((0.0, LogicalPosition::zero()), |s| {
-                                let c = s.cursor_in_surface();
-                                (s.amount, c)
-                            })
-                    }
-                    _ => (0.0, LogicalPosition::zero()),
-                };
-                // The CPU relights a whole surface per sheen frame: it steps
-                // the sheen in sixteenths and the cursor in 4 px, so an easing
-                // or a moving cursor costs a few relights, not one per frame.
-                let (sheen, cursor) = if sheen > 0.0 && gl_context.as_ref().is_none() {
-                    (
-                        ((sheen * 16.0).round() / 16.0).max(1.0 / 16.0),
-                        LogicalPosition::new((cursor.x / 4.0).round() * 4.0, (cursor.y / 4.0).round() * 4.0),
-                    )
-                } else {
-                    (sheen, cursor)
-                };
-                let inputs = BackgroundFrameInputs {
+                let inputs = BackgroundCallbackInputs {
+                    rect_bits: [
+                        rect.origin.x.to_bits(),
+                        rect.origin.y.to_bits(),
+                        rect.size.width.to_bits(),
+                        rect.size.height.to_bits(),
+                    ],
                     hidpi_factor,
                     radii_bits: radii.map(f32::to_bits),
                     generation,
                     custom_properties_hash,
-                    sheen_bits: if sheen > 0.0 {
-                        [
-                            ((sheen * 256.0).round() as u32).max(1),
-                            cursor.x.to_bits(),
-                            cursor.y.to_bits(),
-                        ]
-                    } else {
-                        [0; 3]
-                    },
                     desktop_bits,
                     environment_generation,
+                    highlight,
                 };
-                match self.background_image_frames.get(&key) {
-                    Some(remembered) if remembered.inputs == inputs => {
-                        if remembered.frame.get_hash() != hash {
-                            patches.entry(*dom_id).or_default().push((index, key));
-                        }
-                    }
-                    _ => {
-                        // Gone from the cache (the app removed the id): the
-                        // item keeps the last frame it has.
-                        let Some(declared_image) = declared.get(&declared_hash) else {
-                            continue;
-                        };
-                        renders.entry(key).or_insert_with(|| Render {
-                            inputs,
-                            declared: declared_image.clone(),
-                            bounds: rect,
-                            radii,
-                            custom_properties,
-                            clip_path,
-                            sheen,
-                            cursor,
-                        });
-                        patches.entry(*dom_id).or_default().push((index, key));
-                    }
+                if self.background_callback_inputs.get(&slot) == Some(&inputs) {
+                    continue;
                 }
+                // Gone from the cache (the app removed the id): the layer
+                // keeps the last frame it has.
+                let Some(declared_image) = declared.get(&declared_hash) else {
+                    continue;
+                };
+                asks.push(Ask {
+                    slot,
+                    inputs,
+                    declared: declared_image.clone(),
+                    bounds: rect,
+                    radii,
+                    custom_properties,
+                    clip_path,
+                });
             }
         }
         self.material_sheen.sync(shining);
 
-        // Phase 2: render what is not remembered (nothing above is mutated
-        // until phase 3, so the custom-property pointers stay valid).
-        let highlight = self.system_highlight_colour();
-        let mut rendered: Vec<(BackgroundFrameKey, BackgroundFrame)> = Vec::new();
-        for (key, render) in renders {
-            let DecodedImage::Callback(core_callback) = render.declared.get_data() else {
+        // Phase 2: ask the callbacks (nothing is mutated until phase 3, so
+        // the custom-property pointers into the styled DOMs stay valid).
+        let mut drawn: Vec<(BackgroundSlot, BackgroundCallbackInputs, ImageRef)> = Vec::new();
+        for ask in asks {
+            let DecodedImage::Callback(core_callback) = ask.declared.get_data() else {
                 continue;
             };
             if core_callback.callback.cb == 0 {
                 continue;
             }
             let extras = crate::callbacks::RenderImageCallbackExtras {
-                border_radii: render.radii,
-                origin: render.bounds.origin,
+                border_radii: ask.radii,
+                origin: ask.bounds.origin,
                 material_light: self.material_light,
                 light,
                 window_desktop_origin: window_origin,
                 screen,
-                sheen: render.sheen,
-                cursor: render.cursor,
                 highlight,
-                custom_properties: render.custom_properties,
-                clip_path: render
+                custom_properties: ask.custom_properties,
+                clip_path: ask
                     .clip_path
                     .as_ref()
                     .map_or(core::ptr::null(), core::ptr::from_ref),
             };
             let domnode_id = DomNodeId {
-                dom: key.dom,
-                node: NodeHierarchyItemId::from_crate_internal(key.node),
+                dom: ask.slot.dom,
+                node: NodeHierarchyItemId::from_crate_internal(ask.slot.node),
             };
             let bounds = HidpiAdjustedBounds {
-                logical_size: render.bounds.size,
+                logical_size: ask.bounds.size,
                 hidpi_factor,
             };
             let mut info = crate::callbacks::RenderImageCallbackInfo::new(
@@ -10488,58 +10483,20 @@ impl LayoutWindow {
             // A callback answering with another callback would be asked
             // forever: only a drawable frame is kept (a panic is asked again).
             if let Some(frame) = produced.filter(|frame| !frame.is_callback()) {
-                rendered.push((
-                    key,
-                    BackgroundFrame {
-                        inputs: render.inputs,
-                        frame,
-                    },
-                ));
+                drawn.push((ask.slot, ask.inputs, frame));
             }
         }
 
-        // Phase 3: remember, forget what no item draws, patch the items.
-        for (key, frame) in rendered {
-            self.background_image_frames.insert(key, frame);
+        // Phase 3: forget the layers no list paints, then the chokepoint.
+        self.content_overlay.retain_backgrounds(|slot| seen.contains(slot));
+        self.background_callback_inputs
+            .retain(|slot, _| seen.contains(slot));
+        for (slot, inputs, image) in drawn {
+            self.background_callback_inputs.insert(slot, inputs);
+            let _ = self.apply_content_change(
+                crate::overlay::ContentChange::BackgroundImageCallbackResult { slot, image },
+            );
         }
-        self.background_image_frames.retain(|key, _| seen.contains(key));
-        let mut patched_any = false;
-        for (dom_id, items) in patches {
-            let Some(lr) = self.layout_results.get_mut(&dom_id) else {
-                continue;
-            };
-            let frames: Vec<(usize, ImageRef)> = items
-                .into_iter()
-                .filter_map(|(index, key)| {
-                    self.background_image_frames
-                        .get(&key)
-                        .map(|f| (index, f.frame.clone()))
-                })
-                .collect();
-            if frames.is_empty() {
-                continue;
-            }
-            patched_any = true;
-            // The solver's structural-identity cache may hold this very list:
-            // hand it the patched one, or the next relayout over the same tree
-            // serves the declared callbacks back (as `apply_image_change`).
-            let cache_serves_this = dom_id == DomId::ROOT_ID
-                && self
-                    .layout_cache
-                    .cached_display_list
-                    .as_ref()
-                    .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
-            let display_list = Arc::make_mut(&mut lr.display_list);
-            for (index, frame) in frames {
-                let _ = display_list.patch_item_image(index, frame);
-            }
-            if cache_serves_this {
-                if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                    cached.5 = lr.display_list.clone();
-                }
-            }
-        }
-        patched_any
     }
 
     /// Where this window's light comes from: its own material light when it
@@ -10666,15 +10623,11 @@ impl LayoutWindow {
 
     /// Advance the cursor's sheen on every material by `dt_s` seconds (the
     /// animation clock's step) toward where the cursor is now. Returns
-    /// whether a frame shows something new; the frames render again (a CPU
-    /// window patches them in now; a GPU window at its next frame).
+    /// whether a frame shows something new. The materials themselves are not
+    /// drawn again: the sheen is a layer of its own over them.
     pub fn step_material_sheen(&mut self, dt_s: f32) -> bool {
         let cursor = self.current_window_state.mouse_state.cursor_position.get_position();
-        if !self.material_sheen.step(dt_s, cursor) {
-            return false;
-        }
-        let _ = self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
-        true
+        self.material_sheen.step(dt_s, cursor)
     }
 
     /// Handle a window resize by updating the cached layout.
@@ -24921,10 +24874,6 @@ impl LayoutWindow {
                 // answer "no, it owes a repaint" forever. See the twin clear at
                 // the end of `layout_and_generate_display_list`.
                 self.text_edit_manager.display_list_dirty = false;
-                // The list was built with the declared callback images of its
-                // background layers: their frames go in now, before a renderer
-                // registers the list's images (`resolve_background_image_callbacks`).
-                self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
                 // Incremental a11y update: only push the edited node's
                 // updated value + cursor, not the entire tree.
                 #[cfg(feature = "a11y")]
@@ -28303,53 +28252,36 @@ fn sheen_area(lw: &LayoutWindow, dom: DomId, styled_dom: &StyledDom, node: NodeI
     ))
 }
 
-/// Which background item a frame of a callback image is for
-/// ([`LayoutWindow::background_image_frames`]): the DOM, the node the item
-/// paints (the canvas background's tiles paint none), the declared callback
-/// image and the item's rect, logical px (bit patterns: origin x / y, width,
-/// height). A rect that moves is a new item - a callback may draw what lies
-/// at its place in the window (the materials' god rays do).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct BackgroundFrameKey {
-    pub dom: DomId,
-    pub node: Option<NodeId>,
-    pub declared: ImageRefHash,
-    pub rect_bits: [u32; 4],
-}
-
-/// What a background frame was rendered from besides its key: the scale
-/// factor, the item's corner radii (bit patterns), the window's generation
-/// of lights and explicit updates, the node's custom properties and clip
-/// path, the cursor's sheen on it and - where it matters - the window's
-/// place on the desktop.
+/// What a background layer's callback frame was drawn from
+/// ([`LayoutWindow::background_callback_inputs`]): everything the callback
+/// reads through its bounds and extras. Equal inputs and no explicit update:
+/// the frame it drew stands. The cursor is none of them - the sheen is a
+/// layer of its own over the material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BackgroundFrameInputs {
-    /// The window's scale factor.
+pub struct BackgroundCallbackInputs {
+    /// The layer's rect, logical px (bit patterns: x, y, width, height). Its
+    /// size is the frame's; its place matters to a callback that lays its
+    /// pattern in window space (a material's grain, the god rays).
+    pub rect_bits: [u32; 4],
+    /// The window's scale factor: with the size, the frame's device pixels.
     pub hidpi_factor: azul_core::resources::DpiScaleFactor,
-    /// The item's corner radii, bit patterns.
+    /// The layer's corner radii, bit patterns.
     pub radii_bits: [u32; 4],
-    /// [`LayoutWindow::background_frames_generation`] when it rendered.
+    /// [`LayoutWindow::background_frames_generation`] when it was drawn: a
+    /// new light, or `update_all_image_callbacks`, draws it again.
     pub generation: u64,
-    /// A hash of the node's custom properties in its current state and of
-    /// its clip path.
+    /// A hash of the node's custom properties in its current state (the tint
+    /// a theme or the mode sets) and of its clip path.
     pub custom_properties_hash: u64,
-    /// The sheen's amount (1/256 steps, 0 = none) and the cursor in the
-    /// rect (bit patterns): a moving sheen is a new frame.
-    pub sheen_bits: [u32; 3],
     /// The window's top-left on the desktop (bit patterns) while a point
     /// light or a reflected wallpaper makes it matter, else zero.
     pub desktop_bits: [u32; 2],
     /// How many times the desktop's wallpapers changed: a metal reflects
     /// the new one.
     pub environment_generation: u64,
-}
-
-/// A frame of a callback image painted as a background layer, and what it
-/// was rendered from.
-#[derive(Debug, Clone)]
-pub struct BackgroundFrame {
-    pub inputs: BackgroundFrameInputs,
-    pub frame: ImageRef,
+    /// The system's highlight colour, which a metal reflects where no
+    /// wallpaper is known (it follows the mode).
+    pub highlight: azul_css::props::basic::ColorU,
 }
 
 /// Remap the `NodeId` inside a `ScrollbarHitId`. `None` = the scroll container

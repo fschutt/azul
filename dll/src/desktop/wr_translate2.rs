@@ -1689,9 +1689,10 @@ pub struct OverlayUploads {
     pub new_slot: bool,
 }
 
-/// Upload the content overlay's new raw frames (video tiles, canvases) into
-/// their nodes' stable keys: `add_image` the first time, `update_image` after
-/// - of the dirty rect only, when the app named one.
+/// Upload the content overlay's new raw frames (video tiles, canvases, a
+/// background layer's callback frames drawn on the CPU) into their slots'
+/// stable keys: `add_image` the first time, `update_image` after - of the
+/// dirty rect only, when the app named one.
 fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> OverlayUploads {
     let namespace = layout_window.id_namespace;
     let LayoutWindow {
@@ -1700,12 +1701,22 @@ fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransacti
         ..
     } = *layout_window;
     let uploads = plan_overlay_image_uploads(
-        content_overlay.iter_images().map(|(&(dom, node), image)| {
-            let pending = content_overlay
-                .image_dirty(dom, node)
-                .unwrap_or(ImageDirtyRect::All);
-            (azul_core::resources::ImageSlot::Node(dom, node), image, pending)
-        }),
+        content_overlay
+            .iter_images()
+            .map(|(&(dom, node), image)| {
+                let pending = content_overlay
+                    .image_dirty(dom, node)
+                    .unwrap_or(ImageDirtyRect::All);
+                (azul_core::resources::ImageSlot::Node(dom, node), image, pending)
+            })
+            // A background layer's new frame is new as a whole.
+            .chain(content_overlay.iter_backgrounds().map(|(slot, image)| {
+                (
+                    azul_core::resources::ImageSlot::Background(*slot),
+                    image,
+                    ImageDirtyRect::All,
+                )
+            })),
         renderer_resources,
         namespace,
     );
@@ -1888,12 +1899,21 @@ pub fn generate_frame(
         return;
     }
 
-    // The material backgrounds are drawn - by the GPU, with this frame's
-    // context - BEFORE the display list goes to WebRender: a frame patched in
-    // afterwards would show one frame late, and never in a frame that skips
-    // the scene builder. A patched list is sent again with its new images.
-    let display_list_was_rebuilt =
-        layout_window.resolve_background_image_callbacks(gl_context) || display_list_was_rebuilt;
+    // A full frame rebuilds the scene, so "identical to what I sent last time"
+    // is the wrong question: everything has to go across again regardless.
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
+
+    // The frame's content first - every callback whose inputs changed draws
+    // its frame with this frame's GL context, into the display lists - and
+    // its GL textures under their slots' keys, before anything below
+    // registers the lists' images or translates them: a frame produced after
+    // the translation would show one frame late. A slot keyed for the first
+    // time is named by no list WebRender holds: the lists go again.
+    prepare_frame_content_gl(layout_window, gl_context);
+    let textures = register_overlay_textures(layout_window, txn);
+    let display_list_was_rebuilt = display_list_was_rebuilt || textures.new_slot;
 
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
@@ -2003,15 +2023,6 @@ pub fn generate_frame(
     // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML engine.
     // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
-
-    // A full frame rebuilds the scene, so "identical to what I sent last time"
-    // is the wrong question: everything has to go across again regardless.
-    layout_window
-        .gpu_state_manager
-        .invalidate_submitted_digests();
-
-    // Process image callback updates (invoke callbacks and register textures)
-    let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Process VirtualView updates (if any callbacks requested re-rendering)
     process_virtual_view_updates(layout_window, txn);
@@ -2717,9 +2728,24 @@ pub fn build_webrender_transaction(
     // Get root pipeline ID
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
 
-    // Step 0: the material backgrounds, drawn with this frame's GL context
-    // before their images are registered (see `generate_frame`).
-    let _ = layout_window.resolve_background_image_callbacks(gl_context);
+    // Step 0: the frame's content - every callback whose inputs changed
+    // draws its frame with this frame's GL context - before anything below
+    // registers the display lists' images or translates them.
+    prepare_frame_content_gl(layout_window, gl_context);
+
+    // Step 0.5: the overlay's GL textures (callback frames of image nodes and
+    // background layers) under their slots' keys, BEFORE the display-list
+    // scan below, so their frames are found registered and not added again
+    // under a per-frame key (the raw ones go the same way, first thing in
+    // `register_frame_resources`).
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 0.5: Registering the overlay's GL textures"
+    );
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
+    let _ = register_overlay_textures(layout_window, txn);
 
     // Step 1: Collect + register font and image resources, then add them to the
     // transaction. Shared with generate_frame.
@@ -2728,17 +2754,6 @@ pub fn build_webrender_transaction(
         "[build_atomic_txn] Step 1: Collecting + registering font/image resources"
     );
     register_frame_resources(layout_window, txn, dpi);
-
-    // Step 1.6: Process image callback updates (GL textures from RenderImageCallback)
-    // This MUST happen BEFORE building display lists so the textures are registered
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 1.6: Processing image callback updates"
-    );
-    layout_window
-        .gpu_state_manager
-        .invalidate_submitted_digests();
-    let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
     // display lists. The display list generator reads opacity_key from the GPU cache
@@ -2986,30 +3001,23 @@ pub fn build_image_only_transaction(
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
     );
 
-    // Step 0: the material backgrounds (a moving sheen, a new light) drawn
-    // with this frame's GL context; a patched item's new image is registered
-    // and the display list sent again below.
-    let materials_patched = layout_window.resolve_background_image_callbacks(gl_context);
-    if materials_patched {
-        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
-        register_frame_resources(layout_window, txn, dpi);
-    }
-
-    // Step 1: Re-invoke image callbacks to produce updated GL textures
-    let callbacks_changed = process_image_callback_updates(layout_window, gl_context, txn);
+    // Step 1: the frame's content - every callback whose inputs changed
+    // draws its frame with this frame's GL context - and the GL textures
+    // under their slots' keys (a new frame of a slot is pixels only).
+    prepare_frame_content_gl(layout_window, gl_context);
+    let textures = register_overlay_textures(layout_window, txn);
 
     // Step 1.5: Video tiles. A new frame of an in-place-replaced node image
     // (`change_node_image`, the content overlay) goes into the node's stable
     // key: `update_image`, pixels only. After the callbacks, so a callback's
     // raw frame is picked up in the same transaction.
     let overlay = upload_overlay_images(layout_window, txn);
-    let images_changed = callbacks_changed || overlay.changed || materials_patched;
+    let images_changed = textures.changed || overlay.changed;
 
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
-    // tile got its key in this transaction: the display list WebRender holds
-    // names the tile's previous image, so it is resent once, at a new epoch.
-    // A material frame patched into the list is the same case.
-    if overlay.new_slot || materials_patched {
+    // slot got its key in this transaction: the display list WebRender holds
+    // names the slot's previous image, so it is resent once, at a new epoch.
+    if overlay.new_slot || textures.new_slot {
         set_display_lists(txn, layout_window)?;
         layout_window.epoch.increment();
     } else {
@@ -3095,45 +3103,22 @@ pub fn build_image_only_transaction(
     Ok(LightweightFrame { changed })
 }
 
-/// Invoke image callbacks THROUGH the content chokepoint, then register the
-/// produced GL textures with WebRender.
-///
-/// The invocation itself now lives in `LayoutWindow::prepare_frame_gl` — the
-/// GL/WR twin of the CPU hosts' `prepare_frame_cpu`: journal clock, manager
-/// fingerprints, and callback results applied via `apply_content_change`
-/// (same-hash no-op, in-place DL patch on identity change, relayout tier on
-/// size change). This function no longer touches `node_data` and no longer
-/// invokes anything — it is pure translation: walk the overlay's produced
-/// frames and register each `DecodedImage::Gl` texture.
-///
-/// Registration uses the STABLE per-`(dom, node)` `ExternalImageId` from the
-/// gl_texture_cache, with `update_image` on subsequent frames — this is what
-/// keeps animated textures (video/canvas/camera) cheap on the
-/// `generate_frame` / `build_image_only_transaction` paths, which do NOT
-/// rebuild the WR scene. The `currently_registered_images` entry is keyed by
-/// the hash the (chokepoint-patched) display list actually carries, so a
-/// later scene REBUILD resolves the same stable key instead of re-uploading.
-///
-/// Returns `true` if the set of images handed to WebRender DIFFERS from the one
-/// handed over last time — a newly registered key, or a node whose `ImageRef`
-/// was replaced (`ImageRefHash` is a never-reused id, so an unchanged callback
-/// result keeps its hash). Re-uploading pixels that are already there is not a
-/// reason to build a frame.
-#[must_use]
-fn process_image_callback_updates(
+/// The frame's content on the GL path: every render callback whose inputs
+/// changed draws its frame - image nodes and background layers, with this
+/// frame's GL context - and the frames go through the content chokepoint
+/// into the display lists (`LayoutWindow::prepare_frame_gl`, the twin of the
+/// CPU hosts' `prepare_frame_cpu`). One call per submitted frame, before the
+/// frame's images are registered or its lists translated.
+fn prepare_frame_content_gl(
     layout_window: &mut LayoutWindow,
     gl_context: &azul_core::gl::OptionGlContextPtr,
-    txn: &mut WrTransaction,
-) -> bool {
-    use azul_core::resources::DecodedImage;
-
-    // Phase 1: journal clock + callback invocation + chokepoint application.
+) {
     layout_window.prepare_frame_gl(gl_context);
 
-    // Callbacks may have left arbitrary GL state behind; flush pending
-    // commands BEFORE WebRender samples the produced textures and reset the
-    // bindings WR assumes clean (kept verbatim from the pre-chokepoint
-    // invoker — losing the flush produces incomplete frames on some drivers).
+    // Callbacks may have left arbitrary GL state behind: flush the pending
+    // commands BEFORE WebRender samples the produced textures (without it
+    // some drivers show incomplete frames), and reset the bindings WebRender
+    // assumes clean.
     #[cfg(feature = "gl_context_loader")]
     if let Some(gl) = gl_context.as_ref() {
         use gl_context_loader::gl;
@@ -3145,44 +3130,71 @@ fn process_image_callback_updates(
         gl.disable(gl::MULTISAMPLE);
         gl.use_program(0);
     }
+}
 
-    // Phase 2: collect produced GL textures out of the overlay (collected
-    // first: the iteration borrows layout_window, registration mutates it).
-    let mut to_register: Vec<(DomId, NodeId, azul_core::resources::ImageRefHash, _)> = Vec::new();
+/// Register the content overlay's GL textures - the callback frames of image
+/// nodes and of background layers - each under its slot's STABLE key: the
+/// slot's first frame is an `add_image`, every later one an `update_image`
+/// (pixels only, so neither the display list nor the scene is rebuilt), and a
+/// frame the key already holds nothing at all. The frame's hash resolves to
+/// the key, and the frame the key showed before is forgotten - never
+/// `DeleteImage`d, the key lives on. Every texture is stamped with this epoch
+/// in the texture cache: it lives while its slot shows it.
+///
+/// `changed`: the set of textures handed to WebRender differs from the one
+/// handed over last time. `new_slot`: a key was added, so the display lists
+/// WebRender holds do not name it yet and must go again.
+fn register_overlay_textures(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+) -> OverlayUploads {
+    use azul_core::resources::{DecodedImage, ResolvedImage};
+
+    use crate::desktop::gl_texture_cache;
+
+    // Collected first: the iteration borrows the window, the registration
+    // mutates it.
+    let mut to_register: Vec<(
+        azul_core::resources::ExternalImageId,
+        azul_core::resources::ImageRefHash,
+        azul_core::gl::Texture,
+    )> = Vec::new();
     for ((dom_id, node_id), image_ref) in layout_window.content_overlay.iter_images() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
-            to_register.push((*dom_id, *node_id, image_ref.get_hash(), texture.clone()));
+            let id = gl_texture_cache::TextureSlotKey::new(*dom_id, *node_id).to_external_image_id();
+            to_register.push((id, image_ref.get_hash(), texture.clone()));
+        }
+    }
+    for (slot, image_ref) in layout_window.content_overlay.iter_backgrounds() {
+        if let DecodedImage::Gl(texture) = image_ref.get_data() {
+            let id = gl_texture_cache::background_texture_id(slot);
+            to_register.push((id, image_ref.get_hash(), texture.clone()));
         }
     }
 
-    // A brand-new registration must always be sent: the bookkeeping below
-    // records the key as registered, so dropping that transaction would leave
-    // WebRender without an image it is told the display list references.
-    let mut new_registration = false;
+    let mut result = OverlayUploads::default();
     let mut digest = FrameDigest::new();
-
-    for (dom_id, node_id, produced_hash, texture) in to_register {
-        digest.push_u64(dom_id.inner as u64);
-        digest.push_u64(node_id.index() as u64);
+    for (external_image_id, produced_hash, texture) in to_register {
+        digest.push_u64(external_image_id.inner);
         digest.push_u64(produced_hash.inner);
 
-        // Stable (dom, node) external id: the same DOM node always maps to the
-        // same ExternalImageId, so per-frame texture updates are update_image
-        // (pixels only), never a scene rebuild.
-        let external_image_id = crate::desktop::gl_texture_cache::insert_texture_for_node(
+        gl_texture_cache::insert_texture_by_id(
             layout_window.document_id,
-            dom_id,
-            node_id,
+            external_image_id,
             layout_window.epoch,
             texture.clone(),
         );
 
-        let descriptor = texture.get_descriptor();
         let image_key = ImageKey {
             namespace: layout_window.id_namespace,
             key: external_image_id.inner,
         };
-
+        let rr = &mut layout_window.renderer_resources;
+        let shown = rr.image_key_map.get(&image_key).copied();
+        if shown == Some(produced_hash) {
+            continue;
+        }
+        let descriptor = texture.get_descriptor();
         let wr_key = translate_image_key(image_key);
         let wr_descriptor = wr_translate_image_descriptor(&descriptor);
         let wr_data = WrImageData::External(webrender::api::ExternalImageData {
@@ -3193,45 +3205,33 @@ fn process_image_callback_updates(
             ),
             normalized_uvs: false,
         });
-
-        let already_registered = layout_window
-            .renderer_resources
-            .image_key_map
-            .contains_key(&image_key);
-        if already_registered {
-            txn.update_image(
-                wr_key,
-                wr_descriptor,
-                wr_data,
-                &DirtyRect::All,
-            );
+        if let Some(previous) = shown {
+            txn.update_image(wr_key, wr_descriptor, wr_data, &DirtyRect::All);
+            // The previous frame no longer resolves: the key shows this one,
+            // and the image GC must not delete the key for the old hash.
+            rr.currently_registered_images.remove(&previous);
+            rr.image_last_seen_epoch.remove(&previous);
         } else {
             txn.add_image(wr_key, wr_descriptor, wr_data, None);
-            new_registration = true;
+            result.new_slot = true;
         }
-
-        // Resolve the hash the display list carries to the stable key.
-        layout_window
-            .renderer_resources
-            .currently_registered_images
-            .insert(
-                produced_hash,
-                azul_core::resources::ResolvedImage {
-                    key: image_key,
-                    descriptor,
-                },
-            );
-        layout_window
-            .renderer_resources
-            .image_key_map
-            .insert(image_key, produced_hash);
+        result.changed = true;
+        // The hash the (chokepoint-patched) display list carries resolves to
+        // the stable key, so a later scene rebuild finds it.
+        rr.currently_registered_images.insert(
+            produced_hash,
+            ResolvedImage {
+                key: image_key,
+                descriptor,
+            },
+        );
+        rr.image_key_map.insert(image_key, produced_hash);
     }
 
-    let set_changed = layout_window
+    result.changed |= layout_window
         .gpu_state_manager
         .submitted_digest_changed(SubmittedDigest::Images, digest.finish());
-
-    new_registration || set_changed
+    result
 }
 
 /// Process VirtualView updates requested by callbacks

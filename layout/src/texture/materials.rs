@@ -17,8 +17,11 @@
 //! Smith-Schlick and Schlick's Fresnel (anisotropic for brushed metal), a
 //! wrapped diffuse normalised so a flat surface shows its tint, a studio
 //! room reflected - and for a metal the desktop behind the window
-//! (`environment`) -, the cursor's sheen as a second GGX lobe, a filmic
-//! shoulder, sRGB and a half level of dither.
+//! (`environment`) -, a filmic shoulder, sRGB and a half level of dither.
+//!
+//! The cursor's sheen is no part of a frame: it is a layer of its own over
+//! the surface ([`sheen_sprite`]), a soft highlight the display list moves
+//! with the cursor, so a moving cursor never draws a material again.
 //!
 //! The shape adds its own slope: a bevel along the edge (a cushion by
 //! default, so it draws no line), a padded cushion and the pillow that rounds
@@ -28,9 +31,9 @@
 //! An element tunes its material with custom properties
 //! ([`MaterialParams::from_custom_properties`] lists them). Renders are
 //! cached by everything they depend on; the grain (the expensive part) is
-//! cached on its own in tiles of window pixels, so a new light, a moving
-//! sheen or a growing height relights without recomputing it. With a GPU
-//! context the frame is drawn by the GPU instead (`gpu`).
+//! cached on its own in tiles of window pixels, so a new light or a growing
+//! height relights without recomputing it. With a GPU context the frame is
+//! drawn by the GPU instead (`gpu`).
 
 // Per-channel loops over parallel colour arrays (`for c in 0..3`) read
 // clearer indexed than zipped three ways.
@@ -903,7 +906,7 @@ fn parse_glow(value: &str) -> Option<Glow> {
 // -- What a surface is lit by ---------------------------------------------------------------------
 
 /// Everything around a surface that its look depends on besides its own
-/// params: the light, where it sits, the cursor, the room it reflects and
+/// params: the light, where it sits, the room it reflects and
 /// the shape it is cut to.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceScene {
@@ -925,10 +928,6 @@ pub struct SurfaceScene {
     pub desktop_origin: [f32; 2],
     /// The screen the surface is on, desktop points: x, y, width, height.
     pub screen: [f32; 4],
-    /// The cursor's sheen, eased 0..1 (0 = the cursor is elsewhere).
-    pub sheen: f32,
-    /// The cursor, logical px in the surface.
-    pub cursor: [f32; 2],
     /// What a metal reflects.
     pub environment: Environment,
     /// The shape's distance field, for a bevel that follows the shape.
@@ -946,8 +945,6 @@ impl Default for SurfaceScene {
             window_offset: [0.0, 0.0],
             desktop_origin: [0.0, 0.0],
             screen: [0.0, 0.0, 1920.0, 1080.0],
-            sheen: 0.0,
-            cursor: [0.0, 0.0],
             environment: Environment::default(),
             shape: None,
         }
@@ -999,7 +996,6 @@ pub(crate) struct Prepared {
     pub(crate) pillow: [f32; 2],
     pub(crate) pillow_foot: f32,
     pub(crate) relief: f32,
-    pub(crate) sheen: f32,
     pub(crate) metal: f32,
     pub(crate) aniso: bool,
     pub(crate) sun: [f32; 3],
@@ -1064,7 +1060,6 @@ pub(crate) fn prepare(
         pillow,
         pillow_foot: params.pillow.foot,
         relief: params.relief * d3.sqrt(),
-        sheen: scene.sheen.clamp(0.0, 1.0) * params.sheen * 3.0 * d3,
         metal,
         aniso,
         sun,
@@ -1148,9 +1143,6 @@ pub fn render_material_pixels(
         point: u.point,
         light_color: u.light_color,
         ambient: scene.ambient,
-        mouse: scene.cursor,
-        sheen: u.sheen,
-        sheen_size: params.sheen_size,
         env_rect: u.env_rect,
         desktop_origin: scene.desktop_origin,
         wallpaper: wallpaper.map(|w| &**w),
@@ -1187,8 +1179,6 @@ pub(crate) fn render_key(
     bits(&[
         params.relief,
         params.variation,
-        params.sheen,
-        params.sheen_size,
         params.grain,
         params.scale,
         params.bevel.width,
@@ -1234,11 +1224,6 @@ pub(crate) fn render_key(
     }
     if metal > 0.0 {
         scene.environment.key().hash(&mut h);
-    }
-    let sheen = (scene.sheen * params.sheen).max(0.0);
-    if sheen > 0.0 {
-        bits(&[scene.sheen]).hash(&mut h);
-        bits(&scene.cursor).hash(&mut h);
     }
     if params.bevel.follow == BevelFollow::Shape {
         scene.shape.as_deref().hash(&mut h);
@@ -1350,7 +1335,7 @@ pub fn params_from_extras(material: Material, extras: Option<&RenderImageCallbac
 }
 
 /// The scene the engine describes for a rect `size` (logical px) at `dpr`:
-/// its light, place, cursor and shape, and - for a metal - the desktop.
+/// its light, place and shape, and - for a metal - the desktop.
 #[must_use]
 pub fn scene_from_extras(
     material: Material,
@@ -1375,8 +1360,6 @@ pub fn scene_from_extras(
             e.screen.size.width,
             e.screen.size.height,
         ],
-        sheen: e.sheen,
-        cursor: [e.cursor.x, e.cursor.y],
         ..SurfaceScene::default()
     };
     scene.apply_light_colour(&e.material_light);
@@ -1401,7 +1384,7 @@ pub fn scene_from_extras(
 }
 
 /// The callback behind every material image: the rect's device size, its
-/// radii, node properties, light and cursor (the engine's extras). With a
+/// radii, node properties and light (the engine's extras). With a
 /// usable GPU context the GPU draws it; otherwise (and for god rays) the
 /// CPU.
 extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {

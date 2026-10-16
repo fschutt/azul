@@ -388,9 +388,6 @@ impl ContextState {
             f3("uL", u.sun);
             f3("uLightColor", u.light_color);
             f1("uAmbient", scene.ambient);
-            f2("uMouse", scene.cursor);
-            f1("uSheen", u.sheen);
-            f1("uSheenSize", params.sheen_size);
             f4("uEnvRect", u.env_rect);
             f3("uEnvFlat", scene.environment.flat_colour());
             f1("uEnvMode", if env_tex.is_some() { 1.0 } else { 0.0 });

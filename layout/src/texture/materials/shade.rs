@@ -11,15 +11,18 @@
 //!    slope by central differences half a device pixel apart;
 //! 3. the light: GGX with Smith-Schlick and Schlick's Fresnel (anisotropic for brushed
 //!    metal), a wrapped diffuse normalised so a flat surface shows its tint, a room
-//!    reflected (a studio, and the desktop for metals), the cursor's sheen as a second GGX
-//!    lobe, the accent's glow;
+//!    reflected (a studio, and the desktop for metals), the accent's glow;
 //! 4. the film: a soft shoulder above 0.86 that desaturates toward white, sRGB, and a half
 //!    level of dither so no gradient bands.
 //!
 //! The grain is the expensive part and does not depend on the light, the
 //! shape or the tint: it is computed in 32 x 32 tiles of WINDOW device
-//! pixels and kept ([`grain_tile`]), so a relight (a new light, the cursor's
-//! sheen, a height that animates) only redoes step 1, 3 and 4.
+//! pixels and kept ([`grain_tile`]), so a relight (a new light, a height
+//! that animates) only redoes step 1, 3 and 4.
+//!
+//! The cursor's sheen is not part of the surface: it is a layer of its own
+//! over it (`sheen_sprite` in the parent module), so the cursor never draws
+//! a material again.
 
 // The formulas keep the shader's letters (shader.glsl): p, n, h, l, r, f0...
 #![allow(clippy::many_single_char_names)]
@@ -371,11 +374,6 @@ pub(crate) struct Shader<'a> {
     /// Linear, times the intensity.
     pub(crate) light_color: [f32; 3],
     pub(crate) ambient: f32,
-    /// The cursor, logical px in the surface.
-    pub(crate) mouse: [f32; 2],
-    /// The sheen's strength times its ease.
-    pub(crate) sheen: f32,
-    pub(crate) sheen_size: f32,
     /// The surface on the screen of its wallpaper: x, y (logical px from the
     /// screen's corner), the screen's width and height.
     pub(crate) env_rect: [f32; 4],
@@ -554,25 +552,6 @@ impl Shader<'_> {
             col[c] = (diffuse + satin) * light_color[c]
                 + spec[c] * light_color[c] * (1.0 - self.ambient)
                 + env * env_w;
-        }
-        if self.sheen > 0.001 {
-            let lm = normalize([self.mouse[0] - p[0], self.mouse[1] - p[1], self.sheen_size]);
-            let hm = normalize([lm[0] + v[0], lm[1] + v[1], lm[2] + v[2]]);
-            let nlm = dot(n, lm).max(0.0);
-            let am = (a * mix(1.8, 1.1, self.metal)).max(0.02);
-            let dm = if self.aniso {
-                ggx_aniso(n, hm, (am * 0.35).max(0.004), (am * 1.8).max(0.02))
-            } else {
-                ggx(dot(n, hm).max(0.0), am)
-            };
-            let base = f0.map(|f| mix(0.25, f, self.metal));
-            let fm = schlick(base, dot(v, hm).max(0.0));
-            let k = self.sheen * dm * smith_g(nlm.max(1e-3), nv, am) / (4.0 * nlm * nv).max(1e-4)
-                * nlm
-                * mix(1.2, 0.8, self.metal);
-            for c in 0..3 {
-                col[c] += k * fm[c] * light_color[c];
-            }
         }
         if self.glow[3] > 0.0 {
             let below = self.size_l()[1] - p[1];

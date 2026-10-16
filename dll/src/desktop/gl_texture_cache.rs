@@ -66,6 +66,21 @@ impl TextureSlotKey {
     }
 }
 
+/// The stable `ExternalImageId` of a background layer's callback frames: the
+/// same layer always draws under the same id, so a new frame of it is new
+/// pixels under the old id. The top bit is set, which neither the image ids
+/// (a counter) nor the node slots (`TextureSlotKey`: the DOM in the high and
+/// the node in the low 32 bits) ever do.
+pub(crate) fn background_texture_id(slot: &azul_core::resources::BackgroundSlot) -> ExternalImageId {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    slot.hash(&mut hasher);
+    ExternalImageId {
+        inner: hasher.finish() | (1 << 63),
+    }
+}
+
 /// Entry for a texture in the cache, tracking the texture and when it was last updated.
 struct TextureEntry {
     texture: Texture,

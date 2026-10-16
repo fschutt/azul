@@ -8103,8 +8103,8 @@ pub struct RenderImageCallbackExtras {
     /// share and god rays (its direction is [`Self::light`]'s).
     pub material_light: crate::texture::MaterialLight,
     /// Where the light comes from in this window: the app's one light, or
-    /// the window's own material light where it set one. The materials,
-    /// their bevels and the sheen are lit from it.
+    /// the window's own material light where it set one. The materials and
+    /// their bevels are lit from it.
     pub light: azul_core::light::Light,
     /// Where the window's top-left sits on the desktop, desktop points: a
     /// point light and the wallpaper a metal reflects are seen from the
@@ -8112,12 +8112,6 @@ pub struct RenderImageCallbackExtras {
     pub window_desktop_origin: LogicalPosition,
     /// The screen the window is on, desktop points (the wallpaper's frame).
     pub screen: LogicalRect,
-    /// The cursor's sheen on the rect, eased 0..1 (0 when the cursor is
-    /// elsewhere): the materials draw a soft highlight under the cursor.
-    pub sheen: f32,
-    /// The cursor, logical px from the rect's top-left (read only while
-    /// `sheen` is above 0).
-    pub cursor: LogicalPosition,
     /// The system's text highlight colour: what a metal reflects where no
     /// wallpaper is known.
     pub highlight: azul_css::props::basic::ColorU,
@@ -8129,7 +8123,7 @@ pub struct RenderImageCallbackExtras {
 
 impl RenderImageCallbackExtras {
     /// No radii, the window's origin, the light `material_light` describes,
-    /// no sheen, no properties.
+    /// no properties.
     #[must_use]
     pub const fn new(material_light: crate::texture::MaterialLight) -> Self {
         Self {
@@ -8148,8 +8142,6 @@ impl RenderImageCallbackExtras {
                     height: 1080.0,
                 },
             },
-            sheen: 0.0,
-            cursor: LogicalPosition { x: 0.0, y: 0.0 },
             highlight: azul_css::props::basic::ColorU {
                 r: 0xB3,
                 g: 0xD7,

@@ -198,11 +198,14 @@ fn a_new_material_light_renders_a_background_callback_again() {
     assert_eq!(LIT.lock().expect("not poisoned").len(), 1);
 
     assert!(lw.set_material_light(MaterialLight::from_direction(270.0, 30.0)));
+    // The next frame draws the background again under the new light, before
+    // anything draws that frame (the GL path prepares a frame's content
+    // before it registers the frame's images).
+    lw.prepare_frame_content();
     assert_eq!(
         LIT.lock().expect("not poisoned").last().map(|(az, _)| *az),
         Some(270.0),
-        "a new light renders the background again, at once (before the next frame registers \
-         its images)"
+        "a new light renders the background again"
     );
     let second = image_items(&lw)[0].1.get_hash();
     assert_ne!(first, second, "the item carries the new frame");

@@ -173,11 +173,10 @@ fn the_cursor_sheen_eases_in_quickly_and_out_slowly() {
     assert!((amount - 0.632).abs() < 0.03, "eased in: {amount}");
     lw.prepare_frame_content();
     let (_, lit) = frame(&lw);
-    assert_ne!(unlit.get_hash(), lit.get_hash(), "the sheen is drawn");
-    let near = (80, 20, 40, 20);
-    assert!(
-        mean_luma(&lit, near) > mean_luma(&unlit, near) + 1.0,
-        "the surface brightens under the cursor"
+    assert_eq!(
+        unlit.get_hash(),
+        lit.get_hash(),
+        "the sheen is a layer over the material: the material is not drawn again"
     );
 
     // The cursor leaves: it fades out more slowly, e^-1 of the rest after
