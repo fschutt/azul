@@ -20,9 +20,13 @@ fn red_pixels(markup: &str, size: f32) -> usize {
         a: 0,
     };
     let r = render_dom_to_rgba(dom, Css::empty(), size, size, 1.0, transparent).expect("renders");
+    // The pixels are premultiplied: a row the line half covers is
+    // (128, 0, 0, 128), red at half coverage.
     r.rgba
         .chunks_exact(4)
-        .filter(|p| p[0] > 150 && p[1] < 100 && p[2] < 100 && p[3] > 100)
+        .filter(|p| {
+            p[3] > 100 && u32::from(p[0]) * 255 > 150 * u32::from(p[3]) && p[1] < 100 && p[2] < 100
+        })
         .count()
 }
 
