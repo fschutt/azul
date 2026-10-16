@@ -39,8 +39,8 @@ use azul_core::{
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::{OptionRefAny, RefAny},
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
-        OpacityKey, RendererResources, UpdateImageType,
+        BackgroundSlot, Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask,
+        ImageRef, ImageRefHash, OpacityKey, RendererResources, UpdateImageType,
     },
     selection::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
@@ -1122,9 +1122,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         image_cache: _,
         content_overlay: _,
         image_callback_inputs: _,
-        // One entry per background item drawing a callback image (a frame
-        // each, shared with the render cache): bounded by such items.
-        background_image_frames: _,
+        // One small entry per background layer that declares a render
+        // callback: bounded by such layers.
+        background_callback_inputs: _,
         // A light and a counter.
         material_light: _,
         background_frames_generation: _,
@@ -1752,11 +1752,12 @@ pub struct LayoutWindow {
     /// `update_all_image_callbacks`) - a canvas at rest mints no new
     /// `ImageRef` and repaints nothing (`AzReview` never idled, FB3).
     pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
-    /// The frames of callback images used as BACKGROUND layers
-    /// (`background: url(id)` / `builtin(<name>)` naming a callback image),
-    /// per item: what each was rendered from and the frame patched into the
-    /// display list ([`Self::resolve_background_image_callbacks`]).
-    pub background_image_frames: BTreeMap<BackgroundFrameKey, BackgroundFrame>,
+    /// What each background layer that declares a render callback
+    /// (`background: url(id)` / `builtin(<name>)` naming a callback image)
+    /// was last drawn from. A frame asks the callback again only when these
+    /// changed ([`Self::invoke_background_image_callbacks_into_overlay`]); its
+    /// frame lives in the content overlay's background arm.
+    pub background_callback_inputs: BTreeMap<BackgroundSlot, BackgroundCallbackInputs>,
     /// The window's own material light (`CallbackInfo::set_material_light`):
     /// the light's colour, strength, ambient share and god rays for every
     /// material here, and - once [`Self::material_light_is_own`] - its
@@ -2618,7 +2619,7 @@ impl LayoutWindow {
             image_cache: crate::texture::image_cache_with_builtin_textures(),
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
-            background_image_frames: BTreeMap::new(),
+            background_callback_inputs: BTreeMap::new(),
             material_light: crate::texture::MaterialLight::DEFAULT,
             background_frames_generation: 0,
             material_light_is_own: false,
@@ -27809,10 +27810,11 @@ impl LayoutWindow {
             // may have changed the data a canvas draws from, so each of its
             // canvases renders once more.
             image_callback_inputs,
-            // Dropped for the rebuilt DOM like the canvases' inputs; the next
-            // frame finds the items again (the material render cache keeps
-            // an identical surface from rendering twice).
-            background_image_frames,
+            // Remapped, not dropped: a rebuild changes none of what a
+            // background layer's frame is drawn from (an app that changed the
+            // data of a callback it reuses says so with
+            // `update_all_image_callbacks`), so the layer keeps its frame.
+            background_callback_inputs,
             // The window's light, keyed by nothing.
             material_light: _,
             background_frames_generation: _,
@@ -28125,7 +28127,7 @@ impl LayoutWindow {
         // already installed.
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
-        background_image_frames.retain(|key, _| key.dom != dom);
+        crate::managers::remap_background_slots(background_callback_inputs, dom, map);
         crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history
