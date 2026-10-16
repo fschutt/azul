@@ -1778,9 +1778,11 @@ pub struct LayoutWindow {
     /// The app light's change count at that adoption: a window whose count
     /// lags adopts the light at its next frame (`u64::MAX` = never adopted).
     pub app_light_generation: u64,
-    /// The cursor's sheen on each node that draws a built-in material,
-    /// eased on the animation clock ([`Self::step_material_sheen`]) and handed
-    /// to the material's render through its extras.
+    /// The cursor's sheen on each node that draws a built-in material in a
+    /// window WebRender draws (none where the CPU draws), eased on the
+    /// animation clock ([`Self::step_material_sheen`]) and drawn as a layer
+    /// over the material through its GPU values (the GPU cache's sheen
+    /// channel), never by drawing the material again.
     pub material_sheen: crate::texture::sheen::MaterialSheen,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
@@ -9044,7 +9046,7 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
-        self.invoke_background_image_callbacks_into_overlay(&OptionGlContextPtr::None);
+        let _ = self.invoke_background_image_callbacks_into_overlay(&OptionGlContextPtr::None, false);
     }
 
     /// The app asked for a new frame of one canvas (`update_image_callback`):
@@ -9095,13 +9097,15 @@ impl LayoutWindow {
     /// `ContentOverlay::iter_images` — it never invokes callbacks itself.
     ///
     /// One call per submitted frame: the journal frame sequence and the WR
-    /// epoch advance in lockstep on this path.
-    pub fn prepare_frame_gl(&mut self, gl_context: &OptionGlContextPtr) {
+    /// epoch advance in lockstep on this path. Returns whether a display list
+    /// was built again (a material's sheen layer appeared or went): the
+    /// renderer must take the lists anew.
+    pub fn prepare_frame_gl(&mut self, gl_context: &OptionGlContextPtr) -> bool {
         self.content_journal.begin_frame();
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(gl_context);
-        self.invoke_background_image_callbacks_into_overlay(gl_context);
+        self.invoke_background_image_callbacks_into_overlay(gl_context, true)
     }
 
     /// `[focus, selection, scroll]` fingerprints for the journal diff.
@@ -10258,7 +10262,17 @@ impl LayoutWindow {
     /// same two callers: the CPU frame's preparation, and the GL frame path
     /// with its context (a callback draws into a GL texture there) before
     /// that frame's images are registered.
-    fn invoke_background_image_callbacks_into_overlay(&mut self, gl_context: &OptionGlContextPtr) {
+    ///
+    /// The built-in materials' sheen comes with it: in a window WebRender
+    /// draws (`drawn_by_webrender`) every material surface gets its sheen
+    /// layer's keys and values ([`Self::sync_sheen_keys`]); a window the CPU
+    /// draws has none. Returns whether a display list was built again for a
+    /// sheen layer that appeared or went - the renderer must take it anew.
+    fn invoke_background_image_callbacks_into_overlay(
+        &mut self,
+        gl_context: &OptionGlContextPtr,
+        drawn_by_webrender: bool,
+    ) -> bool {
         use azul_core::resources::DecodedImage;
 
         use crate::solver3::display_list::DisplayListItem;
@@ -10284,7 +10298,7 @@ impl LayoutWindow {
             .map(|image| (image.get_hash(), image.clone()))
             .collect();
         if declared.is_empty() && self.background_callback_inputs.is_empty() {
-            return;
+            return false;
         }
         // The built-in materials among them: those shine under the cursor.
         let materials: BTreeSet<ImageRefHash> = crate::texture::Material::ALL
@@ -10432,7 +10446,6 @@ impl LayoutWindow {
                 });
             }
         }
-        self.material_sheen.sync(shining);
 
         // Phase 2: ask the callbacks (nothing is mutated until phase 3, so
         // the custom-property pointers into the styled DOMs stay valid).
@@ -10497,6 +10510,87 @@ impl LayoutWindow {
             let _ = self.apply_content_change(
                 crate::overlay::ContentChange::BackgroundImageCallbackResult { slot, image },
             );
+        }
+
+        // The sheen: the surfaces whose hover drives it, their layers' keys
+        // (a list that gains or loses a layer is built again) and values.
+        self.material_sheen
+            .sync(if drawn_by_webrender { shining } else { BTreeMap::new() });
+        let rebuilt = self.sync_sheen_keys();
+        self.publish_sheen_values();
+        for dom_id in &rebuilt {
+            self.regenerate_display_list_for_dom(*dom_id);
+        }
+        !rebuilt.is_empty()
+    }
+
+    /// The sheen layers' keys (the GPU cache's sheen channel): a transform and
+    /// an opacity key for every material surface the sheen state holds - the
+    /// display-list builder opens a sheen layer exactly where they are - and
+    /// none anywhere else. Returns the DOMs whose keys changed: their display
+    /// lists must be built again to open or drop the layers.
+    fn sync_sheen_keys(&mut self) -> Vec<DomId> {
+        let doms: BTreeSet<DomId> = self
+            .gpu_state_manager
+            .caches
+            .keys()
+            .copied()
+            .chain(self.material_sheen.surfaces.keys().map(|(dom, _)| *dom))
+            .collect();
+        let mut changed = Vec::new();
+        for dom in doms {
+            let wanted: BTreeSet<NodeId> = self
+                .material_sheen
+                .surfaces
+                .keys()
+                .filter(|(d, _)| *d == dom)
+                .map(|(_, node)| *node)
+                .collect();
+            let cache = self.gpu_state_manager.get_or_create_cache(dom);
+            let had: BTreeSet<NodeId> = cache.sheen_opacity_keys.keys().copied().collect();
+            if had == wanted && cache.sheen_transform_keys.len() == wanted.len() {
+                continue;
+            }
+            cache.sheen_transform_keys.retain(|node, _| wanted.contains(node));
+            cache
+                .sheen_current_transform_values
+                .retain(|node, _| wanted.contains(node));
+            cache.sheen_opacity_keys.retain(|node, _| wanted.contains(node));
+            cache
+                .sheen_current_opacity_values
+                .retain(|node, _| wanted.contains(node));
+            for node in &wanted {
+                cache
+                    .sheen_transform_keys
+                    .entry(*node)
+                    .or_insert_with(azul_core::resources::TransformKey::unique);
+                cache
+                    .sheen_opacity_keys
+                    .entry(*node)
+                    .or_insert_with(OpacityKey::unique);
+            }
+            changed.push(dom);
+        }
+        changed
+    }
+
+    /// Publish every sheen's eased amount and the cursor's place on its
+    /// material as its layer's GPU values: both renderers read them by key,
+    /// so the highlight moves and fades without a new display list.
+    fn publish_sheen_values(&mut self) {
+        for (&(dom, node), surface) in &self.material_sheen.surfaces {
+            let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) else {
+                continue;
+            };
+            if !cache.sheen_opacity_keys.contains_key(&node) {
+                continue;
+            }
+            let cursor = surface.cursor_in_surface();
+            cache.sheen_current_transform_values.insert(
+                node,
+                azul_core::transform::ComputedTransform3D::new_translation(cursor.x, cursor.y, 0.0),
+            );
+            cache.sheen_current_opacity_values.insert(node, surface.amount);
         }
     }
 
@@ -10628,7 +10722,11 @@ impl LayoutWindow {
     /// drawn again: the sheen is a layer of its own over them.
     pub fn step_material_sheen(&mut self, dt_s: f32) -> bool {
         let cursor = self.current_window_state.mouse_state.cursor_position.get_position();
-        self.material_sheen.step(dt_s, cursor)
+        if !self.material_sheen.step(dt_s, cursor) {
+            return false;
+        }
+        self.publish_sheen_values();
+        true
     }
 
     /// Handle a window resize by updating the cached layout.
@@ -16365,8 +16463,8 @@ impl LayoutWindow {
     pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         let relayout = self.take_transition_relayout();
-        // A sheen step patched its material frames into the list (or, in a
-        // GPU window, owes them to the next frame): a repaint shows them.
+        // A sheen step moved its layer's GPU values: a repaint shows them,
+        // the display list stays.
         let patched = self.take_transition_patched() | self.material_sheen.take_stepped();
         if relayout {
             ProcessEventResult::ShouldIncrementalRelayout

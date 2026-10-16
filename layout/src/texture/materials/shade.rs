@@ -284,14 +284,14 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 }
 
 /// GGX (Trowbridge-Reitz) normal distribution.
-fn ggx(nh: f32, a: f32) -> f32 {
+pub(crate) fn ggx(nh: f32, a: f32) -> f32 {
     let a2 = a * a;
     let d = nh * nh * (a2 - 1.0) + 1.0;
     a2 / (PI * d * d)
 }
 
 /// Anisotropic GGX, brushed along x.
-fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
+pub(crate) fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
     let t = normalize([1.0 - n[0] * n[0], -n[1] * n[0], -n[2] * n[0]]);
     let b = cross(n, t);
     let th = dot(t, h) / ax;
@@ -302,14 +302,29 @@ fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
 }
 
 /// Smith-Schlick geometry term, k = a / 2.
-fn smith_g(nl: f32, nv: f32, a: f32) -> f32 {
+pub(crate) fn smith_g(nl: f32, nv: f32, a: f32) -> f32 {
     let k = a * 0.5;
     (nl / (nl * (1.0 - k) + k)) * (nv / (nv * (1.0 - k) + k))
 }
 
-fn schlick(f0: [f32; 3], c: f32) -> [f32; 3] {
+/// Schlick's Fresnel: `f0` at normal incidence, white at grazing.
+pub(crate) fn schlick(f0: [f32; 3], c: f32) -> [f32; 3] {
     let k = (1.0 - c).powf(5.0);
     f0.map(|f| f + (1.0 - f) * k)
+}
+
+/// The film's soft shoulder over linear light: above 0.86 a highlight rolls
+/// toward white instead of clipping, and loses some of its colour.
+pub(crate) fn film(col: [f32; 3]) -> [f32; 3] {
+    let peak = col[0].max(col[1]).max(col[2]);
+    if peak <= 0.86 {
+        return col;
+    }
+    let k = (0.86 + 0.14 * (1.0 - (-(peak - 0.86) / 0.14).exp())) / peak;
+    let scaled = col.map(|c| c * k);
+    let luma = 0.2126 * scaled[0] + 0.7152 * scaled[1] + 0.0722 * scaled[2];
+    let t = ((peak - 0.86) * 0.4).clamp(0.0, 0.25);
+    scaled.map(|c| mix(c, luma, t))
 }
 
 /// Linear light to sRGB, 0..1.
@@ -560,14 +575,7 @@ impl Shader<'_> {
                 col[c] += self.glow[c] * k;
             }
         }
-        let peak = col[0].max(col[1]).max(col[2]);
-        if peak > 0.86 {
-            let k = (0.86 + 0.14 * (1.0 - (-(peak - 0.86) / 0.14).exp())) / peak;
-            let scaled = col.map(|c| c * k);
-            let luma = 0.2126 * scaled[0] + 0.7152 * scaled[1] + 0.0722 * scaled[2];
-            let t = ((peak - 0.86) * 0.4).clamp(0.0, 0.25);
-            col = scaled.map(|c| mix(c, luma, t));
-        }
+        col = film(col);
         // The dither is hashed on the WINDOW's device pixel, so two surfaces
         // side by side dither as one.
         let wx = (self.origin_px[0] + x as i32) as f32;

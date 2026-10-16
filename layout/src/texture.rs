@@ -200,6 +200,13 @@ impl Material {
             self.builtin_name()
         )
     }
+
+    /// The material an image id names ([`Self::css_name`]), if it names one.
+    #[must_use]
+    pub fn from_css_name(id: &str) -> Option<Self> {
+        let name = id.strip_prefix(azul_css::props::style::background::BUILTIN_IMAGE_PREFIX)?;
+        Self::ALL.into_iter().find(|m| m.builtin_name() == name)
+    }
 }
 
 /// The accent as a strip of light: its hue at 60% lightness and 90%

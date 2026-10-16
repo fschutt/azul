@@ -76,8 +76,20 @@ pub struct GpuValueCache {
     /// The identity right after layout; written per frame by the layout
     /// crate's `GpuStateManager::update_scrollbar_transforms`.
     pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// The cursor's SHEEN over a material (keyed by the material's node): the
+    /// transform that moves the sheen's highlight to the cursor. A channel of
+    /// its own, minted by the layout window for a window WebRender draws; the
+    /// display list opens a sheen layer over a material exactly where its node
+    /// has both sheen keys.
+    pub sheen_transform_keys: HashMap<NodeId, TransformKey>,
+    /// Where each sheen's highlight sits now: a translation to the cursor,
+    /// logical px from the material's top-left.
+    pub sheen_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// The sheen's eased strength, bound as the opacity of its layer.
+    pub sheen_opacity_keys: HashMap<NodeId, OpacityKey>,
+    /// Each sheen's eased strength now, 0 (none) to 1.
+    pub sheen_current_opacity_values: HashMap<NodeId, f32>,
     /// Animation opacity keys (keyed by node ID).
-    pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
     pub anim_current_opacity_values: HashMap<NodeId, f32>,
     /// CSS opacity keys (keyed by node ID)
@@ -217,7 +229,9 @@ impl GpuValueCache {
                 + self.scrollbar_h_opacity_keys.len()
                 + self.opacity_keys.len()
                 + self.current_opacity_values.len()
-                + self.sticky_transform_keys.len(),
+                + self.sticky_transform_keys.len()
+                + self.sheen_transform_keys.len()
+                + self.sheen_opacity_keys.len(),
         );
         for (n, k) in &self.css_transform_keys {
             entries.push((0, n.index() as u64, k.id as u64));
@@ -264,6 +278,13 @@ impl GpuValueCache {
         // (its value always exists with it).
         for (n, k) in &self.sticky_transform_keys {
             entries.push((12, n.index() as u64, k.id as u64));
+        }
+        // A material opens its sheen layer exactly when it has both keys.
+        for (n, k) in &self.sheen_transform_keys {
+            entries.push((13, n.index() as u64, k.id as u64));
+        }
+        for (n, k) in &self.sheen_opacity_keys {
+            entries.push((14, n.index() as u64, k.id as u64));
         }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
@@ -325,6 +346,16 @@ impl GpuValueCache {
         for (node_id, key) in &self.sticky_transform_keys {
             if let Some(value) = self.sticky_current_transform_values.get(node_id) {
                 on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sheen_transform_keys {
+            if let Some(value) = self.sheen_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sheen_opacity_keys {
+            if let Some(&value) = self.sheen_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
             }
         }
         for (node_id, key) in &self.anim_opacity_keys {

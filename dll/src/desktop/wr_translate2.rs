@@ -1911,9 +1911,9 @@ pub fn generate_frame(
     // registers the lists' images or translates them: a frame produced after
     // the translation would show one frame late. A slot keyed for the first
     // time is named by no list WebRender holds: the lists go again.
-    prepare_frame_content_gl(layout_window, gl_context);
+    let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
     let textures = register_overlay_textures(layout_window, txn);
-    let display_list_was_rebuilt = display_list_was_rebuilt || textures.new_slot;
+    let display_list_was_rebuilt = display_list_was_rebuilt || lists_rebuilt || textures.new_slot;
 
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
@@ -2730,8 +2730,9 @@ pub fn build_webrender_transaction(
 
     // Step 0: the frame's content - every callback whose inputs changed
     // draws its frame with this frame's GL context - before anything below
-    // registers the display lists' images or translates them.
-    prepare_frame_content_gl(layout_window, gl_context);
+    // registers the display lists' images or translates them (which this
+    // transaction does in any case).
+    let _ = prepare_frame_content_gl(layout_window, gl_context);
 
     // Step 0.5: the overlay's GL textures (callback frames of image nodes and
     // background layers) under their slots' keys, BEFORE the display-list
@@ -3004,7 +3005,7 @@ pub fn build_image_only_transaction(
     // Step 1: the frame's content - every callback whose inputs changed
     // draws its frame with this frame's GL context - and the GL textures
     // under their slots' keys (a new frame of a slot is pixels only).
-    prepare_frame_content_gl(layout_window, gl_context);
+    let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
     let textures = register_overlay_textures(layout_window, txn);
 
     // Step 1.5: Video tiles. A new frame of an in-place-replaced node image
@@ -3015,9 +3016,10 @@ pub fn build_image_only_transaction(
     let images_changed = textures.changed || overlay.changed;
 
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
-    // slot got its key in this transaction: the display list WebRender holds
-    // names the slot's previous image, so it is resent once, at a new epoch.
-    if overlay.new_slot || textures.new_slot {
+    // slot got its key in this transaction (the display list WebRender holds
+    // names the slot's previous image) or the content step built a list
+    // again: then the lists go once more, at a new epoch.
+    if overlay.new_slot || textures.new_slot || lists_rebuilt {
         set_display_lists(txn, layout_window)?;
         layout_window.epoch.increment();
     } else {
@@ -3108,12 +3110,15 @@ pub fn build_image_only_transaction(
 /// frame's GL context - and the frames go through the content chokepoint
 /// into the display lists (`LayoutWindow::prepare_frame_gl`, the twin of the
 /// CPU hosts' `prepare_frame_cpu`). One call per submitted frame, before the
-/// frame's images are registered or its lists translated.
+/// frame's images are registered or its lists translated. Returns whether a
+/// display list was built again (a material's sheen layer appeared or went):
+/// the lists must go to WebRender anew.
+#[must_use]
 fn prepare_frame_content_gl(
     layout_window: &mut LayoutWindow,
     gl_context: &azul_core::gl::OptionGlContextPtr,
-) {
-    layout_window.prepare_frame_gl(gl_context);
+) -> bool {
+    let lists_rebuilt = layout_window.prepare_frame_gl(gl_context);
 
     // Callbacks may have left arbitrary GL state behind: flush the pending
     // commands BEFORE WebRender samples the produced textures (without it
@@ -3130,6 +3135,7 @@ fn prepare_frame_content_gl(
         gl.disable(gl::MULTISAMPLE);
         gl.use_program(0);
     }
+    lists_rebuilt
 }
 
 /// Register the content overlay's GL textures - the callback frames of image

@@ -7006,6 +7006,104 @@ where
         BackgroundPlacement::of(self.ctx.styled_dom, dom_id, node_state, layers, self.ctx.image_cache)
     }
 
+    /// The cursor's sheen over a built-in material layer (`builtin(leather)`)
+    /// that covers `area`: a radial highlight, cut to the layer's rounded
+    /// rect, whose opacity (the sheen's eased amount) and place (the cursor)
+    /// are GPU values - the sheen channel of the GPU cache, which the window
+    /// keys only where WebRender draws it. So the cursor moves it without a
+    /// new frame of the material or a new display list. Returns whether the
+    /// layer has a sheen.
+    #[allow(clippy::too_many_arguments)] // the layer's resolved pieces
+    fn push_material_sheen(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        area: LogicalRect,
+        radius: BorderRadius,
+    ) -> bool {
+        #[cfg(feature = "materials")]
+        {
+            use azul_css::props::style::StyleBackgroundContent;
+
+            use crate::texture::{materials, Material, MaterialLight};
+
+            let StyleBackgroundContent::Image(id) = layer else {
+                return false;
+            };
+            let Some(material) = Material::from_css_name(id.as_str()) else {
+                return false;
+            };
+            let Some(cache) = self.gpu_value_cache else {
+                return false;
+            };
+            let (Some(&transform_key), Some(&opacity_key)) = (
+                cache.sheen_transform_keys.get(&dom_id),
+                cache.sheen_opacity_keys.get(&dom_id),
+            ) else {
+                return false;
+            };
+            let properties = self
+                .ctx
+                .styled_dom
+                .get_css_property_cache()
+                .custom_property_envs
+                .map_for(dom_id.index(), super::getters::custom_property_state(node_state));
+            let params = materials::MaterialParams::from_custom_properties(
+                material,
+                |name| properties.get(name).map(str::to_string),
+                [
+                    radius.top_left,
+                    radius.top_right,
+                    radius.bottom_right,
+                    radius.bottom_left,
+                ],
+            );
+            // The light's colour: the default light's (a window's own light
+            // colour is not known to the layout).
+            let Some(sprite) = materials::sheen_sprite(material, &params, &MaterialLight::DEFAULT)
+            else {
+                return false;
+            };
+            // The highlight is laid at the layer's top-left corner, and the
+            // transform moves it to the cursor.
+            let [rx, ry] = sprite.radius;
+            let highlight = LogicalRect::new(
+                LogicalPosition::new(area.origin.x - rx, area.origin.y - ry),
+                LogicalSize::new(2.0 * rx, 2.0 * ry),
+            );
+            let transform = cache
+                .sheen_current_transform_values
+                .get(&dom_id)
+                .copied()
+                .unwrap_or(ComputedTransform3D::IDENTITY);
+            let opacity = cache
+                .sheen_current_opacity_values
+                .get(&dom_id)
+                .copied()
+                .unwrap_or(0.0);
+            builder.push_clip(area, radius);
+            builder.push_item(DisplayListItem::PushOpacity {
+                bounds: area.into(),
+                opacity,
+                opacity_key: Some(opacity_key),
+            });
+            // No owner: the frame moves the highlight, not the node.
+            builder.push_reference_frame(transform_key, transform, highlight, None);
+            builder.push_radial_gradient(highlight, sprite.gradient(), BorderRadius::default());
+            builder.pop_reference_frame();
+            builder.push_item(DisplayListItem::PopOpacity);
+            builder.pop_clip();
+            true
+        }
+        #[cfg(not(feature = "materials"))]
+        {
+            let _ = (builder, dom_id, node_state, layer, area, radius);
+            false
+        }
+    }
+
     /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
     /// Appendix E): its OUTER shadows (below everything, around the border
     /// box), its background layers - within its `background-clip` box
@@ -7072,6 +7170,7 @@ where
                 super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
             let placement = self.background_placement(dom_id, node_state, background_contents);
             let layers = background_contents.len();
+            let mut sheen_drawn = false;
             for (i, layer) in background_contents.iter().enumerate() {
                 let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
                     StyleBackgroundClip::BorderBox => (border_box, border_radius),
@@ -7100,6 +7199,12 @@ where
                             &self.ctx.resolved_content(),
                         );
                     }
+                }
+                // A material shines under the cursor: its sheen is a layer
+                // right over it, under the layers above it.
+                if !sheen_drawn {
+                    sheen_drawn =
+                        self.push_material_sheen(builder, dom_id, node_state, layer, area, radius);
                 }
             }
         }

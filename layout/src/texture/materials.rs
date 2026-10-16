@@ -981,6 +981,188 @@ const fn metal_of(material: Material) -> (f32, bool) {
     }
 }
 
+// -- The cursor's sheen -------------------------------------------------------------------------
+
+/// The cursor's sheen on a material, as the layer the display list draws
+/// over it ([`sheen_sprite`]): one colour drawn OVER the material at an
+/// alpha that falls with the distance from the cursor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheenSprite {
+    /// How far the highlight reaches from the cursor, logical px, along x
+    /// and along y (a brushed metal's highlight is an ellipse).
+    pub radius: [f32; 2],
+    /// The highlight's colour, sRGB, opaque.
+    pub color: azul_css::props::basic::ColorU,
+    /// Its alpha (0..1, at full strength: the layer's opacity is the sheen's
+    /// eased amount) at distances from the cursor, as shares of the radius
+    /// from 0 (the cursor) to 1 (the reach). They lie closer together near
+    /// the cursor, where the lobe bends most.
+    pub stops: Vec<(f32, f32)>,
+}
+
+/// How many stops the highlight's gradient has.
+const SHEEN_STOPS: usize = 16;
+
+impl SheenSprite {
+    /// The highlight as a radial gradient filling a rect of twice its radius,
+    /// centred on that rect.
+    #[must_use]
+    pub fn gradient(&self) -> azul_css::props::style::background::RadialGradient {
+        use azul_css::props::{
+            basic::{ColorU, PercentageValue},
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode,
+                NormalizedLinearColorStop, RadialGradient, RadialGradientSize, Shape,
+                StyleBackgroundPosition,
+            },
+        };
+
+        let stops: Vec<NormalizedLinearColorStop> = self
+            .stops
+            .iter()
+            .map(|&(at, alpha)| {
+                NormalizedLinearColorStop::new(
+                    PercentageValue::new(at * 100.0),
+                    ColorU {
+                        a: (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
+                        ..self.color
+                    },
+                )
+            })
+            .collect();
+        RadialGradient {
+            shape: if (self.radius[0] - self.radius[1]).abs() < 0.5 {
+                Shape::Circle
+            } else {
+                Shape::Ellipse
+            },
+            size: RadialGradientSize::ClosestSide,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            extend_mode: ExtendMode::Clamp,
+            stops: stops.into(),
+        }
+    }
+}
+
+/// The cursor's sheen on `material` worn as `params`, in `light`'s colour:
+/// the highlight the display list draws over the material while the cursor
+/// is on it, `None` for a material without a sheen.
+///
+/// The sheen is the material's second GGX lobe: a light `sheen_size` px over
+/// the cursor, wider than the surface's own specular (alpha 1.8 times for a
+/// dielectric, 1.1 times for a metal), on a satin base of 25% (a metal's own
+/// colour), `sheen x 3 x depth` strong. On a flat surface it depends on the
+/// distance to the cursor alone. Drawn over the material's colour (its tint
+/// under the light) in one colour at a falling alpha, it brightens the
+/// surface as the lobe does - the grain shows through, as it does under the
+/// lobe.
+// The lobe keeps the shader's letters (shader.glsl): a, n, k...
+#[allow(clippy::many_single_char_names)]
+#[must_use]
+pub fn sheen_sprite(
+    material: Material,
+    params: &MaterialParams,
+    light: &MaterialLight,
+) -> Option<SheenSprite> {
+    let strength = params.sheen * 3.0 * params.depth;
+    if strength <= 0.0 {
+        return None;
+    }
+    let (metal, aniso) = metal_of(material);
+    let light_color = [light.color.r, light.color.g, light.color.b]
+        .map(|v| srgb_to_linear(f32::from(v) / 255.0) * light.intensity.max(0.0));
+    // The lobe's roughness: the middle of the range the surface spreads over.
+    let rough = 0.5 * (params.roughness[0] + params.roughness[1]);
+    let a = (rough * rough).max(0.002);
+    let am = (a * surface::mix(1.8, 1.1, metal)).max(0.02);
+    let base = params
+        .tint
+        .map(|c| surface::mix(0.25, surface::mix(0.04, c, metal), metal));
+    let size = params.sheen_size.max(1.0);
+    // The light the lobe adds at `(dx, dy)` from the cursor, linear.
+    let added = |dx: f32, dy: f32| -> [f32; 3] {
+        let n = [0.0, 0.0, 1.0];
+        let lm = shade::normalize([-dx, -dy, size]);
+        let hm = shade::normalize([lm[0], lm[1], lm[2] + 1.0]);
+        let nlm = lm[2].max(0.0);
+        let dm = if aniso {
+            shade::ggx_aniso(n, hm, (am * 0.35).max(0.004), (am * 1.8).max(0.02))
+        } else {
+            shade::ggx(hm[2].max(0.0), am)
+        };
+        let fm = shade::schlick(base, hm[2].max(0.0));
+        let k = strength * dm * shade::smith_g(nlm.max(1e-3), 1.0, am) / (4.0 * nlm).max(1e-4)
+            * nlm
+            * surface::mix(1.2, 0.8, metal);
+        [0_usize, 1, 2].map(|c| k * fm[c] * light_color[c])
+    };
+    let shown = |col: [f32; 3]| shade::film(col).map(shade::encode);
+    let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let plus = |x: [f32; 3], y: [f32; 3]| [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
+
+    let surface_lit = [0_usize, 1, 2].map(|c| params.tint[c] * light_color[c]);
+    let under = shown(surface_lit);
+    let at_cursor = added(0.0, 0.0);
+    let peak = shown(plus(surface_lit, at_cursor));
+    if luma(peak) - luma(under) < 0.5 / 255.0 {
+        return None;
+    }
+    // The colour of the light the lobe adds, at full brightness - or the
+    // lit colour under the cursor where that is brighter still (a polished
+    // metal's highlight burns to white).
+    let brightest = at_cursor[0].max(at_cursor[1]).max(at_cursor[2]).max(1e-6);
+    let hue = at_cursor.map(|c| shade::encode(c / brightest));
+    let color = if luma(peak) > luma(hue) { peak } else { hue };
+    let span = (luma(color) - luma(under)).max(1e-4);
+    let alpha_at = |dx: f32, dy: f32| {
+        ((luma(shown(plus(surface_lit, added(dx, dy)))) - luma(under)) / span).clamp(0.0, 1.0)
+    };
+    // How far the highlight reaches along one axis: where it brightens the
+    // surface by less than half a level. A rough surface's lobe is wide - a
+    // light hanging over it lights it far around - so this is far more than
+    // the light's height.
+    let reach = |along_x: bool| -> f32 {
+        let step = (size / 32.0).max(0.5);
+        let mut d = step;
+        while d < size * 64.0 {
+            let alpha = if along_x { alpha_at(d, 0.0) } else { alpha_at(0.0, d) };
+            if alpha * span < 0.5 / 255.0 {
+                break;
+            }
+            d += step;
+        }
+        d
+    };
+    let radius = [reach(true), reach(false)];
+    // The stops at squared shares of the radius: dense near the cursor.
+    let stops = (0..SHEEN_STOPS)
+        .map(|i| {
+            let t = i as f32 / (SHEEN_STOPS - 1) as f32;
+            let at = t * t;
+            let alpha = if i + 1 == SHEEN_STOPS {
+                0.0
+            } else {
+                alpha_at(at * radius[0], 0.0)
+            };
+            (at, alpha)
+        })
+        .collect();
+    let byte = |c: f32| (c * 255.0).round().clamp(0.0, 255.0) as u8;
+    Some(SheenSprite {
+        radius,
+        color: azul_css::props::basic::ColorU {
+            r: byte(color[0]),
+            g: byte(color[1]),
+            b: byte(color[2]),
+            a: 255,
+        },
+        stops,
+    })
+}
+
 // -- Rendering ----------------------------------------------------------------------------------
 
 /// The uniforms of one render, for the CPU's shader and the GPU's alike:
@@ -1592,5 +1774,56 @@ mod tests {
         };
         let c = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &lower);
         assert_ne!(a.get_hash(), c.get_hash(), "another light is another render");
+    }
+
+    #[test]
+    fn the_leather_s_sheen_is_a_round_highlight_that_fades_out_at_its_reach() {
+        let params = MaterialParams::of(Material::Leather);
+        let sprite = sheen_sprite(Material::Leather, &params, &MaterialLight::DEFAULT)
+            .expect("the leather shines under the cursor");
+        assert_eq!(sprite.radius[0], sprite.radius[1], "a dielectric's highlight is round");
+        assert!(
+            sprite.radius[0] > params.sheen_size,
+            "a light 240 px over the cursor lights more than 240 px around it: {:?}",
+            sprite.radius
+        );
+        assert_eq!(sprite.stops.len(), SHEEN_STOPS);
+        let alpha: Vec<f32> = sprite.stops.iter().map(|&(_, a)| a).collect();
+        assert!(
+            alpha[0] > 0.05 && alpha[0] < 1.0,
+            "visible under the cursor, the grain still showing through: {}",
+            alpha[0]
+        );
+        assert!(
+            alpha.windows(2).all(|pair| pair[1] <= pair[0] + 1e-6),
+            "it fades with the distance: {alpha:?}"
+        );
+        assert_eq!(alpha.last().copied(), Some(0.0), "and is gone at its reach");
+        assert!(
+            sprite.stops.windows(2).all(|pair| pair[1].0 > pair[0].0),
+            "the stops run outward"
+        );
+        assert_eq!(sprite.stops.last().map(|&(at, _)| at), Some(1.0));
+        let c = sprite.color;
+        assert!(c.r >= c.g && c.g >= c.b && c.b > 200, "a warm white light: {c:?}");
+    }
+
+    #[test]
+    fn a_brushed_metal_s_sheen_is_a_streak_across_its_brushing() {
+        let params = MaterialParams::of(Material::Aluminium);
+        let sprite = sheen_sprite(Material::Aluminium, &params, &MaterialLight::DEFAULT)
+            .expect("gold shines under the cursor");
+        assert!(
+            sprite.radius[1] > sprite.radius[0] * 2.0,
+            "brushed along x, the highlight runs along y: {:?}",
+            sprite.radius
+        );
+    }
+
+    #[test]
+    fn a_material_without_a_sheen_draws_no_highlight() {
+        let mut params = MaterialParams::of(Material::Leather);
+        params.sheen = 0.0;
+        assert!(sheen_sprite(Material::Leather, &params, &MaterialLight::DEFAULT).is_none());
     }
 }
