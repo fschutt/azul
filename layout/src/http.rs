@@ -3099,3 +3099,68 @@ mod client_pool_tests {
         assert_eq!(response.final_url.as_str(), format!("{base}/new"));
     }
 }
+
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod delete_body_tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        time::Duration,
+    };
+
+    use super::*;
+
+    /// A DELETE that says what it removes in a body (a signed request, such as
+    /// removing a recovery key) reaches the server with that body.
+    #[test]
+    fn a_delete_with_a_body_sends_its_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/keys/1", listener.local_addr().expect("addr"));
+        let (seen, saw) = mpsc::channel::<(String, Vec<u8>)>();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut request_line = String::new();
+            let mut length = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                if line == "\r\n" {
+                    break;
+                }
+                if request_line.is_empty() {
+                    request_line = line.trim_end().to_string();
+                } else if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("content-length") {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let _ = seen.send((request_line, body));
+            let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+        });
+
+        let response = http_request_with_config(
+            HttpMethod::Delete,
+            &url,
+            Some(b"{\"key\":1}"),
+            "application/json",
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("DELETE");
+        assert_eq!(response.status_code, 204);
+        let (request_line, body) = saw
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the server saw the request");
+        assert!(request_line.starts_with("DELETE "), "{request_line}");
+        assert_eq!(body, b"{\"key\":1}".to_vec(), "the DELETE arrived without its body");
+    }
+}
