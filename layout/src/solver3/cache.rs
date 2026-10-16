@@ -618,7 +618,8 @@ pub struct LayoutCache {
     /// arm; consumed (taken) by `reconcile_and_invalidate`.
     pub dom_diff_clean: Option<Vec<bool>>,
     /// Census: fingerprint computations skipped via `dom_diff_clean` in the
-    /// LAST reconcile — the external observable for the channel's tests.
+    /// LAST pass — the external observable for the channel's tests. A pass
+    /// the diff proved unchanged skips the reconcile and counts every node.
     pub last_fingerprint_skips: usize,
     /// Presentation hint of the LAST pass, set ONLY when the DL patch fired:
     /// the dominant translation + exceptions. The CPU compositor turns it

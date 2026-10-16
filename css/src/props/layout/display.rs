@@ -295,6 +295,10 @@ fn parse_multi_keyword_display(input: &str) -> Option<LayoutDisplay> {
             _ => return None,
         }
     }
+    if outer.is_none() && inner.is_none() && !list_item {
+        // A blank value names no display at all.
+        return None;
+    }
     let inline = outer == Some("inline");
     Some(match (outer.unwrap_or("block"), inner.unwrap_or("flow"), list_item) {
         ("run-in", "flow", false) => LayoutDisplay::RunIn,
@@ -381,6 +385,12 @@ mod tests {
                                            // property/variant)
     fn test_parse_layout_display() {
         assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
+        // The two-keyword forms of CSS Display 3 name the same displays.
+        assert_eq!(parse_layout_display("block flow").unwrap(), LayoutDisplay::Block);
+        assert_eq!(
+            parse_layout_display("inline flow-root").unwrap(),
+            LayoutDisplay::InlineBlock
+        );
         assert_eq!(
             parse_layout_display("inline").unwrap(),
             LayoutDisplay::Inline
@@ -919,8 +929,6 @@ mod autotest_generated {
             "-inline-block",
             "inline-block-",
             "-webkit-box",
-            "block flow", // CSS Display 3 two-value syntax is not supported
-            "inline flow-root",
             "table-column-groups",
             "tablerow",
             "\0",

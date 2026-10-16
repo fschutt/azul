@@ -1189,6 +1189,8 @@ mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
 mod a_relayout_that_changes_nothing_takes_the_retained_tree;
 #[path = "a_disabled_command_on_the_leather_has_grey_words_and_no_gold.rs"]
 mod a_disabled_command_on_the_leather_has_grey_words_and_no_gold;
+#[path = "a_virtual_views_child_dom_that_shrinks_lays_out_from_its_own_cache.rs"]
+mod a_virtual_views_child_dom_that_shrinks_lays_out_from_its_own_cache;
 #[path = "a_material_is_drawn_only_when_what_it_is_drawn_from_changes.rs"]
 mod a_material_is_drawn_only_when_what_it_is_drawn_from_changes;
 #[path = "a_cursor_over_the_leather_ribbon_costs_a_cpu_frame_nothing.rs"]
