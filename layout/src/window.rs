@@ -7021,10 +7021,11 @@ impl LayoutWindow {
         // `get_node_layout_rect` and the next incremental relayout then read
         // the child's tree instead of the root's (live bug: azul-maps' header
         // laid out 640x0/None → toolbar invisible and unclickable while the
-        // map child DOM rendered fine). Children lay out cold by design, so
-        // give a child a fresh scratch cache and restore the root's cache
-        // afterwards; the per-DOM snapshot lives in `layout_results`. Nested
-        // children stack their swaps.
+        // map child DOM rendered fine). So a child lays out in a cache of its
+        // own - the one its last render left, so an unchanged view lays out
+        // warm - and the root's cache is restored afterwards; the per-DOM
+        // snapshot lives in `layout_results`. Nested children stack their
+        // swaps.
         // [AZ-DIAG 2026-08-14 REVERT] web-lift: solveLayoutReal sees this Vec as
         // len=5/ptr=0xa03d300 but layout_dom_recursive_impl sees garbage. StyledDom
         // crosses TWO by-value calls; mark it HERE (the middle frame) to pin which
@@ -7303,12 +7304,10 @@ impl LayoutWindow {
             styled_dom.dom_id
         };
 
-        // Children enter with a fresh scratch cache (see the wrapper above);
-        // reset_incremental() is kept as belt-and-braces for any direct
-        // callers and is a no-op on a fresh cache.
-        if dom_id != DomId::ROOT_ID {
-            self.layout_cache.reset_incremental();
-        }
+        // A child DOM enters with its own cache from its last render (the
+        // wrapper above swaps it in): the new DOM is an evolution of the one
+        // that cache laid out, as a rebuilt root DOM is of the root's, so it
+        // reconciles against it instead of laying out cold.
 
         // A child DOM's viewport is ITS OWN box (the VirtualView bounds),
         // not the window - percentages and the root's fill size resolve
