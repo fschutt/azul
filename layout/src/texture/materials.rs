@@ -1599,6 +1599,7 @@ fn render_material_deferred(
         params: *params,
         scene: scene.clone(),
     });
+    drop(deferred);
     DEFERRED_CHANGED.notify_all();
     None
 }
