@@ -1660,6 +1660,11 @@ jobs:
             test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
             test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
+      # The layout tests take Chrome's numbers for 16px Arial; on Linux azul draws
+      # Arial in its metric-compatible Liberation Sans, as Chrome does.
+      - name: Install the fonts the layout tests measure
+        run: sudo apt-get update -qq || true && sudo apt-get install -y fonts-liberation fonts-dejavu-core
+
       - name: Run workspace lib + integration tests (debug-assertions + overflow-checks ON)
         env:
           AZ_REQUIRE_TEST_FONTS: "1"

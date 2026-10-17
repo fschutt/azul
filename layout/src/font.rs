@@ -52,10 +52,29 @@ pub mod loading {
     ///   desktop's own font setting goes before both at runtime
     ///   ([`use_system_ui_font`]).
     ///
+    /// - every OS: a named family the machine lacks draws in a
+    ///   metric-compatible face, as Chrome does through fontconfig's metric
+    ///   aliases: Arial in Liberation Sans or Arimo, Times New Roman in
+    ///   Liberation Serif or Tinos, Courier New in Liberation Mono or Cousine
+    ///   ([`METRIC_COMPATIBLE`]). They share their advances and line
+    ///   heights, so a page set in Arial keeps its line breaks and its line
+    ///   heights on Linux. A substitution the system configured stays first.
+    ///
     /// Everything else stays: `serif` and `monospace` already resolve to
     /// Chrome's faces on macOS (Times, Menlo - measured), and on Linux the
     /// desktop's fontconfig `<alias>` decides for both engines. Idempotent.
     pub fn browser_generic_families(config: &mut FcFallbackConfig, os: OperatingSystem) {
+        for (family, twins) in METRIC_COMPATIBLE {
+            let substitutes = config
+                .substitutions
+                .entry(rust_fontconfig::utils::normalize_family_name(family))
+                .or_default();
+            for twin in *twins {
+                if !substitutes.iter().any(|f| f.eq_ignore_ascii_case(twin)) {
+                    substitutes.push((*twin).to_string());
+                }
+            }
+        }
         if matches!(os, OperatingSystem::MacOS | OperatingSystem::IOS) {
             let sans = config
                 .generic_families
@@ -81,6 +100,31 @@ pub mod loading {
             }
         }
     }
+
+    /// The faces drawn in place of a family that is not installed, each
+    /// with the family's advances and vertical metrics (fontconfig's
+    /// `30-metric-aliases.conf`, which is what Chrome on Linux follows).
+    pub const METRIC_COMPATIBLE: &[(&str, &[&str])] = &[
+        ("Arial", &["Liberation Sans", "Arimo", "Albany AMT"]),
+        ("Arial Narrow", &["Liberation Sans Narrow"]),
+        (
+            "Helvetica",
+            &["Arial", "Nimbus Sans", "Nimbus Sans L", "TeX Gyre Heros", "Liberation Sans", "Arimo"],
+        ),
+        ("Times New Roman", &["Liberation Serif", "Tinos", "Thorndale AMT"]),
+        (
+            "Times",
+            &["Times New Roman", "Nimbus Roman", "TeX Gyre Termes", "Liberation Serif", "Tinos"],
+        ),
+        ("Courier New", &["Liberation Mono", "Cousine", "Cumberland AMT"]),
+        (
+            "Courier",
+            &["Courier New", "Nimbus Mono PS", "TeX Gyre Cursor", "Liberation Mono", "Cousine"],
+        ),
+        ("Calibri", &["Carlito"]),
+        ("Cambria", &["Caladea"]),
+        ("Georgia", &["Gelasio"]),
+    ];
 
     /// The css crate's `Platform` whose system font chains describe `os`
     /// (the Linux desktop does not change the UI font chain). `None` for
