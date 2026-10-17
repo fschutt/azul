@@ -8855,7 +8855,7 @@ n8 p7 d11 Inline @14,54 -x- ic=60.8125/60.8125
 n9 p5 d14 TableRow @10.5,89.5 280.8125x39 ic=87/87 rel=0,39
 n10 p9 d16 TableCell @10.5,89.5 55x39 bl=26 ic=48/48 rel=0,0
 n11 p10 d17 Inline @14,93 -x- ic=48/48
-n12 p9 d19 TableCell @65.5,89.5 67.796875x39 bl=26 ic=60.8125/60.8125 rel=55,0
+n12 p9 d19 TableCell @65.5,89.5 67.8125x39 bl=26 ic=60.8125/60.8125 rel=55,0
 n13 p12 d20 Inline @69,93 -x- ic=60.8125/60.8125
 n14 p9 d22 TableCell @133.3125,89.5 87x39 bl=26 ic=80/80 rel=122.8125,0
 n15 p14 d23 Inline @136.8125,93 -x- ic=80/80
@@ -8886,8 +8886,8 @@ n17 p16 d26 Inline @223.8125,93 -x- ic=64/64
   dl22 HitTestArea 10.5,89.5 55x39
   dl23 Text -18,93 112x34.5 glyphs=3 fs=32
   dl24 HitTestArea 14,94.65625 48x32
-  dl25 HitTestArea 65.5,89.5 67.796875x39
-  dl26 Text 37,93 124.796875x32 glyphs=3 fs=32
+  dl25 HitTestArea 65.5,89.5 67.8125x39
+  dl26 Text 37,93 124.8125x32 glyphs=3 fs=32
   dl27 HitTestArea 69,93.40625 60.796875x32
   dl28 HitTestArea 133.3125,89.5 87x39
   dl29 Text 104.8125,93 144x32 glyphs=5 fs=32
@@ -8910,7 +8910,7 @@ n8 p7 d11 Inline @14,54 -x- ic=60.8125/60.8125
 n9 p5 d14 TableRow @10.5,89.5 280.8125x39 ic=87/87 rel=0,39
 n10 p9 d16 TableCell @10.5,89.5 55x39 bl=26 ic=48/48 rel=0,0
 n11 p10 d17 Inline @14,93 -x- ic=48/48
-n12 p9 d19 TableCell @65.5,89.5 67.796875x39 bl=26 ic=60.8125/60.8125 rel=55,0
+n12 p9 d19 TableCell @65.5,89.5 67.8125x39 bl=26 ic=60.8125/60.8125 rel=55,0
 n13 p12 d20 Inline @69,93 -x- ic=60.8125/60.8125
 n14 p9 d22 TableCell @133.3125,89.5 87x39 bl=26 ic=80/80 rel=122.8125,0
 n15 p14 d23 Inline @136.8125,93 -x- ic=80/80
@@ -8941,8 +8941,8 @@ n17 p16 d26 Inline @223.8125,93 -x- ic=64/64
   dl22 HitTestArea 10.5,89.5 55x39
   dl23 Text -18,93 112x34.5 glyphs=3 fs=32
   dl24 HitTestArea 14,94.65625 48x32
-  dl25 HitTestArea 65.5,89.5 67.796875x39
-  dl26 Text 37,93 124.796875x32 glyphs=3 fs=32
+  dl25 HitTestArea 65.5,89.5 67.8125x39
+  dl26 Text 37,93 124.8125x32 glyphs=3 fs=32
   dl27 HitTestArea 69,93.40625 60.796875x32
   dl28 HitTestArea 133.3125,89.5 87x39
   dl29 Text 104.8125,93 144x32 glyphs=5 fs=32

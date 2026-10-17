@@ -456,13 +456,26 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
             .box_props
             .unpack();
         let wm = constraints.writing_mode;
-        // The line's raw advance sum ceiled to the grid every intrinsic width
-        // is on: the column is then as wide as a shrink-to-fit box of the
-        // same text.
-        let content_width = if output.overflow_size.width.is_finite() {
-            text3::cache::ceil_to_layout_unit(output.overflow_size.width.max(0.0))
-        } else {
-            0.0
+        // Under a min- or max-content constraint the cell's widths are its
+        // intrinsic sizes (phase 2a's scan of its text, on the 1/64 px grid):
+        // the table's own intrinsic width is summed from the same numbers, so
+        // the columns add up to it, and a column is as wide as a
+        // shrink-to-fit box of the same text. The extent of the lines laid
+        // out above is the breaker's sum, which can lie a few ULP off the
+        // scan's and then lands on the next grid step.
+        let intrinsic = tree
+            .warm(LayoutNodeId::new(cell_index))
+            .and_then(|w| w.intrinsic_sizes)
+            .and_then(|sizes| match width_type {
+                Text3AvailableSpace::MinContent => Some(sizes.min_content_width),
+                Text3AvailableSpace::MaxContent => Some(sizes.max_content_width),
+                Text3AvailableSpace::Definite(_) => None,
+            })
+            .filter(|w| w.is_finite());
+        let content_width = match intrinsic {
+            Some(w) => w.max(0.0),
+            None if output.overflow_size.width.is_finite() => output.overflow_size.width.max(0.0),
+            None => 0.0,
         };
         return Ok(content_width
             + cell_bp.padding.cross_start(wm)
@@ -497,18 +510,17 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
     // content width) rather than used_size. used_size for auto-width blocks
     // fills the containing block, which is huge (f32::MAX/2) during
     // intrinsic sizing — that would make every column appear infinitely wide.
-    let content_width = text3::cache::ceil_to_layout_unit(
-        tree.warm(LayoutNodeId::new(cell_index))
-            .and_then(|w| w.overflow_content_size)
-            .map_or_else(
-                || {
-                    tree.get(LayoutNodeId::new(cell_index))
-                        .and_then(|n| n.used_size)
-                        .map_or(0.0, |s| s.width)
-                },
-                |s| s.width,
-            ),
-    );
+    let content_width = tree
+        .warm(LayoutNodeId::new(cell_index))
+        .and_then(|w| w.overflow_content_size)
+        .map_or_else(
+            || {
+                tree.get(LayoutNodeId::new(cell_index))
+                    .and_then(|n| n.used_size)
+                    .map_or(0.0, |s| s.width)
+            },
+            |s| s.width,
+        );
 
     Ok(content_width
         + padding.cross_start(wm)
