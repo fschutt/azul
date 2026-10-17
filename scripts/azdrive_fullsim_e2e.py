@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""AzDrive against a whole local Azlin system: the real token server, the payment sandbox and the
+storage servers of a local stack (not the Python mock of scripts/azlin_mock_stack.py). It buys a
+drive the way a person does and moves files through it:
+
+    1. Add drive -> Buy storage: the buyer declared no country, so the dialog asks "Where do
+       you live?" with the guess from the locale (LC_ALL de_DE: Germany) picked; Continue
+       declares it and the tiers show in the country's currency, the pills are the stack's;
+    2. the smallest tier, the card pill (Fake Stripe), the consent, Buy: a checkout at the token
+       server with a claim key, its fields page - the payment sandbox's - in the payment
+       popover's web view;
+    3. the page's part is played the way the sandbox's page plays it (a headless run loads
+       nothing in a web view): the bridge says ready, visa, complete; the cardholder's name is
+       typed in the popover and Pay tells the page to confirm (a fragment command); the page's
+       own request goes to the sandbox (POST /stripe/confirm with the test card - with
+       --card 4000002500003155 the 3-D Secure step is answered as the test bank's Complete
+       button does); the sandbox's signed webhook approves the checkout at the token server;
+       the page says succeeded through the bridge;
+    4. the drive arrives (the sealed sign-up opened with the claim key, the period tokens
+       kept), is encrypted as it arrives (its recovery sheet, the groups typed back);
+    5. a file of a few megabytes and a folder of small files are copied into it from Documents;
+    6. a second AzDrive profile (another computer) picks the drive up with the purchase's claim
+       code (azlin_claim.claim_code of the checkout and the claim secret the buyer's keyring
+       kept), unlocks it with the recovery code, copies the file and the folder into its own
+       Documents: the bytes are compared with the originals.
+
+The result (drive, bucket, checkout, the uploaded names and their sha256) goes to
+<logs>/result.json for the stack's own checks (where the shards lie, the books).
+
+Usage (AzDrive built with `--features fake-providers` against a libazul with the debug server;
+the stack from azul-apps' local/fullsim.sh):
+
+    python3 scripts/azdrive_fullsim_e2e.py --bin <AzDrive> [--token-url http://127.0.0.1:8081]
+        [--sandbox-url http://127.0.0.1:8784] [--debug-port 8800] [--logs <dir>]
+        [--card 4242424242424242] [--upload-mb 5] [--window]
+
+`--window` runs AzDrive in real windows (not the headless backend) with the same steps and
+screenshots; the page in the popover then loads for real, the script still answers for it.
+Every key_down has its key_up (the E2E key_up rule).
+"""
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+
+import azlin_claim
+import azlin_e2e as e2e
+from azlin_e2e import Failure
+from azdrive_e2e import Drive, I, select_item
+from azdrive_add_e2e import (add_id, drive_menu, hand_back, navigate, navigation_to,
+                             new_drive_encrypted, open_dialog, other_profile, pay_id,
+                             pending_checkouts, popover_of, side_drive, the_view, wait_closed)
+
+# The cardholder typed in the popover; the sandbox's test cards (its page lists them).
+NAME = "Erika Example"
+CARD_3DS = "4000002500003155"
+
+
+def log(line):
+    print("[azdrive-fullsim-e2e] %s" % line, flush=True)
+
+
+def post_json(url, body, timeout=30):
+    """POSTs `body` as JSON and returns (status, answer)."""
+    request = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
+                                     headers={"content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8") or "{}")
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def tree_digests(root):
+    """Every file under `root`: its path relative to `root` -> its sha256."""
+    out = {}
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            path = os.path.join(base, name)
+            out[os.path.relpath(path, root)] = sha256_of(path)
+    return out
+
+
+def make_upload(documents, upload_mb, small_files):
+    """Documents/<big file> of `upload_mb` MB of random bytes and Documents/<folder> of
+    `small_files` small text files: what goes into the drive. Their names."""
+    big = "fullsim-photo.bin"
+    with open(os.path.join(documents, big), "wb") as f:
+        f.write(os.urandom(upload_mb * 1_000_000))
+    folder = "fullsim-notes"
+    os.makedirs(os.path.join(documents, folder, "sub"))
+    for i in range(small_files):
+        sub = "sub" if i % 3 == 0 else ""
+        with open(os.path.join(documents, folder, sub, "note-%02d.txt" % i), "wb") as f:
+            f.write(("note %d of the full system run\n" % i).encode() * (i + 1))
+    return big, folder
+
+
+def copy_between(app, source_click, source_listed, names, target_click, target_listed):
+    """Copies the items `names` of one folder (opened by `source_click`, listed when the
+    AZDRIVE_LISTED line matches `source_listed`) into another (`target_click`,
+    `target_listed`), one item at a time, and waits for each paste to finish."""
+    for name in names:
+        app.after("the source folder", "AZDRIVE_LISTED", source_listed, source_click)
+        app.after("%s selected" % name, "AZDRIVE_SELECTED", r"1 .*%s/?" % re.escape(name),
+                  lambda: select_item(app, name))
+        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
+        app.after("the target folder", "AZDRIVE_LISTED", target_listed, target_click)
+        app.after("Ctrl+V of %s" % name, "AZDRIVE_TRANSFER", r"\d+ done \d+",
+                  lambda: app.key("v", primary=True))
+
+
+def start_app(tag, binary, switches, port, logs, timeout, env, window):
+    if window:
+        # A real window: the platform's own backend, the debug server on its port.
+        env = dict(env, AZ_BACKEND="")
+    app = Drive(tag, binary, switches, port, logs, timeout, extra_env=env)
+    app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
+    app.until("the debug server", lambda: app.op("get_dom_tree"))
+    app.must("resize", width=1280.0, height=820.0)
+    app.frame(3)
+    return app
+
+
+def play_fields_page(app, popover, view, sandbox, card):
+    """The sandbox's fields page, played: the bridge messages its script sends while the card
+    is typed, the confirm the app's Pay asks for, the page's own request to the sandbox with
+    the card, a 3-D Secure step answered with the test bank's Complete, the outcome said
+    through the bridge. Returns the last four digits the sandbox charged."""
+    src = view.get("src", "")
+    if not src.startswith(sandbox + "/fields/fake-stripe/v1#pk="):
+        raise Failure("the popover shows %r, not the sandbox's fields page" % src[:80])
+    fragment = urllib.parse.parse_qs(src.split("#", 1)[1])
+    secret = (fragment.get("cs") or [""])[0]
+    if not secret:
+        raise Failure("the fields page got no client secret in its fragment")
+    bridge = sandbox + "/_bridge/"
+    for message in ("ready", "brand?v=visa", "complete?v=1"):
+        navigate(popover, view, bridge + message)
+        heard = navigation_to(popover, "/_bridge/" + message)
+        if not heard or heard["allowed"]:
+            raise Failure("the bridge message %s was not cancelled: %s" % (message, heard))
+    popover.until("VISA on the card", lambda: popover.shows("VISA"))
+    popover.must("focus_node", selector=pay_id("name"))
+    popover.frame(2)
+    popover.must("text_input", text=NAME)
+    popover.frame(3)
+    popover.until("the name on the card", lambda: popover.shows(NAME.upper()))
+    popover.click(selector=pay_id("confirm"))
+    confirm = popover.until("the confirm command", lambda: navigation_to(popover, "cmd=confirm"))
+    if not confirm["allowed"] or "name=Erika+Example" not in confirm["url"]:
+        raise Failure("Pay told the page %r" % confirm)
+    status, answer = post_json(sandbox + "/stripe/confirm", {
+        "client_secret": secret, "card_number": card, "exp": "1234", "cvc": "123",
+        "iban": "", "country": "DE"})
+    if answer.get("result") == "requires_action":
+        # The page shows the test bank's box and grows; the payer presses Complete.
+        navigate(popover, view, bridge + "height?v=560")
+        navigate(popover, view, bridge + "result?v=requires_action")
+        status, answer = post_json(sandbox + "/stripe/3ds/" + answer["pi"], {"action": "complete"})
+        log("3-D Secure: the test bank's Complete answered %s" % answer.get("result"))
+    if status != 200 or answer.get("result") != "succeeded":
+        raise Failure("the sandbox answered the page's confirm with %s %s" % (status, answer))
+    last4 = answer.get("last4") or card[-4:]
+    navigate(popover, view, bridge + "last4?v=" + last4)
+    return last4
+
+
+def run(args, logs):
+    binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
+    out = args.out or os.path.join(logs, "shots")
+    os.makedirs(out, exist_ok=True)
+    home = os.path.join(logs, "home")
+    documents = os.path.join(home, "Documents")
+    os.makedirs(documents)
+    big, folder = make_upload(documents, args.upload_mb, args.small_files)
+    uploaded = tree_digests(documents)
+    drives_file = os.path.join(logs, "config", "drives.json")
+    keyring_file = os.path.join(logs, "keyring.json")
+    switches = [
+        "--screen", "this-pc", "--theme", "flat", "--mode", "light", "--language", "en",
+        "--home", home, "--downloads", os.path.join(logs, "downloads"),
+        "--data-dir", os.path.join(logs, "data"), "--drives", drives_file,
+        "--token-url", args.token_url,
+    ]
+    # No AZLIN_COUNTRY: the buyer declares the country in the dialog; the locale's region is
+    # the guess. The fakes' pages are http on this computer.
+    env = {"AZ_KEYRING_FILE": keyring_file, "LC_ALL": "%s.UTF-8" % args.locale,
+           "AZ_E2E_ALLOW_HTTP": "http://127.0.0.1:*,http://localhost:*"}
+    result = {"token_url": args.token_url, "sandbox_url": args.sandbox_url, "card": args.card,
+              "uploaded": uploaded, "big": big, "folder": folder}
+    app = start_app("azdrive-buyer", binary, switches, args.debug_port, logs, args.timeout, env,
+                    args.window)
+    try:
+        # 1. The country first, guessed from the locale.
+        dialog = open_dialog(app, "the source list",
+                             lambda: app.click(selector="#" + I("side-add-drive")))
+        dialog.page("country", lambda: dialog.click("choice_buy"))
+        guess = add_id("country_option_%s" % args.country.lower())
+        dialog.win.until("the guess %s in the list" % args.country, lambda: dialog.win.has(guess))
+        dialog.screenshot(os.path.join(out, "01-country.png"))
+
+        def declare():
+            dialog.click("country_option_%s" % args.country.lower())
+            dialog.click("country_continue")
+        pills = app.after("the pills", "AZDRIVE_PILLS", r".+", lambda: app.after(
+            "the country declared", "AZDRIVE_COUNTRY", re.escape(args.country), declare))
+        tiers = app.until("the tiers", lambda: app.printed("AZDRIVE_TIERS", r"\d+"))[-1]
+        if "card:fake-stripe" not in pills.split():
+            raise Failure("the pills are %r: no card through Fake Stripe (is AzDrive built with "
+                          "--features fake-providers, is the stack's sandbox on?)" % pills)
+        dialog.screenshot(os.path.join(out, "02-tiers.png"))
+        log("1. Buy storage asked for the country (the guess %s picked), %s tiers, pills %s"
+            % (args.country, tiers, pills))
+
+        # 2. The smallest tier, the card, Buy.
+        dialog.click("tier_0")
+        dialog.type_into("name", "Full system", clear=len("Azlin Storage"))
+        dialog.click("pill_card")
+        dialog.click("consent")
+        dialog.screenshot(os.path.join(out, "03-buy.png"))
+        added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
+        surfaces = app.count("AZDRIVE_PAY_SURFACE", r".+")
+        checkout = app.after("the checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                             lambda: dialog.click("buy_button"))
+        surface = app.until("the payment surface", lambda: app.count(
+            "AZDRIVE_PAY_SURFACE", r".+") > surfaces and app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1])
+        if not surface.startswith("fields 127.0.0.1:"):
+            raise Failure("the card checkout opened %r, not the fields in the popover" % surface)
+        kept = pending_checkouts(keyring_file).get(checkout)
+        if not kept:
+            raise Failure("the checkout %s is not on the keyring's list" % checkout)
+        claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
+        result.update(checkout=checkout, claim_code=claim_code)
+        log("2. Buy: checkout %s, its fields page in the popover (%s)" % (checkout, surface))
+
+        # 3. The page's part, the webhook, the drive.
+        popover = popover_of(app, dialog)
+        view = the_view(popover)
+        for text in ("card fields by Fake Stripe", "CARDHOLDER"):
+            popover.until("the popover's %r" % text, lambda: popover.shows(text))
+        popover.screenshot(os.path.join(out, "04-popover.png"))
+        last4 = play_fields_page(app, popover, view, args.sandbox_url, args.card)
+        popover.screenshot(os.path.join(out, "05-paid.png"))
+        hand_back(app, popover, view, args.sandbox_url + "/_bridge/result?v=succeeded")
+        drive_id = app.until("the drive of %s" % checkout, lambda: [
+            d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in added])[0]
+        log("3. Paid with the card ending %s in the sandbox; the webhook approved %s; drive %s "
+            "arrived" % (last4, checkout, drive_id))
+
+        # 4. Encrypted as it arrived.
+        recovery = new_drive_encrypted(app, drive_id)
+        wait_closed(app)
+        app.until("the checkout off the keyring's list",
+                  lambda: checkout not in pending_checkouts(keyring_file))
+        app.until("its row in CLOUD", lambda: app.has(side_drive(drive_id)))
+        tokens = app.until("the period tokens kept", lambda: app.printed(
+            "AZDRIVE_PERIOD_TOKENS", r"%s %s \d+" % (re.escape(checkout), re.escape(drive_id))))
+        result.update(drive=drive_id, recovery_code=recovery, period_tokens=tokens)
+        log("4. %s encrypted as it arrived (recovery sheet done); %s period tokens kept"
+            % (drive_id, tokens[-1].split()[-1]))
+
+        # 5. The file and the folder into the drive.
+        copy_between(app, lambda: app.click(selector="#" + I("side-fav-documents")),
+                     r"home Documents/ \d+", [big, folder],
+                     lambda: app.click(selector=side_drive(drive_id)),
+                     r"%s / \d+" % re.escape(drive_id))
+        app.after("F5", "AZDRIVE_LISTED", r"%s / 2" % re.escape(drive_id), lambda: app.key("f5"))
+        app.screenshot(os.path.join(out, "06-uploaded.png"))
+        log("5. %s and %s/ (%d files in all) copied into %s"
+            % (big, folder, len(uploaded), drive_id))
+    finally:
+        app.stop()
+    with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=1)
+
+    # 6. Another computer: the claim code, the recovery code, the files back.
+    other_switches, other_env = other_profile(logs, "second", switches, env)
+    other_home = other_switches[other_switches.index("--home") + 1]
+    os.makedirs(os.path.join(other_home, "Documents"))
+    second = start_app("azdrive-second", binary, other_switches, args.debug_port + 1, logs,
+                       args.timeout, other_env, args.window)
+    try:
+        picker = open_dialog(second, "the source list",
+                             lambda: second.click(selector="#" + I("side-add-drive")))
+        picker.page("claim-code", lambda: picker.click("choice_claim"))
+        picker.type_into("claim_code", claim_code)
+        picker.type_into("name", "Full system", clear=len("Azlin Storage"))
+        second.after("the code picked up", "AZDRIVE_PICKED_UP", re.escape(checkout),
+                     lambda: picker.click("pick_up"))
+        claimed = second.until("the drive picked up", lambda: second.printed(
+            "AZDRIVE_CLAIMED", r"%s \S+" % re.escape(checkout)))[-1]
+        if claimed.split()[-1] != drive_id:
+            raise Failure("the claim code brought %s, not %s" % (claimed, drive_id))
+        second.until("the drive encrypted elsewhere", lambda: second.printed(
+            "AZDRIVE_ENCRYPTED_ELSEWHERE", re.escape(drive_id)))
+        picker.click("cancel")
+        wait_closed(second)
+        drive_menu(second, drive_id, "Unlock with the recovery code…")
+        popup = e2e.modal_window(second)
+        popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
+        popup.text_input("#__azdrive_unlock_code", recovery)
+        popup.click_exact("Unlock")
+        second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
+        copy_between(second, lambda: second.click(selector=side_drive(drive_id)),
+                     r"%s / \d+" % re.escape(drive_id), [big, folder],
+                     lambda: second.click(selector="#" + I("side-fav-documents")),
+                     r"home Documents/ \d+")
+        second.screenshot(os.path.join(out, "07-second-computer.png"))
+    finally:
+        second.stop()
+    downloaded = tree_digests(os.path.join(other_home, "Documents"))
+    if downloaded != uploaded:
+        missing = sorted(set(uploaded) - set(downloaded))
+        differ = sorted(k for k in uploaded if k in downloaded and downloaded[k] != uploaded[k])
+        raise Failure("the second computer's copy differs: missing %s, different %s"
+                      % (missing[:10], differ[:10]))
+    log("6. A second profile picked %s up with the claim code, unlocked it with the recovery "
+        "code and copied %d files back: identical bytes" % (drive_id, len(downloaded)))
+    result["downloaded"] = downloaded
+    with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=1)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--bin")
+    parser.add_argument("--token-url", default="http://127.0.0.1:8081")
+    parser.add_argument("--sandbox-url", default="http://127.0.0.1:8784")
+    parser.add_argument("--debug-port", type=int, default=8800)
+    parser.add_argument("--timeout", type=float, default=600)
+    parser.add_argument("--logs", help="the run's folder (default: a new temporary one)")
+    parser.add_argument("--out", help="screenshots (default: <logs>/shots)")
+    parser.add_argument("--card", default="4242424242424242")
+    parser.add_argument("--country", default="DE")
+    parser.add_argument("--locale", default="de_DE")
+    parser.add_argument("--upload-mb", type=int, default=5)
+    parser.add_argument("--small-files", type=int, default=24)
+    parser.add_argument("--window", action="store_true", help="real windows, not headless")
+    args = parser.parse_args()
+    if args.logs:
+        if os.path.exists(args.logs):
+            shutil.rmtree(args.logs)
+        os.makedirs(args.logs)
+        logs = args.logs
+    else:
+        logs = tempfile.mkdtemp(prefix="azdrive-fullsim-")
+    passed = False
+    try:
+        passed = run(args, logs)
+    except Failure as e:
+        log("FAIL: %s" % e)
+    finally:
+        log("logs and screenshots in %s" % logs)
+    if passed:
+        log("PASS")
+    sys.exit(0 if passed else 1)
+
+
+if __name__ == "__main__":
+    main()
