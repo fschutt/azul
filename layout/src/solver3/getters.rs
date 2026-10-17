@@ -2809,11 +2809,23 @@ pub fn get_used_text_color(
             }
         }
         fast_color.or_else(|| {
+            use azul_css::css::CssPropertyValue;
             let node_data = &styled_dom.node_data.as_container()[dom_id];
-            cache
-                .get_text_color(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map(|v| v.inner)
+            match cache.get_text_color(node_data, &dom_id, node_state)? {
+                CssPropertyValue::Exact(c) => Some(c.inner),
+                // CSS-wide keywords, which the cascade keeps as written: `inherit`
+                // is the parent's colour (the root has none to take: its initial
+                // one) and `initial` the initial colour, CanvasText (below).
+                CssPropertyValue::Inherit => styled_dom.node_hierarchy.as_container()[dom_id]
+                    .parent_id()
+                    .map(|parent| {
+                        let state = &styled_dom.styled_nodes.as_container()[parent].styled_node_state;
+                        get_used_text_color(styled_dom, parent, state)
+                    })
+                    .or_else(|| Some(initial_text_color(cache))),
+                CssPropertyValue::Initial => Some(initial_text_color(cache)),
+                _ => None,
+            }
         })
     });
 
@@ -2834,14 +2846,18 @@ pub fn get_used_text_color(
              2026-09-12, R1)",
             dom_id.index()
         );
-        // The themed UA default of the SAME context the cascade evaluated
-        // this DOM against (black is invisible on a dark window).
-        let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_default();
-        azul_core::ua_css::evaluate_ua_root_text_color(&ctx).inner
+        initial_text_color(cache)
     });
     // `color: system:<slot>` arrives as a token (inherited like any colour);
     // this is where it becomes the colour of the theme the cascade evaluated.
     system_colors_resolved(styled_dom, color)
+}
+
+/// The initial `color`: the themed UA default of the SAME context the cascade
+/// evaluated the DOM against (black is invisible on a dark window).
+fn initial_text_color(cache: &azul_core::prop_cache::CssPropertyCache) -> ColorU {
+    let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_default();
+    azul_core::ua_css::evaluate_ua_root_text_color(&ctx).inner
 }
 
 /// Information about border rendering

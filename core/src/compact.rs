@@ -1936,13 +1936,16 @@ fn apply_css_property_to_compact(
 
         // Tier 2b text
         CssProperty::TextColor(v) => {
-            if let Some(color) = v.get_property() {
+            // A CSS-wide keyword (`initial`, `inherit`) is no colour this tier
+            // can hold: 0 sends the reader to the cascade, which resolves it,
+            // instead of keeping the colour inherited before it.
+            text.text_color = v.get_property().map_or(0, |color| {
                 let c = &color.inner;
-                text.text_color = (u32::from(c.r) << 24)
+                (u32::from(c.r) << 24)
                     | (u32::from(c.g) << 16)
                     | (u32::from(c.b) << 8)
-                    | u32::from(c.a);
-            }
+                    | u32::from(c.a)
+            });
         }
         CssProperty::FontFamily(v) => {
             if let Some(families) = v.get_property() {
