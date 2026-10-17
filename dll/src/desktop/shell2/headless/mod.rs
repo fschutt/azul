@@ -3585,6 +3585,13 @@ impl HeadlessWindow {
             // ── Phase 3 + 4: spawn and pump the child windows ─────
             self.pump_children();
 
+            // A close this turn ends the loop here: the wait below may have no
+            // wake source left (a closed window's timers and threads are gone),
+            // and the process would stay up with no window.
+            if !self.is_open() {
+                break;
+            }
+
             // ── Phase 5: Condvar-based wait ──────────────────────
             let has_timers = self
                 .common
