@@ -4423,3 +4423,41 @@
              apps leaked every font they ever touched"
         );
     }
+
+    #[test]
+    fn a_line_the_breaker_strips_to_nothing_never_ends_the_paragraph() {
+        // Two white-space clusters whose flags call them letters offer no
+        // break opportunity, so they form one unit the line's start does not
+        // strip; the line they start holds white space only and is stripped
+        // to nothing at its end. The word after them still gets its line.
+        let unbreakable_space = || {
+            let mut item = cl(" ", 5.0);
+            if let ShapedItem::Cluster(c) = &mut item {
+                c.flags = ClusterFlags::classify("x");
+            }
+            item
+        };
+        let items = vec![
+            unbreakable_space(),
+            unbreakable_space(),
+            cl(" ", 5.0),
+            cl("w", 80.0),
+        ];
+        let mut cursor = BreakCursor::new(&items);
+        let constraints = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(50.0),
+            ..UnifiedConstraints::default()
+        };
+        let fonts: LoadedFonts<TestFont> = LoadedFonts::new();
+        let layout = perform_fragment_layout(&mut cursor, &[], &constraints, &mut None, &fonts)
+            .expect("laid out");
+        let texts: Vec<&str> = layout
+            .items
+            .iter()
+            .filter_map(|it| it.item.as_cluster().map(ShapedCluster::text))
+            .collect();
+        assert!(
+            texts.contains(&"w"),
+            "the word after a line stripped to nothing is positioned: {texts:?}"
+        );
+    }
