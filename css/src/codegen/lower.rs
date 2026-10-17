@@ -738,7 +738,13 @@ mod tests {
         for n in -20_000..=20_000 {
             assert!(roundtrips(n), "{n} -> {}", fixed_point_text(n));
         }
-        for n in [1_000_000, 123_456_789, -987_654, 16_777_216] {
+        for n in [1_000_000, -987_654, 16_777_216] {
+            assert!(roundtrips(n), "{n} -> {}", fixed_point_text(n));
+        }
+        // Past 2^24 thousandths an f32 times 1000 only lands on every 2nd, 4th, 8th..
+        // number, so a large value is asked for as `FloatValue::new` stores it.
+        for v in [123_456.79_f32, -98_765.43, 1.0e6] {
+            let n = FloatValue::new(v).number;
             assert!(roundtrips(n), "{n} -> {}", fixed_point_text(n));
         }
     }
