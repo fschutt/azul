@@ -477,3 +477,68 @@ fn a_mass_delete_the_user_confirmed_is_no_burst_to_ask_about_again() {
     let index = index_of(&store);
     assert_eq!(index.files.keys().collect::<Vec<_>>(), ["keep.txt"]);
 }
+
+#[test]
+fn a_folder_changed_while_it_is_read_is_read_again_once_it_is_quiet() {
+    // A `rm -rf` running while a pass reads the folder: the chaos E2E's encrypted-bulk saw the
+    // burst guard ask about the 2,488 files of 10,000 gone when the scan passed, and the
+    // mass-delete question for all of them only after. A pass plans from a folder that did not
+    // change while it was read.
+    let folder = TempDir::new("azcloud-chaos-torn-scan");
+    for i in 0..10 {
+        fs::write(folder.path().join(format!("f{i}.txt")), b"a file").unwrap();
+    }
+    let rules = Rules::base();
+    let mut reads = 0;
+    let scan = local::scan_unchanged(
+        folder.path(),
+        &rules,
+        Duration::from_millis(50),
+        Duration::from_secs(10),
+        &|| false,
+        || {
+            reads += 1;
+            let scan = local::scan(
+                folder.path(),
+                &rules,
+                &std::collections::BTreeMap::new(),
+                0,
+                &[],
+                u64::MAX,
+            )?;
+            if reads == 1 {
+                // The delete goes on while this read ends: half of the files go.
+                for i in 0..5 {
+                    fs::remove_file(folder.path().join(format!("f{i}.txt"))).unwrap();
+                }
+            }
+            Ok(scan)
+        },
+    )
+    .unwrap();
+    assert_eq!(reads, 2, "the torn read is read again");
+    assert_eq!(scan.files.len(), 5, "{:?}", scan.files.keys());
+
+    // A folder that did not change is read once.
+    let mut once = 0;
+    local::scan_unchanged(
+        folder.path(),
+        &rules,
+        Duration::from_millis(50),
+        Duration::from_secs(10),
+        &|| false,
+        || {
+            once += 1;
+            local::scan(
+                folder.path(),
+                &rules,
+                &std::collections::BTreeMap::new(),
+                0,
+                &[],
+                u64::MAX,
+            )
+        },
+    )
+    .unwrap();
+    assert_eq!(once, 1);
+}
