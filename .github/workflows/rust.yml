@@ -525,6 +525,28 @@ jobs:
       - name: Check no std Instant::now() in WASM-compatible crates
         run: STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
 
+  layout_feature_check:
+    # azul-layout in every feature set a consumer turns on (printpdf builds it
+    # with default-features = false). It needs no generated bindings, so it runs
+    # beside check_crates: in the Feature Matrix Check, which waits for the
+    # bindings, it was skipped whenever a bindings job failed or was cancelled.
+    needs: [supply_chain_preflight]
+    name: azul-layout feature sets (printpdf)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Check azul-layout with every consumer's feature set
+        run: ./scripts/check_layout_features.sh
+
   autofix_check:
     # Validates api.json drift using autofix.
     name: Autofix + normalize (api.json drift)
@@ -1126,24 +1148,8 @@ jobs:
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
 
-      - name: Check azul-layout with various features
-        run: |
-          cargo check -p azul-layout --no-default-features
-          cargo check -p azul-layout --no-default-features --features "text_layout"
-          cargo check -p azul-layout --no-default-features --features "font_loading"
-          cargo check -p azul-layout --no-default-features --features "svg"
-          cargo check -p azul-layout --no-default-features --features "xml"
-          cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
-
-      # printpdf's exact azul-layout surface (its `html` feature): text layout,
-      # hyphenation, font loading, xml, pdf - and NO cpurender/svg. No other
-      # combination in this matrix enables `pdf` or `text_layout_hyphenation`,
-      # which is how the missing cpurender gates on `tray_icon` and
-      # `rasterize_svg_clip_to_r8` only surfaced in printpdf's own build.
-      # Keep in sync with printpdf/Cargo.toml (`text_layout`,
-      # `text_layout_hyphenation`, `html` feature lists).
-      - name: Check azul-layout with printpdf's feature set (no cpurender)
-        run: cargo check -p azul-layout --no-default-features --features "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
+      # azul-layout's own feature sets (printpdf's among them) are the
+      # layout_feature_check job's: scripts/check_layout_features.sh.
 
   dll_windows_unit_tests:
     # Runs Windows backend unit tests.
@@ -6881,7 +6887,8 @@ jobs:
     name: crates.io (azul-css / azul-core / azul-layout)
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    needs: publish_safety
+    # A published azul-layout must build in printpdf's feature sets too.
+    needs: [publish_safety, layout_feature_check]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
