@@ -126,12 +126,14 @@ def library_run(args, logs, out, base, site):
         if not app.has(app.sel("reader")):
             raise Failure("the reader's body is not laid out")
         # Three columns: sources | articles | reader. The reader stands RIGHT of the article
-        # list, beside it from the same top, not under it (the T layout).
+        # list, beside it, not under it (the T layout). Its body starts under the article's
+        # header, the pictures notice and the facts, so it is beside the list when it starts
+        # above the list's foot.
         listed = app.rect(app.sel("article-list")[1:])
         read = app.rect(app.sel("reader")[1:])
         if not listed or not read:
             raise Failure("no box for the article list (%s) or the reader (%s)" % (listed, read))
-        if read["x"] < listed["x"] + listed["width"] - 1 or read["y"] > listed["y"] + 120:
+        if read["x"] < listed["x"] + listed["width"] - 1 or read["y"] >= listed["y"] + listed["height"]:
             raise Failure("the reader is not a column right of the article list: list %s, reader %s"
                           % (listed, read))
         # The rows live in the list's VirtualView DOM.
