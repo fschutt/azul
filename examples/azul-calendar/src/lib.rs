@@ -1548,6 +1548,9 @@ mod mode_tests {
             ("LABEL", LABEL),
             ("POPOVER", POPOVER),
             ("PAGE", PAGE),
+            // The error ink is the desktop's danger colour (`system:danger`), whose
+            // night twin the palette carries.
+            ("ERROR", ERROR),
         ] {
             let fixed = fixed_colours(css);
             assert!(
@@ -1569,7 +1572,6 @@ mod mode_tests {
             ("SELECTED_RING", SELECTED_RING),
             ("DRAFT_PAINT", DRAFT_PAINT),
             ("DRAFT_TITLE", DRAFT_TITLE),
-            ("ERROR", ERROR),
             ("PREVIEW_SURFACE", print_ui::PREVIEW_SURFACE),
         ] {
             assert!(

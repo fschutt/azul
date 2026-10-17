@@ -843,7 +843,7 @@ mod tests {
     fn every_look_holds_four_variants_in_balanced_blocks() {
         let themed_looks = [
             SIDEBAR, SECTION_HEAD, ROW, ROW_SELECTED, ROW_FOCUS, ROW_DROP, ICON_TINT, PILL,
-            PILL_SELECTED, EJECT, EJECT_SELECTED, ACTIVITY, ACTIVITY_HEAD, ACTIVITY_ERROR,
+            PILL_SELECTED, EJECT, EJECT_SELECTED, ACTIVITY, ACTIVITY_HEAD,
             SIDEBAR_FOOT, SMALL_BUTTON, PAGE, LEAF, DETAILS_HEADER, COLUMN, COLUMN_SORTED,
             COLUMN_EDGE, STRIPE, ITEM, ITEM_SELECTED, ITEM_FOCUS, CELL_SELECTED, TILE_SELECTED,
         ];
@@ -864,6 +864,10 @@ mod tests {
             assert_eq!(look.matches("@media (prefers-color-scheme: dark)").count(), 2, "{look}");
             assert!(look.trim_end().ends_with("} }"), "the flora block closes the look: {look}");
         }
+        // The error line is the desktop's danger ink, which follows the theme and the mode
+        // itself, so it needs no blocks of its own.
+        assert!(ACTIVITY_ERROR.contains("color: system:danger;"), "{ACTIVITY_ERROR}");
+        assert!(!ACTIVITY_ERROR.contains('{'), "{ACTIVITY_ERROR}");
     }
 
     /// Flora's page is the linen: its colour first, so a renderer without the rasters keeps it.

@@ -881,7 +881,10 @@ mod tests {
             keys("Mod+K Mod+O"),
             if cfg!(target_os = "macos") { "\u{2318}K \u{2318}O" } else { "Ctrl+K Ctrl+O" }
         );
-        assert_eq!(keys("F3 / Shift+F3"), "F3 / Shift+F3");
+        assert_eq!(
+            keys("F3 / Shift+F3"),
+            if cfg!(target_os = "macos") { "F3 / \u{21e7}F3" } else { "F3 / Shift+F3" }
+        );
     }
 }
 
