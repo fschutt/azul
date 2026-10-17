@@ -770,13 +770,18 @@ fn a_navigation_where_no_page_should_be_is_cancelled() {
 
 // ==== The payer's details: asked by the app, sent once ====
 
-/// Stripe's card with `needs_identity` set to `identity` (the provider's surfaces as the
-/// registry has them).
-fn card_asking(identity: serde_json::Value) -> crate::pills::Choice {
+/// Stripe's card described further by `extra` (its `needs_identity`, `identity_in_app`; the
+/// provider's surfaces as the registry has them).
+fn card_asking(extra: serde_json::Value) -> crate::pills::Choice {
     use crate::{offer::{Offer, OfferContext}, pills::{Choice, Pill, PillContext}};
-    let text = serde_json::json!({"offers": [{"provider": "stripe", "methods": [
-        {"method": "card", "needs_identity": identity}]}]})
-    .to_string();
+    let mut card = serde_json::json!({"method": "card"});
+    if let (Some(c), Some(e)) = (card.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            c.insert(k.clone(), v.clone());
+        }
+    }
+    let text = serde_json::json!({"offers": [{"provider": "stripe", "methods": [card]}]})
+        .to_string();
     let offer = Offer::parse(&text, &OfferContext::for_token_url("https://token.azlin.io")).unwrap();
     let pill = Pill {
         method: Method::Card,
@@ -796,8 +801,9 @@ fn card_asking(identity: serde_json::Value) -> crate::pills::Choice {
 #[test]
 fn a_method_the_app_asks_details_for_waits_for_them_before_the_checkout() {
     use crate::identity::PayerField;
-    let choice = card_asking(serde_json::json!({"fields": ["name", "email", "national_id"],
-                                                "asked_by": "app"}));
+    let choice = card_asking(serde_json::json!({
+        "needs_identity": ["name", "email", "national_id"],
+        "identity_in_app": ["name", "email", "national_id"]}));
     let mut payer = Payer::default();
     payer.set(PayerField::Name, "Ana Souza");
     let (state, effects) = step(
@@ -819,8 +825,9 @@ fn a_method_the_app_asks_details_for_waits_for_them_before_the_checkout() {
 #[test]
 fn the_payers_details_go_once_with_the_checkout_and_no_state_keeps_them() {
     use crate::identity::PayerField;
-    let choice = card_asking(serde_json::json!({"fields": ["name", "national_id"],
-                                                "asked_by": "app"}));
+    let choice = card_asking(serde_json::json!({
+        "needs_identity": ["name", "national_id"],
+        "identity_in_app": ["name", "national_id"]}));
     let mut payer = Payer::default();
     payer.set(PayerField::Name, " Ana Souza ");
     payer.set(PayerField::Email, "typed-but-not-asked@example.com");
@@ -852,7 +859,7 @@ fn the_payers_details_go_once_with_the_checkout_and_no_state_keeps_them() {
 #[test]
 fn a_method_whose_provider_asks_sends_nothing_of_the_payer() {
     use crate::identity::PayerField;
-    let choice = card_asking(serde_json::json!(["name"]));
+    let choice = card_asking(serde_json::json!({"needs_identity": ["name"]}));
     let mut payer = Payer::default();
     payer.set(PayerField::Name, "Ana Souza");
     let (_, effects) = step(

@@ -105,6 +105,8 @@ pub struct Identity {
     /// In the server's order, each once.
     pub fields: Vec<PayerField>,
     pub asked_by: AskedBy,
+    /// The part the app asks for (stub).
+    pub in_app: Vec<PayerField>,
 }
 
 impl Identity {
@@ -112,6 +114,12 @@ impl Identity {
     #[must_use]
     pub fn is_none(&self) -> bool {
         self.fields.is_empty()
+    }
+
+    /// What the provider's own page asks for (stub).
+    #[must_use]
+    pub fn page_fields(&self) -> Vec<PayerField> {
+        self.fields.clone()
     }
 
     /// The fields the app has to ask for (none when the provider asks).
@@ -173,6 +181,10 @@ pub struct Payer {
     pub name: String,
     pub email: String,
     pub national_id: String,
+    /// (stub)
+    pub tax_id: String,
+    /// (stub)
+    pub phone: String,
 }
 
 impl fmt::Debug for Payer {

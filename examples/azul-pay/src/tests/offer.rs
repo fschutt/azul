@@ -322,7 +322,7 @@ fn a_countrys_offer_reads_each_methods_rank_price_and_payer_details() {
     let card = stripe.method(Method::Card).unwrap();
     assert_eq!(card.rank, Some(2));
     assert_eq!(card.identity.fields, vec![crate::identity::PayerField::Name]);
-    assert_eq!(card.identity.asked_by, crate::identity::AskedBy::Provider);
+    assert!(card.identity.app_fields().is_empty(), "its own fields ask for the name");
     let p24 = stripe.method(Method::P24).unwrap();
     assert_eq!(p24.surfaces, vec![SurfaceKind::SystemBrowser]);
     assert_eq!(p24.settles, Settles::Days);
@@ -349,7 +349,8 @@ fn a_converted_method_says_the_currency_its_payer_sees() {
 fn a_method_whose_payer_details_the_app_cannot_ask_for_is_dropped_and_said() {
     let offer = parse(json!({"offers": [{"provider": "stripe", "methods": [
         {"method": "card"},
-        {"method": "boleto", "needs_identity": {"fields": ["name", "address"], "asked_by": "app"}}
+        {"method": "boleto", "needs_identity": ["name", "address"],
+         "identity_in_app": ["name", "address"]}
     ]}]}));
     let stripe = &offer.providers[0];
     assert!(stripe.method(Method::Card).is_some());
@@ -419,8 +420,8 @@ fn the_dlocal_stand_in_wants_the_payers_details_from_the_app_in_the_browser() {
     let text = json!({"offers": [{
         "provider": "fake-dlocal", "origins": ["127.0.0.1"],
         "methods": [{"method": "pix", "surfaces": ["page", "browser"], "rank": 0,
-                     "needs_identity": {"fields": ["name", "email", "national_id"],
-                                        "asked_by": "app"}}]}]})
+                     "needs_identity": ["name", "email", "national_id"],
+                     "identity_in_app": ["name", "email", "national_id"]}]}]})
     .to_string();
     let offer = Offer::parse(&text, &local).unwrap();
     let fake = offer.provider("fake-dlocal").expect("the stand-in");

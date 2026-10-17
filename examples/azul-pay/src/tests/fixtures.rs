@@ -143,7 +143,7 @@ pub fn options_pl() -> Value {
                  "settles": "instant", "recurring": false, "flow": "fields", "handoff": "none",
                  "rank": 2, "expires_minutes": 0, "fee_level": "medium", "preferred": true,
                  "amount_cents": 449, "currency": "PLN",
-                 "needs_identity": {"fields": ["name"], "asked_by": "provider"}},
+                 "needs_identity": ["name"]},
                 {"method": "blik", "provider_type": "blik", "surfaces": ["page", "browser"],
                  "settles": "instant", "recurring": false, "flow": "code", "handoff": "bank_app",
                  "rank": 0, "expires_minutes": 2, "fee_level": "low", "preferred": true,
@@ -170,7 +170,7 @@ pub fn options_de() -> Value {
              "methods": [
                 {"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
                  "rank": 1, "preferred": true, "amount_cents": 499, "currency": "EUR",
-                 "needs_identity": {"fields": ["name", "email"], "asked_by": "provider"}}]},
+                 "needs_identity": ["name", "email"]}]},
             {"provider": "stripe", "kind": "processor",
              "methods": [
                 {"method": "paypal", "surfaces": ["browser"], "rank": 0, "preferred": true,
@@ -178,7 +178,7 @@ pub fn options_de() -> Value {
                 {"method": "sepa_debit", "surfaces": ["iban", "fields", "page", "browser"],
                  "settles": "days", "rank": 1, "preferred": false, "amount_cents": 499,
                  "currency": "EUR",
-                 "needs_identity": {"fields": ["name", "email"], "asked_by": "provider"}},
+                 "needs_identity": ["name", "email"]},
                 {"method": "card", "rank": 2, "preferred": true, "amount_cents": 499,
                  "currency": "EUR", "needs_identity": ["name"]},
                 {"method": "wero", "surfaces": ["browser"], "rank": 4, "preferred": true,

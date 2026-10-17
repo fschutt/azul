@@ -131,13 +131,15 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     GET /v1/checkout/options 404 - skips it; `--mock` offers its fakes, fake-dlocal and cash):
     the options for a buyer in Poland answer for `PL` in `PLN`, every method ranked by Poland's
     order of use (BLIK, Przelewy24, the card), each method and the price in zloty, no direct
-    debit in zloty; a `needs_identity` names known details (name, email, national_id, phone,
-    tax_id, address) asked by `provider` or `app`. GET /v1/tiers?country=PL is in zloty, at the
-    options' price. A country no checkout may come from (RU) is 403 `country_not_served` with a
-    sentence - the options, the tiers and a checkout. A BLIK checkout (`vat_country` PL) is 201
+    debit in zloty; a method's `needs_identity` (what its provider learns about the payer) and
+    `identity_in_app` (the part the app asks for, within it, never an address) name known
+    details (name, email, national_id, phone, tax_id, address). GET /v1/tiers?country=PL is in
+    zloty, at the options' price. A country no checkout may come from (RU) is 403
+    `blocked_country` with a sentence - the options, the tiers and a checkout. A BLIK checkout (`vat_country` PL) is 201
     in zloty at that price on a hosted page; the mock only: its BLIK page takes a six-digit code
     and the checkout is approved. A method that asks the app for the payer's details (the mock's
-    fake-dlocal Pix for BR) is 400 `payer_required` without them and 201 with them, and neither
+    fake-dlocal Pix for BR: `identity_in_app`) is 400 `payer_required` without them and 201
+    with them (`payer`: exactly those details), and neither
     its answer nor its poll - nor the mock's stored checkout - holds any of them.
 
 Every drive token, claim secret and issue key is secret: none is printed.
@@ -407,14 +409,14 @@ def methods_of(offer):
     return out
 
 
-def identity_ok(value):
-    """Whether a method's `needs_identity` is one the apps read."""
-    if value in (None, False):
-        return True
-    if isinstance(value, list):
-        return all(f in PAYER_FIELDS for f in value)
-    return (isinstance(value, dict) and value.get('asked_by', 'provider') in ('provider', 'app')
-            and all(f in PAYER_FIELDS for f in value.get('fields') or []))
+def identity_ok(method):
+    """Whether a method's `needs_identity` and `identity_in_app` are lists the apps read: known
+    details, the app's part within what the provider learns, never an address in the app."""
+    learns = method.get('needs_identity') or []
+    in_app = method.get('identity_in_app') or []
+    return (isinstance(learns, list) and isinstance(in_app, list)
+            and all(f in PAYER_FIELDS for f in learns + in_app)
+            and all(f in learns for f in in_app) and 'address' not in in_app)
 
 
 def holds_payer(value):
@@ -455,8 +457,8 @@ def payment_checks(suite, client, operator):
                 and all(m.get('currency', 'PLN') == 'PLN' for _, _, _, m in found),
                 '(%r)' % price)
     suite.check('no direct debit in zloty', 'sepa_debit' not in names, '(%r)' % names)
-    suite.check('every needs_identity names known details asked by the provider or the app',
-                all(identity_ok(m.get('needs_identity')) for _, _, _, m in found))
+    suite.check("every method's needs_identity and identity_in_app are lists of known details",
+                all(identity_ok(m) for _, _, _, m in found))
     status, tiers, _ = client.call('GET', '/v1/tiers?country=PL')
     first = ((tiers or {}).get('tiers') or [{}])[0]
     suite.check('the tiers for Poland are in zloty at the options\' price',
@@ -465,15 +467,15 @@ def payment_checks(suite, client, operator):
                 '(HTTP %d %r)' % (status, first))
     for what, path in [('the options', query % ('RU', 'RUB')), ('the tiers', '/v1/tiers?country=RU')]:
         status, value, _ = client.call('GET', path)
-        suite.check('%s for a country no checkout may come from are 403 country_not_served with a '
+        suite.check('%s for a country no checkout may come from are 403 blocked_country with a '
                     'sentence' % what,
-                    status == 403 and error_code(value) == 'country_not_served'
+                    status == 403 and error_code(value) == 'blocked_country'
                     and bool((value or {}).get('message')), '(HTTP %d %r)' % (status, value))
     _, claim_key = azlin_claim.new_claim_key()
     order = {'tier': '100GB', 'months': 1, 'withdrawal_consent': True, 'claim_key': claim_key}
     status, value, _ = client.call('POST', '/v1/checkout', dict(order, method='card', vat_country='RU'))
-    suite.check('a checkout from such a country is 403 country_not_served',
-                status == 403 and error_code(value) == 'country_not_served',
+    suite.check('a checkout from such a country is 403 blocked_country',
+                status == 403 and error_code(value) == 'blocked_country',
                 '(HTTP %d %r)' % (status, value))
     blik = next(((p, m) for _, name, p, m in found if name == 'blik'), None)
     if blik is not None:
@@ -506,20 +508,20 @@ def payment_checks(suite, client, operator):
             suite.check('the BLIK page takes a six-digit code and the checkout is approved',
                         (answer or {}).get('status') == 'approved', '(%r)' % (answer or {}).get('status'))
     status, brazil, _ = client.call('GET', query % ('BR', 'BRL'))
-    asking = next(((p, name) for _, name, p, m in methods_of(brazil)
-                   if isinstance(m.get('needs_identity'), dict)
-                   and m['needs_identity'].get('asked_by') == 'app'), None)
+    asking = next(((p, name, m['identity_in_app']) for _, name, p, m in methods_of(brazil)
+                   if m.get('identity_in_app')), None)
     if asking is None:
         print('skipped: a method that asks the app for the payer\'s details (none offered)',
               flush=True)
         return
-    provider, method = asking
+    provider, method, asked = asking
     via = dict(order, provider=provider, method=method, surface='browser', vat_country='BR')
     status, value, _ = client.call('POST', '/v1/checkout', via)
     suite.check('%s %s without the payer\'s details is 400 payer_required' % (provider, method),
                 status == 400 and error_code(value) == 'payer_required',
                 '(HTTP %d %r)' % (status, value))
-    status, value, text = client.call('POST', '/v1/checkout', dict(via, payer=TEST_PAYER))
+    payer = {f: TEST_PAYER[f] for f in asked if f in TEST_PAYER}
+    status, value, text = client.call('POST', '/v1/checkout', dict(via, payer=payer))
     checkout_id = (value or {}).get('checkout_id') or ''
     suite.check('with them it is 201 and its answer holds none of them',
                 status == 201 and bool(checkout_id) and not holds_payer(value),

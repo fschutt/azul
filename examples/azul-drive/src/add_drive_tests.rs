@@ -376,11 +376,16 @@ fn the_picker_lists_the_countries_matching_the_search_and_keeps_the_pick() {
 
 // ==== The payer's details: only for a method whose provider wants them from the app ====
 
-fn card_offer(identity: serde_json::Value) -> Offer {
+/// Stripe's card described further by `extra` (its `needs_identity`, `identity_in_app`).
+fn card_offer(extra: serde_json::Value) -> Offer {
+    let mut card = serde_json::json!({"method": "card"});
+    if let (Some(c), Some(e)) = (card.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            c.insert(k.clone(), v.clone());
+        }
+    }
     Offer::parse(
-        &serde_json::json!({"offers": [{"provider": "stripe", "methods": [
-            {"method": "card", "needs_identity": identity}]}]})
-        .to_string(),
+        &serde_json::json!({"offers": [{"provider": "stripe", "methods": [card]}]}).to_string(),
         &OfferContext::for_token_url("https://token.azlin.io"),
     )
     .unwrap()
@@ -390,15 +395,16 @@ fn card_offer(identity: serde_json::Value) -> Offer {
 fn the_payers_details_are_asked_only_where_the_provider_wants_them_from_the_app() {
     use azul_pay::PayerField;
     let mut dialog = paying_dialog("BR");
-    dialog.offer_loaded(card_offer(serde_json::json!(
-        {"fields": ["name", "email", "national_id"], "asked_by": "app"})));
+    dialog.offer_loaded(card_offer(serde_json::json!({
+        "needs_identity": ["name", "email", "national_id"],
+        "identity_in_app": ["name", "email", "national_id"]})));
     assert_eq!(
         dialog.asked_fields(),
         vec![PayerField::Name, PayerField::Email, PayerField::NationalId]
     );
-    dialog.offer_loaded(card_offer(serde_json::json!(["name"])));
+    dialog.offer_loaded(card_offer(serde_json::json!({"needs_identity": ["name"]})));
     assert!(dialog.asked_fields().is_empty(), "the provider's own page asks for the name");
-    dialog.offer_loaded(card_offer(serde_json::json!(null)));
+    dialog.offer_loaded(card_offer(serde_json::json!({})));
     assert!(dialog.asked_fields().is_empty());
 }
 

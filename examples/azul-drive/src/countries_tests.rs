@@ -25,7 +25,7 @@ fn a_locale_names_its_country_by_its_region() {
     ] {
         assert_eq!(region_of_locale(locale).as_deref(), Some(country), "{locale}");
     }
-    for locale in ["de", "en", "es-419", "C", "POSIX", "", "en_ZZ.UTF-8", "ru-RU", "fa-IR"] {
+    for locale in ["de", "en", "es-419", "C", "POSIX", "", "en_ZZ.UTF-8", "ru-RU", "be-BY"] {
         assert_eq!(region_of_locale(locale), None, "{locale}: no country to guess");
     }
 }
@@ -44,6 +44,7 @@ fn the_guess_takes_the_windows_locale_first_then_the_systems() {
     );
     assert_eq!(guess("en", env(&[])), None, "no guess: the buyer picks");
     assert_eq!(guess("ru-RU", env(&[("LANG", "be_BY.UTF-8")])), None);
+    assert_eq!(guess("fa-IR", env(&[])).as_deref(), Some("IR"));
 }
 
 #[test]
@@ -53,6 +54,10 @@ fn countries_no_checkout_may_come_from_are_never_listed() {
         assert!(!offered(code), "{code}");
     }
     assert!(offered("de") && offered("PL") && offered(" br "));
+    // The EU embargoes none of these (its Blocking Statute even forbids following others' for
+    // some): the token server sells there, so the picker lists them.
+    assert!(offered("IR") && offered("SY") && offered("CU"));
+    assert_eq!(NOT_SERVED, &["BY", "KP", "RU"]);
     assert!(!offered("XX") && !offered(""));
     let mut sorted = COUNTRIES.to_vec();
     sorted.sort_unstable();

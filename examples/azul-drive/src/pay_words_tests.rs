@@ -185,37 +185,46 @@ fn a_pill_says_where_the_payer_finishes_before_it_is_picked() {
 #[test]
 fn a_pills_note_says_what_the_method_tells_about_the_payer() {
     crate::l10n::in_english();
-    let card = choice_of(
-        Method::Card,
-        serde_json::json!({"needs_identity": {"fields": ["name"], "asked_by": "provider"}}),
+    let said = |choice: &azul_pay::Choice| pay_words::pill_note(choice).join(" ");
+    let files = "Your files stay encrypted and are not linked to the payment.";
+    let card = choice_of(Method::Card, serde_json::json!({"needs_identity": ["name"]}));
+    assert_eq!(
+        said(&card),
+        format!("Card: the card network sees your name. {files}")
     );
-    assert!(pay_words::pill_note(&card).contains(&String::from(
-        "Card: the card network sees your name. Your files stay encrypted and are not linked to \
-         the payment."
-    )));
     let cash = choice_of(Method::Cash, serde_json::json!({"surfaces": ["paper"]}));
-    assert!(pay_words::pill_note(&cash).contains(&String::from(
-        "Cash by post needs nothing about you: no name, no account, no email address."
-    )));
+    assert!(said(&cash)
+        .contains("Cash by post needs nothing about you: no name, no account, no email address."));
     let asked = choice_of(
         Method::Card,
-        serde_json::json!({"needs_identity": {"fields": ["name", "email", "national_id"],
-                                              "asked_by": "app"}}),
+        serde_json::json!({"needs_identity": ["name", "email", "national_id"],
+                           "identity_in_app": ["name", "email", "national_id"]}),
     );
-    assert!(pay_words::pill_note(&asked).contains(&String::from(
+    assert!(said(&asked).starts_with(
         "Card: Stripe needs your name, email address and national ID number with the order. \
-         AzDrive sends them once and does not keep them. Your files stay encrypted and are not \
-         linked to the payment."
-    )));
+         AzDrive sends them once and does not keep them. Your files stay encrypted"
+    ));
+    // EBANX's shape: the name and the email in the merchant's request, the tax number on its page.
+    let split = choice_of(
+        Method::Boleto,
+        serde_json::json!({"needs_identity": ["name", "email", "tax_id"],
+                           "identity_in_app": ["name", "email"]}),
+    );
+    let text = said(&split);
+    assert!(
+        text.contains("Boleto: Stripe needs your name and email address with the order.")
+            && text.contains("Boleto: Stripe asks for your tax number on its own page.")
+            && text.matches(files).count() == 1,
+        "{text}"
+    );
     let blik = choice_of(Method::Blik, serde_json::json!({"expires_minutes": 2}));
-    let said = pay_words::pill_note(&blik).join(" ");
-    assert!(said.contains("2 minutes"), "{said}");
+    assert!(said(&blik).contains("2 minutes"), "{}", said(&blik));
+    assert!(!said(&blik).contains(files), "BLIK tells nothing the server names");
     let p24 = choice_of(Method::P24, serde_json::json!({}));
-    let said = pay_words::pill_note(&p24).join(" ");
-    assert!(said.contains("opens in your browser"), "{said}");
+    assert!(said(&p24).contains("opens in your browser"), "{}", said(&p24));
     set_locale("de-DE");
-    let said = pay_words::pill_note(&card).join(" ");
-    assert!(said.contains("Kartennetz") && said.contains("verschlüsselt"), "{said}");
+    let german = said(&card);
+    assert!(german.contains("Kartennetz") && german.contains("verschlüsselt"), "{german}");
     set_locale("en-US");
 }
 
