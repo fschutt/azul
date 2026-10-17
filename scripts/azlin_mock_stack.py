@@ -22,8 +22,12 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     the drive is handed over to it (every other
                                                     family revoked; finish_pending_lockdowns)
     GET /health, GET /v1/health
-    GET /v1/tiers                                   200 the price ladder (tiers.rs: sizes, cents
-                                                    a month / a year, EUR, the methods)
+    GET /v1/tiers[?country=XX]                      200 the price ladder (tiers.rs: sizes, cents
+                                                    a month / a year, the methods) in the
+                                                    country's currency where the signed ladder
+                                                    has its row (PLN, CHF, GBP, USD, JPY, BRL),
+                                                    else EUR; 403 country_not_served for a
+                                                    country no checkout may come from
     POST /v1/checkout {"tier", "months", "method",  201 a checkout: its pay_url, its amount
                        "claim_key"}                 (400 claim_key_required without the key)
     GET /v1/checkout/<id>                           200 pending | approved (the drive bundle
@@ -148,12 +152,20 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
   With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
   "The fake payment providers" below for their pages and webhooks):
 
-    GET /v1/checkout/options?tier&months&country    200 the offered fakes' descriptors, the price
-        &currency&surfaces                          with its VAT, the legal texts (404 without
-                                                    providers: the v1 checkout)
+    GET /v1/checkout/options?tier&months&country    200 for the buyer's country: the methods a
+        &currency&surfaces                          fake has on AND routed there, in its order of
+                                                    use (`rank`), priced in its currency, each
+                                                    with `needs_identity` where it tells about
+                                                    the payer, `preferred` on the cheaper route;
+                                                    the price with the country's VAT, the legal
+                                                    texts (404 without providers: the v1
+                                                    checkout; 403 country_not_served)
     POST /v1/checkout {..., "provider", "method",   201 + provider, method, surface (a fields page
                        "surface", "vat_country",    with its client secret, a hosted page, a page
-                       "withdrawal_consent"}        for the browser), return pages, expires_at
+                       "withdrawal_consent",        for the browser), return pages, expires_at,
+                       "payer"?}                    the amount in the country's currency; 400
+                                                    payer_required where the method asks the app
+                                                    for the payer's details (they are never kept)
     POST /v1/checkout/<id>/surface {"kind"}         200 the same checkout on another surface
     POST /v1/checkout/<id>/abandon                  200 the provider session expires
     POST /v1/webhook/<provider>                     200 a signed provider webhook (each event once)
@@ -323,23 +335,95 @@ TEST_VOUCHERS = {
 #   fake-paypal      PayPal: a login + approve page on "localhost" (another host than the other
 #                    fakes': the system browser only); webhooks with x-provider-signature
 #   fake-mor         a merchant of record's hosted checkout /fake-mor/checkout/<ref> (opt-in)
+#   fake-dlocal      dLocal's shape (opt-in): Pix, Boleto, OXXO in the browser only; its API wants
+#                    the payer's name, email and national ID in the checkout request (the app
+#                    asks for them; nothing of them is kept), its page /fake-dlocal/pay/<ref>
+#
+# fake-stripe's local methods: BLIK's page takes any six digits but 000000; P24, iDEAL, EPS,
+# TWINT and Wero are test pages to authorize or fail (Stripe's own test pages' choice).
 #
 # The return pages /return/ok, /return/cancel, /return/pending and the bridge /_bridge/... live
 # on the token server's host (pay.azlin.io's stand-in). A provider only ever sees the
 # checkout's random `provider_ref` (pr_...), never the checkout id.
-FAKE_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal', 'fake-mor')
+FAKE_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal', 'fake-mor', 'fake-dlocal')
 # What `set_providers` may offer: the fakes, and cash by post (no fake: Azlin's own, on paper).
 OFFERABLE = FAKE_PROVIDERS + ('cash',)
 # The providers a stack started with `--providers` without a list offers.
 DEFAULT_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal')
-# Each fake's methods and their surfaces, best first.
+# Each fake's methods the operator switched on, and their surfaces, best first (the gate: a method
+# no provider here has on is never offered). fake-stripe carries Stripe's local methods of the
+# stack's countries on its hosted page (BLIK's code, TWINT's QR) or in the browser (a bank's
+# login); fake-dlocal is dLocal's shape - its API wants the payer's name, email and national ID
+# in the merchant's request and its pages are never framed.
 PROVIDER_METHODS = {
-    'fake-stripe': {'card': ['fields', 'page', 'browser']},
+    'fake-stripe': {'card': ['fields', 'page', 'browser'], 'blik': ['page', 'browser'],
+                    'p24': ['browser'], 'twint': ['page', 'browser'], 'ideal': ['browser'],
+                    'eps': ['browser'], 'wero': ['browser']},
     'fake-gocardless': {'sepa_debit': ['page', 'browser']},
     'fake-paypal': {'paypal': ['browser']},
     'fake-mor': {'card': ['page', 'browser']},
+    'fake-dlocal': {'pix': ['browser'], 'boleto': ['browser'], 'oxxo': ['browser']},
     'cash': {'cash': ['paper']},
 }
+# How each method settles (the app waits, or checks back in days).
+METHOD_SETTLES = {'sepa_debit': 'days', 'p24': 'days', 'boleto': 'days', 'oxxo': 'days',
+                  'cash': 'post'}
+# How long a method's code, QR code or voucher lives (minutes).
+METHOD_EXPIRES = {'blik': 2, 'pix': 60, 'oxxo': 7200, 'boleto': 4320}
+# What a method tells about the payer and who asks for it (`needs_identity`): the provider's own
+# page, or the app - whose details go once with the checkout and are never kept here.
+METHOD_IDENTITY = {
+    ('fake-stripe', 'card'): {'fields': ['name'], 'asked_by': 'provider'},
+    ('fake-mor', 'card'): {'fields': ['name', 'email'], 'asked_by': 'provider'},
+    ('fake-gocardless', 'sepa_debit'): {'fields': ['name', 'email'], 'asked_by': 'provider'},
+    ('fake-dlocal', 'pix'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
+    ('fake-dlocal', 'boleto'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
+    ('fake-dlocal', 'oxxo'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
+}
+# The methods people in each country pay with, most used first (the payment methods registry's
+# order of use, azul-apps iso/crates/azul-pay-methods): what the options offer for a buyer there,
+# in this order; `*` for every other country.
+COUNTRY_METHODS = {
+    'DE': ['paypal', 'sepa_debit', 'card', 'wero'],
+    'AT': ['eps', 'card', 'paypal', 'sepa_debit'],
+    'NL': ['ideal', 'card', 'paypal', 'sepa_debit'],
+    'FR': ['card', 'paypal', 'wero', 'sepa_debit'],
+    'PL': ['blik', 'p24', 'card', 'paypal'],
+    'CH': ['twint', 'card', 'paypal'],
+    'BR': ['pix', 'card', 'boleto'],
+    'MX': ['card', 'oxxo'],
+    '*': ['card', 'paypal'],
+}
+# Each country's currency where the stack's signed ladder has a row in it; every other country
+# pays in euros.
+COUNTRY_CURRENCY = {'PL': 'PLN', 'CH': 'CHF', 'LI': 'CHF', 'GB': 'GBP', 'US': 'USD', 'JP': 'JPY',
+                    'BR': 'BRL'}
+# The ladder's rows in other currencies, frozen when it was signed: per tier the price of a month
+# and of a year in the currency's minor units (the yen has none: 160 is 160 yen).
+LADDER_ROWS = {
+    'PLN': {'100GB': (449, 4490), '500GB': (1299, 12990), '1TB': (2149, 21490),
+            '2TB': (3899, 38990), '6TB': (8599, 85990), '12TB': (14999, 149990)},
+    'CHF': {'100GB': (99, 990), '500GB': (299, 2990), '1TB': (499, 4990), '2TB': (849, 8490),
+            '6TB': (1899, 18990), '12TB': (3299, 32990)},
+    'GBP': {'100GB': (89, 890), '500GB': (259, 2590), '1TB': (429, 4290), '2TB': (779, 7790),
+            '6TB': (1729, 17290), '12TB': (2999, 29990)},
+    'USD': {'100GB': (99, 990), '500GB': (329, 3290), '1TB': (549, 5490), '2TB': (979, 9790),
+            '6TB': (2199, 21990), '12TB': (3799, 37990)},
+    'JPY': {'100GB': (160, 1600), '500GB': (480, 4800), '1TB': (800, 8000), '2TB': (1450, 14500),
+            '6TB': (3200, 32000), '12TB': (5600, 56000)},
+    'BRL': {'100GB': (590, 5900), '500GB': (1790, 17900), '1TB': (2990, 29900),
+            '2TB': (5390, 53900), '6TB': (11990, 119900), '12TB': (20990, 209900)},
+}
+# VAT per country (permille; the stack's few, else Germany's).
+VAT_RATES = {'PL': 230, 'CH': 81, 'AT': 200, 'NL': 210, 'FR': 200, 'BR': 0, 'US': 0, 'GB': 200,
+             'JP': 100, 'MX': 160}
+# Countries no checkout may come from (EU restrictive measures, the payment providers' prohibited
+# lists): the options, the tier list and a checkout refuse them with this sentence.
+NOT_SERVED = {'BY', 'CU', 'IR', 'KP', 'RU', 'SY'}
+NOT_SERVED_SENTENCE = ("Azlin cannot sell storage to buyers in this country: sanctions and the "
+                       "payment providers' rules forbid it.")
+# BLIK's test codes (Stripe's: any six digits pay); this one is refused, for a declined try.
+DECLINING_BLIK = '000000'
 PROVIDER_KINDS = {'fake-mor': 'merchant_of_record'}
 # The local webhook secrets (no real provider's).
 WEBHOOK_SECRETS = {
@@ -347,6 +431,7 @@ WEBHOOK_SECRETS = {
     'fake-gocardless': 'local-fake-gocardless-webhook-secret',
     'fake-paypal': 'local-fake-paypal-webhook-secret',
     'fake-mor': 'local-fake-mor-webhook-secret',
+    'fake-dlocal': 'local-fake-dlocal-webhook-secret',
 }
 # Stripe's libraries' default tolerance for a webhook's timestamp.
 STRIPE_TOLERANCE_SECS = 300
@@ -442,14 +527,37 @@ def page(title, body):
             % (html.escape(title), html.escape(title), body))
 
 
-def tier_list(cash=False):
-    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`): `cash` among the methods only
-    where the server takes cash by post."""
+def currency_of(country):
+    """The currency a buyer in `country` pays in: the country's where the ladder has a row in it,
+    else the euro."""
+    return COUNTRY_CURRENCY.get((country or '').strip().upper(), 'EUR')
+
+
+def check_served(country):
+    """Refuses a buyer from a country no checkout may come from (403 country_not_served)."""
+    if (country or '').strip().upper() in NOT_SERVED:
+        raise ApiError(403, 'country_not_served', NOT_SERVED_SENTENCE)
+
+
+def ladder_prices(tier, currency):
+    """A tier's (month, year) prices in `currency`'s minor units: its frozen row, else euros."""
+    row = LADDER_ROWS.get(currency)
+    if row is not None:
+        return row[tier]
+    return next((m, y) for t, _, m, y in TIER_LADDER if t == tier)
+
+
+def tier_list(cash=False, country=''):
+    """GET /v1/tiers[?country=XX] as azlin-token answers it (tiers.rs `ladder`): priced in the
+    buyer's country's currency where the signed ladder has that row; `cash` among the methods
+    only where the server takes cash by post."""
+    currency = currency_of(country)
     return {
-        'tiers': [{'id': tier, 'quota_bytes': quota, 'price_cents_month': month,
-                   'price_cents_year': year, 'currency': 'EUR', 'first_month_free': True,
-                   'prepay_months': PREPAY_MONTHS}
-                  for tier, quota, month, year in TIER_LADDER],
+        'tiers': [{'id': tier, 'quota_bytes': quota,
+                   'price_cents_month': ladder_prices(tier, currency)[0],
+                   'price_cents_year': ladder_prices(tier, currency)[1], 'currency': currency,
+                   'first_month_free': True, 'prepay_months': PREPAY_MONTHS}
+                  for tier, quota, _, _ in TIER_LADDER],
         'methods': METHODS + (['cash'] if cash else []),
         'legal': {
             'withdrawal_consent': 'I agree that the service starts immediately and acknowledge '
@@ -461,10 +569,32 @@ def tier_list(cash=False):
     }
 
 
-def price_cents(tier, months):
-    """A tier's price for `months` months (payments: the yearly price per 12 months)."""
-    month, year = next((m, y) for t, _, m, y in TIER_LADDER if t == tier)
+def price_cents(tier, months, currency='EUR'):
+    """A tier's price for `months` months in `currency` (payments: the yearly price per 12
+    months)."""
+    month, year = ladder_prices(tier, currency)
     return (months // 12) * year + (months % 12) * month
+
+
+def money_text(amount, currency):
+    """`amount` minor units of `currency` as a fake provider's page writes it: `PLN 4.49`,
+    `JPY 160` (the yen has no minor unit)."""
+    if currency in ('JPY', 'KRW', 'CLP', 'ISK', 'VND'):
+        return '%s %d' % (currency, amount)
+    return '%s %d.%02d' % ((currency,) + divmod(amount, 100))
+
+
+def payer_problem(identity, payer):
+    """What is missing of the payer's details a method asks the app for (a sentence), or None."""
+    if not identity or identity.get('asked_by') != 'app':
+        return None
+    payer = payer if isinstance(payer, dict) else {}
+    missing = [f for f in identity['fields'] if not str(payer.get(f) or '').strip()]
+    if missing:
+        return 'this payment method needs the payer\'s %s' % ', '.join(missing)
+    if 'email' in identity['fields'] and '@' not in str(payer.get('email')):
+        return 'the payer\'s email address is no email address'
+    return None
 DEFAULT_TTL = 12 * 3600
 REGION = s3_server.DEFAULT_REGION
 ACCESS_KEY = 'AZLINMOCKKEY'
@@ -740,22 +870,33 @@ class TokenState:
             raise ApiError(400, 'bad_tier', 'unknown tier')
         method = body.get('method') or 'sepa'
         provider = body.get('provider')
+        country = str(body.get('vat_country') or '').strip().upper()
+        check_served(country)
         if method == 'cash' or provider == 'cash':
             return self.cash_checkout(body, tier)
         surface = None
+        currency = 'EUR'
         if provider:
-            # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11).
+            # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11),
+            # in the buyer's country's currency, for a method routed for that country.
             if provider not in self.providers:
                 raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
             surfaces = PROVIDER_METHODS[provider].get(method)
-            if surfaces is None:
-                raise ApiError(400, 'bad_method', '%s takes no %s' % (provider, method))
+            routed = method in COUNTRY_METHODS.get(country or 'DE', COUNTRY_METHODS['*'])
+            if surfaces is None or not routed:
+                raise ApiError(400, 'bad_method', '%s takes no %s here' % (provider, method))
             surface = body.get('surface') or surfaces[0]
             if surface not in surfaces:
                 raise ApiError(400, 'surface_unavailable',
                                '%s cannot show %s for %s' % (provider, surface, method))
             if body.get('withdrawal_consent') is not True:
                 raise ApiError(400, 'consent_required', 'the order needs the consent')
+            # The payer's details go to the provider with this one request, where it wants
+            # them; nothing of them is kept, logged or answered.
+            problem = payer_problem(METHOD_IDENTITY.get((provider, method)), body.get('payer'))
+            if problem:
+                raise ApiError(400, 'payer_required', problem)
+            currency = currency_of(country)
         elif method not in METHODS:
             raise ApiError(400, 'bad_method', 'unknown payment method')
         months = body.get('months', 1)
@@ -771,7 +912,7 @@ class TokenState:
             azlin_claim.claim_key_bytes(str(claim_key))
         except ValueError as e:
             raise ApiError(400, 'bad_claim_key', str(e))
-        amount = price_cents(tier, months)
+        amount = price_cents(tier, months, currency)
         with self.lock:
             checkout_id = random_id('ck_')
             provider_ref = random_id('pr_')
@@ -782,14 +923,14 @@ class TokenState:
                                            'provider_ref': provider_ref,
                                            'client_secret': 'pi_%s_secret_%s' % (
                                                provider_ref[3:], secrets.token_hex(8)),
-                                           'surface': surface,
+                                           'surface': surface, 'currency': currency,
                                            'vat_country': body.get('vat_country'),
                                            'abandoned': False}
             self.by_ref[provider_ref] = checkout_id
         answer = {'checkout_id': checkout_id,
                   'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
                   'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
-                  'currency': 'EUR', 'vat_country': body.get('vat_country'),
+                  'currency': currency, 'vat_country': body.get('vat_country'),
                   'first_month_free': True, 'withdrawal_consent_required': True, 'mock': True}
         if provider:
             answer.update({'provider': provider, 'surface': self.surface_of(checkout_id, surface),
@@ -917,9 +1058,13 @@ class TokenState:
                 'pending': self.base_url + '/return/pending'}
 
     def checkout_options(self, query):
-        """GET /v1/checkout/options (CHECKOUT-PLAN §3.11): the offered fakes' descriptors for the
-        tier, the months, the country and the currency; 404 without providers (an older token
-        server: the apps pay on the v1 page)."""
+        """GET /v1/checkout/options (CHECKOUT-PLAN §3.11) for the buyer's declared country: only
+        the methods a provider here has switched on AND that are routed for that country, in the
+        country's order of use (`rank`), each priced in the country's currency (the ladder's
+        frozen row; the euro where it has none), with what it tells about the payer
+        (`needs_identity`); the cheaper route of a method two providers carry is `preferred`.
+        403 country_not_served for a country no checkout may come from; 404 without providers (an
+        older token server: the apps pay on the v1 page)."""
         if not self.providers:
             raise ApiError(404, 'not_found', 'this token server has no payment options')
         first = lambda key, default='': (query.get(key) or [default])[0]  # noqa: E731
@@ -929,22 +1074,44 @@ class TokenState:
         except ValueError:
             raise ApiError(400, 'bad_months', 'months is no number')
         country = first('country', 'DE').strip().upper()
-        currency = first('currency', 'EUR').strip().upper()
+        check_served(country)
+        currency = currency_of(country)
+        wanted = COUNTRY_METHODS.get(country, COUNTRY_METHODS['*'])
+        amount = price_cents(tier, months, currency) if tier in TIERS else None
+        per_provider = {}
+        preferred_taken = set()
+        for rank, method in enumerate(wanted):
+            for provider in self.providers:
+                surfaces = PROVIDER_METHODS.get(provider, {}).get(method)
+                if surfaces is None or provider == 'cash':
+                    continue
+                # A direct debit in euros only; a bank transfer for a year or more.
+                if method == 'sepa_debit' and currency != 'EUR':
+                    continue
+                offered = {'method': method, 'provider_type': method, 'surfaces': list(surfaces),
+                           'settles': METHOD_SETTLES.get(method, 'instant'), 'recurring': False,
+                           'rank': rank, 'expires_minutes': METHOD_EXPIRES.get(method, 0),
+                           'preferred': method not in preferred_taken}
+                preferred_taken.add(method)
+                if amount is not None:
+                    offered['amount_cents'] = amount
+                    offered['currency'] = currency
+                identity = METHOD_IDENTITY.get((provider, method))
+                if identity:
+                    offered['needs_identity'] = identity
+                per_provider.setdefault(provider, []).append(offered)
         offers = []
         for provider in self.providers:
-            if provider == 'fake-gocardless' and (country not in SEPA_COUNTRIES
-                                                  or currency != 'EUR'):
-                continue
             if provider == 'cash':
-                # Cash by post: no pages, no origins - a slip on paper.
+                # Cash by post: no pages, no origins - a slip on paper (in euros, cash contract
+                # v1); it asks nothing about the payer.
                 offers.append({'provider': 'cash', 'kind': 'processor', 'methods': [
                     {'method': 'cash', 'surfaces': ['paper'], 'settles': 'post',
                      'recurring': False}]})
                 continue
-            methods = [{'method': method, 'surfaces': list(surfaces),
-                        'settles': 'days' if method == 'sepa_debit' else 'instant',
-                        'recurring': False}
-                       for method, surfaces in PROVIDER_METHODS[provider].items()]
+            methods = per_provider.get(provider)
+            if not methods:
+                continue
             offer = {'provider': provider, 'kind': PROVIDER_KINDS.get(provider, 'processor'),
                      'default': provider == 'fake-gocardless',
                      'origins': ['localhost'] if provider == 'fake-paypal' else ['127.0.0.1'],
@@ -952,16 +1119,16 @@ class TokenState:
             if provider == 'fake-stripe':
                 offer['fields_page'] = self.base_url + '/fields/fake-stripe/v1'
             offers.append(offer)
-        out = {'offers': offers,
+        out = {'country': country, 'currency': currency, 'offers': offers,
                'legal': {'withdrawal_consent': 'I ask Azlin to start the service now. If I '
                                                'withdraw, I pay for the service provided until '
                                                'then.',
                          'terms_url': self.base_url + '/terms'}}
-        if tier in TIERS:
-            amount = price_cents(tier, months)
-            out['price'] = {'amount_cents': amount, 'currency': 'EUR',
-                            'vat_rate_permille': VAT_PERMILLE,
-                            'vat_cents': round(amount * VAT_PERMILLE / (1000 + VAT_PERMILLE)),
+        if amount is not None:
+            rate = VAT_RATES.get(country, VAT_PERMILLE)
+            out['price'] = {'amount_cents': amount, 'currency': currency,
+                            'vat_rate_permille': rate,
+                            'vat_cents': round(amount * rate / (1000 + rate)),
                             'vat_included': True}
         return out
 
@@ -978,6 +1145,7 @@ class TokenState:
             'fake-gocardless': '%s/fake-gocardless/flow/BRQ%s' % (self.base_url, ref),
             'fake-paypal': '%s/fake-paypal/checkoutnow?token=%s' % (self.login_url, ref),
             'fake-mor': '%s/fake-mor/checkout/%s' % (self.base_url, ref),
+            'fake-dlocal': '%s/fake-dlocal/pay/%s' % (self.base_url, ref),
         }
         return {'kind': kind, 'url': urls[provider]}
 
@@ -1138,10 +1306,25 @@ class TokenState:
         segments = path.split('/')
         if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
             ref = segments[3][len('cs_test_'):]
+            _, checkout = self.checkout_of_ref(ref)
+            method = (checkout or {}).get('method')
+            # Stripe's hosted page of a local method: BLIK asks for the code from the banking
+            # app; a bank login or a QR code is a test page with the outcome to choose.
+            if method == 'blik':
+                return self.pay_form(ref, 'Fake Stripe: BLIK', 'blik_code',
+                                     'The 6-digit code from your banking app', '123456')
+            if method in ('p24', 'ideal', 'eps', 'twint', 'wero'):
+                return self.pay_form(ref, 'Fake Stripe: %s test payment' % method, 'action',
+                                     'authorize or fail', 'authorize')
             return self.pay_form(ref, 'Fake Stripe Checkout', 'card_number', 'Card number',
                                  '4242 4242 4242 4242', extra=(
                                      '<p><a href="%s/fake-paypal/checkoutnow?token=%s">Pay with '
                                      'PayPal</a></p>' % (self.login_url, html.escape(ref))))
+        if segments[:2] == ['fake-dlocal', 'pay'] and len(segments) == 3:
+            # The payer's details came with the checkout (the app asked for them): the page
+            # asks for nothing but the outcome.
+            return self.pay_form(segments[2], 'Fake dLocal: test payment', 'action',
+                                 'authorize or fail', 'authorize')
         if segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
             return self.pay_form(segments[2][len('BRQ'):], 'Fake GoCardless: set up a Direct '
                                  'Debit', 'iban', 'IBAN', APPROVING_IBAN)
@@ -1159,9 +1342,10 @@ class TokenState:
         if checkout is None:
             return 404, page('No such payment', '<p>This payment does not exist.</p>')
         body = ('<form method="post"><label>%s <input name="%s" value="%s"></label> '
-                '<button>Pay EUR %s</button></form><p><a href="%s/return/cancel">Cancel</a></p>%s'
+                '<button>Pay %s</button></form><p><a href="%s/return/cancel">Cancel</a></p>%s'
                 % (html.escape(label), field, html.escape(example),
-                   '%d.%02d' % divmod(checkout['amount'], 100), self.base_url, extra))
+                   money_text(checkout['amount'], checkout.get('currency') or 'EUR'),
+                   self.base_url, extra))
         return 200, page(title, body)
 
     def provider_post(self, path, query, form):
@@ -1170,8 +1354,17 @@ class TokenState:
         form = dict(form)
         form.setdefault('token', (query.get('token') or [''])[0])
         if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
-            ref, ok = segments[3][len('cs_test_'):], form.get('card_number')
-            ok = ''.join(c for c in (ok or '') if c.isdigit()) == APPROVING_CARD
+            ref = segments[3][len('cs_test_'):]
+            if 'blik_code' in form:
+                code = (form.get('blik_code') or '').strip()
+                ok = len(code) == 6 and code.isdigit() and code != DECLINING_BLIK
+            elif 'action' in form:
+                ok = form.get('action') == 'authorize'
+            else:
+                ok = ''.join(c for c in (form.get('card_number') or '')
+                             if c.isdigit()) == APPROVING_CARD
+        elif segments[:2] == ['fake-dlocal', 'pay'] and len(segments) == 3:
+            ref, ok = segments[2], form.get('action') == 'authorize'
         elif segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
             ref = segments[2][len('BRQ'):]
             ok = (form.get('iban') or '').replace(' ', '').upper() == APPROVING_IBAN
@@ -2144,7 +2337,9 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.command == 'GET' and segments == ['v1', 'tiers']:
-            self.answer(200, tier_list(cash=state.cash_key is not None))
+            country = (query.get('country') or [''])[0]
+            check_served(country)
+            self.answer(200, tier_list(cash=state.cash_key is not None, country=country))
             return
         if self.command == 'POST' and segments == ['v1', 'drives']:
             body = self.body()
