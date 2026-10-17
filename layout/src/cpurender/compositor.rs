@@ -3933,10 +3933,25 @@ fn windowed_structural_damage(
             // PDF/a11y metadata read the NEW display list, no pixels are
             // involved. In the union days their (viewport-sized) rects were
             // absorbed anyway; per-item they WOULD dominate the result.
+            // Items that never RASTERIZE never produce paint damage, and
+            // that covers STRUCTURE as well as metadata. A stacking context
+            // carries a region, a scroll frame carries an offset and a clip
+            // restricts what the items inside it show; none of the three
+            // paints a pixel of its own, and the items they wrap are in this
+            // same window carrying their own rects. Their bounds are the
+            // CONTAINER's, so counting them makes the damage as wide as the
+            // box whatever changed inside it - a text area's Enter came out
+            // the field's full 392px where 64px of text had moved. The
+            // paired path draws the same line; this one drew it only around
+            // hit areas and text metadata.
             if refine
                 && matches!(
                     item,
-                    DisplayListItem::HitTestArea { .. } | DisplayListItem::TextLayout { .. }
+                    DisplayListItem::HitTestArea { .. }
+                        | DisplayListItem::TextLayout { .. }
+                        | DisplayListItem::PushStackingContext { .. }
+                        | DisplayListItem::PushScrollFrame { .. }
+                        | DisplayListItem::PushClip { .. }
                 )
             {
                 skipped_nonpainting = true;
