@@ -2576,7 +2576,7 @@ fn every_constant_reaches_every_binding() {
     let mut offenders = Vec::new();
     for (lang, files) in shipped_outputs() {
         let text: String = files.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n");
-        let missing: Vec<String> = ir()
+        let spelled: Vec<(String, String)> = ir()
             .constants
             .iter()
             .filter_map(|c| {
@@ -2597,14 +2597,54 @@ fn every_constant_reaches_every_binding() {
                     }
                     _ => name.to_string(),
                 };
-                (!text.contains(&spelled)).then(|| c.name.clone())
+                Some((c.name.clone(), spelled))
             })
+            .collect();
+        let wanted: BTreeSet<&str> = spelled.iter().map(|(_, s)| s.as_str()).collect();
+        let found = words_found(&text, &wanted);
+        // A name not found as a word (or a word's end) may still sit inside a longer one.
+        let missing: Vec<String> = spelled
+            .iter()
+            .filter(|(_, s)| !found.contains(s.as_str()) && !text.contains(s.as_str()))
+            .map(|(name, _)| name.clone())
             .collect();
         if !missing.is_empty() {
             offenders.push(summarize(lang, "constants are missing", &missing, ir().constants.len()));
         }
     }
     assert_none("api.json constants missing from bindings", offenders);
+}
+
+/// Which of `wanted` occur in `text` as a word or as the end of a word after an underscore
+/// (`AzGlContext_ACCUM` holds `ACCUM`), in one pass over the text: a search per name reads
+/// the whole output once per constant, some 1400 times 400 MB.
+fn words_found<'a>(text: &str, wanted: &BTreeSet<&'a str>) -> BTreeSet<&'a str> {
+    let wanted: std::collections::HashSet<&'a str> = wanted.iter().copied().collect();
+    let mut found = BTreeSet::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !(bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        // Word bounds are ASCII bytes, so the slice is whole characters.
+        let mut rest = &text[start..i];
+        loop {
+            if let Some(w) = wanted.get(rest) {
+                found.insert(*w);
+            }
+            match rest.find('_') {
+                Some(at) => rest = &rest[at + 1..],
+                None => break,
+            }
+        }
+    }
+    found
 }
 
 /// No generated binding carries a placeholder instead of API: a
