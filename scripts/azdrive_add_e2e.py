@@ -987,7 +987,9 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         third.after("the drive unlocked and listed", "AZDRIVE_LISTED",
                     r"%s / [1-9]\d*" % re.escape(drive_id),
                     lambda: popup.click_exact("Unlock"))
-        third.until("its file", lambda: "hello.txt" in item_names(third))
+        # Step 5's file: the drive is encrypted as it is made, so step 5 pastes one.txt through
+        # AzDrive.
+        third.until("its file", lambda: "one.txt" in item_names(third))
         third.screenshot(os.path.join(out, "13g-recovered.png"))
     except Failure:
         # What the windows show says why: a message dialog, a notice in the status bar (the
@@ -1009,7 +1011,7 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
     log("13g. A fresh profile recovered %s by its kit alone: the findable key looked it up, the "
         "code signed the lockdown (pending 48 h, no credentials, the owner told), after the 48 h "
         "the owner's devices were refused and Finish added the drive; the code unlocked it: "
-        "hello.txt in its listing" % drive_id)
+        "one.txt in its listing" % drive_id)
 
 
 # ==== 14. Cash by post, 15. a ban (cash and ban contracts v1) ====
@@ -1345,11 +1347,11 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
         popup = e2e.modal_window(second)
         popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
         popup.text_input("#__azdrive_unlock_code", recovery)
-        popup.click_exact("Unlock")
-        second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
+        # The unlock opens the drive: its bucket lists.
         second.after("the picked-up drive's bucket", "AZDRIVE_LISTED",
                      r"%s / \d+" % re.escape(drive_id),
-                     lambda: second.click(selector=side_drive(drive_id)))
+                     lambda: popup.click_exact("Unlock"))
+        second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
         second.screenshot(os.path.join(out, "14-picked-up.png"))
     finally:
         second.stop()
