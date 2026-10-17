@@ -37,7 +37,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc, Mutex, MutexGuard, PoisonError,
+    },
 };
 
 use crate::{
@@ -302,7 +305,15 @@ pub struct AutoEncrypted {
     keyring: Arc<dyn KeyringStore>,
     provider: Option<Arc<dyn IndexProvider>>,
     opened: Mutex<Option<Arc<dyn Drive>>>,
+    /// What `opened` decided, for the question that must not wait for it ([`Self::is_encrypted`]):
+    /// the first call decides while it holds `opened`, and deciding reads the bucket.
+    decided: AtomicU8,
 }
+
+/// [`AutoEncrypted::decided`]: no call decided yet, a plain bucket, an encrypted drive.
+const UNDECIDED: u8 = 0;
+const PLAIN: u8 = 1;
+const ENCRYPTED: u8 = 2;
 
 impl fmt::Debug for AutoEncrypted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -329,6 +340,7 @@ impl AutoEncrypted {
             keyring,
             provider,
             opened: Mutex::new(None),
+            decided: AtomicU8::new(UNDECIDED),
         }
     }
 
@@ -348,15 +360,21 @@ impl AutoEncrypted {
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
     /// this device got its key).
     pub fn reopen(&self) {
-        *lock(&self.opened) = None;
+        let mut opened = lock(&self.opened);
+        *opened = None;
+        self.decided.store(UNDECIDED, Ordering::SeqCst);
     }
 
-    /// Whether the decision so far is "encrypted" (`None`: not decided yet).
+    /// Whether the decision so far is "encrypted" (`None`: not decided yet). It never waits for
+    /// a first call that is still deciding: that call reads the bucket, and in the apps the
+    /// answers of its requests come through the UI thread - the thread that asks this.
     #[must_use]
     pub fn is_encrypted(&self) -> Option<bool> {
-        lock(&self.opened)
-            .as_ref()
-            .map(|drive| !Arc::ptr_eq(drive, &self.bucket))
+        match self.decided.load(Ordering::SeqCst) {
+            PLAIN => Some(false),
+            ENCRYPTED => Some(true),
+            _ => None,
+        }
     }
 
     /// The drive every call goes to: decided on the first call.
@@ -388,6 +406,8 @@ impl AutoEncrypted {
             Arc::clone(&self.bucket)
         };
         *opened = Some(Arc::clone(&drive));
+        let decided = if encrypted { ENCRYPTED } else { PLAIN };
+        self.decided.store(decided, Ordering::SeqCst);
         Ok(drive)
     }
 }
