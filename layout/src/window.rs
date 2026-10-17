@@ -5585,6 +5585,20 @@ impl LayoutWindow {
         self.caret_text_snapshot = Some((key, node_id, now));
     }
 
+    /// Whether the app's re-render has to be laid out even when its DOM
+    /// equals the one on screen: it retires the overlay text the app acked
+    /// and the structural previews (the screen would keep showing them over
+    /// the app's model), or an acked structural edit's caret waits for the
+    /// new generation of the DOM it was made in (a view's, which only a laid
+    /// out re-render renders again before the caret is placed).
+    #[must_use]
+    pub fn rebuild_must_lay_out(&self) -> bool {
+        self.pending_caret_restore.is_some()
+            || self
+                .content_overlay
+                .retires_with_a_new_generation(self.acked_text_revision)
+    }
+
     /// [`Self::place_pending_caret`] for a rebuild that laid nothing out: the
     /// shell's pre-cascade "layout unchanged" exit (the app rebuilt the same
     /// DOM) never reaches the tail of a full layout that places it, so a reset

@@ -721,16 +721,12 @@ pub fn regenerate_layout(
         current_window_state.flags.decorations,
     );
     // The layout callback ran, so this is the app's re-render: it retires the
-    // overlay text the app acked and ends a pending structural preview
-    // (`LayoutWindow::layout_new_generation`). With either, neither
-    // "layout unchanged" exit below may keep the retained layout, which still
-    // shows the overlay; the pass lays out as a new generation instead.
-    let overlay_retires = layout_window
-        .content_overlay
-        .retires_with_a_new_generation(
-            azul_core::dom::DomId::ROOT_ID,
-            layout_window.acked_text_revision,
-        );
+    // overlay text the app acked, ends the structural previews and places an
+    // acked structural edit's caret in the new generation
+    // (`LayoutWindow::layout_new_generation`). Then neither "layout
+    // unchanged" exit below may keep the retained layout; the pass lays out
+    // as a new generation instead.
+    let overlay_retires = layout_window.rebuild_must_lay_out();
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             !theme_rebuild
