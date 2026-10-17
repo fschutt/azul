@@ -1841,13 +1841,23 @@ fn run<R: SyncRemote + ?Sized>(
     );
     let mut index = LocalIndex::load(index_path)?
         .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
-    let scan = local::scan(
+    // The folder as it was at one moment: a change made while it is read is read again whole.
+    let scan = local::scan_unchanged(
         &root.path,
         &root.rules,
-        &index.files,
-        index.scanned_at_ns,
-        &root.json_merge,
-        opts.max_file_bytes,
+        opts.settle,
+        SETTLE_MAX,
+        &|| hooks.cancelled(),
+        || {
+            local::scan(
+                &root.path,
+                &root.rules,
+                &index.files,
+                index.scanned_at_ns,
+                &root.json_merge,
+                opts.max_file_bytes,
+            )
+        },
     )?;
     report.scanned = scan.files.len();
     report.hashed = scan.hashed;
