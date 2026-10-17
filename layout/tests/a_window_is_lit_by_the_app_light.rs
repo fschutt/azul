@@ -138,21 +138,9 @@ fn the_app_config_carries_the_light_every_window_starts_with() {
     assert_eq!(AppConfig::create().with_light(moved).light, moved);
 }
 
-#[test]
-fn a_new_app_light_relights_the_materials_of_a_window() {
-    let mut lw = lay_out("width: 200px; height: 60px; background: builtin(leather); --azul-bevel: 6px;");
-    let (_, before) = frame(&lw);
-    // Moving the app light: the window adopts it at its next frame and
-    // renders its material again.
-    let lit_from_below = Light::sun(270.0, 30.0);
-    azul_core::light::set_app_light(lit_from_below);
-    lw.prepare_frame_content();
-    let adopted = lw.effective_light();
-    let (_, after) = frame(&lw);
-    azul_core::light::set_app_light(Light::DEFAULT);
-    assert_eq!(adopted, lit_from_below, "the window follows the app light");
-    assert_ne!(before.get_hash(), after.get_hash(), "and draws its material anew");
-}
+// Moving the app light itself (`a_new_app_light_relights_the_materials_of_a_window`)
+// is tested in a process of its own: the app light is the process's, and every
+// window here that draws a material would adopt it at its next frame.
 
 #[test]
 fn a_window_s_own_material_light_outranks_the_app_light() {
