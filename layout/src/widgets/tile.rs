@@ -532,7 +532,6 @@ mod tile_tests {
     use std::sync::{Arc, Mutex};
 
     use azul_core::dom::NodeType;
-    use azul_css::props::layout::StyleTextOverflow;
 
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, UiTheme};
