@@ -1460,30 +1460,33 @@ impl TextShapingCache {
             max_word
         };
 
-        // CEIL to a fixed 1/64px sub-pixel grid before reporting - the same
-        // reason browsers ceil preferred widths (Chromium's LayoutUnit):
-        // an intrinsic width is a PROMISE that content of exactly this width
-        // fits, but the scan and the breaker fold separately-shaped item
-        // lists whose sums can differ by a few ULP (observed live: the
-        // breaker's fold came out one bit ABOVE the reported max-content and
-        // a shrink-to-fit "Decrease Indent" wrapped under Noto Sans, even
-        // with both passes sharing fold_line_width). 1/64px is invisible on
-        // screen and orders of magnitude above float noise; values already
-        // on the grid (mock/test fonts with integral advances) round-trip
-        // bit-identically through ceil.
-        const SUBPIXEL_GRID: f32 = 64.0;
-        let ceil_grid = |w: f32| -> f32 {
-            if w.is_finite() && w > 0.0 {
-                (w * SUBPIXEL_GRID).ceil() / SUBPIXEL_GRID
-            } else {
-                w
-            }
-        };
-
+        // CEIL to the 1/64 px grid before reporting (`ceil_to_layout_unit`).
         Ok(IntrinsicTextSizes {
-            min_content_width: ceil_grid(min_content_width),
-            max_content_width: ceil_grid(max_line),
+            min_content_width: ceil_to_layout_unit(min_content_width),
+            max_content_width: ceil_to_layout_unit(max_line),
             max_content_height: max_line_height,
         })
+    }
+}
+
+/// An intrinsic width ceiled to a fixed 1/64 px sub-pixel grid - the same
+/// reason browsers ceil preferred widths (Chromium's LayoutUnit): an
+/// intrinsic width is a PROMISE that content of exactly this width fits, but
+/// the scan and the breaker fold separately-shaped item lists whose sums can
+/// differ by a few ULP (observed live: the breaker's fold came out one bit
+/// ABOVE the reported max-content and a shrink-to-fit "Decrease Indent"
+/// wrapped under Noto Sans, even with both passes sharing fold_line_width).
+/// 1/64 px is invisible on screen and orders of magnitude above float noise;
+/// values already on the grid (mock/test fonts with integral advances)
+/// round-trip bit-identically. Every measurement of content for a box's
+/// intrinsic size takes it, so a table column and a shrink-to-fit box of the
+/// same text are one width.
+#[must_use]
+pub(crate) fn ceil_to_layout_unit(w: f32) -> f32 {
+    const SUBPIXEL_GRID: f32 = 64.0;
+    if w.is_finite() && w > 0.0 {
+        (w * SUBPIXEL_GRID).ceil() / SUBPIXEL_GRID
+    } else {
+        w
     }
 }

@@ -456,8 +456,11 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
             .box_props
             .unpack();
         let wm = constraints.writing_mode;
+        // The line's raw advance sum ceiled to the grid every intrinsic width
+        // is on: the column is then as wide as a shrink-to-fit box of the
+        // same text.
         let content_width = if output.overflow_size.width.is_finite() {
-            output.overflow_size.width.max(0.0)
+            text3::cache::ceil_to_layout_unit(output.overflow_size.width.max(0.0))
         } else {
             0.0
         };
@@ -494,17 +497,18 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
     // content width) rather than used_size. used_size for auto-width blocks
     // fills the containing block, which is huge (f32::MAX/2) during
     // intrinsic sizing — that would make every column appear infinitely wide.
-    let content_width = tree
-        .warm(LayoutNodeId::new(cell_index))
-        .and_then(|w| w.overflow_content_size)
-        .map_or_else(
-            || {
-                tree.get(LayoutNodeId::new(cell_index))
-                    .and_then(|n| n.used_size)
-                    .map_or(0.0, |s| s.width)
-            },
-            |s| s.width,
-        );
+    let content_width = text3::cache::ceil_to_layout_unit(
+        tree.warm(LayoutNodeId::new(cell_index))
+            .and_then(|w| w.overflow_content_size)
+            .map_or_else(
+                || {
+                    tree.get(LayoutNodeId::new(cell_index))
+                        .and_then(|n| n.used_size)
+                        .map_or(0.0, |s| s.width)
+                },
+                |s| s.width,
+            ),
+    );
 
     Ok(content_width
         + padding.cross_start(wm)
