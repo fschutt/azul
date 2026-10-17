@@ -34,8 +34,11 @@ the stack from azul-apps' local/fullsim.sh):
         [--sandbox-url http://127.0.0.1:8784] [--debug-port 8800] [--logs <dir>]
         [--card 4242424242424242] [--upload-mb 5] [--window]
 
-`--window` runs AzDrive in real windows (not the headless backend) with the same steps and
-screenshots; the page in the popover then loads for real, the script still answers for it.
+`--window` runs the buyer's AzDrive in a real window: the popover's web view loads the sandbox's
+real page, which the sandbox serves with the test card typed in (`/_dev/fill`, nothing can type
+into a real web view), and the page itself confirms on Pay; the screenshots are the OS's captures
+(the page included). A real window keeps its keyring in the login keychain, so the run ends after
+the upload (the second computer is the headless run's) and it reads nothing of the keychain.
 Every key_down has its key_up (the E2E key_up rule).
 """
 
@@ -161,8 +164,9 @@ def run_hook(what, command, result):
 
 def start_app(tag, binary, switches, port, logs, timeout, env, window):
     if window:
-        # A real window: the platform's own backend, the debug server on its port.
-        env = dict(env, AZ_BACKEND="")
+        # A real window: the platform's own backend (azul's default, CPU-drawn), the debug server
+        # on its port.
+        env = dict(env, AZ_BACKEND="cpu")
     app = Drive(tag, binary, switches, port, logs, timeout, extra_env=env)
     app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
     app.until("the debug server", lambda: app.op("get_dom_tree"))
@@ -251,6 +255,48 @@ def play_fields_page(app, popover, view, sandbox, card, decline_first=None, out=
     return last4
 
 
+def shot(win, path, window):
+    """A screenshot of `win`: azul's own render headless; in a real window the OS's capture of
+    the window, which holds the web view's page too (azul's render leaves it out)."""
+    if not window:
+        win.screenshot(path)
+        return
+    win.settle()
+    value = win.value("take_native_screenshot")
+    data = value.get("data") if isinstance(value, dict) else value
+    if not isinstance(data, str) or "base64," not in data:
+        raise Failure("take_native_screenshot returned no PNG: %s" % json.dumps(value)[:200])
+    with open(path, "wb") as f:
+        f.write(base64.b64decode(data.split("base64,", 1)[1]))
+    log("native screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+
+
+def real_page_pays(app, popover, sandbox, out):
+    """The sandbox's fields page as it really runs in the popover's web view (a real window):
+    it came with the test card typed in (`/_dev/fill` before Buy), says ready, the brand and
+    complete through its own navigations, which the app cancels; Pay sends it the confirm
+    command and the page confirms with the sandbox itself, then says the last four digits and
+    succeeded. The last four digits."""
+    def heard(message):
+        n = navigation_to(popover, "/_bridge/" + message)
+        return n if n and not n["allowed"] else None
+    for message in ("ready", "brand?v=visa", "complete?v=1"):
+        popover.until("the page's own %s" % message, lambda m=message: heard(m))
+    popover.until("VISA on the card", lambda: popover.shows("VISA"))
+    popover.must("focus_node", selector=pay_id("name"))
+    popover.frame(2)
+    popover.must("text_input", text=NAME)
+    popover.frame(3)
+    popover.until("the name on the card", lambda: popover.shows(NAME.upper()))
+    shot(popover, os.path.join(out, "04b-filled.png"), True)
+    before = confirms(popover)
+    popover.click(selector=pay_id("confirm"))
+    popover.until("the confirm command", lambda: confirms(popover) > before)
+    last4 = popover.until("the page's last four digits", lambda: heard("last4?v=4242"))
+    app.until("the dialog waiting for the drive", lambda: app.last("AZDRIVE_PAY") == "waiting")
+    return last4["url"].rsplit("=", 1)[-1]
+
+
 def run(args, logs):
     binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     out = args.out or os.path.join(logs, "shots")
@@ -283,7 +329,7 @@ def run(args, logs):
         dialog.page("country", lambda: dialog.click("choice_buy"))
         guess = add_id("country_option_%s" % args.country.lower())
         dialog.win.until("the guess %s in the list" % args.country, lambda: dialog.win.has(guess))
-        dialog.screenshot(os.path.join(out, "01-country.png"))
+        shot(dialog.win, os.path.join(out, "01-country.png"), args.window)
 
         def declare():
             dialog.click("country_option_%s" % args.country.lower())
@@ -294,7 +340,7 @@ def run(args, logs):
         if "card:fake-stripe" not in pills.split():
             raise Failure("the pills are %r: no card through Fake Stripe (is AzDrive built with "
                           "--features fake-providers, is the stack's sandbox on?)" % pills)
-        dialog.screenshot(os.path.join(out, "02-tiers.png"))
+        shot(dialog.win, os.path.join(out, "02-tiers.png"), args.window)
         log("1. Buy storage asked for the country (the guess %s picked), %s tiers, pills %s"
             % (args.country, tiers, pills))
 
@@ -303,19 +349,30 @@ def run(args, logs):
         dialog.type_into("name", "Full system", clear=len("Azlin Storage"))
         dialog.click("pill_card")
         dialog.click("consent")
-        dialog.screenshot(os.path.join(out, "03-buy.png"))
+        shot(dialog.win, os.path.join(out, "03-buy.png"), args.window)
         added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
         surfaces = app.count("AZDRIVE_PAY_SURFACE", r".+")
+        if args.window:
+            # Nothing can type into a real web view: the sandbox serves the next fields page
+            # with the test card in its inputs, as if typed.
+            status, _ = post_json(args.sandbox_url + "/_dev/fill", {
+                "card_number": args.card, "exp": "1234", "cvc": "123"})
+            if status != 200:
+                raise Failure("the sandbox took no fill (%s): is it the build with /_dev/fill?"
+                              % status)
         checkout = app.after("the checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
                              lambda: dialog.click("buy_button"))
         surface = app.until("the payment surface", lambda: app.count(
             "AZDRIVE_PAY_SURFACE", r".+") > surfaces and app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1])
         if not surface.startswith("fields 127.0.0.1:"):
             raise Failure("the card checkout opened %r, not the fields in the popover" % surface)
-        kept = pending_checkouts(keyring_file).get(checkout)
-        if not kept:
-            raise Failure("the checkout %s is not on the keyring's list" % checkout)
-        claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
+        claim_code = None
+        if not args.window:
+            # (a real window's keyring is the login keychain: nothing of it is read here)
+            kept = pending_checkouts(keyring_file).get(checkout)
+            if not kept:
+                raise Failure("the checkout %s is not on the keyring's list" % checkout)
+            claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
         result.update(checkout=checkout, claim_code=claim_code)
         log("2. Buy: checkout %s, its fields page in the popover (%s)" % (checkout, surface))
 
@@ -324,11 +381,15 @@ def run(args, logs):
         view = the_view(popover)
         for text in ("card fields by Fake Stripe", "CARDHOLDER"):
             popover.until("the popover's %r" % text, lambda: popover.shows(text))
-        popover.screenshot(os.path.join(out, "04-popover.png"))
-        last4 = play_fields_page(app, popover, view, args.sandbox_url, args.card,
-                                 decline_first=args.decline_first, out=out)
-        popover.screenshot(os.path.join(out, "05-paid.png"))
-        hand_back(app, popover, view, args.sandbox_url + "/_bridge/result?v=succeeded")
+        shot(popover, os.path.join(out, "04-popover.png"), args.window)
+        if args.window:
+            last4 = real_page_pays(app, popover, args.sandbox_url, out)
+            app.until("the popover closed", lambda: popover.window_id not in app.window_ids())
+        else:
+            last4 = play_fields_page(app, popover, view, args.sandbox_url, args.card,
+                                     decline_first=args.decline_first, out=out)
+            popover.screenshot(os.path.join(out, "05-paid.png"))
+            hand_back(app, popover, view, args.sandbox_url + "/_bridge/result?v=succeeded")
         drive_id = app.until("the drive of %s" % checkout, lambda: [
             d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in added])[0]
         log("3. Paid with the card ending %s in the sandbox; the webhook approved %s; drive %s "
@@ -337,8 +398,9 @@ def run(args, logs):
         # 4. Encrypted as it arrived.
         recovery = new_drive_encrypted(app, drive_id)
         wait_closed(app)
-        app.until("the checkout off the keyring's list",
-                  lambda: checkout not in pending_checkouts(keyring_file))
+        if not args.window:
+            app.until("the checkout off the keyring's list",
+                      lambda: checkout not in pending_checkouts(keyring_file))
         app.until("its row in CLOUD", lambda: app.has(side_drive(drive_id)))
         tokens = app.until("the period tokens kept", lambda: app.printed(
             "AZDRIVE_PERIOD_TOKENS", r"%s %s \d+" % (re.escape(checkout), re.escape(drive_id))))
@@ -355,7 +417,7 @@ def run(args, logs):
                      lambda: app.click(selector=side_drive(drive_id)),
                      r"%s / \d+" % re.escape(drive_id), during=during)
         app.after("F5", "AZDRIVE_LISTED", r"%s / 2" % re.escape(drive_id), lambda: app.key("f5"))
-        app.screenshot(os.path.join(out, "06-uploaded.png"))
+        shot(app, os.path.join(out, "06-uploaded.png"), args.window)
         log("5. %s and %s/ (%d files in all) copied into %s"
             % (big, folder, len(uploaded), drive_id))
         if args.after_upload:
@@ -378,6 +440,12 @@ def run(args, logs):
         app.stop()
     with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
+
+    if args.window:
+        # A real window keeps its keyring in the login keychain: a second profile on this
+        # computer would share it. The second computer is the headless run's.
+        log("PASS in a real window: bought, paid on the real page, encrypted, filled")
+        return True
 
     # 6. Another computer: the claim code, the recovery code, the files back.
     other_switches, other_env = other_profile(logs, "second", switches, env)
@@ -412,7 +480,7 @@ def run(args, logs):
                      r"%s / \d+" % re.escape(drive_id), names,
                      lambda: second.click(selector="#" + I("side-fav-documents")),
                      r"home Documents/ \d+")
-        second.screenshot(os.path.join(out, "07-second-computer.png"))
+        shot(second, os.path.join(out, "07-second-computer.png"), args.window)
     finally:
         second.stop()
     downloaded = tree_digests(os.path.join(other_home, "Documents"))
