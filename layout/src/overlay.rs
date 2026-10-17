@@ -689,10 +689,10 @@ impl ContentOverlay {
             .retain(|&(d, _), dirty| d != dom_id || dirty.revision == 0 || dirty.revision > acked);
     }
 
-    /// Whether the app's next re-render changes this overlay: the text
-    /// entries the app acked (up to `acked`) and the pending structural
-    /// previews retire when it lands, in the window's DOM and in the views'
-    /// DOMs it renders again.
+    /// Whether the app's next re-render may change this overlay: the text
+    /// entries the app acked (up to `acked`) retire when it lands, in the
+    /// window's DOM and in the views' DOMs it renders again, and a pending
+    /// structural preview ends when the re-render answers its edit.
     #[must_use]
     pub fn retires_with_a_new_generation(&self, acked: u64) -> bool {
         let acked_text = acked != 0
@@ -777,10 +777,39 @@ impl NodeIdRemap for ContentOverlay {
         crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
         crate::managers::remap_background_slots(&mut self.backgrounds, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
-        // Previews do NOT remap: a remap means a new generation landed,
-        // which ends every preview's life (gc at the layout tail); remapping
-        // would keep a preview alive over content that superseded it.
-        self.pending_structure.remove(&dom);
+        // A preview follows its nodes to their new ids, as the edit it shows
+        // stays pending: a remap is any reconcile, a relayout of a DOM built
+        // again from the same model included. The preview ends where the edit
+        // does (the app's ack, the next recorded edit, a re-render that
+        // answers a notified edit without applying it), or here when a node
+        // it names is gone.
+        if let Some(previews) = self.pending_structure.get_mut(&dom) {
+            previews.retain_mut(|p| p.preview.remap(map));
+            if previews.is_empty() {
+                self.pending_structure.remove(&dom);
+            }
+        }
+    }
+}
+
+impl StructuralPreview {
+    /// Moves the nodes this preview names to their ids in the new DOM;
+    /// `false` when one of them is gone.
+    fn remap(&mut self, map: &NodeIdMap) -> bool {
+        let mut moved = |node: &mut NodeId| match map.resolve(*node) {
+            Some(new) => {
+                *node = new;
+                true
+            }
+            None => false,
+        };
+        match self {
+            Self::Split { node, .. } => moved(node),
+            Self::Merge { first, second } => moved(first) && moved(second),
+            Self::Insert { parent, .. }
+            | Self::Remove { parent, .. }
+            | Self::Replace { parent, .. } => moved(parent),
+        }
     }
 }
 
