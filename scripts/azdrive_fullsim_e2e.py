@@ -59,7 +59,8 @@ from azlin_e2e import Failure
 from azdrive_e2e import Drive, I, select_item
 from azdrive_add_e2e import (add_id, drive_menu, hand_back, navigate, navigation_to,
                              new_drive_encrypted, open_dialog, other_profile, pay_id,
-                             pending_checkouts, popover_of, side_drive, the_view, wait_closed)
+                             pending_checkouts, popover_of, side_drive, the_view, wait_closed,
+                             webviews)
 
 # The cardholder typed in the popover; the sandbox's test cards (its page lists them).
 NAME = "Erika Example"
@@ -170,11 +171,42 @@ def start_app(tag, binary, switches, port, logs, timeout, env, window):
     return app
 
 
-def play_fields_page(app, popover, view, sandbox, card):
+def confirms(popover):
+    """How many times Pay told the page to confirm (fragment commands `cmd=confirm`)."""
+    return len([n for v in webviews(popover) for n in v.get("navigations") or []
+                if "cmd=confirm" in n.get("url", "")])
+
+
+def confirm_at_sandbox(app, popover, view, sandbox, secret, card):
+    """Pay in the popover, then what the page does on its confirm command: its request to the
+    sandbox with `card` (a 3-D Secure step answered with the test bank's Complete). The
+    sandbox's last answer."""
+    bridge = sandbox + "/_bridge/"
+    before = confirms(popover)
+    popover.click(selector=pay_id("confirm"))
+    popover.until("the confirm command", lambda: confirms(popover) > before)
+    confirm = navigation_to(popover, "cmd=confirm")
+    if not confirm["allowed"] or "name=Erika+Example" not in confirm["url"]:
+        raise Failure("Pay told the page %r" % confirm)
+    status, answer = post_json(sandbox + "/stripe/confirm", {
+        "client_secret": secret, "card_number": card, "exp": "1234", "cvc": "123",
+        "iban": "", "country": "DE"})
+    if answer.get("result") == "requires_action":
+        # The page shows the test bank's box and grows; the payer presses Complete.
+        navigate(popover, view, bridge + "height?v=560")
+        navigate(popover, view, bridge + "result?v=requires_action")
+        status, answer = post_json(sandbox + "/stripe/3ds/" + answer["pi"], {"action": "complete"})
+        log("3-D Secure: the test bank's Complete answered %s" % answer.get("result"))
+    return status, answer
+
+
+def play_fields_page(app, popover, view, sandbox, card, decline_first=None, out=None):
     """The sandbox's fields page, played: the bridge messages its script sends while the card
     is typed, the confirm the app's Pay asks for, the page's own request to the sandbox with
     the card, a 3-D Secure step answered with the test bank's Complete, the outcome said
-    through the bridge. Returns the last four digits the sandbox charged."""
+    through the bridge. `decline_first`: a card the sandbox declines is tried first - the page
+    says the error and the failed result, the popover shows the provider's words, the payer
+    types the good card and presses Pay again. Returns the last four digits charged."""
     src = view.get("src", "")
     if not src.startswith(sandbox + "/fields/fake-stripe/v1#pk="):
         raise Failure("the popover shows %r, not the sandbox's fields page" % src[:80])
@@ -194,19 +226,24 @@ def play_fields_page(app, popover, view, sandbox, card):
     popover.must("text_input", text=NAME)
     popover.frame(3)
     popover.until("the name on the card", lambda: popover.shows(NAME.upper()))
-    popover.click(selector=pay_id("confirm"))
-    confirm = popover.until("the confirm command", lambda: navigation_to(popover, "cmd=confirm"))
-    if not confirm["allowed"] or "name=Erika+Example" not in confirm["url"]:
-        raise Failure("Pay told the page %r" % confirm)
-    status, answer = post_json(sandbox + "/stripe/confirm", {
-        "client_secret": secret, "card_number": card, "exp": "1234", "cvc": "123",
-        "iban": "", "country": "DE"})
-    if answer.get("result") == "requires_action":
-        # The page shows the test bank's box and grows; the payer presses Complete.
-        navigate(popover, view, bridge + "height?v=560")
-        navigate(popover, view, bridge + "result?v=requires_action")
-        status, answer = post_json(sandbox + "/stripe/3ds/" + answer["pi"], {"action": "complete"})
-        log("3-D Secure: the test bank's Complete answered %s" % answer.get("result"))
+    if decline_first:
+        status, answer = confirm_at_sandbox(app, popover, view, sandbox, secret, decline_first)
+        if answer.get("result") != "failed" or not answer.get("message"):
+            raise Failure("the sandbox did not decline %s: %s %s" % (decline_first, status, answer))
+        words = answer["message"]
+        navigate(popover, view, bridge + "error?" + urllib.parse.urlencode(
+            {"code": answer.get("code") or "failed", "message": words}))
+        navigate(popover, view, bridge + "result?" + urllib.parse.urlencode(
+            {"v": "failed", "code": answer.get("code") or "failed"}))
+        popover.until("the decline's words in the popover", lambda: popover.shows(words))
+        if out:
+            popover.screenshot(os.path.join(out, "05a-declined.png"))
+        log("the card %s was declined (%s): the popover says %r" % (
+            decline_first[-4:], answer.get("code"), words))
+        # The payer types another card: the page says incomplete, then complete again.
+        for message in ("complete?v=0", "complete?v=1"):
+            navigate(popover, view, bridge + message)
+    status, answer = confirm_at_sandbox(app, popover, view, sandbox, secret, card)
     if status != 200 or answer.get("result") != "succeeded":
         raise Failure("the sandbox answered the page's confirm with %s %s" % (status, answer))
     last4 = answer.get("last4") or card[-4:]
@@ -288,7 +325,8 @@ def run(args, logs):
         for text in ("card fields by Fake Stripe", "CARDHOLDER"):
             popover.until("the popover's %r" % text, lambda: popover.shows(text))
         popover.screenshot(os.path.join(out, "04-popover.png"))
-        last4 = play_fields_page(app, popover, view, args.sandbox_url, args.card)
+        last4 = play_fields_page(app, popover, view, args.sandbox_url, args.card,
+                                 decline_first=args.decline_first, out=out)
         popover.screenshot(os.path.join(out, "05-paid.png"))
         hand_back(app, popover, view, args.sandbox_url + "/_bridge/result?v=succeeded")
         drive_id = app.until("the drive of %s" % checkout, lambda: [
@@ -402,6 +440,8 @@ def main():
     parser.add_argument("--logs", help="the run's folder (default: a new temporary one)")
     parser.add_argument("--out", help="screenshots (default: <logs>/shots)")
     parser.add_argument("--card", default="4242424242424242")
+    parser.add_argument("--decline-first", nargs="?", const="4000000000000002",
+                        help="try a card the sandbox declines first (default 4000 0000 0000 0002)")
     parser.add_argument("--country", default="DE")
     parser.add_argument("--locale", default="de_DE")
     parser.add_argument("--upload-mb", type=int, default=5)
