@@ -2,7 +2,11 @@
 //! names from the index, ranged reads, rename / copy / delete in the index, conditional
 //! writes, streaming, tampering, other keys, shares.
 
-use std::{io::Read, sync::Arc};
+use std::{
+    io::Read,
+    sync::{mpsc, Arc, Mutex},
+    time::Duration,
+};
 
 use super::{mem_bucket::MemBucket, TempDir};
 use crate::{
@@ -708,6 +712,91 @@ fn a_bucket_hiding_its_key_files_cannot_turn_a_device_with_the_key_back_to_plain
     drive.put("diary.txt", b"dear diary").unwrap();
     assert_eq!(drive.is_encrypted(), Some(true), "this device keeps the key");
     assert!(mem.object("diary.txt").is_none());
+}
+
+/// A bucket whose first read waits until the test lets it go: a drive's first call held up by
+/// the network, as a slow node holds it.
+struct HeldBucket {
+    inner: Arc<MemBucket>,
+    entered: Mutex<Option<mpsc::Sender<()>>>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+impl HeldBucket {
+    fn hold_the_first_read(&self) {
+        let Some(entered) = self.entered.lock().unwrap().take() else {
+            return;
+        };
+        let _ = entered.send(());
+        let _ = self.release.lock().unwrap().recv();
+    }
+}
+
+impl Drive for HeldBucket {
+    fn list(&self, request: &ListRequest) -> Result<crate::ListPage, DriveError> {
+        self.hold_the_first_read();
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.hold_the_first_read();
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.hold_the_first_read();
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<crate::ObjectInfo, DriveError> {
+        self.hold_the_first_read();
+        self.inner.head(key)
+    }
+}
+
+/// The app's UI thread asks whether a drive is encrypted (to draw it, to plan its upkeep) while
+/// a worker's first call to the drive still decides it - and that call waits for an answer
+/// which, in the apps, only the UI thread delivers. The question must not wait for the
+/// decision: waiting is a deadlock.
+#[test]
+fn whether_a_drive_is_encrypted_is_answered_while_its_first_call_decides_it() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("a.txt", b"plain".to_vec());
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let bucket = Arc::new(HeldBucket {
+        inner: mem,
+        entered: Mutex::new(Some(entered_tx)),
+        release: Mutex::new(release_rx),
+    });
+    let drive = Arc::new(AutoEncrypted::new(
+        bucket,
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    ));
+    let first = {
+        let drive = Arc::clone(&drive);
+        std::thread::spawn(move || drive.list(&ListRequest::folder("")).map(|_| ()))
+    };
+    entered
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the first call reached the bucket");
+    let (answer_tx, answer) = mpsc::channel();
+    {
+        let drive = Arc::clone(&drive);
+        std::thread::spawn(move || {
+            let _ = answer_tx.send(drive.is_encrypted());
+        });
+    }
+    let asked = answer.recv_timeout(Duration::from_secs(5));
+    release.send(()).unwrap();
+    first.join().unwrap().unwrap();
+    assert_eq!(asked, Ok(None), "not decided yet - and said at once");
+    assert_eq!(drive.is_encrypted(), Some(false), "decided by the first call");
 }
 
 #[test]
