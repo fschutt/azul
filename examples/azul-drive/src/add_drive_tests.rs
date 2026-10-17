@@ -428,6 +428,25 @@ fn new_options_keep_the_chosen_pill_while_they_offer_it() {
 }
 
 #[test]
+fn an_answer_for_another_country_tier_or_period_is_not_taken() {
+    // The options are asked for again on every change; an answer that was on its way for the
+    // order as it was before must not replace the current one.
+    let mut dialog = paying_dialog("DE");
+    let asked = dialog.options_key();
+    assert!(dialog.options_current(&asked));
+    dialog.yearly = true;
+    assert!(!dialog.options_current(&asked), "the period changed since");
+    dialog.yearly = false;
+    dialog.tier = 1;
+    assert!(!dialog.options_current(&asked), "another tier");
+    dialog.tier = 0;
+    assert!(dialog.options_current(&asked));
+    dialog.set_country("PL");
+    assert!(!dialog.options_current(&asked), "another country");
+    assert!(dialog.tiers_current("PL") && !dialog.tiers_current("DE"));
+}
+
+#[test]
 fn the_buyers_country_is_remembered_in_this_computers_settings_only() {
     let mut settings = crate::model::Settings::default();
     assert_eq!(settings.residence_country, None);

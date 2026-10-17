@@ -735,6 +735,26 @@ impl AddDialog {
         crate::countries::search(&self.country_query)
     }
 
+    /// What the options are asked for: the tier, the months, the country (stub).
+    #[must_use]
+    pub(crate) fn options_key(&self) -> String {
+        String::new()
+    }
+
+    /// Whether an options answer asked for `key` is for the order as it is now (stub).
+    #[must_use]
+    pub(crate) fn options_current(&self, key: &str) -> bool {
+        let _ = key;
+        true
+    }
+
+    /// Whether a tier list asked for `country` is for the declared country now (stub).
+    #[must_use]
+    pub(crate) fn tiers_current(&self, country: &str) -> bool {
+        let _ = country;
+        true
+    }
+
     /// The details the chosen method's provider wants from the app (none where its own page
     /// asks, or the method needs nothing): the fields under the pills.
     #[must_use]
