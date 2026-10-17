@@ -496,6 +496,36 @@ class TheLaneAndDns(unittest.TestCase):
         finally:
             dns.stop()
 
+    def test_a_process_with_the_test_resolver_asks_the_slow_server_for_the_test_names_only(self):
+        folder = tempfile.mkdtemp(prefix="azchaos-resolver-")
+        dns = azchaos.SlowDns({"n1.azchaos.test": "127.0.0.9"}, delay=0.3).start()
+        try:
+            resolver = azchaos.TestResolver(folder, "azchaos.test")
+            env = dict(os.environ, **resolver.env(dns.port, wait=3))
+            probe = "\n".join([
+                "import socket, time",
+                "started = time.time()",
+                "found = socket.getaddrinfo('n1.azchaos.test', 443, type=socket.SOCK_STREAM)",
+                "print(found[0][4], round(time.time() - started, 1))",
+                "print(socket.getaddrinfo('localhost', 80, socket.AF_INET)[0][4][0])",
+                "try:",
+                "    socket.getaddrinfo('other.azchaos.test', 80)",
+                "except socket.gaierror:",
+                "    print('unknown')",
+            ])
+            import subprocess  # noqa: PLC0415
+            ran = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True,
+                                 text=True, timeout=30, check=False)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            lines = ran.stdout.split("\n")
+            self.assertEqual(lines[0], "('127.0.0.9', 443) 0.3", ran.stdout)
+            self.assertEqual(lines[1], "127.0.0.1")
+            self.assertEqual(lines[2], "unknown")
+            self.assertEqual(dns.queries, ["n1.azchaos.test.", "other.azchaos.test."])
+        finally:
+            dns.stop()
+            shutil.rmtree(folder, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

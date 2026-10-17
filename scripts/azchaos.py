@@ -35,6 +35,8 @@ signed more than 15 minutes off its clock is answered 403 RequestTimeTooSkewed w
 Date), `set_quota(bucket, bytes, used)` (the write that crosses it answers quota_exceeded),
 `sink(pattern)` (uploads of matching keys are taken and hashed, never stored: a 50 GB upload on
 a laptop's disk), `authorize` (a hook that refuses a session as a node would: expired, revoked).
+A slow or silent DNS server (`SlowDns`) reaches one process through `TestResolver`, without
+root.
 
 Another process steers a running proxy over HTTP on the same port: `POST /__azchaos/` with
 {"add": {rule}}, {"clear": true}, {"release": true}, {"network": "down"}, {"flap": [up, down]},
@@ -66,8 +68,8 @@ azchaos.py proxy --upstream URL [--host H] [--port P] [--rules FILE] [--log FILE
 azchaos.py udp-sink [--port P]
     swallows every datagram (an iroh lane that never answers)
 azchaos.py slow-dns --name NAME=IP [--delay S] [--port P]
-    answers A records after S seconds (point /etc/resolver/<domain> at it: nameserver 127.0.0.1,
-    port P)
+    answers A records after S seconds (a process reaches it through TestResolver's library, or
+    /etc/resolver/<domain> - root - names it: nameserver 127.0.0.1, port P)
 """
 
 # An Azlin node's errors (x-azlin-error): (HTTP status, S3 code, Retry-After), as azlin-proto's
@@ -1190,8 +1192,8 @@ class UdpSink:
 
 class SlowDns:
     """A DNS server answering A queries for `names` ({"node.azchaos.test.": "127.0.0.1"}) after
-    `delay` seconds, NXDOMAIN for the rest; `drop`: never answers (DNS down). For a slow-DNS
-    E2E, /etc/resolver/<domain> (macOS, root) names it: `nameserver 127.0.0.1` and `port <P>`."""
+    `delay` seconds, NXDOMAIN for the rest; `drop`: never answers (DNS down). A process under
+    test reaches it through `TestResolver`."""
 
     def __init__(self, names, delay=0.0, host="127.0.0.1", port=0, drop=False):
         self.names = {k.lower().rstrip(".") + ".": v for k, v in names.items()}
@@ -1259,6 +1261,40 @@ class SlowDns:
             labels.append(packet[at:at + length].decode("ascii"))
             at += length
         return ".".join(labels) + ".", at
+
+
+class TestResolver:
+    """Points one process at a test's DNS server without root: azchaos_resolver.c, built into
+    `folder` with the system's C compiler, takes over getaddrinfo in the process it is loaded
+    into (DYLD_INSERT_LIBRARIES on macOS, LD_PRELOAD on Linux) and asks the server for the names
+    under `suffix`; every other name goes to the system's resolver as before."""
+
+    SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "azchaos_resolver.c")
+
+    def __init__(self, folder, suffix):
+        self.suffix = suffix
+        os.makedirs(folder, exist_ok=True)
+        if sys.platform == "darwin":
+            self.library = os.path.join(folder, "azchaos_resolver.dylib")
+            command = ["cc", "-dynamiclib", "-O1", "-o", self.library, self.SOURCE]
+            self.variable = "DYLD_INSERT_LIBRARIES"
+        else:
+            self.library = os.path.join(folder, "azchaos_resolver.so")
+            command = ["cc", "-shared", "-fPIC", "-O1", "-o", self.library, self.SOURCE,
+                       "-ldl", "-lpthread"]
+            self.variable = "LD_PRELOAD"
+        import subprocess  # noqa: PLC0415 - only a resolver needs a compiler
+        built = subprocess.run(command, capture_output=True, text=True, check=False)
+        if built.returncode != 0:
+            raise RuntimeError("cannot build the test resolver: %s" % built.stderr.strip())
+
+    def env(self, server_port, wait=30):
+        """The environment of a process whose names under the suffix the DNS server on
+        127.0.0.1:`server_port` answers (a server that stays silent: EAI_AGAIN after `wait` s)."""
+        return {self.variable: self.library,
+                "AZCHAOS_DNS_SERVER": "127.0.0.1:%d" % server_port,
+                "AZCHAOS_DNS_SUFFIX": self.suffix,
+                "AZCHAOS_DNS_WAIT": str(int(wait))}
 
 
 # ---------------------------------------------------------------------------------------------
