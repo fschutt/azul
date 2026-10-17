@@ -8607,6 +8607,71 @@ mod autotest_generated {
         }
     }
 
+    /// Structure in the changed window is not paint.
+    ///
+    /// The window runs from the first differing item to the last, so items
+    /// that did not change at all fall inside it whenever something earlier
+    /// did. A `PushClip` or `PushScrollFrame` is the costly case: it is as
+    /// wide as the box it clips and it rasterises nothing, so counting its
+    /// bounds as damage makes the result as wide as the container however
+    /// little actually changed.
+    ///
+    /// MEASURED on the text area that `enter_mid_text_repaints_every_shifted_line`
+    /// drives: pressing Enter changed the scrollbar's thumb, which stopped
+    /// the prefix two items early, and the identical `PushClip` and
+    /// `PushScrollFrame` behind it widened 64px of moved text to the field's
+    /// full 392px. The paired path already says this - a stacking context is
+    /// metadata, a scroll frame is an offset - and the windowed fallback
+    /// skipped only hit areas and text metadata.
+    #[test]
+    fn structure_in_the_changed_window_is_not_damage() {
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
+        // A WIDE clip around narrow content, identical in both frames. Only
+        // the first rect and the inserted line differ.
+        let clip = || DisplayListItem::PushClip {
+            bounds: wlr(0.0, 0.0, 400.0, 100.0),
+            border_radius: BorderRadius::default(),
+        };
+        let old = dlist(vec![
+            rect_item(0.0, 0.0, 10.0, 10.0, red),
+            clip(),
+            rect_item(0.0, 20.0, 10.0, 10.0, red),
+            DisplayListItem::PopClip,
+            rect_item(0.0, 500.0, 10.0, 10.0, red),
+        ]);
+        let new = dlist(vec![
+            rect_item(0.0, 0.0, 10.0, 10.0, blue),
+            clip(),
+            rect_item(0.0, 20.0, 10.0, 10.0, blue),
+            rect_item(0.0, 32.0, 10.0, 10.0, blue),
+            DisplayListItem::PopClip,
+            rect_item(0.0, 500.0, 10.0, 10.0, red),
+        ]);
+        let off = ScrollOffsetMap::new();
+        let damage = compute_display_list_damage(&old, &new, &off, &off)
+            .expect("a localized insertion must yield rect damage, not a full repaint");
+        assert!(!damage.is_empty(), "the changed rects must be damaged");
+        let widest = damage
+            .iter()
+            .map(|r| r.size.width)
+            .fold(0.0_f32, f32::max);
+        assert!(
+            widest <= 20.0,
+            "the clip paints nothing, so nothing may be as wide as it is: {damage:?}"
+        );
+    }
+
     /// The fallback maps the changed window through the scroll stack, and
     /// keeps the full-repaint bail when the offsets themselves changed.
     #[test]
