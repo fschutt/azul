@@ -1924,7 +1924,7 @@
         assert!(!is_collapsible_whitespace(&obj(1.0, 1.0, 0.0)));
         // A cluster whose text cannot be read lost its mapping to the text it
         // was shaped from; its glyphs are text, never white space to strip at
-        // a line's edges (pdfocr engine issue 9 lost a whole paragraph so).
+        // a line's edges, where a whole paragraph of such clusters would vanish.
         assert!(
             !is_collapsible_whitespace(&cl("", 8.0)),
             "a cluster without text is not collapsible white space"
