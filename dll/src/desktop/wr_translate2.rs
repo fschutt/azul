@@ -3468,6 +3468,57 @@ mod overlay_upload_tests {
         assert!(again.is_empty(), "a frame already up uploads nothing");
     }
 
+    /// The CPU render cache hands identical surfaces (one material, size and light) one frame,
+    /// so two slots may show one ImageRef. Each holds it under its own key: when one slot's
+    /// frame changes, the other's items still resolve to a key that shows the frame (they lost
+    /// it when the frame lived only under the first slot's key, whose pixels the change
+    /// replaced).
+    #[test]
+    fn two_slots_showing_one_frame_keep_it_when_one_of_them_moves_on() {
+        const OTHER: ImageSlot = ImageSlot::Node(DomId { inner: 0 }, NodeId::new(4));
+        let mut rr = RendererResources::default();
+        let shared = frame(RawImageFormat::BGRA8, 4, 2, 1);
+        let up = plan_overlay_image_uploads(
+            [
+                (TILE, &shared, ImageDirtyRect::All),
+                (OTHER, &shared, ImageDirtyRect::All),
+            ]
+            .into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up.len(), 2, "each slot holds the frame under its own key");
+        let tile_key = rr.image_slots[&TILE];
+        let other_key = rr.image_slots[&OTHER];
+        assert_ne!(tile_key, other_key);
+
+        let moved = frame(RawImageFormat::BGRA8, 4, 2, 2);
+        let up = plan_overlay_image_uploads(
+            [
+                (TILE, &moved, ImageDirtyRect::All),
+                (OTHER, &shared, ImageDirtyRect::All),
+            ]
+            .into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up.len(), 1, "only the tile sends its new frame");
+        assert_eq!(up[0].key, tile_key);
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&shared.get_hash())
+                .map(|r| r.key),
+            Some(other_key),
+            "the other slot's items still find the frame"
+        );
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&moved.get_hash())
+                .map(|r| r.key),
+            Some(tile_key)
+        );
+    }
+
     #[test]
     fn an_nv12_frame_is_two_planes_under_two_stable_keys_sharing_one_buffer() {
         let mut rr = RendererResources::default();
