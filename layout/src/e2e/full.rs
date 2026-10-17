@@ -5253,17 +5253,27 @@ fn log_internal(
             // per-call-site attribution showed the logger was the allocator.
             // An instrument that changes what it measures is worse than no
             // instrument.
-            if q.len() >= MAX_LOG_MESSAGES {
-                // Drop the OLDEST quarter, not one message: `drain` is O(n),
-                // so evicting singly would make every push past the cap O(n)
-                // and turn a memory problem into a latency one.
-                let evict = MAX_LOG_MESSAGES / 4;
-                q.drain(..evict);
-                LOGS_DROPPED.fetch_add(evict as u64, Ordering::Relaxed);
+            let evicted = push_bounded(&mut q, msg);
+            if evicted > 0 {
+                LOGS_DROPPED.fetch_add(evicted as u64, Ordering::Relaxed);
             }
-            q.push(msg);
         }
     }
+}
+
+/// Pushes `msg`, first dropping the OLDEST quarter of a full queue, and returns
+/// how many messages were dropped.
+///
+/// A quarter rather than one message: `drain` is O(n), so evicting singly would
+/// make every push past the cap O(n) and turn a memory problem into a latency one.
+fn push_bounded(q: &mut Vec<LogMessage>, msg: LogMessage) -> usize {
+    let mut evicted = 0;
+    if q.len() >= MAX_LOG_MESSAGES {
+        evicted = MAX_LOG_MESSAGES / 4;
+        q.drain(..evicted);
+    }
+    q.push(msg);
+    evicted
 }
 
 /// Hard cap on retained log messages.
@@ -5722,50 +5732,56 @@ mod profile_report_tests {
 mod log_queue_bound_tests {
     use super::*;
 
+    fn message(i: usize) -> LogMessage {
+        LogMessage {
+            timestamp_us: 0,
+            level: LogLevel::Debug,
+            category: LogCategory::General,
+            message: format!("m{i}"),
+            location: String::new(),
+            window_id: None,
+        }
+    }
+
     /// The queue must not grow without limit.
     ///
     /// NEGATIVE CONTROL for the unbounded version: remove the eviction in
-    /// `log_internal` and this fails with a length of 60 000 against a cap of
+    /// `push_bounded` and this fails with a length of 60 000 against a cap of
     /// 20 000. Unbounded, it reached 224 882 messages / ~41 MB in a 45-second
-    /// scripted `AZ_E2E` run — and, worse, was briefly misread as a 41 MiB
-    /// "resize retention" in azul's own memory analysis.
+    /// scripted `AZ_E2E` run, and was briefly misread as a 41 MiB "resize
+    /// retention" in azul's own memory analysis.
+    ///
+    /// The queue here is the test's own: the process-wide one is emptied by
+    /// every debug op's reply, which other tests send at the same time.
     #[test]
     fn log_queue_is_capped_and_reports_what_it_dropped() {
-        // The queue only accepts messages while debug logging is on.
-        DEBUG_ENABLED.store(true, Ordering::SeqCst);
-        LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
-        SERVER_START_TIME.get_or_init(std::time::Instant::now);
-
-        let before_dropped = logs_dropped();
+        let mut q = Vec::new();
         let overshoot = MAX_LOG_MESSAGES * 3;
+        let mut dropped = 0;
         for i in 0..overshoot {
-            log_internal(LogLevel::Debug, LogCategory::General, format!("m{i}"), None);
+            dropped += push_bounded(&mut q, message(i));
         }
 
-        let len = LOG_QUEUE.get().unwrap().lock().unwrap().len();
         assert!(
-            len <= MAX_LOG_MESSAGES,
-            "queue must stay at or under the {MAX_LOG_MESSAGES} cap; saw {len}"
+            q.len() <= MAX_LOG_MESSAGES,
+            "queue must stay at or under the {MAX_LOG_MESSAGES} cap; saw {}",
+            q.len()
         );
-        assert!(
-            logs_dropped() > before_dropped,
-            "eviction must be COUNTED — a silently truncated log makes a reader believe an event \
+        assert_eq!(
+            dropped + q.len(),
+            overshoot,
+            "eviction must be COUNTED: a silently truncated log makes a reader believe an event \
              did not happen"
         );
 
         // The messages kept must be the RECENT ones: a debugging session
         // reads the tail, so evicting the newest would be the wrong end.
-        let q = LOG_QUEUE.get().unwrap().lock().unwrap();
         let last = q.last().expect("queue is not empty").message.clone();
         assert_eq!(
             last,
             format!("m{}", overshoot - 1),
             "the most recent message must survive eviction"
         );
-        drop(q);
-
-        LOG_QUEUE.get().unwrap().lock().unwrap().clear();
-        DEBUG_ENABLED.store(false, Ordering::SeqCst);
     }
 }
 
