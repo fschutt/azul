@@ -93,7 +93,12 @@ fn an_outer_spans_background_shows_under_the_inner_spans_margin() {
         (blue.0 as i64).abs() <= 1 && (red.0 as i64 - 40).abs() <= 1,
         "blue from 0 under the margin, red from 40: blue {blue:?}, red {red:?}"
     );
-    assert!(blue.2 >= red.2, "the outer box holds the inner one: {blue:?} {red:?}");
+    // The inner span paints over the outer one's background, so the blue
+    // that shows is the margin: it ends where the red begins.
+    assert!(
+        (blue.2 as i64 - red.0 as i64).abs() <= 1,
+        "the outer background fills the whole margin up to the inner box: {blue:?} {red:?}"
+    );
 }
 
 #[test]
