@@ -1399,7 +1399,7 @@ fn disk_space_of(path: &str) -> Option<DiskSpace> {
     {
         // SAFETY: as above.
         let mut stats: libc::statvfs = unsafe { core::mem::zeroed() };
-        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
+        if unsafe { libc::statvfs(c_path.as_ptr(), &raw mut stats) } != 0 {
             return None;
         }
         let block = u64::from(stats.f_frsize);
