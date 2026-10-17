@@ -90,6 +90,10 @@ mod imp {
         RECORDING.store(if on { 3 } else { 2 }, Ordering::Relaxed);
     }
 
+    pub(super) fn record_as_profile(on: bool) {
+        RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+    }
+
     pub(super) fn drained_by_its_caller() -> bool {
         RECORDING.load(Ordering::Relaxed) == 3
     }
@@ -451,6 +455,9 @@ mod imp {
     pub(super) const fn set_recording(_on: bool) {}
 
     #[inline]
+    pub(super) const fn record_as_profile(_on: bool) {}
+
+    #[inline]
     pub(super) const fn drained_by_its_caller() -> bool {
         false
     }
@@ -538,6 +545,18 @@ impl Probe {
     #[allow(clippy::missing_const_for_fn)]
     pub fn set_recording(on: bool) {
         imp::set_recording(on);
+    }
+
+    /// Records as `AZ_PROFILE` would ask for it: on with no caller draining
+    /// the buffer (only the CPU report and the frame pumps empty it), or off.
+    /// What a test of the buffer's bounds needs; [`Probe::set_recording`] is
+    /// for a caller that reads the spans itself.
+    #[doc(hidden)]
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn record_as_profile(on: bool) {
+        imp::record_as_profile(on);
     }
 
     /// Whether recording is on because a caller switched it on

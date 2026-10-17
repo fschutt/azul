@@ -11,8 +11,9 @@
 //! LAYOUTPERF8B saw it only after a DOM rebuild (A11YPATCH8, 2026-10-03).
 //!
 //! The rule: with telemetry not collecting, a frame pump leaves the spans to
-//! the CPU report when there is one, and still drops them (the buffer stays
-//! bounded) when there is none.
+//! the CPU report when there is one, and to a caller that switched the
+//! recording on and drains the buffer itself; it still drops them (the
+//! buffer stays bounded) when nothing reads them.
 //!
 //! Not compiled by the author (house rule). Expected RED before the fix: the
 //! first test.
@@ -24,10 +25,26 @@ use azul_layout::{
 
 const SPAN: &str = "a_span_after_the_last_layout_pass";
 
+/// Who switched the recording on before the span.
+#[derive(Clone, Copy)]
+enum Recording {
+    /// `AZ_PROFILE`: only the CPU report and the frame pumps empty the buffer.
+    AsProfile,
+    /// A caller that drains the buffer itself (a test, the telemetry bridge).
+    ByACallerThatDrains,
+}
+
 /// Record one span, let a frame pump drain with or without a CPU report
 /// reading the buffer, and return what is left in it.
 fn left_after_a_frame_pump(cpu_report: bool) -> Vec<Event> {
-    Probe::set_recording(true);
+    left_after_a_frame_pump_with(cpu_report, Recording::AsProfile)
+}
+
+fn left_after_a_frame_pump_with(cpu_report: bool, recording: Recording) -> Vec<Event> {
+    match recording {
+        Recording::AsProfile => Probe::record_as_profile(true),
+        Recording::ByACallerThatDrains => Probe::set_recording(true),
+    }
     let _ = Probe::drain();
     {
         let _span = Probe::span(SPAN);
@@ -69,5 +86,20 @@ fn with_no_report_reading_them_a_frame_pump_still_drops_the_spans() {
         "with neither telemetry nor a CPU report reading the buffer, a frame pump must empty it \
          (it grew without bound otherwise); left: {}",
         left.len()
+    );
+}
+
+#[test]
+fn a_frame_pump_leaves_the_spans_to_a_caller_that_drains_them_itself() {
+    let _serialised = crate::probe_lock();
+    if !Probe::enabled() {
+        eprintln!("[a_frame_pump] the probe is compiled out: nothing to record");
+        return;
+    }
+    let left = left_after_a_frame_pump_with(false, Recording::ByACallerThatDrains);
+    assert!(
+        left.iter().any(|e| e.name == SPAN),
+        "the frame pump discarded a span the caller that switched the recording on had not \
+         read yet (a test counting a pass's hit-tester rebuilds saw none)"
     );
 }
