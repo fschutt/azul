@@ -50,24 +50,24 @@ fn header(data: &RefAny, demo: &TabLooksDemo, style: TabStyle, theme: UiTheme) -
 
 /// A ribbon button that does nothing but look like one.
 fn command(icon: &str, label: &str) -> RibbonItem {
-    RibbonItem::LargeButton(RibbonButton::create(icon.into(), label.into()))
+    RibbonItem::LargeButton(RibbonButton::create(icon, label))
 }
 
 /// A small ribbon on the leather: its tabs are buttons (`TabStyle::Pills`).
 fn leather_ribbon(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
-    let start = RibbonTab::create("Start".into())
+    let start = RibbonTab::create("Start")
         .with_group(
-            RibbonGroup::create("Clipboard".into())
+            RibbonGroup::create("Clipboard")
                 .with_item(command("content_paste", "Paste"))
                 .with_item(command("content_copy", "Copy")),
         )
         .with_group(
-            RibbonGroup::create("Organize".into())
+            RibbonGroup::create("Organize")
                 .with_item(command("drive_file_move", "Move to"))
                 .with_item(command("delete", "Delete")),
         );
-    let layout = RibbonTab::create("Layout".into()).with_group(
-        RibbonGroup::create("Page".into())
+    let layout = RibbonTab::create("Layout").with_group(
+        RibbonGroup::create("Page")
             .with_item(command("margin", "Margins"))
             .with_item(command("crop_portrait", "Orientation")),
     );
