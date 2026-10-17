@@ -1199,3 +1199,7 @@ mod a_material_is_drawn_only_when_what_it_is_drawn_from_changes;
 mod a_cursor_over_the_leather_ribbon_costs_a_cpu_frame_nothing;
 #[path = "a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough.rs"]
 mod a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough;
+#[path = "common/calmet_lines.rs"]
+mod calmet_lines;
+#[path = "a_hyphenated_word_breaks_where_its_dictionary_breaks_it.rs"]
+mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
