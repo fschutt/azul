@@ -279,6 +279,54 @@ fn the_sheen_is_a_layer_over_the_material_that_follows_the_cursor() {
     );
 }
 
+/// The colour of the sheen's highlight: its gradient's first stop.
+fn sheen_colour(lw: &LayoutWindow) -> azul_css::props::basic::ColorU {
+    let items = items(lw);
+    let material = items
+        .iter()
+        .position(|item| matches!(item, DisplayListItem::Image { .. }))
+        .expect("the material");
+    items[material + 1..]
+        .iter()
+        .find_map(|item| match item {
+            DisplayListItem::RadialGradient { gradient, .. } => {
+                match gradient.stops.as_ref().first().map(|stop| stop.color) {
+                    Some(azul_css::props::basic::ColorOrSystem::Color(c)) => Some(c),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("a sheen layer over the leather")
+}
+
+#[test]
+fn the_sheen_shines_in_the_colour_of_the_windows_own_light() {
+    // The material is lit by the window's own light (`set_material_light`), colour included;
+    // its sheen is that light's highlight, so it takes the light's colour too.
+    let mut lw = lay_out_drawn_by_webrender(
+        "width: 200px; height: 60px; background: builtin(leather);",
+    );
+    let warm = sheen_colour(&lw);
+    let red = azul_css::props::basic::ColorU {
+        r: 255,
+        g: 40,
+        b: 40,
+        a: 255,
+    };
+    assert!(lw.set_material_light(MaterialLight {
+        color: red,
+        ..MaterialLight::DEFAULT
+    }));
+    lw.prepare_frame_gl(&OptionGlContextPtr::None);
+    let lit = sheen_colour(&lw);
+    assert_ne!(lit, warm, "the sheen kept the default light's colour");
+    assert!(
+        lit.r > lit.g.saturating_add(60) && lit.r > lit.b.saturating_add(60),
+        "a red light's sheen is red: {lit:?} (the default light's: {warm:?})"
+    );
+}
+
 #[test]
 fn a_window_the_cpu_draws_has_no_sheen_and_asks_no_frames_for_one() {
     let mut lw = lay_out("width: 200px; height: 60px; background: builtin(leather);");

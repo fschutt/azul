@@ -111,9 +111,17 @@ impl fmt::Debug for AzlinDrive {
 fn drive_error_of(e: &TokenError) -> DriveError {
     match e {
         TokenError::Connect(why) => DriveError::Transport(why.clone()),
-        TokenError::SignIn(_) => DriveError::Denied {
+        // The token is refused (this device was removed, or its token spent elsewhere): only
+        // signing in again helps. That is the errors table's credentials_revoked, as a node's
+        // refusal of revoked credentials is; `Denied` would read as the drive's own refusal
+        // (a read-only grant), which keeps its own words.
+        TokenError::SignIn(_) => DriveError::Service(ServiceError {
+            status: 401,
+            code: String::from("Unauthorized"),
             message: e.to_string(),
-        },
+            azlin_error: Some(Code::CredentialsRevoked.as_str().to_string()),
+            ..ServiceError::default()
+        }),
         TokenError::Config(why) => DriveError::InvalidConfig(why.clone()),
         // A refusal keeps its status and code: a busy token server is a busy service to the
         // user (user_errors), not a broken answer - and a code of the errors table (a banned
@@ -135,9 +143,12 @@ fn drive_error_of(e: &TokenError) -> DriveError {
     }
 }
 
-/// Whether `e` says the credentials no longer work.
+/// Whether `e` says the credentials no longer work: an S3 code for it, or a node's
+/// `session_expired` (all a HEAD's answer can say is its header).
 fn refused_credentials(e: &DriveError) -> bool {
-    matches!(e, DriveError::Service(service) if REFUSED_CREDENTIALS.contains(&service.code.as_str()))
+    matches!(e, DriveError::Service(service)
+        if REFUSED_CREDENTIALS.contains(&service.code.as_str())
+            || service.azlin_error.as_deref() == Some(Code::SessionExpired.as_str()))
 }
 
 impl AzlinDrive {

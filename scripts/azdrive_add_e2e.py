@@ -230,8 +230,10 @@ class Dialog:
         """Runs `action` and waits for the dialog's page `line` (AZDRIVE_ADD_PAGE)."""
         self.app.after("the dialog's page %s" % line, "AZDRIVE_ADD_PAGE", re.escape(line), action)
 
-    def type_into(self, short, text, clear=0):
-        """Types `text` into the field `short` (after `clear` Backspaces from its end)."""
+    def type_into(self, short, text, clear=0, by_letter=False):
+        """Types `text` into the field `short` (after `clear` Backspaces from its end); with
+        `by_letter` one letter at a time, each in a frame of its own, as a person types - a page
+        that is built again on every letter must keep the caret where the letter went."""
         selector = add_id(short)
         self.win.until("the field %s" % short, lambda: self.win.has(selector))
         self.win.must("focus_node", selector=selector)
@@ -240,8 +242,9 @@ class Dialog:
             self.win.key("end")
             for _ in range(clear):
                 self.win.key("backspace", frames=1)
-        self.win.must("text_input", text=text)
-        self.win.frame(2)
+        for piece in (list(text) if by_letter else [text]):
+            self.win.must("text_input", text=piece)
+            self.win.frame(2)
 
     def shows(self, text):
         return self.win.shows(text)
@@ -1064,7 +1067,10 @@ def country_steps(app, stack, args, logs, out, binary, switches, env, keyring_fi
         guess = add_id("country_option_us")
         dialog.win.until("the guess in the list", lambda: dialog.win.has(guess))
         dialog.screenshot(os.path.join(out, "16-country-picker.png"))
-        dialog.type_into("country_search", "germ")
+        # The page is built again on every letter: typed one by one, the letters stay in order.
+        dialog.type_into("country_search", "germ", by_letter=True)
+        dialog.win.until("'germ' in the search", lambda: "germ" in dialog.win.texts_within(
+            add_id("country_search")))
         dialog.win.until("Germany alone found", lambda: dialog.win.has(add_id(
             "country_option_de")) and not dialog.win.has(guess))
 

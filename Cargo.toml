@@ -214,6 +214,16 @@ debug = false
 incremental = true
 codegen-units = 256
 
+# The Python extension the E2E jobs load (CI's build_dll_e2e). Its generated binding is half a
+# million lines; at release's -O3 with line tables a CI runner ran out of memory compiling it
+# (Linux: the runner shut down) or out of the job's hour (macOS). The scenarios measure no speed,
+# so the test build is -O1 without debuginfo, in many codegen units.
+[profile.pyext-e2e]
+inherits = "release"
+opt-level = 1
+debug = false
+codegen-units = 256
+
 # CI / distribution profile: maximum optimization, slow to build.
 #   cargo build --profile prod-release -p azul-dll --features build-dll
 [profile.prod-release]

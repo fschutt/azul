@@ -620,8 +620,8 @@ pub fn add_recovery_code(
     drive: &str,
     kdf: RecoveryKdf,
 ) -> Result<(String, RecoveryCode), DriveError> {
-    let drive_key = load_drive_key(keyring, drive)?.ok_or_else(|| DriveError::Denied {
-        message: String::from("this device keeps no key of the drive: unlock it first"),
+    let drive_key = load_drive_key(keyring, drive)?.ok_or_else(|| DriveError::Locked {
+        drive: drive.to_string(),
     })?;
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let wrap = RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;

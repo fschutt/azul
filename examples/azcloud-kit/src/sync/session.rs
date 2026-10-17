@@ -302,9 +302,9 @@ pub struct SyncProblem {
 
 impl SyncProblem {
     /// The problem `e` is, when the errors table words it: a storage node's or the token
-    /// server's answer, or no connection. A refusal the drive words itself (`Denied`: no key for
-    /// an encrypted drive on this device yet, a read-only grant) keeps its own words - the table
-    /// would say "sign in again" where the user must unlock the drive.
+    /// server's answer, no connection, a drive locked on this device. A refusal the drive words
+    /// itself (`Denied`: a read-only grant, a key that opens nothing) keeps its own words - the
+    /// table's "sign in again" would not be what the user must do.
     #[must_use]
     pub fn of(e: &CloudError) -> Option<SyncProblem> {
         if matches!(e.root(), CloudError::Drive(azul_storage::DriveError::Denied { .. })) {

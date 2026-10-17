@@ -21,8 +21,9 @@ use crate::{
     drive::{AzlinDrive, TransportFactory},
     lock::LockDir,
     shared::SharedKeyring,
-    user_errors::{Code, UserError},
-    AzlinSession, DriveBundle,
+    sync::session::SyncProblem,
+    user_errors::{Behaviour, Code, UserError},
+    AzlinSession, CloudError, DriveBundle,
 };
 
 /// 2026-10-08T21:15:00Z: when the first credentials run out.
@@ -246,7 +247,11 @@ fn a_rotated_session_the_keyring_does_not_take_is_handed_over_with_why() {
 }
 
 #[test]
-fn a_drive_whose_token_is_refused_asks_to_sign_in_again() {
+fn a_drive_whose_token_is_refused_says_this_device_was_removed_in_the_tables_words() {
+    // The token server refused the drive token (401: this device was removed, or its token was
+    // spent elsewhere): only signing in again helps. It is the table's credentials_revoked, as a
+    // node's refusal of revoked credentials is, so a sync's status says "This device was removed
+    // from the drive. Sign in again." and the app stops asking the drive.
     let dir = TempDir::new("azcloud-drive");
     let fake = cloud(None);
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.9.zzz")).unwrap();
@@ -261,10 +266,14 @@ fn a_drive_whose_token_is_refused_asks_to_sign_in_again() {
     )
     .unwrap()
     .with_clock(move || EXPIRES + 60);
-    match drive.list(&ListRequest::folder("")) {
-        Err(DriveError::Denied { message }) => assert!(message.contains("sign in"), "{message}"),
-        other => panic!("not denied: {other:?}"),
-    }
+    let error = drive.list(&ListRequest::folder("")).unwrap_err();
+    let user = UserError::from_drive_error(&error).expect("the errors table words it");
+    assert_eq!(user.code, Code::CredentialsRevoked, "{error}");
+    assert_eq!(user.behaviour(), Behaviour::SignInAgain);
+    let error = CloudError::from(error);
+    assert!(error.is_sign_in(), "{error}");
+    let problem = SyncProblem::of(&error).expect("a failed pass keeps the table's code");
+    assert_eq!(problem.code, "credentials_revoked");
 }
 
 #[test]

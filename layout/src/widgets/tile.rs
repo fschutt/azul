@@ -7,7 +7,8 @@
 //! The bar is the [`ProgressBar`] widget (the tile picks its fill from the
 //! theme: the capacity blue, or the alarm red past [`TileCapacity::is_nearly_full`]),
 //! the text is [`TileCapacity::label`]. A tile without a capacity shows its
-//! [`Tile::detail`] instead ("S3 bucket", "Folder").
+//! [`Tile::detail`] instead ("S3 bucket", "Folder"), a line under the title for
+//! each of its lines. A line too long for the tile ends in an ellipsis.
 //!
 //! A tile is a keyboard stop and a list item for assistive technology; it
 //! reports a click and a double-click (open) to the app, which owns the
@@ -32,9 +33,9 @@ use azul_css::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
             LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutFlexShrink, LayoutMinWidth, LayoutOverflow,
+            LayoutFlexShrink, LayoutMinWidth, LayoutOverflow, StyleTextOverflow,
         },
-        property::{CssProperty, StyleWhiteSpaceValue},
+        property::{CssProperty, StyleTextOverflowValue, StyleWhiteSpaceValue},
         style::{StyleBackgroundContentVec, StyleCursor, StyleUserSelect, StyleWhiteSpace},
     },
     AzString,
@@ -149,7 +150,8 @@ pub struct Tile {
     pub icon: AzString,
     /// The first line: the drive's or file's name.
     pub title: AzString,
-    /// The line under the title when the tile has no capacity ("S3 bucket").
+    /// The lines under the title when the tile has no capacity ("S3 bucket");
+    /// a line break starts another line ("Code from your banking app\nvia Stripe").
     pub detail: AzString,
     /// The capacity bar and its "x free of y" text; `None` shows `detail`.
     pub capacity: OptionTileCapacity,
@@ -226,12 +228,16 @@ pub(crate) static TILE_COLUMN_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
 ];
 
-/// A text line of the column: one line, clipped at the column's edge.
+/// A text line of the column: one line, cut at the column's edge where it ends
+/// in an ellipsis, never through a letter.
 pub(crate) static TILE_LINE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Nowrap,
     ))),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::TextOverflow(StyleTextOverflowValue::Exact(
+        StyleTextOverflow::Ellipsis,
+    ))),
 ];
 
 /// The bar's box: a block across the column.
@@ -471,8 +477,8 @@ pub(crate) fn build(tile: Tile, look: &TileLook) -> Dom {
             column.push(line(capacity.label(), TILE_DETAIL_CLASS, &look.detail));
         }
         None => {
-            if !detail.as_str().is_empty() {
-                column.push(line(detail, TILE_DETAIL_CLASS, &look.detail));
+            for text in detail.as_str().split('\n').filter(|t| !t.is_empty()) {
+                column.push(line(AzString::from(text), TILE_DETAIL_CLASS, &look.detail));
             }
         }
     }
@@ -622,6 +628,64 @@ mod tile_tests {
             matches!(bare.children.as_ref()[0].root.get_node_type(), NodeType::Div),
             "no icon: an empty slot keeps the column in place"
         );
+    }
+
+    #[test]
+    fn a_detail_with_a_line_break_shows_each_line_under_the_title() {
+        // A payment method's tile says where the payer finishes and who takes the payment, on
+        // a line each; one line would not hold both in a tile two to a line.
+        for theme in checks::BOTH {
+            let dom = Tile::create(AzString::from("BLIK"))
+                .with_icon(AzString::from("dialpad"))
+                .with_detail(AzString::from("Code from your banking app\nvia Stripe"))
+                .with_theme(theme)
+                .dom();
+            let column = dom.children.as_ref()[1].children.as_ref();
+            let lines: Vec<Option<&str>> = column.iter().map(text_of).collect();
+            assert_eq!(
+                lines,
+                vec![
+                    Some("BLIK"),
+                    Some("Code from your banking app"),
+                    Some("via Stripe")
+                ],
+                "{}",
+                theme.name()
+            );
+            assert!(
+                column[1..]
+                    .iter()
+                    .all(|line| has_class(line, "__azul-native-tile-detail")),
+                "{}: both are detail lines",
+                theme.name()
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_longer_than_its_tile_ends_in_an_ellipsis_not_in_a_cut_letter() {
+        // Explorer's tiles: a name or a detail too long for the tile is cut at a letter and
+        // ends in "...", never cut through a letter at the tile's edge.
+        let ellipsis = CssProperty::TextOverflow(StyleTextOverflow::Ellipsis.into());
+        for theme in checks::BOTH {
+            for tile in [home(), bucket()] {
+                let dom = tile.with_theme(theme).dom();
+                for line in dom.children.as_ref()[1].children.as_ref() {
+                    if has_class(line, "__azul-native-tile-bar") {
+                        continue;
+                    }
+                    assert!(
+                        line.root
+                            .style
+                            .iter_inline_properties()
+                            .any(|(p, _)| *p == ellipsis),
+                        "{}: {:?} is clipped without an ellipsis",
+                        theme.name(),
+                        text_of(line)
+                    );
+                }
+            }
+        }
     }
 
     #[test]

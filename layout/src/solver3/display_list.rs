@@ -7060,10 +7060,16 @@ where
                     radius.bottom_left,
                 ],
             );
-            // The light's colour: the default light's (a window's own light
-            // colour is not known to the layout).
-            let Some(sprite) = materials::sheen_sprite(material, &params, &MaterialLight::DEFAULT)
-            else {
+            // The highlight takes the colour of the light the material is lit
+            // by: the window's, which the sheen channel carries.
+            let light = cache
+                .sheen_light
+                .map_or(MaterialLight::DEFAULT, |(color, intensity)| MaterialLight {
+                    color,
+                    intensity,
+                    ..MaterialLight::DEFAULT
+                });
+            let Some(sprite) = materials::sheen_sprite(material, &params, &light) else {
                 return false;
             };
             // The highlight is laid at the layer's top-left corner, and the

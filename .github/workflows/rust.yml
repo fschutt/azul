@@ -296,11 +296,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
       - name: Upload the generated bindings
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          path: codegen-tree.tar
           retention-days: 1
           if-no-files-found: error
 
@@ -321,10 +327,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download the generated bindings
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-Linux
-          path: target/codegen
+          os: Linux
 
       - name: Install binding toolchains (best effort)
         # The derive gate proves a NAME is present in a generated binding; it
@@ -447,11 +452,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
       - name: Upload the generated bindings
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          path: codegen-tree.tar
           retention-days: 1
           if-no-files-found: error
 
@@ -512,11 +523,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack the generated bindings into one file
+        # One tar: the consumers unpack it (.github/actions/codegen-tree); a zip of the
+        # tree's 15,847 files ran Windows out of file handles while it was unpacked.
+        shell: bash
+        run: tar -cf codegen-tree.tar -C target/codegen .
+
       - name: Upload the generated bindings
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          path: codegen-tree.tar
           retention-days: 1
           if-no-files-found: error
 
@@ -547,6 +564,28 @@ jobs:
 
       - name: Check no std Instant::now() in WASM-compatible crates
         run: STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
+
+  layout_feature_check:
+    # azul-layout in every feature set a consumer turns on (printpdf builds it
+    # with default-features = false). It needs no generated bindings, so it runs
+    # beside check_crates: in the Feature Matrix Check, which waits for the
+    # bindings, it was skipped whenever a bindings job failed or was cancelled.
+    needs: [supply_chain_preflight]
+    name: azul-layout feature sets (printpdf)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Check azul-layout with every consumer's feature set
+        run: ./scripts/check_layout_features.sh
 
   autofix_check:
     # Validates api.json drift using autofix.
@@ -634,10 +673,9 @@ jobs:
         # itself and still print [ok]; it now fails instead. The bug-class
         # tests (codegen::v2::bug_classes) read it too, so it comes BEFORE the
         # test step: they fail on a missing tree rather than skip.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Run azul-doc tests
         run: |
@@ -675,10 +713,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Run DLL tests
         run: |
@@ -1096,10 +1133,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Double-drop runtime gate (appconfig_double_drop)
         run: cargo run -r -p azul-dll --example appconfig_double_drop --features link-static
@@ -1123,10 +1159,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Check azul-dll with a11y enabled (default)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y"
@@ -1149,24 +1184,8 @@ jobs:
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
 
-      - name: Check azul-layout with various features
-        run: |
-          cargo check -p azul-layout --no-default-features
-          cargo check -p azul-layout --no-default-features --features "text_layout"
-          cargo check -p azul-layout --no-default-features --features "font_loading"
-          cargo check -p azul-layout --no-default-features --features "svg"
-          cargo check -p azul-layout --no-default-features --features "xml"
-          cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
-
-      # printpdf's exact azul-layout surface (its `html` feature): text layout,
-      # hyphenation, font loading, xml, pdf - and NO cpurender/svg. No other
-      # combination in this matrix enables `pdf` or `text_layout_hyphenation`,
-      # which is how the missing cpurender gates on `tray_icon` and
-      # `rasterize_svg_clip_to_r8` only surfaced in printpdf's own build.
-      # Keep in sync with printpdf/Cargo.toml (`text_layout`,
-      # `text_layout_hyphenation`, `html` feature lists).
-      - name: Check azul-layout with printpdf's feature set (no cpurender)
-        run: cargo check -p azul-layout --no-default-features --features "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
+      # azul-layout's own feature sets (printpdf's among them) are the
+      # layout_feature_check job's: scripts/check_layout_features.sh.
 
   dll_windows_unit_tests:
     # Runs Windows backend unit tests.
@@ -1185,10 +1204,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: azul-dll unit tests
         shell: bash
@@ -1276,10 +1294,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       # `cargo check` runs build scripts, and ring - the crypto provider under the iroh transport -
       # compiles C for the TARGET, so these targets need a cross C compiler even though this job
@@ -1456,10 +1473,9 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27 --locked  # v0.2.5 tree, the rev CI resolved on 2026-09-07
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build with cross (Linux cross-arch)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
@@ -1630,9 +1646,9 @@ jobs:
         run: rustup toolchain link rust9x "$(pwd)/rust9x/build/x86_64-pc-windows-msvc/stage1"
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./azul/.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
+          os: ${{ runner.os }}
           path: azul/target/codegen
 
       - name: Build azul with rust9x (i686, WinXP+)
@@ -1760,10 +1776,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1901,10 +1916,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core fonts-noto-core
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
@@ -2036,10 +2050,9 @@ jobs:
           cargo +nightly-2026-09-03 miri setup
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
@@ -2192,10 +2205,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug, build-once-per-ABI)
         run: cargo build -p azul-dll --features build-dll
@@ -2258,10 +2270,9 @@ jobs:
           sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (release, with debug-server)
         run: cargo build --release -p azul-dll --features build-dll,debug-server
@@ -2362,10 +2373,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Validate C header syntax (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -2591,10 +2601,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azuldbg (debug-server swap-in)
         if: steps.cache-valid.outputs.skip != 'true'
@@ -2691,10 +2700,9 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build Python extension
         if: steps.cache-valid.outputs.skip != 'true'
@@ -2795,10 +2803,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the lean libazul
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -3078,10 +3085,9 @@ jobs:
 
       - name: Download generated bindings (built once per OS)
         if: steps.gate.outputs.run == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download prebuilt libazul (static .a for self-contained demos)
         if: steps.gate.outputs.run == 'true'
@@ -3276,7 +3282,7 @@ jobs:
         with:
           path: |
             target/release
-            target/pyext-e2e/release
+            target/pyext-e2e/pyext-e2e
           key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -3289,17 +3295,19 @@ jobs:
           if [ "${{ steps.build-cache.outputs.cache-hit }}" != "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # The dll, and on Linux and macOS the Python extension too: a cache restored by a key
+          # prefix may come from a run that kept the extension elsewhere.
           case "${{ matrix.os }}" in
-            ubuntu-22.04) F="target/release/libazul.so" ;;
-            macos-14)     F="target/release/libazul.dylib" ;;
-            windows-2022) F="target/release/azul.dll" ;;
+            ubuntu-22.04) F="target/release/libazul.so";    P="target/pyext-e2e/pyext-e2e/libazul.so" ;;
+            macos-14)     F="target/release/libazul.dylib"; P="target/pyext-e2e/pyext-e2e/libazul.dylib" ;;
+            windows-2022) F="target/release/azul.dll";      P="$F" ;;
           esac
-          if [ -f "$F" ]; then
-            echo "Cache valid - $F exists"
+          if [ -f "$F" ] && [ -f "$P" ]; then
+            echo "Cache valid - $F and $P exist"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Cache restored but $F missing - rebuilding"
-            rm -rf target/release target/pyext-e2e/release
+            echo "::warning::Cache restored but $F or $P missing - rebuilding"
+            rm -rf target/release target/pyext-e2e/pyext-e2e
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -3324,10 +3332,9 @@ jobs:
         run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (release, dynamic, debug-server)
         if: steps.cache-valid.outputs.skip != 'true'
@@ -3341,17 +3348,20 @@ jobs:
           python-version: '3.12'
       - name: Build python extension (debug-server, for e2e)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
-        run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+        # The pyext-e2e profile (Cargo.toml): -O1, no debuginfo - the extension is a test artifact.
+        run: cargo build --profile pyext-e2e -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
 
       - name: Stage DLL + codegen artifact
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf e2e-dll && mkdir -p e2e-dll/release e2e-dll/codegen
-          cp -a target/codegen/. e2e-dll/codegen/
+          rm -rf e2e-dll && mkdir -p e2e-dll/release
+          # The tree as one tar (see .github/actions/codegen-tree: unpacking its 15,847 files
+          # from the artifact's zip ran Windows out of file handles).
+          tar -cf e2e-dll/codegen.tar -C target/codegen .
           if [ "${{ matrix.os }}" != "windows-2022" ]; then
-            cp target/pyext-e2e/release/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
-              || cp target/pyext-e2e/release/libazul.so e2e-dll/release/azul-pyext.so
+            cp target/pyext-e2e/pyext-e2e/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
+              || cp target/pyext-e2e/pyext-e2e/libazul.so e2e-dll/release/azul-pyext.so
           fi
           if [ "${{ matrix.os }}" = "macos-14" ]; then
             cp target/release/libazul.dylib e2e-dll/release/
@@ -3805,7 +3815,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/release target/codegen
-          cp -a e2e-dll/codegen/. target/codegen/
+          tar -xf e2e-dll/codegen.tar -C target/codegen
           cp -a e2e-dll/release/. target/release/
           if [ -f target/release/azul-pyext.so ]; then
             mv target/release/azul-pyext.so examples/python/azul.so
@@ -4188,7 +4198,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/release target/codegen
-          cp -a e2e-dll/codegen/. target/codegen/
+          tar -xf e2e-dll/codegen.tar -C target/codegen
           cp -a e2e-dll/release/. target/release/
           if [ -f target/release/azul-pyext.so ]; then
             mv target/release/azul-pyext.so examples/python/azul.so
@@ -4320,10 +4330,9 @@ jobs:
         run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Set up Android NDK
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
@@ -4430,10 +4439,9 @@ jobs:
           toolchain: 1.91.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Import Apple signing cert (optional)
         if: ${{ env.HAVE_APPLE_CERT == 'true' }}
@@ -4591,10 +4599,9 @@ jobs:
         with:
           ndk-version: r27
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build cdylib demos as APKs
         shell: bash
@@ -4981,10 +4988,9 @@ jobs:
           toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -6417,10 +6423,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Cache cargo-geiger
         id: cache-cargo-geiger
@@ -6563,10 +6568,9 @@ jobs:
           sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
           clang --version | head -1
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
@@ -6713,10 +6717,9 @@ jobs:
         with:
           toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: cargo tree (generate crate lists)
         continue-on-error: true
@@ -6904,7 +6907,8 @@ jobs:
     name: crates.io (azul-css / azul-core / azul-layout)
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    needs: publish_safety
+    # A published azul-layout must build in printpdf's feature sets too.
+    needs: [publish_safety, layout_feature_check]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -6985,10 +6989,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Stage pyproject.toml at workspace root
         run: |
@@ -7081,10 +7084,9 @@ jobs:
           submodules: recursive
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Download the Linux native lib (x64)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -7703,10 +7705,9 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/actions/codegen-tree
         with:
-          name: codegen-tree-${{ runner.os }}
-          path: target/codegen
+          os: ${{ runner.os }}
 
       - name: Assemble rock
         run: |

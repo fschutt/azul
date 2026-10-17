@@ -204,6 +204,45 @@ pub fn glyph_runs(lw: &LayoutWindow) -> Vec<Vec<(f32, f32)>> {
         .collect()
 }
 
+/// The glyph pens `(x, y)` painted for the text inside the element with
+/// `id` (its own text nodes and its descendants'), in paint order.
+pub fn glyphs_inside(lw: &LayoutWindow, id: &str) -> Vec<(f32, f32)> {
+    let element = node(lw, id)
+        .node
+        .into_crate_internal()
+        .expect("the element is a node");
+    let result = lw.get_layout_result(&DomId::ROOT_ID).expect("laid out");
+    let hierarchy = result.styled_dom.node_hierarchy.as_container();
+    let is_inside = |mut at: NodeId| loop {
+        if at == element {
+            return true;
+        }
+        match hierarchy[at].parent_id() {
+            Some(parent) => at = parent,
+            None => return false,
+        }
+    };
+    let mut out = Vec::new();
+    for item in result.display_list.items.iter() {
+        if let DisplayListItem::Text {
+            glyphs,
+            source_node_index: Some(source),
+            ..
+        } = item
+        {
+            let dom_node = result
+                .layout_tree
+                .nodes
+                .get(*source)
+                .and_then(|n| n.dom_node_id);
+            if dom_node.is_some_and(|n| is_inside(n)) {
+                out.extend(glyphs.iter().map(|g| (g.point.x, g.point.y)));
+            }
+        }
+    }
+    out
+}
+
 // ==== TABLE_B: pages and pixels ====
 //
 // The WPT reftest runner's pipeline (`layout/tests/wpt/reftest.rs`) in

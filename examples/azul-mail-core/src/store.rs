@@ -173,7 +173,9 @@ fn io_error(e: DriveError) -> std::io::Error {
     let kind = match &e {
         DriveError::NotFound { .. } => std::io::ErrorKind::NotFound,
         DriveError::InvalidKey { .. } => std::io::ErrorKind::InvalidInput,
-        DriveError::Denied { .. } => std::io::ErrorKind::PermissionDenied,
+        DriveError::Denied { .. } | DriveError::Locked { .. } => {
+            std::io::ErrorKind::PermissionDenied
+        }
         _ => std::io::ErrorKind::Other,
     };
     std::io::Error::new(kind, e.to_string())

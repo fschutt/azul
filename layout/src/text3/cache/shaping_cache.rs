@@ -371,10 +371,21 @@ pub(crate) struct PerItemShapedEntry {
 
 /// One text item of a shaping group, as a cache hit re-stamps from it.
 pub(super) struct GroupItem {
+    /// The item's place in the content: a hit's clusters point back to it.
     pub(super) source: ContentIndex,
+    /// Where the item's visual run starts in its logical item, in bytes: a
+    /// cluster's byte offset is moved from the cached item's to this one.
     pub(super) run_byte_offset: usize,
+    /// The item's style: the paint-only properties the key leaves out.
     pub(super) style: Arc<StyleProperties>,
+    /// The DOM text node the item comes from.
     pub(super) source_node_id: Option<NodeId>,
+    /// The whole logical item's text, which a cluster's byte offset indexes
+    /// (`ShapedCluster::text`). The key holds only the visual run's text, and
+    /// two items with equal runs can hold different logical texts (a word
+    /// that bidi splits off a longer run), so a hit must take this one.
+    /// `None` for a combined-text item: it shapes into a block, no clusters.
+    pub(super) text: Option<Arc<str>>,
 }
 
 /// The text items of a shaping group, in group order.
@@ -384,6 +395,7 @@ pub(super) fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
         .filter_map(|it| match &it.logical_source {
             LogicalItem::Text {
                 source,
+                text,
                 style,
                 source_node_id,
                 ..
@@ -392,12 +404,14 @@ pub(super) fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
                 run_byte_offset: it.run_byte_offset,
                 style: style.clone(),
                 source_node_id: *source_node_id,
+                text: Some(text.clone()),
             }),
             LogicalItem::CombinedText { source, style, .. } => Some(GroupItem {
                 source: *source,
                 run_byte_offset: it.run_byte_offset,
                 style: style.clone(),
                 source_node_id: None,
+                text: None,
             }),
             _ => None,
         })

@@ -221,6 +221,47 @@ pub fn settle(
     }
 }
 
+/// `read` (a [`scan`]) of a folder that did not change while it was read. A change made during
+/// the read - a folder deleted midway, an unzip still writing - leaves a torn scan, half of the
+/// change, and a run planned from it takes half a delete for what the user did (the burst guard
+/// asked about the files a `rm -rf` had removed when the scan passed, the mass-delete question
+/// about all of them only after). So the newest time under `root` is read before and after;
+/// when it moved, the folder is let settle and read anew, for at most `most` in all - a folder
+/// that never stops changing is taken as the last read saw it, as [`settle`] takes it. With
+/// `quiet` zero (no settling) or once `stop` says so, the first read stands.
+///
+/// # Errors
+///
+/// `read`'s.
+pub fn scan_unchanged(
+    root: &Path,
+    rules: &Rules,
+    quiet: Duration,
+    most: Duration,
+    stop: &dyn Fn() -> bool,
+    mut read: impl FnMut() -> CloudResult<Scan>,
+) -> CloudResult<Scan> {
+    let started = Instant::now();
+    loop {
+        let before = newest_change(root, rules);
+        let scan = read()?;
+        if quiet.is_zero()
+            || stop()
+            || started.elapsed() >= most
+            || newest_change(root, rules) == before
+        {
+            return Ok(scan);
+        }
+        settle(
+            root,
+            rules,
+            quiet,
+            most.saturating_sub(started.elapsed()),
+            stop,
+        );
+    }
+}
+
 /// The newest modification time of `root`, its folders and its files (symbolic links and what
 /// `rules` leave out are not looked at); `None` when `root` cannot be read.
 fn newest_change(root: &Path, rules: &Rules) -> Option<SystemTime> {

@@ -23,6 +23,12 @@ use crate::{
 /// The cloud: the token server's refreshes (AKID2, then AKID3), and a bucket whose HEAD answers
 /// 400 without a body for the keys `refused` and the object for the rest.
 fn cloud(refused: &'static [&'static str]) -> Arc<Fake> {
+    cloud_naming(refused, None)
+}
+
+/// [`cloud`], whose refusals name their reason as an Azlin node does when `named` is set: a 403
+/// with `x-azlin-error` and, on a HEAD, still no body.
+fn cloud_naming(refused: &'static [&'static str], named: Option<&'static str>) -> Arc<Fake> {
     Fake::new(move |call, _| {
         if call.url.starts_with(TOKEN) {
             return Ok(match header(call, "authorization") {
@@ -45,10 +51,17 @@ fn cloud(refused: &'static [&'static str]) -> Arc<Fake> {
             .iter()
             .any(|key| signed_with.contains(&format!("Credential={key}/")))
         {
-            return Ok(HttpReply {
-                status: 400,
-                headers: Vec::new(),
-                body: Vec::new(),
+            return Ok(match named {
+                Some(code) => HttpReply {
+                    status: 403,
+                    headers: vec![(String::from("x-azlin-error"), code.to_string())],
+                    body: Vec::new(),
+                },
+                None => HttpReply {
+                    status: 400,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                },
             });
         }
         Ok(HttpReply {
@@ -122,6 +135,26 @@ fn a_head_the_bucket_keeps_refusing_without_a_body_does_not_spend_a_token_each_t
         1,
         "one refresh to rule out expired credentials, not one per HEAD"
     );
+}
+
+#[test]
+fn a_head_refused_for_an_expired_session_refreshes_the_credentials_each_time_the_node_says_so() {
+    // A node names why it refused, on a HEAD too (x-azlin-error): an expired session is
+    // refreshed and the call goes again - every time, as the pause between two refreshes is
+    // only for refusals that say nothing.
+    let dir = TempDir::new("azcloud-drive-chaos-expired");
+    let fake = cloud_naming(&["AKID1", "AKID2"], Some("session_expired"));
+    let drive = drive(&fake, &dir);
+    assert!(
+        drive.head("a.txt").is_err(),
+        "the fresh credentials were refused as well"
+    );
+    assert_eq!(refreshes(&fake), 1);
+    let info = drive
+        .head("a.txt")
+        .expect("refreshed once more, the HEAD is answered");
+    assert_eq!(info.size, 5);
+    assert_eq!(refreshes(&fake), 2);
 }
 
 #[test]

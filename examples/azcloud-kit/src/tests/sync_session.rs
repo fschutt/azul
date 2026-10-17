@@ -14,7 +14,7 @@ use azul_storage::{testing::TempDir, ByteRange, Drive, DriveError};
 
 use super::{
     fake_s3::{FakeS3, S3Bucket},
-    sync_named::s3_drive,
+    sync_named::{s3_drive, s3_drive_resuming},
 };
 use crate::{
     error::{CloudError, CloudResult},
@@ -393,6 +393,55 @@ fn an_object_cache_serves_what_it_keeps_and_passes_the_rest_through() {
     cache.put("other", b"x").unwrap();
     assert_eq!(cache.get("other").unwrap(), b"x");
     assert!(!cache.has("other"));
+}
+
+#[test]
+fn an_object_cache_hands_a_file_upload_down_and_the_bucket_resumes_it() {
+    // AzDrive's Azlin drive is the bucket under this cache and the encryption's wrapper. A
+    // file upload must reach the bucket as one: else it is streamed, and a dropped connection,
+    // credentials that ran out or a killed app start it again and leave the first upload
+    // unfinished in the bucket.
+    use azul_storage::checked::{modified_ns, CheckedUpload, FileCheck};
+
+    let s3 = FakeS3::new();
+    let resume = TempDir::new("azcloud-object-cache-resume");
+    let objects = TempDir::new("azcloud-object-cache-objects");
+    let folder = TempDir::new("azcloud-object-cache-file");
+    let cache = ObjectCache::new(
+        s3_drive_resuming(&s3, resume.path()),
+        objects.path().to_path_buf(),
+    );
+    let bytes: Vec<u8> = (0..12 * MB as usize + 11).map(|i| (i % 251) as u8).collect();
+    let path = folder.path().join("video.bin");
+    fs::write(&path, &bytes).unwrap();
+    let meta = fs::metadata(&path).unwrap();
+    let check = FileCheck {
+        size: meta.len(),
+        modified_ns: modified_ns(&meta),
+        blake3: crate::sync::local::hash_bytes(&bytes),
+    };
+    // The connection drops after four parts.
+    s3.take_parts(Some(4));
+    assert!(cache
+        .put_file_checked("blobs/video", &path, &check, &|_| {})
+        .is_err());
+    s3.take_parts(None);
+    s3.clear_log();
+    assert!(matches!(
+        cache.put_file_checked("blobs/video", &path, &check, &|_| {}),
+        Ok(CheckedUpload::Sent(_))
+    ));
+    assert_eq!(s3.read("blobs/video").as_deref(), Some(&bytes[..]));
+    assert_eq!(
+        s3.count_under("PUT", "blobs/video"),
+        9,
+        "the nine parts it lacked, never the first four again"
+    );
+    assert_eq!(
+        s3.count_under("POST", "blobs/video"),
+        1,
+        "one Complete, no new upload started"
+    );
 }
 
 // ==== The guards' questions (D42, the mass-delete guard), renames ====

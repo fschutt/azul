@@ -81,7 +81,7 @@ pub fn drive_error(e: DriveError) -> SyncError {
     let text = e.to_string();
     match e {
         DriveError::Transport(message) => SyncError::Connect(message),
-        DriveError::Denied { .. } => SyncError::Auth(text),
+        DriveError::Denied { .. } | DriveError::Locked { .. } => SyncError::Auth(text),
         DriveError::Service(service) if matches!(service.status, 401 | 403) => {
             SyncError::Auth(text)
         }

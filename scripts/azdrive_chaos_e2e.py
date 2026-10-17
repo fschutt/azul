@@ -66,8 +66,8 @@ Scenarios (`--only NAME,...`, `--list`):
   dns               the drive's node name never resolves (`.invalid`) and the node list carries
                     its address: syncs
   slow-dns          the node's name answers after 8 s: passes do not wait for it every time
-                    (needs /etc/resolver/azchaos.test - `nameserver 127.0.0.1`, `port 53535` -
-                    and is skipped, saying so, without it)
+                    (AzDrive asks the scenario's DNS server through azchaos.TestResolver, a
+                    getaddrinfo the system's C compiler builds: no root)
   iroh-lane         the node list names an iroh node at a UDP port that swallows everything: the
                     requests fall back to HTTPS at once, the lane rests, nothing is sent twice
   server-errors     503 SlowDown with Retry-After, 500 bursts, 409 with x-azlin-map (a stale map),
@@ -291,7 +291,9 @@ class Stack:
         if revoked:
             return (403, "InvalidAccessKeyId", "credentials_revoked")
         if time.time() + self.proxy.clock_offset > expires:
-            return (400, "ExpiredToken", None)
+            # As a node refuses a session that ran out: S3's ExpiredToken, named in the header
+            # (a HEAD's answer has no body to say it).
+            return (403, "ExpiredToken", "session_expired")
         return None
 
     @property
@@ -880,13 +882,14 @@ def statuses_seen(laptop, drive_id=None):
 
 def raw_errors(statuses):
     """Status lines that show a technical error to the user (an HTTP code, an S3 code, a Rust
-    error's words) instead of a sentence."""
+    error's words) instead of a sentence. Only the words the user reads are judged: the line's
+    `error=` is the name of the message's argument, not part of the sentence."""
     technical = re.compile(r"HTTP \d{3}|x-azlin-error|Error\b|\(os error|InternalError|SlowDown|"
                            r"ExpiredToken|InvalidAccessKeyId|RequestTimeTooSkewed|"
                            r"Connection refused|Connection reset|no answer from|https?://|"
                            r"timed out|errno", re.I)
-    return [s for s in statuses if s.startswith("azdrive-sync-status-failed") and
-            technical.search(s)]
+    failed = "azdrive-sync-status-failed(error="
+    return [s for s in statuses if s.startswith(failed) and technical.search(s[len(failed):])]
 
 
 def blob_writes(stack, drive_id):
@@ -1401,6 +1404,9 @@ def revoked(ctx):
                  if e["t"] > revoked_at + 1 and 200 <= (e.get("status") or 0) < 300]
         checks.expect(not later, "writes landed after the removal: %s" % later[:3])
         checks.expect(status != UP_TO_DATE, "removed, the status says Up to date")
+        checks.expect(status.startswith("azlin-error-credentials-revoked"),
+                      "removed, the status is not the table's \"This device was removed from "
+                      "the drive. Sign in again.\": %s" % status)
         raw = raw_errors(statuses_seen(laptop, drive))
         checks.expect(not raw, "the removal showed as a technical error: %s" % raw[:2])
         checks.expect(knocked <= 2, "a removed device ran %d passes in 10 s against refused "
@@ -1529,27 +1535,20 @@ def dns(ctx):
 @scenario("slow-dns")
 def slow_dns(ctx):
     """The node's name answers only after 8 s (a DNS server under load): the requests do not
-    wait for it every time - the node's address is used, or the answer kept."""
-    resolver = "/etc/resolver/azchaos.test"
-    try:
-        with open(resolver, "r", encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        raise Skip("needs %s (macOS, root): `nameserver 127.0.0.1` and `port 53535`, the port "
-                   "this scenario's slow DNS server listens on" % resolver)
-    found = re.search(r"^\s*port\s+(\d+)", text, re.M)
-    if not found:
-        raise Skip("%s names no port" % resolver)
+    wait for it every time - the node's address is used, or the answer kept. AzDrive asks this
+    scenario's DNS server for the name through the test resolver (no root)."""
     host = "n1.azchaos.test"
     stack = Stack(ctx.folder("slow-dns"))
-    dns_server = azchaos.SlowDns({host: "127.0.0.1"}, delay=8.0, port=int(found.group(1))).start()
+    dns_server = azchaos.SlowDns({host: "127.0.0.1"}, delay=8.0).start()
+    resolver = azchaos.TestResolver(os.path.join(stack.base, "resolver"), "azchaos.test")
     laptop = None
     try:
         url = "http://%s:%d" % (host, stack.proxy.port)
         stack.state.s3_url = url
         stack.state.set_nodes([azlin_mock_stack.node_entry("n1", url, addresses=["127.0.0.1"])])
         drive = stack.signup("Chaos drive")["drive"]["id"]
-        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")], session_expires_in=120)
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")], session_expires_in=120,
+                        env=resolver.env(dns_server.port))
         laptop.start()
         laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=180)
         write(os.path.join(laptop.folder(drive), "slow.txt"), b"over a slow name\n")

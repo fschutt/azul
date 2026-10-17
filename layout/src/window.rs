@@ -10642,9 +10642,15 @@ impl LayoutWindow {
                 .filter(|(d, _)| *d == dom)
                 .map(|(_, node)| *node)
                 .collect();
+            // The sheens shine in the window's light: its colour is baked into
+            // their stops, so a new colour is a new list too.
+            let light = (!wanted.is_empty())
+                .then_some((self.material_light.color, self.material_light.intensity));
             let cache = self.gpu_state_manager.get_or_create_cache(dom);
             let had: BTreeSet<NodeId> = cache.sheen_opacity_keys.keys().copied().collect();
-            if had == wanted && cache.sheen_transform_keys.len() == wanted.len() {
+            let same_light = cache.sheen_light == light;
+            cache.sheen_light = light;
+            if had == wanted && cache.sheen_transform_keys.len() == wanted.len() && same_light {
                 continue;
             }
             cache.sheen_transform_keys.retain(|node, _| wanted.contains(node));

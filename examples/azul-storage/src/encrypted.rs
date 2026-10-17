@@ -251,7 +251,7 @@ pub trait IndexProvider: Send + Sync {
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
 /// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
-/// `provider`. `Denied` when this device holds no key for the drive yet: it joins with a code
+/// `provider`. `Locked` when this device holds no key for the drive yet: it joins with a code
 /// from a device that does, or unlocks with the recovery code.
 ///
 /// A device that missed a key rotation still holds the key from before it, and the index
@@ -266,11 +266,8 @@ pub fn open_encrypted(
     provider: &dyn IndexProvider,
 ) -> Result<EncryptedDrive<Arc<dyn Drive>>, DriveError> {
     let Some(drive_key) = device::unlock(bucket.as_ref(), keyring, drive)? else {
-        return Err(DriveError::Denied {
-            message: format!(
-                "this device has no key for \"{drive}\" yet: join it with a code from a device \
-                 that has one, or unlock it with the recovery code"
-            ),
+        return Err(DriveError::Locked {
+            drive: drive.to_string(),
         });
     };
     let opened = match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
