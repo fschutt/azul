@@ -625,8 +625,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 if cursor.is_done() {
                     break;
                 }
-                if (cursor.next_item_index, cursor.partial_remainder.len())
-                    != position_before_line
+                if (cursor.next_item_index, cursor.partial_remainder.len()) != position_before_line
                 {
                     continue;
                 }
