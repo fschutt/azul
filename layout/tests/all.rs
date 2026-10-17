@@ -1215,3 +1215,5 @@ mod an_inline_block_inside_a_word_is_never_lost_to_hyphenation;
 mod paged_payload;
 #[path = "a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload.rs"]
 mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;
+#[path = "a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph.rs"]
+mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
