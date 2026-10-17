@@ -7214,6 +7214,50 @@ mod text_shadow_tests {
         assert_eq!(text_shadow_boxes(device_rect(500.0, 300.0, 80.0, 20.0), 2, Some(far), (2200, 1440)), None);
     }
 
+    /// Two perpendicular strips that meet in a corner stay two strips.
+    ///
+    /// A grow resize damages an L: the newly-exposed right column over the
+    /// full new height, and the newly-exposed bottom row over the old width.
+    /// Anything the diff adds at the seam - a `width: 100%` bar's exposed
+    /// piece - makes the column reach down into the row, so the two OVERLAP
+    /// in the corner. Merging an overlap into its bounding box is right when
+    /// the box is about as big as the pair; here it is the WHOLE WINDOW, and
+    /// a resize that exposed 58% of it repaints and reports 100%.
+    ///
+    /// `coalesce_damage_rects` already refuses this merge, with that exact
+    /// reasoning. The rasteriser then merged the pair anyway, because its own
+    /// merge only asks whether they overlap - so the decision the coalescer
+    /// made was undone one step later.
+    #[test]
+    fn two_strips_meeting_in_a_corner_are_not_merged_into_the_whole_surface() {
+        let rr = RendererResources::default();
+        let fm = empty_font_manager();
+        let mut gc = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let dl = DisplayList::default();
+
+        let (w, h) = (800u32, 900u32);
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(0, 200, 0, 255);
+
+        let rect = |x: f32, y: f32, width: f32, height: f32| LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width, height },
+        };
+        // The exposed right column, reaching up to y=0 because the bar at the
+        // top grew with the window, and the exposed bottom row.
+        let l = vec![rect(492.0, 0.0, 308.0, 900.0), rect(0.0, 600.0, 500.0, 300.0)];
+        let painted =
+            render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &l).unwrap();
+
+        let area: f32 = painted.iter().map(|r| r.size.width * r.size.height).sum();
+        let whole = (w * h) as f32;
+        assert!(
+            area <= whole * 0.75,
+            "an L must not be repainted as the whole surface: {area} of {whole} in {painted:?}"
+        );
+    }
+
     /// A repaint of a damaged strip clears and paints only that strip. A
     /// shadow composited past the strip lands again on pixels that already
     /// show it, and its halo darkens a little more with every repaint.
