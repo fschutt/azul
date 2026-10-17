@@ -982,6 +982,8 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         popup = e2e.modal_window(third)
         popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
         popup.text_input("#__azdrive_unlock_code", code)
+        # Unlocking reads the drive's key with the code: seconds, not the run's whole budget.
+        third.deadline = min(third.deadline, time.time() + 180)
         third.after("the drive unlocked and listed", "AZDRIVE_LISTED",
                     r"%s / [1-9]\d*" % re.escape(drive_id),
                     lambda: popup.click_exact("Unlock"))
@@ -991,6 +993,8 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         # What the windows show says why: a message dialog, a notice in the status bar (the
         # wait that failed may have spent the app's time: the pictures get their own).
         third.deadline = time.time() + 30
+        # Where its threads are (a worker that never reports leaves no other trace).
+        log("13g failed: %s" % third.sample_hang())
         try:
             third.screenshot(os.path.join(out, "13g-failed.png"))
             for w in (third.value("list_windows") or {}).get("windows") or []:

@@ -274,12 +274,28 @@ class Drive(e2e.App):
                     return node
         return None
 
+    # The tab whose content the last `tab()` opened.
+    open_tab = None
+
     def ribbon(self, label, prefix=False):
-        """Clicks the ribbon's control `label` once it shows (its tab must be the active one)."""
+        """Clicks the ribbon's control `label` once it shows (its tab must be the active one).
+        A control of the tab content is clicked with the content open: a click elsewhere (the
+        source list) closes content the hover opened, and the closed content is zero high
+        while its controls keep their boxes - a click on one lands on what lies beneath."""
         node = self.until('the ribbon\'s "%s"' % label,
                           lambda: self.ribbon_node(label, prefix))
+        if self.open_tab and self.in_content(node) and not self.content_shows():
+            self.content_open(self.open_tab)
+            node = self.until('the ribbon\'s "%s"' % label,
+                              lambda: self.ribbon_node(label, prefix))
         self.settle(limit=2.0)
         self.press("click", 0, node, 'the ribbon\'s "%s"' % label)
+
+    def in_content(self, node):
+        """Whether `node` lies in the ribbon's tab content (not a tab or the File button)."""
+        nodes, inside = self._within("." + RIBBON_CONTENT)
+        found = next((n for n in nodes if n["index"] == node), None)
+        return found is not None and inside(found)
 
     def tab(self, name):
         """Clicks the ribbon's tab `name` (Home, Share, View, Computer) and waits for the app to
@@ -294,6 +310,7 @@ class Drive(e2e.App):
             self.frame(1)
             time.sleep(0.05)
         self.content_open(name)
+        self.open_tab = name
 
     def content_shows(self):
         """Whether the ribbon's tab content is open (laid out with a height)."""
