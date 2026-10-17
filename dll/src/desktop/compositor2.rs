@@ -4192,7 +4192,9 @@ mod material_gpu_tests {
 
     use azul_core::dom::Dom;
 
-    use crate::desktop::shell2::macos::headless_gpu::{draw_gpu_materials, keep, pixels_differing};
+    use crate::desktop::shell2::macos::headless_gpu::{
+        draw_gpu_materials, gl_state_around_materials, keep, pixels_differing,
+    };
 
     /// A pillowed leather area with a golden line under it, a bevelled denim
     /// button and a vellum leaf.
@@ -4212,6 +4214,18 @@ mod material_gpu_tests {
                  background: builtin(bluejeans); --azul-bevel: 3px;",
             ))
             .with_child(Dom::create_div().with_css("width: 120px; height: 40px; background: builtin(vellum-leaf);"))
+    }
+
+    /// The material shader draws in the middle of the GL frame path, between
+    /// an app's canvas callbacks and `WebRender`: whatever it binds or turns
+    /// off for its own draw it puts back.
+    #[test]
+    fn a_material_drawn_on_the_gpu_leaves_the_gl_state_it_found() {
+        let Some((before, after, on_gpu)) = gl_state_around_materials(surfaces) else {
+            return;
+        };
+        assert!(on_gpu, "the GPU drew the materials: the material shader compiled");
+        assert_eq!(after, before, "the state a renderer had set up is the state it finds");
     }
 
     #[test]

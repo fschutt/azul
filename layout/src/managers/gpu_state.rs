@@ -553,6 +553,11 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         // but until then a moved box keeps its own translation.
         remap_hashmap(&mut cache.sticky_transform_keys, map);
         remap_hashmap(&mut cache.sticky_current_transform_values, map);
+        // The SHEEN channel: a material that moved keeps its sheen layer.
+        remap_hashmap(&mut cache.sheen_transform_keys, map);
+        remap_hashmap(&mut cache.sheen_current_transform_values, map);
+        remap_hashmap(&mut cache.sheen_opacity_keys, map);
+        remap_hashmap(&mut cache.sheen_current_opacity_values, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);

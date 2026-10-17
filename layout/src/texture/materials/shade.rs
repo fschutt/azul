@@ -11,15 +11,18 @@
 //!    slope by central differences half a device pixel apart;
 //! 3. the light: GGX with Smith-Schlick and Schlick's Fresnel (anisotropic for brushed
 //!    metal), a wrapped diffuse normalised so a flat surface shows its tint, a room
-//!    reflected (a studio, and the desktop for metals), the cursor's sheen as a second GGX
-//!    lobe, the accent's glow;
+//!    reflected (a studio, and the desktop for metals), the accent's glow;
 //! 4. the film: a soft shoulder above 0.86 that desaturates toward white, sRGB, and a half
 //!    level of dither so no gradient bands.
 //!
 //! The grain is the expensive part and does not depend on the light, the
 //! shape or the tint: it is computed in 32 x 32 tiles of WINDOW device
-//! pixels and kept ([`grain_tile`]), so a relight (a new light, the cursor's
-//! sheen, a height that animates) only redoes step 1, 3 and 4.
+//! pixels and kept ([`grain_tile`]), so a relight (a new light, a height
+//! that animates) only redoes step 1, 3 and 4.
+//!
+//! The cursor's sheen is not part of the surface: it is a layer of its own
+//! over it (`sheen_sprite` in the parent module), so the cursor never draws
+//! a material again.
 
 // The formulas keep the shader's letters (shader.glsl): p, n, h, l, r, f0...
 #![allow(clippy::many_single_char_names)]
@@ -281,14 +284,14 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 }
 
 /// GGX (Trowbridge-Reitz) normal distribution.
-fn ggx(nh: f32, a: f32) -> f32 {
+pub(crate) fn ggx(nh: f32, a: f32) -> f32 {
     let a2 = a * a;
     let d = nh * nh * (a2 - 1.0) + 1.0;
     a2 / (PI * d * d)
 }
 
 /// Anisotropic GGX, brushed along x.
-fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
+pub(crate) fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
     let t = normalize([1.0 - n[0] * n[0], -n[1] * n[0], -n[2] * n[0]]);
     let b = cross(n, t);
     let th = dot(t, h) / ax;
@@ -299,14 +302,29 @@ fn ggx_aniso(n: [f32; 3], h: [f32; 3], ax: f32, ay: f32) -> f32 {
 }
 
 /// Smith-Schlick geometry term, k = a / 2.
-fn smith_g(nl: f32, nv: f32, a: f32) -> f32 {
+pub(crate) fn smith_g(nl: f32, nv: f32, a: f32) -> f32 {
     let k = a * 0.5;
     (nl / (nl * (1.0 - k) + k)) * (nv / (nv * (1.0 - k) + k))
 }
 
-fn schlick(f0: [f32; 3], c: f32) -> [f32; 3] {
+/// Schlick's Fresnel: `f0` at normal incidence, white at grazing.
+pub(crate) fn schlick(f0: [f32; 3], c: f32) -> [f32; 3] {
     let k = (1.0 - c).powf(5.0);
     f0.map(|f| f + (1.0 - f) * k)
+}
+
+/// The film's soft shoulder over linear light: above 0.86 a highlight rolls
+/// toward white instead of clipping, and loses some of its colour.
+pub(crate) fn film(col: [f32; 3]) -> [f32; 3] {
+    let peak = col[0].max(col[1]).max(col[2]);
+    if peak <= 0.86 {
+        return col;
+    }
+    let k = (0.86 + 0.14 * (1.0 - (-(peak - 0.86) / 0.14).exp())) / peak;
+    let scaled = col.map(|c| c * k);
+    let luma = 0.2126 * scaled[0] + 0.7152 * scaled[1] + 0.0722 * scaled[2];
+    let t = ((peak - 0.86) * 0.4).clamp(0.0, 0.25);
+    scaled.map(|c| mix(c, luma, t))
 }
 
 /// Linear light to sRGB, 0..1.
@@ -371,11 +389,6 @@ pub(crate) struct Shader<'a> {
     /// Linear, times the intensity.
     pub(crate) light_color: [f32; 3],
     pub(crate) ambient: f32,
-    /// The cursor, logical px in the surface.
-    pub(crate) mouse: [f32; 2],
-    /// The sheen's strength times its ease.
-    pub(crate) sheen: f32,
-    pub(crate) sheen_size: f32,
     /// The surface on the screen of its wallpaper: x, y (logical px from the
     /// screen's corner), the screen's width and height.
     pub(crate) env_rect: [f32; 4],
@@ -555,25 +568,6 @@ impl Shader<'_> {
                 + spec[c] * light_color[c] * (1.0 - self.ambient)
                 + env * env_w;
         }
-        if self.sheen > 0.001 {
-            let lm = normalize([self.mouse[0] - p[0], self.mouse[1] - p[1], self.sheen_size]);
-            let hm = normalize([lm[0] + v[0], lm[1] + v[1], lm[2] + v[2]]);
-            let nlm = dot(n, lm).max(0.0);
-            let am = (a * mix(1.8, 1.1, self.metal)).max(0.02);
-            let dm = if self.aniso {
-                ggx_aniso(n, hm, (am * 0.35).max(0.004), (am * 1.8).max(0.02))
-            } else {
-                ggx(dot(n, hm).max(0.0), am)
-            };
-            let base = f0.map(|f| mix(0.25, f, self.metal));
-            let fm = schlick(base, dot(v, hm).max(0.0));
-            let k = self.sheen * dm * smith_g(nlm.max(1e-3), nv, am) / (4.0 * nlm * nv).max(1e-4)
-                * nlm
-                * mix(1.2, 0.8, self.metal);
-            for c in 0..3 {
-                col[c] += k * fm[c] * light_color[c];
-            }
-        }
         if self.glow[3] > 0.0 {
             let below = self.size_l()[1] - p[1];
             let k = (-below / self.glow[3]).exp() * (0.55 + 0.45 * ao) * mix(1.0, 0.5, self.metal);
@@ -581,14 +575,7 @@ impl Shader<'_> {
                 col[c] += self.glow[c] * k;
             }
         }
-        let peak = col[0].max(col[1]).max(col[2]);
-        if peak > 0.86 {
-            let k = (0.86 + 0.14 * (1.0 - (-(peak - 0.86) / 0.14).exp())) / peak;
-            let scaled = col.map(|c| c * k);
-            let luma = 0.2126 * scaled[0] + 0.7152 * scaled[1] + 0.0722 * scaled[2];
-            let t = ((peak - 0.86) * 0.4).clamp(0.0, 0.25);
-            col = scaled.map(|c| mix(c, luma, t));
-        }
+        col = film(col);
         // The dither is hashed on the WINDOW's device pixel, so two surfaces
         // side by side dither as one.
         let wx = (self.origin_px[0] + x as i32) as f32;

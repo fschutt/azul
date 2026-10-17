@@ -410,6 +410,109 @@ pub(crate) fn draw_gpu_materials(
     ))
 }
 
+/// The GL state a renderer sets up and expects to find again after the
+/// frame's content step drew the materials: the enables a draw touches, the
+/// active texture unit and the texture on each unit the material shader
+/// samples, the framebuffer and the program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GlStateProbe {
+    /// Whether blending is on.
+    pub blend: bool,
+    /// Whether the scissor test is on.
+    pub scissor: bool,
+    /// Whether the depth test is on.
+    pub depth: bool,
+    /// The active texture unit.
+    pub active_texture: i32,
+    /// The 2D texture bound to each of the units 0..3.
+    pub textures: [i32; 4],
+    /// The framebuffer bound.
+    pub framebuffer: i32,
+    /// The program in use.
+    pub program: i32,
+}
+
+impl GlStateProbe {
+    fn read(gl: &GenericGlContext) -> Self {
+        let one = |name: u32| {
+            let mut value = [0_i32];
+            // SAFETY: each query writes one int.
+            unsafe { gl.get_integer_v(name, &mut value) };
+            value[0]
+        };
+        let active_texture = one(glconst::ACTIVE_TEXTURE);
+        let mut textures = [0_i32; 4];
+        for (unit, bound) in textures.iter_mut().enumerate() {
+            gl.active_texture(glconst::TEXTURE0 + unit as u32);
+            *bound = one(glconst::TEXTURE_BINDING_2D);
+        }
+        gl.active_texture(active_texture as u32);
+        Self {
+            blend: gl.is_enabled(glconst::BLEND) != 0,
+            scissor: gl.is_enabled(glconst::SCISSOR_TEST) != 0,
+            depth: gl.is_enabled(glconst::DEPTH_TEST) != 0,
+            active_texture,
+            textures,
+            framebuffer: one(glconst::FRAMEBUFFER_BINDING),
+            program: one(glconst::CURRENT_PROGRAM),
+        }
+    }
+}
+
+/// `dom()`'s materials drawn through the frame's content step
+/// (`LayoutWindow::prepare_frame_gl`) in a context whose state a renderer set
+/// up - blending and the scissor on, a texture on every unit the material
+/// shader samples, unit 2 active: the state before and after, and whether the
+/// material shader runs here. `None` without OpenGL.
+pub(crate) fn gl_state_around_materials(
+    dom: impl Fn() -> Dom,
+) -> Option<(GlStateProbe, GlStateProbe, bool)> {
+    use azul_core::{gl::GlContextPtr, window::RendererType};
+
+    let context = OffscreenContext::new()?;
+    let gl_functions = GlFunctions::initialize().ok()?;
+    let gl = gl_functions.get_context();
+    let gl_ptr = GlContextPtr::new(RendererType::Hardware, gl.clone());
+    if !gl_ptr.is_gl_usable() {
+        return None;
+    }
+    let on_gpu = azul_layout::texture::materials::material_shader_compiles(&gl_ptr);
+    let names = gl.gen_textures(4);
+    for (unit, &name) in names.iter().enumerate() {
+        gl.active_texture(glconst::TEXTURE0 + unit as u32);
+        gl.bind_texture(glconst::TEXTURE_2D, name);
+    }
+    gl.active_texture(glconst::TEXTURE0 + 2);
+    gl.enable(glconst::BLEND);
+    gl.enable(glconst::SCISSOR_TEST);
+    gl.disable(glconst::DEPTH_TEST);
+    let before = GlStateProbe::read(&gl);
+
+    let mut state = FullWindowState::default();
+    state.size.dimensions = LogicalSize::new(260.0, 120.0);
+    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
+    window.renderer_type = Some(RendererType::Hardware);
+    window.current_window_state = state.clone();
+    window
+        .layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &state,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .ok()?;
+    let _ = window.prepare_frame_gl(&OptionGlContextPtr::Some(gl_ptr.clone()));
+    let after = GlStateProbe::read(&gl);
+
+    // The GL textures go while their context is current.
+    drop(window);
+    gl.delete_textures(&names);
+    drop(gl_ptr);
+    drop(context);
+    Some((before, after, on_gpu))
+}
+
 /// The largest difference of any channel between the two frames' pixels in
 /// the device-pixel box `(x, y, w, h)`, and where it is.
 pub(crate) fn largest_difference(

@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use azul_core::{
     dom::{DomId, NodeId, NodeType},
-    resources::{ImageDirtyRect, ImageRef, ImageRefHash},
+    resources::{BackgroundSlot, ImageDirtyRect, ImageRef, ImageRefHash},
     selection::TextCursor,
     styled_dom::StyledDom,
 };
@@ -233,6 +233,14 @@ pub enum ContentChange {
         node_id: NodeId,
         image: ImageRef,
     },
+    /// A `RenderImageCallback` drew a frame for a BACKGROUND layer that
+    /// declares it (`background: builtin(leather)`, `url(id)` naming a
+    /// callback image). Paint-tier like a node's callback frame: the layer's
+    /// rect is the box's, never the frame's.
+    BackgroundImageCallbackResult {
+        slot: BackgroundSlot,
+        image: ImageRef,
+    },
     /// Register (`Some`) or remove (`None`) an image under a css id
     /// (`background-image: url("id")`). Takes effect on the NEXT display-list
     /// build — the chokepoint returns the rebuild tier instead of the old
@@ -419,6 +427,12 @@ pub struct ContentOverlay {
     /// clears it after the upload ([`Self::clear_image_dirty`]). Absent =
     /// nothing pending.
     image_dirty: BTreeMap<(DomId, NodeId), ImageDirtyRect>,
+    /// Background arm: the latest frame of every background layer that
+    /// declares a render callback, by its slot. The display-list builder
+    /// paints the layer from it ([`ResolvedContent::background_image`]), so a
+    /// list built again draws the frame without the callback being asked
+    /// again; the GPU renderer keeps one image key per slot.
+    backgrounds: BTreeMap<BackgroundSlot, ImageRef>,
     /// Text arm: edited inline content per IFC root ("optimistic state"),
     /// overriding the immutable DOM's text. Written only through
     /// `LayoutWindow::update_text_cache_after_edit` (the documented single
@@ -446,6 +460,29 @@ impl ContentOverlay {
         self.images.iter()
     }
 
+    /// The frame a background layer's render callback last drew for it.
+    #[must_use]
+    pub fn background_frame(&self, slot: &BackgroundSlot) -> Option<&ImageRef> {
+        self.backgrounds.get(slot)
+    }
+
+    /// Every background layer's latest callback frame (renderer
+    /// registration: each slot's frames go under one stable key).
+    pub fn iter_backgrounds(&self) -> impl Iterator<Item = (&BackgroundSlot, &ImageRef)> {
+        self.backgrounds.iter()
+    }
+
+    /// Set a background layer's frame; the previous one is returned.
+    pub(crate) fn set_background(&mut self, slot: BackgroundSlot, image: ImageRef) -> Option<ImageRef> {
+        self.backgrounds.insert(slot, image)
+    }
+
+    /// Keep only the background frames of the slots `keep` answers `true`
+    /// for: a layer no display list paints any more lets its frame go.
+    pub(crate) fn retain_backgrounds(&mut self, mut keep: impl FnMut(&BackgroundSlot) -> bool) {
+        self.backgrounds.retain(|slot, _| keep(slot));
+    }
+
     /// The overlay's edited text entry for an IFC root, if any.
     #[must_use]
     pub fn text_for_node(&self, dom_id: DomId, node_id: NodeId) -> Option<&DirtyTextNode> {
@@ -471,7 +508,10 @@ impl ContentOverlay {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.images.is_empty() && self.text.is_empty() && self.pending_structure.is_empty()
+        self.images.is_empty()
+            && self.backgrounds.is_empty()
+            && self.text.is_empty()
+            && self.pending_structure.is_empty()
     }
 
     /// Set a node's image, the whole of it new to the renderer.
@@ -703,6 +743,7 @@ impl ContentOverlay {
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.images.retain(|(d, _), _| *d != dom_id);
         self.image_dirty.retain(|(d, _), _| *d != dom_id);
+        self.backgrounds.retain(|slot, _| slot.dom != dom_id);
         self.text.retain(|(d, _), _| *d != dom_id);
         self.pending_structure.remove(&dom_id);
     }
@@ -712,6 +753,7 @@ impl NodeIdRemap for ContentOverlay {
     fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.images, dom, map);
         crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
+        crate::managers::remap_background_slots(&mut self.backgrounds, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
         // Previews do NOT remap: a remap means a new generation landed,
         // which ends every preview's life (gc at the layout tail); remapping
@@ -747,6 +789,26 @@ impl ResolvedContent<'_> {
             }
         }
         self.dom_image(node_id)
+    }
+
+    /// The image a background layer naming `id` paints on `node` (`None`:
+    /// the canvas): the window's image under that id - and, when that image
+    /// is a render callback, the frame the callback last drew for this layer
+    /// (overlay first), the callback itself until it has drawn one.
+    #[must_use]
+    pub fn background_image(&self, id: &AzString, node: Option<NodeId>) -> Option<ImageRef> {
+        let declared = self.image_cache?.get_css_image_id(id)?;
+        if declared.is_callback() {
+            let slot = BackgroundSlot {
+                dom: self.dom_id,
+                node,
+                declared: declared.get_hash(),
+            };
+            if let Some(frame) = self.overlay.and_then(|o| o.background_frame(&slot)) {
+                return Some(frame.clone());
+            }
+        }
+        Some(declared.clone())
     }
 
     /// The image whose intrinsic size LAYOUT uses for `node_id`. Overlay
@@ -1034,6 +1096,14 @@ pub enum AppliedChange {
         old: Option<ImageRef>,
         new_hash: ImageRefHash,
     },
+    /// A background layer's callback drew a new frame.
+    Background {
+        slot: BackgroundSlot,
+        /// The frame the layer showed BEFORE (holds its pixels alive for a
+        /// backend still compositing an old buffer). `None`: none yet.
+        old: Option<ImageRef>,
+        new_hash: ImageRefHash,
+    },
     ImageById {
         id: AzString,
         old: Option<ImageRef>,
@@ -1143,6 +1213,7 @@ impl ContentJournal {
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.entries.retain(|e| match &e.change {
             AppliedChange::Image { dom_id: d, .. } => *d != dom_id,
+            AppliedChange::Background { slot, .. } => slot.dom != dom_id,
             AppliedChange::ImageById { .. } | AppliedChange::ManagerState { .. } => true,
         });
     }

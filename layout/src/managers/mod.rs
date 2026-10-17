@@ -211,6 +211,48 @@ pub(crate) fn remap_dom_keys<V>(
     }
 }
 
+/// Remap the keys of a map keyed by background layer
+/// (`azul_core::resources::BackgroundSlot`) in place: the layers of `dom` follow
+/// their node (or are dropped with it), the canvas's layers and other DOMs'
+/// are left untouched.
+pub(crate) fn remap_background_slots<V>(
+    map: &mut BTreeMap<azul_core::resources::BackgroundSlot, V>,
+    dom: DomId,
+    node_map: &NodeIdMap,
+) {
+    let old = core::mem::take(map);
+    for (slot, v) in old {
+        match slot.node {
+            Some(old_id) if slot.dom == dom => {
+                if let Some(new_id) = node_map.resolve(old_id) {
+                    map.insert(
+                        azul_core::resources::BackgroundSlot {
+                            node: Some(new_id),
+                            ..slot
+                        },
+                        v,
+                    );
+                }
+            }
+            _ => {
+                map.insert(slot, v);
+            }
+        }
+    }
+}
+
+/// [`remap_background_slots`] for a set of background layers.
+pub(crate) fn remap_background_slot_set(
+    set: &mut alloc::collections::BTreeSet<azul_core::resources::BackgroundSlot>,
+    dom: DomId,
+    node_map: &NodeIdMap,
+) {
+    let mut as_map: BTreeMap<azul_core::resources::BackgroundSlot, ()> =
+        core::mem::take(set).into_iter().map(|slot| (slot, ())).collect();
+    remap_background_slots(&mut as_map, dom, node_map);
+    *set = as_map.into_keys().collect();
+}
+
 // ============================================================================
 // THE PRECEDING-SIBLING TEST
 // ============================================================================

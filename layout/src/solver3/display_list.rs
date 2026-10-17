@@ -23,7 +23,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::GpuValueCache,
     hit_test::{CursorType, ScrollPosition, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE},
-    resources::{IdNamespace, ImageRef, OpacityKey, RendererResources, TransformKey},
+    resources::{IdNamespace, ImageRef, ImageRefHash, OpacityKey, RendererResources, TransformKey},
     selection::{Selection, SelectionRange, TextSelection},
     styled_dom::StyledDom,
     transform::ComputedTransform3D,
@@ -1675,57 +1675,70 @@ impl DisplayList {
         Some(damage.unwrap_or_else(LogicalRect::zero))
     }
 
-    /// Swap the image the `Image` item at `index` draws; its geometry stays
-    /// (the backend's display-list diff sees the identity change and damages
-    /// its bounds, which it returns). The frames of callback images painted
-    /// as background layers go in this way
-    /// (`LayoutWindow::resolve_background_image_callbacks`). `None` when the
-    /// item is not an image.
-    pub fn patch_item_image(&mut self, index: usize, image: ImageRef) -> Option<LogicalRect> {
-        match self.items.get_mut(index) {
-            Some(DisplayListItem::Image {
-                bounds,
-                image: item_image,
-                ..
-            }) => {
-                *item_image = image;
-                Some(*bounds.inner())
-            }
-            _ => None,
-        }
+    /// Point the image items of a background layer at a new frame of its
+    /// render callback: every `Image` item painted for `node` (`None`: the
+    /// canvas) that draws one of `replaced` - the callback the layer
+    /// declares, or the layer's frame before this one. Their geometry stays,
+    /// so the backend's display-list diff damages exactly them; the union of
+    /// their bounds is returned, `None` when no item paints the layer
+    /// (`LayoutWindow::apply_content_change`, the background arm).
+    pub fn patch_background_image(
+        &mut self,
+        node: Option<NodeId>,
+        replaced: &[ImageRefHash],
+        image: &ImageRef,
+    ) -> Option<LogicalRect> {
+        self.patch_images(
+            |item_node, current| item_node == node && replaced.contains(&current.get_hash()),
+            image,
+        )
     }
 
+    /// Point every `Image` item painted for `node` at `image` (a node's
+    /// swapped image or its callback's frame); the union of their bounds is
+    /// returned, `None` when the node paints no image.
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
+        self.patch_images(|item_node, _| item_node == Some(node), image)
+    }
+
+    /// Point the `Image` items `wanted` picks (by the node an item is painted
+    /// for and the image it draws now) at `image`, and return the union of
+    /// their bounds.
+    fn patch_images(
+        &mut self,
+        wanted: impl Fn(Option<NodeId>, &ImageRef) -> bool,
+        image: &ImageRef,
+    ) -> Option<LogicalRect> {
         let mut damage: Option<LogicalRect> = None;
 
         for (idx, item) in self.items.iter_mut().enumerate() {
-            if self.node_mapping.get(idx).copied().flatten() != Some(node) {
-                continue;
-            }
-            if let DisplayListItem::Image {
+            let DisplayListItem::Image {
                 bounds,
                 image: item_image,
                 ..
             } = item
-            {
-                *item_image = image.clone();
-                let bounds = *bounds.inner();
-                damage = Some(damage.map_or(bounds, |d| {
-                    let x = d.origin.x.min(bounds.origin.x);
-                    let y = d.origin.y.min(bounds.origin.y);
-                    let right =
-                        (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
-                    let bottom =
-                        (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
-                    LogicalRect {
-                        origin: LogicalPosition { x, y },
-                        size: LogicalSize {
-                            width: right - x,
-                            height: bottom - y,
-                        },
-                    }
-                }));
+            else {
+                continue;
+            };
+            if !wanted(self.node_mapping.get(idx).copied().flatten(), &*item_image) {
+                continue;
             }
+            *item_image = image.clone();
+            let bounds = *bounds.inner();
+            damage = Some(damage.map_or(bounds, |d| {
+                let x = d.origin.x.min(bounds.origin.x);
+                let y = d.origin.y.min(bounds.origin.y);
+                let right = (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
+                let bottom =
+                    (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x, y },
+                    size: LogicalSize {
+                        width: right - x,
+                        height: bottom - y,
+                    },
+                }
+            }));
         }
 
         damage
@@ -3447,13 +3460,15 @@ impl DisplayListBuilder {
 
     /// One background layer over `bounds`: a colour fills it, a gradient or an
     /// image is drawn to it. The one place a `StyleBackgroundContent` becomes
-    /// a display item.
+    /// a display item. An image resolves through `content`: a render callback
+    /// paints the frame it last drew for this layer (the content overlay),
+    /// so the list draws a picture, not the callback.
     pub(crate) fn push_background_layer(
         &mut self,
         bounds: LogicalRect,
         layer: &azul_css::props::style::StyleBackgroundContent,
         border_radius: BorderRadius,
-        image_cache: &azul_core::resources::ImageCache,
+        content: &crate::overlay::ResolvedContent<'_>,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
@@ -3471,8 +3486,8 @@ impl DisplayListBuilder {
                 self.push_conic_gradient(bounds, gradient.clone(), border_radius);
             }
             StyleBackgroundContent::Image(image_id) => {
-                if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
-                    self.push_image(bounds, image_ref.clone(), border_radius);
+                if let Some(image_ref) = content.background_image(image_id, self.current_node) {
+                    self.push_image(bounds, image_ref, border_radius);
                 }
             }
             StyleBackgroundContent::SystemColor(_s) => {
@@ -3495,7 +3510,7 @@ impl DisplayListBuilder {
         tile: LogicalRect,
         repeat: azul_css::props::style::StyleBackgroundRepeat,
         layer: &azul_css::props::style::StyleBackgroundContent,
-        image_cache: &azul_core::resources::ImageCache,
+        content: &crate::overlay::ResolvedContent<'_>,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
@@ -3503,11 +3518,11 @@ impl DisplayListBuilder {
             layer,
             StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
         ) {
-            self.push_background_layer(area, layer, BorderRadius::default(), image_cache);
+            self.push_background_layer(area, layer, BorderRadius::default(), content);
             return;
         }
         for t in background_tiles(tile, area, repeat) {
-            self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+            self.push_background_layer(t, layer, BorderRadius::default(), content);
         }
     }
 
@@ -3522,7 +3537,7 @@ impl DisplayListBuilder {
         tile: LogicalRect,
         repeat: azul_css::props::style::StyleBackgroundRepeat,
         layer: &azul_css::props::style::StyleBackgroundContent,
-        image_cache: &azul_core::resources::ImageCache,
+        content: &crate::overlay::ResolvedContent<'_>,
     ) {
         let overlaps = |t: &LogicalRect| {
             t.origin.x < area.origin.x + area.size.width
@@ -3543,12 +3558,12 @@ impl DisplayListBuilder {
                     && same(only.size.width, area.size.width)
                     && same(only.size.height, area.size.height) =>
             {
-                self.push_background_layer(area, layer, radius, image_cache);
+                self.push_background_layer(area, layer, radius, content);
             }
             _ => {
                 self.push_clip(area, radius);
                 for t in tiles {
-                    self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+                    self.push_background_layer(t, layer, BorderRadius::default(), content);
                 }
                 self.pop_clip();
             }
@@ -3568,7 +3583,7 @@ impl DisplayListBuilder {
         background_color: Option<ColorU>,
         background_contents: &[azul_css::props::style::StyleBackgroundContent],
         border: Option<&crate::text3::cache::InlineBorderInfo>,
-        image_cache: &azul_core::resources::ImageCache,
+        content: &crate::overlay::ResolvedContent<'_>,
     ) {
         // The layers hold the solid colour too (`background_color` is their
         // first `Color` layer, kept for the PDF runs): painting both drew a
@@ -3582,7 +3597,7 @@ impl DisplayListBuilder {
 
         // Paint all background layers in order (CSS paints backgrounds back to front)
         for bg in background_contents {
-            self.push_background_layer(bounds, bg, BorderRadius::default(), image_cache);
+            self.push_background_layer(bounds, bg, BorderRadius::default(), content);
         }
 
         // Paint border if present
@@ -4200,7 +4215,7 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
                     tile,
                     repeat,
                     layer,
-                    generator.ctx.image_cache,
+                    &generator.ctx.resolved_content(),
                 );
                 if let azul_css::props::style::StyleBackgroundContent::Color(c) = layer {
                     debug_info!(
@@ -6991,6 +7006,104 @@ where
         BackgroundPlacement::of(self.ctx.styled_dom, dom_id, node_state, layers, self.ctx.image_cache)
     }
 
+    /// The cursor's sheen over a built-in material layer (`builtin(leather)`)
+    /// that covers `area`: a radial highlight, cut to the layer's rounded
+    /// rect, whose opacity (the sheen's eased amount) and place (the cursor)
+    /// are GPU values - the sheen channel of the GPU cache, which the window
+    /// keys only where `WebRender` draws it. So the cursor moves it without a
+    /// new frame of the material or a new display list. Returns whether the
+    /// layer has a sheen.
+    #[allow(clippy::too_many_arguments)] // the layer's resolved pieces
+    fn push_material_sheen(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        area: LogicalRect,
+        radius: BorderRadius,
+    ) -> bool {
+        #[cfg(feature = "materials")]
+        {
+            use azul_css::props::style::StyleBackgroundContent;
+
+            use crate::texture::{materials, Material, MaterialLight};
+
+            let StyleBackgroundContent::Image(id) = layer else {
+                return false;
+            };
+            let Some(material) = Material::from_css_name(id.as_str()) else {
+                return false;
+            };
+            let Some(cache) = self.gpu_value_cache else {
+                return false;
+            };
+            let (Some(&transform_key), Some(&opacity_key)) = (
+                cache.sheen_transform_keys.get(&dom_id),
+                cache.sheen_opacity_keys.get(&dom_id),
+            ) else {
+                return false;
+            };
+            let properties = self
+                .ctx
+                .styled_dom
+                .get_css_property_cache()
+                .custom_property_envs
+                .map_for(dom_id.index(), super::getters::custom_property_state(node_state));
+            let params = materials::MaterialParams::from_custom_properties(
+                material,
+                |name| properties.get(name).map(str::to_string),
+                [
+                    radius.top_left,
+                    radius.top_right,
+                    radius.bottom_right,
+                    radius.bottom_left,
+                ],
+            );
+            // The light's colour: the default light's (a window's own light
+            // colour is not known to the layout).
+            let Some(sprite) = materials::sheen_sprite(material, &params, &MaterialLight::DEFAULT)
+            else {
+                return false;
+            };
+            // The highlight is laid at the layer's top-left corner, and the
+            // transform moves it to the cursor.
+            let [rx, ry] = sprite.radius;
+            let highlight = LogicalRect::new(
+                LogicalPosition::new(area.origin.x - rx, area.origin.y - ry),
+                LogicalSize::new(2.0 * rx, 2.0 * ry),
+            );
+            let transform = cache
+                .sheen_current_transform_values
+                .get(&dom_id)
+                .copied()
+                .unwrap_or(ComputedTransform3D::IDENTITY);
+            let opacity = cache
+                .sheen_current_opacity_values
+                .get(&dom_id)
+                .copied()
+                .unwrap_or(0.0);
+            builder.push_clip(area, radius);
+            builder.push_item(DisplayListItem::PushOpacity {
+                bounds: area.into(),
+                opacity,
+                opacity_key: Some(opacity_key),
+            });
+            // No owner: the frame moves the highlight, not the node.
+            builder.push_reference_frame(transform_key, transform, highlight, None);
+            builder.push_radial_gradient(highlight, sprite.gradient(), BorderRadius::default());
+            builder.pop_reference_frame();
+            builder.push_item(DisplayListItem::PopOpacity);
+            builder.pop_clip();
+            true
+        }
+        #[cfg(not(feature = "materials"))]
+        {
+            let _ = (builder, dom_id, node_state, layer, area, radius);
+            false
+        }
+    }
+
     /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
     /// Appendix E): its OUTER shadows (below everything, around the border
     /// box), its background layers - within its `background-clip` box
@@ -7057,6 +7170,7 @@ where
                 super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
             let placement = self.background_placement(dom_id, node_state, background_contents);
             let layers = background_contents.len();
+            let mut sheen_drawn = false;
             for (i, layer) in background_contents.iter().enumerate() {
                 let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
                     StyleBackgroundClip::BorderBox => (border_box, border_radius),
@@ -7075,11 +7189,22 @@ where
                         tile,
                         repeat,
                         layer,
-                        self.ctx.image_cache,
+                        &self.ctx.resolved_content(),
                     ),
                     None => {
-                        builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+                        builder.push_background_layer(
+                            area,
+                            layer,
+                            radius,
+                            &self.ctx.resolved_content(),
+                        );
                     }
+                }
+                // A material shines under the cursor: its sheen is a layer
+                // right over it, under the layers above it.
+                if !sheen_drawn {
+                    sheen_drawn =
+                        self.push_material_sheen(builder, dom_id, node_state, layer, area, radius);
                 }
             }
         }
@@ -9598,7 +9723,7 @@ where
                 paint.background_color,
                 &paint.background_content,
                 border.as_ref(),
-                self.ctx.image_cache,
+                &self.ctx.resolved_content(),
             );
         }
     }
@@ -9962,7 +10087,7 @@ where
                     glyph_run.background_color,
                     &glyph_run.background_content,
                     glyph_run.border.as_ref(),
-                    self.ctx.image_cache,
+                    &self.ctx.resolved_content(),
                 );
             }
         }

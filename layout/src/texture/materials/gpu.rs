@@ -91,7 +91,10 @@ pub(crate) fn render_material_gl(
         return None;
     }
     let gl: Rc<GenericGlContext> = gl_ptr.get().clone();
-    STATES.with(|states| {
+    // Before anything is compiled, uploaded or bound: what the frame path
+    // had set up is put back after the draw.
+    let saved = SavedGlState::save(&gl);
+    let frame = STATES.with(|states| {
         let mut states = states.borrow_mut();
         let index = state_index(&mut states, &gl, version);
         let state = &mut states[index];
@@ -99,7 +102,9 @@ pub(crate) fn render_material_gl(
             return None;
         }
         state.draw(gl_ptr, &gl, material, [width, height], dpr, params, scene)
-    })
+    });
+    saved.restore(&gl);
+    frame
 }
 
 /// Whether the material shader compiles and links on `gl` (tests ask, to
@@ -112,11 +117,15 @@ pub fn material_shader_compiles(gl_ptr: &GlContextPtr) -> bool {
         return false;
     }
     let gl = gl_ptr.get().clone();
-    STATES.with(|states| {
+    // Linking the program and uploading the blank texture bind things.
+    let saved = SavedGlState::save(&gl);
+    let compiles = STATES.with(|states| {
         let mut states = states.borrow_mut();
         let index = state_index(&mut states, &gl, version);
         states[index].program != 0
-    })
+    });
+    saved.restore(&gl);
+    compiles
 }
 
 /// The index of `gl`'s state, made now if it has none; states of contexts
@@ -225,6 +234,92 @@ fn upload(gl: &GenericGlContext, width: usize, height: usize, rgba: &[u8], repea
     id
 }
 
+/// The texture units the material shader samples: its tile, its mottling, a
+/// shape's distance field and the wallpaper.
+const SAMPLER_UNITS: usize = 4;
+
+/// The context's state a material draw changes, saved before it and put back
+/// after: the framebuffer, program, vertex array, viewport and active texture
+/// unit, the texture bound to each unit the shader samples, and whether
+/// blending, the scissor and the depth test are on. The draw runs in the
+/// middle of the GL frame path - after an app's canvas callbacks, before
+/// `WebRender` - and each of them finds the state it left.
+struct SavedGlState {
+    /// The framebuffer drawn into (the window's, or a renderer's target).
+    framebuffer: i32,
+    /// The program in use.
+    program: i32,
+    /// The vertex array bound.
+    vertex_array: i32,
+    /// The viewport: x, y, width, height.
+    viewport: [i32; 4],
+    /// The active texture unit (`GL_TEXTURE0 + n`).
+    active_texture: i32,
+    /// The 2D texture bound to each unit the shader samples.
+    textures: [i32; SAMPLER_UNITS],
+    /// Whether blending is on (the draw turns it off: it writes its pixels).
+    blend: bool,
+    /// Whether the scissor test is on (off for the draw: the whole frame).
+    scissor: bool,
+    /// Whether the depth test is on (off for the draw).
+    depth: bool,
+}
+
+impl SavedGlState {
+    fn save(gl: &GenericGlContext) -> Self {
+        let one = |name: u32| {
+            let mut value = [0_i32];
+            // SAFETY: each query writes one int.
+            unsafe { gl.get_integer_v(name, &mut value) };
+            value[0]
+        };
+        let mut viewport = [0_i32; 4];
+        // SAFETY: the viewport is four ints.
+        unsafe { gl.get_integer_v(gl::VIEWPORT, &mut viewport) };
+        let active_texture = one(gl::ACTIVE_TEXTURE);
+        let mut textures = [0_i32; SAMPLER_UNITS];
+        for (unit, bound) in textures.iter_mut().enumerate() {
+            gl.active_texture(gl::TEXTURE0 + unit as u32);
+            *bound = one(gl::TEXTURE_BINDING_2D);
+        }
+        gl.active_texture(active_texture as u32);
+        Self {
+            framebuffer: one(gl::FRAMEBUFFER_BINDING),
+            program: one(gl::CURRENT_PROGRAM),
+            vertex_array: one(gl::VERTEX_ARRAY_BINDING),
+            viewport,
+            active_texture,
+            textures,
+            blend: gl.is_enabled(gl::BLEND) != 0,
+            scissor: gl.is_enabled(gl::SCISSOR_TEST) != 0,
+            depth: gl.is_enabled(gl::DEPTH_TEST) != 0,
+        }
+    }
+
+    fn restore(&self, gl: &GenericGlContext) {
+        for (cap, on) in [
+            (gl::BLEND, self.blend),
+            (gl::SCISSOR_TEST, self.scissor),
+            (gl::DEPTH_TEST, self.depth),
+        ] {
+            if on {
+                gl.enable(cap);
+            } else {
+                gl.disable(cap);
+            }
+        }
+        for (unit, &bound) in self.textures.iter().enumerate() {
+            gl.active_texture(gl::TEXTURE0 + unit as u32);
+            gl.bind_texture(gl::TEXTURE_2D, bound as u32);
+        }
+        gl.active_texture(self.active_texture as u32);
+        gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer as u32);
+        gl.use_program(self.program as u32);
+        gl.bind_vertex_array(self.vertex_array as u32);
+        gl.viewport(self.viewport[0], self.viewport[1], self.viewport[2], self.viewport[3]);
+    }
+}
+
 impl ContextState {
     fn new(gl: &Rc<GenericGlContext>, version: &str) -> Self {
         let program = match link(gl, version) {
@@ -300,6 +395,8 @@ impl ContextState {
         params: &MaterialParams,
         scene: &SurfaceScene,
     ) -> Option<ImageRef> {
+        // The caller (`render_material_gl`) saved the context's state and
+        // puts it back: this binds and turns off what the draw needs.
         let u = prepare(material, [width, height], dpr, params, scene);
         let (tile_tex, macro_tex, macro_period) = self.tile_textures(gl, material);
         let source = match params.source {
@@ -325,22 +422,10 @@ impl ContextState {
             ColorU::TRANSPARENT,
         );
         if texture.texture_id == 0 {
+            if let Some(tex) = shape_tex {
+                gl.delete_textures(&[tex]);
+            }
             return None;
-        }
-
-        // What WebRender had bound, restored after the draw.
-        let mut saved_fbo = [0_i32];
-        let mut saved_program = [0_i32];
-        let mut saved_vao = [0_i32];
-        let mut saved_viewport = [0_i32; 4];
-        let mut saved_active = [0_i32];
-        // SAFETY: each query writes as many ints as its array holds.
-        unsafe {
-            gl.get_integer_v(gl::FRAMEBUFFER_BINDING, &mut saved_fbo);
-            gl.get_integer_v(gl::CURRENT_PROGRAM, &mut saved_program);
-            gl.get_integer_v(gl::VERTEX_ARRAY_BINDING, &mut saved_vao);
-            gl.get_integer_v(gl::VIEWPORT, &mut saved_viewport);
-            gl.get_integer_v(gl::ACTIVE_TEXTURE, &mut saved_active);
         }
 
         let fbo = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
@@ -388,9 +473,6 @@ impl ContextState {
             f3("uL", u.sun);
             f3("uLightColor", u.light_color);
             f1("uAmbient", scene.ambient);
-            f2("uMouse", scene.cursor);
-            f1("uSheen", u.sheen);
-            f1("uSheenSize", params.sheen_size);
             f4("uEnvRect", u.env_rect);
             f3("uEnvFlat", scene.environment.flat_colour());
             f1("uEnvMode", if env_tex.is_some() { 1.0 } else { 0.0 });
@@ -414,17 +496,12 @@ impl ContextState {
                 i1(name, unit as i32);
             }
             gl.draw_arrays(gl::TRIANGLES, 0, 3);
-            for unit in 0..samplers.len() {
-                gl.active_texture(gl::TEXTURE0 + unit as u32);
-                gl.bind_texture(gl::TEXTURE_2D, 0);
-            }
+            super::count_render();
         }
 
-        gl.active_texture(saved_active[0] as u32);
-        gl.bind_framebuffer(gl::FRAMEBUFFER, saved_fbo[0] as u32);
-        gl.use_program(saved_program[0] as u32);
-        gl.bind_vertex_array(saved_vao[0] as u32);
-        gl.viewport(saved_viewport[0], saved_viewport[1], saved_viewport[2], saved_viewport[3]);
+        // The frame's framebuffer is unbound before it goes: the caller puts
+        // back the one the frame path had bound.
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
         if fbo != 0 {
             gl.delete_framebuffers(&[fbo]);
         }

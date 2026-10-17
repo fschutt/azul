@@ -1461,3 +1461,130 @@ mod autotest_generated {
         gl_textures_clear_opengl_cache();
     }
 }
+
+#[cfg(test)]
+mod gl_state_restore_tests {
+    //! What the texture helpers leave bound: a renderer (WebRender, a canvas
+    //! callback) that had a texture or a framebuffer bound finds it bound
+    //! again. They read the bindings with the `*_BINDING` names; asking for
+    //! `GL_TEXTURE_2D` is an error in a core profile and answers nothing.
+
+    use core::{cell::RefCell, ffi::c_void};
+
+    use super::*;
+
+    std::thread_local! {
+        /// What this fake driver answers to glGetIntegerv, by name.
+        static BOUND: RefCell<Vec<(u32, i32)>> = const { RefCell::new(Vec::new()) };
+        /// Every glBindTexture / glBindFramebuffer / glBindRenderbuffer call:
+        /// (which, target, name), `which` 0 / 1 / 2.
+        static BINDS: RefCell<Vec<(u8, u32, u32)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    extern "system" fn get_integer(name: u32, out: *mut i32) {
+        let value = BOUND.with(|b| {
+            b.borrow()
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map_or(0, |(_, v)| *v)
+        });
+        // SAFETY: the loader passes a buffer of at least one GLint.
+        unsafe { *out = value };
+    }
+
+    extern "system" fn bind_texture(target: u32, name: u32) {
+        BINDS.with(|b| b.borrow_mut().push((0, target, name)));
+    }
+
+    extern "system" fn bind_framebuffer(target: u32, name: u32) {
+        BINDS.with(|b| b.borrow_mut().push((1, target, name)));
+    }
+
+    extern "system" fn bind_renderbuffer(target: u32, name: u32) {
+        BINDS.with(|b| b.borrow_mut().push((2, target, name)));
+    }
+
+    extern "system" fn gen_names(n: i32, out: *mut u32) {
+        for i in 0..n.max(0) {
+            // SAFETY: the loader passes a buffer of `n` GLuints.
+            unsafe { *out.add(i as usize) = 500 + i as u32 };
+        }
+    }
+
+    /// A no-op driver that remembers the binds and answers the bindings
+    /// `bound` names.
+    fn recording(bound: Vec<(u32, i32)>) -> GlContextPtr {
+        BOUND.with(|b| *b.borrow_mut() = bound);
+        BINDS.with(|b| b.borrow_mut().clear());
+        // SAFETY: every field is a function pointer, null is valid for each.
+        let mut gl: GenericGlContext = unsafe { core::mem::zeroed() };
+        gl.glGetIntegerv = get_integer as extern "system" fn(u32, *mut i32) as *const () as *mut c_void;
+        gl.glBindTexture = bind_texture as extern "system" fn(u32, u32) as *const () as *mut c_void;
+        gl.glBindFramebuffer = bind_framebuffer as extern "system" fn(u32, u32) as *const () as *mut c_void;
+        gl.glBindRenderbuffer = bind_renderbuffer as extern "system" fn(u32, u32) as *const () as *mut c_void;
+        let gen = gen_names as extern "system" fn(i32, *mut u32) as *const () as *mut c_void;
+        gl.glGenTextures = gen;
+        gl.glGenFramebuffers = gen;
+        gl.glGenRenderbuffers = gen;
+        GlContextPtr::new(RendererType::Software, Rc::new(gl))
+    }
+
+    /// The last bind of kind `which` (0 texture, 1 framebuffer, 2
+    /// renderbuffer): its target and name.
+    fn last_bind(which: u8) -> Option<(u32, u32)> {
+        BINDS.with(|b| {
+            b.borrow()
+                .iter()
+                .rev()
+                .find(|(w, _, _)| *w == which)
+                .map(|(_, target, name)| (*target, *name))
+        })
+    }
+
+    #[test]
+    fn a_texture_allocated_while_another_is_bound_leaves_that_one_bound() {
+        let gl = recording(vec![(gl::TEXTURE_BINDING_2D, 77)]);
+        let texture = Texture::allocate_rgba8(
+            gl,
+            PhysicalSizeU32 { width: 4, height: 4 },
+            ColorU::TRANSPARENT,
+        );
+        assert_eq!(texture.texture_id, 500, "harness: the texture is the driver's");
+        assert_eq!(
+            last_bind(0),
+            Some((gl::TEXTURE_2D, 77)),
+            "the texture bound before the allocation is bound again"
+        );
+    }
+
+    #[test]
+    fn a_cleared_texture_leaves_the_bindings_it_found() {
+        let gl = recording(vec![
+            (gl::TEXTURE_BINDING_2D, 77),
+            (gl::FRAMEBUFFER_BINDING, 9),
+            (gl::RENDERBUFFER_BINDING, 4),
+        ]);
+        let mut texture = test_texture_on(gl, 12);
+        texture.clear();
+        assert_eq!(last_bind(0), Some((gl::TEXTURE_2D, 77)), "the texture it found");
+        assert_eq!(last_bind(1), Some((gl::FRAMEBUFFER, 9)), "the framebuffer it found");
+        assert_eq!(last_bind(2), Some((gl::RENDERBUFFER, 4)), "the renderbuffer it found");
+    }
+
+    fn test_texture_on(gl: GlContextPtr, texture_id: GLuint) -> Texture {
+        Texture::create(
+            texture_id,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 {
+                width: 4,
+                height: 4,
+            },
+            ColorU::TRANSPARENT,
+            gl,
+            RawImageFormat::RGBA8,
+        )
+    }
+}

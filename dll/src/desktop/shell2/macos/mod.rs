@@ -9226,6 +9226,10 @@ impl MacOSWindow {
             }
 
             self.common.display_list_initialized = true;
+            // Like every pass, the frame's content step may leave work: a
+            // background whose callback draws its frame off the UI thread is
+            // asked again on the frames the animation drivers bring.
+            self.arm_animation_drivers_if_needed();
             return Ok(());
         }
 

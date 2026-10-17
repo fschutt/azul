@@ -17,8 +17,11 @@
 //! Smith-Schlick and Schlick's Fresnel (anisotropic for brushed metal), a
 //! wrapped diffuse normalised so a flat surface shows its tint, a studio
 //! room reflected - and for a metal the desktop behind the window
-//! (`environment`) -, the cursor's sheen as a second GGX lobe, a filmic
-//! shoulder, sRGB and a half level of dither.
+//! (`environment`) -, a filmic shoulder, sRGB and a half level of dither.
+//!
+//! The cursor's sheen is no part of a frame: it is a layer of its own over
+//! the surface ([`sheen_sprite`]), a soft highlight the display list moves
+//! with the cursor, so a moving cursor never draws a material again.
 //!
 //! The shape adds its own slope: a bevel along the edge (a cushion by
 //! default, so it draws no line), a padded cushion and the pillow that rounds
@@ -28,9 +31,11 @@
 //! An element tunes its material with custom properties
 //! ([`MaterialParams::from_custom_properties`] lists them). Renders are
 //! cached by everything they depend on; the grain (the expensive part) is
-//! cached on its own in tiles of window pixels, so a new light, a moving
-//! sheen or a growing height relights without recomputing it. With a GPU
-//! context the frame is drawn by the GPU instead (`gpu`).
+//! cached on its own in tiles of window pixels, so a new light or a growing
+//! height relights without recomputing it. With a GPU context the frame is
+//! drawn by the GPU instead (`gpu`). A window that does not wait for a frame
+//! (a desktop shell's CPU window) gets a large surface drawn on a worker
+//! thread, off the UI thread, and shows what the layer showed until then.
 
 // Per-channel loops over parallel colour arrays (`for c in 0..3`) read
 // clearer indexed than zipped three ways.
@@ -903,7 +908,7 @@ fn parse_glow(value: &str) -> Option<Glow> {
 // -- What a surface is lit by ---------------------------------------------------------------------
 
 /// Everything around a surface that its look depends on besides its own
-/// params: the light, where it sits, the cursor, the room it reflects and
+/// params: the light, where it sits, the room it reflects and
 /// the shape it is cut to.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceScene {
@@ -925,10 +930,6 @@ pub struct SurfaceScene {
     pub desktop_origin: [f32; 2],
     /// The screen the surface is on, desktop points: x, y, width, height.
     pub screen: [f32; 4],
-    /// The cursor's sheen, eased 0..1 (0 = the cursor is elsewhere).
-    pub sheen: f32,
-    /// The cursor, logical px in the surface.
-    pub cursor: [f32; 2],
     /// What a metal reflects.
     pub environment: Environment,
     /// The shape's distance field, for a bevel that follows the shape.
@@ -946,8 +947,6 @@ impl Default for SurfaceScene {
             window_offset: [0.0, 0.0],
             desktop_origin: [0.0, 0.0],
             screen: [0.0, 0.0, 1920.0, 1080.0],
-            sheen: 0.0,
-            cursor: [0.0, 0.0],
             environment: Environment::default(),
             shape: None,
         }
@@ -984,6 +983,188 @@ const fn metal_of(material: Material) -> (f32, bool) {
     }
 }
 
+// -- The cursor's sheen -------------------------------------------------------------------------
+
+/// The cursor's sheen on a material, as the layer the display list draws
+/// over it ([`sheen_sprite`]): one colour drawn OVER the material at an
+/// alpha that falls with the distance from the cursor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheenSprite {
+    /// How far the highlight reaches from the cursor, logical px, along x
+    /// and along y (a brushed metal's highlight is an ellipse).
+    pub radius: [f32; 2],
+    /// The highlight's colour, sRGB, opaque.
+    pub color: azul_css::props::basic::ColorU,
+    /// Its alpha (0..1, at full strength: the layer's opacity is the sheen's
+    /// eased amount) at distances from the cursor, as shares of the radius
+    /// from 0 (the cursor) to 1 (the reach). They lie closer together near
+    /// the cursor, where the lobe bends most.
+    pub stops: Vec<(f32, f32)>,
+}
+
+/// How many stops the highlight's gradient has.
+const SHEEN_STOPS: usize = 16;
+
+impl SheenSprite {
+    /// The highlight as a radial gradient filling a rect of twice its radius,
+    /// centred on that rect.
+    #[must_use]
+    pub fn gradient(&self) -> azul_css::props::style::background::RadialGradient {
+        use azul_css::props::{
+            basic::{ColorU, PercentageValue},
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode,
+                NormalizedLinearColorStop, RadialGradient, RadialGradientSize, Shape,
+                StyleBackgroundPosition,
+            },
+        };
+
+        let stops: Vec<NormalizedLinearColorStop> = self
+            .stops
+            .iter()
+            .map(|&(at, alpha)| {
+                NormalizedLinearColorStop::new(
+                    PercentageValue::new(at * 100.0),
+                    ColorU {
+                        a: (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
+                        ..self.color
+                    },
+                )
+            })
+            .collect();
+        RadialGradient {
+            shape: if (self.radius[0] - self.radius[1]).abs() < 0.5 {
+                Shape::Circle
+            } else {
+                Shape::Ellipse
+            },
+            size: RadialGradientSize::ClosestSide,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            extend_mode: ExtendMode::Clamp,
+            stops: stops.into(),
+        }
+    }
+}
+
+/// The cursor's sheen on `material` worn as `params`, in `light`'s colour:
+/// the highlight the display list draws over the material while the cursor
+/// is on it, `None` for a material without a sheen.
+///
+/// The sheen is the material's second GGX lobe: a light `sheen_size` px over
+/// the cursor, wider than the surface's own specular (alpha 1.8 times for a
+/// dielectric, 1.1 times for a metal), on a satin base of 25% (a metal's own
+/// colour), `sheen x 3 x depth` strong. On a flat surface it depends on the
+/// distance to the cursor alone. Drawn over the material's colour (its tint
+/// under the light) in one colour at a falling alpha, it brightens the
+/// surface as the lobe does - the grain shows through, as it does under the
+/// lobe.
+// The lobe keeps the shader's letters (shader.glsl): a, n, k...
+#[allow(clippy::many_single_char_names)]
+#[must_use]
+pub fn sheen_sprite(
+    material: Material,
+    params: &MaterialParams,
+    light: &MaterialLight,
+) -> Option<SheenSprite> {
+    let strength = params.sheen * 3.0 * params.depth;
+    if strength <= 0.0 {
+        return None;
+    }
+    let (metal, aniso) = metal_of(material);
+    let light_color = [light.color.r, light.color.g, light.color.b]
+        .map(|v| srgb_to_linear(f32::from(v) / 255.0) * light.intensity.max(0.0));
+    // The lobe's roughness: the middle of the range the surface spreads over.
+    let rough = 0.5 * (params.roughness[0] + params.roughness[1]);
+    let a = (rough * rough).max(0.002);
+    let am = (a * surface::mix(1.8, 1.1, metal)).max(0.02);
+    let base = params
+        .tint
+        .map(|c| surface::mix(0.25, surface::mix(0.04, c, metal), metal));
+    let size = params.sheen_size.max(1.0);
+    // The light the lobe adds at `(dx, dy)` from the cursor, linear.
+    let added = |dx: f32, dy: f32| -> [f32; 3] {
+        let n = [0.0, 0.0, 1.0];
+        let lm = shade::normalize([-dx, -dy, size]);
+        let hm = shade::normalize([lm[0], lm[1], lm[2] + 1.0]);
+        let nlm = lm[2].max(0.0);
+        let dm = if aniso {
+            shade::ggx_aniso(n, hm, (am * 0.35).max(0.004), (am * 1.8).max(0.02))
+        } else {
+            shade::ggx(hm[2].max(0.0), am)
+        };
+        let fm = shade::schlick(base, hm[2].max(0.0));
+        let k = strength * dm * shade::smith_g(nlm.max(1e-3), 1.0, am) / (4.0 * nlm).max(1e-4)
+            * nlm
+            * surface::mix(1.2, 0.8, metal);
+        [0_usize, 1, 2].map(|c| k * fm[c] * light_color[c])
+    };
+    let shown = |col: [f32; 3]| shade::film(col).map(shade::encode);
+    let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let plus = |x: [f32; 3], y: [f32; 3]| [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
+
+    let surface_lit = [0_usize, 1, 2].map(|c| params.tint[c] * light_color[c]);
+    let under = shown(surface_lit);
+    let at_cursor = added(0.0, 0.0);
+    let peak = shown(plus(surface_lit, at_cursor));
+    if luma(peak) - luma(under) < 0.5 / 255.0 {
+        return None;
+    }
+    // The colour of the light the lobe adds, at full brightness - or the
+    // lit colour under the cursor where that is brighter still (a polished
+    // metal's highlight burns to white).
+    let brightest = at_cursor[0].max(at_cursor[1]).max(at_cursor[2]).max(1e-6);
+    let hue = at_cursor.map(|c| shade::encode(c / brightest));
+    let color = if luma(peak) > luma(hue) { peak } else { hue };
+    let span = (luma(color) - luma(under)).max(1e-4);
+    let alpha_at = |dx: f32, dy: f32| {
+        ((luma(shown(plus(surface_lit, added(dx, dy)))) - luma(under)) / span).clamp(0.0, 1.0)
+    };
+    // How far the highlight reaches along one axis: where it brightens the
+    // surface by less than half a level. A rough surface's lobe is wide - a
+    // light hanging over it lights it far around - so this is far more than
+    // the light's height.
+    let reach = |along_x: bool| -> f32 {
+        let step = (size / 32.0).max(0.5);
+        let mut d = step;
+        while d < size * 64.0 {
+            let alpha = if along_x { alpha_at(d, 0.0) } else { alpha_at(0.0, d) };
+            if alpha * span < 0.5 / 255.0 {
+                break;
+            }
+            d += step;
+        }
+        d
+    };
+    let radius = [reach(true), reach(false)];
+    // The stops at squared shares of the radius: dense near the cursor.
+    let stops = (0..SHEEN_STOPS)
+        .map(|i| {
+            let t = i as f32 / (SHEEN_STOPS - 1) as f32;
+            let at = t * t;
+            let alpha = if i + 1 == SHEEN_STOPS {
+                0.0
+            } else {
+                alpha_at(at * radius[0], 0.0)
+            };
+            (at, alpha)
+        })
+        .collect();
+    let byte = |c: f32| (c * 255.0).round().clamp(0.0, 255.0) as u8;
+    Some(SheenSprite {
+        radius,
+        color: azul_css::props::basic::ColorU {
+            r: byte(color[0]),
+            g: byte(color[1]),
+            b: byte(color[2]),
+            a: 255,
+        },
+        stops,
+    })
+}
+
 // -- Rendering ----------------------------------------------------------------------------------
 
 /// The uniforms of one render, for the CPU's shader and the GPU's alike:
@@ -999,7 +1180,6 @@ pub(crate) struct Prepared {
     pub(crate) pillow: [f32; 2],
     pub(crate) pillow_foot: f32,
     pub(crate) relief: f32,
-    pub(crate) sheen: f32,
     pub(crate) metal: f32,
     pub(crate) aniso: bool,
     pub(crate) sun: [f32; 3],
@@ -1064,7 +1244,6 @@ pub(crate) fn prepare(
         pillow,
         pillow_foot: params.pillow.foot,
         relief: params.relief * d3.sqrt(),
-        sheen: scene.sheen.clamp(0.0, 1.0) * params.sheen * 3.0 * d3,
         metal,
         aniso,
         sun,
@@ -1148,9 +1327,6 @@ pub fn render_material_pixels(
         point: u.point,
         light_color: u.light_color,
         ambient: scene.ambient,
-        mouse: scene.cursor,
-        sheen: u.sheen,
-        sheen_size: params.sheen_size,
         env_rect: u.env_rect,
         desktop_origin: scene.desktop_origin,
         wallpaper: wallpaper.map(|w| &**w),
@@ -1187,8 +1363,6 @@ pub(crate) fn render_key(
     bits(&[
         params.relief,
         params.variation,
-        params.sheen,
-        params.sheen_size,
         params.grain,
         params.scale,
         params.bevel.width,
@@ -1235,21 +1409,64 @@ pub(crate) fn render_key(
     if metal > 0.0 {
         scene.environment.key().hash(&mut h);
     }
-    let sheen = (scene.sheen * params.sheen).max(0.0);
-    if sheen > 0.0 {
-        bits(&[scene.sheen]).hash(&mut h);
-        bits(&scene.cursor).hash(&mut h);
-    }
     if params.bevel.follow == BevelFollow::Shape {
         scene.shape.as_deref().hash(&mut h);
     }
     h.finish()
 }
 
+std::thread_local! {
+    /// How many material surfaces this thread had a shader draw
+    /// ([`renders_on_this_thread`]).
+    static RENDERS_ON_THIS_THREAD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many material surfaces a shader drew for this thread: the CPU's
+/// (a render cache miss) or the GPU's. A material is drawn when something
+/// it is drawn from changes, never per frame; this is what tests count. Per
+/// thread, so tests running side by side do not see each other's renders.
+#[must_use]
+pub fn renders_on_this_thread() -> u64 {
+    RENDERS_ON_THIS_THREAD.with(std::cell::Cell::get)
+}
+
+/// One more surface drawn for this thread ([`renders_on_this_thread`]).
+pub(crate) fn count_render() {
+    RENDERS_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
+}
+
 /// The renders kept, at most this many bytes of pixels ...
 const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 /// ... and this many renders.
 const RENDERS_KEPT: usize = 96;
+
+/// The process-wide render cache: render key, frame, its bytes; the most
+/// recently used last. Shared by the UI thread and the deferred renders'
+/// worker.
+static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
+
+/// The frame rendered under `key` before, if the cache still holds it (it
+/// moves to the back: the most recently used).
+fn cached_render(key: u64) -> Option<ImageRef> {
+    let mut cache = RENDERS.lock().ok()?;
+    let i = cache.iter().position(|(k, _, _)| *k == key)?;
+    let entry = cache.remove(i);
+    let found = entry.1.clone();
+    cache.push(entry);
+    Some(found)
+}
+
+/// Keep `image` (`bytes` of pixels) under `key`, the oldest renders going
+/// once the cache holds too many or too much.
+fn remember_render(key: u64, image: &ImageRef, bytes: usize) {
+    if let Ok(mut cache) = RENDERS.lock() {
+        cache.push((key, image.clone(), bytes));
+        let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
+        while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
+            total -= cache.remove(0).2;
+        }
+    }
+}
 
 /// [`render_material_pixels`] as an image, from the process-wide render
 /// cache when the same surface was rendered before (the same `ImageRef`:
@@ -1264,33 +1481,172 @@ pub fn render_material(
     params: &MaterialParams,
     scene: &SurfaceScene,
 ) -> ImageRef {
-    static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
     if width == 0 || height == 0 {
         return transparent_pixel();
     }
     let key = render_key(material, width, height, dpr, params, scene);
-    if let Ok(mut cache) = RENDERS.lock() {
-        if let Some(i) = cache.iter().position(|(k, _, _)| *k == key) {
-            let entry = cache.remove(i);
-            let found = entry.1.clone();
-            cache.push(entry);
-            return found;
-        }
+    if let Some(found) = cached_render(key) {
+        return found;
     }
+    count_render();
     let Some(image) = render_material_pixels(material, width, height, dpr, params, scene)
         .and_then(ImageRef::new_rawimage)
     else {
         return transparent_pixel();
     };
-    if let Ok(mut cache) = RENDERS.lock() {
-        let bytes = width as usize * height as usize * 4;
-        cache.push((key, image.clone(), bytes));
-        let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
-        while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
-            total -= cache.remove(0).2;
-        }
-    }
+    remember_render(key, &image, width as usize * height as usize * 4);
     image
+}
+
+// -- Renders off the UI thread -------------------------------------------------------------------
+
+/// The device pixels from which a window that does not wait (a desktop
+/// shell's CPU window, [`RenderImageCallbackExtras::may_defer`]) gets its
+/// material drawn off the UI thread: the size from which the CPU shader
+/// spreads over several cores, tens of milliseconds and more.
+const DEFER_FROM_PX: u64 = 64 * 1024;
+
+/// One render a window does not wait for.
+struct DeferredRender {
+    /// Which surface it is for (the node and the material): a newer render
+    /// of the same surface replaces it while it waits.
+    surface: u64,
+    /// What it renders ([`render_key`]): its frame goes into the render
+    /// cache under it, where the window finds it when it asks again.
+    key: u64,
+    /// The material, its size in device px, the scale and what it is drawn
+    /// from: the arguments of [`render_material_pixels`].
+    material: Material,
+    size: [u32; 2],
+    dpr: f32,
+    params: MaterialParams,
+    scene: SurfaceScene,
+}
+
+/// The renders waiting for the worker, oldest first, and the keys of every
+/// render waiting or being drawn.
+struct DeferredRenders {
+    /// The renders the worker has not started, oldest first.
+    waiting: Vec<DeferredRender>,
+    /// The keys of every render waiting or being drawn: a window asking
+    /// again for one of them queues nothing.
+    pending: std::collections::BTreeSet<u64>,
+    /// Whether the worker thread runs.
+    worker: bool,
+}
+
+static DEFERRED: Mutex<DeferredRenders> = Mutex::new(DeferredRenders {
+    waiting: Vec::new(),
+    pending: std::collections::BTreeSet::new(),
+    worker: false,
+});
+/// Wakes the worker for a new render, and [`wait_for_deferred_renders`]
+/// when one is done.
+static DEFERRED_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// `material` for a `width` x `height` device-px rect of `surface`, without
+/// waiting: the frame when the render cache holds it, else `None` - the
+/// render is queued for the worker thread (once: asked again while it waits
+/// or is drawn, nothing more is queued; a newer render of the same surface
+/// replaces a waiting one), and the frame is in the cache when it is done.
+fn render_material_deferred(
+    surface: u64,
+    material: Material,
+    [width, height]: [u32; 2],
+    dpr: f32,
+    params: &MaterialParams,
+    scene: &SurfaceScene,
+) -> Option<ImageRef> {
+    let key = render_key(material, width, height, dpr, params, scene);
+    if let Some(found) = cached_render(key) {
+        return Some(found);
+    }
+    let Ok(mut deferred) = DEFERRED.lock() else {
+        return Some(render_material(material, width, height, dpr, params, scene));
+    };
+    if deferred.pending.contains(&key) {
+        return None;
+    }
+    let superseded: Vec<u64> = deferred
+        .waiting
+        .iter()
+        .filter(|job| job.surface == surface)
+        .map(|job| job.key)
+        .collect();
+    deferred.waiting.retain(|job| job.surface != surface);
+    for old in superseded {
+        deferred.pending.remove(&old);
+    }
+    if !deferred.worker {
+        let spawned = std::thread::Builder::new()
+            .name("azul-materials".into())
+            .spawn(deferred_worker)
+            .is_ok();
+        if !spawned {
+            drop(deferred);
+            return Some(render_material(material, width, height, dpr, params, scene));
+        }
+        deferred.worker = true;
+    }
+    count_render();
+    deferred.pending.insert(key);
+    deferred.waiting.push(DeferredRender {
+        surface,
+        key,
+        material,
+        size: [width, height],
+        dpr,
+        params: *params,
+        scene: scene.clone(),
+    });
+    drop(deferred);
+    DEFERRED_CHANGED.notify_all();
+    None
+}
+
+/// The worker: draws the waiting renders, oldest first, into the render
+/// cache. A render that fails leaves a transparent pixel under its key, so
+/// it is not asked for again and again.
+fn deferred_worker() {
+    loop {
+        let job = {
+            let Ok(mut deferred) = DEFERRED.lock() else {
+                return;
+            };
+            loop {
+                if !deferred.waiting.is_empty() {
+                    break deferred.waiting.remove(0);
+                }
+                deferred = match DEFERRED_CHANGED.wait(deferred) {
+                    Ok(guard) => guard,
+                    Err(_) => return,
+                };
+            }
+        };
+        let [width, height] = job.size;
+        let image = render_material_pixels(job.material, width, height, job.dpr, &job.params, &job.scene)
+            .and_then(ImageRef::new_rawimage)
+            .unwrap_or_else(transparent_pixel);
+        remember_render(job.key, &image, width as usize * height as usize * 4);
+        if let Ok(mut deferred) = DEFERRED.lock() {
+            deferred.pending.remove(&job.key);
+        }
+        DEFERRED_CHANGED.notify_all();
+    }
+}
+
+/// Wait until no material render is waiting or being drawn off the UI
+/// thread (a test, a screenshot that must show every surface whole).
+pub fn wait_for_deferred_renders() {
+    let Ok(mut deferred) = DEFERRED.lock() else {
+        return;
+    };
+    while !deferred.pending.is_empty() {
+        deferred = match DEFERRED_CHANGED.wait(deferred) {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+    }
 }
 
 // -- The callback image -------------------------------------------------------------------------
@@ -1329,7 +1685,7 @@ pub fn params_from_extras(material: Material, extras: Option<&RenderImageCallbac
 }
 
 /// The scene the engine describes for a rect `size` (logical px) at `dpr`:
-/// its light, place, cursor and shape, and - for a metal - the desktop.
+/// its light, place and shape, and - for a metal - the desktop.
 #[must_use]
 pub fn scene_from_extras(
     material: Material,
@@ -1354,8 +1710,6 @@ pub fn scene_from_extras(
             e.screen.size.width,
             e.screen.size.height,
         ],
-        sheen: e.sheen,
-        cursor: [e.cursor.x, e.cursor.y],
         ..SurfaceScene::default()
     };
     scene.apply_light_colour(&e.material_light);
@@ -1380,7 +1734,7 @@ pub fn scene_from_extras(
 }
 
 /// The callback behind every material image: the rect's device size, its
-/// radii, node properties, light and cursor (the engine's extras). With a
+/// radii, node properties and light (the engine's extras). With a
 /// usable GPU context the GPU draws it; otherwise (and for god rays) the
 /// CPU.
 extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
@@ -1400,6 +1754,22 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
                 return frame;
             }
         }
+    }
+    // A window that does not wait gets a large surface drawn off the UI
+    // thread; it keeps what the layer shows and asks again.
+    let large = u64::from(size.width) * u64::from(size.height) >= DEFER_FROM_PX;
+    if large && extras.is_some_and(|e| e.may_defer) {
+        let node = info.get_callback_node_id();
+        let surface = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (node.dom.inner, node.node.into_crate_internal().map(|n| n.index()), material).hash(&mut h);
+            h.finish()
+        };
+        return render_material_deferred(surface, material, [size.width, size.height], dpr, &params, &scene)
+            .unwrap_or_else(|| {
+                crate::callbacks::mark_frame_deferred();
+                transparent_pixel()
+            });
     }
     render_material(material, size.width, size.height, dpr, &params, &scene)
 }
@@ -1588,5 +1958,56 @@ mod tests {
         };
         let c = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &lower);
         assert_ne!(a.get_hash(), c.get_hash(), "another light is another render");
+    }
+
+    #[test]
+    fn the_leather_s_sheen_is_a_round_highlight_that_fades_out_at_its_reach() {
+        let params = MaterialParams::of(Material::Leather);
+        let sprite = sheen_sprite(Material::Leather, &params, &MaterialLight::DEFAULT)
+            .expect("the leather shines under the cursor");
+        assert_eq!(sprite.radius[0], sprite.radius[1], "a dielectric's highlight is round");
+        assert!(
+            sprite.radius[0] > params.sheen_size,
+            "a light 240 px over the cursor lights more than 240 px around it: {:?}",
+            sprite.radius
+        );
+        assert_eq!(sprite.stops.len(), SHEEN_STOPS);
+        let alpha: Vec<f32> = sprite.stops.iter().map(|&(_, a)| a).collect();
+        assert!(
+            alpha[0] > 0.05 && alpha[0] < 1.0,
+            "visible under the cursor, the grain still showing through: {}",
+            alpha[0]
+        );
+        assert!(
+            alpha.windows(2).all(|pair| pair[1] <= pair[0] + 1e-6),
+            "it fades with the distance: {alpha:?}"
+        );
+        assert_eq!(alpha.last().copied(), Some(0.0), "and is gone at its reach");
+        assert!(
+            sprite.stops.windows(2).all(|pair| pair[1].0 > pair[0].0),
+            "the stops run outward"
+        );
+        assert_eq!(sprite.stops.last().map(|&(at, _)| at), Some(1.0));
+        let c = sprite.color;
+        assert!(c.r >= c.g && c.g >= c.b && c.b > 200, "a warm white light: {c:?}");
+    }
+
+    #[test]
+    fn a_brushed_metal_s_sheen_is_a_streak_across_its_brushing() {
+        let params = MaterialParams::of(Material::Aluminium);
+        let sprite = sheen_sprite(Material::Aluminium, &params, &MaterialLight::DEFAULT)
+            .expect("gold shines under the cursor");
+        assert!(
+            sprite.radius[1] > sprite.radius[0] * 2.0,
+            "brushed along x, the highlight runs along y: {:?}",
+            sprite.radius
+        );
+    }
+
+    #[test]
+    fn a_material_without_a_sheen_draws_no_highlight() {
+        let mut params = MaterialParams::of(Material::Leather);
+        params.sheen = 0.0;
+        assert!(sheen_sprite(Material::Leather, &params, &MaterialLight::DEFAULT).is_none());
     }
 }

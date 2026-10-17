@@ -8103,8 +8103,8 @@ pub struct RenderImageCallbackExtras {
     /// share and god rays (its direction is [`Self::light`]'s).
     pub material_light: crate::texture::MaterialLight,
     /// Where the light comes from in this window: the app's one light, or
-    /// the window's own material light where it set one. The materials,
-    /// their bevels and the sheen are lit from it.
+    /// the window's own material light where it set one. The materials and
+    /// their bevels are lit from it.
     pub light: azul_core::light::Light,
     /// Where the window's top-left sits on the desktop, desktop points: a
     /// point light and the wallpaper a metal reflects are seen from the
@@ -8112,12 +8112,6 @@ pub struct RenderImageCallbackExtras {
     pub window_desktop_origin: LogicalPosition,
     /// The screen the window is on, desktop points (the wallpaper's frame).
     pub screen: LogicalRect,
-    /// The cursor's sheen on the rect, eased 0..1 (0 when the cursor is
-    /// elsewhere): the materials draw a soft highlight under the cursor.
-    pub sheen: f32,
-    /// The cursor, logical px from the rect's top-left (read only while
-    /// `sheen` is above 0).
-    pub cursor: LogicalPosition,
     /// The system's text highlight colour: what a metal reflects where no
     /// wallpaper is known.
     pub highlight: azul_css::props::basic::ColorU,
@@ -8125,11 +8119,40 @@ pub struct RenderImageCallbackExtras {
     pub custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
     /// The node's `clip-path` (a bevel can follow it); null for none.
     pub clip_path: *const azul_css::props::layout::shape::ClipPath,
+    /// Whether the window takes a frame later: a window a desktop shell draws
+    /// on the CPU shows the layer's previous frame (or its base colour) while
+    /// a slow callback draws the new one off the UI thread. Such a callback
+    /// answers with any frame, calls [`mark_frame_deferred`], and is asked
+    /// again on the window's next frames until it answers for real. Off for
+    /// a window that must draw every frame whole (headless, tests,
+    /// screenshots).
+    pub may_defer: bool,
+}
+
+std::thread_local! {
+    /// Set by a render callback that deferred its frame
+    /// ([`mark_frame_deferred`]), taken by the window that asked it.
+    static FRAME_DEFERRED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Called by a render callback that was allowed to defer
+/// ([`RenderImageCallbackExtras::may_defer`]) and did: its answer is a stand-in,
+/// and the real frame is drawn off the UI thread. The window keeps the frame
+/// the layer shows (its base colour before the first one) and asks again on
+/// its next frames.
+pub fn mark_frame_deferred() {
+    FRAME_DEFERRED.with(|deferred| deferred.set(true));
+}
+
+/// Whether the render callback just invoked on this thread deferred its frame
+/// ([`mark_frame_deferred`]); clears the mark.
+pub(crate) fn take_frame_deferred() -> bool {
+    FRAME_DEFERRED.with(core::cell::Cell::take)
 }
 
 impl RenderImageCallbackExtras {
     /// No radii, the window's origin, the light `material_light` describes,
-    /// no sheen, no properties.
+    /// no properties.
     #[must_use]
     pub const fn new(material_light: crate::texture::MaterialLight) -> Self {
         Self {
@@ -8148,8 +8171,6 @@ impl RenderImageCallbackExtras {
                     height: 1080.0,
                 },
             },
-            sheen: 0.0,
-            cursor: LogicalPosition { x: 0.0, y: 0.0 },
             highlight: azul_css::props::basic::ColorU {
                 r: 0xB3,
                 g: 0xD7,
@@ -8158,6 +8179,7 @@ impl RenderImageCallbackExtras {
             },
             custom_properties: core::ptr::null(),
             clip_path: core::ptr::null(),
+            may_defer: false,
         }
     }
 
