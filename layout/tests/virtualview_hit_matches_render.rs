@@ -56,7 +56,12 @@ fn the_renderer_places_virtualview_content_by_bounds_and_content_offset() {
     // Renderer side: the offset stack subtracts BOTH the VirtualView origin and
     // the content offset. If this stops being true, the test below is measuring
     // agreement with something that no longer exists.
-    let body = around(RASTER, "scroll_offset_stack.push((", 6);
+    // The VirtualView arm's push: a reference frame pushes onto the same stack
+    // earlier in the file.
+    let arm = RASTER
+        .find("DisplayListItem::VirtualView {")
+        .expect("the renderer's VirtualView arm");
+    let body = around(&RASTER[arm..], "scroll_offset_stack.push((", 6);
     assert!(
         body.contains("vv_origin.x") && body.contains("content_offset.x"),
         "the renderer no longer places VirtualView content by `bounds.origin + content_offset`; \

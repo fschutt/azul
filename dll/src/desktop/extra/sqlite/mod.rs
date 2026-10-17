@@ -42,7 +42,7 @@ use azul_core::{
     task::RequestId,
 };
 use azul_css::{
-    corety::OptionString, impl_option, impl_option_inner, impl_result_inner, AzString, StringVec,
+    corety::OptionString, impl_option, AzString, StringVec,
     U8Vec,
 };
 use azul_layout::{callbacks::ResumeCallback, request};
@@ -119,6 +119,8 @@ fn duration_ms(d: &azul_core::task::Duration) -> u64 {
 const IDLE_SYNC_MS: u64 = 1500;
 
 /// Free bytes on the volume holding `path` (`0` = unknown / in-memory).
+/// The probe is azul-layout's `file::disk_space`, the one free-space helper
+/// (a private statvfs / GetDiskFreeSpaceExW twin of it lived here).
 fn free_bytes_at(path: &str) -> u64 {
     if path == ":memory:" {
         return 0;
@@ -127,52 +129,7 @@ fn free_bytes_at(path: &str) -> u64 {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    #[cfg(all(unix, feature = "libc"))]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let Ok(c_dir) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
-            return 0;
-        };
-        // SAFETY: `statvfs` is zero-initialised and only read after the call
-        // reported success; `c_dir` is a valid NUL-terminated path.
-        unsafe {
-            let mut stats: libc::statvfs = core::mem::zeroed();
-            if libc::statvfs(c_dir.as_ptr(), &mut stats) == 0 {
-                return u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize));
-            }
-        }
-        0
-    }
-    #[cfg(all(windows, feature = "winapi"))]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        let wide: Vec<u16> = dir
-            .as_os_str()
-            .encode_wide()
-            .chain(core::iter::once(0))
-            .collect();
-        let mut free_to_caller: winapi::shared::ntdef::ULARGE_INTEGER =
-            unsafe { core::mem::zeroed() };
-        // SAFETY: `wide` is NUL-terminated; the out-pointer is a valid, writable
-        // ULARGE_INTEGER; the two other out-pointers may be null.
-        let ok = unsafe {
-            winapi::um::fileapi::GetDiskFreeSpaceExW(
-                wide.as_ptr(),
-                &mut free_to_caller,
-                core::ptr::null_mut(),
-                core::ptr::null_mut(),
-            )
-        };
-        if ok != 0 {
-            return unsafe { *free_to_caller.QuadPart() };
-        }
-        0
-    }
-    #[cfg(not(any(all(unix, feature = "libc"), all(windows, feature = "winapi"))))]
-    {
-        let _ = dir;
-        0
-    }
+    azul_layout::file::disk_space(&dir.to_string_lossy()).map_or(0, |space| space.free)
 }
 
 /// Run the automatic syncs that are due (`DbAutoSync::interval` elapsed, or

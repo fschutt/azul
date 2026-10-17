@@ -274,8 +274,8 @@ impl CheckBox {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`UiTheme::default()`).
+    /// Pin the widget theme: the widget keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
     }
@@ -310,13 +310,15 @@ impl CheckBox {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = match self.theme {
-            OptionUiTheme::Some(theme) => theme,
-            OptionUiTheme::None => UiTheme::Flat,
-        };
-        match theme {
-            UiTheme::Flat => crate::widgets::themes::flat::check_box(self),
-            UiTheme::Flora => crate::widgets::themes::flora::check_box(self),
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::check_box(self),
+            Some(UiTheme::Flora) => flora::check_box(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => {
+                theme_blocks::follow_app_theme(self, flat::check_box, flora::check_box)
+            }
         }
     }
 }
@@ -663,9 +665,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1607,4 +1607,66 @@ mod autotest_generated {
             "an odd number of clicks left the checkbox unchecked"
         );
     }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+pub(crate) mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_check_box_without_a_theme_follows_the_app_theme() {
+        for checked in [false, true] {
+            checks::assert_follows_the_app_theme(
+                &format!("check_box checked={checked}"),
+                || CheckBox::create(checked).dom(),
+                |t: UiTheme| CheckBox::create(checked).with_theme(t).dom(),
+            );
+        }
+    }
+
+    /// R5: the box's and the mark's layout is the check box's BASE, declared
+    /// once outside every `@theme` block. Checked and unchecked - but for
+    /// [`FLORA_MARK_STRUCTURE`].
+    #[test]
+    fn a_check_box_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for checked in [false, true] {
+                let dom = checks::under(t, || {
+                    CheckBox::create(checked)
+                        .with_accessibility_name("Remember me")
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("check_box checked={checked} built for {}", t.name()),
+                    &dom,
+                    &FLORA_MARK_STRUCTURE,
+                );
+            }
+        }
+    }
+
+    /// The structure flora's check box REALLY declares apart from flat's:
+    /// its mark is the stone laid over the whole box, edge included
+    /// (`themes::flora::check_mark_skin`) - positioned in the box, sized
+    /// border-box, the tick centred in it - where flat's mark is a glyph in
+    /// the box's flow. Every widget that contains a check box (the To-Do
+    /// bar's task rows) allows the same.
+    pub(crate) const FLORA_MARK_STRUCTURE: [crate::widgets::themes::theme_checks::ThemedStructure; 6] = {
+        use azul_css::props::property::CssPropertyType as T;
+        const WHY: &str = "flora's mark is a stone laid over the whole box, its tick centred in it";
+        [
+            ("__azul-native-checkbox-container", T::Position, WHY),
+            ("__azul-native-checkbox-content", T::Position, WHY),
+            ("__azul-native-checkbox-content", T::BoxSizing, WHY),
+            ("__azul-native-checkbox-content", T::Display, WHY),
+            ("__azul-native-checkbox-content", T::JustifyContent, WHY),
+            ("__azul-native-checkbox-content", T::AlignItems, WHY),
+        ]
+    };
 }

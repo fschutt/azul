@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+<title>Local News & Weather</title>
+<link>http://news.example.net/</link>
+<description>A hand-written feed &copy; 2026</description>
+<item>
+<title>New bakery opens on Main St.</title>
+<link>http://news.example.net/story.php?id=7&ref=rss</link>
+<description><p>The bakery opened <b>today</b>.<br>Queues all morning.</p><img src="/img/bread.jpg"></description>
+<media:thumbnail url="http://news.example.net/img/bread-small.jpg"/>
+<pubDate>Wed, 30 Sep 2026 07:00:00 EST</pubDate>
+</item>
+<item>
+<title>Road works on the B12</item>
+<item>
+<title>Weather: sunny</title>
+<link>http://news.example.net/story.php?id=9</link>
+<description>Sunny &mdash; 24&deg;C</description>
+<pubDate>Wednesday, 30 September 2026 06:00:00 CEST</pubDate>
+</item>
+</channel>
+</rss>

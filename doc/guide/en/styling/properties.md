@@ -111,14 +111,19 @@ background: linear-gradient(to right, #1976d2, #42a5f5);
 background: radial-gradient(circle at 30% 30%, #fff, #999);
 background: conic-gradient(from 0deg, red, yellow, green, blue, red);
 background: url('chrome.png'), #f0f0f0;
+background: builtin(vellum-overlay), #f2f1ed;
 ```
 
 - `background` (shorthand) accepts a color, gradient, image, or multiple layers. Type `StyleBackgroundContentVec`.
 - `background-color` accepts a color. Type `ColorU`.
-- `background-image` accepts `linear-gradient(...)`, `radial-gradient(...)`, `conic-gradient(...)`, `url(...)`, or `none`. Type `StyleBackgroundContent`.
+- `background-image` accepts `linear-gradient(...)`, `radial-gradient(...)`, `conic-gradient(...)`, `url(...)`, `builtin(...)`, or `none`. Type `StyleBackgroundContent`.
+- `builtin(<name>)` names a texture compiled into the library, composed like any `url(...)` layer (repeated, positioned, over a colour): `vellum` (CC0 parchment grain, black and white, opaque) and `vellum-overlay` (the same grain as black ink at a low alpha, to lay over any colour). It parses to the image id `azul-builtin:<name>`, which every window has registered; an unknown name is transparent. From code: `ImageRef::create_builtin_texture(BuiltinTexture::Vellum)`.
 - `background-position` accepts a length pair or `top`/`bottom`/`left`/`right`/`center`. Type `StyleBackgroundPosition`.
 - `background-size` accepts a length pair, `cover`, `contain`, or `auto`. Type `StyleBackgroundSize`.
 - `background-repeat` accepts `repeat`, `repeat-x`, `repeat-y`, `no-repeat`, `round`, or `space`. Type `StyleBackgroundRepeat`.
+- `background-clip` accepts `border-box` (the default), `padding-box`, or `content-box`, one per layer. In the `background` shorthand a layer names its box after its image: `background: linear-gradient(#2F4A85, #1E3260) padding-box, linear-gradient(#FFFDF3, #C6B279) border-box;` with a transparent border shows the second gradient only through the border. Type `StyleBackgroundClipVec`.
+
+In code (`CssProperty::background_content`, `background_clip`, ...) the per-layer lists are in paint order: the bottom layer first, the reverse of the CSS comma list.
 
 Gradient direction accepts angles (`90deg`), `to <side>` syntax
 (`to top right`), or corner directions.

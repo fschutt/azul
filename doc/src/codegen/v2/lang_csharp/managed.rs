@@ -38,6 +38,7 @@ use super::{
             ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, FunctionKind,
             MonomorphizedKind, TypeCategory,
         },
+        lower_first,
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
@@ -795,14 +796,6 @@ fn emit_register_raw(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
     builder.dedent();
     builder.line("}");
     builder.blank();
-}
-
-fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
 }
 
 /// Emit `<X>WithData<T>` and `Register<X><T>(<X>WithData<T>)`. The

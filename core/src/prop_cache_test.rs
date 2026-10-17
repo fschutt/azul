@@ -1548,7 +1548,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1568,7 +1568,7 @@ mod autotest_generated {
                 .map(|c| c.inner)
         };
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         let sd = build(Some(ctx));
@@ -1581,7 +1581,7 @@ mod autotest_generated {
         assert_eq!(colour_of(&sd, 3), Some(dark), "…and so does the text");
 
         let light_ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         let sd = build(Some(light_ctx));
@@ -1589,6 +1589,68 @@ mod autotest_generated {
             colour_of(&sd, 3),
             Some(light),
             "under a light window the twin stays out"
+        );
+    }
+
+    /// `::placeholder` is a pseudo-ELEMENT: only declarations made for it
+    /// style the prompt; the host's own declarations - conditioned on the
+    /// mode or the app theme or not - reach it only where the prompt
+    /// declares nothing. A themed text input (its declarations all inside
+    /// `@theme(flat)` / `@theme(flora)`) declares the prompt's grey BEFORE
+    /// its resting ink; the resting ink, conditioned on the theme, used to
+    /// match the `::placeholder` tier too and win by source order, so every
+    /// placeholder of an app-themed field painted in the full ink (PIM6).
+    #[test]
+    fn a_placeholder_declaration_outranks_a_later_conditioned_resting_declaration() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let prompt = ColorU::rgb(155, 155, 155);
+        let ink = ColorU::rgb(76, 76, 76);
+        let dark_ink = ColorU::rgb(232, 232, 232);
+        let mut dom = Dom::create_body().with_child(Dom::create_div().with_css_props(
+            CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(
+                    StyleTextColor { inner: prompt },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                    inner: ink,
+                })),
+                CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
+                    StyleTextColor { inner: dark_ink },
+                )),
+            ]),
+        ));
+        let ctx = DynamicSelectorContext {
+            mode: azul_css::system::DarkLightMode::Dark,
+            ..Default::default()
+        };
+        let sd = StyledDom::create_with_context(&mut dom, azul_css::css::Css::empty(), Some(ctx));
+        let node_data = sd.node_data.as_container();
+        let n = NodeId::new(1);
+        let colour_in = |state: &StyledNodeState| {
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("node"), &n, state)
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let prompt_state = StyledNodeState {
+            placeholder: true,
+            ..StyledNodeState::default()
+        };
+        assert_eq!(
+            colour_in(&prompt_state),
+            Some(prompt),
+            "the prompt's own colour, not the dark resting ink declared after it"
+        );
+        assert_eq!(
+            colour_in(&normal()),
+            Some(dark_ink),
+            "the value line keeps its resting ink"
         );
     }
 
@@ -1616,7 +1678,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1638,7 +1700,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);
@@ -1650,7 +1712,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);
@@ -2025,6 +2087,7 @@ mod autotest_generated {
             &hierarchy,
             &non_leaf,
             &cascade.as_ref(),
+            &[],
         );
 
         assert!(tags.is_empty(), "a plain div needs no hit-test tag");
@@ -2103,6 +2166,154 @@ mod autotest_generated {
         assert!(
             drain_css_prop_counts().is_empty(),
             "a drained counter comes back empty"
+        );
+    }
+}
+
+#[cfg(test)]
+mod declared_lookup_tests {
+    use azul_css::props::property::CssPropertyType;
+
+    use crate::{
+        dom::{Dom, NodeId},
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+
+    /// A body holding a node with an inline `animation`, one whose
+    /// stylesheet rule declares it, one that only inherits a colour, and a
+    /// bare one; a `*` rule gives every node a cursor.
+    fn page() -> StyledDom {
+        let css = azul_css::parser2::new_from_str(
+            ".faded { animation: background 120ms ease-out; } * { cursor: pointer; } \
+             body { color: #102030; }",
+        )
+        .0;
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("animation: opacity 200ms linear;"))
+            .with_child(Dom::create_div().with_class("faded".into()))
+            .with_child(Dom::create_p().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("ink"),
+            ))
+            .with_child(Dom::create_div());
+        StyledDom::create(&mut dom, css)
+    }
+
+    /// For every node, state and property type, the declared-only lookup
+    /// answers what the full cascade walk answers: it only skips the walk
+    /// for a type the node declares nowhere.
+    #[test]
+    fn a_lookup_that_skips_undeclared_types_answers_what_the_cascade_answers() {
+        let sd = page();
+        let cache = sd.get_css_property_cache();
+        let nodes = sd.node_data.as_container();
+        let hovered = StyledNodeState {
+            hover: true,
+            ..StyledNodeState::new()
+        };
+        for i in 0..nodes.len() {
+            let n = NodeId::new(i);
+            for state in [StyledNodeState::new(), hovered] {
+                for ty in [
+                    CssPropertyType::Animation,
+                    CssPropertyType::Cursor,
+                    CssPropertyType::TextColor,
+                    CssPropertyType::Display,
+                    CssPropertyType::BackgroundContent,
+                ] {
+                    assert_eq!(
+                        cache.get_property_if_declared(&nodes[n], &n, &state, &ty),
+                        cache.get_property(&nodes[n], &n, &state, &ty),
+                        "node {i} {ty:?} hovered={}",
+                        state.hover
+                    );
+                }
+            }
+        }
+        // The premise: the page holds both kinds of node.
+        let declares = |i: usize| cache.declares(&nodes[NodeId::new(i)], i, CssPropertyType::Animation);
+        assert!(declares(1) && declares(2), "the inline and the stylesheet animation");
+        assert!(!declares(5), "the bare div declares none");
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod scoped_rule_index_tests {
+    use crate::{
+        dom::{Dom, NodeId},
+        style::MATCH_ATTEMPTS,
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{
+            layout::spacing::LayoutMarginTop,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    /// Ten rules and one `:hover` rule, the sheet every card carries (each
+    /// widget instance hangs its own sheet on its root with `with_css`).
+    const CARD_SHEET: &str = ".t0 { margin-top: 1px; } .t1 { margin-top: 2px; } \
+        .t2 { margin-top: 3px; } .t3 { margin-top: 4px; } .t4 { margin-top: 5px; } \
+        .t5 { margin-top: 6px; } .t6 { margin-top: 7px; } .t7 { margin-top: 8px; } \
+        .t8 { margin-top: 9px; } .t9 { margin-top: 10px; } .title:hover { opacity: 0.5; }";
+
+    /// A body of 200 cards, each a box holding a title and a line of text.
+    fn page() -> Dom {
+        let mut body = Dom::create_body();
+        for _ in 0..200 {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_css(CARD_SHEET)
+                    .with_child(Dom::create_div().with_class("title".into()))
+                    .with_child(Dom::create_div().with_class("t3".into())),
+            );
+        }
+        body
+    }
+
+    /// A card's rules can only match inside the card: trying every node of
+    /// the page against the rules of every card made a restyle cost nodes x
+    /// rules (AzWidgets: 3500 nodes x thousands of widget rules, ~90 ms per
+    /// rebuild). Each node is tried against the eleven rules around it, each
+    /// rule only in the pass for the state it ends in.
+    #[test]
+    fn a_restyle_tries_each_node_only_against_the_rules_scoped_around_it() {
+        MATCH_ATTEMPTS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(page());
+        let attempts = MATCH_ATTEMPTS.with(core::cell::Cell::get);
+        let nodes = styled.node_data.as_ref().len() as u64;
+        assert!(
+            attempts <= nodes * 11,
+            "{attempts} selector matches for {nodes} nodes: every node was tried against \
+             every card's rules"
+        );
+
+        // And the cascade answers what it answered: each card's text has its
+        // margin, each title its hover opacity, and no card rule reached the
+        // body, which no card scope covers.
+        let cache = styled.get_css_property_cache();
+        let data = styled.node_data.as_container();
+        let rest = StyledNodeState::new();
+        let margin = CssProperty::const_margin_top(LayoutMarginTop::const_px(4));
+        for card in 0..200 {
+            let title = NodeId::new(1 + card * 3 + 1);
+            let text = NodeId::new(1 + card * 3 + 2);
+            assert_eq!(
+                cache.get_property(&data[text], &text, &rest, &CssPropertyType::MarginTop),
+                Some(&margin),
+                "card {card}'s text has its margin"
+            );
+            assert!(
+                cache.css_props.get_slice(title.index()).iter().any(|p| {
+                    p.prop_type == CssPropertyType::Opacity && p.state == PseudoStateType::Hover
+                }),
+                "card {card}'s title has its hover opacity"
+            );
+        }
+        assert!(
+            cache.css_props.get_slice(0).is_empty(),
+            "no card rule reaches the body"
         );
     }
 }

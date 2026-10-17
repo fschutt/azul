@@ -9,7 +9,10 @@
 use alloc::string::String;
 
 use crate::props::{
-    basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+    basic::color::{
+        parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+        CssColorParseErrorOwned,
+    },
     formatter::PrintAsCssValue,
 };
 
@@ -35,10 +38,11 @@ impl Default for SelectionBackgroundColor {
 
 impl PrintAsCssValue for SelectionBackgroundColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -53,10 +57,12 @@ impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `selection-background-color` value.
+///
+/// Accepts the `system:` colour keywords; see [`parse_color_or_system_token`].
 pub fn parse_selection_background_color(
     input: &str,
 ) -> Result<SelectionBackgroundColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| SelectionBackgroundColor { inner })
+    parse_color_or_system_token(input).map(|inner| SelectionBackgroundColor { inner })
 }
 
 // --- -azul-selection-color ---
@@ -78,10 +84,11 @@ impl Default for SelectionColor {
 
 impl PrintAsCssValue for SelectionColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -96,8 +103,10 @@ impl crate::codegen::format::FormatAsRustCode for SelectionColor {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `selection-color` value.
+///
+/// Accepts the `system:` colour keywords; see [`parse_color_or_system_token`].
 pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| SelectionColor { inner })
+    parse_color_or_system_token(input).map(|inner| SelectionColor { inner })
 }
 
 // --- -azul-selection-radius ---
@@ -128,6 +137,7 @@ impl PrintAsCssValue for SelectionRadius {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionRadius {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         // Use the Display implementation of PixelValue to get a string like "5px" or "1em"
@@ -156,6 +166,7 @@ mod autotest_generated {
     };
 
     use super::*;
+    #[cfg(feature = "codegen")]
     use crate::codegen::format::FormatAsRustCode;
 
     fn hash_of<T: Hash>(t: &T) -> u64 {
@@ -793,6 +804,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_a_constructor_for_each_type() {
         let radius = SelectionRadius {
@@ -846,7 +858,8 @@ mod autotest_generated {
 
     #[test]
     fn the_two_color_properties_agree_on_every_input() {
-        // Both delegate to `parse_css_color`; the only difference is the wrapper.
+        // Both delegate to `parse_color_or_system_token`; the only difference is
+        // the wrapper.
         // A divergence would mean one of them grew its own (wrong) grammar.
         for input in hostile_corpus() {
             let bg = parse_selection_background_color(&input);

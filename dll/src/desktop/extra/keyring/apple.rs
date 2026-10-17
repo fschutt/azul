@@ -39,7 +39,7 @@ pub fn request(req: &KeyringRequest) {
     });
 }
 
-fn handle(req: &KeyringRequest) -> KeyringResult {
+pub(super) fn handle(req: &KeyringRequest) -> KeyringResult {
     match req {
         KeyringRequest::Store {
             key,

@@ -23,9 +23,10 @@
 //! - `Field = 1` on a `Type` block forces 1-byte packed C-compatible struct layout, matching Rust's
 //!   `#[repr(C, packed)]`. We use plain `Type` (default natural alignment) because Rust's `extern
 //!   "C"` structs use natural alignment, not packed.
-//! - FreeBASIC's `Integer` is platform-width (32-bit on x86, 64-bit on x86_64). For C-ABI
-//!   portability we use the explicit-size aliases `LongInt` (32-bit), `LongLong` (64-bit), `Single`
-//!   (f32), `Double` (f64), `UByte` (u8), etc.
+//! - FreeBASIC's `Integer`/`UInteger` are platform-width (32-bit on x86, 64-bit on x86_64): exactly
+//!   Rust's `isize`/`usize`. Fixed widths are `Byte`/`UByte` (8), `Short`/`UShort` (16),
+//!   `Long`/`ULong` (32) and `LongInt`/`ULongInt` (64); there is no `LongLong`. `Single` is f32,
+//!   `Double` f64.
 //! - String pointers from C use `ZString Ptr` (null-terminated UTF-8).
 //! - `Any Ptr` is the FreeBASIC equivalent of `void*`.
 //!
@@ -161,14 +162,17 @@ pub fn map_type_to_fb(rust_type: &str, ir: &CodegenIR) -> String {
         "u8" | "c_uchar" => "UByte".to_string(),
         "i16" => "Short".to_string(),
         "u16" => "UShort".to_string(),
-        "i32" | "c_int" | "GLint" | "GLsizei" => "LongInt".to_string(),
-        "u32" | "c_uint" | "GLuint" | "GLenum" | "GLbitfield" => "ULongInt".to_string(),
-        "i64" | "GLint64" => "LongLong".to_string(),
-        "u64" | "GLuint64" => "ULongLong".to_string(),
+        // FreeBASIC: `Long`/`ULong` are 32-bit, `LongInt`/`ULongInt` 64-bit;
+        // `LongLong` does not exist. `Integer`/`UInteger` are pointer-sized,
+        // like Rust's isize/usize.
+        "i32" | "c_int" | "GLint" | "GLsizei" => "Long".to_string(),
+        "u32" | "c_uint" | "GLuint" | "GLenum" | "GLbitfield" => "ULong".to_string(),
+        "i64" | "GLint64" => "LongInt".to_string(),
+        "u64" | "GLuint64" => "ULongInt".to_string(),
         "f32" | "GLfloat" | "GLclampf" => "Single".to_string(),
         "f64" | "GLdouble" | "GLclampd" => "Double".to_string(),
-        "usize" | "size_t" | "uintptr_t" => "ULongLong".to_string(),
-        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => "LongLong".to_string(),
+        "usize" | "size_t" | "uintptr_t" => "UInteger".to_string(),
+        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => "Integer".to_string(),
 
         _ => {
             if ir.find_struct(trimmed).is_some()

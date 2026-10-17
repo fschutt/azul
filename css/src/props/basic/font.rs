@@ -19,9 +19,11 @@ use core::{
 };
 
 #[cfg(feature = "parser")]
-use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
+use crate::props::basic::parse::{split_top_level, strip_quotes, UnclosedQuotesError};
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::{FormatAsRustCode, GetHash},
+    hash::GetHash,
     corety::{AzString, U8Vec},
     props::{
         basic::{
@@ -75,6 +77,51 @@ impl PrintAsCssValue for StyleFontWeight {
     }
 }
 
+impl StyleFontWeight {
+    /// The computed weight of a node that declares `self` and whose parent's
+    /// computed weight is `parent`: `bolder` / `lighter` are RELATIVE to the
+    /// parent (CSS Fonts 4 section 2.2, the relative-weight table), every
+    /// other value is its own computed value. A `parent` that is itself still
+    /// a keyword counts as 400.
+    ///
+    /// | parent    | bolder | lighter |
+    /// |-----------|--------|---------|
+    /// | 100 - 300 | 400    | 100     |
+    /// | 400, 500  | 700    | 100     |
+    /// | 600, 700  | 900    | 400     |
+    /// | 800       | 900    | 700     |
+    /// | 900       | 900    | 700     |
+    ///
+    /// The descendants inherit the result (a number), never the keyword.
+    #[must_use]
+    pub const fn computed(self, parent: Self) -> Self {
+        let parent = match parent {
+            Self::Lighter | Self::Bolder => Self::Normal,
+            other => other,
+        };
+        match self {
+            Self::Bolder => match parent {
+                Self::W100 | Self::W200 | Self::W300 => Self::Normal,
+                Self::Normal | Self::W500 => Self::Bold,
+                _ => Self::W900,
+            },
+            Self::Lighter => match parent {
+                Self::W600 | Self::Bold => Self::Normal,
+                Self::W800 | Self::W900 => Self::Bold,
+                _ => Self::W100,
+            },
+            other => other,
+        }
+    }
+
+    /// `bolder` / `lighter`: a weight that is only known against the parent's.
+    #[must_use]
+    pub const fn is_relative(self) -> bool {
+        matches!(self, Self::Bolder | Self::Lighter)
+    }
+}
+
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontWeight::{
@@ -122,6 +169,7 @@ impl PrintAsCssValue for StyleFontStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontStyle::{Italic, Normal, Oblique};
@@ -134,6 +182,396 @@ impl FormatAsRustCode for StyleFontStyle {
             }
         )
     }
+}
+
+// --- Font Variant Numeric ---
+
+/// The `font-variant-numeric` property (CSS Fonts 4 s6.7): which numeric
+/// glyph forms the text asks the font for, as OpenType features. One choice
+/// per group, any combination of groups:
+///
+/// - figures: `lining-nums` (`lnum`) or `oldstyle-nums` (`onum`);
+/// - spacing: `proportional-nums` (`pnum`) or `tabular-nums` (`tnum`: every
+///   digit one advance, so a column of times or prices lines up);
+/// - fractions: `diagonal-fractions` (`frac`) or `stacked-fractions` (`afrc`);
+/// - `ordinal` (`ordn`) and `slashed-zero` (`zero`).
+///
+/// `normal`, the initial value (every field `false`), asks for none of them.
+/// Inherited. A font without a feature shapes the text as if it had not been
+/// asked.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+#[allow(clippy::struct_excessive_bools)] // one flag per CSS keyword, as the grammar has them
+pub struct StyleFontVariantNumeric {
+    pub lining_nums: bool,
+    pub oldstyle_nums: bool,
+    pub proportional_nums: bool,
+    pub tabular_nums: bool,
+    pub diagonal_fractions: bool,
+    pub stacked_fractions: bool,
+    pub ordinal: bool,
+    pub slashed_zero: bool,
+}
+
+impl StyleFontVariantNumeric {
+    /// `normal`: no numeric feature asked for.
+    pub const NORMAL: Self = Self {
+        lining_nums: false,
+        oldstyle_nums: false,
+        proportional_nums: false,
+        tabular_nums: false,
+        diagonal_fractions: false,
+        stacked_fractions: false,
+        ordinal: false,
+        slashed_zero: false,
+    };
+
+    /// Every keyword with its OpenType feature tag and whether `self` asks
+    /// for it, in the grammar's order (the order a value is printed in).
+    #[must_use]
+    pub const fn keywords(&self) -> [(&'static str, [u8; 4], bool); 8] {
+        [
+            ("lining-nums", *b"lnum", self.lining_nums),
+            ("oldstyle-nums", *b"onum", self.oldstyle_nums),
+            ("proportional-nums", *b"pnum", self.proportional_nums),
+            ("tabular-nums", *b"tnum", self.tabular_nums),
+            ("diagonal-fractions", *b"frac", self.diagonal_fractions),
+            ("stacked-fractions", *b"afrc", self.stacked_fractions),
+            ("ordinal", *b"ordn", self.ordinal),
+            ("slashed-zero", *b"zero", self.slashed_zero),
+        ]
+    }
+
+    /// Whether this is `normal` (no feature asked for).
+    #[must_use]
+    pub const fn is_normal(&self) -> bool {
+        !(self.lining_nums
+            || self.oldstyle_nums
+            || self.proportional_nums
+            || self.tabular_nums
+            || self.diagonal_fractions
+            || self.stacked_fractions
+            || self.ordinal
+            || self.slashed_zero)
+    }
+
+    /// The OpenType feature tags the shaper turns on for this value, in the
+    /// grammar's order (empty for `normal`).
+    #[must_use]
+    pub fn opentype_features(&self) -> Vec<[u8; 4]> {
+        self.keywords()
+            .iter()
+            .filter(|(_, _, on)| *on)
+            .map(|(_, tag, _)| *tag)
+            .collect()
+    }
+}
+
+impl PrintAsCssValue for StyleFontVariantNumeric {
+    fn print_as_css_value(&self) -> String {
+        if self.is_normal() {
+            return "normal".to_string();
+        }
+        self.keywords()
+            .iter()
+            .filter(|(_, _, on)| *on)
+            .map(|(keyword, _, _)| *keyword)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontVariantNumeric {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-variant-numeric` value: `normal`, or one or more of the
+/// keywords, each group at most once and in any order (`||`). Keywords are
+/// ASCII case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-variant-numeric`
+/// value: an unknown word, two values of one group (`lining-nums
+/// oldstyle-nums`), a repeated keyword, `normal` with anything else, or
+/// nothing at all.
+pub fn parse_style_font_variant_numeric(
+    input: &str,
+) -> Result<StyleFontVariantNumeric, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("normal") {
+        return Ok(StyleFontVariantNumeric::NORMAL);
+    }
+    let mut value = StyleFontVariantNumeric::NORMAL;
+    let (mut figure, mut spacing, mut fraction) = (false, false, false);
+    let mut any = false;
+    for word in input.split_ascii_whitespace() {
+        let is = |keyword: &str| word.eq_ignore_ascii_case(keyword);
+        let (group_taken, slot) = if is("lining-nums") {
+            (&mut figure, &mut value.lining_nums)
+        } else if is("oldstyle-nums") {
+            (&mut figure, &mut value.oldstyle_nums)
+        } else if is("proportional-nums") {
+            (&mut spacing, &mut value.proportional_nums)
+        } else if is("tabular-nums") {
+            (&mut spacing, &mut value.tabular_nums)
+        } else if is("diagonal-fractions") {
+            (&mut fraction, &mut value.diagonal_fractions)
+        } else if is("stacked-fractions") {
+            (&mut fraction, &mut value.stacked_fractions)
+        } else if is("ordinal") {
+            if value.ordinal {
+                return Err(InvalidValueErr(input));
+            }
+            value.ordinal = true;
+            any = true;
+            continue;
+        } else if is("slashed-zero") {
+            if value.slashed_zero {
+                return Err(InvalidValueErr(input));
+            }
+            value.slashed_zero = true;
+            any = true;
+            continue;
+        } else {
+            return Err(InvalidValueErr(input));
+        };
+        if *group_taken {
+            return Err(InvalidValueErr(input));
+        }
+        *group_taken = true;
+        *slot = true;
+        any = true;
+    }
+    if any {
+        Ok(value)
+    } else {
+        Err(InvalidValueErr(input))
+    }
+}
+
+// --- Font Variant Caps ---
+
+/// The `font-variant-caps` property (CSS Fonts 4 s6.6): which capital forms
+/// the text asks the font for.
+///
+/// `small-caps` (`smcp`: lowercase letters as
+/// small capitals), `all-small-caps` (`smcp` and `c2sc`: every letter),
+/// `petite-caps` / `all-petite-caps` (`pcap`, `c2pc`), `unicase` (`unic`)
+/// and `titling-caps` (`titl`). Inherited.
+///
+/// A font without small capitals gets them synthesized, as Chrome does: the
+/// letter's capital at 0.7 of the font size (petite capitals fall back to
+/// small capitals first, as the spec says).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleFontVariantCaps {
+    #[default]
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+}
+
+impl StyleFontVariantCaps {
+    /// Every value with its CSS keyword, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 7] = [
+        (Self::Normal, "normal"),
+        (Self::SmallCaps, "small-caps"),
+        (Self::AllSmallCaps, "all-small-caps"),
+        (Self::PetiteCaps, "petite-caps"),
+        (Self::AllPetiteCaps, "all-petite-caps"),
+        (Self::Unicase, "unicase"),
+        (Self::TitlingCaps, "titling-caps"),
+    ];
+
+    /// The CSS keyword of this value.
+    #[must_use]
+    pub const fn keyword(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::SmallCaps => "small-caps",
+            Self::AllSmallCaps => "all-small-caps",
+            Self::PetiteCaps => "petite-caps",
+            Self::AllPetiteCaps => "all-petite-caps",
+            Self::Unicase => "unicase",
+            Self::TitlingCaps => "titling-caps",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleFontVariantCaps {
+    fn print_as_css_value(&self) -> String {
+        self.keyword().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontVariantCaps {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleFontVariantCaps::{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-variant-caps` value: one of its keywords, ASCII
+/// case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not exactly one `font-variant-caps`
+/// keyword.
+pub fn parse_style_font_variant_caps(
+    input: &str,
+) -> Result<StyleFontVariantCaps, InvalidValueErr<'_>> {
+    let word = input.trim();
+    StyleFontVariantCaps::ALL
+        .iter()
+        .find(|(_, keyword)| word.eq_ignore_ascii_case(keyword))
+        .map(|(value, _)| *value)
+        .ok_or(InvalidValueErr(input))
+}
+
+// --- Font Feature Settings ---
+
+/// The `font-feature-settings` property (CSS Fonts 4 s6.12): OpenType
+/// features turned on, off or to an alternate by their tag.
+///
+/// On top of what the shaper and the `font-variant-*` properties ask for -
+/// `"tnum"`, `"liga" 0`, `"salt" 2`. Inherited.
+///
+/// Held as its canonical CSS text (`normal`, or the tags in double quotes,
+/// each followed by its value unless that is 1, separated by `, `): one
+/// string keeps the value a single C struct. [`Self::features`] reads the
+/// tags back; a tag given twice keeps only its last value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleFontFeatureSettings {
+    /// The canonical CSS text of the value (`normal` for no features).
+    pub inner: AzString,
+}
+
+impl Default for StyleFontFeatureSettings {
+    fn default() -> Self {
+        Self {
+            inner: AzString::from_const_str("normal"),
+        }
+    }
+}
+
+impl StyleFontFeatureSettings {
+    /// The value for `features`, each an OpenType tag and its value (0 off,
+    /// 1 on, more an alternate); `normal` for none.
+    #[must_use]
+    pub fn from_features(features: &[([u8; 4], u32)]) -> Self {
+        if features.is_empty() {
+            return Self::default();
+        }
+        let text = features
+            .iter()
+            .map(|(tag, value)| {
+                let tag = String::from_utf8_lossy(tag);
+                if *value == 1 {
+                    alloc::format!("\"{tag}\"")
+                } else {
+                    alloc::format!("\"{tag}\" {value}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self { inner: text.into() }
+    }
+
+    /// Whether this is `normal` (no feature asked for).
+    #[must_use]
+    pub fn is_normal(&self) -> bool {
+        self.inner.as_str().eq_ignore_ascii_case("normal")
+    }
+
+    /// The features asked for, in order, each an OpenType tag and its value
+    /// (0 turns the feature off, 1 on, more picks an alternate). Empty for
+    /// `normal`.
+    #[must_use]
+    pub fn features(&self) -> Vec<([u8; 4], u32)> {
+        if self.is_normal() {
+            return Vec::new();
+        }
+        parse_feature_tag_values(self.inner.as_str()).unwrap_or_default()
+    }
+}
+
+/// The `(tag, value)` list of a `font-feature-settings` value that is not
+/// `normal`: comma-separated, each a quoted four-character printable-ASCII
+/// tag, then nothing (1), `on` (1), `off` (0) or a non-negative integer. A
+/// tag given twice keeps its last value, where it last stands. `None` for
+/// anything the grammar does not allow.
+fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
+    let mut out: Vec<([u8; 4], u32)> = Vec::new();
+    for item in input.split(',') {
+        let item = item.trim();
+        let quote = item.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let rest = &item[1..];
+        let end = rest.find(quote)?;
+        let bytes = &rest.as_bytes()[..end];
+        if bytes.len() != 4 || !bytes.iter().all(|b| (0x20..=0x7E).contains(b)) {
+            return None;
+        }
+        let tag = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        let value = match rest[end + 1..].trim() {
+            "" => 1,
+            v if v.eq_ignore_ascii_case("on") => 1,
+            v if v.eq_ignore_ascii_case("off") => 0,
+            v if v.bytes().all(|b| b.is_ascii_digit()) => v.parse::<u32>().ok()?,
+            _ => return None,
+        };
+        out.retain(|(t, _)| *t != tag);
+        out.push((tag, value));
+    }
+    Some(out)
+}
+
+impl PrintAsCssValue for StyleFontFeatureSettings {
+    fn print_as_css_value(&self) -> String {
+        self.inner.as_str().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontFeatureSettings {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleFontFeatureSettings {{ inner: AzString::from_const_str({:?}) }}",
+            self.inner.as_str()
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-feature-settings` value: `normal`, or a comma-separated
+/// list of quoted four-letter OpenType tags, each optionally followed by
+/// `on`, `off` or a non-negative integer.
+///
+/// # Errors
+///
+/// Returns an error for an unquoted, short, long or non-ASCII tag, a
+/// negative, fractional or unknown value, an empty item, or nothing at all.
+pub fn parse_style_font_feature_settings(
+    input: &str,
+) -> Result<StyleFontFeatureSettings, InvalidValueErr<'_>> {
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("normal") {
+        return Ok(StyleFontFeatureSettings::default());
+    }
+    parse_feature_tag_values(trimmed)
+        .map(|features| StyleFontFeatureSettings::from_features(&features))
+        .ok_or(InvalidValueErr(input))
 }
 
 // --- Font Size ---
@@ -328,11 +766,14 @@ impl_option!(
 );
 
 impl StyleFontFamily {
+    #[must_use]
     pub fn as_string(&self) -> String {
         match &self {
             Self::System(s) => {
+                // Quoted when it holds whitespace, or a comma - unquoted, the
+                // comma would read back as the end of the family.
                 let owned = s.clone().into_library_owned_string();
-                if owned.contains(char::is_whitespace) {
+                if owned.contains(|c: char| c.is_whitespace() || c == ',') {
                     format!("\"{owned}\"")
                 } else {
                     owned
@@ -388,6 +829,7 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 }
 
 // Formatting to Rust code for StyleFontFamilyVec
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -408,6 +850,7 @@ pub enum CssFontWeightParseError<'a> {
 }
 
 // Formatting to Rust code for StyleFontFamily
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -574,11 +1017,52 @@ impl CssStyleFontSizeParseErrorOwned {
     }
 }
 
+/// `font-size: smaller` (CSS Fonts 4 s2.5 leaves the ratio to the UA): 0.83em,
+/// the browsers' 1/1.2 - the UA sheet's `small, sub, sup` take it too.
+pub const FONT_SIZE_SMALLER: PixelValue = PixelValue::const_em_fractional(0, 83);
+
+/// `font-size: larger`: 1.2em, the inverse step (the UA sheet's `big`).
+pub const FONT_SIZE_LARGER: PixelValue = PixelValue::const_em_fractional(1, 2);
+
+/// The absolute-size keywords of `font-size` (CSS Fonts 4 s2.5) and the px
+/// browsers give them at the 16px default, smallest first.
+///
+/// HTML's legacy `<font size="1".."7">` takes the entries from `x-small` on.
+pub const FONT_SIZE_KEYWORDS_PX: [(&str, u16); 8] = [
+    ("xx-small", 9),
+    ("x-small", 10),
+    ("small", 13),
+    ("medium", 16),
+    ("large", 18),
+    ("x-large", 24),
+    ("xx-large", 32),
+    ("xxx-large", 48),
+];
+
 #[cfg(feature = "parser")]
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `font-size` value.
 pub fn parse_style_font_size(input: &str) -> Result<StyleFontSize, CssStyleFontSizeParseError<'_>> {
+    let keyword = input.trim();
+    if keyword.eq_ignore_ascii_case("smaller") {
+        return Ok(StyleFontSize {
+            inner: FONT_SIZE_SMALLER,
+        });
+    }
+    if keyword.eq_ignore_ascii_case("larger") {
+        return Ok(StyleFontSize {
+            inner: FONT_SIZE_LARGER,
+        });
+    }
+    if let Some((_, px)) = FONT_SIZE_KEYWORDS_PX
+        .iter()
+        .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+    {
+        return Ok(StyleFontSize {
+            inner: PixelValue::px(f32::from(*px)),
+        });
+    }
     Ok(StyleFontSize {
         inner: parse_pixel_value(input)?,
     })
@@ -642,8 +1126,11 @@ impl CssStyleFontFamilyParseErrorOwned {
 pub fn parse_style_font_family(
     input: &str,
 ) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'_>> {
-    let multiple_fonts = input.split(',');
-    let mut fonts = Vec::with_capacity(1);
+    // Top-level commas only: `"Foo, Bar", serif` is TWO families. Otherwise
+    // like `str::split` (an empty input is one empty family, a trailing comma
+    // adds one).
+    let multiple_fonts = split_top_level(input, |byte| byte == b',');
+    let mut fonts = Vec::with_capacity(multiple_fonts.len());
 
     for font in multiple_fonts {
         let font = font.trim();
@@ -1068,7 +1555,12 @@ mod tests {
             parse_style_font_size("120%").unwrap().inner,
             PixelValue::percent(120.0)
         );
-        assert!(parse_style_font_size("medium").is_err());
+        // A keyword is a size too (CSS Fonts 4 s2.5): `medium` is the 16px
+        // default (`font_size_keywords_parse_to_the_sizes_browsers_use`).
+        assert_eq!(
+            parse_style_font_size("medium").unwrap().inner,
+            PixelValue::px(16.0)
+        );
     }
 
     #[test]
@@ -1204,6 +1696,43 @@ mod tests {
             let parsed = SystemFontType::from_css_str(css).unwrap();
             assert_eq!(*ft, parsed, "Roundtrip failed for {ft:?}");
         }
+    }
+
+    #[test]
+    fn font_size_keywords_parse_to_the_sizes_browsers_use() {
+        // CSS Fonts 4 s2.5: `font-size` takes the absolute-size keywords
+        // (`xx-small` .. `xxx-large`, Chrome's px at the 16px default) and the
+        // relative ones (`smaller` / `larger`, the step the UA sheet's
+        // `small` / `big` take). A keyword was a parse error, so the whole
+        // declaration was dropped: WPT local/ua/small-is-smaller's reference
+        // (`.s { font-size: smaller }`) kept the parent's size while the
+        // test's `<small>` shrank.
+        for (keyword, px) in [
+            ("xx-small", 9.0),
+            ("x-small", 10.0),
+            ("small", 13.0),
+            ("medium", 16.0),
+            ("large", 18.0),
+            ("x-large", 24.0),
+            ("xx-large", 32.0),
+            ("xxx-large", 48.0),
+        ] {
+            assert_eq!(
+                parse_style_font_size(keyword).map(|f| f.inner),
+                Ok(PixelValue::px(px)),
+                "font-size: {keyword}"
+            );
+        }
+        assert_eq!(
+            parse_style_font_size("smaller").map(|f| f.inner),
+            Ok(PixelValue::const_em_fractional(0, 83)),
+            "smaller: the UA sheet's `small` step"
+        );
+        assert_eq!(
+            parse_style_font_size(" Larger ").map(|f| f.inner),
+            Ok(PixelValue::const_em_fractional(1, 2)),
+            "larger (keywords are ASCII case-insensitive)"
+        );
     }
 }
 
@@ -1797,9 +2326,10 @@ mod autotest_generated {
             "expected NoValueGiven, got {err:?}"
         );
 
+        // (`medium` / `larger` are sizes: font_size_keywords_parse_to_the_sizes_browsers_use)
         for input in [
-            "medium",
-            "larger",
+            "mediumish",
+            "larger than life",
             "16PX", // unit matching is case-sensitive
             "16px;junk",
             "16 px junk",
@@ -2159,13 +2689,14 @@ mod autotest_generated {
 
     #[cfg(feature = "parser")]
     #[test]
-    fn style_font_family_as_string_does_not_escape_commas() {
-        // LOSSY: `as_string()` quotes on whitespace only, so a comma inside a family
-        // name re-parses as two families. Asserted as-is; reported as a defect.
+    fn style_font_family_as_string_quotes_a_name_with_a_comma() {
+        // `as_string()` quotes a name with a comma, and the parser splits the
+        // list only at top-level commas, so the name round-trips as ONE family
+        // (it used to print bare and re-parse as two).
         let family = StyleFontFamily::System("Foo,Bar".into());
-        assert_eq!(family.as_string(), "Foo,Bar");
+        assert_eq!(family.as_string(), "\"Foo,Bar\"");
         let parsed = parse_style_font_family(&family.as_string()).unwrap();
-        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.as_slice(), &[family]);
     }
 
     #[cfg(feature = "parser")]
@@ -2337,6 +2868,34 @@ mod autotest_generated {
         assert!(StyleFontWeight::Bolder > StyleFontWeight::W900);
     }
 
+    #[test]
+    fn bolder_and_lighter_follow_the_relative_weight_table() {
+        use StyleFontWeight::{
+            Bold, Bolder, Lighter, Normal, W100, W200, W300, W500, W600, W800, W900,
+        };
+        // CSS Fonts 4 s2.2: (parent, bolder, lighter).
+        for (parent, bolder, lighter) in [
+            (W100, Normal, W100),
+            (W200, Normal, W100),
+            (W300, Normal, W100),
+            (Normal, Bold, W100),
+            (W500, Bold, W100),
+            (W600, W900, Normal),
+            (Bold, W900, Normal),
+            (W800, W900, Bold),
+            (W900, W900, Bold),
+            // a parent still a keyword counts as 400
+            (Bolder, Bold, W100),
+        ] {
+            assert_eq!(Bolder.computed(parent), bolder, "bolder than {parent:?}");
+            assert_eq!(Lighter.computed(parent), lighter, "lighter than {parent:?}");
+        }
+        // Any other weight is its own computed value.
+        assert_eq!(W300.computed(W900), W300);
+        assert!(Bolder.is_relative() && Lighter.is_relative() && !Bold.is_relative());
+    }
+
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_matches_the_debug_variant_names() {
         for weight in [

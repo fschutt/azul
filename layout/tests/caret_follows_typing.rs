@@ -97,7 +97,7 @@ fn edit_at_last_line(lw: &mut LayoutWindow) -> NodeId {
             dom: DomId::ROOT_ID,
             node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(last_text)),
         }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
@@ -150,7 +150,7 @@ fn typing_at_a_visible_caret_leaves_the_view_alone() {
             dom: DomId::ROOT_ID,
             node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(first_text)),
         }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
@@ -219,11 +219,12 @@ fn a_moved_caret_rect_without_a_caret_change_does_not_undo_a_user_scroll() {
     );
     assert_eq!(offset_y(&lw), 0.0, "harness: the user scrolled to the top");
 
-    // The caret's rect shifts (re-materialization), the caret does not.
-    lw.last_revealed_caret_rect = lw.last_revealed_caret_rect.map(|mut r| {
-        r.origin.y += 17.0;
-        r
-    });
+    // Another layout pass - a re-materialization, a hover, an animation tick
+    // - with no input in between. The reveal the keystroke asked for was
+    // performed by the layout above and is gone (`RevealRequest` is
+    // consumed once), so nothing may pull the view back. (This used to be
+    // arranged by nudging the caret-rect latch the reveal was keyed on; the
+    // latch is gone.)
     relayout(&mut lw);
     assert_eq!(
         offset_y(&lw),

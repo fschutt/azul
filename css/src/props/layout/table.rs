@@ -10,8 +10,9 @@
 
 use alloc::string::{String, ToString};
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     props::{
         basic::pixel::{CssPixelValueParseError, PixelValue},
         formatter::PrintAsCssValue,
@@ -48,6 +49,7 @@ impl PrintAsCssValue for LayoutTableLayout {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutTableLayout {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -86,6 +88,7 @@ impl PrintAsCssValue for StyleBorderCollapse {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleBorderCollapse {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -156,6 +159,7 @@ impl PrintAsCssValue for LayoutBorderSpacing {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutBorderSpacing {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
@@ -192,6 +196,7 @@ impl PrintAsCssValue for StyleCaptionSide {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleCaptionSide {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -227,6 +232,7 @@ impl PrintAsCssValue for StyleEmptyCells {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleEmptyCells {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -1241,6 +1247,7 @@ mod autotest_generated {
     // FormatAsRustCode
     // ------------------------------------------------------------------------
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_the_variant_paths() {
         assert_eq!(
@@ -1267,6 +1274,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_for_border_spacing_is_total() {
         assert_eq!(

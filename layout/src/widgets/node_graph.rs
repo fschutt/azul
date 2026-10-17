@@ -1382,6 +1382,7 @@ fn render_node(
         &[StyleFontFamily::System(STRING_9416190750059025162)];
     const LINEAR_COLOR_STOP_4373556077110009258_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(20),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1391,6 +1392,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1402,6 +1404,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_7397113864565941600_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 229,
@@ -1411,6 +1414,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 227,
@@ -1422,6 +1426,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_15596411095679453272_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1431,6 +1436,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(50),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1440,6 +1446,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 32,
@@ -2722,6 +2729,7 @@ fn render_node(
                                        NodeTypeFieldValue::TextInput(initial_text) => {
                                            let cb: TextInputOnFocusLostCallbackType = nodegraph_on_textinput_focus_lost;
                                            TextInput::create()
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_text(initial_text.clone())
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
@@ -2729,24 +2737,28 @@ fn render_node(
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
                                            let cb: NumberInputOnFocusLostCallbackType = nodegraph_on_numberinput_focus_lost;
                                            NumberInput::create(*initial_value)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
                                            let cb: CheckBoxOnToggleCallbackType = nodegraph_on_checkbox_value_changed;
                                            CheckBox::create(*initial_checked)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_toggle(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
                                            let cb: ColorInputOnValueChangeCallbackType = nodegraph_on_colorinput_value_changed;
                                            ColorInput::create(*initial_color)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_value_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {
                                            let cb: FileInputOnPathChangeCallbackType = nodegraph_on_fileinput_button_clicked;
                                            FileInput::create(file_path.clone())
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_path_change(field_local_dataset, cb)
                                            .dom()
                                        },
@@ -6451,18 +6463,16 @@ mod autotest_generated {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::None,
-                },
+                FileInputState::default(),
             )
         });
         let _ = fire(|info| {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::Some(AzString::from_const_str("/tmp/日本語/🎉.txt")),
-                },
+                FileInputState::create_with_paths(azul_css::StringVec::from_vec(vec![
+                    AzString::from_const_str("/tmp/日本語/🎉.txt"),
+                ])),
             )
         });
 
@@ -6621,5 +6631,68 @@ mod autotest_generated {
             )),
             Update::DoNothing,
         );
+    }
+
+    /// The node graph has one look and no theme option: the fields it builds
+    /// wear that look (`UiTheme::SINGLE_LOOK`), so a node renders the same
+    /// under every app theme - the fields' classes (their theme markers) and
+    /// styles included, and no app-theme block anywhere.
+    #[test]
+    fn a_nodes_fields_render_the_same_under_every_app_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{theme_names, under},
+            theme_checks::nodes,
+            UiTheme,
+        };
+        fn outline(dom: &Dom) -> Vec<String> {
+            nodes(dom)
+                .into_iter()
+                .map(|(path, n)| {
+                    format!(
+                        "{path} {:?} {:?} {:?}",
+                        n.root.get_ids_and_classes(),
+                        n.root.style,
+                        n.css
+                    )
+                })
+                .collect()
+        }
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.fields = vec![
+            NodeTypeField {
+                key: AzString::from_const_str("text"),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("hello")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("number"),
+                value: NodeTypeFieldValue::NumberInput(1.5),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("check"),
+                value: NodeTypeFieldValue::CheckBox(true),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("color"),
+                value: NodeTypeFieldValue::ColorInput(ColorU {
+                    r: 9,
+                    g: 8,
+                    b: 7,
+                    a: 6,
+                }),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("file"),
+                value: NodeTypeFieldValue::FileInput(OptionString::None),
+            },
+        ]
+        .into();
+        let flat = under(UiTheme::Flat, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        let flora = under(UiTheme::Flora, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        assert!(
+            theme_names(&flat).is_empty(),
+            "a field follows the app theme: {:?}",
+            theme_names(&flat)
+        );
+        assert_eq!(outline(&flat), outline(&flora));
     }
 }

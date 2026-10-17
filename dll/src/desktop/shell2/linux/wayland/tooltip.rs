@@ -12,7 +12,7 @@
 //! itself. The `FcFontCache` used to resolve the font is threaded in via
 //! `new()`. Runtime verification needs a real Wayland compositor.
 
-use std::{ffi::CString, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 use azul_css::props::basic::ColorU;
@@ -77,6 +77,9 @@ pub struct TooltipWindow {
     mapped_size: usize, // Size of the mmap'd region for proper cleanup
     width: i32,
     height: i32,
+    /// Row pitch in bytes of the mapped buffer (`shm::pool_layout`: padded to
+    /// 256 bytes) - never `width * 4`.
+    stride: i32,
 
     /// Font cache used to resolve + shape the tooltip text (Wayland has no
     /// native server-side text drawing, so glyphs are rasterized client-side).
@@ -148,6 +151,7 @@ impl TooltipWindow {
                 mapped_size: 0,
                 width: 0,
                 height: 0,
+                stride: 0,
                 fc_cache,
                 is_visible: false,
             })
@@ -203,8 +207,8 @@ impl TooltipWindow {
 
         if let Some(data) = self.data {
             match &pixmap {
-                Some(p) => Self::blit_pixmap(data, self.width, self.height, p),
-                None => Self::render_fallback_background(data, self.width, self.height),
+                Some(p) => Self::blit_pixmap(data, self.mapped_size, self.stride, self.width, self.height, p),
+                None => Self::render_fallback_background(data, self.stride, self.width, self.height),
             }
         }
 
@@ -259,57 +263,20 @@ impl TooltipWindow {
         self.is_visible
     }
 
-    /// Allocate a shared memory buffer for tooltip rendering.
-    /// Uses `memfd_create` with `shm_open` fallback (matching mod.rs pattern).
+    /// Allocate a shared memory buffer for tooltip rendering, through the one
+    /// shm allocator (`shm.rs`: sealed memfd, page-rounded size).
     fn allocate_shm_buffer(&mut self, width: i32, height: i32) -> Result<(), String> {
         self.cleanup_buffer();
 
-        let stride = width * 4; // ARGB8888
-        let size = stride * height;
+        let layout = super::shm::pool_layout(width, height, 1, super::shm::page_size())
+            .ok_or_else(|| "tooltip buffer too large".to_string())?;
+        let stride = layout.stride; // ARGB8888, tight rows
+        let size = layout.pool_bytes as i32;
 
-        // Try memfd_create first (Linux 3.17+, glibc 2.27+)
-        // Fall back to shm_open for older systems
-        let fd = unsafe {
-            #[cfg(target_os = "linux")]
-            {
-                let result = libc::syscall(
-                    libc::SYS_memfd_create,
-                    CString::new("azul-tooltip").unwrap().as_ptr(),
-                    1 as libc::c_int, // MFD_CLOEXEC
-                );
-
-                if result != -1 {
-                    result as libc::c_int
-                } else {
-                    let name =
-                        CString::new(format!("/azul-tooltip-{}", std::process::id())).unwrap();
-                    let fd = libc::shm_open(
-                        name.as_ptr(),
-                        libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
-                        0o600,
-                    );
-                    if fd != -1 {
-                        libc::shm_unlink(name.as_ptr());
-                    }
-                    fd
-                }
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                -1
-            }
-        };
-
-        if fd < 0 {
-            return Err("Failed to create shared memory".to_string());
-        }
+        let fd = super::shm::create_shm_file("azul-tooltip", layout.pool_bytes)
+            .map_err(|e| e.to_string())?;
 
         unsafe {
-            if libc::ftruncate(fd, size as libc::off_t) < 0 {
-                libc::close(fd);
-                return Err("Failed to resize shared memory".to_string());
-            }
-
             let data = libc::mmap(
                 std::ptr::null_mut(),
                 size as usize,
@@ -353,51 +320,43 @@ impl TooltipWindow {
             self.data = Some(data);
             self.width = width;
             self.height = height;
+            self.stride = stride;
         }
 
         Ok(())
     }
 
     /// Copy a shaped, rasterized [`AzulPixmap`] (RGBA8) into the `wl_shm` buffer
-    /// (ARGB8888 little-endian = BGRA byte order). The pixmap already contains
-    /// the tooltip background + shaped glyphs at device resolution, so this is a
-    /// straight per-pixel channel swap.
+    /// (ARGB8888 little-endian = BGRA byte order) at the buffer's own row pitch,
+    /// through the one pitched upload. The pixmap already contains the tooltip
+    /// background + shaped glyphs at device resolution.
     fn blit_pixmap(
         data: *mut u8,
+        mapped_size: usize,
+        stride: i32,
         width: i32,
         height: i32,
         pixmap: &azul_layout::cpurender::AzulPixmap,
     ) {
-        let stride = width * 4;
-        let src = pixmap.data();
-        let src_w = pixmap.width() as i32;
-        let src_h = pixmap.height() as i32;
-        let copy_w = width.min(src_w);
-        let copy_h = height.min(src_h);
-        let src_stride = src_w * 4;
-
-        unsafe {
-            for y in 0..copy_h {
-                for x in 0..copy_w {
-                    let s = (y * src_stride + x * 4) as usize;
-                    let d = (y * stride + x * 4) as isize;
-                    let r = src[s];
-                    let g = src[s + 1];
-                    let b = src[s + 2];
-                    let a = src[s + 3];
-                    *data.offset(d) = b; // Blue
-                    *data.offset(d + 1) = g; // Green
-                    *data.offset(d + 2) = r; // Red
-                    *data.offset(d + 3) = a; // Alpha
-                }
-            }
-        }
+        // SAFETY: `data` is the live mapping of `mapped_size` bytes owned by
+        // this tooltip (allocate_shm_buffer), not aliased while we write.
+        let dst = unsafe { core::slice::from_raw_parts_mut(data, mapped_size) };
+        let (sw, sh) = (pixmap.width(), pixmap.height());
+        crate::desktop::shell2::headless::copy_rgba_rects_into(
+            dst,
+            stride.max(0) as usize,
+            pixmap.data(),
+            sw as usize * 4,
+            width.max(0) as usize,
+            height.max(0) as usize,
+            &[(0, 0, sw, sh)],
+            true,
+        );
     }
 
     /// Fallback for when no system font could be resolved: fill the buffer with
     /// the tooltip background colour so a positioned (text-less) box still shows.
-    fn render_fallback_background(data: *mut u8, width: i32, height: i32) {
-        let stride = width * 4;
+    fn render_fallback_background(data: *mut u8, stride: i32, width: i32, height: i32) {
         unsafe {
             for y in 0..height {
                 for x in 0..width {

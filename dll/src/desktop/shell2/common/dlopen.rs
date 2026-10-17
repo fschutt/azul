@@ -40,7 +40,11 @@ pub trait DynamicLibrary {
 ///
 /// Useful for different library versions across distributions.
 /// Example: ["libX11.so.6", "libX11.so"]
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+///
+/// Also built wherever the X11 backend is (`az_x11`: macOS with `x11-macos`),
+/// which loads its XQuartz dylibs through here - see
+/// `common::x11_host::library_candidates`.
+#[cfg(any(target_os = "linux", target_os = "windows", az_x11))]
 pub fn load_first_available<L: DynamicLibrary>(names: &[&str]) -> Result<L, DlError> {
     let mut errors = Vec::new();
 

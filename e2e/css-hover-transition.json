@@ -1,0 +1,75 @@
+{
+  "name": "css_hover_transition",
+  "description": "A POINTER-STATE change honours a declared `animation` (ANIM8, 2026-10-03; the user: 'the hover animation over buttons, it immediately transitions'). #btn declares `animation: background 200ms linear` and a `:hover` background. Hovering it starts ONE transition that holds the old colour on frame 0, is between the two colours half-way and lands on the hover colour; leaving fades back; re-entering mid-fade reverses from the colour on screen (no jump to either end). Before: the :hover restyle seeded no transition at all - the colour snapped on the first frame.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"btn\">button</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; }",
+        "#btn { width: 100px; height: 40px; background: #ff0000; animation: background 200ms linear; }",
+        "#btn:hover { background: #0000ff; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+
+    { "op": "mouse_move", "x": 50, "y": 20 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":1" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "contains": "background: #ff0000ff" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 6 },
+    { "op": "wait_frame" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "not_contains": "background: #ff0000ff" },
+    { "op": "assert_response", "not_contains": "background: #0000ffff" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 12 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "contains": "background: #0000ffff" },
+
+    { "op": "mouse_move", "x": 300, "y": 200 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":1" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "contains": "background: #0000ffff" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 6 },
+    { "op": "wait_frame" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "not_contains": "background: #ff0000ff" },
+    { "op": "assert_response", "not_contains": "background: #0000ffff" },
+
+    { "op": "mouse_move", "x": 50, "y": 20 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":1" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "not_contains": "background: #ff0000ff" },
+    { "op": "assert_response", "not_contains": "background: #0000ffff" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 30 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    { "op": "get_node_css_properties", "selector": "#btn" },
+    { "op": "assert_response", "contains": "background: #0000ffff" },
+    { "op": "assert_manager_invariants" }
+  ]
+}

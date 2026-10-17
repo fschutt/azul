@@ -23,6 +23,18 @@
 mod full;
 pub use full::*;
 
+// AzBuilder's document model (drag and drop, undo, convert-to-component,
+// template components, palette thumbnails) behind the `builder_*` ops.
+mod builder;
+
+// AzBuilder projects: a folder on disk the builder browses, edits and saves
+// into (the `project_*` ops), every path confined to the project root.
+mod project;
+
+// AzBuilder's quick exports ("Compile CSS to…", "Subtree → code",
+// "Component → code") and what Export > Code writes.
+mod export;
+
 mod cpu_backend;
 
 mod runner;
@@ -30,6 +42,33 @@ pub use runner::run_e2e_test;
 
 mod report;
 pub use report::{load_e2e_tests, render_report, E2eVerdict};
+
+// The AzBuilder server messages (drag and drop, convert, previews), driven
+// through the real dispatcher on a headless window.
+#[cfg(test)]
+mod builder_tests;
+
+// AzBuilder projects: a folder on disk (tree, read / write / rename / delete
+// confined to the root, save / load of the document, components and
+// stylesheets, zip export / import), driven through the real dispatcher.
+#[cfg(test)]
+mod project_tests;
+
+// The builder's quick exports and Export > Code, driven through the real
+// dispatcher on a headless window.
+#[cfg(test)]
+mod export_tests;
+
+// The app's light / dark mode and its theme over the debug server
+// (`get_mode` / `set_mode`, `get_theme` / `set_theme`), driven through the
+// real dispatcher on a headless window.
+#[cfg(test)]
+mod mode_ops_tests;
+
+// The key names `key_down` / `key_up` accept: punctuation and the numeric
+// keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
+#[cfg(test)]
+mod key_names_tests;
 
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in

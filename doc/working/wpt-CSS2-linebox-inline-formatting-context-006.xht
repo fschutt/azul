@@ -1,0 +1,28 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Inline formatting context with left padding</title>
+<meta name="assert" content="Left padding are respected between inline boxes."/>
+<style>
+div
+            {
+                display: inline;
+            }
+            #div1
+            {
+                background: black;
+                padding-left: 100px;
+            }
+            div div
+            {
+                background: white;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if there is a black stripe on the left side of "Filler Text".</p>
+        <div id="div1">
+            <div>Filler Text</div>
+        </div>
+    
+</body>
+</html>

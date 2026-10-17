@@ -72,6 +72,10 @@ impl TooltipWindow {
             panel.setOpaque(false);
             panel.setHasShadow(true);
             panel.setLevel(objc2_app_kit::NSPopUpMenuWindowLevel);
+            // A tooltip never takes the pointer: under it, the window below
+            // would hear the pointer leave the control the tooltip explains,
+            // hide it, and show it again as the pointer comes back - a flicker.
+            panel.setIgnoresMouseEvents(true);
 
             // Set background color to tooltip yellow
             let bg_color = NSColor::colorWithRed_green_blue_alpha(

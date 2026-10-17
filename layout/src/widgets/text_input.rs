@@ -24,10 +24,12 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, DomNodeId},
+    dom::{AttributeType, Dom, DomNodeId},
+    form::{ValidityReason, ValidityState},
     refany::RefAny,
     task::OptionTimerId,
 };
+use unicode_segmentation::UnicodeSegmentation;
 use azul_css::{css::BoxOrStatic, dynamic_selector::OptionCssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -91,6 +93,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -201,7 +206,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -303,6 +310,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -432,7 +442,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -471,7 +482,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -510,7 +522,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -533,18 +546,77 @@ pub struct TextInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The HTML `name` this field submits its value under (see
+    /// [`crate::widgets::form::Form`]). `None` keeps the field out of a form's
+    /// `FormData`, like an `<input>` without a `name`.
+    pub name: OptionString,
     pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// Which HTML `<input type=..>` a [`TextInput`] stands for.
+///
+/// One widget, several modes, rather than one copy of the widget per type:
+/// every kind edits a single line of text through the same engine-owned
+/// buffer. The kind decides what the line SHOWS (a password shows one bullet
+/// per grapheme), which checks the value must pass (email and url syntax),
+/// the soft keyboard the platform offers (`type` attribute, read by
+/// `crate::form::input_purpose`) and what assistive technology announces.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TextInputKind {
+    /// `type=text`: plain text, the default.
+    #[default]
+    Text,
+    /// `type=password`: the line shows one bullet per grapheme, the real text
+    /// lives only in the widget state; copy and cut are refused.
+    Password,
+    /// `type=search`: a clear button appears while the field holds text;
+    /// Escape clears it too.
+    Search,
+    /// `type=email`: the value must be a valid e-mail address.
+    Email,
+    /// `type=tel`: any text; only the soft keyboard changes (a phone pad).
+    Tel,
+    /// `type=url`: the value must be an absolute URL.
+    Url,
+}
+
+impl TextInputKind {
+    /// The HTML `type` attribute value this kind stands for.
+    #[must_use]
+    pub const fn html_type(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Password => "password",
+            Self::Search => "search",
+            Self::Email => "email",
+            Self::Tel => "tel",
+            Self::Url => "url",
+        }
+    }
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputState {
+    /// The REAL value, one `u32` per Unicode scalar - for a password too:
+    /// what the line shows is derived from it (see [`display_text`]).
     pub text: U32Vec, // Vec<char>
     pub placeholder: OptionString,
     pub max_len: usize,
     pub selection: OptionTextInputSelection,
     pub cursor_pos: usize,
+    /// HTML `pattern`: the WHOLE value must match this regular expression
+    /// (compiled as `^(?:pattern)$`). An empty value is exempt, a pattern that
+    /// does not compile is ignored - both exactly as in HTML.
+    pub pattern: OptionString,
+    /// Which constraints the current value fails - HTML's `ValidityState`.
+    /// Recomputed by the widget on every build and every edit; read it from
+    /// any callback that receives this state.
+    pub validity: ValidityState,
+    /// Which `<input type>` this field is.
+    pub kind: TextInputKind,
 }
 
 /// [`TextInputState`] together with optional user callbacks and cursor animation state.
@@ -687,6 +759,7 @@ impl Default for TextInput {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            name: OptionString::None,
             theme: None.into(),
         }
     }
@@ -704,6 +777,9 @@ impl Default for TextInputState {
             max_len: usize::MAX,
             selection: None.into(),
             cursor_pos: 0,
+            pattern: OptionString::None,
+            validity: ValidityState::valid(),
+            kind: TextInputKind::Text,
         }
     }
 }
@@ -715,6 +791,130 @@ impl TextInputState {
             .iter()
             .filter_map(|c| core::char::from_u32(*c))
             .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// type=password: the line shows a mask, the state keeps the value
+// ---------------------------------------------------------------------------
+
+/// The glyph a password field paints in place of each grapheme.
+pub const PASSWORD_MASK_CHAR: char = '\u{2022}';
+
+/// Byte length of [`PASSWORD_MASK_CHAR`]: every offset the engine reports on a
+/// masked line is a multiple of it, because the line holds nothing else.
+const MASK_LEN: usize = PASSWORD_MASK_CHAR.len_utf8();
+
+/// Number of user-perceived characters (extended grapheme clusters) in `s`.
+fn grapheme_count(s: &str) -> usize {
+    s.graphemes(true).count()
+}
+
+/// One mask glyph per grapheme of `s`.
+fn mask_for(s: &str) -> String {
+    core::iter::repeat_n(PASSWORD_MASK_CHAR, grapheme_count(s)).collect()
+}
+
+/// The text the value line SHOWS for `state`: the value itself, or - for a
+/// password - one [`PASSWORD_MASK_CHAR`] per grapheme of it.
+///
+/// The engine's buffer holds exactly this string, so every caret and selection
+/// offset the engine reports is an offset into it.
+#[must_use]
+pub fn display_text(state: &TextInputState) -> String {
+    let text = state.get_text();
+    if state.kind == TextInputKind::Password {
+        mask_for(&text)
+    } else {
+        text
+    }
+}
+
+/// Byte offset in `real` of the boundary before its `index`-th grapheme, or the
+/// end of `real` when it has fewer.
+fn grapheme_byte_offset(real: &str, index: usize) -> usize {
+    real.grapheme_indices(true)
+        .nth(index)
+        .map_or(real.len(), |(at, _)| at)
+}
+
+/// A byte offset into a MASKED line (one glyph per grapheme), mapped onto the
+/// matching grapheme boundary of the real value `real`.
+fn masked_to_real_offset(real: &str, masked_byte: usize) -> usize {
+    grapheme_byte_offset(real, masked_byte / MASK_LEN)
+}
+
+/// The real value after the engine DELETED bullets from a masked line.
+///
+/// `masked_after` is how many bullets the line holds now, `caret` the grapheme
+/// index the caret sits at after the deletion - which is where the deleted run
+/// started, for Backspace, Delete and a selection alike. `None` when there is
+/// nothing to mirror: nothing was removed, or the line GREW without any
+/// characters to show for it (an undo re-inserting bullets), which bullets can
+/// never be turned back into.
+fn masked_deletion(real: &str, masked_after: usize, caret: usize) -> Option<String> {
+    let before = grapheme_count(real);
+    if masked_after >= before {
+        return None;
+    }
+    let removed = before - masked_after;
+    let at = caret.min(masked_after);
+    let start = grapheme_byte_offset(real, at);
+    let end = grapheme_byte_offset(real, at + removed);
+    let mut next = String::with_capacity(real.len());
+    next.push_str(&real[..start]);
+    next.push_str(&real[end..]);
+    Some(next)
+}
+
+/// `s` as the widget's scalar buffer.
+fn to_units(s: &str) -> U32Vec {
+    s.chars().map(|c| c as u32).collect::<Vec<_>>().into()
+}
+
+/// Which constraints `state`'s current value fails.
+fn validity_of(state: &TextInputState) -> ValidityState {
+    state.compute_validity()
+}
+
+impl TextInputState {
+    /// Which constraints the current value fails, HTML's rules: the syntax
+    /// its [`TextInputKind`] demands (`type=email`, `type=url`) and the
+    /// `pattern`, which must match the WHOLE value. An empty value is exempt
+    /// from both. A password is checked against its real text, never its
+    /// mask. The widget keeps [`Self::validity`] up to date with this; call it
+    /// directly on a state you built yourself.
+    #[must_use]
+    pub fn compute_validity(&self) -> ValidityState {
+        let mut validity = ValidityState::valid();
+        let value = self.get_text();
+        if value.is_empty() {
+            return validity;
+        }
+        let type_ok = match self.kind {
+            TextInputKind::Email => crate::form::is_valid_email(&value),
+            TextInputKind::Url => crate::form::is_valid_absolute_url(&value),
+            TextInputKind::Text
+            | TextInputKind::Password
+            | TextInputKind::Search
+            | TextInputKind::Tel => true,
+        };
+        if !type_ok {
+            validity.insert(ValidityReason::TypeMismatch);
+        }
+        if let Some(pattern) = self.pattern.as_ref() {
+            if crate::form::pattern_matches(pattern.as_str(), &value) == Some(false) {
+                validity.insert(ValidityReason::PatternMismatch);
+            }
+        }
+        validity
+    }
+
+    /// Can this field's value be invalid at all? Only a typed field
+    /// (`email`, `url`) or one with a `pattern` has a constraint to fail.
+    #[must_use]
+    pub const fn is_constrained(&self) -> bool {
+        matches!(self.kind, TextInputKind::Email | TextInputKind::Url) || self.pattern.is_some()
     }
 }
 
@@ -770,6 +970,81 @@ impl TextInput {
         Self::default()
     }
 
+    /// A field of the given `<input type>`.
+    #[must_use]
+    pub fn create_with_kind(kind: TextInputKind) -> Self {
+        Self::default().with_kind(kind)
+    }
+
+    /// `<input type=password>`: shows one bullet per grapheme, keeps the real
+    /// text in the state, refuses copy and cut.
+    #[must_use]
+    pub fn create_password() -> Self {
+        Self::create_with_kind(TextInputKind::Password)
+    }
+
+    /// `<input type=search>`: a clear button while non-empty; Escape clears.
+    #[must_use]
+    pub fn create_search() -> Self {
+        Self::create_with_kind(TextInputKind::Search)
+    }
+
+    /// `<input type=email>`: validated as an e-mail address.
+    #[must_use]
+    pub fn create_email() -> Self {
+        Self::create_with_kind(TextInputKind::Email)
+    }
+
+    /// `<input type=tel>`: plain text with a phone-pad soft keyboard.
+    #[must_use]
+    pub fn create_tel() -> Self {
+        Self::create_with_kind(TextInputKind::Tel)
+    }
+
+    /// `<input type=url>`: validated as an absolute URL.
+    #[must_use]
+    pub fn create_url() -> Self {
+        Self::create_with_kind(TextInputKind::Url)
+    }
+
+    /// Switch this field to another `<input type>`.
+    pub const fn set_kind(&mut self, kind: TextInputKind) {
+        self.text_input_state.inner.kind = kind;
+    }
+
+    /// [`Self::set_kind`] for the builder chain.
+    #[must_use]
+    pub const fn with_kind(mut self, kind: TextInputKind) -> Self {
+        self.set_kind(kind);
+        self
+    }
+
+    /// HTML `pattern`: the whole value must match `pattern` (see
+    /// [`TextInputState::pattern`]).
+    pub fn set_pattern(&mut self, pattern: AzString) {
+        self.text_input_state.inner.pattern = Some(pattern).into();
+    }
+
+    /// [`Self::set_pattern`] for the builder chain.
+    #[must_use]
+    pub fn with_pattern(mut self, pattern: AzString) -> Self {
+        self.set_pattern(pattern);
+        self
+    }
+
+    /// The name this field's value is submitted under in a
+    /// [`crate::widgets::form::Form`].
+    pub fn set_name(&mut self, name: AzString) {
+        self.name = Some(name).into();
+    }
+
+    /// [`Self::set_name`] for the builder chain.
+    #[must_use]
+    pub fn with_name(mut self, name: AzString) -> Self {
+        self.set_name(name);
+        self
+    }
+
     #[must_use]
     pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
@@ -787,8 +1062,8 @@ impl TextInput {
             .into();
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -910,22 +1185,272 @@ impl TextInput {
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
+    ///
+    /// Unpinned (`theme: None`), the field follows the APP theme: built in
+    /// the structure of the theme its DOM is built for, every node carrying
+    /// flat's and flora's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        // `UiTheme::default()` is Flat, and so is every other widget's fallback:
-        // an unset theme here used to reach FLORA, which is why an unthemed
-        // TextInput rendered skeuomorphic next to a flat Button.
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
+        use crate::widgets::themes::theme_blocks;
+        match self.theme.into_option() {
+            Some(theme) => self.dom_in(theme),
+            None => theme_blocks::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+        }
+    }
+
+    /// [`Self::dom_in`] the flat theme.
+    fn dom_flat(self) -> Dom {
+        self.dom_in(crate::widgets::themes::UiTheme::Flat)
+    }
+
+    /// [`Self::dom_in`] the flora theme.
+    fn dom_flora(self) -> Dom {
+        self.dom_in(crate::widgets::themes::UiTheme::Flora)
+    }
+
+    /// Renders the field in `theme`.
+    fn dom_in(mut self, theme: crate::widgets::themes::UiTheme) -> Dom {
+        // The state is built fresh from the app's value, so its validity is
+        // too: an app handing in a malformed e-mail gets an invalid state
+        // (and FormData) before the user has touched the field.
+        self.text_input_state.inner.validity = validity_of(&self.text_input_state.inner);
+        let kind = self.text_input_state.inner.kind;
+        let constrained = self.text_input_state.inner.is_constrained();
+        let name = self.name.clone();
+        let a11y_name = self.accessibility_name.clone();
+        let has_text = !self.text_input_state.inner.text.is_empty();
+        let mut container = match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
             crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::text_input(self)
             }
+        };
+        container.add_component_css(field_font_default(theme));
+        let mut container = with_kind_semantics(container, kind, name, a11y_name);
+        if constrained {
+            // The handlers paint the invalid ring in the THEME's colours, and
+            // this is how they learn which theme the field was built with.
+            container.add_class(AzString::from_const_str(match theme {
+                crate::widgets::themes::UiTheme::Flat => THEME_FLAT_CLASS,
+                crate::widgets::themes::UiTheme::Flora => THEME_FLORA_CLASS,
+            }));
+        }
+        if kind == TextInputKind::Search {
+            search_field(container, theme, has_text)
+        } else {
+            container
         }
     }
+}
+
+/// The field's UI font size in px when the app gives it none.
+const TEXT_INPUT_FONT_SIZE_PX: isize = 11;
+
+/// The same in flora, whose field writes in Garamond: a face that sets small
+/// (its x-height is well below a grotesque's), so a step up - the design
+/// system's 13.5px input, rounded.
+const TEXT_INPUT_FONT_SIZE_PX_FLORA: isize = 14;
+
+/// The sheet every field carries: `.<container class> { font-size: 11px }` at
+/// `rule_priority::UA`, the field's DEFAULT size - declared the way a
+/// browser's UA sheet declares an `<input>`'s font, below every style the app
+/// gives the field.
+///
+/// It cannot be an inline declaration of the container: a node's inline
+/// style beats every selector-matched rule, `Dom::with_css`'s (the app's
+/// `.dom().with_css("font-size: 22px")`, `AzNotes`' title) included, so the
+/// field kept 11 px whatever its app said. The value `<p>` declares no size
+/// and inherits the field's, as `<input style="font-size: 24px">` sizes its
+/// value in a browser. The class selector keeps the rule on the container
+/// (a component sheet's selector matches in the owner's whole subtree).
+fn field_font_default(theme: crate::widgets::themes::UiTheme) -> css::Css {
+    use azul_css::css::{
+        rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock,
+    };
+    Css {
+        rules: alloc::vec![CssRuleBlock {
+            path: CssPath {
+                selectors: alloc::vec![CssPathSelector::Class(AzString::from_const_str(
+                    TEXT_INPUT_CONTAINER_CLASS,
+                ))]
+                .into(),
+            },
+            declarations: alloc::vec![CssDeclaration::Static(CssProperty::const_font_size(
+                StyleFontSize::const_px(match theme {
+                    crate::widgets::themes::UiTheme::Flat => TEXT_INPUT_FONT_SIZE_PX,
+                    crate::widgets::themes::UiTheme::Flora => TEXT_INPUT_FONT_SIZE_PX_FLORA,
+                }),
+            ))]
+            .into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::UA,
+        }]
+        .into(),
+        ..Css::default()
+    }
+}
+
+/// Marks a constrained field built by the flat theme (see [`TextInput::dom`]).
+pub const THEME_FLAT_CLASS: &str = "__azul-theme-flat";
+/// Marks a constrained field built by the flora theme.
+pub const THEME_FLORA_CLASS: &str = "__azul-theme-flora";
+
+/// The class of the row a `type=search` field sits in.
+pub const SEARCH_FIELD_CLASS: &str = "__azul-native-search-field";
+/// The class of a `type=search` field's clear button.
+pub const SEARCH_CLEAR_CLASS: &str = "__azul-native-search-clear";
+
+// ---- R5: the search row's and the clear button's BASE ----
+//
+// The structure every theme's `type=search` field shares, declared once:
+// `themes::flat::search_field` / `search_clear_button` and their flora
+// twins lay only their skin (paint and metrics) after it.
+
+/// The `display` a clear button SHOWS with - in the build of a field that
+/// holds text and in the live show on its first character
+/// (`sync_live_looks`), in every theme: a flex box that centres its cross.
+pub(crate) const SEARCH_CLEAR_SHOWN: LayoutDisplay = LayoutDisplay::Flex;
+
+/// The row of a `type=search` field: the field (which grows) and its clear
+/// button after it, on one midline.
+pub(crate) static SEARCH_FIELD_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// The clear button's structure, shown (`visible`: [`SEARCH_CLEAR_SHOWN`])
+/// or hidden (`display: none`): a box of its own size that centres its
+/// cross, under the pointer.
+#[must_use]
+pub(crate) const fn search_clear_base(visible: bool) -> [CssPropertyWithConditions; 5] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
+            SEARCH_CLEAR_SHOWN
+        } else {
+            LayoutDisplay::None
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+            LayoutJustifyContent::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    ]
+}
+
+/// `type=search`: the field, then its clear button, in one row.
+///
+/// The button is a SIBLING of the editable host, never a child: inside the host
+/// its glyph would be editable content, and a click on it would place a caret
+/// in the cross. It is not a Tab stop (Escape clears from the keyboard, as in
+/// every browser), and it shares the field's state, so the click handler
+/// mirrors the clear exactly like an edit.
+fn search_field(
+    container: Dom,
+    theme: crate::widgets::themes::UiTheme,
+    has_text: bool,
+) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole},
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    use crate::widgets::themes::{flat, flora, UiTheme};
+
+    let mut clear = match theme {
+        UiTheme::Flat => flat::search_clear_button(has_text),
+        UiTheme::Flora => flora::search_clear_button(has_text),
+    };
+    if let Some(state) = container.root.get_dataset().cloned() {
+        clear.add_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            state,
+            CoreCallback {
+                cb: default_on_search_clear_click as usize,
+                ctx: OptionRefAny::None,
+            },
+        );
+    }
+    let clear = clear.with_accessibility_info(AccessibilityInfo {
+        role: AccessibilityRole::PushButton,
+        accessibility_name: Some(AzString::from_const_str("Clear search")).into(),
+        ..Default::default()
+    });
+
+    match theme {
+        UiTheme::Flat => flat::search_field(container, clear),
+        UiTheme::Flora => flora::search_field(container, clear),
+    }
+}
+
+/// What every `<input type>` adds on top of the themed field, in ONE place so
+/// the two themes cannot drift on it: the `type` and `name` attributes, the
+/// accessibility declaration a password needs, and the clipboard veto.
+///
+/// A plain `type=text` field without a name gets nothing here, so its DOM is
+/// exactly what it was before the kinds existed.
+fn with_kind_semantics(
+    mut container: Dom,
+    kind: TextInputKind,
+    name: OptionString,
+    a11y_name: OptionString,
+) -> Dom {
+    use azul_core::{
+        a11y::AccessibilityState,
+        dom::{EventFilter, FocusEventFilter},
+        refany::OptionRefAny,
+    };
+
+    // The soft keyboard reads the `type` attribute of the focused node
+    // (`crate::form::input_purpose`), and so does the accessibility tree.
+    if kind != TextInputKind::Text {
+        container = container.with_attribute(AttributeType::InputType(AzString::from_const_str(
+            kind.html_type(),
+        )));
+    }
+    if let Some(name) = name.into_option() {
+        container = container.with_attribute(AttributeType::Name(name));
+    }
+
+    if let Some(mut a11y) = container.root.get_accessibility_info().cloned() {
+        if let Some(explicit) = a11y_name.into_option() {
+            a11y.accessibility_name = Some(explicit).into();
+        }
+        if kind == TextInputKind::Password {
+            // The value would be read out loud. HTML's password field exposes
+            // no value either; the bullets are all an AT user gets, like
+            // everyone else.
+            a11y.accessibility_value = OptionString::None;
+            let mut states = a11y.states.clone().into_library_owned_vec();
+            if !states.contains(&AccessibilityState::Protected) {
+                states.push(AccessibilityState::Protected);
+            }
+            a11y.states = states.into();
+        }
+        container.root.set_accessibility_info(a11y);
+    }
+
+    if kind == TextInputKind::Password {
+        // The engine's buffer holds bullets, so a copy would only ever copy
+        // bullets - but a password field that pretends to copy is still a
+        // lie. HTML refuses both, and so does every native toolkit.
+        if let Some(state) = container.root.get_dataset().cloned() {
+            for filter in [FocusEventFilter::Copy, FocusEventFilter::Cut] {
+                container.root.add_callback(
+                    EventFilter::Focus(filter),
+                    state.clone(),
+                    CoreCallback {
+                        cb: default_on_clipboard_veto as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                );
+            }
+        }
+    }
+
+    container
 }
 
 pub const TEXT_INPUT_CONTAINER_CLASS: &str = "__azul-native-text-input-container";
@@ -955,17 +1480,23 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
-/// The engine owns the buffer, so its answer wins — except that an empty answer
-/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
-/// whose text sits under a block wrapper it does not descend into. An empty
-/// read therefore never clears a non-empty mirror.
+/// The engine owns the buffer, so its answer wins - an EMPTY answer too: it is
+/// the field the user just cleared (Backspace over the last character, over a
+/// select-all). `get_node_text_content` answers `None` for a node it cannot
+/// read, and the read descends into the value `<p>`, so `Some("")` is an empty
+/// field. (An empty read used to be ignored over a non-empty mirror, from when
+/// the read skipped block wrappers: a cleared field then never reached the
+/// app's `on_text_input`.)
 fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomNodeId) {
-    let Some(text) = info.get_node_text_content(node) else {
-        return;
-    };
-    if text.is_empty() && !state.text.is_empty() {
+    // A password's engine buffer holds BULLETS: adopting it would overwrite
+    // the real value with its own mask. Its edits are mirrored one by one
+    // instead (`masked_insertion` / `masked_notification`).
+    if state.kind == TextInputKind::Password {
         return;
     }
+    let Some(text) = crate::widgets::text_mirror::engine_text(info, node) else {
+        return;
+    };
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
 }
 
@@ -992,31 +1523,406 @@ fn engine_selection(
     }))
 }
 
+use crate::widgets::text_mirror::{engine_caret, engine_selected_bytes};
+
 /// Mirrors the insertion the engine is about to apply.
 ///
-/// The engine inserts at the caret, so the mirror does too whenever the caret
-/// is readable and lands on a character boundary; otherwise it appends, which
-/// is where the caret sits for every append-only path. `cursor_pos` stays a
-/// byte offset, as it has always been.
-fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<usize>) {
-    let text = state.get_text();
-    let at = caret
-        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-        .unwrap_or(text.len());
-
-    let mut next = String::with_capacity(text.len() + inserted.len());
-    next.push_str(&text[..at]);
-    next.push_str(inserted);
-    next.push_str(&text[at..]);
-
+/// The engine replaces a live selection (`selected`, from
+/// [`engine_selected_bytes`]) with the typed text - select-all and typing
+/// replaces the value - and otherwise inserts at the caret; the mirror does
+/// the same whenever the caret is readable and lands on a character boundary,
+/// else it appends, which is where the caret sits for every append-only path.
+/// `cursor_pos` stays a byte offset, as it has always been.
+fn mirror_insertion(
+    state: &mut TextInputState,
+    inserted: &str,
+    caret: Option<usize>,
+    selected: Option<(usize, usize)>,
+) {
+    let (next, cursor) =
+        crate::widgets::text_mirror::insertion(&state.get_text(), inserted, caret, selected);
     state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
-    state.cursor_pos = at.saturating_add(inserted.len());
+    state.cursor_pos = cursor;
 }
 
-/// The caret's byte offset inside the edited node, if the engine has one.
-fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
-    info.get_node_cursor_position(node)
-        .map(|c| c.cluster_id.start_byte_in_run as usize)
+/// The engine's selection in the widget's public shape, as offsets into the
+/// REAL value - for a password the engine's offsets index the bullets, so they
+/// are mapped onto the value's grapheme boundaries first.
+fn mirror_selection(
+    info: &CallbackInfo,
+    node: DomNodeId,
+    state: &TextInputState,
+) -> OptionTextInputSelection {
+    let text = state.get_text();
+    if state.kind != TextInputKind::Password {
+        return engine_selection(info, node, text.len()).into();
+    }
+    match engine_selection(info, node, grapheme_count(&text) * MASK_LEN) {
+        Some(TextInputSelection::FromTo(r)) => {
+            Some(TextInputSelection::FromTo(TextInputSelectionRange {
+                dir_from: masked_to_real_offset(&text, r.dir_from),
+                dir_to: masked_to_real_offset(&text, r.dir_to),
+            }))
+            .into()
+        }
+        other => other.into(),
+    }
+}
+
+/// The engine's caret as a byte offset into the REAL value (see
+/// [`mirror_selection`]).
+fn mirror_caret(info: &CallbackInfo, node: DomNodeId, state: &TextInputState) -> Option<usize> {
+    let caret = engine_caret(info, node)?;
+    if state.kind == TextInputKind::Password {
+        Some(masked_to_real_offset(&state.get_text(), caret))
+    } else {
+        Some(caret)
+    }
+}
+
+/// Copy and Cut on a password field: refused.
+///
+/// Registered only on `type=password` fields, for `FocusEventFilter::Copy` and
+/// `FocusEventFilter::Cut`, which fire BEFORE the clipboard default and are
+/// cancellable.
+#[must_use]
+pub extern "C" fn default_on_clipboard_veto(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.prevent_default();
+    Update::DoNothing
+}
+
+/// Click on a `type=search` field's clear button: empty the field.
+///
+/// The hit node is the button; the field is its previous sibling (see
+/// `search_field`). The payload is the FIELD's state, shared with the field's
+/// own handlers.
+#[must_use]
+pub extern "C" fn default_on_search_clear_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut wrapper) = data.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let Some(container) = info.get_previous_sibling(info.get_hit_node()) else {
+        return Update::DoNothing;
+    };
+    clear_field(&mut wrapper, info, container)
+}
+
+/// Empty the field whose host is `container`, the way an edit would: the
+/// `on_text_input` hook sees the empty value first and may veto it, then the
+/// mirror, the engine's line and the live looks follow.
+fn clear_field(
+    wrapper: &mut TextInputStateWrapper,
+    mut info: CallbackInfo,
+    container: DomNodeId,
+) -> Update {
+    if wrapper.inner.text.is_empty() {
+        return Update::DoNothing;
+    }
+    let mut preview = wrapper.inner.clone();
+    preview.text = Vec::new().into();
+    preview.cursor_pos = 0;
+    preview.selection = None.into();
+    preview.validity = validity_of(&preview);
+
+    let result = run_text_input_hook(wrapper, info, preview.clone());
+    if result.valid == TextInputValid::No {
+        return result.update;
+    }
+    let looks_before = looks_of(&wrapper.inner);
+    wrapper.inner = preview;
+    replace_engine_line(&mut info, container, "");
+    sync_live_looks(&mut info, container, looks_before, &wrapper.inner);
+    result.update
+}
+
+/// Replace what the engine shows on the line of the field hosted at
+/// `container` with `shown` (for a password: its mask). A `TextArea` has the
+/// same `container > p > text` shape and is re-texted here too.
+///
+/// One write, the line's text leaf: `ChangeNodeText` is the app SETTING the
+/// text, and the engine lets it supersede whatever the user typed there
+/// (`LayoutWindow::set_node_text`) - the edit buffer (the user's uncommitted
+/// typing, which otherwise outranks the DOM until the DOM catches up) is
+/// retired and the caret moves across the change. No edit is raised, so no
+/// handler mirrors the new value a second time.
+pub(crate) fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId, shown: &str) {
+    if let Some(line) = info.get_first_child(container) {
+        if let Some(leaf) = info.get_first_child(line) {
+            info.change_node_text(leaf, AzString::from(shown));
+        }
+    }
+}
+
+impl TextInput {
+    /// Sets the text of the field hosted at `container` from a callback, as the
+    /// app: it supersedes what the user typed there (a chat field emptied after
+    /// Send, a search box filled from a suggestion). Re-rendering the field
+    /// with `with_text` alone does not: the user's typing outranks the DOM
+    /// until the DOM catches up. A password field shows its mask.
+    pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {
+        let password = info
+            .get_node_attribute(container, "type")
+            .is_some_and(|t| t.as_str() == "password");
+        let shown = if password {
+            mask_for(text.as_str())
+        } else {
+            text.as_str().to_string()
+        };
+        replace_engine_line(info, container, &shown);
+    }
+}
+
+/// What a field's value-dependent looks were derived from, captured BEFORE an
+/// edit so [`sync_live_looks`] can tell what changed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct LooksBefore {
+    empty: bool,
+    invalid: bool,
+}
+
+const fn looks_of(state: &TextInputState) -> LooksBefore {
+    LooksBefore {
+        empty: state.text.is_empty(),
+        invalid: !state.validity.is_valid(),
+    }
+}
+
+/// Bring the parts of the field that depend on its value up to date after an
+/// edit, WITHOUT a rebuild:
+///
+/// * the `type=search` clear button appears with the first character and hides
+///   with the last - written only on that TRANSITION, because a same-value
+///   `display` write costs a full relayout per keystroke;
+/// * the invalid ring: painted while an edit leaves the value invalid, removed
+///   when an edit makes it valid again (see [`paint_invalid_ring`]). A valid
+///   edit of a valid field writes nothing.
+fn sync_live_looks(
+    info: &mut CallbackInfo,
+    container: DomNodeId,
+    before: LooksBefore,
+    state: &TextInputState,
+) {
+    let is_empty = state.text.is_empty();
+    if state.kind == TextInputKind::Search && before.empty != is_empty {
+        if let Some(clear) = info.get_next_sibling(container) {
+            // The display the button is BUILT with in every theme
+            // (`search_clear_base`), so the live show is a rebuild's box.
+            let display = if is_empty {
+                LayoutDisplay::None
+            } else {
+                SEARCH_CLEAR_SHOWN
+            };
+            info.set_css_property(clear, CssProperty::const_display(display));
+        }
+    }
+
+    let invalid = !state.validity.is_valid();
+    if invalid || before.invalid {
+        paint_invalid_ring(info, container, invalid);
+    }
+}
+
+/// The invalid look - CSS `:user-invalid`, not `:invalid`: it follows the
+/// USER's edits. An edit that leaves the value invalid rings the field in the
+/// theme's invalid colour on all four edges; an edit that makes it valid
+/// REMOVES the ring (an `initial` override), which brings the resting border,
+/// the hover/focus ring and the dark twins back exactly as the theme declared
+/// them.
+///
+/// An override, not an inline declaration, because only an override can be
+/// taken back at run time. The price: it outranks the hover/focus ring while
+/// it stands (an invalid field is red in every state, which is the intent),
+/// and its colour is the light or dark one current when it was written.
+/// A value the APP hands in invalid is reported in the state (and `FormData`)
+/// at once but not painted until the user edits it or a form submit asks
+/// ([`mark_user_invalid`]) - the reason browsers added `:user-invalid`.
+pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
+    let Some(node_id) = container.node.into_crate_internal() else {
+        return;
+    };
+    let props: Vec<CssProperty> = if invalid {
+        let flora = info
+            .get_node_classes(container)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == THEME_FLORA_CLASS);
+        // The one light / dark decision (`resolve_window_theme`, I1), not a
+        // widget's own re-implementation of it.
+        let dark =
+            info.get_resolved_mode() == azul_core::window::DarkLightMode::Dark;
+        if flora {
+            crate::widgets::themes::flora::text_input_invalid_ring(dark)
+        } else {
+            crate::widgets::themes::flat::text_input_invalid_ring(dark)
+        }
+    } else {
+        alloc::vec![
+            CssProperty::initial(CssPropertyType::BorderTopColor),
+            CssProperty::initial(CssPropertyType::BorderRightColor),
+            CssProperty::initial(CssPropertyType::BorderBottomColor),
+            CssProperty::initial(CssPropertyType::BorderLeftColor),
+        ]
+    };
+    info.override_node_css_properties(container.dom, node_id, props.into());
+}
+
+/// Put the field hosted at `container` back to `value` - what a form reset
+/// does. The mirror, the engine's line (whatever the user typed there is
+/// superseded, see [`replace_engine_line`]) and the live looks all follow; no
+/// hook is asked, because a reset is the app's own action, reported to it
+/// through the form's `on_reset`.
+///
+/// The line is re-texted even when the mirror already says `value`: the
+/// screen is the ENGINE's, and what it shows is not the mirror's to vouch for.
+/// A line that already shows `value` costs the engine nothing (the write is a
+/// no-op there).
+pub(crate) fn restore_text_input(
+    info: &mut CallbackInfo,
+    container: DomNodeId,
+    wrapper: &mut TextInputStateWrapper,
+    value: &str,
+) {
+    let changed = wrapper.inner.get_text() != value;
+    let looks_before = looks_of(&wrapper.inner);
+    if changed {
+        wrapper.inner.text = to_units(value);
+        wrapper.inner.cursor_pos = value.len();
+        wrapper.inner.selection = None.into();
+        wrapper.inner.validity = validity_of(&wrapper.inner);
+    }
+    let shown = display_text(&wrapper.inner);
+    replace_engine_line(info, container, &shown);
+    if changed {
+        sync_live_looks(info, container, looks_before, &wrapper.inner);
+    }
+}
+
+/// Paint the invalid look on the field hosted at `container` if its current
+/// value is invalid - what a failed form submit does for every field it
+/// refused (see `crate::widgets::form`), the other moment `:user-invalid`
+/// starts to apply.
+pub fn mark_user_invalid(info: &mut CallbackInfo, container: DomNodeId, state: &TextInputState) {
+    if !state.validity.is_valid() {
+        paint_invalid_ring(info, container, true);
+    }
+}
+
+/// The user's `on_text_input` hook, or "accept, nothing to redraw" without one.
+fn run_text_input_hook(
+    wrapper: &mut TextInputStateWrapper,
+    info: CallbackInfo,
+    preview: TextInputState,
+) -> OnTextInputReturn {
+    match wrapper.on_text_input.as_mut() {
+        Some(TextInputOnTextInput { callback, refany }) => {
+            callback.invoke(refany.clone(), info, preview)
+        }
+        None => OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        },
+    }
+}
+
+/// A recorded insertion into a PASSWORD field.
+///
+/// The engine's line holds one bullet per grapheme, so its caret and selection
+/// are mapped onto the real value, the typed text is spliced into the REAL
+/// value, the user's hook sees the real result, and - if the edit stands - the
+/// pending changeset is rewritten so the engine inserts bullets instead of the
+/// characters. A rejected edit is vetoed exactly like on a plain field.
+fn masked_insertion(
+    wrapper: &mut TextInputStateWrapper,
+    mut info: CallbackInfo,
+    container: DomNodeId,
+    inserted: &str,
+) -> Update {
+    let real = wrapper.inner.get_text();
+    let shown = grapheme_count(&real);
+
+    // The replaced range, in graphemes. The engine deletes the live
+    // selection before it inserts; without one it inserts at the caret.
+    let (from, to) = match engine_selection(&info, container, shown * MASK_LEN) {
+        Some(TextInputSelection::All) => (0, shown),
+        Some(TextInputSelection::FromTo(r)) => {
+            let a = (r.dir_from.min(r.dir_to) / MASK_LEN).min(shown);
+            let b = (r.dir_from.max(r.dir_to) / MASK_LEN).min(shown);
+            (a, b)
+        }
+        None => {
+            let at = engine_caret(&info, container)
+                .map_or(shown, |c| c / MASK_LEN)
+                .min(shown);
+            (at, at)
+        }
+    };
+    let start = grapheme_byte_offset(&real, from);
+    let end = grapheme_byte_offset(&real, to);
+
+    // maxlength, counted in characters of the REAL value, replacement-aware
+    // like the plain path.
+    let current_chars = real.chars().count();
+    let prospective = current_chars
+        .saturating_sub(real[start..end].chars().count())
+        .saturating_add(inserted.chars().count());
+    if prospective > wrapper.inner.max_len && prospective > current_chars {
+        info.prevent_default();
+        return Update::DoNothing;
+    }
+
+    let mut next = String::with_capacity(real.len() + inserted.len());
+    next.push_str(&real[..start]);
+    next.push_str(inserted);
+    next.push_str(&real[end..]);
+
+    let mut preview = wrapper.inner.clone();
+    preview.text = to_units(&next);
+    preview.cursor_pos = start + inserted.len();
+    preview.selection = None.into();
+    preview.validity = validity_of(&preview);
+
+    let result = run_text_input_hook(wrapper, info, preview.clone());
+    if result.valid == TextInputValid::No {
+        info.prevent_default();
+        return result.update;
+    }
+
+    // As many bullets as the line needs to show the NEW value: normally one
+    // per inserted grapheme, fewer when the insertion fused with a neighbour
+    // (a combining mark typed after its base letter adds no grapheme).
+    let bullets = grapheme_count(&next).saturating_sub(shown - (to - from));
+    if let Some(mut changeset) = info.get_text_changeset().cloned() {
+        changeset.inserted_text = AzString::from(
+            core::iter::repeat_n(PASSWORD_MASK_CHAR, bullets).collect::<String>(),
+        );
+        info.set_text_changeset(changeset);
+    }
+    wrapper.inner = preview;
+    result.update
+}
+
+/// A post-edit notification on a PASSWORD field: the engine already deleted
+/// bullets (Backspace, Delete, a cut selection) and the real value has to lose
+/// the same graphemes. See [`masked_deletion`].
+fn masked_notification(
+    wrapper: &mut TextInputStateWrapper,
+    info: CallbackInfo,
+    container: DomNodeId,
+) -> Option<Update> {
+    let masked = info.get_node_text_content(container)?;
+    let masked_after = grapheme_count(&masked);
+    let caret = engine_caret(&info, container).map_or(masked_after, |c| c / MASK_LEN);
+    let next = masked_deletion(&wrapper.inner.get_text(), masked_after, caret)?;
+
+    let cursor = grapheme_byte_offset(&next, caret.min(masked_after));
+    wrapper.inner.text = to_units(&next);
+    wrapper.inner.cursor_pos = cursor;
+    wrapper.inner.selection = None.into();
+    wrapper.inner.validity = validity_of(&wrapper.inner);
+
+    // Already applied: the hook is told, but cannot veto.
+    let preview = wrapper.inner.clone();
+    Some(run_text_input_hook(wrapper, info, preview).update)
 }
 
 #[must_use]
@@ -1048,7 +1954,8 @@ pub extern "C" fn default_on_focus_received(
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
     let end_of_text = text_input.inner.text.len();
-    text_input.inner.cursor_pos = engine_caret(&info, container).unwrap_or(end_of_text);
+    text_input.inner.cursor_pos =
+        mirror_caret(&info, container, &text_input.inner).unwrap_or(end_of_text);
 
     Update::DoNothing
 }
@@ -1105,8 +2012,15 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let _value = value_node(&info)?;
     let container = info.get_hit_node();
+    let is_password = text_input.inner.kind == TextInputKind::Password;
+    let looks_before = looks_of(&text_input.inner);
 
     if inserted_text.is_empty() {
+        if is_password {
+            let update = masked_notification(&mut text_input, info, container);
+            sync_live_looks(&mut info, container, looks_before, &text_input.inner);
+            return update;
+        }
         // Idempotent: a notification that changed nothing observable (a
         // spurious Input, an edit already mirrored) stays a strict no-op, so
         // the no-changeset pins keep holding.
@@ -1117,6 +2031,8 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         }
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        text_input.inner.validity = validity_of(&text_input.inner);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1141,8 +2057,17 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         return Some(Update::DoNothing);
     }
 
+    if is_password {
+        let update = masked_insertion(&mut text_input, info, container, &inserted_text);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
+        return Some(update);
+    }
+
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_input.inner, &info, container);
+    // The selection the engine replaces with the typed text, in the value as
+    // it stands before the edit.
+    let selected = engine_selected_bytes(&info, container, &text_input.inner.get_text());
 
     // maxlength: veto an insertion that would GROW the value past `max_len`
     // (counted in characters, the stored unit). Replacement-aware: the engine
@@ -1184,9 +2109,10 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         // inner_clone has the new text
         let mut inner_clone = text_input.inner.clone();
-        mirror_insertion(&mut inner_clone, &inserted_text, caret);
+        mirror_insertion(&mut inner_clone, &inserted_text, caret, selected);
         let len = inner_clone.get_text().len();
         inner_clone.selection = engine_selection(&info, container, len).into();
+        inner_clone.validity = validity_of(&inner_clone);
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, refany }) => {
@@ -1203,9 +2129,11 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         // No placeholder bookkeeping: the first accepted character makes the
         // line non-empty, and the engine simply stops painting the prompt on
         // the next display list.
-        mirror_insertion(&mut text_input.inner, &inserted_text, caret);
+        mirror_insertion(&mut text_input.inner, &inserted_text, caret, selected);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        text_input.inner.validity = validity_of(&text_input.inner);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1240,8 +2168,7 @@ fn default_on_virtual_key_down_inner(
         // rustc doesn't understand the borrowing lifetime here
         let text_input = &mut *text_input;
         let mut inner_clone = text_input.inner.clone();
-        let len = inner_clone.get_text().len();
-        inner_clone.selection = engine_selection(&info, container, len).into();
+        inner_clone.selection = mirror_selection(&info, container, &inner_clone);
         match text_input.on_virtual_key_down.as_mut() {
             Some(TextInputOnVirtualKeyDown { callback, refany }) => {
                 callback.invoke(refany.clone(), info, inner_clone)
@@ -1253,11 +2180,24 @@ fn default_on_virtual_key_down_inner(
         }
     };
 
-    let len = text_input.inner.get_text().len();
-    text_input.inner.selection = engine_selection(&info, container, len).into();
+    text_input.inner.selection = mirror_selection(&info, container, &text_input.inner);
 
     if result.valid == TextInputValid::No {
         info.prevent_default();
+    }
+
+    // type=search: Escape clears a non-empty field (HTML's "cancel" action)
+    // and the field KEEPS focus - the default Escape would drop it. On an
+    // empty field Escape keeps its default. A hook that rejected the key
+    // rejected the clear with it.
+    if text_input.inner.kind == TextInputKind::Search
+        && keycode == azul_core::window::VirtualKeyCode::Escape
+        && result.valid == TextInputValid::Yes
+        && !text_input.inner.text.is_empty()
+    {
+        info.prevent_default();
+        let cleared = clear_field(&mut text_input, info, container);
+        return Some(core::cmp::max(result.update, cleared));
     }
 
     // Single-line field: Enter must never edit the value. The engine-side
@@ -1268,6 +2208,21 @@ fn default_on_virtual_key_down_inner(
         azul_core::window::VirtualKeyCode::Return | azul_core::window::VirtualKeyCode::NumpadEnter
     ) {
         info.prevent_default();
+        // HTML's implicit submission: Enter in a text field submits the form
+        // it sits in - unless the hook rejected the key. (The engine's own
+        // Enter-to-submit never sees a text field: Enter in an editable host
+        // is a line break, which the veto above just took away.)
+        if result.valid == TextInputValid::Yes {
+            // Release this field's state first: the submit READS every field
+            // of the form through its dataset, this one included, and a
+            // shared read fails while the mutable borrow is live.
+            drop(text_input);
+            if let Some(submitted) =
+                crate::widgets::form::submit_enclosing_form(&mut info, container)
+            {
+                return Some(core::cmp::max(result.update, submitted));
+            }
+        }
     }
 
     Some(result.update)
@@ -1553,6 +2508,7 @@ mod autotest_generated {
         hit: DomNodeId,
         keycode: Option<VirtualKeyCode>,
         changeset: Option<PendingTextEdit>,
+        selection: Option<azul_core::selection::SelectionRange>,
     }
 
     impl Env {
@@ -1562,7 +2518,29 @@ mod autotest_generated {
                 hit: dom_node(CONTAINER),
                 keycode: None,
                 changeset: None,
+                selection: None,
             }
+        }
+
+        /// A live selection in the field, as the engine holds it: from before the cluster
+        /// at byte `from` to after the cluster at byte `last` (a Ctrl+A over "krug" is
+        /// `selecting(0, 3)`).
+        fn selecting(mut self, from: u32, last: u32) -> Self {
+            use azul_core::selection::{
+                CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor,
+            };
+            let cursor = |byte: u32, affinity: CursorAffinity| TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity,
+            };
+            self.selection = Some(SelectionRange {
+                start: cursor(from, CursorAffinity::Leading),
+                end: cursor(last, CursorAffinity::Trailing),
+            });
+            self
         }
 
         fn hit(mut self, hit: DomNodeId) -> Self {
@@ -1606,6 +2584,14 @@ mod autotest_generated {
             .insert(DomId::ROOT_ID, layout_result(env.styled_dom));
         if let Some(changeset) = env.changeset {
             layout_window.text_input_manager.set_changeset(changeset);
+        }
+        if let Some(range) = env.selection {
+            use azul_core::selection::{MultiCursorState, TextBlock, TextBlockKey};
+            let block =
+                TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(0)));
+            let mut session = MultiCursorState::new_with_cursor(range.end, block, 0);
+            session.set_single_range(range);
+            layout_window.text_edit_manager.multi_cursor = Some(session);
         }
         let layout_window = layout_window;
 
@@ -2664,9 +3650,12 @@ mod autotest_generated {
     fn dom_keeps_the_configured_styles_on_the_nodes_they_were_set_for() {
         let label_style = style(2);
         let container_style = style(3);
+        // One theme's field: unpinned, the field follows the app theme and
+        // repeats a property the themes twin differently in each theme's block.
         let dom = TextInput::create()
             .with_label_style(label_style.clone())
             .with_container_style(container_style.clone())
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
             .dom();
 
         let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
@@ -2710,6 +3699,85 @@ mod autotest_generated {
     }
 
     #[test]
+    fn flora_writes_a_fields_prompt_in_its_own_hint_ink() {
+        // The prompt kept flat's #9B9B9B under flora: on a flora strip
+        // (216,215,212) it read at 1.93:1 (AzCalendar's week view). Flora's
+        // field writes it in its hint tone (`--fl-soft2`).
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        let dom = TextInput::create()
+            .with_placeholder("Search".into())
+            .with_theme(crate::widgets::themes::UiTheme::Flora)
+            .dom();
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        let prompt_ink = crate::widgets::themes::theme_blocks::checks::live_inline(label)
+            .into_iter()
+            .filter(|(p, c)| {
+                matches!(p, CssProperty::TextColor(_))
+                    && c.as_ref()
+                        == [DynamicSelector::PseudoState(PseudoStateType::Placeholder)].as_slice()
+            })
+            .map(|(p, _)| p)
+            .last();
+        assert_eq!(
+            prompt_ink,
+            Some(CssProperty::TextColor(
+                azul_css::props::style::StyleTextColor {
+                    inner: crate::widgets::themes::flora::LIGHT_SOFT2
+                }
+                .into()
+            )),
+            "the prompt's ink under flora"
+        );
+    }
+
+    #[test]
+    fn a_callers_own_dark_twin_is_not_overridden_by_the_themes() {
+        // A field on paper (a PDF form's) keeps its look in the dark mode by
+        // declaring its own dark values; the theme's twin, pushed after it,
+        // used to win (the last matching inline declaration does).
+        use azul_css::props::{basic::color::ColorU, style::StyleTextColor};
+        let paper_ink = CssProperty::TextColor(StyleTextColor { inner: ColorU::BLACK }.into());
+        let paper = CssPropertyWithConditions::simple(CssProperty::const_background_content(
+            azul_css::props::style::StyleBackgroundContentVec::from_const_slice(&[]),
+        ));
+        let mine = |p: &CssPropertyWithConditions| CssPropertyWithConditions::dark_mode(p.property.clone());
+        let ink = CssPropertyWithConditions::simple(paper_ink.clone());
+        for theme in crate::widgets::themes::UiTheme::ALL {
+            let dom = TextInput::create()
+                .with_container_style(vec![paper.clone(), mine(&paper), ink.clone(), mine(&ink)].into())
+                .with_label_style(vec![ink.clone(), mine(&ink)].into())
+                .with_theme(theme)
+                .dom();
+            // The resting dark declarations (a placeholder's dark ink is a
+            // state of its own).
+            let dark = |dom: &Dom| -> Vec<CssProperty> {
+                crate::widgets::themes::theme_blocks::checks::live_inline(dom)
+                    .into_iter()
+                    .filter(|(_, c)| c.as_ref() == mine(&ink).apply_if.as_ref())
+                    .map(|(p, _)| p)
+                    .collect()
+            };
+            let last = |props: Vec<CssProperty>, kind| props.into_iter().filter(|p| p.get_type() == kind).last();
+            let label = &dom.children.as_ref()[LABEL_CHILD];
+            assert_eq!(
+                last(dark(&dom), paper.property.get_type()),
+                Some(paper.property.clone()),
+                "{theme:?}: the field's fill in the dark mode is the theme's, not the caller's",
+            );
+            assert_eq!(
+                last(dark(&dom), paper_ink.get_type()),
+                Some(paper_ink.clone()),
+                "{theme:?}: the field's ink in the dark mode is the theme's",
+            );
+            assert_eq!(
+                last(dark(label), paper_ink.get_type()),
+                Some(paper_ink.clone()),
+                "{theme:?}: the value's ink in the dark mode is the theme's",
+            );
+        }
+    }
+
+    #[test]
     fn dom_carries_the_themes_hover_and_focus_border_states_with_dark_twins() {
         // The rules moved OUT of `TEXT_INPUT_CONTAINER_PROPS` and into the theme
         // modules, which is a move nothing else in this suite would notice: no
@@ -2739,7 +3807,7 @@ mod autotest_generated {
                         let mut state_matches = false;
                         for c in conds.as_ref() {
                             match c {
-                                DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                                DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark = true,
                                 DynamicSelector::PseudoState(PseudoStateType::Focus) => {
                                     state_matches = want_focus;
                                 }
@@ -3051,6 +4119,72 @@ mod autotest_generated {
         });
         assert_eq!(state_of(&state).get_text(), "abcd");
         assert!(pushed_texts(&changes).is_empty());
+    }
+
+    /// Backspace over the last character, or select-all and Backspace, EMPTIES the field: the
+    /// engine's buffer is "" and its post-edit notification must reach the hook with the empty
+    /// value. The mirror refused every empty read while it held text ("an empty read is
+    /// ambiguous" - no longer: `get_node_text_content` answers `None` for a missing node, and
+    /// the container's read descends into its value line), so the hook never heard it:
+    /// AzContacts' search, once typed into, could never be cleared (E2E-A, 2026-10-06).
+    #[test]
+    fn a_notification_that_emptied_the_field_tells_the_hook_the_empty_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(TextInput::create().with_on_text_input(
+            probe.clone(),
+            record_text_input as TextInputOnTextInputCallbackType,
+        ));
+        // The engine's buffer (the DOM's value line) is empty; the mirror still holds what
+        // was typed before the deletion.
+        poke(&state, |w| {
+            w.inner.text = "krug".chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        });
+        let (update, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(
+            state_of(&state).get_text(),
+            "",
+            "the mirror kept the deleted text"
+        );
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the hook was not told the field is empty"
+        );
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "");
+    }
+
+    /// Typing over a selection REPLACES it: the engine deletes the live selection before it
+    /// inserts, so the hook's preview - and the mirror - must too. Select-all + "e" in a field
+    /// holding "krug" handed the hook "kruge": AzContacts searched for that, and its rebuild
+    /// wrote it back into the field (E2E-A, 2026-10-06).
+    #[test]
+    fn typing_over_a_select_all_replaces_the_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("krug".into())
+                .with_on_text_input(
+                    probe.clone(),
+                    record_text_input as TextInputOnTextInputCallbackType,
+                ),
+        );
+        // Ctrl+A over "krug": before 'k' to after 'g' (its cluster starts at byte 3).
+        let (update, _, _) = run(Env::new(styled_dom).insert("e").selecting(0, 3), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(update, Update::RefreshDom);
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].get_text(),
+            "e",
+            "the hook was shown the typed text appended to the selected value"
+        );
+        assert_eq!(state_of(&state).get_text(), "e");
     }
 
     #[test]
@@ -3468,9 +4602,10 @@ mod autotest_generated {
         // single unit — every one of them belongs to the engine.
         let (_, state) = rendered(TextInput::create().with_text("abc".into()));
         for i in 0..6 {
-            // The tree shape does not depend on what the buffer holds, so a fresh
-            // container is enough to navigate; the live state is `state`.
-            let (styled_dom, _) = rendered(TextInput::create());
+            // The engine's buffer is the tree's text, and the handlers adopt it
+            // (an emptied field included): the tree holds what the engine
+            // holds - the key reaches the engine, which this test leaves out.
+            let (styled_dom, _) = rendered(TextInput::create().with_text("abc".into()));
             let (update, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });
@@ -3510,5 +4645,898 @@ mod autotest_generated {
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
+    }
+
+    // ==================================================================
+    // <input type=password>: a masking mode of the same widget
+    // ==================================================================
+
+    mod password {
+        use azul_core::a11y::{AccessibilityRole, AccessibilityState};
+
+        use super::*;
+
+        const BULLET: &str = "\u{2022}";
+
+        fn bullets(n: usize) -> String {
+            BULLET.repeat(n)
+        }
+
+        fn rewritten_insertions(changes: &[CallbackChange]) -> Vec<String> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::SetTextChangeset { changeset } => {
+                        Some(changeset.inserted_text.as_str().to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_password_input_shows_one_bullet_per_grapheme() {
+            // `e` + COMBINING ACUTE is ONE grapheme, and so is the ZWJ family:
+            // a user who typed three things sees three bullets, however many
+            // scalars or bytes they are.
+            let dom = TextInput::create_password()
+                .with_text("ae\u{301}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".into())
+                .dom();
+            assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), bullets(3));
+        }
+
+        #[test]
+        fn a_password_input_keeps_the_real_text_in_its_state() {
+            let dom = TextInput::create_password()
+                .with_text("hunter2".into())
+                .dom();
+            let state = dataset_state(&dom);
+            assert_eq!(state.get_text(), "hunter2");
+            assert_eq!(state.kind, TextInputKind::Password);
+        }
+
+        #[test]
+        fn a_password_input_is_announced_as_protected_text_without_its_value() {
+            let dom = TextInput::create_password()
+                .with_text("hunter2".into())
+                .dom();
+            let a11y = dom
+                .root
+                .get_accessibility_info()
+                .expect("a password field must declare its accessibility info");
+            assert_eq!(a11y.role, AccessibilityRole::Text);
+            assert!(
+                a11y.states
+                    .as_ref()
+                    .contains(&AccessibilityState::Protected),
+                "a password field must carry the Protected state"
+            );
+            assert!(
+                a11y.accessibility_value.is_none(),
+                "the password leaked into the accessibility value"
+            );
+        }
+
+        #[test]
+        fn a_password_input_declares_its_html_type_for_the_soft_keyboard() {
+            let dom = TextInput::create_password().dom();
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "password")
+            ));
+        }
+
+        #[test]
+        fn a_plain_text_input_carries_no_type_attribute() {
+            let dom = TextInput::create().dom();
+            assert!(!dom
+                .root
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::InputType(_))));
+        }
+
+        #[test]
+        fn a_password_input_vetoes_copy_and_cut() {
+            let dom = TextInput::create_password().dom();
+            let callbacks = dom.root.callbacks.as_ref();
+            for filter in [FocusEventFilter::Copy, FocusEventFilter::Cut] {
+                let cb = callbacks
+                    .iter()
+                    .find(|c| c.event == EventFilter::Focus(filter))
+                    .unwrap_or_else(|| panic!("no {filter:?} handler on a password field"));
+                assert_eq!(cb.callback.cb, default_on_clipboard_veto as usize);
+            }
+
+            let (styled_dom, state) = rendered(TextInput::create_password());
+            let (update, changes, _) = run(Env::new(styled_dom), |info| {
+                default_on_clipboard_veto(state.clone(), info)
+            });
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "the clipboard handler did not veto the copy"
+            );
+        }
+
+        #[test]
+        fn a_plain_text_input_leaves_copy_and_cut_alone() {
+            let dom = TextInput::create().dom();
+            assert!(!dom.root.callbacks.as_ref().iter().any(|c| matches!(
+                c.event,
+                EventFilter::Focus(FocusEventFilter::Copy | FocusEventFilter::Cut)
+            )));
+        }
+
+        #[test]
+        fn typing_into_a_password_input_stores_the_character_and_shows_a_bullet() {
+            let (styled_dom, state) =
+                rendered(TextInput::create_password().with_text("ab".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert_eq!(
+                rewritten_insertions(&changes),
+                vec![bullets(1)],
+                "the engine must insert a bullet, never the typed character"
+            );
+            assert!(!changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn a_multi_grapheme_paste_into_a_password_input_shows_one_bullet_each() {
+            let (styled_dom, state) = rendered(TextInput::create_password());
+            let (_, changes, _) = run(Env::new(styled_dom).insert("x\u{e9}e\u{301}"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "x\u{e9}e\u{301}");
+            assert_eq!(rewritten_insertions(&changes), vec![bullets(3)]);
+        }
+
+        #[test]
+        fn a_password_input_hands_its_hook_the_real_text() {
+            let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+            let (styled_dom, state) = rendered(
+                TextInput::create_password()
+                    .with_text("ab".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (update, _, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(update, Update::RefreshDom);
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].get_text(), "abc");
+        }
+
+        #[test]
+        fn a_rejected_keystroke_in_a_password_input_is_vetoed_and_not_stored() {
+            let probe = recorder(Update::DoNothing, TextInputValid::No);
+            let (styled_dom, state) = rendered(
+                TextInput::create_password()
+                    .with_text("ab".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "ab");
+            assert!(changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+            assert!(rewritten_insertions(&changes).is_empty());
+        }
+
+        #[test]
+        fn a_password_input_still_honours_max_len() {
+            let mut input = TextInput::create_password().with_text("abc".into());
+            input.text_input_state.inner.max_len = 3;
+            let (styled_dom, state) = rendered(input);
+            let (_, changes, _) = run(Env::new(styled_dom).insert("d"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert!(changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn deleting_bullets_removes_the_same_graphemes_from_the_real_text() {
+            // [a, e+acute, b]: the caret sits after bullet 1 once bullet 2 is
+            // gone, so the real grapheme at index 1 is the one removed.
+            assert_eq!(
+                masked_deletion("ae\u{301}b", 2, 1),
+                Some("ab".to_string())
+            );
+            // Select-all + Backspace.
+            assert_eq!(masked_deletion("abc", 0, 0), Some(String::new()));
+            // A Backspace at the very end.
+            assert_eq!(masked_deletion("abc", 2, 2), Some("ab".to_string()));
+            // Nothing removed: nothing to mirror.
+            assert_eq!(masked_deletion("abc", 3, 1), None);
+            // The line GREW without characters (an undo): the real text cannot
+            // be reconstructed from bullets, so the mirror is left alone.
+            assert_eq!(masked_deletion("abc", 4, 1), None);
+        }
+
+        #[test]
+        fn the_masked_caret_maps_onto_grapheme_boundaries_of_the_real_text() {
+            let real = "ae\u{301}b";
+            assert_eq!(masked_to_real_offset(real, 0), 0);
+            assert_eq!(masked_to_real_offset(real, BULLET.len()), 1);
+            assert_eq!(masked_to_real_offset(real, 2 * BULLET.len()), 4);
+            assert_eq!(masked_to_real_offset(real, 3 * BULLET.len()), real.len());
+            // Past the end clamps to the end.
+            assert_eq!(masked_to_real_offset(real, 99 * BULLET.len()), real.len());
+        }
+    }
+
+    // ==================================================================
+    // <input type=search>: a clear button while non-empty, Escape clears
+    // ==================================================================
+
+    mod search {
+        use azul_core::a11y::AccessibilityRole;
+
+        use super::*;
+
+        // Flattened: wrapper(0) > field(1) > line <p>(2) > text(3),
+        //            clear <p>(4) > text(5).
+        const FIELD: usize = 1;
+        const LINE_TEXT: usize = 3;
+        const CLEAR: usize = 4;
+
+        fn field_of(dom: &Dom) -> &Dom {
+            &dom.children.as_ref()[0]
+        }
+
+        fn clear_of(dom: &Dom) -> &Dom {
+            &dom.children.as_ref()[1]
+        }
+
+        fn rendered_search(input: TextInput) -> (StyledDom, RefAny) {
+            let dom = input.dom();
+            let state = field_of(&dom)
+                .root
+                .get_dataset()
+                .cloned()
+                .expect("the search FIELD carries the widget state");
+            (StyledDom::create_from_dom(dom), state)
+        }
+
+        /// The resting (unconditional) `display` the node was built with.
+        fn built_display(node: &Dom) -> Option<LayoutDisplay> {
+            node.root
+                .style
+                .iter_inline_properties()
+                .filter(|(_, conds)| conds.as_ref().is_empty())
+                .filter_map(|(p, _)| match p {
+                    CssProperty::Display(v) => v.get_property().cloned(),
+                    _ => None,
+                })
+                .last()
+        }
+
+        /// Every `display` a handler pushed onto `node`, in push order.
+        fn displays_pushed_to(changes: &[CallbackChange], node: usize) -> Vec<LayoutDisplay> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::ChangeNodeCssProperties {
+                        node_id,
+                        properties,
+                        ..
+                    } if *node_id == NodeId::new(node) => {
+                        properties.as_ref().iter().find_map(|p| match p {
+                            CssProperty::Display(v) => v.get_property().cloned(),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_search_input_is_its_field_followed_by_a_clear_button() {
+            let dom = TextInput::create_search().with_text("abc".into()).dom();
+            assert_eq!(dom.children.as_ref().len(), 2);
+
+            let field = field_of(&dom);
+            assert_eq!(classes(field), vec![TEXT_INPUT_CONTAINER_CLASS.to_string()]);
+            assert!(field.root.is_contenteditable());
+            assert!(field.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "search")
+            ));
+
+            let clear = clear_of(&dom);
+            let a11y = clear
+                .root
+                .get_accessibility_info()
+                .expect("the clear button must be announced");
+            assert_eq!(a11y.role, AccessibilityRole::PushButton);
+            assert!(a11y.accessibility_name.is_some(), "the clear button has no name");
+            assert!(
+                clear
+                    .root
+                    .callbacks
+                    .as_ref()
+                    .iter()
+                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click)
+                        && c.callback.cb == default_on_search_clear_click as usize),
+                "the clear button does not clear on click"
+            );
+            // The clear button must not sit INSIDE the editable host, or a
+            // click on it would place a caret in its glyph.
+            assert_eq!(field.children.as_ref().len(), 1);
+        }
+
+        #[test]
+        fn the_clear_button_is_hidden_while_the_search_field_is_empty() {
+            // One theme's field: the flat and flora buttons show as different
+            // displays, so unpinned the shown one is written per theme.
+            let flat = crate::widgets::themes::UiTheme::Flat;
+            let empty = TextInput::create_search().with_theme(flat).dom();
+            assert_eq!(built_display(clear_of(&empty)), Some(LayoutDisplay::None));
+
+            let filled = TextInput::create_search()
+                .with_text("abc".into())
+                .with_theme(flat)
+                .dom();
+            let shown = built_display(clear_of(&filled));
+            assert!(
+                shown.is_some() && shown != Some(LayoutDisplay::None),
+                "a non-empty search field hides its clear button: {shown:?}"
+            );
+        }
+
+        #[test]
+        fn clicking_the_clear_button_empties_the_field_and_tells_the_hook() {
+            let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+            let (styled_dom, state) = rendered_search(
+                TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (update, changes, _) = run(Env::new(styled_dom).hit(dom_node(CLEAR)), |info| {
+                default_on_search_clear_click(state.clone(), info)
+            });
+
+            assert_eq!(update, Update::RefreshDom, "the hook's Update was swallowed");
+            assert_eq!(state_of(&state).get_text(), "");
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].get_text(), "", "the hook was not shown the cleared value");
+
+            assert!(
+                pushed_texts(&changes)
+                    .iter()
+                    .any(|(node, text)| *node == dom_node(LINE_TEXT) && text.is_empty()),
+                "the field's line was not emptied: {changes:?}"
+            );
+            assert_eq!(
+                displays_pushed_to(&changes, CLEAR),
+                vec![LayoutDisplay::None],
+                "the clear button must hide once the field is empty"
+            );
+        }
+
+        #[test]
+        fn a_hook_rejecting_the_clear_keeps_the_text() {
+            let probe = recorder(Update::DoNothing, TextInputValid::No);
+            let (styled_dom, state) = rendered_search(
+                TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (_, changes, _) = run(Env::new(styled_dom).hit(dom_node(CLEAR)), |info| {
+                default_on_search_clear_click(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert!(pushed_texts(&changes).is_empty());
+        }
+
+        #[test]
+        fn escape_in_a_non_empty_search_field_clears_it_and_keeps_focus() {
+            let (styled_dom, state) =
+                rendered_search(TextInput::create_search().with_text("abc".into()));
+            let (_, changes, _) = run(
+                Env::new(styled_dom)
+                    .hit(dom_node(FIELD))
+                    .key(VirtualKeyCode::Escape),
+                |info| default_on_virtual_key_down(state.clone(), info),
+            );
+            assert_eq!(state_of(&state).get_text(), "");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "Escape's default (dropping focus) must not run when it cleared the field"
+            );
+        }
+
+        #[test]
+        fn escape_in_an_empty_search_field_keeps_its_default() {
+            let (styled_dom, state) = rendered_search(TextInput::create_search());
+            let (_, changes, _) = run(
+                Env::new(styled_dom)
+                    .hit(dom_node(FIELD))
+                    .key(VirtualKeyCode::Escape),
+                |info| default_on_virtual_key_down(state.clone(), info),
+            );
+            assert!(!changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn escape_in_a_plain_text_field_does_not_clear_it() {
+            let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
+            let _ = run(Env::new(styled_dom).key(VirtualKeyCode::Escape), |info| {
+                default_on_virtual_key_down(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+        }
+
+        #[test]
+        fn typing_the_first_character_shows_the_clear_button_once() {
+            let (styled_dom, state) = rendered_search(TextInput::create_search());
+            let (_, changes, _) = run(
+                Env::new(styled_dom).hit(dom_node(FIELD)).insert("a"),
+                |info| default_on_text_input(state.clone(), info),
+            );
+            assert_eq!(state_of(&state).get_text(), "a");
+            let shown = displays_pushed_to(&changes, CLEAR);
+            assert_eq!(shown.len(), 1, "the clear button was not shown: {changes:?}");
+            assert_ne!(shown[0], LayoutDisplay::None);
+
+            // The second character changes nothing about the button: no
+            // same-value `display` write (each one costs a relayout).
+            let (styled_dom, state) =
+                rendered_search(TextInput::create_search().with_text("a".into()));
+            let (_, changes, _) = run(
+                Env::new(styled_dom).hit(dom_node(FIELD)).insert("b"),
+                |info| default_on_text_input(state.clone(), info),
+            );
+            assert!(displays_pushed_to(&changes, CLEAR).is_empty());
+        }
+
+        /// The first character SHOWS the clear button as the box a filled
+        /// field builds it as, in every theme: the live show and a rebuild
+        /// must not disagree on what the button is.
+        #[test]
+        fn the_clear_button_shows_with_the_display_a_filled_field_builds_it_with() {
+            use crate::widgets::themes::UiTheme;
+            for theme in [UiTheme::Flat, UiTheme::Flora] {
+                let filled = TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_theme(theme)
+                    .dom();
+                let built = built_display(clear_of(&filled));
+                assert!(
+                    built.is_some() && built != Some(LayoutDisplay::None),
+                    "{theme:?}: a filled field shows its clear button: {built:?}"
+                );
+
+                let (styled_dom, state) =
+                    rendered_search(TextInput::create_search().with_theme(theme));
+                let (_, changes, _) = run(
+                    Env::new(styled_dom).hit(dom_node(FIELD)).insert("a"),
+                    |info| default_on_text_input(state.clone(), info),
+                );
+                assert_eq!(
+                    displays_pushed_to(&changes, CLEAR).first().copied(),
+                    built,
+                    "{theme:?}: the live show writes another display than the build"
+                );
+            }
+        }
+    }
+
+    // ==================================================================
+    // type=email / tel / url and `pattern`: validity the app can read
+    // ==================================================================
+
+    mod validation {
+        use azul_core::form::ValidityReason;
+
+        use super::*;
+
+        /// Every override the handler pushed onto the field host, one entry
+        /// per push.
+        fn ring_writes(changes: &[CallbackChange]) -> Vec<Vec<CssProperty>> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::OverrideNodeCssProperties {
+                        node_id,
+                        properties,
+                        ..
+                    } if *node_id == NodeId::new(CONTAINER) => {
+                        Some(properties.as_ref().to_vec())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn is_border_colour(p: &CssProperty) -> bool {
+            matches!(
+                p,
+                CssProperty::BorderTopColor(_)
+                    | CssProperty::BorderRightColor(_)
+                    | CssProperty::BorderBottomColor(_)
+                    | CssProperty::BorderLeftColor(_)
+            )
+        }
+
+        #[test]
+        fn an_email_field_with_a_malformed_value_reports_a_type_mismatch() {
+            let dom = TextInput::create_email().with_text("not-an-email".into()).dom();
+            let validity = dataset_state(&dom).validity;
+            assert!(validity.has(ValidityReason::TypeMismatch));
+            assert!(!validity.is_valid());
+
+            let dom = TextInput::create_email()
+                .with_text("someone@example.com".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn an_empty_email_or_url_field_is_valid() {
+            for input in [TextInput::create_email(), TextInput::create_url()] {
+                assert!(dataset_state(&input.dom()).validity.is_valid());
+            }
+        }
+
+        #[test]
+        fn a_url_field_accepts_only_absolute_urls() {
+            let bad = TextInput::create_url().with_text("example.com".into()).dom();
+            assert!(dataset_state(&bad).validity.has(ValidityReason::TypeMismatch));
+            let good = TextInput::create_url()
+                .with_text("https://example.com/a?b#c".into())
+                .dom();
+            assert!(dataset_state(&good).validity.is_valid());
+        }
+
+        #[test]
+        fn a_tel_field_accepts_any_text_and_declares_its_type() {
+            let dom = TextInput::create_tel().with_text("call me maybe".into()).dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "tel")
+            ));
+        }
+
+        #[test]
+        fn email_and_url_fields_declare_their_type_for_the_soft_keyboard() {
+            for (input, ty) in [
+                (TextInput::create_email(), "email"),
+                (TextInput::create_url(), "url"),
+            ] {
+                let dom = input.dom();
+                assert!(
+                    dom.root.attributes().as_ref().iter().any(
+                        |a| matches!(a, AttributeType::InputType(t) if t.as_str() == ty)
+                    ),
+                    "no type={ty} attribute"
+                );
+            }
+        }
+
+        #[test]
+        fn a_pattern_must_match_the_whole_value() {
+            let three_digits = |text: &str| {
+                dataset_state(
+                    &TextInput::create()
+                        .with_pattern("[0-9]{3}".into())
+                        .with_text(text.into())
+                        .dom(),
+                )
+                .validity
+            };
+            assert!(three_digits("123").is_valid());
+            assert!(three_digits("1234").has(ValidityReason::PatternMismatch));
+            assert!(three_digits("12a").has(ValidityReason::PatternMismatch));
+            // Empty is exempt: that is `required`'s job, not `pattern`'s.
+            assert!(three_digits("").is_valid());
+        }
+
+        #[test]
+        fn an_uncompilable_pattern_is_ignored() {
+            let dom = TextInput::create()
+                .with_pattern("([unclosed".into())
+                .with_text("anything".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn a_password_is_checked_against_its_pattern_not_its_bullets() {
+            let dom = TextInput::create_password()
+                .with_pattern("[a-z]+[0-9]".into())
+                .with_text("hunter2".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn typing_updates_the_validity_the_hook_and_the_state_see() {
+            let probe = recorder(Update::DoNothing, TextInputValid::Yes);
+            let (styled_dom, state) = rendered(
+                TextInput::create_email()
+                    .with_text("a@b".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let _ = run(Env::new(styled_dom).insert("@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert!(seen[0].validity.has(ValidityReason::TypeMismatch));
+            assert!(state_of(&state).validity.has(ValidityReason::TypeMismatch));
+        }
+
+        #[test]
+        fn typing_an_email_field_into_an_invalid_value_paints_the_invalid_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("a@b".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            let writes = ring_writes(&changes);
+            assert_eq!(writes.len(), 1, "one ring write expected: {changes:?}");
+            assert_eq!(writes[0].len(), 4, "all four edges take the ring");
+            assert!(writes[0].iter().all(is_border_colour));
+            assert!(
+                writes[0].iter().all(|p| !p.is_initial()),
+                "the ring must paint a colour, not remove one"
+            );
+        }
+
+        #[test]
+        fn fixing_an_invalid_value_removes_the_invalid_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("ab".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(state_of(&state).validity.is_valid());
+            let writes = ring_writes(&changes);
+            assert_eq!(writes.len(), 1, "one ring removal expected: {changes:?}");
+            assert_eq!(writes[0].len(), 4);
+            assert!(
+                writes[0].iter().all(|p| is_border_colour(p) && p.is_initial()),
+                "the ring must be REMOVED (initial), so hover/focus/dark come back"
+            );
+        }
+
+        #[test]
+        fn a_valid_edit_of_a_valid_field_writes_no_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("a@b".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(ring_writes(&changes).is_empty(), "{changes:?}");
+
+            let (styled_dom, state) = rendered(TextInput::create().with_text("x".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(ring_writes(&changes).is_empty(), "a plain field has no constraints");
+        }
+
+        #[test]
+        fn the_two_themes_paint_their_own_invalid_ring_in_both_modes() {
+            use crate::widgets::themes::{flat, flora};
+            for dark in [false, true] {
+                assert_eq!(flat::text_input_invalid_ring(dark).len(), 4);
+                assert_eq!(flora::text_input_invalid_ring(dark).len(), 4);
+            }
+            assert_ne!(
+                flat::text_input_invalid_ring(false),
+                flat::text_input_invalid_ring(true),
+                "flat: the dark ring must differ from the light one"
+            );
+            assert_ne!(
+                flora::text_input_invalid_ring(false),
+                flora::text_input_invalid_ring(true),
+                "flora: the dark ring must differ from the light one"
+            );
+        }
+    }
+
+    #[test]
+    fn the_app_sets_a_fields_text_on_its_line_over_the_typing() {
+        let (styled_dom, _state) = rendered(TextInput::create().with_text("Hello Ben".into()));
+        let (_, changes, nodes) = run(Env::new(styled_dom), |mut info| {
+            TextInput::set_text_in(&mut info, dom_node(CONTAINER), AzString::from(""));
+        });
+        let leaf = nodes.label_text.expect("the value line has a text leaf");
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(leaf, String::new())],
+            "one write, on the line's text leaf (ChangeNodeText supersedes the typing)"
+        );
+    }
+}
+
+/// R5: a text field's STRUCTURE (display, flex, overflow, cursor, ...) is
+/// its base - declared once, outside every `@theme(<name>)` block, so it
+/// holds under flat, flora and any theme to come. What a theme owns is its
+/// skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::{TextInput, TextInputKind};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_text_input_declares_its_structure_once_for_every_theme() {
+        let kinds = [
+            TextInputKind::Text,
+            TextInputKind::Password,
+            TextInputKind::Search,
+            TextInputKind::Email,
+            TextInputKind::Tel,
+            TextInputKind::Url,
+        ];
+        for t in BOTH {
+            for kind in kinds {
+                // Empty and filled: a search field shows its clear button
+                // only while it holds text, an e-mail field is invalid with
+                // "abc".
+                for text in ["", "abc"] {
+                    let dom = under(t, || {
+                        TextInput::create_with_kind(kind)
+                            .with_text(AzString::from(text))
+                            .dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!("{kind:?} field holding {text:?}, built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod caret_tests {
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+    use crate::widgets::text_mirror::caret_byte;
+
+    fn at(start_byte_in_run: u32, affinity: CursorAffinity) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run,
+            },
+            affinity,
+        }
+    }
+
+    /// End puts the engine's caret on the LAST cluster, trailing: the widget's
+    /// mirror inserted one character early ("notes.txt", End, "X" mirrored as
+    /// "notes.txXt" while the field showed "notes.txtX").
+    #[test]
+    fn a_trailing_caret_stands_after_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), "notes.txt"), 1);
+        // A cluster of several bytes is stepped over whole.
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "a\u{e9}b"), 3);
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "ae\u{301}b"), 4);
+    }
+
+    #[test]
+    fn a_leading_caret_stands_before_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Leading), "notes.txt"), 8);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Leading), "notes.txt"), 0);
+    }
+
+    #[test]
+    fn a_caret_past_the_text_stays_inside_it() {
+        assert_eq!(caret_byte(&at(9, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(40, CursorAffinity::Leading), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), ""), 0);
+    }
+}
+
+/// The prompt of an empty field is drawn in the placeholder ink, never in the
+/// value's: through the REAL cascade (the window's context, its app theme and
+/// mode), for a field that follows the app theme - every declaration inside an
+/// `@theme(<name>)` block (PIM6: AzCalendar's "Name" prompt in the full ink).
+#[cfg(test)]
+mod placeholder_ink_tests {
+    use azul_core::{
+        dom::{Dom, NodeId},
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+    use azul_css::{dynamic_selector::DynamicSelectorContext, props::basic::color::ColorU};
+
+    use super::{TextInput, COLOR_9B9B9B};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        UiTheme,
+    };
+
+    /// The value line's text colour (`body > field > p`), at rest and as the
+    /// prompt (`::placeholder`).
+    fn inks(theme: UiTheme, dark: bool) -> (Option<ColorU>, Option<ColorU>) {
+        let dom = under(theme, || {
+            TextInput::create()
+                .with_placeholder("Name".into())
+                .dom()
+        });
+        let mut ctx = DynamicSelectorContext::default();
+        if dark {
+            ctx.mode = azul_css::system::DarkLightMode::Dark;
+        }
+        let ctx = ctx.with_app_theme(theme.name());
+        let sd =
+            StyledDom::create_from_dom_with_context(Dom::create_body().with_child(dom), Some(ctx));
+        let label = NodeId::new(2);
+        let node_data = sd.node_data.as_container();
+        let node = node_data.get(label).expect("the value line");
+        let cache = sd.get_css_property_cache();
+        let colour = |state: &StyledNodeState| {
+            cache
+                .get_text_color(node, &label, state)
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let prompt = StyledNodeState {
+            placeholder: true,
+            ..StyledNodeState::default()
+        };
+        (colour(&StyledNodeState::default()), colour(&prompt))
+    }
+
+    #[test]
+    fn an_app_themed_field_paints_its_placeholder_in_the_placeholder_ink() {
+        for theme in BOTH {
+            for dark in [false, true] {
+                let (value, prompt) = inks(theme, dark);
+                let what = format!("{} {}", theme.name(), if dark { "dark" } else { "light" });
+                assert!(prompt.is_some(), "{what}: the prompt has a colour");
+                assert_ne!(
+                    prompt, value,
+                    "{what}: the prompt is drawn in the value's ink"
+                );
+            }
+        }
+        assert_eq!(
+            inks(UiTheme::Flat, false).1,
+            Some(COLOR_9B9B9B),
+            "flat by day: the field's own prompt grey"
+        );
     }
 }

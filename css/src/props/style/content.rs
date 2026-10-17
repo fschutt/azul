@@ -160,12 +160,14 @@ impl PrintAsCssValue for StringSet {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for Content {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Content {{ inner: String::from({:?}) }}", self.inner)
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for CounterReset {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         alloc::format!(
@@ -176,6 +178,7 @@ impl crate::codegen::format::FormatAsRustCode for CounterReset {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for CounterIncrement {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         alloc::format!(
@@ -186,6 +189,7 @@ impl crate::codegen::format::FormatAsRustCode for CounterIncrement {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StringSet {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("StringSet {{ inner: String::from({:?}) }}", self.inner)
@@ -309,6 +313,7 @@ mod autotest_generated {
     };
 
     use super::*;
+    #[cfg(feature = "codegen")]
     use crate::codegen::format::FormatAsRustCode;
 
     fn hash_of<T: Hash>(t: &T) -> u64 {
@@ -852,6 +857,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_escapes_quotes_and_control_chars() {
         let c = Content {
@@ -883,6 +889,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_ignores_the_tab_argument() {
         let c = Content::default();

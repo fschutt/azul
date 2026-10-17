@@ -27,6 +27,12 @@
 //! without touching widget code. [`BackstageBehavior`] holds the
 //! interactions the backstage performs by itself (currently: Escape invokes
 //! the back callback, like classic office suites).
+//!
+//! The backstage has a widget theme ([`Backstage::theme`]): flat is the
+//! Office look [`BackstageStyle`] describes; flora is the flyout navigation
+//! drawer of flora.css (`themes::flora::backstage_style`) on the same
+//! column. Unpinned (`None`) it follows the app theme; its back button is
+//! built in the backstage's theme.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
@@ -62,7 +68,7 @@ use azul_css::{
 
 use super::{
     button::{Button, ButtonOnClick, OptionButtonOnClick},
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::CallbackInfo;
 
@@ -132,6 +138,36 @@ const W13_NAV_ACTIVE: ColorU = ColorU {
     r: 62,
     g: 109,
     b: 181,
+    a: 255,
+};
+
+// -- the Office 2010 palette (seeds BackstageTheme::office_2010) --
+//
+// Outlook 2010's File page: the navigation a silver-blue column beside white
+// paper, dark text, the yellow hover face, and the picked item the orange
+// selection Office 2010 lit it with. Page-neutral, so it goes dark with the
+// window.
+
+/// The picked nav item's palette value (#F8D457); it is drawn as a face from
+/// [`O10_NAV_ACTIVE_TOP`] to [`O10_NAV_ACTIVE_BOTTOM`].
+const O10_NAV_ACTIVE: ColorU = ColorU {
+    r: 248,
+    g: 212,
+    b: 87,
+    a: 255,
+};
+/// The top of the picked item's face (#F5BC53).
+const O10_NAV_ACTIVE_TOP: ColorU = ColorU {
+    r: 245,
+    g: 188,
+    b: 83,
+    a: 255,
+};
+/// The foot of the picked item's face (#FAE26B).
+const O10_NAV_ACTIVE_BOTTOM: ColorU = ColorU {
+    r: 250,
+    g: 226,
+    b: 107,
     a: 255,
 };
 
@@ -217,9 +253,38 @@ impl BackstageTheme {
     }
 }
 
+impl BackstageTheme {
+    /// The Office 2010 palette, the flat theme's File page and the default:
+    /// a silver-blue navigation column in dark text beside white paper, the
+    /// yellow hover, the orange selection. Page-neutral (`is_office_2010`):
+    /// it goes dark with the window.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            nav_bg: flat::LIGHT_SUR,
+            nav_text: flat::LIGHT_INK,
+            nav_hover_bg: flat::LIGHT_HB,
+            nav_active_bg: O10_NAV_ACTIVE,
+            content_bg: WHITE,
+            back_ring: flat::LIGHT_BD3,
+        }
+    }
+
+    /// Whether this is Office 2010's File page (its selection colour): its
+    /// parts are page-neutral, each colour with its dark twin, the states
+    /// Office 2010's faces.
+    #[must_use]
+    pub(crate) const fn is_office_2010(&self) -> bool {
+        self.nav_active_bg.r == O10_NAV_ACTIVE.r
+            && self.nav_active_bg.g == O10_NAV_ACTIVE.g
+            && self.nav_active_bg.b == O10_NAV_ACTIVE.b
+            && self.nav_active_bg.a == O10_NAV_ACTIVE.a
+    }
+}
+
 impl Default for BackstageTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -316,23 +381,53 @@ fn push_ring_border(v: &mut Vec<Cond>, c: ColorU, width: isize, radius: isize) {
 /// worse than today's light-only rule — see `themes::flat::hover_bg_both` for
 /// the rule, and `flat::button_states` for the same call on a Primary button.
 fn push_nav_hover(v: &mut Vec<Cond>, t: &BackstageTheme) {
+    // Office 2010's column is page-neutral: the yellow face, amber by night.
+    if t.is_office_2010() {
+        v.extend(flat::hover_face_both());
+        return;
+    }
     v.extend(flat::hover_bg_both(t.nav_hover_bg, t.nav_hover_bg));
 }
 
+/// The navigation's text colour: the palette's on the accent column (its own
+/// colour in both modes), with the theme's dark ink after it on Office
+/// 2010's page-neutral one.
+fn push_nav_ink(v: &mut Vec<Cond>, t: &BackstageTheme) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_ink(t.nav_text, flat::DARK_INK));
+    } else {
+        v.push(cond_text_color(t.nav_text));
+    }
+}
+
+/// The page (the root, the right side, the pane): the palette's `content_bg`
+/// by day, flat's page (`DARK_PG`) at night. The page is a page-neutral
+/// surface (the rule in `themes::flat`'s chrome states): the caller's pane is
+/// written in the window's ink, which is light at night whatever the palette
+/// says, so a palette's day colour there put white text on a white page.
+fn page_bg(t: &BackstageTheme) -> [Cond; 2] {
+    super::themes::decl::themed_fill(t.content_bg, flat::DARK_PG)
+}
+
 fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // The height it is given, not its page's: a flex item's automatic minimum size is
+        // its content's, and a page taller than the window then grew the backstage past the
+        // window's edge instead of scrolling (AzMail's Account Settings).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
-        cond_bg(t.content_bg),
-    ])
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
@@ -341,8 +436,13 @@ fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
             inner: FloatValue::const_new(0),
         })),
         Cond::simple(P::const_width(LayoutWidth::const_px(NAV_WIDTH))),
-        cond_bg(t.nav_bg),
-    ])
+    ];
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_fill(t.nav_bg, flat::DARK_SUR));
+    } else {
+        v.push(cond_bg(t.nav_bg));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The circled back arrow. office-2013: a 2px white ring, transparent fill,
@@ -369,14 +469,22 @@ fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     ];
     push_nav_hover(&mut v, t);
     push_ring_border(&mut v, t.back_ring, 2, BACK_D / 2);
+    if t.is_office_2010() {
+        // The ring again with its dark twin after each edge.
+        v.extend(super::themes::decl::themed_border_color(
+            t.back_ring,
+            flat::DARK_BD3,
+        ));
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_back_icon(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(20))),
-        cond_text_color(t.nav_text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        20,
+    )))];
+    push_nav_ink(&mut v, t);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
@@ -394,15 +502,31 @@ fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
         Cond::simple(P::const_cursor(StyleCursor::Pointer)),
         Cond::simple(P::user_select(StyleUserSelect::None)),
-        cond_text_color(t.nav_text),
-        cond_bg(TRANSPARENT),
     ];
+    push_nav_ink(&mut v, t);
+    v.push(cond_bg(TRANSPARENT));
     push_nav_hover(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// APPENDED to the active nav item.
 fn theme_nav_item_active(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
+    if t.is_office_2010() {
+        // Office 2010's orange selection; by night the toggled-on amber.
+        let mut v = super::themes::decl::themed_layers(
+            vec![super::themes::decl::face(
+                O10_NAV_ACTIVE_TOP,
+                O10_NAV_ACTIVE_BOTTOM,
+            )],
+            vec![super::themes::decl::face(
+                flat::DARK_CHECKED_TOP,
+                flat::DARK_CHECKED_BOTTOM,
+            )],
+        )
+        .to_vec();
+        push_nav_hover(&mut v, t);
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.nav_active_bg)])
 }
 
@@ -414,23 +538,32 @@ fn theme_nav_item_gap(_t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_right(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-        cond_bg(t.content_bg),
-    ])
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
+        // The flex item beside the navigation: the width it is given, not its page's widest
+        // word (a DKIM key's record pushed AzMail's settings past the window's edge).
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-        cond_bg(t.content_bg),
-    ])
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Style --
@@ -510,10 +643,17 @@ pub struct BackstageStyle {
 }
 
 impl BackstageStyle {
-    /// The the Office-2013-era look look (#2B579A nav, white content) - the default.
+    /// The the Office-2013-era look look (#2B579A nav, white content).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(BackstageTheme::office_2013())
+    }
+
+    /// The Office 2010 look (see [`BackstageTheme::office_2010`]) - the
+    /// default, the flat theme's File page.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(BackstageTheme::office_2010())
     }
 
     /// Every part style, derived from the OS theme - see
@@ -634,7 +774,7 @@ impl BackstageStyle {
 
 impl Default for BackstageStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -751,6 +891,12 @@ pub struct Backstage {
     pub behavior: BackstageBehavior,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: BackstageStyle,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays the flyout drawer of flora.css - a leaf of
+    /// paper, inset keys, the selected item a sunken stone - on the same
+    /// column. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -795,7 +941,8 @@ impl Backstage {
             title_strip: None.into(),
             content: None.into(),
             behavior: BackstageBehavior::office_2013(),
-            style: BackstageStyle::office_2013(),
+            style: BackstageStyle::office_2010(),
+            theme: OptionUiTheme::None,
         }
     }
 
@@ -910,7 +1057,25 @@ impl Backstage {
         self
     }
 
-    /// Renders the backstage.
+    /// Pick the widget theme: the backstage and its back button keep this
+    /// look whatever the app theme is. Unset (`None`), the backstage follows
+    /// the app theme (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Renders the backstage in its theme: a pinned theme is that look; no
+    /// theme follows the app theme (every part carries both looks, each
+    /// inside its `@theme(<name>)` block, in the structure of the theme the
+    /// DOM is built for). The tree is built ONCE either way, so the caller's
+    /// title strip and pane content are never cloned.
     #[must_use]
     pub fn dom(self) -> Dom {
         let Self {
@@ -922,7 +1087,20 @@ impl Backstage {
             content,
             behavior,
             style,
+            theme,
         } = self;
+
+        // The parts this build paints with, and the theme whose structure
+        // (the root's marker) it has. The back button takes the backstage's
+        // own theme: pinned with it, following the app theme with it.
+        let (style, structure) = match theme.into_option() {
+            Some(UiTheme::Flat) => (style, UiTheme::Flat),
+            Some(UiTheme::Flora) => (
+                crate::widgets::themes::flora::backstage_style(style),
+                UiTheme::Flora,
+            ),
+            None => (follow_style(style), UiTheme::current()),
+        };
 
         // Every part resolved up front: the resolvers borrow `&style`, and
         // `root_style` is moved out of it at the end of this function.
@@ -941,6 +1119,10 @@ impl Backstage {
 
         {
             let mut b = Button::create(AzString::from_const_str(""));
+            // The backstage's theme: pinned, the button wears the same look;
+            // `None`, it follows the app theme with the backstage (its part
+            // styles below already carry both looks' blocks).
+            b.theme = theme;
             b.icon = AzString::from_const_str("arrow_back");
             b.container_style = OptionCssPropertyWithConditionsVec::Some(part_back_button);
             b.icon_style = OptionCssPropertyWithConditionsVec::Some(part_back_icon);
@@ -1016,7 +1198,10 @@ impl Backstage {
             .with_children(DomVec::from_vec(right_children));
 
         let mut root = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_BACKSTAGE))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_BACKSTAGE[0].clone(),
+                style_kit::marker(structure),
+            ]))
             .with_css_props(part_root)
             .with_children(DomVec::from_vec(vec![nav, right]));
 
@@ -1057,12 +1242,54 @@ fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
+}
+
+/// The parts an UNPINNED backstage renders with, so it follows the app
+/// theme: every part in BOTH looks - the flat one `style` describes and
+/// flora's (`themes::flora::backstage_style`) - through the one merge
+/// (`themes::theme_blocks::follow_props`). What both looks declare alike (the
+/// column's layout, the flex boxes, the fonts) is declared once, outside any
+/// theme block; the rest sits in its theme's `@theme(<name>)` block, and the
+/// cascade keeps the live theme's. A part the caller set is the same in both
+/// looks, so it comes back as it is.
+fn follow_style(style: BackstageStyle) -> BackstageStyle {
+    use crate::widgets::themes::theme_blocks::follow_props;
+    let flora = crate::widgets::themes::flora::backstage_style(style.clone());
+    let flat = style;
+    let both = |a: CssPropertyWithConditionsVec, b: CssPropertyWithConditionsVec| {
+        OptionCssPropertyWithConditionsVec::Some(follow_props(a.as_slice(), b.as_slice()))
+    };
+    BackstageStyle {
+        theme: flat.theme,
+        root_style: both(flat.resolved_root_style(), flora.resolved_root_style()),
+        nav_style: both(flat.resolved_nav_style(), flora.resolved_nav_style()),
+        back_button_style: both(
+            flat.resolved_back_button_style(),
+            flora.resolved_back_button_style(),
+        ),
+        back_icon_style: both(
+            flat.resolved_back_icon_style(),
+            flora.resolved_back_icon_style(),
+        ),
+        nav_item_style: both(
+            flat.resolved_nav_item_style(),
+            flora.resolved_nav_item_style(),
+        ),
+        nav_item_active_style: both(
+            flat.resolved_nav_item_active_style(),
+            flora.resolved_nav_item_active_style(),
+        ),
+        nav_item_gap_style: both(
+            flat.resolved_nav_item_gap_style(),
+            flora.resolved_nav_item_gap_style(),
+        ),
+        right_style: both(flat.resolved_right_style(), flora.resolved_right_style()),
+        content_style: both(
+            flat.resolved_content_style(),
+            flora.resolved_content_style(),
+        ),
     }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Nav-click / Escape plumbing --
@@ -1188,8 +1415,8 @@ mod tests {
     }
 
     #[test]
-    fn backstage_style_default_is_office_2013() {
-        assert_eq!(BackstageStyle::default(), BackstageStyle::office_2013());
+    fn backstage_style_default_is_office_2010() {
+        assert_eq!(BackstageStyle::default(), BackstageStyle::office_2010());
     }
 
     #[test]
@@ -1280,5 +1507,644 @@ mod tests {
             Class(s) => s.as_str().contains("nav-item-active"),
             IdOrClass::Id(_) => false,
         }));
+    }
+}
+
+/// The backstage's flora look (W5c): flora.css's flyout navigation drawer
+/// (`.mobile-menu`) on the Office column - a leaf of paper laid on the page,
+/// its items bare keys in the house ink that lift under the pointer, the
+/// selected one the sunken stone in a brass edge, the back button the accent
+/// stone in a brass collar - by day and by night; and the theme option
+/// around it.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_blocks::checks, theme_checks as tc};
+
+    const NAV: &str = "__azul-native-backstage-nav";
+    const ITEM: &str = "__azul-native-backstage-nav-item";
+    const ACTIVE: &str = "__azul-native-backstage-nav-item-active";
+    const RIGHT: &str = "__azul-native-backstage-right";
+    const CONTENT: &str = "__azul-native-backstage-content";
+    const BUTTON: &str = "__azul-native-button";
+
+    extern "C" fn back(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    /// The Office nav ("Open" selected, "Account" after the gap), a back
+    /// handler and a pane of the caller's.
+    fn fixture() -> Backstage {
+        Backstage::office_2013()
+            .with_active_item(2)
+            .with_on_back(
+                RefAny::new(()),
+                back as super::super::button::ButtonOnClickCallbackType,
+            )
+            .with_content(Dom::create_p_with_text("Recent documents"))
+    }
+
+    fn pinned(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the backstage renders a {class}"))
+    }
+
+    /// The first nav item that is not the selected one.
+    fn plain_item(dom: &Dom) -> &Dom {
+        tc::find_all(dom, ITEM)
+            .into_iter()
+            .find(|n| !tc::has_class(n, ACTIVE))
+            .expect("the backstage renders an unselected item")
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// The colour of one border edge (`ty`) in the light or dark mode and
+    /// `state`.
+    fn edge(
+        node: &Dom,
+        ty: CssPropertyType,
+        dark: bool,
+        state: Option<PseudoStateType>,
+    ) -> Option<ColorU> {
+        tc::resolve(node, ty, dark, state)
+            .as_ref()
+            .and_then(tc::border_color)
+    }
+
+    #[test]
+    fn a_new_backstage_follows_the_app_theme_and_set_theme_and_with_theme_agree() {
+        assert_eq!(
+            Backstage::office_2013().theme,
+            OptionUiTheme::None,
+            "no opinion until the app picks a theme"
+        );
+        let mut a = Backstage::office_2013();
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Backstage::office_2013().with_theme(UiTheme::Flora).theme,
+            a.theme
+        );
+    }
+
+    /// The drawer (`.mobile-menu`) is a leaf (`--fl-sur`) with a `--fl-bd2`
+    /// hairline along the edge that faces the page; the page behind it is
+    /// the ground (`--fl-pg`), written in the house ink (`--color-text`,
+    /// `--fl-ink`) so the caller's pane reads in either mode.
+    #[test]
+    fn a_flora_backstage_lays_a_drawer_of_paper_on_the_page_in_both_modes() {
+        let dom = pinned(UiTheme::Flora);
+        let nav = node(&dom, NAV);
+        for (dark, page, ink, leaf, hairline) in [
+            (false, flora::LIGHT_PG, flora::LIGHT_INK, flora::LIGHT_SUR, flora::LIGHT_BD2),
+            (true, flora::DARK_PG, flora::DARK_INK, flora::DARK_SUR, flora::DARK_BD2),
+        ] {
+            for part in [&dom, node(&dom, RIGHT), node(&dom, CONTENT)] {
+                assert_eq!(face(part, dark, None), fill(page), "the page (dark: {dark})");
+            }
+            assert_eq!(tc::text_color(&dom, dark), Some(ink), "the page's ink (dark: {dark})");
+            assert_eq!(face(nav, dark, None), fill(leaf), "the drawer (dark: {dark})");
+            assert_eq!(
+                edge(nav, CssPropertyType::BorderRightColor, dark, None),
+                Some(hairline),
+                "the drawer's edge (dark: {dark})"
+            );
+            assert!(
+                tc::resolve(nav, CssPropertyType::BorderRightWidth, dark, None).is_some(),
+                "the drawer's edge has a width (dark: {dark})"
+            );
+        }
+    }
+
+    /// `.mobile-menu a`: the house ink on a bare key; under the pointer the
+    /// hover face (`--fl-hT` -> `--fl-hB`) in a `--fl-bd` hairline, held the
+    /// pressed face (`.nav-links a:active`).
+    #[test]
+    fn a_flora_nav_item_is_a_bare_key_in_house_ink_that_lifts_under_the_pointer() {
+        let dom = pinned(UiTheme::Flora);
+        let item = plain_item(&dom);
+        for (dark, ink, hover, rim, pressed) in [
+            (
+                false,
+                flora::LIGHT_INK,
+                flora::HOVER_FACE_LIGHT,
+                flora::LIGHT_BD,
+                flora::PRESSED_FACE_LIGHT,
+            ),
+            (
+                true,
+                flora::DARK_INK,
+                flora::HOVER_FACE_DARK,
+                flora::DARK_BD,
+                flora::PRESSED_FACE_DARK,
+            ),
+        ] {
+            assert_eq!(tc::text_color(item, dark), Some(ink), "the item's ink (dark: {dark})");
+            assert_eq!(
+                face(item, dark, None),
+                fill(ColorU::TRANSPARENT),
+                "bare at rest (dark: {dark})"
+            );
+            assert_eq!(
+                face(item, dark, Some(PseudoStateType::Hover)),
+                vec![hover],
+                "the hover face (dark: {dark})"
+            );
+            assert_eq!(
+                edge(item, CssPropertyType::BorderTopColor, dark, Some(PseudoStateType::Hover)),
+                Some(rim),
+                "the hover hairline (dark: {dark})"
+            );
+            assert_eq!(
+                face(item, dark, Some(PseudoStateType::Active)),
+                vec![pressed],
+                "the pressed face (dark: {dark})"
+            );
+        }
+    }
+
+    /// `.mobile-menu a.active`: the sunken stone (`--fl-gem-sunken`, lit from
+    /// below) written in `--fl-on-acc`, in a brass edge (the leaf border,
+    /// `--fl-metal-turn`) - its own colour by day and by night, and still the
+    /// stone under the pointer and while held.
+    #[test]
+    fn the_selected_flora_nav_item_is_the_sunken_stone_in_a_brass_edge_in_both_modes() {
+        let dom = pinned(UiTheme::Flora);
+        let picked = node(&dom, ACTIVE);
+        for dark in [false, true] {
+            for state in [
+                None,
+                Some(PseudoStateType::Hover),
+                Some(PseudoStateType::Active),
+            ] {
+                assert_eq!(
+                    face(picked, dark, state),
+                    flora::selected_stone(),
+                    "the stone (dark: {dark}, {state:?})"
+                );
+                assert_eq!(
+                    edge(picked, CssPropertyType::BorderTopColor, dark, state),
+                    Some(flora::TAB_METAL),
+                    "the brass edge (dark: {dark}, {state:?})"
+                );
+            }
+            assert_eq!(
+                tc::text_color(picked, dark),
+                Some(flora::LIGHT_ON_ACC),
+                "the ink on the stone (dark: {dark})"
+            );
+        }
+    }
+
+    /// The back button closes the drawer the FILE stone opened: the raised
+    /// accent stone (the ribbon's application button) seated in a brass
+    /// collar (`.fl-orb-collar`), its arrow in `--fl-on-acc`; the streak
+    /// brightens under the pointer, the stone sinks while held, and it rings
+    /// on focus (`.fl-orb:focus-visible`) - in both modes.
+    #[test]
+    fn the_flora_back_button_is_the_accent_stone_in_a_brass_collar_and_rings_on_focus() {
+        let dom = pinned(UiTheme::Flora);
+        let button = node(node(&dom, NAV), BUTTON);
+        let arrow = &button.children.as_ref()[0];
+        for dark in [false, true] {
+            assert_eq!(
+                face(button, dark, None).first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "the accent stone (dark: {dark})"
+            );
+            assert_eq!(
+                face(button, dark, Some(PseudoStateType::Hover)).last(),
+                Some(&flora::STONE_STREAK_HOVER),
+                "the streak brightens under the pointer (dark: {dark})"
+            );
+            assert_eq!(
+                face(button, dark, Some(PseudoStateType::Active)).first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_DEEP)),
+                "the stone sinks while held (dark: {dark})"
+            );
+            assert_eq!(
+                edge(button, CssPropertyType::BorderTopColor, dark, None),
+                Some(flora::TAB_METAL),
+                "the brass collar (dark: {dark})"
+            );
+            assert_eq!(
+                tc::text_color(arrow, dark),
+                Some(flora::LIGHT_ON_ACC),
+                "the arrow (dark: {dark})"
+            );
+            assert!(
+                tc::has_focus_ring(button, dark),
+                "the back button rings on focus (dark: {dark})"
+            );
+        }
+    }
+
+    /// The drawer's items are keys inset from its edges (`.mobile-menu`:
+    /// `padding: 14px 12px; gap: 2px`, each item a 1px ring): 12px in from
+    /// either side, 2px apart. The label keeps the flat look's indent (24px
+    /// from the column's edge) and the items the flat pitch (38px), so a
+    /// theme switch moves no word.
+    #[test]
+    fn a_flora_nav_key_is_inset_like_the_drawers_and_its_label_stays_where_the_flat_one_is() {
+        let at_rest = |n: &Dom, ty: CssPropertyType| tc::resolve(n, ty, false, None);
+        let flat_dom = pinned(UiTheme::Flat);
+        let flat = plain_item(&flat_dom);
+        assert_eq!(
+            at_rest(flat, CssPropertyType::PaddingLeft),
+            Some(P::const_padding_left(LayoutPaddingLeft::const_px(24)))
+        );
+        assert_eq!(
+            at_rest(flat, CssPropertyType::Height),
+            Some(P::const_height(LayoutHeight::const_px(38)))
+        );
+        let flora_dom = pinned(UiTheme::Flora);
+        let key = plain_item(&flora_dom);
+        // 12px inset + the 1px ring + 11px padding: the flat 24px indent.
+        assert_eq!(
+            at_rest(key, CssPropertyType::MarginLeft),
+            Some(P::const_margin_left(LayoutMarginLeft::const_px(12)))
+        );
+        assert_eq!(
+            at_rest(key, CssPropertyType::MarginRight),
+            Some(P::const_margin_right(LayoutMarginRight::const_px(12)))
+        );
+        assert_eq!(
+            at_rest(key, CssPropertyType::BorderLeftWidth),
+            Some(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1)))
+        );
+        assert_eq!(
+            at_rest(key, CssPropertyType::PaddingLeft),
+            Some(P::const_padding_left(LayoutPaddingLeft::const_px(11)))
+        );
+        // A 36px key with 1px above and below: the flat 38px pitch, 2px
+        // between two keys.
+        assert_eq!(
+            at_rest(key, CssPropertyType::Height),
+            Some(P::const_height(LayoutHeight::const_px(36)))
+        );
+        assert_eq!(
+            at_rest(key, CssPropertyType::MarginTop),
+            Some(P::const_margin_top(LayoutMarginTop::const_px(1)))
+        );
+        assert_eq!(
+            at_rest(key, CssPropertyType::MarginBottom),
+            Some(P::const_margin_bottom(LayoutMarginBottom::const_px(1)))
+        );
+    }
+
+    #[test]
+    fn the_flora_backstage_keeps_every_theme_invariant() {
+        // The selected item plain, and the selected item after the gap.
+        for active in [2usize, 9] {
+            let dom = fixture()
+                .with_active_item(active)
+                .with_theme(UiTheme::Flora)
+                .dom();
+            tc::assert_theme_invariants(&format!("flora backstage, item {active} active"), &dom);
+        }
+    }
+
+    #[test]
+    fn a_pinned_backstage_builds_its_back_button_in_its_theme_under_any_app_theme() {
+        for (theme, other) in [
+            (UiTheme::Flat, UiTheme::Flora),
+            (UiTheme::Flora, UiTheme::Flat),
+        ] {
+            let marker = match theme {
+                UiTheme::Flat => style_kit::FLAT_CLASS,
+                UiTheme::Flora => style_kit::FLORA_CLASS,
+            };
+            // Built for the OTHER app theme: the pin holds.
+            let dom = checks::under(other, || pinned(theme));
+            assert!(tc::has_class(&dom, marker), "{theme:?}: the root carries its marker");
+            assert!(
+                tc::has_class(node(&dom, BUTTON), marker),
+                "{theme:?}: the back button is built in the backstage's theme"
+            );
+            assert!(
+                checks::theme_names(&dom).is_empty(),
+                "{theme:?}: a pinned backstage carries theme blocks {:?}",
+                checks::theme_names(&dom)
+            );
+        }
+    }
+
+    #[test]
+    fn an_unpinned_backstage_follows_the_app_theme() {
+        for active in [2usize, 9] {
+            checks::assert_follows_the_app_theme(
+                &format!("backstage, item {active} active"),
+                || fixture().with_active_item(active).dom(),
+                |t| fixture().with_active_item(active).with_theme(t).dom(),
+            );
+        }
+    }
+
+    /// GENERIC rules go outside the theme blocks: what both looks declare
+    /// alike - the column's layout, the flex boxes, the font, the back
+    /// button's circle - an unpinned backstage declares ONCE, unconditioned,
+    /// under either app theme.
+    #[test]
+    fn a_following_backstage_declares_what_both_looks_share_once_outside_the_theme_blocks() {
+        use CssPropertyType as T;
+        fn once_unconditioned(node: &Dom, ty: CssPropertyType) -> bool {
+            let decls: Vec<(&P, &DynamicSelectorVec)> = node
+                .root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, _)| p.get_type() == ty)
+                .collect();
+            decls.len() == 1
+                && decls[0].1.as_ref().iter().all(|c| {
+                    !matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_)))
+                })
+        }
+        for app in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = checks::under(app, || fixture().dom());
+            let shared: [(&str, &Dom, &[CssPropertyType]); 6] = [
+                (
+                    "root",
+                    &dom,
+                    &[
+                        T::BoxSizing,
+                        T::Display,
+                        T::FlexDirection,
+                        T::FlexGrow,
+                        T::FontFamily,
+                        T::FontSize,
+                    ],
+                ),
+                (
+                    "nav",
+                    node(&dom, NAV),
+                    &[T::Display, T::FlexDirection, T::FlexShrink, T::Width],
+                ),
+                (
+                    "nav item",
+                    plain_item(&dom),
+                    &[T::Display, T::FlexDirection, T::AlignItems, T::FontSize, T::Cursor],
+                ),
+                (
+                    "back button",
+                    node(&dom, BUTTON),
+                    &[
+                        T::Width,
+                        T::Height,
+                        T::MarginLeft,
+                        T::BorderTopWidth,
+                        T::BorderTopLeftRadius,
+                    ],
+                ),
+                (
+                    "right side",
+                    node(&dom, RIGHT),
+                    &[T::Display, T::FlexDirection, T::FlexGrow],
+                ),
+                (
+                    "content host",
+                    node(&dom, CONTENT),
+                    &[T::Display, T::FlexDirection, T::FlexGrow],
+                ),
+            ];
+            for (part, n, types) in shared {
+                for ty in types {
+                    assert!(
+                        once_unconditioned(n, *ty),
+                        "built for {app:?}: the {part}'s {ty:?} is not declared once outside \
+                         the theme blocks"
+                    );
+                }
+            }
+        }
+    }
+
+    /// R5: the backstage's layout - the root's row, the column, the right
+    /// side and the content host, every nav item's row with its pointer and
+    /// unselectable label, the back button's centred circle - is its BASE:
+    /// flora paints the flat part's geometry (`chrome_geometry`), so every
+    /// structure declaration is declared once, outside every `@theme` block.
+    /// The first, a middle and the item after the gap selected.
+    #[test]
+    fn a_backstage_declares_its_structure_once_for_every_theme() {
+        for t in checks::BOTH {
+            for active in [0usize, 2, 9] {
+                let dom = checks::under(t, || fixture().with_active_item(active).dom());
+                tc::assert_structure_is_shared(
+                    &format!("backstage, item {active} active, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_part_the_caller_set_is_the_callers_in_both_looks() {
+        let custom = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_width(
+            LayoutWidth::const_px(200),
+        ))]);
+        let want: azul_css::css::Css = custom.clone().into();
+        for theme in [None, Some(UiTheme::Flat), Some(UiTheme::Flora)] {
+            let mut style = BackstageStyle::office_2013();
+            style.nav_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+            let b = fixture().with_style(style);
+            let dom = match theme {
+                Some(t) => b.with_theme(t).dom(),
+                None => b.dom(),
+            };
+            assert_eq!(node(&dom, NAV).root.style, want, "{theme:?}");
+        }
+    }
+
+    /// Flora is a second look, not a change to the first: the flat backstage
+    /// is the Office palette's parts, declaration for declaration.
+    #[test]
+    fn the_flat_backstage_is_the_office_look_it_always_was() {
+        let office = BackstageStyle::default();
+        let css = |v: CssPropertyWithConditionsVec| -> azul_css::css::Css { v.into() };
+        let dom = pinned(UiTheme::Flat);
+        assert_eq!(dom.root.style, css(office.resolved_root_style()));
+        assert_eq!(node(&dom, NAV).root.style, css(office.resolved_nav_style()));
+        assert_eq!(node(&dom, RIGHT).root.style, css(office.resolved_right_style()));
+        assert_eq!(
+            node(&dom, CONTENT).root.style,
+            css(office.resolved_content_style())
+        );
+        assert_eq!(
+            plain_item(&dom).root.style,
+            css(office.resolved_nav_item_style())
+        );
+        assert_eq!(
+            node(&dom, ACTIVE).root.style,
+            css(merged_style(
+                &office.resolved_nav_item_style(),
+                &office.resolved_nav_item_active_style()
+            ))
+        );
+        let button = node(&dom, BUTTON);
+        assert_eq!(button.root.style, css(office.resolved_back_button_style()));
+        assert_eq!(
+            button.children.as_ref()[0].root.style,
+            css(office.resolved_back_icon_style())
+        );
+    }
+
+    /// The flat page (the root, the right side and the pane) is the Office
+    /// white by day and flat's dark page at night: the caller's pane is
+    /// written in the window's ink, and AzCalendar's dark backstage showed
+    /// white headings and buttons on a white page (WIDGETS7, prebuilt
+    /// AzCalendar `--mode dark`, FILE > Calendars).
+    #[test]
+    fn the_flat_backstage_page_is_dark_in_the_dark_mode() {
+        let dom = pinned(UiTheme::Flat);
+        for part in [&dom, node(&dom, RIGHT), node(&dom, CONTENT)] {
+            assert_eq!(face(part, false, None), fill(WHITE), "the page by day");
+            assert_eq!(
+                face(part, true, None),
+                fill(flat::DARK_PG),
+                "the page at night"
+            );
+        }
+    }
+}
+
+/// A backstage page taller than the window scrolls inside the backstage: the backstage (a
+/// flex item of the window's column) and its page column take the height they are given, not
+/// their content's - CSS's automatic minimum size of a flex item is its content's, so every
+/// flex level between the window and the page's scroller declares `min-height: 0`. AzMail's
+/// File > Account Settings (E2E-A, 2026-10-06): the backstage was 1016 px in an 832 px shell,
+/// the settings never scrolled, and "Create a key" stood below the window's edge.
+#[cfg(test)]
+mod a_backstage_page_scrolls_inside_the_window_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::Backstage;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The used size of the first node carrying the class `class`, in a 800 x 400 window.
+    fn size_of_class(mut dom: Dom, class: &str) -> LogicalSize {
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let node = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class(class))
+            .unwrap_or_else(|| panic!("no node .{class}"));
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+    }
+
+    /// The window's column (as OfficeShell's backstage slot: `min-height: 0`) holding a
+    /// backstage whose page is `page`.
+    fn window_with(page: Dom) -> Dom {
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;",
+                    )
+                    .with_child(Backstage::office_2013().with_content(page).dom()),
+            )
+    }
+
+    /// A page whose one line is a 600-character word (a DKIM key's TXT record): its
+    /// min-content width is the word's.
+    fn window_with_a_wide_word() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
+                .with_child(Dom::create_span_with_text("k".repeat(600))),
+        )
+    }
+
+    /// The right side - the backstage's flex item beside the navigation - takes the width
+    /// it is given, not its page's widest word: AzMail's Account Settings with a DKIM key's
+    /// record pushed the settings' Save button to x 1676 in a 1280 px window.
+    #[test]
+    fn a_wide_page_does_not_widen_the_backstage_past_the_window() {
+        let w = size_of_class(window_with_a_wide_word(), "__azul-native-backstage-right").width;
+        assert!(
+            w <= 800.5,
+            "the backstage's right side is {w} px wide in an 800 px window: it grew to its \
+             page's widest word"
+        );
+    }
+
+    /// A backstage whose page is a scroller over 2000 px of content.
+    fn window_with_a_tall_page() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                     overflow-y: auto;",
+                )
+                .with_child(Dom::create_div().with_css("height: 2000px; flex-shrink: 0;")),
+        )
+    }
+
+    #[test]
+    fn a_tall_page_scrolls_inside_the_backstage_instead_of_growing_it() {
+        for class in [
+            "__azul-native-backstage",
+            "__azul-native-backstage-right",
+            "__azul-native-backstage-content",
+        ] {
+            let h = size_of_class(window_with_a_tall_page(), class).height;
+            assert!(
+                h <= 400.5,
+                ".{class} is {h} px tall in a 400 px window: it grew to its page's content"
+            );
+        }
     }
 }

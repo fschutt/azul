@@ -235,12 +235,12 @@ id = "styling-tree"
 tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs", "core/src/icon.rs", "layout/src/icon.rs"]
+tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs", "css/src/rice.rs", "core/src/icon.rs", "layout/src/icon.rs"]
 tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs", "css/src/system_native_*.rs"]
 design_docs = [
   "ideas/platform/SYSTEMSTYLE.md",
 ]
-notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors). /text-and-fonts covers font-family, weight, alignment, and the system: keywords. /icon-packs covers registering image and font icons via IconProviderHandle."
+notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors). /text-and-fonts covers font-family, weight, alignment, and the system: keywords. /icon-packs covers registering image and font icons via IconProviderHandle. /ricing covers the end user's stylesheets: ~/.azul/css/<theme>/, the header meta-comment, priorities, AZ_RICING."
 
 [[group.outputs]]
 slug = "styling"
@@ -281,6 +281,14 @@ title = "Icon Packs"
 maturity = "wip"
 guide_order = 74
 prerequisites = ["styling"]
+
+[[group.outputs]]
+slug = "styling/ricing"
+path = "doc/guide/en/styling/ricing.md"
+title = "Ricing (User Themes)"
+maturity = "wip"
+guide_order = 75
+prerequisites = ["styling", "styling/themes"]
 
 # ----
 

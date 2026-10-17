@@ -12,6 +12,7 @@ prerequisites: [styling]
 tracked_files:
   - css/src/system.rs
   - css/src/dynamic_selector.rs
+  - css/src/theme_chain.rs
   - css/src/props/basic/color.rs
   - css/src/props/basic/font.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
@@ -149,10 +150,43 @@ color: #1a1a1a;
 
 The variants follow `ThemeCondition`:
 
-- `@theme light`: system reports light theme.
-- `@theme dark`: system reports dark theme.
-- `@theme <name>`: a custom string treated as user-defined. The system
-  resolver doesn't emit it on its own.
+- `@theme light`: the window is in light mode.
+- `@theme dark`: the window is in dark mode.
+- `@theme <name>` / `@theme(<name>)`: the APP THEME, a name such as `flat`
+  (the default) or `flora`. The block applies only while that theme is in
+  the app's theme chain: `AppConfig::with_theme("flora")` at startup,
+  `CallbackInfo::set_theme("flat")` at runtime, or the user's `AZ_THEME`
+  (see [Choosing the theme and the mode from the
+  environment](#choosing-the-theme-and-the-mode-from-the-environment)).
+  Widgets carry one block per theme they know, so one switch restyles all
+  of them. A theme switch rebuilds every window's DOM (a theme may change a
+  widget's structure), while a light / dark mode switch only repaints. Nest
+  `@theme dark` inside a theme block for that theme's dark mode.
+
+The app theme is the head of a *theme chain*, most specific first, like a
+locale fallback list (`fr-CA`, then `fr`, then `en`). A spin-off theme
+names its base before a colon: `xyz:pink` expands to `xyz:pink`, then
+`xyz`, and every chain ends in the default theme, `flat`. So
+`AppConfig::with_theme("xyz:pink")` makes the chain
+`[xyz:pink, xyz, flat]`: `@theme(xyz:pink)` blocks apply, `@theme(xyz)`
+blocks apply where the spin-off says nothing, and an app theme nobody wrote
+a block for looks like the default theme. A theme's file header can name
+further fallbacks (`fallback: native`); they are appended in chain order,
+each theme once, and a cycle is cut with a warning. The mode's words -
+`light`, `dark`, `system`, `auto` - are never theme names: in a chain they
+are an error, logged and dropped.
+
+A THEME and a MODE are two settings. The theme is the app's look (`flat`,
+`flora`, ...). The mode is light / dark / system: by default ("system") every
+window follows the desktop's light or dark, and
+`AppConfig::with_mode(OptionDarkLightMode::Some(DarkLightMode::Dark))` at
+startup or `CallbackInfo::set_mode(..)` at runtime pins every window of the
+app to one (`None` follows the desktop again). `CallbackInfo::get_mode` reads
+that choice back and `CallbackInfo::get_resolved_mode` the light or dark it
+gives. Inside `layout()`, `LayoutCallbackInfo::get_mode()` returns the light
+or dark the window shows (and makes a mode switch re-run that `layout()`),
+while `LayoutCallbackInfo::get_theme()` returns the app theme's name.
+`RelayoutReason` says which one changed: `ModeChange` or `ThemeChange`.
 
 For typical apps, define the base style for light mode and override
 selected properties under `@theme dark`. Combine with `@os` for
@@ -279,10 +313,10 @@ The cascade has three layers, from outermost to innermost:
 1. **System discovery** (the `system:*` keywords and `@theme dark`
    condition). Resolved per frame from the running OS, so a theme
    toggle takes effect on the next paint without a re-layout.
-2. **End-user ricing** — the optional CSS file the user dropped into
-   `~/.config/azul/styles/<app>.css` (Linux/macOS) or
-   `%APPDATA%\azul\styles\<app>.css` (Windows). Loaded at app startup
-   when the `io` feature is on.
+2. **End-user ricing** — the CSS files the user dropped into
+   `~/.azul/css/<theme>/` (and the older per-app
+   `~/.config/azul/styles/<app>.css`), each at the priority its header
+   asks for, `base` by default. See [Ricing (User Themes)](ricing.md).
 3. **Application CSS** — every component-level `Css` attached via
    `Dom::style(...)` on a subtree root, plus inline rules attached
    via `Dom::with_css(...)` on individual nodes. CSS lives on the
@@ -293,8 +327,8 @@ Components don't fight user theming because their selectors target
 component-internal classes (`.shadcn-card`, `.my-row`) while user
 theming targets the `system:*` color and font hooks. As long as a
 component reads its colors from `system:*` instead of hard-coding
-hex values, the user's `~/.config/azul/styles/<app>.css` can repaint
-the component without the component's source changing.
+hex values, a user's rice can repaint the component without the
+component's source changing.
 
 A few escape hatches when the discovery isn't enough:
 
@@ -302,39 +336,82 @@ A few escape hatches when the discovery isn't enough:
   the cascade for that node.
 - **Subtree override via component CSS**: stack a second `Css` via
   `Dom::style(css)`. Later rule blocks win at equal
-  `(priority, specificity)`. See [DOM › Component-level
-  stylesheets](../dom.md#component-level-stylesheets).
+  `(priority, specificity)`. See [Styling › Two ways to attach
+  styles](../styling.md#two-ways-to-attach-styles).
 
 ## Controlling end-user customization
 
 Azul has a single env var for the entire end-user-customization
 layer: `AZ_RICING`.
 
-Unset (the default) means the framework loads the user CSS file at
-`~/.config/azul/styles/<app>.css` if it exists, and on Linux runs the
-standard detection chain (`KDE > GNOME > riced-desktop > defaults`).
+Unset (the default) means the framework loads the user's rice
+([Ricing (User Themes)](ricing.md)) if there is any, and on Linux runs
+the standard detection chain (`KDE > GNOME > riced-desktop > defaults`).
 This is the right behavior for a normal install on a normal
 desktop.
 
 `AZ_RICING=off` (aliases: `disabled`, `none`, `0`) skips both the
-user CSS file and the riced-desktop sources. Pick this for a kiosk
-build, a CI runner, or any install that must not pick up local
-theme customization. The cascade still runs `system:*` resolution
-and `@theme` conditions — disabling ricing only stops the
-*user-supplied* layer; the OS-supplied palette is still honored.
+rice and the riced-desktop sources. Pick this for a kiosk
+build, a CI runner, any install that must not pick up local
+theme customization, and before reporting a bug: a bug that
+reproduces with `AZ_RICING=off` is the app's. The cascade still runs
+`system:*` resolution and `@theme` conditions — disabling ricing only
+stops the *user-supplied* layer; the OS-supplied palette is still
+honored.
+
+`AZ_RICING=watch` (aliases: `live`, `reload`) loads the rice and
+rebuilds every window when a rice file changes, for writing a theme.
 
 `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`) reorders the
 Linux detection chain so riced-desktop sources (Hyprland config,
 pywal cache, i3/sway) win over the GNOME and KDE paths. Use this
 when `XDG_CURRENT_DESKTOP` still reports `gnome` but the actual
-session is a tiling WM with a custom palette. The user CSS file
-still loads in this mode.
+session is a tiling WM with a custom palette. The rice still
+loads in this mode.
 
-There is no env var that forces dark/light mode. The platform's own
-facilities (macOS *General > Appearance*, Windows *Personalization >
-Colors > Choose your mode*, GNOME *Settings > Appearance*) drive the
-`prefers-color-scheme` discovery and azul re-evaluates `@theme` on
-the next frame.
+## Choosing the theme and the mode from the environment
+
+Two variables choose the look of every Azul app a user runs. Both are read
+once, at startup.
+
+"Theme" and "mode" are separate axes. The THEME is the app theme (`flat`,
+`flora`, a user's `xyz:pink`); the MODE is light / dark / system.
+
+- `AZ_THEME=<theme>` names the head of the theme chain, and outranks the
+  app's own choice:
+
+  ```text
+  AZ_THEME  >  AppConfig::with_theme / CallbackInfo::set_theme  >  flat
+  ```
+
+  `AZ_THEME=xyz:pink` gives every window the chain `[xyz:pink, xyz, flat]`,
+  whatever theme the app asked for; a `set_theme` call while it is set
+  changes nothing.
+- `AZ_MODE=light|dark|system` pins the mode, for deterministic rendering
+  (screenshots, reftests, CI):
+
+  ```text
+  AZ_MODE  >  AppConfig::color_scheme / CallbackInfo::set_color_scheme  >  the window's  >  the desktop's
+  ```
+
+  It reaches everything that has a light / dark polarity: `@theme dark` and
+  `prefers-color-scheme` blocks, the `system:*` palette, the window
+  background. `system` (or `auto`) pins nothing: the app and the desktop
+  decide, and azul re-evaluates `@theme` on the next frame when the user
+  toggles the platform's own setting (macOS *General > Appearance*, Windows
+  *Personalization > Colors > Choose your mode*, GNOME *Settings >
+  Appearance*).
+
+`AZ_THEME=light` and `AZ_THEME=dark` were the mode pin before `AZ_THEME`
+named the theme. For one release they still pin the mode, and the app logs
+once at startup that the spelling is deprecated and `AZ_MODE` replaces it.
+When both are set, `AZ_MODE` decides the mode.
+
+```bash
+AZ_MODE=dark ./my_app              # dark, whatever the desktop says
+AZ_THEME=xyz:pink ./my_app         # the xyz:pink theme, over xyz, over flat
+AZ_THEME=flora AZ_MODE=light ./my_app
+```
 
 ## Previewing on a different platform
 
@@ -357,7 +434,7 @@ fn main() {
     config.mock_css_environment = OptionCssMockEnvironment::Some(
         CssMockEnvironment {
             os: OptionOsCondition::Some(OsCondition::Ios),
-            theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+            mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
             language: OptionString::Some("fr-FR".into()),
             viewport_width: OptionF32::Some(360.0),
             viewport_height: OptionF32::Some(780.0),

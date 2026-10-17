@@ -12,7 +12,7 @@
 //! use azul_layout::fluent::FluentLocalizerHandle;
 //!
 //! // Create a localizer with default locale
-//! let mut localizer = FluentLocalizerHandle::create("en-US");
+//! let mut localizer = FluentLocalizerHandle::create("en-US", &[]);
 //!
 //! // Load translations from a string
 //! localizer.add_resource("en-US", r#"
@@ -56,13 +56,53 @@ use std::{
 };
 
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, AzString,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, AzString,
     OptionStringVec, StringVec, U8Vec,
 };
 use fluent::{concurrent::FluentBundle, FluentArgs, FluentResource, FluentValue};
 use fluent_syntax::parser;
 use unic_langid::LanguageIdentifier;
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
+
+/// Report of missing translations across multiple locales.
+#[derive(Debug, Default, Clone)]
+pub struct TranslationCompletenessReport {
+    /// Map of `locale -> missing message IDs`.
+    pub missing_keys: BTreeMap<String, Vec<String>>,
+}
+
+impl core::fmt::Display for TranslationCompletenessReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#?}", self.missing_keys)
+    }
+}
+
+/// `AppConfig::check_translations` - the translation-completeness check of
+/// the localization guide, for an app's startup or its test suite.
+pub trait AppConfigFluentExt {
+    /// Which message ids each locale of `AppConfig::fluent_locales` lacks
+    /// that another of its locales defines. An empty `missing_keys` means
+    /// every locale translates every key; missing entries are also reported
+    /// through `azul_core::diagnostics` (stderr by default).
+    fn check_translations(&self) -> TranslationCompletenessReport;
+}
+
+impl AppConfigFluentExt for azul_core::resources::AppConfig {
+    fn check_translations(&self) -> TranslationCompletenessReport {
+        let Some(localizer) =
+            FluentLocalizerHandle::from_locale_sources(self.fluent_locales.as_ref())
+        else {
+            return TranslationCompletenessReport::default();
+        };
+        let locales: Vec<String> = localizer
+            .get_loaded_locales()
+            .iter()
+            .map(|locale| locale.as_str().to_string())
+            .collect();
+        let locales: Vec<&str> = locales.iter().map(String::as_str).collect();
+        localizer.check_translations(&locales).err().unwrap_or_default()
+    }
+}
 
 /// Error type for Fluent operations
 #[derive(Debug, Clone, PartialEq)]
@@ -91,7 +131,7 @@ pub enum FluentSyntaxCheckResult {
 
 impl FluentSyntaxCheckResult {
     /// Returns true if the result is Ok (no syntax errors).
-    #[must_use] 
+    #[must_use]
     pub const fn is_ok(&self) -> bool {
         match self {
             Self::Ok => true,
@@ -101,7 +141,7 @@ impl FluentSyntaxCheckResult {
 
     /// Get the error strings if this is an Errors result.
     /// Returns None if this is Ok.
-    #[must_use] 
+    #[must_use]
     pub fn get_errors(&self) -> OptionStringVec {
         match self {
             Self::Ok => OptionStringVec::None,
@@ -245,7 +285,11 @@ impl FluentLocaleBundle {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
                     }
                     FmtValue::Float(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
+                        // Through the f32's shortest decimal form: `f64::from`
+                        // is exact in binary, so 0.1f32 would print as
+                        // 0.10000000149011612.
+                        let widened = n.to_string().parse::<f64>().unwrap_or(f64::from(*n));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(widened));
                     }
                     FmtValue::Double(n) => {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n));
@@ -319,6 +363,8 @@ pub struct FluentLocalizerInner {
     default_locale: Mutex<String>,
     /// Fallback chain (locale -> list of fallback locales)
     fallback_chain: Mutex<BTreeMap<String, Vec<String>>>,
+    /// Allowed languages for adding resources.
+    pub known_languages: Vec<azul_css::system::SystemLanguage>,
 }
 
 /// A thread-safe cache of Fluent localizers for multiple locales.
@@ -381,23 +427,50 @@ impl core::fmt::Debug for FluentLocalizerHandle {
 
 impl Default for FluentLocalizerHandle {
     fn default() -> Self {
-        Self::create("en-US")
+        Self::create("en-US", &[])
     }
 }
 
 impl FluentLocalizerHandle {
     /// Create a new Fluent localizer with the given default locale.
-    #[must_use] 
-    pub fn create(default_locale: &str) -> Self {
+    #[must_use]
+    pub fn create(default_locale: &str, known_languages: &[azul_css::system::SystemLanguage]) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(FluentLocalizerInner {
                 bundles: Mutex::new(BTreeMap::new()),
                 default_locale: Mutex::new(default_locale.to_string()),
                 fallback_chain: Mutex::new(BTreeMap::new()),
+                known_languages: known_languages.to_vec(),
             })),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
             run_destructor: true,
         }
+    }
+
+    /// A localizer over an app's `(locale, .ftl source)` pairs
+    /// (`AppConfig::fluent_locales`), or `None` when there are none.
+    ///
+    /// The default locale - where a key missing in the active locale is
+    /// looked up last, then in its language (`en`) - is `en-US`, as for
+    /// [`Self::default`]. A source that does not load (a parse error, or a
+    /// message id the locale already has) is reported to the diagnostics sink
+    /// and skipped; the other sources still load.
+    #[must_use]
+    pub fn from_locale_sources(sources: &[azul_core::window::AzStringPair]) -> Option<Self> {
+        if sources.is_empty() {
+            return None;
+        }
+        let localizer = Self::create("en-US", &[]);
+        for source in sources {
+            if !localizer.add_resource(source.key.as_str(), source.value.as_str()) {
+                azul_core::diagnostics::emit(format!(
+                    "[azul][warn] [fluent] the .ftl source for locale {:?} did not load \
+                     (a syntax error, or a message id that locale already defines)",
+                    source.key.as_str()
+                ));
+            }
+        }
+        Some(localizer)
     }
 
     /// Get a reference to the inner data.
@@ -407,7 +480,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get the default locale string.
-    #[must_use] 
+    #[must_use]
     pub fn get_default_locale(&self) -> AzString {
         self.inner()
             .default_locale
@@ -448,9 +521,16 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// `true` if the resource was successfully added, `false` if there were errors.
-    #[must_use] 
+    #[must_use]
     pub fn add_resource(&self, locale: &str, source: &str) -> bool {
-        if let Ok(mut bundles) = self.inner().bundles.lock() {
+        // Validate locale against the known languages list (if non-empty)
+        let inner = self.inner();
+        if !inner.known_languages.is_empty()
+            && !inner.known_languages.iter().any(|l| l.id.as_str() == locale)
+        {
+            return false;
+        }
+        if let Ok(mut bundles) = inner.bundles.lock() {
             let bundle = bundles.entry(locale.to_string()).or_insert_with(|| {
                 FluentLocaleBundle::new(locale).unwrap_or_else(|| {
                     FluentLocaleBundle::new("en-US").expect("en-US should always work")
@@ -463,7 +543,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Add a Fluent resource from a `U8Vec` (for C API compatibility).
-    #[must_use] 
+    #[must_use]
     pub fn add_resource_from_bytes(&self, locale: &str, data: &[u8]) -> bool {
         match std::str::from_utf8(data) {
             Ok(source) => self.add_resource(locale, source),
@@ -501,7 +581,7 @@ impl FluentLocalizerHandle {
     /// │   ├── main.fluent
     /// │   └── errors.fluent
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_with_locale(
         &self,
         data: &[u8],
@@ -585,19 +665,19 @@ impl FluentLocalizerHandle {
     }
 
     /// Load translations from a ZIP archive (auto-detect locale from filename).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip(&self, data: &[u8]) -> FluentZipLoadResult {
         self.load_from_zip_with_locale(data, None)
     }
 
     /// Load translations from a ZIP archive (`U8Vec` for FFI).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_bytes(&self, data: &U8Vec) -> FluentZipLoadResult {
         self.load_from_zip(data.as_slice())
     }
 
     /// Load translations from a ZIP archive with explicit locale (`U8Vec` for FFI).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_bytes_with_locale(
         &self,
         data: &U8Vec,
@@ -611,7 +691,7 @@ impl FluentLocalizerHandle {
     /// # Arguments
     /// * `path` - Path to a .fluent file or a .zip file
     /// * `locale_override` - If Some, use this locale. If None, detect from filename.
-    #[must_use] 
+    #[must_use]
     pub fn load_from_path(&self, path: &str, locale_override: Option<&str>) -> FluentZipLoadResult {
         let path_obj = std::path::Path::new(path);
 
@@ -707,7 +787,7 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// The translated string, or the message ID if not found.
-    #[must_use] 
+    #[must_use]
     pub fn translate(&self, locale: AzString, message_id: AzString, args: FmtArgVec) -> AzString {
         let locale = locale.as_str();
         let message_id = message_id.as_str();
@@ -728,6 +808,13 @@ impl FluentLocalizerHandle {
             }
         }
 
+        // Try the requested locale's language: `fr-CA` -> `fr`
+        for parent in less_specific_locales(locale) {
+            if let Some(result) = self.try_translate(parent, message_id, &args) {
+                return result;
+            }
+        }
+
         // Try default locale
         let default_locale = self
             .inner()
@@ -737,6 +824,11 @@ impl FluentLocalizerHandle {
         if locale != default_locale {
             if let Some(result) = self.try_translate(&default_locale, message_id, &args) {
                 return result;
+            }
+            for parent in less_specific_locales(&default_locale) {
+                if let Some(result) = self.try_translate(parent, message_id, &args) {
+                    return result;
+                }
             }
         }
 
@@ -754,7 +846,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Check if a message ID exists in the given locale.
-    #[must_use] 
+    #[must_use]
     pub fn has_message(&self, locale: &str, message_id: &str) -> bool {
         self.inner()
             .bundles
@@ -767,8 +859,74 @@ impl FluentLocalizerHandle {
             })
     }
 
+    /// Check translation completeness for the given locale codes.
+    ///
+    /// Iterates all localizable strings known to the localizer and returns a
+    /// `TranslationCompletenessReport` for each requested locale. Missing
+    /// entries are printed to `stderr`.
+    ///
+    /// Returns `Ok(())` when every requested locale has 100 % coverage for all
+    /// known keys, and `Err(report)` when any key is missing in any locale.
+    pub fn check_translations(&self, locales: &[&str]) -> Result<(), TranslationCompletenessReport> {
+        let mut report = TranslationCompletenessReport::default();
+        let mut all_keys = std::collections::BTreeSet::new();
+        
+        let inner = self.inner();
+        // A poisoned lock still holds intact bundles (a panic elsewhere must
+        // not turn a completeness check into a second panic).
+        let bundles = match inner.bundles.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        // Collect all keys from all bundles
+        for bundle in bundles.values() {
+            for source in &bundle.sources {
+                if let Ok(res) = FluentResource::try_new(source.clone()) {
+                    for entry in res.entries() {
+                        if let fluent_syntax::ast::Entry::Message(msg) = entry {
+                            all_keys.insert(msg.id.name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check each requested locale
+        for locale in locales {
+            let mut missing = Vec::new();
+            if let Some(bundle) = bundles.get(*locale) {
+                for key in &all_keys {
+                    if !bundle.has_message(key) {
+                        missing.push(key.clone());
+                    }
+                }
+            } else {
+                missing.extend(all_keys.iter().cloned());
+            }
+            if !missing.is_empty() {
+                report.missing_keys.insert(locale.to_string(), missing);
+            }
+        }
+        
+        if report.missing_keys.is_empty() {
+            Ok(())
+        } else {
+            // (Was `#[cfg(feature = "logging")] log::warn!` - a feature this
+            // crate does not have, and a `log` it does not depend on.)
+            for (locale, keys) in &report.missing_keys {
+                for key in keys {
+                    azul_core::diagnostics::emit(format!(
+                        "[azul][warn] untranslated string '{key}' for requested language {locale}"
+                    ));
+                }
+            }
+            Err(report)
+        }
+    }
+
     /// Get the list of all loaded locales.
-    #[must_use] 
+    #[must_use]
     pub fn get_loaded_locales(&self) -> Vec<AzString> {
         self.inner()
             .bundles
@@ -779,7 +937,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get information about all loaded languages.
-    #[must_use] 
+    #[must_use]
     pub fn get_language_info(&self) -> FluentLanguageInfoVec {
         self.inner()
             .bundles
@@ -828,7 +986,7 @@ impl FluentLocalizerHandle {
 ///
 /// Returns `Ok` if the syntax is valid, or a list of error strings.
 /// Each error string has the format "line:column: message".
-#[must_use] 
+#[must_use]
 pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
     match parser::parse(source) {
         Ok(_) => FluentSyntaxCheckResult::Ok,
@@ -847,7 +1005,7 @@ pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
 }
 
 /// Check the syntax of a Fluent file from bytes.
-#[must_use] 
+#[must_use]
 pub fn check_fluent_syntax_bytes(data: &[u8]) -> FluentSyntaxCheckResult {
     match std::str::from_utf8(data) {
         Ok(source) => check_fluent_syntax(source),
@@ -905,9 +1063,159 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
     create_fluent_zip(entries)
 }
 
+/// Replace every localizable text node of `dom` (a string made with
+/// `AzString::tr`) with its translation into `locale`.
+///
+/// A text node's arguments are its own `fluent_args`, or - when it has none -
+/// its parent element's: `Dom::create_p_with_text(AzString::tr(key))
+/// .with_fluent_args(..)` and `<p data-l10n="key" data-l10n-name="..">` both
+/// hang the arguments on the element and the key on its text child.
+pub fn translate_texts_in_dom(dom: &mut azul_core::dom::Dom, localizer: &FluentLocalizerHandle, locale: &str) {
+    translate_subtree(dom, localizer, locale, None);
+}
+
+fn translate_subtree(
+    dom: &mut azul_core::dom::Dom,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+    parent_args: Option<&azul_core::dom::FluentArgKVVec>,
+) {
+    translate_node(&mut dom.root, localizer, locale, parent_args);
+
+    let own_args = dom.root.fluent_args.as_deref();
+    for child in dom.children.as_mut() {
+        translate_subtree(child, localizer, locale, own_args);
+    }
+}
+
+#[inline(always)]
+fn translate_node(
+    node: &mut azul_core::dom::NodeData,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+    parent_args: Option<&azul_core::dom::FluentArgKVVec>,
+) {
+    let (key, fmt_args) = {
+        let text_box = match &node.node_type {
+            azul_core::dom::NodeType::Text(tb) => tb,
+            _ => return,
+        };
+
+        if !text_box.as_ref().is_localizable() {
+            return;
+        }
+
+        let args = node.fluent_args.as_deref().or(parent_args);
+        (text_box.as_ref().as_str().to_owned(), extract_fluent_args(args))
+    };
+
+    let translated = localizer.translate(
+        azul_css::corety::AzString::from(locale),
+        azul_css::corety::AzString::from(key.as_str()),
+        fmt_args,
+    );
+
+    if let azul_core::dom::NodeType::Text(text_box) = &mut node.node_type {
+        *text_box = azul_css::css::BoxOrStatic::heap(translated);
+    }
+    // The key is gone from the text now; remember it, so a locale change can
+    // translate this node again in place (`localize_styled_dom`).
+    node.set_localization_key(Some(azul_css::corety::AzString::from(key)));
+}
+
+/// Translate the localizable text of an already-built `StyledDom` into
+/// `locale`, in place: text nodes that still hold an `AzString::tr` key, and
+/// text nodes an earlier pass translated (they remember their key). A text
+/// node's arguments are its own `fluent_args`, else its parent's - the rule
+/// [`translate_texts_in_dom`] applies to a `Dom`.
+///
+/// This is what a locale change runs on the DOMs a window has already laid
+/// out: only the strings change, `layout()` is not called again. Returns
+/// whether any text changed - the caller owes the relayout.
+pub fn localize_styled_dom(
+    styled_dom: &mut azul_core::styled_dom::StyledDom,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+) -> bool {
+    use azul_core::dom::NodeType;
+
+    let parents: Vec<Option<usize>> = styled_dom
+        .node_hierarchy
+        .as_ref()
+        .iter()
+        .map(|item| item.parent_id().map(|parent| parent.index()))
+        .collect();
+    let nodes = styled_dom.node_data.as_mut();
+    let mut changed = false;
+
+    for idx in 0..nodes.len() {
+        let key: String = match nodes[idx].get_node_type() {
+            NodeType::Text(text) if text.as_ref().is_localizable() => text.as_ref().as_str().to_owned(),
+            NodeType::Text(_) => match nodes[idx].get_localization_key() {
+                Some(key) => key.as_str().to_owned(),
+                None => continue,
+            },
+            _ => continue,
+        };
+        let fmt_args = {
+            let parent_args = parents
+                .get(idx)
+                .copied()
+                .flatten()
+                .and_then(|parent| nodes.get(parent))
+                .and_then(|parent| parent.fluent_args.as_deref());
+            extract_fluent_args(nodes[idx].fluent_args.as_deref().or(parent_args))
+        };
+        let translated = localizer.translate(
+            azul_css::corety::AzString::from(locale),
+            azul_css::corety::AzString::from(key.as_str()),
+            fmt_args,
+        );
+
+        let node = &mut nodes[idx];
+        let unchanged = match node.get_node_type() {
+            NodeType::Text(text) => {
+                !text.as_ref().is_localizable() && text.as_ref().as_str() == translated.as_str()
+            }
+            _ => false,
+        };
+        node.set_localization_key(Some(azul_css::corety::AzString::from(key)));
+        if !unchanged {
+            node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(translated)));
+            changed = true;
+        }
+    }
+    changed
+}
+
+#[inline(always)]
+pub(crate) fn extract_fluent_args(
+    args: Option<&azul_core::dom::FluentArgKVVec>,
+) -> crate::fmt::FmtArgVec {
+    let Some(args) = args else {
+        return crate::fmt::FmtArgVec::new();
+    };
+
+    let mut fmt_args_vec = std::vec::Vec::with_capacity(args.as_slice().len());
+    
+    for arg in args.as_slice() {
+        let value = match &arg.value {
+            azul_core::dom::FluentArg::String(s) => crate::fmt::FmtValue::Str(s.clone()),
+            azul_core::dom::FluentArg::I32(i) => crate::fmt::FmtValue::Sint(*i),
+            azul_core::dom::FluentArg::F32(f) => crate::fmt::FmtValue::Float(*f),
+        };
+        
+        fmt_args_vec.push(crate::fmt::FmtArg {
+            key: arg.key.clone(),
+            value,
+        });
+    }
+    
+    crate::fmt::FmtArgVec::from_vec(fmt_args_vec)
+}
+
 /// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
-    
     let bundles = localizer
         .inner()
         .bundles
@@ -971,6 +1279,22 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
     None
 }
 
+/// The less specific forms of a locale tag, most specific first:
+/// `"zh-Hant-TW"` yields `"zh-Hant"`, then `"zh"` (BCP 47 "lookup"
+/// truncation). `_` counts as a separator too, as in POSIX names (`de_DE`).
+fn less_specific_locales(locale: &str) -> impl Iterator<Item = &str> + '_ {
+    let mut rest = locale;
+    core::iter::from_fn(move || {
+        let cut = rest.rfind(|c: char| c == '-' || c == '_')?;
+        rest = &rest[..cut];
+        if rest.is_empty() {
+            None
+        } else {
+            Some(rest)
+        }
+    })
+}
+
 /// Check if a string looks like a BCP 47 locale identifier.
 fn looks_like_locale(s: &str) -> bool {
     // Simple check: 2-3 letters, optionally followed by '-' and more
@@ -997,7 +1321,7 @@ mod tests {
 
     #[test]
     fn test_basic_translation() {
-        let localizer = FluentLocalizerHandle::create("en-US");
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
 
         let ftl = r#"
 hello = Hello, world!
@@ -1017,6 +1341,101 @@ greeting = Hello, { $name }!
         }]);
         let result = localizer.translate(AzString::from("en-US"), AzString::from("greeting"), args);
         assert_eq!(result.as_str(), "Hello, Alice!");
+    }
+
+    #[test]
+    fn a_fractional_f32_argument_renders_as_written_not_widened() {
+        // `FluentArg::F32` is what `with_fluent_args` and `data-l10n-price="0.1"`
+        // produce. Widening 0.1f32 to f64 yields 0.10000000149011612, and
+        // Fluent prints an f64 with `to_string()` - every digit of it.
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("en-US", "price = costs { $amount }\n"));
+        let args = FmtArgVec::from_vec(vec![FmtArg {
+            key: AzString::from("amount"),
+            value: FmtValue::Float(0.1),
+        }]);
+        let result = localizer.translate(AzString::from("en-US"), AzString::from("price"), args);
+        assert_eq!(result.as_str(), "costs 0.1");
+    }
+
+    #[test]
+    fn a_key_missing_in_a_regional_locale_falls_back_to_its_language() {
+        // doc/guide/en/architecture/localization.md, "Fallback Languages": a
+        // key missing in `fr-CA` is searched in `fr`. This is also what makes
+        // the guide's own setup work: it registers `en` and `de`, while the
+        // OS reports `en-US` / `de-DE`.
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("fr", "greeting = Bonjour\n"));
+        assert!(localizer.add_resource("en", "greeting = Hello\n"));
+
+        let tr = |locale: &str| {
+            localizer
+                .translate(AzString::from(locale), AzString::from("greeting"), FmtArgVec::new())
+                .as_str()
+                .to_string()
+        };
+        assert_eq!(tr("fr-CA"), "Bonjour");
+        assert_eq!(tr("fr-Latn-CA"), "Bonjour");
+        // A locale with nothing of its own ends at the DEFAULT locale's
+        // language (`en-US` -> `en`), not at the raw key.
+        assert_eq!(tr("ja-JP"), "Hello");
+    }
+
+    #[test]
+    fn arguments_attached_to_an_element_reach_its_translated_text() {
+        use azul_core::dom::{Dom, FluentArg, FluentArgKV, NodeType};
+
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("en-US", "welcome-greeting = Welcome back, { $userName }!\n"));
+
+        // The guide's own example (localization.md, "Translatable Strings"):
+        // the arguments hang on the `<p>`, the key is the text child that
+        // `create_p_with_text` makes.
+        let mut dom = Dom::create_p_with_text(AzString::tr("welcome-greeting")).with_fluent_args(
+            vec![FluentArgKV {
+                key: "userName".into(),
+                value: FluentArg::String("Alice".into()),
+            }],
+        );
+        translate_texts_in_dom(&mut dom, &localizer, "en-US");
+
+        let text = match &dom.children.as_ref()[0].root.node_type {
+            NodeType::Text(t) => t.as_ref().as_str().to_string(),
+            other => panic!("expected the text child, got {other:?}"),
+        };
+        assert_eq!(text, "Welcome back, Alice!");
+    }
+
+    #[test]
+    fn app_config_check_translations_reports_the_keys_a_locale_lacks() {
+        // localization.md, "Translation Completeness":
+        //   let report = app_config.check_translations();
+        //   if !report.missing_keys.is_empty() { .. }
+        use azul_core::{
+            resources::AppConfig,
+            window::{AzStringPair, StringPairVec},
+        };
+
+        let mut app_config = AppConfig::default();
+        app_config.fluent_locales = StringPairVec::from_vec(vec![
+            AzStringPair::create("en".into(), "greeting = Hello\nfarewell = Bye\n".into()),
+            AzStringPair::create("de".into(), "greeting = Hallo\n".into()),
+        ]);
+
+        let report = app_config.check_translations();
+        assert_eq!(
+            report.missing_keys.get("de"),
+            Some(&vec!["farewell".to_string()]),
+            "{report}"
+        );
+        assert!(!report.missing_keys.contains_key("en"), "{report}");
+
+        // Complete translations: an empty report.
+        app_config.fluent_locales = StringPairVec::from_vec(vec![
+            AzStringPair::create("en".into(), "greeting = Hello\n".into()),
+            AzStringPair::create("de".into(), "greeting = Hallo\n".into()),
+        ]);
+        assert!(app_config.check_translations().missing_keys.is_empty());
     }
 
     #[test]
@@ -1757,16 +2176,16 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_default_locale_roundtrip_and_garbage() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert_eq!(h.get_default_locale().as_str(), "en-US");
 
         // create() validates nothing: any string is stored verbatim
         for junk in ["", "   ", "!!!", "\u{1F600}", "en\0US", "\u{0301}"] {
-            let g = FluentLocalizerHandle::create(junk);
+            let g = FluentLocalizerHandle::create(junk, &[]);
             assert_eq!(g.get_default_locale().as_str(), junk);
         }
         let long = "x".repeat(100_000);
-        let g = FluentLocalizerHandle::create(&long);
+        let g = FluentLocalizerHandle::create(&long, &[]);
         assert_eq!(g.get_default_locale().as_str(), long.as_str());
 
         // set_default_locale overwrites, and clones share one inner allocation
@@ -1789,7 +2208,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_clone_drop_refcount_is_sound() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "k = v\n"));
 
         // 1_000 clones, all dropped: the shared inner must survive
@@ -1807,7 +2226,7 @@ mod autotest_generated {
                 let s = shared.clone();
                 std::thread::spawn(move || {
                     for _ in 0..50 {
-                        s.add_resource(&format!("l{i}"), &format!("m{i} = v{i}\n"));
+                        let _ = s.add_resource(&format!("l{i}"), &format!("m{i} = v{i}\n"));
                         let _ = s.get_loaded_locales();
                         let _ = s.get_language_info();
                         let _ = tr(&s, "en-US", "k");
@@ -1828,7 +2247,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_invalid_locale_silently_falls_back_to_an_en_us_bundle() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
 
         // "!!!" is not a BCP-47 tag: FluentLocaleBundle::new() returns None and the code
         // substitutes an en-US bundle -- stored under the bogus key, reported as success.
@@ -1858,7 +2277,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_add_resource_from_bytes_rejects_invalid_utf8() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource_from_bytes("en-US", b"k = v\n"));
         assert!(h.has_message("en-US", "k"));
         assert!(h.add_resource_from_bytes("en-US", b""));
@@ -1874,7 +2293,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_duplicate_ids_rejected_and_partial_adds_go_untracked() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "a = 1\n"));
         // re-defining an existing id is an override error -> false, first definition wins
         assert!(!h.add_resource("en-US", "a = 2\n"));
@@ -1901,7 +2320,7 @@ mod autotest_generated {
 
         // ...and it vanishes across an export/re-import round-trip
         let zip = export_to_zip(&h).expect("export");
-        let h2 = FluentLocalizerHandle::create("en-US");
+        let h2 = FluentLocalizerHandle::create("en-US", &[]);
         let r = h2.load_from_zip(&zip);
         assert_eq!(r.files_failed, 0, "{:?}", r.errors);
         assert!(h2.has_message("en-US", "a"));
@@ -1917,7 +2336,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_translate_fallback_chain_terminates_on_cycles() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "only-en = EN\n"));
         assert!(h.add_resource("de-DE", "only-de = DE\n"));
         assert!(h.add_resource("de-CH", "only-ch = CH\n"));
@@ -1953,7 +2372,7 @@ mod autotest_generated {
     #[test]
     fn autotest_translate_fallback_chain_is_one_hop_and_cycle_safe() {
         // default locale deliberately has no bundle, so only the chain can answer
-        let g = FluentLocalizerHandle::create("qq-QQ");
+        let g = FluentLocalizerHandle::create("qq-QQ", &[]);
         assert!(g.add_resource("en-US", "only-en = EN\n"));
         assert!(g.add_resource("de-DE", "only-de = DE\n"));
         assert!(g.add_resource("de-CH", "only-ch = CH\n"));
@@ -1982,7 +2401,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_try_translate_is_strict_about_the_locale_key() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "k = v\n"));
 
         let empty = FmtArgVec::new();
@@ -2009,7 +2428,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_has_message_edge_inputs() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "k = v\n"));
 
         assert!(h.has_message("en-US", "k"));
@@ -2028,7 +2447,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_getters_on_an_empty_instance() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.get_loaded_locales().is_empty());
         assert!(h.get_language_info().is_empty());
         assert_eq!(h.get_default_locale().as_str(), "en-US");
@@ -2050,7 +2469,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_clear_locale_and_clear_all() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "k = v\n"));
         assert!(h.add_resource("de-DE", "k = w\n"));
         assert_eq!(h.get_loaded_locales().len(), 2);
@@ -2076,7 +2495,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_localizer_get_language_info_reports_ids_per_locale() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         assert!(h.add_resource("en-US", "a = A\nb = B\n"));
         assert!(h.add_resource("de-DE", "c = C\n"));
 
@@ -2101,14 +2520,14 @@ mod autotest_generated {
 
     #[test]
     fn autotest_zip_export_import_roundtrip_is_lossless() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         // two separate sources for one locale -> exported as part_0 / part_1
         assert!(h.add_resource("de-DE", "a = A\n"));
         assert!(h.add_resource("de-DE", "b = B\n"));
         assert!(h.add_resource("en-US", "c = C\n"));
 
         let bytes = export_to_zip(&h).expect("export");
-        let h2 = FluentLocalizerHandle::create("en-US");
+        let h2 = FluentLocalizerHandle::create("en-US", &[]);
         let res = h2.load_from_zip(&bytes);
         assert_eq!(res.files_failed, 0, "{:?}", res.errors);
         assert_eq!(res.files_loaded, 3);
@@ -2131,14 +2550,14 @@ mod autotest_generated {
 
         // exporting the re-imported handle produces the same message set again
         let bytes2 = export_to_zip(&h2).expect("re-export");
-        let h3 = FluentLocalizerHandle::create("en-US");
+        let h3 = FluentLocalizerHandle::create("en-US", &[]);
         assert_eq!(h3.load_from_zip(&bytes2).files_loaded, 3);
         assert_eq!(tr(&h3, "de-DE", "b"), "B");
     }
 
     #[test]
     fn autotest_create_fluent_zip_edge_entries() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
 
         // an empty archive is valid and loads zero files (and zero failures)
         let empty = create_fluent_zip(Vec::new()).expect("empty zip");
@@ -2196,7 +2615,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_load_from_zip_rejects_malformed_archives() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         for data in [
             &b""[..],
             &b"not a zip at all"[..],
@@ -2222,7 +2641,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_load_from_path_edge_cases() {
-        let h = FluentLocalizerHandle::create("en-US");
+        let h = FluentLocalizerHandle::create("en-US", &[]);
         let dir = tmp_dir();
 
         // missing file -> ReadFile, no panic

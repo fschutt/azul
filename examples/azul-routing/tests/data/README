@@ -1,0 +1,5 @@
+monaco/ holds real routing tiles of Monaco for the tests: Valhalla 3.9.1's graph,
+converted by valhalla-to-tiles. The data is © OpenStreetMap contributors and is
+available under the Open Database License 1.0 (https://www.openstreetmap.org/copyright,
+https://opendatacommons.org/licenses/odbl/1-0/). The code's MIT licence does not
+cover it.

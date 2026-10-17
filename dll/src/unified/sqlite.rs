@@ -21,7 +21,7 @@ use azul_core::{
 };
 #[cfg(target_arch = "wasm32")]
 use azul_css::{
-    corety::OptionString, impl_option, impl_option_inner, impl_result_inner, AzString, StringVec,
+    corety::OptionString, impl_option, AzString, StringVec,
 };
 #[cfg(target_arch = "wasm32")]
 use azul_layout::{callbacks::ResumeCallback, request};

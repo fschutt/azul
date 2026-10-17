@@ -1036,19 +1036,19 @@ fn test_os_condition_specific_matches() {
 
 #[test]
 fn test_combined_conditions_all_must_match() {
-    use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+    use azul_css::dynamic_selector::DynamicSelectorContext;
 
     // Context: Linux + Dark theme + Screen media
     let ctx = DynamicSelectorContext {
         os: OsCondition::Linux,
-        theme: ThemeCondition::Dark,
+        mode: azul_css::system::DarkLightMode::Dark,
         media_type: MediaType::Screen,
         ..Default::default()
     };
 
     // All conditions match
     let selector_linux = DynamicSelector::Os(OsCondition::Linux);
-    let selector_dark = DynamicSelector::Theme(ThemeCondition::Dark);
+    let selector_dark = DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark);
     let selector_screen = DynamicSelector::Media(MediaType::Screen);
 
     assert!(selector_linux.matches(&ctx));
@@ -1060,7 +1060,7 @@ fn test_combined_conditions_all_must_match() {
     assert!(!selector_windows.matches(&ctx));
 
     // Light theme doesn't match
-    let selector_light = DynamicSelector::Theme(ThemeCondition::Light);
+    let selector_light = DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light);
     assert!(!selector_light.matches(&ctx));
 }
 

@@ -1413,6 +1413,8 @@ impl CssWarningCollector {
                     CssDeclaration::Dynamic(dynamic) => {
                         self.validate_property(&dynamic.default_value);
                     }
+                    // A definition is typed only where a `var()` reads it.
+                    CssDeclaration::CustomProperty(_) => {}
                 }
             }
         }
@@ -1563,6 +1565,11 @@ impl CssStats {
                         stats
                             .properties
                             .push(format!("{:?}", dynamic.default_value));
+                    }
+                    CssDeclaration::CustomProperty(custom) => {
+                        stats
+                            .properties
+                            .push(format!("--{}: {}", custom.name, custom.value));
                     }
                 }
             }

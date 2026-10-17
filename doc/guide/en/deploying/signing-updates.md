@@ -337,6 +337,30 @@ dashboard query rather than a guess.
 Without a `slow` map a default ladder applies (1 day → 10 %, 2 → 30 %,
 3 → 50 %, 4 → 100 %). `"slow": "off"` ships to everyone immediately.
 
+## Updating other programs
+
+An install manager (the Azlin apps' AzInstallManager) checks and installs
+programs other than itself. The updater has the calls it needs; they are
+blocking, so a manager runs them on a `Thread`:
+
+* `ReleaseInfo::check_program(url, current_version, channel, state_dir,
+  bucket, audience)` checks one program with its own state folder (the
+  high-water mark, the accepted key generation) under the cohort the
+  manager passes in: one computer sits in one cohort for every program it
+  runs. `ReleaseInfo::draw_rollout_bucket()` draws that cohort once.
+* `release.stage(staging_dir, root_public_key, state_dir)` downloads and
+  verifies the digest and the signature chain; nothing refused stays.
+* `release.verify_staged(path, root_public_key, state_dir)` checks a staged
+  file once more right before it is installed: a file on disk is not
+  trusted across runs.
+* `UpdateAudience::Tester` is the gate of a beta tester: every release the
+  moment it is published, whatever the rollout says.
+* `ReleaseInfo::within_maintenance_window(rule, now)` evaluates a window
+  the manager's own config names.
+
+`InstallKind::detect_for(path)` tells the manager whether a program is a
+package manager's (it then shows the update command instead of installing).
+
 ## Key hygiene, briefly
 
 * The root secret key never touches CI. If it leaks, an attacker can appoint

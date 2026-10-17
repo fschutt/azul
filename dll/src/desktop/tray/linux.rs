@@ -1202,6 +1202,11 @@ impl PlatformTray {
             (dbus.dbus_message_unref)(reply);
             (dbus.dbus_connection_flush)(conn);
 
+            // The panel's property reads and clicks arrive on this socket:
+            // put it in the run loops' wait set, so they are answered as they
+            // arrive instead of on a 100 ms poll.
+            crate::desktop::loop_waker::watch_dbus_connection(&dbus, conn);
+
             Ok(Self { dbus, conn, state })
         }
     }
@@ -1266,22 +1271,36 @@ impl PlatformTray {
     /// Dispatch incoming D-Bus traffic (property reads, Activate calls,
     /// dbusmenu GetLayout/Event), then hand back the menu callbacks the
     /// host's clicks selected - the run loop invokes them against a window
-    /// exactly like macOS's `pump_tray_into_windows`.
+    /// through the app-event collector.
+    ///
+    /// The collector's `loop_waker::service_sources` has usually drained the
+    /// connection already; draining again is a no-op read, and keeps this
+    /// pump self-sufficient.
     pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
         unsafe {
-            (self.dbus.dbus_connection_read_write_dispatch)(self.conn, 0);
+            crate::desktop::shell2::linux::dbus::drain_connection(&self.dbus, self.conn);
         }
         let ids: Vec<i32> = match self.state.clicked.lock() {
             Ok(mut q) => q.drain(..).collect(),
             Err(_) => Vec::new(),
         };
-        ids.into_iter()
-            .filter_map(|id| {
-                self.state
-                    .menu
-                    .get(id as usize)
-                    .and_then(|n| n.callback.as_ref().cloned())
-            })
-            .collect()
+        // An item carrying a callback is delivered to it; an item without one
+        // becomes a `MenuItem` event for the tray's own callback - the macOS
+        // backend's split, so a bare item is not silently dropped here.
+        let mut to_invoke = Vec::new();
+        for id in ids {
+            let Some(node) = usize::try_from(id).ok().and_then(|i| self.state.menu.get(i)) else {
+                continue;
+            };
+            match node.callback.as_ref() {
+                Some(callback) => to_invoke.push(callback.clone()),
+                None => {
+                    #[allow(clippy::cast_sign_loss)]
+                    let command = id as u32;
+                    queue_tray_event(TrayEvent::menu_item(command));
+                }
+            }
+        }
+        to_invoke
     }
 }

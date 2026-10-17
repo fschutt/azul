@@ -1,0 +1,34 @@
+[package]
+name = "azul-icons-haiku"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    Haiku's icons for azul: 73 icons of the Haiku project's icon set (MIT,
+    see LICENSE) in HVIF, under the Material names azul's apps ask for - the
+    flora theme's icon pack, searched before the Material icons while the app
+    theme is flora and not at all under any other theme. azul-appkit
+    registers it for every Azlin app.
+"""
+publish = false
+
+[dependencies]
+# No link mode: the app's own azul dependency chooses it (as azul-appkit's `look`).
+azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
+
+[features]
+default = []
+# `register`: the icons into an azul IconProviderHandle. The tables and their
+# tests need no libazul: `cargo test -p azul-icons-haiku`.
+azul = ["dep:azul"]
+
+[dev-dependencies]
+# Every icon read by azul's own HVIF reader, and drawn at 16 px.
+azul-core = { path = "../../core" }
+# Every name one of the Material icons azul registers (azul-layout's `icons`).
+material-icons = "0.3"
+
+[lib]
+name = "azul_icons_haiku"
+path = "src/lib.rs"

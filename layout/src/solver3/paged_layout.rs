@@ -420,6 +420,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: Some(&mut fragmentation_context),
             cursor_is_visible: true,
             cursor_locations: Vec::new(),
@@ -503,6 +504,7 @@ where
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -741,6 +743,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -764,12 +767,26 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         result.intrinsic_dirty = (0..n).collect::<std::collections::BTreeSet<_>>();
         (new_tree, result)
     } else {
-        // Incremental path: diff old tree vs new DOM
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, None)?
+        // Incremental path: diff old tree vs new DOM, with the CSS diff the
+        // caller handed over (a restyled node is built fresh).
+        let css_dirty = core::mem::take(&mut cache.paged_css_dirty);
+        cache::reconcile_and_invalidate_restyled(&mut ctx_temp, cache, viewport, None, &css_dirty)?
     };
 
-    // Step 1.2: Clear Taffy Caches for Dirty Nodes
-    for &node_idx in &recon_result.intrinsic_dirty {
+    // Step 1.2: Clear Taffy Caches - ALL of them on this path.
+    //
+    // A reconciled tree's clones keep their flex measurements
+    // (`clone_node_from_old`), and `layout_document` keeps them for every
+    // clean node: it clears the dirty nodes' and their ancestors' (its Step
+    // 1.2), and its `cache_map` remap carries each node's
+    // `NodeCache::final_layout_current` to the node's new index, which is
+    // what lets a memoised final layout be served. This path resizes the
+    // `cache_map` by POSITION (Step 1.4), so after a structural change a
+    // node can read another node's flag; serving a kept final layout on that
+    // word would skip a subtree a measure has rewritten. So the paged path
+    // lays every flex item out again, as it did when the clone dropped the
+    // measurements.
+    for node_idx in 0..new_tree.nodes.len() {
         if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
@@ -786,12 +803,14 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // Move cache_map out of LayoutCache for the duration of layout.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     cache_map.resize_to_tree(new_tree.nodes.len());
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
@@ -808,6 +827,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -1045,7 +1065,15 @@ pub fn spine_path_at_y(
     }
 
     let (_, _, node) = best?;
-    // Child-index path root → node.
+    Some(child_index_path(styled_dom, node))
+}
+
+/// The child-index path root → `node` (`azul_core::dom::Dom` child indices,
+/// the addresses `split_dom_at_path` / `DomSplit::at_path` consume) - the
+/// one path builder of the structural breaks ([`spine_path_at_y`], the
+/// split block of [`spine_line_split_at_y`]).
+fn child_index_path(styled_dom: &StyledDom, node: NodeId) -> Vec<u32> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut path: Vec<u32> = Vec::new();
     let mut cur = node;
     while let Some(parent) = hierarchy
@@ -1067,7 +1095,7 @@ pub fn spine_path_at_y(
         cur = parent;
     }
     path.reverse();
-    Some(path)
+    path
 }
 
 /// Materialize the tail of a [`PageSequence`] starting at `first_page` as a
@@ -2140,6 +2168,33 @@ pub struct StructuralBreak {
     /// text there instead of moving the whole block. `None` = block
     /// boundary (the entire addressed block moves), the v1 contract.
     pub line_start: Option<azul_core::selection::ContentIndex>,
+    /// The child-index path of the block `line_start` splits - the block
+    /// the break lands IN, which `path` (the first block whose top is
+    /// at/after `y`) never names: for a break inside the LAST block `path`
+    /// is `None`. `Some` exactly when `line_start` is (LAYOUT7: a block
+    /// taller than a page had no page of its own after the first in
+    /// `AzWriter`, which could only start pages at `path`).
+    pub line_path: Option<Vec<u32>>,
+    /// Where `line_start` is in the DOM's own text: the text node the
+    /// first line that moves begins in, and the byte of that node's text it
+    /// begins at ([`LineTextStart`]). `Some` exactly when `line_start` is
+    /// and its cluster came from a text node.
+    pub line_text: Option<LineTextStart>,
+}
+
+/// Where the first line of a page that starts inside a block begins in the
+/// DOM's text: what an app that renders the block's text itself (an
+/// editor's page view) cuts the text at. The line layout counts in its own
+/// runs - text after whitespace collapsing, a node cut at its forced
+/// breaks - so its (run, byte) is mapped back to the node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineTextStart {
+    /// Root-to-node child-index path of the text node (see
+    /// [`child_index_path`]).
+    pub path: Vec<u32>,
+    /// The byte of the node's text the line begins at: the first letter of
+    /// the line (whitespace before it stays with the page before).
+    pub byte: u32,
 }
 
 /// Map every break of a [`PaginationInfo`](crate::solver3::page_breaks::PaginationInfo)
@@ -2164,12 +2219,22 @@ pub fn pagination_to_dom_breaks(
         pagination
             .breaks
             .iter()
-            .map(|b| StructuralBreak {
-                y: b.y,
-                kind: b.kind,
-                causing_node: b.causing_node.into_option(),
-                path: spine_path_at_y(tree, positions, styled_dom, b.y),
-                line_start: spine_line_start_at_y(tree, positions, styled_dom, b.y),
+            .map(|b| {
+                let split = line_split_at_y(tree, positions, styled_dom, b.y);
+                let line_path = split.and_then(|(idx, _)| {
+                    let dom_id = tree.get(LayoutNodeId::new(idx))?.dom_node_id?;
+                    Some(child_index_path(styled_dom, dom_id))
+                });
+                StructuralBreak {
+                    y: b.y,
+                    kind: b.kind,
+                    causing_node: b.causing_node.into_option(),
+                    path: spine_path_at_y(tree, positions, styled_dom, b.y),
+                    line_start: split.map(|(_, line_start)| line_start),
+                    line_text: split
+                        .and_then(|(idx, line_start)| line_text_start(tree, styled_dom, idx, line_start)),
+                    line_path,
+                }
             })
             .collect(),
     )
@@ -2235,8 +2300,33 @@ pub fn spine_line_start_at_y(
     styled_dom: &StyledDom,
     y: f32,
 ) -> Option<azul_core::selection::ContentIndex> {
-    use crate::text3::cache::ShapedItem;
-    let hierarchy = styled_dom.node_hierarchy.as_container();
+    line_split_at_y(tree, positions, styled_dom, y).map(|(_, line_start)| line_start)
+}
+
+/// [`spine_line_start_at_y`] with the block it splits: the child-index path
+/// of the block the break lands IN (see [`child_index_path`]) and the (run,
+/// byte) of the first line that moves. `None` at a block boundary.
+#[must_use]
+pub fn spine_line_split_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<(Vec<u32>, azul_core::selection::ContentIndex)> {
+    let (layout_idx, line_start) = line_split_at_y(tree, positions, styled_dom, y)?;
+    let dom_id = tree.get(LayoutNodeId::new(layout_idx))?.dom_node_id?;
+    Some((child_index_path(styled_dom, dom_id), line_start))
+}
+
+/// The one body of [`spine_line_start_at_y`] / [`spine_line_split_at_y`]:
+/// the layout index of the block the break lands in and the first line that
+/// moves.
+fn line_split_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<(usize, azul_core::selection::ContentIndex)> {
     // Re-find the spine block the path addresses (same selection rule).
     let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
     let node = tree.get(LayoutNodeId::new(layout_idx))?;
@@ -2260,10 +2350,72 @@ pub fn spine_line_start_at_y(
                     "d6h verify: spine_line_start dense vs sparse diverged at rel_y {rel_y}"
                 );
             }
-            return result;
+            return result.map(|line_start| (layout_idx, line_start));
         }
     }
-    spine_line_start_sparse(layout, rel_y)
+    spine_line_start_sparse(layout, rel_y).map(|line_start| (layout_idx, line_start))
+}
+
+/// Where the line starting at `line_start` (a cluster's run and byte in
+/// the line layout of the block `layout_idx`) begins in the DOM's text
+/// ([`LineTextStart`]): its cluster's text node, and the byte of the node's
+/// text that holds as many letters before it as the node's clusters before
+/// the line do. Letters, not bytes, are counted, because the layout's runs
+/// hold the text with its whitespace collapsed.
+fn line_text_start(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    styled_dom: &StyledDom,
+    layout_idx: usize,
+    line_start: azul_core::selection::ContentIndex,
+) -> Option<LineTextStart> {
+    use crate::text3::cache::{PositionedItem, ShapedCluster};
+
+    let layout = tree.get_inline_layout_for_node(layout_idx)?;
+    let expanded;
+    let items: &[PositionedItem] = if layout.items.is_empty() {
+        expanded = tree
+            .get_dense_for_node(layout_idx)
+            .map(|dense| dense.to_unified_items())
+            .unwrap_or_default();
+        &expanded
+    } else {
+        &layout.items
+    };
+    let key = |c: &ShapedCluster| {
+        (
+            c.source_cluster_id.source_run,
+            c.source_cluster_id.start_byte_in_run,
+        )
+    };
+    let target = (line_start.run_index, line_start.item_index);
+    let clusters = || items.iter().filter_map(|i| i.item.as_cluster());
+    let node = clusters().find(|c| key(c) == target)?.source_node_id?;
+    // CSS document white space: what collapsing folds away.
+    let is_space = |ch: char| matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0C');
+    let letters_before: usize = clusters()
+        .filter(|c| c.source_node_id == Some(node) && key(c) < target)
+        .map(|c| c.text().chars().filter(|ch| !is_space(*ch)).count())
+        .sum();
+    let text = match styled_dom.node_data.as_container().get(node)?.get_node_type() {
+        azul_core::dom::NodeType::Text(text) => text.as_str().to_string(),
+        _ => return None,
+    };
+    let mut seen = 0usize;
+    let mut byte = text.len();
+    for (at, ch) in text.char_indices() {
+        if is_space(ch) {
+            continue;
+        }
+        if seen == letters_before {
+            byte = at;
+            break;
+        }
+        seen += 1;
+    }
+    Some(LineTextStart {
+        path: child_index_path(styled_dom, node),
+        byte: u32::try_from(byte).unwrap_or(u32::MAX),
+    })
 }
 
 /// The sparse fold of [`spine_line_start_at_y`] — the pre-d6h body,
@@ -2621,6 +2773,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: None,
             reflowed_ifcs: std::collections::BTreeSet::new(),
             cursor_is_visible: false,

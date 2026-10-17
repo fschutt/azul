@@ -1,0 +1,40 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: percentage width set on table-cell in 'table-layout: fixed' table</title>
+<meta name="assert" content="A cell in the first row with a value other than 'auto' for the 'width' property determines the width for that column in the fixed table layout algorithm. The determination of the width of such column must nevertheless still take into account the horizontal padding of such cell."/>
+<style>
+  table
+  {
+  border-spacing: 0px;
+  table-layout: fixed;
+  width: 100px;
+  }
+
+  td#middle-green-cell
+  {
+  background-color: green;
+  width: 50%;
+  }
+
+  td#left-red-cell, td#right-red-cell {background-color: red;}
+
+  td {padding: 50px 25px;}
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+  <table>
+      <tr>
+          <td id="left-red-cell"></td>
+          <td id="middle-green-cell"></td>
+          <td id="right-red-cell"></td>
+      </tr>
+  </table>
+
+ 
+
+</body>
+</html>

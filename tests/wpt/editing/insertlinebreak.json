@@ -1,0 +1,1052 @@
+{
+ "source": "editing/data/insertlinebreak.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 199,
+ "eligible_cases": 89,
+ "left_out": {
+  "attribute class": 9,
+  "attribute id": 2,
+  "markup outside the mail subset": 49,
+  "over the cap of 60": 29,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 3,
+  "tag <address>": 10,
+  "tag <dl>": 25,
+  "tag <listing>": 1,
+  "tag <pre>": 9,
+  "tag <script>": 1,
+  "tag <xmp>": 1
+ },
+ "cases": [
+  {
+   "id": "insertlinebreak-a93d718a",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<br>{}baz"
+   ],
+   "expected_canonical": [
+    "foo<br/>{}baz"
+   ]
+  },
+  {
+   "id": "insertlinebreak-573851b4",
+   "initial": "<ol><li>[foo]<li>bar</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><li>bar</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br>{}<br></li><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/>{}<br/></li><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-33950c18",
+   "initial": "<ol><li>f[o]o<li>bar</ol>",
+   "initial_xhtml": "<ol><li>f[o]o</li><li>bar</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>f<br>{}o</li><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>f<br/>{}o</li><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-132f1f4d",
+   "initial": "[]foo",
+   "initial_xhtml": "[]foo",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<br>{}foo"
+   ],
+   "expected_canonical": [
+    "<br/>{}foo"
+   ]
+  },
+  {
+   "id": "insertlinebreak-d4e9e8da",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<br>{}<br>"
+   ],
+   "expected_canonical": [
+    "foo<br/>{}<br/>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-0ba360b4",
+   "initial": "<span>foo[]</span>",
+   "initial_xhtml": "<span>foo[]</span>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo<br>{}<br></span>"
+   ],
+   "expected_canonical": [
+    "<span>foo<br/>{}<br/></span>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-476ed7e1",
+   "initial": "foo[]<br>",
+   "initial_xhtml": "foo[]<br/>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<br>{}<br>"
+   ],
+   "expected_canonical": [
+    "foo<br/>{}<br/>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-be914bd0",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<br>{}bar"
+   ],
+   "expected_canonical": [
+    "foo<br/>{}bar"
+   ]
+  },
+  {
+   "id": "insertlinebreak-19e4a58d",
+   "initial": "<div>[]foo</div>",
+   "initial_xhtml": "<div>[]foo</div>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><br>{}foo</div>"
+   ],
+   "expected_canonical": [
+    "<div><br/>{}foo</div>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-d3aac213",
+   "initial": "<div>foo[]</div>",
+   "initial_xhtml": "<div>foo[]</div>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<br>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo<br/>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-a92ecd20",
+   "initial": "<div>foo[]<br></div>",
+   "initial_xhtml": "<div>foo[]<br/></div>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<br>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo<br/>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-c193d940",
+   "initial": "<div>foo[]bar</div>",
+   "initial_xhtml": "<div>foo[]bar</div>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<br>{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo<br/>{}bar</div>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-c59a9959",
+   "initial": "<h1>[]foo</h1>",
+   "initial_xhtml": "<h1>[]foo</h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1><br>{}foo</h1>"
+   ],
+   "expected_canonical": [
+    "<h1><br/>{}foo</h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-e569781f",
+   "initial": "<h1>foo[]</h1>",
+   "initial_xhtml": "<h1>foo[]</h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo<br>{}<br></h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo<br/>{}<br/></h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-52d9fb9a",
+   "initial": "<h1>foo[]<br></h1>",
+   "initial_xhtml": "<h1>foo[]<br/></h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo<br>{}<br></h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo<br/>{}<br/></h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-d36d0540",
+   "initial": "<h1>foo[]bar</h1>",
+   "initial_xhtml": "<h1>foo[]bar</h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo<br>{}bar</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo<br/>{}bar</h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-49b97a27",
+   "initial": "<ol><li>[]foo</ol>",
+   "initial_xhtml": "<ol><li>[]foo</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br>{}foo</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/>{}foo</li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-1d42ad65",
+   "initial": "<ol><li>foo[]</ol>",
+   "initial_xhtml": "<ol><li>foo[]</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<br>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<br/>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-7af467ac",
+   "initial": "<ol><li>foo[]<br></ol>",
+   "initial_xhtml": "<ol><li>foo[]<br/></li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<br>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<br/>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-210465ae",
+   "initial": "<ol><li>foo[]bar</ol>",
+   "initial_xhtml": "<ol><li>foo[]bar</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<br>{}bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<br/>{}bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-b90b2693",
+   "initial": "<p>[]foo</p>",
+   "initial_xhtml": "<p>[]foo</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><br>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p><br/>{}foo</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-6c4c8783",
+   "initial": "<p>foo[]</p>",
+   "initial_xhtml": "<p>foo[]</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-5d630b45",
+   "initial": "<p>foo[]<br></p>",
+   "initial_xhtml": "<p>foo[]<br/></p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-410400dd",
+   "initial": "<p>foo[]bar</p>",
+   "initial_xhtml": "<p>foo[]bar</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>{}bar</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-3e6940e0",
+   "initial": "<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-269a6d35",
+   "initial": "foo<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "foo<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ol><li><br>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "foo<ol><li><br/>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-cdaafabc",
+   "initial": "<ol><li>{}<br></li></ol>foo",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>foo",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br>{}<br></li></ol>foo"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/>{}<br/></li></ol>foo"
+   ]
+  },
+  {
+   "id": "insertlinebreak-bae6c263",
+   "initial": "<ol><li>foo<li>{}<br></ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li><br>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li><br/>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-654c6722",
+   "initial": "<ol><li>{}<br><li>bar</ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li><li>bar</li></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br>{}<br></li><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/>{}<br/></li><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-a1deea0f",
+   "initial": "<ol><li>foo</li><ul><li>{}<br></ul></ol>",
+   "initial_xhtml": "<ol><li>foo</li><ul><li>{}<br/></li></ul></ol>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ul><li><br>{}<br></li></ul></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ul><li><br/>{}<br/></li></ul></ol>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-24797051",
+   "initial": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "initial_xhtml": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo<br>{}quz</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo<br/>{}quz</h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-aee75895",
+   "initial": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "initial_xhtml": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo<br>{}quz</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo<br/>{}quz</h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-cfa6d107",
+   "initial": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "initial_xhtml": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>{}quz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>{}quz</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-e19dd1cc",
+   "initial": "<p>foo</p>{}<br>",
+   "initial_xhtml": "<p>foo</p>{}<br/>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><br>{}<br>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><br/>{}<br/>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-c6b7aaa1",
+   "initial": "{}<br><p>foo</p>",
+   "initial_xhtml": "{}<br/><p>foo</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<br>{}<br><p>foo</p>"
+   ],
+   "expected_canonical": [
+    "<br/>{}<br/><p>foo</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-546f1276",
+   "initial": "<p>foo</p>{}<br><h1>bar</h1>",
+   "initial_xhtml": "<p>foo</p>{}<br/><h1>bar</h1>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><br>{}<br><h1>bar</h1>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><br/>{}<br/><h1>bar</h1>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-40f9441e",
+   "initial": "<h1>foo</h1>{}<br><p>bar</p>",
+   "initial_xhtml": "<h1>foo</h1>{}<br/><p>bar</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><br>{}<br><p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><br/>{}<br/><p>bar</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-a83f0e8d",
+   "initial": "<h1>foo</h1>{}<br><h2>bar</h2>",
+   "initial_xhtml": "<h1>foo</h1>{}<br/><h2>bar</h2>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><br>{}<br><h2>bar</h2>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><br/>{}<br/><h2>bar</h2>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-44029858",
+   "initial": "<p>foo</p><h1>[bar]</h1><p>baz</p>",
+   "initial_xhtml": "<p>foo</p><h1>[bar]</h1><p>baz</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><h1><br>{}<br></h1><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><h1><br/>{}<br/></h1><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-9d1ae20d",
+   "initial": "<p>foo</p>{<h1>bar</h1>}<p>baz</p>",
+   "initial_xhtml": "<p>foo</p>{<h1>bar</h1>}<p>baz</p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><br>{}<br><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><br/>{}<br/><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-2c1c1811",
+   "initial": "<blockquote>[]foo</blockquote>",
+   "initial_xhtml": "<blockquote>[]foo</blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><br>{}foo</blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><br/>{}foo</blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-9eaf44b0",
+   "initial": "<blockquote>foo[]</blockquote>",
+   "initial_xhtml": "<blockquote>foo[]</blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo<br>{}<br></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo<br/>{}<br/></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-1b1c9af0",
+   "initial": "<blockquote>foo[]<br></blockquote>",
+   "initial_xhtml": "<blockquote>foo[]<br/></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo<br>{}<br></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo<br/>{}<br/></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-825712cf",
+   "initial": "<blockquote>foo[]bar</blockquote>",
+   "initial_xhtml": "<blockquote>foo[]bar</blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo<br>{}bar</blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo<br/>{}bar</blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-8ab2b706",
+   "initial": "<blockquote><p>[]foo</blockquote>",
+   "initial_xhtml": "<blockquote><p>[]foo</p></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p><br>{}foo</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p><br/>{}foo</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-683aeba3",
+   "initial": "<blockquote><p>foo[]</blockquote>",
+   "initial_xhtml": "<blockquote><p>foo[]</p></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo<br>{}<br></p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo<br/>{}<br/></p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-618701c4",
+   "initial": "<blockquote><p>foo[]bar</blockquote>",
+   "initial_xhtml": "<blockquote><p>foo[]bar</p></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo<br>{}bar</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo<br/>{}bar</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-307f33e0",
+   "initial": "<blockquote><p>foo[]<p>bar</blockquote>",
+   "initial_xhtml": "<blockquote><p>foo[]</p><p>bar</p></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo<br>{}<br></p><p>bar</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo<br/>{}<br/></p><p>bar</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-cc0d61f6",
+   "initial": "<blockquote><p>foo[]bar<p>baz</blockquote>",
+   "initial_xhtml": "<blockquote><p>foo[]bar</p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo<br>{}bar</p><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo<br/>{}bar</p><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-e47746fb",
+   "initial": "<span>foo[]bar</span>",
+   "initial_xhtml": "<span>foo[]bar</span>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo<br>{}bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo<br/>{}bar</span>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-f5ec1800",
+   "initial": "<span>foo[]bar</span>baz",
+   "initial_xhtml": "<span>foo[]bar</span>baz",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo<br>{}bar</span>baz"
+   ],
+   "expected_canonical": [
+    "<span>foo<br/>{}bar</span>baz"
+   ]
+  },
+  {
+   "id": "insertlinebreak-20c8b3ca",
+   "initial": "<b>foo[]bar</b>",
+   "initial_xhtml": "<b>foo[]bar</b>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo<br>{}bar</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo<br/>{}bar</b>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-70d9806f",
+   "initial": "<b>foo[]bar</b>baz",
+   "initial_xhtml": "<b>foo[]bar</b>baz",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo<br>{}bar</b>baz"
+   ],
+   "expected_canonical": [
+    "<b>foo<br/>{}bar</b>baz"
+   ]
+  },
+  {
+   "id": "insertlinebreak-80c92978",
+   "initial": "<b>foo[]</b>bar",
+   "initial_xhtml": "<b>foo[]</b>bar",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo<br>{}</b>bar"
+   ],
+   "expected_canonical": [
+    "<b>foo<br/>{}</b>bar"
+   ]
+  },
+  {
+   "id": "insertlinebreak-d08154c9",
+   "initial": "foo<b>[]bar</b>",
+   "initial_xhtml": "foo<b>[]bar</b>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b><br>{}bar</b>"
+   ],
+   "expected_canonical": [
+    "foo<b><br/>{}bar</b>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-0c1d679c",
+   "initial": "<b>foo[]</b><i>bar</i>",
+   "initial_xhtml": "<b>foo[]</b><i>bar</i>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo<br>{}</b><i>bar</i>"
+   ],
+   "expected_canonical": [
+    "<b>foo<br/>{}</b><i>bar</i>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-74ae9031",
+   "initial": "<b>foo</b>{}<i>bar</i>",
+   "initial_xhtml": "<b>foo</b>{}<i>bar</i>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo</b><br>{}<i>bar</i>"
+   ],
+   "expected_canonical": [
+    "<b>foo</b><br/>{}<i>bar</i>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-278715a9",
+   "initial": "<i><b>foo[]bar</b>baz</i>",
+   "initial_xhtml": "<i><b>foo[]bar</b>baz</i>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i><b>foo<br>{}bar</b>baz</i>"
+   ],
+   "expected_canonical": [
+    "<i><b>foo<br/>{}bar</b>baz</i>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-e4b91172",
+   "initial": "<p><b>foo[]bar</b></p>",
+   "initial_xhtml": "<p><b>foo[]bar</b></p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>foo<br>{}bar</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b>foo<br/>{}bar</b></p>"
+   ]
+  },
+  {
+   "id": "insertlinebreak-42ed8f82",
+   "initial": "<p><b>[]foo</b></p>",
+   "initial_xhtml": "<p><b>[]foo</b></p>",
+   "commands": [
+    [
+     "insertlinebreak",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b><br>{}foo</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b><br/>{}foo</b></p>"
+   ]
+  }
+ ]
+}

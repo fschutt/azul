@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>an ordered list numbers every item 1., 2., 3.</title>
+<link rel="match" href="an-ordered-list-numbers-every-item-ref.html">
+<meta name="assert" content="HTML 15.3.8: ol { list-style-type: decimal }; each li increments list-item. The markers are inside, so they render as text.">
+<style>
+.in { list-style-position: inside; }
+</style>
+<ol class="in"><li>one</li><li>two</li><li>three</li></ol>

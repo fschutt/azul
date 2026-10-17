@@ -15,14 +15,14 @@
 //! `CpuHitTester` instead of WebRender's `AsyncHitTester`, and present/swap is a
 //! no-op.
 //!
-//! Activated with `AZUL_HEADLESS=1` (optionally `AZ_DEBUG=1` for the debug server).
+//! Activated with `AZ_BACKEND=headless` (optionally `AZ_DEBUG=<port>` for the debug server).
 
 use std::collections::BTreeMap;
 
 use azul_core::{
-    dom::{DomId, DomNodeId, NodeId},
+    dom::{DomId, DomNodeId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    hit_test::FullHitTest,
+    hit_test::{FullHitTest, ScrollbarHitId},
     spaces::{BorderBoxLocal, ContentBoxLocal, Inclusivity, StaticLayoutPoint},
     styled_dom::StyledDom,
 };
@@ -31,6 +31,7 @@ use crate::{
     solver3::{
         getters::{get_overflow_x, get_overflow_y},
         layout_tree::{LayoutNodeHot, LayoutNodeId},
+        scroll_chain::{ScrollChain, ScrollChains},
         PositionVec,
     },
     window::DomLayoutResult,
@@ -72,6 +73,15 @@ pub struct CpuHitTester {
     scroll_containers: Vec<ScrollContainerEntry>,
     /// `VirtualView` child-DOM placements in window space (static coords).
     dom_placements: BTreeMap<DomId, LogicalRect>,
+    /// The child doms each dom shows through `VirtualView`s, with the index
+    /// of the view's item in its display list, the LAST painted first.
+    children_of: BTreeMap<DomId, Vec<(usize, DomId)>>,
+    /// Per child dom: the `VirtualView` node that shows it, in its host dom.
+    /// A view scrolls its child dom's content without a scroll frame (its
+    /// offset is baked into the view's item), so it is in no chain of the
+    /// child's boxes - and is still what a wheel over them scrolls
+    /// (`wheel_frames`).
+    view_hosts: BTreeMap<DomId, (DomId, NodeId)>,
 }
 
 /// A node's clip geometry together with the `viewBox`
@@ -114,6 +124,34 @@ struct HitTestEntry {
     /// - worse - kept SHADOWING whatever was behind them, which is precisely
     /// the thing a clip-path is asked for.
     clip_path: Option<HitClipGeometry>,
+    /// Its paint rank in its dom's display list (`paint_ranks`; `usize::MAX`
+    /// for a node that paints nothing): where a child dom's `VirtualView`
+    /// paints between this dom's boxes.
+    rank: usize,
+    /// Whether the box paints an item of its OWN (`rank` is then that
+    /// item's index); `false` for a box placed in paint order only by its
+    /// relatives (`paint_ranks`). Only a box that paints after a scrollbar
+    /// covers it ([`CpuHitTester::scrollbar_at`]).
+    paints_own: bool,
+    /// `Some` for a SCROLLBAR entry: the bar `node_id` (a scroll container)
+    /// paints on this axis, at its own item (`rank`), inside its ancestors'
+    /// clips and scroll frames. Only [`CpuHitTester::scrollbar_at`] reads
+    /// them; every node query skips them.
+    scrollbar: Option<ScrollbarOrientation>,
+}
+
+/// One entry a point lands on, in front-to-back order
+/// ([`CpuHitTester::entries_at`]).
+#[derive(Debug, Clone, Copy)]
+struct EntryHit {
+    dom_id: DomId,
+    node_id: NodeId,
+    /// The point in the entry's static layout space.
+    local: LogicalPosition,
+    /// The entry's chain (index into [`CpuHitTester::chains`]).
+    chain: u32,
+    paints_own: bool,
+    scrollbar: Option<ScrollbarOrientation>,
 }
 
 /// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
@@ -140,8 +178,8 @@ pub enum HitChainLink {
     Scroll(DomId, NodeId),
     /// An ancestor wrapped in a `PushReferenceFrame` (CSS transform / drag /
     /// animation) — the CURRENT matrix lives in the GPU value cache
-    /// (`css_current_transform_values`), the same source the CPU raster
-    /// reads at paint time.
+    /// (`GpuStateManager::painted_transform_of`: the CSS or the animation
+    /// channel), the same source the CPU raster reads at paint time.
     Transform(DomId, NodeId),
 }
 
@@ -151,7 +189,7 @@ pub enum HitChainLink {
 /// Local copy because `agg-rust` is optional (svg/cpurender features) and
 /// hit-testing must exist in every configuration. The multiply/invert bodies
 /// are transcribed from agg so composition matches the raster EXACTLY.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScreenMapAffine {
     pub sx: f32,
     pub shy: f32,
@@ -228,6 +266,28 @@ impl ScreenMapAffine {
             x: p.x.mul_add(self.sx, p.y * self.shx) + self.tx,
             y: p.x.mul_add(self.shy, p.y * self.sy) + self.ty,
         }
+    }
+
+    /// The axis-aligned bounds of `r` mapped by this transform (its four
+    /// corners' AABB): exact for a translation and a scale, the enclosing
+    /// box for a rotation or a skew.
+    #[must_use]
+    pub fn map_rect(&self, r: LogicalRect) -> LogicalRect {
+        let corners = [
+            r.origin,
+            LogicalPosition::new(r.origin.x + r.size.width, r.origin.y),
+            LogicalPosition::new(r.origin.x, r.origin.y + r.size.height),
+            LogicalPosition::new(r.origin.x + r.size.width, r.origin.y + r.size.height),
+        ]
+        .map(|c| self.apply(c));
+        let min_x = corners.iter().map(|c| c.x).fold(f32::INFINITY, f32::min);
+        let min_y = corners.iter().map(|c| c.y).fold(f32::INFINITY, f32::min);
+        let max_x = corners.iter().map(|c| c.x).fold(f32::NEG_INFINITY, f32::max);
+        let max_y = corners.iter().map(|c| c.y).fold(f32::NEG_INFINITY, f32::max);
+        LogicalRect::new(
+            LogicalPosition::new(min_x, min_y),
+            LogicalSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+        )
     }
 
     #[allow(clippy::float_cmp)]
@@ -343,38 +403,97 @@ pub fn node_rect_to_screen(
     resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
     resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
 ) -> LogicalRect {
+    rect_to_screen(
+        layout_result,
+        dom_id,
+        layout_idx,
+        rect,
+        Inclusivity::AncestorsOnly,
+        resolve_scroll,
+        resolve_transform,
+    )
+}
+
+/// [`node_rect_to_screen`] for a rect in the node's CONTENT - a caret, a
+/// selection rect, a glyph run: the node's own scroll frame moves it, and
+/// the node's own reference frame (its `transform`) wraps it, on top of
+/// every ancestor's.
+///
+/// THE answer for the IME's caret rects (`LayoutWindow::
+/// cursor_rect_viewport_for`, `TextTarget::rect_to_window`): they applied
+/// the INVERSE of a per-ancestor map that held scrollbar thumb offsets, not
+/// the forward transforms the raster paints with.
+pub fn content_rect_to_screen(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    rect: LogicalRect,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> LogicalRect {
+    rect_to_screen(
+        layout_result,
+        dom_id,
+        layout_idx,
+        rect,
+        Inclusivity::SelfAndAncestors,
+        resolve_scroll,
+        resolve_transform,
+    )
+}
+
+/// The raster's forward rule `screen = T_total(corner - scroll_total)` over
+/// the transforms and scroll frames of `layout_idx`'s chain - its BOX's
+/// ([`Inclusivity::AncestorsOnly`]: a scroll container's own offset moves
+/// its content, never its own border box) or its CONTENT's
+/// ([`Inclusivity::SelfAndAncestors`]) - as the AABB of the four corners.
+fn rect_to_screen(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    rect: LogicalRect,
+    inclusivity: Inclusivity,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> LogicalRect {
     let nodes = &layout_result.layout_tree.nodes;
 
-    // Collect links walking child→root; reversing yields outermost-first
-    // with, per ancestor, Transform before Scroll (the builder nests the
-    // reference frame OUTSIDE the scroll frame).
-    //
-    // ANCESTORS ONLY, and now said so out loud: a scroll container's own
-    // offset moves its CONTENT, so it must not move the container's own box.
-    // `LayoutWindow::accumulated_scroll` answers the same question with an
-    // explicit `Inclusivity`; the two used to differ only in a loop's
-    // starting value.
+    // The transformed layout ancestors (and the node itself, for its
+    // content), walking child→root; reversing yields outermost-first, the
+    // order their reference frames nest in.
     let mut links_rev: Vec<HitChainLink> = Vec::new();
     for anc in layout_result
         .layout_tree
-        .ancestor_chain(LayoutNodeId::new(layout_idx), Inclusivity::AncestorsOnly)
+        .ancestor_chain(LayoutNodeId::new(layout_idx), inclusivity)
     {
         let Some(anc_node) = nodes.get(anc.index()) else {
             break;
         };
         if let Some(anid) = anc_node.dom_node_id {
-            if layout_result.scroll_ids.contains_key(&anc) {
-                links_rev.push(HitChainLink::Scroll(dom_id, anid));
-            }
             if resolve_transform(dom_id, anid).is_some() {
                 links_rev.push(HitChainLink::Transform(dom_id, anid));
             }
         }
     }
-    if links_rev.is_empty() {
+    let mut chain: Vec<HitChainLink> = links_rev.into_iter().rev().collect();
+    // The scroll frames the node's box is painted in - the display list's
+    // own answer (`solver3::scroll_chain`), not every ancestor with an id.
+    // Scroll offsets are summed, so they need not interleave with the
+    // transforms (`resolve_chain`).
+    chain.extend(
+        ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            LayoutNodeId::new(layout_idx),
+            inclusivity,
+        )
+        .scrolling()
+        .map(|link| HitChainLink::Scroll(dom_id, link.node)),
+    );
+    if chain.is_empty() {
         return rect;
     }
-    let chain: Vec<HitChainLink> = links_rev.into_iter().rev().collect();
     let resolved = resolve_chain(&chain, resolve_scroll, resolve_transform);
 
     let corners = [
@@ -438,15 +557,31 @@ impl Default for CpuHitTester {
 
 /// Resolve each layout node's ancestor chain index into `chains`.
 ///
-/// `chain(n) = chain(parent) (+ parent's links)` — an ancestor shifts its
-/// CONTENT, not itself. Scroll membership comes from `scroll_ids` (the exact
-/// set the display-list builder emitted `PushScrollFrame` for); transform
-/// membership from the GPU value cache's `css_transform_keys` via
-/// `has_transform` (the exact set it wrapped in `PushReferenceFrame`). A node
-/// with both nests the reference frame OUTSIDE the scroll frame, same as the
-/// builder.
+/// A node's chain is everything between it and the window that moves its
+/// box: the reference frames of its transformed layout ancestors AND its
+/// own (the exact set the display-list builder wrapped in
+/// `PushReferenceFrame`, read off the GPU value cache's
+/// `reference_frame_of` - CSS or animation channel - via `has_transform`),
+/// in the order they nest, and the scroll frames of its
+/// [`ScrollChain`] - the same frames the builder opened around it
+/// (`scroll_chains`).
+///
+/// The two kinds differ in what they move. A scroll container shifts its
+/// CONTENT, not itself, so a node's own scroll frame is not in its chain. A
+/// transform moves the element's OWN box too: the builder pushes the
+/// reference frame before the node's own items, so its background and its
+/// hit-test area are painted transformed. Leaving the node's own transform
+/// out kept a translated box hittable at its static place, where nothing of
+/// it is painted, shadowing whatever is (e2e/bug-transform-offsets-hit-test).
+///
+/// Scroll offsets are summed and transforms composed separately
+/// (`resolve_chain`), so the scroll links follow the transform links
+/// rather than interleaving with them.
+///
+/// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
 fn compute_node_chains(
     layout_result: &DomLayoutResult,
+    scroll_chains: &ScrollChains,
     dom_id: DomId,
     base_chain: u32,
     has_transform: &dyn Fn(NodeId) -> bool,
@@ -454,49 +589,80 @@ fn compute_node_chains(
     chain_lookup: &mut std::collections::HashMap<Vec<HitChainLink>, u32>,
 ) -> Vec<u32> {
     let nodes = &layout_result.layout_tree.nodes;
-    let scroll_ids = &layout_result.scroll_ids;
-    let mut chain_of: Vec<u32> = vec![u32::MAX; nodes.len()];
+
+    // The transforms, along the layout tree: `t(n) = t(parent) (+ parent)`.
+    let mut transforms_of: Vec<u32> = vec![u32::MAX; nodes.len()];
     let mut path: Vec<usize> = Vec::new();
     for start in 0..nodes.len() {
-        if chain_of[start] != u32::MAX {
+        if transforms_of[start] != u32::MAX {
             continue;
         }
         path.clear();
         path.push(start);
         let mut cur = nodes[start].parent;
         while let Some(p) = cur {
-            if chain_of[p] != u32::MAX || path.len() > nodes.len() {
+            if p >= nodes.len() || transforms_of[p] != u32::MAX || path.len() > nodes.len() {
                 break;
             }
             path.push(p);
             cur = nodes[p].parent;
         }
         for &idx in path.iter().rev() {
-            let c = nodes[idx].parent.map_or(base_chain, |p| {
-                let pc = if chain_of[p] == u32::MAX {
-                    base_chain // cycle guard tripped; degrade gracefully
-                } else {
-                    chain_of[p]
-                };
-                let is_scroll = scroll_ids.contains_key(&LayoutNodeId::new(p));
-                let pnid = nodes[p].dom_node_id;
-                let parent_transforms = pnid.is_some_and(has_transform);
-                match (pnid, is_scroll || parent_transforms) {
-                    (Some(pnid), true) => {
-                        let mut v = chains[pc as usize].clone();
-                        if parent_transforms {
+            let c = nodes[idx]
+                .parent
+                .filter(|p| *p < nodes.len())
+                .map_or(base_chain, |p| {
+                    let pc = if transforms_of[p] == u32::MAX {
+                        base_chain // cycle guard tripped; degrade gracefully
+                    } else {
+                        transforms_of[p]
+                    };
+                    match nodes[p].dom_node_id {
+                        Some(pnid) if has_transform(pnid) => {
+                            let mut v = chains[pc as usize].clone();
                             v.push(HitChainLink::Transform(dom_id, pnid));
+                            intern_chain(chains, chain_lookup, v)
                         }
-                        if is_scroll {
-                            v.push(HitChainLink::Scroll(dom_id, pnid));
-                        }
-                        intern_chain(chains, chain_lookup, v)
+                        _ => pc,
                     }
-                    _ => pc,
-                }
-            });
-            chain_of[idx] = c;
+                });
+            transforms_of[idx] = c;
         }
+    }
+
+    // The scroll frames, along the node's scroll chain. Nodes painted in the
+    // same frames under the same transforms share one interned chain.
+    let mut combined: std::collections::HashMap<(u32, u32), u32> =
+        std::collections::HashMap::new();
+    let mut chain_of: Vec<u32> = Vec::with_capacity(nodes.len());
+    for (idx, &inherited) in transforms_of.iter().enumerate() {
+        // The node's own reference frame, innermost (see the doc comment).
+        let t = match nodes[idx].dom_node_id {
+            Some(nid) if has_transform(nid) => {
+                let mut v = chains.get(inherited as usize).cloned().unwrap_or_default();
+                v.push(HitChainLink::Transform(dom_id, nid));
+                intern_chain(chains, chain_lookup, v)
+            }
+            _ => inherited,
+        };
+        let s = scroll_chains.box_chain_id(LayoutNodeId::new(idx));
+        let c = if s == ScrollChains::EMPTY {
+            t
+        } else if let Some(&c) = combined.get(&(t, s)) {
+            c
+        } else {
+            let mut v = chains.get(t as usize).cloned().unwrap_or_default();
+            v.extend(
+                scroll_chains
+                    .chain(s)
+                    .scrolling()
+                    .map(|link| HitChainLink::Scroll(dom_id, link.node)),
+            );
+            let c = intern_chain(chains, chain_lookup, v);
+            combined.insert((t, s), c);
+            c
+        };
+        chain_of.push(c);
     }
     chain_of
 }
@@ -517,6 +683,13 @@ struct Placement {
     rect: LogicalRect,
     clips: Vec<(LogicalRect, Vec<HitChainLink>)>,
     chain: Vec<HitChainLink>,
+    /// The dom whose display list shows this child dom, and the index of
+    /// the `VirtualView` item there: the child paints at that item.
+    host: DomId,
+    item: usize,
+    /// The `VirtualView` node of `host` that item belongs to (the item's
+    /// node attribution: the placeholder it replaced was pushed for it).
+    host_node: Option<NodeId>,
 }
 
 /// Resolve where each `VirtualView` / iframe child DOM lives on screen.
@@ -570,6 +743,71 @@ pub fn nested_dom_window_origin(
     } else {
         shifted
     })
+}
+
+/// One viewport a nested dom shows through ([`nested_dom_viewports`]): an
+/// enclosing `VirtualView`'s box with its frames at rest, the host SCROLL
+/// frames that move it (kept symbolic, for live offsets), and the forward
+/// transform of the host REFERENCE frames around it, resolved now (`None`:
+/// untransformed). On screen it is `transform(rect - scroll(frames))`, the
+/// raster's `T_total(pos - scroll_total)`.
+pub type NestedDomViewport = (
+    LogicalRect,
+    Vec<(DomId, NodeId)>,
+    Option<ScreenMapAffine>,
+);
+
+/// Every nested dom's viewports ([`NestedDomViewport`]), innermost last -
+/// the last one is the dom's own `VirtualView`, and its frames and transform
+/// are the ones the dom's content is composited under - from the same
+/// records [`nested_dom_window_origin`] resolves. The scroll frames stay
+/// symbolic for a consumer that resolves them against LIVE offsets
+/// (`ScrollManager::set_nested_dom_placements`, via
+/// `register_scroll_nodes`); the transforms are resolved with
+/// `resolve_transform` when this is called, so a transform animating
+/// between two registrations is followed at the next one.
+///
+/// Empty when no display list mounts a nested dom (the common window: one
+/// dom, and no walk over its list at all).
+#[must_use]
+pub fn nested_dom_viewports(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> BTreeMap<DomId, Vec<NestedDomViewport>> {
+    if layout_results.len() < 2 {
+        return BTreeMap::new();
+    }
+    let scroll_frames = |chain: &[HitChainLink]| -> Vec<(DomId, NodeId)> {
+        chain
+            .iter()
+            .filter_map(|link| match link {
+                HitChainLink::Scroll(dom_id, node_id) => Some((*dom_id, *node_id)),
+                HitChainLink::Transform(..) => None,
+            })
+            .collect()
+    };
+    let no_scroll = |_: DomId, _: NodeId| -> Option<LogicalPosition> { None };
+    let transform_of = |chain: &[HitChainLink]| -> Option<ScreenMapAffine> {
+        let resolved = resolve_chain(chain, &no_scroll, resolve_transform);
+        resolved.has_transform.then_some(resolved.forward)
+    };
+    resolve_virtual_view_placements(layout_results)
+        .into_iter()
+        .map(|(dom_id, placement)| {
+            let viewports: Vec<NestedDomViewport> = placement
+                .clips
+                .iter()
+                .map(|(viewport, chain)| {
+                    (
+                        *viewport,
+                        scroll_frames(chain.as_slice()),
+                        transform_of(chain.as_slice()),
+                    )
+                })
+                .collect();
+            (dom_id, viewports)
+        })
+        .collect()
 }
 
 fn resolve_virtual_view_placements(
@@ -688,7 +926,11 @@ fn resolve_virtual_view_placements(
                         let mut clips = host_clips.clone();
                         clips.push((viewport, stack.clone()));
                         let differs = placements.get(child_dom_id).is_none_or(|p| {
-                            p.rect != absolute || p.clips != clips || p.chain != stack
+                            p.rect != absolute
+                                || p.clips != clips
+                                || p.chain != stack
+                                || p.host != *host_dom
+                                || p.item != item_idx
                         });
                         if differs {
                             placements.insert(
@@ -697,6 +939,14 @@ fn resolve_virtual_view_placements(
                                     rect: absolute,
                                     clips,
                                     chain: stack.clone(),
+                                    host: *host_dom,
+                                    item: item_idx,
+                                    host_node: lr
+                                        .display_list
+                                        .node_mapping
+                                        .get(item_idx)
+                                        .copied()
+                                        .flatten(),
                                 },
                             );
                             changed = true;
@@ -713,6 +963,209 @@ fn resolve_virtual_view_placements(
     placements
 }
 
+/// One `<webview>` where the display lists put it right now, in window
+/// logical coordinates ([`painted_webviews`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaintedWebView {
+    /// The dom the web view is in.
+    pub dom_id: DomId,
+    /// The `<webview>` node.
+    pub node_id: NodeId,
+    /// Its content box on screen - where its native view goes, past the
+    /// window's edges if it reaches past them.
+    pub rect: LogicalRect,
+    /// The part of `rect` the window shows, after every enclosing clip and
+    /// scroll frame and the window's own edges; `None` when nothing of it
+    /// shows (scrolled out, clipped away).
+    pub clip: Option<LogicalRect>,
+    /// How the page maps into `rect`: its own size and the linear part of
+    /// the transforms above it (untransformed without any).
+    pub transform: crate::managers::webview::WebViewTransform,
+}
+
+/// Every `<webview>` the display lists reserve a rect for
+/// (`DisplayListItem::WebView`), where it is on screen NOW.
+///
+/// By the raster's own rule `screen = T_total(pos - scroll_total)`, read off
+/// the same records it paints from: each list is walked with the scroll and
+/// reference frames open at each item - so the live scroll offsets
+/// (`resolve_scroll`) and the transforms (`resolve_transform`) move the view
+/// exactly as they move the pixels around it - and with the clips open at
+/// it: every `PushClip` and every scroll frame's viewport, each mapped by
+/// the frames it was pushed under (a scroll frame's viewport does not move
+/// with its own scroll), intersected with the window. A web view in a
+/// nested dom paints at its host's `VirtualView` item
+/// ([`resolve_virtual_view_placements`]) and is seen through that view's
+/// viewport too. A transformed view is placed at its transformed bounding
+/// box, and the linear part of its map comes with it (`transform`: a native
+/// view zooms by it, or turns where it can).
+///
+/// Empty - and no list walked - when no display list holds a web view.
+#[must_use]
+pub fn painted_webviews(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    viewport: LogicalSize,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Vec<PaintedWebView> {
+    use crate::solver3::display_list::DisplayListItem as I;
+
+    let has_webview = |lr: &DomLayoutResult| {
+        lr.display_list
+            .items
+            .iter()
+            .any(|item| matches!(item, I::WebView { .. }))
+    };
+    if !layout_results.values().any(has_webview) {
+        return Vec::new();
+    }
+    let placements = if layout_results.len() > 1 {
+        resolve_virtual_view_placements(layout_results)
+    } else {
+        BTreeMap::new()
+    };
+    let to_screen = |r: LogicalRect, chain: &[HitChainLink]| -> LogicalRect {
+        if chain.is_empty() {
+            return r;
+        }
+        let resolved = resolve_chain(chain, resolve_scroll, resolve_transform);
+        let shifted = LogicalRect::new(
+            LogicalPosition::new(r.origin.x - resolved.scroll.x, r.origin.y - resolved.scroll.y),
+            r.size,
+        );
+        if resolved.has_transform {
+            resolved.forward.map_rect(shifted)
+        } else {
+            shifted
+        }
+    };
+    let window = LogicalRect::new(LogicalPosition::zero(), viewport);
+    let mut out = Vec::new();
+    for (dom_id, lr) in layout_results {
+        if !has_webview(lr) {
+            continue;
+        }
+        // A nested dom is shifted by its placement, seen through every
+        // enclosing view's viewport and moved by the host's frames; one no
+        // display list mounts is nowhere.
+        let (offset, host_clips, host_chain) = if *dom_id == DomId::ROOT_ID {
+            (LogicalPosition::zero(), Vec::new(), Vec::new())
+        } else if let Some(p) = placements.get(dom_id) {
+            (p.rect.origin, p.clips.clone(), p.chain.clone())
+        } else {
+            continue;
+        };
+        let shift = |r: LogicalRect| {
+            LogicalRect::new(
+                LogicalPosition::new(r.origin.x + offset.x, r.origin.y + offset.y),
+                r.size,
+            )
+        };
+        let base_depth = host_chain.len();
+        let mut chain = host_chain;
+        // The open clips and scroll-frame viewports, each with the chain it
+        // was pushed under.
+        let mut clips: Vec<(LogicalRect, Vec<HitChainLink>)> = Vec::new();
+        let mut frames: Vec<(LogicalRect, Vec<HitChainLink>)> = Vec::new();
+        for (item_idx, item) in lr.display_list.items.iter().enumerate() {
+            match item {
+                I::PushClip { bounds, .. } => clips.push((shift(*bounds.inner()), chain.clone())),
+                I::PopClip => {
+                    clips.pop();
+                }
+                I::PushScrollFrame {
+                    clip_bounds,
+                    scroll_id,
+                    ..
+                } => {
+                    frames.push((shift(*clip_bounds.inner()), chain.clone()));
+                    // `scroll_id` names its node (see `resolve_virtual_view_placements`).
+                    let nid = lr
+                        .scroll_id_to_node_id
+                        .get(scroll_id)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            NodeId::new(usize::try_from(*scroll_id).unwrap_or(usize::MAX))
+                        });
+                    chain.push(HitChainLink::Scroll(*dom_id, nid));
+                }
+                I::PopScrollFrame => {
+                    frames.pop();
+                    if matches!(chain.last(), Some(HitChainLink::Scroll(..)))
+                        && chain.len() > base_depth
+                    {
+                        chain.pop();
+                    }
+                }
+                I::PushReferenceFrame { .. } => {
+                    let nid = lr
+                        .display_list
+                        .node_mapping
+                        .get(item_idx)
+                        .copied()
+                        .flatten()
+                        .unwrap_or(NodeId::ZERO);
+                    chain.push(HitChainLink::Transform(*dom_id, nid));
+                }
+                I::PopReferenceFrame => {
+                    if matches!(chain.last(), Some(HitChainLink::Transform(..)))
+                        && chain.len() > base_depth
+                    {
+                        chain.pop();
+                    }
+                }
+                I::WebView { node_id, bounds } => {
+                    let local = shift(*bounds.inner());
+                    let rect = to_screen(local, &chain);
+                    let resolved = (!chain.is_empty())
+                        .then(|| resolve_chain(&chain, resolve_scroll, resolve_transform));
+                    let transform = match resolved {
+                        Some(r) if r.has_transform => crate::managers::webview::WebViewTransform {
+                            size: local.size,
+                            sx: r.forward.sx,
+                            shy: r.forward.shy,
+                            shx: r.forward.shx,
+                            sy: r.forward.sy,
+                        },
+                        _ => crate::managers::webview::WebViewTransform::untransformed(local.size),
+                    };
+                    let clip = host_clips
+                        .iter()
+                        .chain(&clips)
+                        .chain(&frames)
+                        .try_fold(window, |visible, (c, c_chain)| {
+                            intersect_rects(visible, to_screen(*c, c_chain))
+                        })
+                        .and_then(|visible| intersect_rects(visible, rect));
+                    out.push(PaintedWebView {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        rect,
+                        clip,
+                        transform,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// The overlap of two rects; `None` when they do not overlap.
+fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
+    let (x0, y0) = (a.origin.x.max(b.origin.x), a.origin.y.max(b.origin.y));
+    let (x1, y1) = (a.max_x().min(b.max_x()), a.max_y().min(b.max_y()));
+    if x1 > x0 && y1 > y0 {
+        Some(LogicalRect::new(
+            LogicalPosition::new(x0, y0),
+            LogicalSize::new(x1 - x0, y1 - y0),
+        ))
+    } else {
+        None
+    }
+}
+
 impl CpuHitTester {
     /// Create a new empty hit tester.
     #[must_use]
@@ -722,6 +1175,8 @@ impl CpuHitTester {
             chains: vec![Vec::new()],
             scroll_containers: Vec::new(),
             dom_placements: BTreeMap::new(),
+            children_of: BTreeMap::new(),
+            view_hosts: BTreeMap::new(),
         }
     }
 
@@ -746,7 +1201,10 @@ impl CpuHitTester {
     /// Sum of `HitTestEntry` counts across all `DomIds` (for leak probes).
     #[must_use]
     pub fn node_rects_total(&self) -> usize {
-        self.node_rects.values().map(Vec::len).sum()
+        self.node_rects
+            .values()
+            .map(|entries| entries.iter().filter(|e| e.scrollbar.is_none()).count())
+            .sum()
     }
 
     /// Rebuild the hit test structure from layout results.
@@ -760,9 +1218,9 @@ impl CpuHitTester {
 
     /// Like [`Self::rebuild_from_layout`], but transform-aware: `gpu` is the
     /// window's [`GpuStateManager`](crate::managers::gpu_state::GpuStateManager),
-    /// whose per-DOM `css_transform_keys` is the EXACT set of nodes the
-    /// display list wrapped in `PushReferenceFrame` (the display-list builder
-    /// reads the same cache) — so hit-test chains and painted frames cannot
+    /// whose per-DOM `GpuValueCache::reference_frame_of` names the EXACT set
+    /// of nodes the display list wrapped in `PushReferenceFrame` (the
+    /// display-list builder asks the same question) — so hit-test chains and painted frames cannot
     /// disagree about which nodes transform. Pass `None` only when no
     /// transforms can exist (unit tests, static popups).
     /// The DOM node ids currently registered as USER-wheel scroll targets.
@@ -786,7 +1244,7 @@ impl CpuHitTester {
             .get(&dom)
             .into_iter()
             .flatten()
-            .filter(|e| e.node_id == node)
+            .filter(|e| e.node_id == node && e.scrollbar.is_none())
             .map(|e| (e.rect, e.chain, e.clips.iter().map(|(r, _)| *r).collect()))
             .collect()
     }
@@ -796,6 +1254,9 @@ impl CpuHitTester {
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         gpu: Option<&crate::managers::gpu_state::GpuStateManager>,
     ) {
+        // Once per layout on the CPU backend (the finalize tail of every
+        // relayout, animation frames included).
+        let _p = crate::probe::Probe::span("cpu_hit_tester_rebuild");
         self.node_rects.clear();
         self.chains.clear();
         self.chains.push(Vec::new()); // chain 0 = empty
@@ -807,12 +1268,26 @@ impl CpuHitTester {
         let mut chain_lookup: std::collections::HashMap<Vec<HitChainLink>, u32> =
             std::collections::HashMap::new();
         chain_lookup.insert(Vec::new(), 0);
+        self.children_of.clear();
+        self.view_hosts.clear();
         for (dom_id, p) in &placements {
             self.dom_placements.insert(*dom_id, p.rect);
+            self.children_of
+                .entry(p.host)
+                .or_default()
+                .push((p.item, *dom_id));
+            if let Some(view) = p.host_node {
+                self.view_hosts.insert(*dom_id, (p.host, view));
+            }
+        }
+        for children in self.children_of.values_mut() {
+            children.sort_by(|a, b| b.cmp(a));
         }
 
         for (dom_id, layout_result) in layout_results {
             let mut entries = Vec::new();
+            // The layout node of every entry, for the paint-order sort below.
+            let mut entry_layout_idx: Vec<usize> = Vec::new();
 
             let positions = &layout_result.calculated_positions;
             let nodes = &layout_result.layout_tree.nodes;
@@ -834,14 +1309,22 @@ impl CpuHitTester {
                 .collect();
 
             let scroll_ids = &layout_result.scroll_ids;
-            let transform_nodes = gpu
-                .and_then(|g| g.caches.get(dom_id))
-                .map(|c| &c.css_transform_keys);
+            // The nodes the display list opens a reference frame for - CSS
+            // `transform` or the animation channel (a node mid-slide).
+            let gpu_cache = gpu.and_then(|g| g.caches.get(dom_id));
+            // The frames every node of this dom is painted in - one answer
+            // with the display list (see `solver3::scroll_chain`).
+            let scroll_chains = ScrollChains::compute(
+                &layout_result.layout_tree,
+                styled_dom,
+                &layout_result.scroll_ids,
+            );
             let chain_of = compute_node_chains(
                 layout_result,
+                &scroll_chains,
                 *dom_id,
                 base_chain,
-                &|n| transform_nodes.is_some_and(|t| t.contains_key(&n)),
+                &|n| gpu_cache.is_some_and(|c| c.reference_frame_of(n).is_some()),
                 &mut self.chains,
                 &mut chain_lookup,
             );
@@ -863,30 +1346,52 @@ impl CpuHitTester {
                 else {
                     continue;
                 };
+                // THE VIEWPORT (CSS Overflow 3 §3.3): the root element's own
+                // `visible` is the viewport's `auto`, and its scrollport is
+                // the WINDOW - the rect `register_scroll_nodes` publishes -
+                // not the root's box inside the page margins. Read through
+                // its own overflow, the page's scroller was never a wheel
+                // target and the wheel over the page was dropped.
+                let is_viewport =
+                    crate::solver3::scrollbar::is_viewport_scroller(*dom_id, node_id);
+                let scrollport_overflow = |v| {
+                    if is_viewport {
+                        crate::solver3::getters::apply_viewport_overflow_rule(node_id, v)
+                    } else {
+                        v
+                    }
+                };
                 let user_scrollable = styled_dom
                     .styled_nodes
                     .as_container()
                     .get(node_id)
                     .is_some_and(|sn| {
                         let st = &sn.styled_node_state;
-                        get_overflow_x(styled_dom, node_id, st).allows_user_scrolling()
-                            || get_overflow_y(styled_dom, node_id, st).allows_user_scrolling()
+                        scrollport_overflow(get_overflow_x(styled_dom, node_id, st))
+                            .allows_user_scrolling()
+                            || scrollport_overflow(get_overflow_y(styled_dom, node_id, st))
+                                .allows_user_scrolling()
                     });
                 if !user_scrollable {
                     continue;
                 }
-                self.scroll_containers.push(ScrollContainerEntry {
-                    dom_id: *dom_id,
-                    node_id,
-                    layout_idx,
-                    scroll_id,
-                    rect: LogicalRect {
+                let rect = if is_viewport {
+                    LogicalRect::new(LogicalPosition::zero(), layout_result.viewport.size)
+                } else {
+                    LogicalRect {
                         origin: LogicalPosition {
                             x: pos.x + offset.x,
                             y: pos.y + offset.y,
                         },
                         size,
-                    },
+                    }
+                };
+                self.scroll_containers.push(ScrollContainerEntry {
+                    dom_id: *dom_id,
+                    node_id,
+                    layout_idx,
+                    scroll_id,
+                    rect,
                     chain: chain_of[layout_idx.index()],
                 });
             }
@@ -919,10 +1424,21 @@ impl CpuHitTester {
 
                 // Clip this node to the VirtualView composite bounds
                 // (`dom_clip`) and every `overflow: hidden | clip | scroll |
-                // auto` ancestor's box — otherwise a node that is scrolled or
-                // clipped out of its ancestor would still claim pointer events.
+                // auto` ancestor's box it is painted inside — otherwise a
+                // node that is scrolled or clipped out of its ancestor would
+                // still claim pointer events. "Inside" is its scroll chain: a
+                // fixed box is not clipped by a wrapper that is not its
+                // containing block, and the display list does not clip it.
+                let scroll_chain = scroll_chains.box_chain(LayoutNodeId::new(idx));
                 let clips = compute_node_clips(
-                    styled_dom, nodes, positions, idx, offset, &dom_clips, &chain_of,
+                    styled_dom,
+                    nodes,
+                    positions,
+                    idx,
+                    offset,
+                    &dom_clips,
+                    &chain_of,
+                    &|anc| scroll_chain.contains(LayoutNodeId::new(anc)),
                 );
 
                 entries.push(HitTestEntry {
@@ -935,8 +1451,61 @@ impl CpuHitTester {
                     // a property is added to `azul_css`.
                     pointer_events_none: false,
                     clip_path: node_clip_path(styled_dom, node_id),
+                    rank: usize::MAX,
+                    paints_own: false,
+                    scrollbar: None,
                 });
+                entry_layout_idx.push(idx);
             }
+
+            // The fragments of the INLINE elements (a link inside a
+            // paragraph), which the walk above cannot see: see
+            // `push_inline_fragment_entries`.
+            push_inline_fragment_entries(
+                layout_result,
+                *dom_id,
+                offset,
+                &mut entries,
+                &mut entry_layout_idx,
+            );
+
+            // The SCROLLBARS, each at the item that paints it: see
+            // `scrollbar_entries`.
+            let bars = scrollbar_entries(
+                layout_result,
+                offset,
+                &dom_clips,
+                &chain_of,
+                &scroll_chains,
+            );
+
+            // PAINT ORDER, taken from the display list itself: the topmost hit
+            // has to be the box painted on top. Layout order is not paint
+            // order - a positioned box paints after the in-flow blocks that
+            // follow it in the tree (CSS 2.2 Appendix E), so a fixed header
+            // lost the pointer to the page content scrolled under it. The
+            // sort is stable: ties keep tree order, and a bar - appended
+            // last - stays above a box that ranks at the same item.
+            let sort_span = crate::probe::Probe::span("hit_test_paint_order_sort");
+            let (ranks, own) = paint_ranks(&layout_result.display_list, nodes);
+            let mut ranked: Vec<(usize, HitTestEntry)> = entry_layout_idx
+                .into_iter()
+                .zip(entries)
+                .map(|(idx, mut e)| {
+                    e.paints_own = own.get(idx).is_some_and(|item| *item != usize::MAX);
+                    (ranks.get(idx).copied().unwrap_or(usize::MAX), e)
+                })
+                .collect();
+            ranked.extend(bars);
+            ranked.sort_by_key(|(rank, _)| *rank);
+            let entries: Vec<HitTestEntry> = ranked
+                .into_iter()
+                .map(|(rank, mut e)| {
+                    e.rank = rank;
+                    e
+                })
+                .collect();
+            drop(sort_span);
 
             self.node_rects.insert(*dom_id, entries);
         }
@@ -963,8 +1532,8 @@ impl CpuHitTester {
     /// `resolve_scroll` returns the CURRENT scroll offset of a scroll
     /// container (`ScrollManager::get_current_offset`); `resolve_transform`
     /// the CURRENT matrix of a reference-frame owner
-    /// (`GpuValueCache::css_current_transform_values` — the same map the CPU
-    /// raster reads at paint time). Content painted at
+    /// (`GpuStateManager::painted_transform_of` — the same value the CPU
+    /// raster paints with, CSS or animation channel). Content painted at
     /// `T_total(static_pos − scroll_total)` is hit at the same place: a
     /// point `p` hits a node iff `T⁻¹(p) + scroll_total` lands in the node's
     /// static rect. Clip boxes are shifted by the clip OWNER's chain — a
@@ -977,6 +1546,9 @@ impl CpuHitTester {
     /// `local_point` is the query point mapped into
     /// that node's STATIC layout space — callers use it directly for
     /// node-relative points (caret placement, `point_relative_to_item`).
+    ///
+    /// Boxes only: the scrollbars painted among them are the press
+    /// arbiter's question ([`Self::scrollbar_at`]).
     #[must_use]
     pub fn hit_test_scrolled(
         &self,
@@ -987,6 +1559,144 @@ impl CpuHitTester {
             NodeId,
         ) -> Option<azul_core::transform::ComputedTransform3D>,
     ) -> Vec<(DomId, NodeId, LogicalPosition)> {
+        let results: Vec<(DomId, NodeId, LogicalPosition)> = self
+            .entries_at(position, resolve_scroll, resolve_transform)
+            .into_iter()
+            .filter(|hit| hit.scrollbar.is_none())
+            .map(|hit| (hit.dom_id, hit.node_id, hit.local))
+            .collect();
+        // `AZ_TRACE_HIT=1`: every query's hits, front to back - which node a
+        // click lands on, without a debugger.
+        #[cfg(feature = "std")]
+        {
+            static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *TRACE.get_or_init(|| std::env::var_os("AZ_TRACE_HIT").is_some()) {
+                let front: Vec<(usize, usize)> = results
+                    .iter()
+                    .take(12)
+                    .map(|(d, n, _)| (d.inner, n.index()))
+                    .collect();
+                eprintln!(
+                    "[hit] ({:.1}, {:.1}) -> (dom, node) front to back: {front:?}",
+                    position.x, position.y
+                );
+            }
+        }
+        results
+    }
+
+    /// THE SCROLLBAR PAINTED ON TOP at `position`, for the press arbiter
+    /// (`LayoutWindow::route_press`): `(dom, scroll container, axis)`, or
+    /// `None` where no bar is painted on top.
+    ///
+    /// Chrome's rule - a scrollbar is hit only where it is painted - with
+    /// the bars ranked among the boxes at the items that paint them
+    /// (`scrollbar_entries`): a bar an ancestor's clip cuts off is not
+    /// there, and the front-most bar at the point is pressed only if no box
+    /// painted after it covers the point. A box covers it when it paints an
+    /// item of its OWN after the bar - a positioned dialog over a list, its
+    /// button, a child dom composited above. Two kinds of box in front of the
+    /// bar do not:
+    /// - one placed there only by its relatives' paint (`paint_ranks`: the
+    ///   bar's own box, its ancestors or its content, painting nothing
+    ///   themselves) - what is painted at the point is the bar;
+    /// - the bar's own CONTENT, any box painted in the container's scroll
+    ///   frame: a scroller's bars stay above everything it scrolls, its
+    ///   positioned descendants included (Chrome reorders the overflow
+    ///   controls above them for exactly that).
+    #[must_use]
+    pub fn scrollbar_at(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+    ) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
+        let front_to_back = self.entries_at(position, resolve_scroll, resolve_transform);
+        let bar_at = front_to_back
+            .iter()
+            .position(|hit| hit.scrollbar.is_some())?;
+        let bar = front_to_back[bar_at];
+        let own_frame = HitChainLink::Scroll(bar.dom_id, bar.node_id);
+        let scrolled_by_the_bar = |hit: &EntryHit| {
+            self.chains
+                .get(hit.chain as usize)
+                .is_some_and(|links| links.contains(&own_frame))
+        };
+        if front_to_back[..bar_at]
+            .iter()
+            .any(|hit| hit.paints_own && !scrolled_by_the_bar(hit))
+        {
+            return None;
+        }
+        Some((bar.dom_id, bar.node_id, bar.scrollbar?))
+    }
+
+    /// The scroll frames a wheel at `position` may drive, given the
+    /// front-most box there (`front`, the first of
+    /// [`Self::hit_test_scrolled`]'s hits): the frames that box is painted
+    /// in - its chain, host frames of a child dom included - and the box
+    /// itself (its own frame moves its content, not the box).
+    ///
+    /// The wheel's answer to the same question the press arbiter asks: a
+    /// scroll container clipped away at the point, or under a box painted
+    /// over it, is not what the pointer is over.
+    fn wheel_frames(
+        &self,
+        front: Option<&(DomId, NodeId, LogicalPosition)>,
+    ) -> std::collections::BTreeSet<(DomId, NodeId)> {
+        let mut frames = std::collections::BTreeSet::new();
+        let Some(&(dom_id, node_id, local)) = front else {
+            return frames;
+        };
+        frames.insert((dom_id, node_id));
+        // The entry the hit came from: `local` is in its chain's space, so
+        // it lies in that entry's rect (the topmost such, as the walk went).
+        let chain = self.node_rects.get(&dom_id).and_then(|entries| {
+            entries
+                .iter()
+                .rev()
+                .find(|e| {
+                    e.scrollbar.is_none()
+                        && e.node_id == node_id
+                        && point_in_rect(local, &e.rect)
+                })
+                .map(|e| e.chain)
+        });
+        if let Some(links) = chain.and_then(|c| self.chains.get(c as usize)) {
+            for link in links {
+                if let HitChainLink::Scroll(d, n) = link {
+                    frames.insert((*d, *n));
+                }
+            }
+        }
+        // The `VirtualView`s that show the box's dom, out to the window: they
+        // scroll it without a frame in its chain. Bounded like the
+        // placements' nesting, in case a view graph is cyclic.
+        let mut dom = dom_id;
+        for _ in 0..self.view_hosts.len() {
+            let Some(&(host, view)) = self.view_hosts.get(&dom) else {
+                break;
+            };
+            frames.insert((host, view));
+            dom = host;
+        }
+        frames
+    }
+
+    /// Every entry - boxes and scrollbars - `position` lands on, front to
+    /// back ACROSS doms (see [`Self::hit_test_scrolled`] for the spaces).
+    fn entries_at(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+    ) -> Vec<EntryHit> {
         let mut results = Vec::new();
 
         // Resolve every chain once per query, then map the point through it.
@@ -1002,43 +1712,376 @@ impl CpuHitTester {
             mapped.get(chain as usize).copied().unwrap_or(position)
         };
 
-        // DOMs FRONT-MOST FIRST (9g-ii-e-i): a child DOM (a `VirtualView` page,
-        // an iframe) always has a higher `DomId` than its host and is
-        // composited ON TOP of it, so the hits of the highest DOM are the
-        // nearest to the user. Visiting the map in ascending order gave the
-        // HOST's nodes the lower depth numbers, while WebRender - one scene
-        // for every DOM, walked in reverse paint order - numbers the page's
-        // nodes first. The two producers disagreed exactly where a page sat
-        // over its host, which is the only place the order matters.
-        for (dom_id, entries) in self.node_rects.iter().rev() {
-            // Walk in reverse (last painted = topmost)
-            for entry in entries.iter().rev() {
-                if entry.pointer_events_none {
-                    continue;
-                }
-
-                // Every clip box must contain the point (each in its owner's
-                // space).
-                if !entry
-                    .clips
-                    .iter()
-                    .all(|(clip, chain)| point_in_rect(local(*chain), clip))
-                {
-                    continue;
-                }
-
-                // Check node rect in the node's local (static) space.
-                let p_local = local(entry.chain);
-                if point_in_rect(p_local, &entry.rect)
-                    && point_in_clip_path(p_local, &entry.rect, entry.clip_path.as_ref())
-                {
-                    results.push((*dom_id, entry.node_id, p_local));
-                }
+        // FRONT-MOST FIRST across doms as well (9g-ii-e-i): a child dom (a
+        // `VirtualView` page, an iframe) paints AT ITS VIEW'S ITEM in its
+        // host's display list - over the boxes painted before the item, under
+        // the ones painted after it (a map's zoom buttons, a sidebar laid
+        // over the map). WebRender's one scene for every dom answers in that
+        // order; visiting the doms by id put every child dom over its whole
+        // host, so a click on a button over a map reached the map. The root
+        // doms (no host) go highest id first; a dom no walk reaches (its
+        // host is gone) last, so it is still hit.
+        let hit = |dom_id: DomId, entry: &HitTestEntry, results: &mut Vec<_>| {
+            if entry.pointer_events_none {
+                return;
             }
+            // Every clip box must contain the point (each in its owner's
+            // space).
+            if !entry
+                .clips
+                .iter()
+                .all(|(clip, chain)| point_in_rect(local(*chain), clip))
+            {
+                return;
+            }
+            // Check node rect in the node's local (static) space.
+            let p_local = local(entry.chain);
+            if point_in_rect(p_local, &entry.rect)
+                && point_in_clip_path(p_local, &entry.rect, entry.clip_path.as_ref())
+            {
+                results.push(EntryHit {
+                    dom_id,
+                    node_id: entry.node_id,
+                    local: p_local,
+                    chain: entry.chain,
+                    paints_own: entry.paints_own,
+                    scrollbar: entry.scrollbar,
+                });
+            }
+        };
+        let mut visited = std::collections::BTreeSet::new();
+        let hosted: std::collections::BTreeSet<DomId> =
+            self.children_of.values().flatten().map(|(_, d)| *d).collect();
+        let roots: Vec<DomId> = self
+            .node_rects
+            .keys()
+            .rev()
+            .filter(|d| !hosted.contains(d))
+            .copied()
+            .collect();
+        for dom_id in roots {
+            self.hit_dom(dom_id, &hit, &mut visited, &mut results);
         }
-
+        let unreached: Vec<DomId> = self
+            .node_rects
+            .keys()
+            .rev()
+            .filter(|d| !visited.contains(*d))
+            .copied()
+            .collect();
+        for dom_id in unreached {
+            self.hit_dom(dom_id, &hit, &mut visited, &mut results);
+        }
         results
     }
+
+    /// The hits of `dom_id`, topmost first, with each child dom it shows
+    /// spliced in where its `VirtualView` paints: before every entry painted
+    /// at or before the view's item (a node that paints nothing ranks below
+    /// the view). `visited` ends a cyclic view graph.
+    fn hit_dom<F>(
+        &self,
+        dom_id: DomId,
+        hit: &F,
+        visited: &mut std::collections::BTreeSet<DomId>,
+        results: &mut Vec<EntryHit>,
+    ) where
+        F: Fn(DomId, &HitTestEntry, &mut Vec<EntryHit>),
+    {
+        if !visited.insert(dom_id) {
+            return;
+        }
+        let children: &[(usize, DomId)] =
+            self.children_of.get(&dom_id).map_or(&[], Vec::as_slice);
+        let mut next = 0;
+        if let Some(entries) = self.node_rects.get(&dom_id) {
+            // Walk in reverse (last painted = topmost)
+            for entry in entries.iter().rev() {
+                while let Some(&(item, child)) = children.get(next) {
+                    // At the item: the view's host (whose first painted
+                    // item IS the view when it paints nothing else) and the
+                    // wrappers that rank at it are under the page.
+                    let child_is_above = entry.rank == usize::MAX || item >= entry.rank;
+                    if !child_is_above {
+                        break;
+                    }
+                    self.hit_dom(child, hit, visited, results);
+                    next += 1;
+                }
+                hit(dom_id, entry, results);
+            }
+        }
+        for &(_, child) in children.get(next..).unwrap_or(&[]) {
+            self.hit_dom(child, hit, visited, results);
+        }
+    }
+}
+
+/// The paint rank of every layout node of one dom: the index of its first
+/// item in `display_list`, which the generator emits in CSS painting order.
+/// A node that paints nothing of its own ranks at its first painted
+/// descendant, and one with neither at its parent, so it stays where it
+/// would paint.
+/// The hit-test entries of the INLINE elements of one dom (E10).
+///
+/// A non-replaced inline element (`<a>`, `<span>`, `<b>`) has no box of its
+/// own: its text is laid out in the enclosing block's inline formatting
+/// context, so the layout-node walk gives it no rect and a click on a link
+/// inside a paragraph reached the paragraph, never the link - no click
+/// callback, no pointer cursor, no `href` for the app to open.
+///
+/// Its FRAGMENTS are the text runs the display list already hit-tests for
+/// the cursor (`TAG_TYPE_CURSOR` areas: one per line and style run, keyed
+/// by the TEXT node, extending over the run's last letter). For every such
+/// run, every inline element between its text node and the first ancestor
+/// that is not `display: inline` (the block, or an inline-block) gets an
+/// entry with the run's rect - a link wrapped over three lines gets three,
+/// and the space between the lines stays the paragraph's. The entries take
+/// the chain and the clips of the nearest boxed ancestor they are painted
+/// in, and its paint rank (pushed after it, so the stable sort keeps them on
+/// top of it).
+fn push_inline_fragment_entries(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    offset: LogicalPosition,
+    entries: &mut Vec<HitTestEntry>,
+    entry_layout_idx: &mut Vec<usize>,
+) {
+    use azul_core::hit_test::TAG_TYPE_CURSOR;
+    use azul_css::props::layout::LayoutDisplay;
+
+    use crate::solver3::{display_list::DisplayListItem, getters::get_display_property};
+
+    /// Deeper than any real inline nesting; bounds a malformed hierarchy.
+    const MAX_INLINE_DEPTH: usize = 256;
+
+    let styled_dom = &layout_result.styled_dom;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_count = styled_dom.node_data.as_ref().len();
+    let parent_of = |n: NodeId| {
+        hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    };
+    // The first entry of every boxed node (a node can own several).
+    let mut first_entry: BTreeMap<NodeId, usize> = BTreeMap::new();
+    for (i, e) in entries.iter().enumerate() {
+        first_entry.entry(e.node_id).or_insert(i);
+    }
+
+    let mut fragments: Vec<(HitTestEntry, usize)> = Vec::new();
+    for item in &layout_result.display_list.items {
+        let DisplayListItem::HitTestArea { bounds, tag } = item else {
+            continue;
+        };
+        if tag.1 & 0xFF00 != TAG_TYPE_CURSOR || (tag.0 >> 32) as usize != dom_id.inner {
+            continue;
+        }
+        let text_node = NodeId::new((tag.0 & 0xFFFF_FFFF) as usize);
+        let run = bounds.0;
+        if text_node.index() >= node_count || !(run.size.width > 0.0 && run.size.height > 0.0)
+        {
+            continue;
+        }
+        // 1. The inline elements around this run, innermost first: every
+        //    ancestor up to the first one that is not `display: inline`.
+        let mut inline_elements: Vec<NodeId> = Vec::new();
+        let mut cursor = parent_of(text_node);
+        let mut depth = 0;
+        while let Some(n) = cursor {
+            depth += 1;
+            if depth > MAX_INLINE_DEPTH {
+                break;
+            }
+            let is_inline = get_display_property(styled_dom, Some(n)).unwrap_or_default()
+                == LayoutDisplay::Inline;
+            if !is_inline {
+                break;
+            }
+            inline_elements.push(n);
+            cursor = parent_of(n);
+        }
+        if inline_elements.is_empty() {
+            continue; // text straight in its block: the block's own entry hits it
+        }
+        // 2. From there, the nearest ancestor with an entry: the box the run
+        //    is painted in (its chain, clips and rank).
+        let mut owner: Option<usize> = None;
+        while let Some(n) = cursor {
+            depth += 1;
+            if depth > MAX_INLINE_DEPTH {
+                break;
+            }
+            if let Some(&i) = first_entry.get(&n) {
+                owner = Some(i);
+                break;
+            }
+            cursor = parent_of(n);
+        }
+        let Some(owner) = owner else {
+            continue;
+        };
+        let rect = LogicalRect {
+            origin: LogicalPosition {
+                x: run.origin.x + offset.x,
+                y: run.origin.y + offset.y,
+            },
+            size: run.size,
+        };
+        for node_id in inline_elements {
+            fragments.push((
+                HitTestEntry {
+                    node_id,
+                    rect,
+                    chain: entries[owner].chain,
+                    clips: entries[owner].clips.clone(),
+                    pointer_events_none: false,
+                    clip_path: None,
+                    rank: usize::MAX,
+                    paints_own: false,
+                    scrollbar: None,
+                },
+                entry_layout_idx[owner],
+            ));
+        }
+    }
+    for (entry, layout_idx) in fragments {
+        entries.push(entry);
+        entry_layout_idx.push(layout_idx);
+    }
+}
+
+/// The SCROLLBAR entries of one dom: one per `ScrollBarStyled` / `ScrollBar`
+/// item with a hit id, `(item index, entry)`, ranked at that item.
+///
+/// `paint_scrollbars` draws a scroll container's bars after its content and
+/// after closing the container's own clips, so a bar is painted inside its
+/// ANCESTORS' clips and scroll frames - the clips and chain of its box's own
+/// entry - and under everything painted after it: a positioned dialog over a
+/// list, an `overflow: hidden` ancestor cutting it off. Ranked at its own
+/// item, it takes its place among the boxes in paint order, which is what
+/// lets the press arbiter ask for the bar painted on top
+/// ([`CpuHitTester::scrollbar_at`]).
+///
+/// The bar takes its box's chain, transform links included. A transformed
+/// scroll container paints as a stacking context, whose bars are drawn
+/// outside its own reference frame; the scroll manager places such a bar
+/// untransformed too, so it is an approximation on both sides alike.
+fn scrollbar_entries(
+    layout_result: &DomLayoutResult,
+    offset: LogicalPosition,
+    dom_clips: &[(LogicalRect, u32)],
+    chain_of: &[u32],
+    scroll_chains: &ScrollChains,
+) -> Vec<(usize, HitTestEntry)> {
+    use crate::solver3::display_list::DisplayListItem;
+
+    let mut bars = Vec::new();
+    for (item_index, item) in layout_result.display_list.items.iter().enumerate() {
+        let (bounds, orientation, hit_id) = match item {
+            DisplayListItem::ScrollBarStyled { info } => {
+                (*info.bounds.inner(), info.orientation, info.hit_id)
+            }
+            DisplayListItem::ScrollBar {
+                bounds,
+                orientation,
+                hit_id,
+                ..
+            } => (*bounds.inner(), *orientation, *hit_id),
+            _ => continue,
+        };
+        let Some(hit_id) = hit_id else {
+            continue;
+        };
+        let node_id = match hit_id {
+            ScrollbarHitId::VerticalTrack(_, n)
+            | ScrollbarHitId::VerticalThumb(_, n)
+            | ScrollbarHitId::HorizontalTrack(_, n)
+            | ScrollbarHitId::HorizontalThumb(_, n) => n,
+        };
+        let Some(&layout_idx) = layout_result
+            .layout_tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|indices| indices.first())
+        else {
+            continue;
+        };
+        let idx = layout_idx.index();
+        let scroll_chain = scroll_chains.box_chain(layout_idx);
+        let clips = compute_node_clips(
+            &layout_result.styled_dom,
+            &layout_result.layout_tree.nodes,
+            &layout_result.calculated_positions,
+            idx,
+            offset,
+            dom_clips,
+            chain_of,
+            &|anc| scroll_chain.contains(LayoutNodeId::new(anc)),
+        );
+        bars.push((
+            item_index,
+            HitTestEntry {
+                node_id,
+                rect: LogicalRect::new(
+                    LogicalPosition::new(bounds.origin.x + offset.x, bounds.origin.y + offset.y),
+                    bounds.size,
+                ),
+                chain: chain_of.get(idx).copied().unwrap_or(0),
+                clips,
+                pointer_events_none: false,
+                clip_path: None,
+                rank: item_index,
+                paints_own: true,
+                scrollbar: Some(orientation),
+            },
+        ));
+    }
+    bars
+}
+
+/// The paint rank of every layout node of one dom (the rule is spelled out
+/// above `push_inline_fragment_entries`, where its comment ended up).
+///
+/// Returns `(rank, own)`: `own[idx]` is the node's first item of its OWN
+/// (`usize::MAX` when it paints nothing itself), `rank[idx]` its rank.
+fn paint_ranks(
+    display_list: &crate::solver3::display_list::DisplayList,
+    nodes: &[LayoutNodeHot],
+) -> (Vec<usize>, Vec<usize>) {
+    let mut own = vec![usize::MAX; nodes.len()];
+    for (item, mapping) in display_list.layout_node_mapping.iter().enumerate() {
+        let Some((idx, _)) = mapping else {
+            continue;
+        };
+        if let Some(rank) = own.get_mut(*idx) {
+            if *rank == usize::MAX {
+                *rank = item;
+            }
+        }
+    }
+    // The tree is built pre-order (a parent's index is below its
+    // children's): one sweep from the end carries each subtree's first
+    // painted item up to its root.
+    let mut subtree = own.clone();
+    for idx in (0..nodes.len()).rev() {
+        if let Some(parent) = nodes[idx].parent {
+            if subtree[idx] < subtree[parent] {
+                subtree[parent] = subtree[idx];
+            }
+        }
+    }
+    let mut rank = vec![usize::MAX; nodes.len()];
+    for idx in 0..nodes.len() {
+        rank[idx] = if own[idx] != usize::MAX {
+            own[idx]
+        } else if subtree[idx] != usize::MAX {
+            subtree[idx]
+        } else {
+            nodes[idx].parent.map_or(usize::MAX, |p| rank[p])
+        };
+    }
+    (rank, own)
 }
 
 /// A node's clip path: its own SVG geometry, with the `viewBox` it is drawn
@@ -1203,6 +2246,10 @@ pub fn convert_cpu_hit_test_to_full(
         );
     }
 
+    // The frames the box under the pointer is painted in (its chain) and the
+    // box itself: the only containers the wheel may drive here, see below.
+    let wheel_frames = tester.wheel_frames(hits.first());
+
     // Scroll containers: the CPU hit tester reports only regular DOM nodes,
     // so mirror the WR converter's TAG_TYPE_SCROLL_CONTAINER pass by rect
     // containment. Without this, scroll_hit_test_nodes stays empty on the
@@ -1218,10 +2265,24 @@ pub fn convert_cpu_hit_test_to_full(
     // `child_rect` stay in static layout coordinates: downstream only uses
     // their relative geometry (scroll ranges), which translation cannot
     // change.
+    //
+    // Containment alone is not enough: a container whose box holds the point
+    // may be clipped away there by an ancestor, or lie under a box painted
+    // over it (a `z-index` dialog over a list), and the wheel would scroll
+    // what the pointer is not over. Chrome wheels the scroll chain of the
+    // box under the pointer, so a container counts only if that box is
+    // painted inside it (`wheel_frames`). The viewport is the end of every
+    // chain - a fixed header and the page's margins scroll the page - so it
+    // always counts.
     for sc in &tester.scroll_containers {
         let dom_id = &sc.dom_id;
         let node_id = sc.node_id;
         let scroll_id = sc.scroll_id;
+        if !wheel_frames.contains(&(*dom_id, node_id))
+            && !crate::solver3::scrollbar::is_viewport_scroller(*dom_id, node_id)
+        {
+            continue;
+        }
         let Some(lr) = layout_results.get(dom_id) else {
             continue;
         };
@@ -1334,7 +2395,12 @@ pub fn compute_scroll_child_rect(
 /// (`used_size`); CSS clips at the padding edge, but the slightly larger
 /// border box is a safe over-inclusion for point hit-testing and avoids
 /// resolving padding/border here.
-#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+///
+/// `clips_it` says which ancestors' clips the node is painted inside - the
+/// node's `ScrollChain` in production; an ancestor between an out-of-flow
+/// node and its containing block clips neither its pixels nor its pointer
+/// target.
+#[allow(clippy::similar_names, clippy::too_many_arguments)] // domain-standard coordinate/geometry/short-lived names
 fn compute_node_clips(
     styled_dom: &StyledDom,
     nodes: &[LayoutNodeHot],
@@ -1343,6 +2409,7 @@ fn compute_node_clips(
     offset: LogicalPosition,
     dom_clips: &[(LogicalRect, u32)],
     chain_of: &[u32],
+    clips_it: &dyn Fn(usize) -> bool,
 ) -> Vec<(LogicalRect, u32)> {
     // A non-finite edge must degrade to "unclipped on that side", never be
     // stored: `point_in_rect` against a NaN rect is always false, which would
@@ -1401,6 +2468,11 @@ fn compute_node_clips(
         let Some(anc_dom_id) = anc_node.dom_node_id else {
             continue;
         };
+        // An ancestor whose frames the node is not painted in - one between
+        // an out-of-flow node and its containing block - does not clip it.
+        if !clips_it(anc) {
+            continue;
+        }
         let node_state = &styled_nodes[anc_dom_id].styled_node_state;
         let clips_x = get_overflow_x(styled_dom, anc_dom_id, node_state).is_clipped();
         let clips_y = get_overflow_y(styled_dom, anc_dom_id, node_state).is_clipped();
@@ -1458,6 +2530,7 @@ fn compute_node_clip(
         offset,
         &dom_clip.map(|r| (r, 0)).into_iter().collect::<Vec<_>>(),
         &chain_of,
+        &|_| true,
     );
     if clips.is_empty() {
         return None;
@@ -1524,11 +2597,13 @@ mod autotest_generated {
     use super::*;
     use crate::{
         solver3::{
-            display_list::{DisplayList, DisplayListItem, WindowLogicalRect},
+            display_list::{DisplayList, DisplayListItem, EmitPhase, WindowLogicalRect},
             layout_tree::LayoutTree,
         },
         window::DomLayoutResult,
     };
+    use azul_core::geom::LogicalSize;
+    use azul_css::props::basic::color::ColorU;
 
     // -----------------------------------------------------------------------
     // fixtures
@@ -2080,6 +3155,166 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_box_painted_over_a_virtual_view_is_hit_before_the_page_under_it() {
+        // Host dom 0: the root (0,0)-(300,300) painted first (item 0), a
+        // VirtualView showing child dom 1 over (0,0)-(300,300) (item 1), and
+        // an overlay - a zoom button over a map - at (200,200)-(240,240)
+        // painted AFTER it (item 2). A child dom is painted at its
+        // VirtualView item, not over the whole host dom: the overlay is on
+        // top, so it is hit first, then the page, then the root. Every
+        // child dom used to come first (AzMaps: a click on "+" dropped a
+        // pin on the map under it).
+        let rect = |x: f32, y: f32, w: f32, h: f32| DisplayListItem::Rect {
+            bounds: WindowLogicalRect::new(p(x, y), LogicalSize { width: w, height: h }),
+            color: ColorU::BLACK,
+            border_radius: Default::default(),
+        };
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((40.0, 40.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(200.0, 200.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![
+                rect(0.0, 0.0, 300.0, 300.0),
+                virtual_view(1, r(0.0, 0.0, 300.0, 300.0)),
+                rect(200.0, 200.0, 40.0, 40.0),
+            ],
+            layout_node_mapping: vec![
+                Some((0, EmitPhase::BgBorder)),
+                Some((0, EmitPhase::Content)),
+                Some((1, EmitPhase::BgBorder)),
+            ],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(220.0, 220.0)),
+            vec![(dom(0), NodeId::new(1)), (dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
+            "the overlay, then the page it covers, then the host's root",
+        );
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)),
+            vec![(dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
+            "away from the overlay the page is on top of its host",
+        );
+    }
+
+    #[test]
+    fn a_view_host_that_paints_after_its_page_still_stays_under_it() {
+        // The host of a VirtualView whose own first item comes AFTER the
+        // view's (a border or scrollbar drawn over the content) ranked over
+        // its page, and so did every wrapper ranked at it: AzMonitor's
+        // process table (a page in the host's scroll box) took no click -
+        // the header's sort never ran. A host CONTAINS its page, as a parent
+        // contains its children: it and its ancestors are under the page;
+        // rank decides only against the host's other boxes.
+        let rect = |x: f32, y: f32, w: f32, h: f32| DisplayListItem::Rect {
+            bounds: WindowLogicalRect::new(p(x, y), LogicalSize { width: w, height: h }),
+            color: ColorU::BLACK,
+            border_radius: Default::default(),
+        };
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((300.0, 300.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(0.0, 0.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![
+                virtual_view(1, r(0.0, 0.0, 300.0, 300.0)),
+                rect(0.0, 0.0, 300.0, 300.0),
+            ],
+            // The view's item is its host's (display_list.rs
+            // `push_virtual_view_placeholder`); the host's other item comes
+            // after it.
+            layout_node_mapping: vec![Some((1, EmitPhase::Content)), Some((1, EmitPhase::ScWalk))],
+            node_mapping: vec![Some(NodeId::new(1)), Some(NodeId::new(1))],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)).first(),
+            Some(&(dom(1), NodeId::new(1))),
+            "the page, not its host or the host's wrappers",
+        );
+    }
+
+    #[test]
+    fn a_view_host_that_paints_nothing_of_its_own_stays_under_its_page() {
+        // The host of a VirtualView that paints nothing but the view - and
+        // the wrapper around it - rank AT the view's item (a node's rank is
+        // its first painted item, or its first painted descendant's): they
+        // are under the page they show. Ranked over it, the host took every
+        // click meant for the page (AzMonitor's table headers stopped
+        // sorting).
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((300.0, 300.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(0.0, 0.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![virtual_view(1, r(0.0, 0.0, 300.0, 300.0))],
+            layout_node_mapping: vec![Some((1, EmitPhase::Content))],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)).first(),
+            Some(&(dom(1), NodeId::new(1))),
+            "the page, not its host",
+        );
+    }
+
+    #[test]
     fn rebuild_translates_and_clips_virtual_view_child_doms() {
         // Host dom 0 hosts child dom 1 at (100,100) 50x50. The child lays out in
         // local coordinates with a 200x200 node at (0,0): it must be translated to
@@ -2515,9 +3750,12 @@ mod autotest_generated {
 
     #[test]
     fn compute_node_clip_leaves_the_unclipped_axis_unbounded() {
-        // overflow-x: hidden / overflow-y: visible — the y axis must stay
+        // overflow-x: clip / overflow-y: visible — the y axis must stay
         // unbounded (finite stand-in), not collapse onto the ancestor's box.
-        let styled_dom = styled("div.clip { overflow-x: hidden; }");
+        // `clip` is CSS's one-axis clip: a lone `hidden` would make the other
+        // axis compute to `auto` (CSS Overflow 3 §3.1) and clip it too - see
+        // `compute_node_clip_hidden_on_one_axis_clips_both`.
+        let styled_dom = styled("div.clip { overflow-x: clip; }");
         let nodes = vec![
             hot(Some(0), Some((500.0, 500.0)), None),
             hot(Some(1), Some((100.0, 50.0)), Some(0)),
@@ -2538,6 +3776,28 @@ mod autotest_generated {
         // but a point to the right of it is not.
         assert!(point_in_rect(p(50.0, 900_000.0), &clip));
         assert!(!point_in_rect(p(500.0, 20.0), &clip));
+    }
+
+    #[test]
+    fn compute_node_clip_hidden_on_one_axis_clips_both() {
+        // CSS Overflow 3 §3.1: `overflow-x: hidden` makes the unset
+        // `overflow-y` compute to `auto`, so the box is a scroll container on
+        // BOTH axes and clips vertically as well.
+        let styled_dom = styled("div.clip { overflow-x: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), Some((100.0, 50.0)), Some(0)),
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        let clip = compute_node_clip(&styled_dom, &nodes, &positions, 2, p(0.0, 0.0), None)
+            .expect("overflow-x: hidden clips");
+
+        assert_eq!(clip.origin.x, 10.0);
+        assert_eq!(clip.size.width, 100.0);
+        assert_eq!(clip.origin.y, 10.0);
+        assert_eq!(clip.size.height, 50.0);
     }
 
     #[test]

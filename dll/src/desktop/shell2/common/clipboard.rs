@@ -20,7 +20,10 @@
 
 use azul_css::props::basic::ColorU;
 use azul_layout::managers::selection::{ClipboardContent, StyledTextRun, StyledTextRunVec};
-use rich_clipboard::{decode_payload, encode, Rgb, RichItem, RichText, Style};
+use rich_clipboard::{
+    decode_payload, decode_with, encode, Flavor, HtmlFragment, Options, Rgb, RichItem, RichText,
+    Style,
+};
 pub use rich_clipboard::{ClipboardPayload, Platform};
 
 /// 1 CSS pt = 4/3 CSS px (the 96 dpi reference used across azul).
@@ -49,9 +52,18 @@ pub const MAX_FLAVOR_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Read the OS clipboard as a typed payload.
 ///
+/// `window` is the asking window's key in the backend's registry
+/// (`PlatformWindow::registry_window_id`); 0 means "no window to name". Most
+/// platforms have one app-wide clipboard and ignore it. Wayland does not: a
+/// selection there belongs to a SEAT, reached through one window's
+/// `wl_data_device` and validated against that window's input serial, so a
+/// paste has to say which window it is for. See
+/// `linux/wayland/clipboard.rs::route_selection`.
+///
 /// `None` means an empty clipboard, an unreachable clipboard, or a platform
 /// without one wired up — callers treat all three as "nothing to paste".
-pub fn get_system_clipboard() -> Option<ClipboardPayload> {
+pub fn get_system_clipboard(window: u64) -> Option<ClipboardPayload> {
+    let _ = window;
     // Every flavor the source offered — one group per pasteboard item on
     // macOS, one flat set everywhere else.
     #[cfg(target_os = "windows")]
@@ -68,7 +80,7 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
         // (it falls back to the X11 worker itself when the compositor has no
         // selection), the X11 worker directly otherwise.
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            crate::desktop::shell2::linux::wayland::clipboard::read_payload()
+            crate::desktop::shell2::linux::wayland::clipboard::read_payload(asking_window(window))
         } else {
             crate::desktop::shell2::linux::x11::clipboard::read_payload()
         }
@@ -97,12 +109,26 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
     }
 }
 
+/// A registry id, as the Wayland router wants it: `None` for "nobody named a
+/// window", which is what 0 means at a call site that has no handle yet.
+#[cfg(target_os = "linux")]
+fn asking_window(window: u64) -> Option<crate::desktop::shell2::linux::registry::LinuxWindowId> {
+    (window != 0).then_some(window)
+}
+
 /// Publish a typed payload to the OS clipboard.
+///
+/// `window` names the asking window, for the same reason it does on the read
+/// side — see [`get_system_clipboard`]. A Wayland copy goes out on THAT
+/// window's `wl_data_source` with THAT window's input serial; sending another
+/// window's is how a copy made in the second window of an app got dropped by
+/// the compositor without a word.
 ///
 /// Returns `true` only when the platform transport accepted the content —
 /// `CutToClipboard` gates the DELETION of the selected text on this, so a
 /// failed copy must never report success.
-pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
+pub fn set_system_clipboard(window: u64, payload: &ClipboardPayload) -> bool {
+    let _ = window;
     // macOS and Windows publish EVERY flavor of the fan-out, which is what
     // makes a paste land in Word as styled text rather than flattened.
     #[cfg(target_os = "macos")]
@@ -123,7 +149,11 @@ pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
         // selection owner serves one target — see `x11/clipboard.rs`), so it
         // gets the plain-text reading.
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            crate::desktop::shell2::linux::wayland::clipboard::write_payload(payload).is_ok()
+            crate::desktop::shell2::linux::wayland::clipboard::write_payload(
+                asking_window(window),
+                payload,
+            )
+            .is_ok()
         } else {
             let Some(text) = payload_plain_text(payload) else {
                 return false;
@@ -185,7 +215,49 @@ fn payload_plain_text(payload: &ClipboardPayload) -> Option<String> {
 /// still encodes (as empty plain text), preserving the old "copy nothing
 /// clears the clipboard" behavior.
 pub fn clipboard_content_to_payload(content: &ClipboardContent) -> Option<ClipboardPayload> {
-    encode(&content_to_rich_item(content), Platform::native()).ok()
+    let platform = Platform::native();
+    let payload = encode(&content_to_rich_item(content), platform).ok()?;
+    let Some(html) = content.html.as_ref() else {
+        return Some(payload);
+    };
+    // The content's OWN markup is the HTML flavour (a mail's reply with its
+    // quotes and links), in place of the one the runs would have given; the
+    // RTF and plain flavours of the fan-out stay. Through the encoder, so
+    // Windows gets its `CF_HTML` wrapper.
+    let fragment = HtmlFragment {
+        markup: html.as_str().to_owned(),
+        context: None,
+        source_url: None,
+        plain: Some(content.plain_text.as_str().to_owned()),
+    };
+    let html_payload = encode(&RichItem::Html(fragment), platform).ok()?;
+    let mut out = ClipboardPayload::new(platform);
+    for item in payload.items() {
+        if item.flavor(platform) != Flavor::Html {
+            out.push(item.clone());
+        }
+    }
+    for item in html_payload.items() {
+        if item.flavor(platform) == Flavor::Html {
+            out.push(item.clone());
+        }
+    }
+    Some(out)
+}
+
+/// The HTML flavour of `payload` as markup, when the source offered one:
+/// bare markup on macOS and Unix, the fragment of Windows' `CF_HTML`. Over
+/// [`MAX_FLAVOR_BYTES`] it is left out, as the transports leave it.
+fn html_flavour_of(payload: &ClipboardPayload) -> Option<String> {
+    let item = payload.get(Flavor::Html)?;
+    if item.bytes.len() as u64 > MAX_FLAVOR_BYTES {
+        return None;
+    }
+    let options = Options::new().keep_html_markup(true);
+    match decode_with(item, payload.platform(), &options).ok()? {
+        RichItem::Html(fragment) => Some(fragment.markup),
+        _ => None,
+    }
 }
 
 fn content_to_rich_item(content: &ClipboardContent) -> RichItem {
@@ -228,13 +300,19 @@ fn content_to_rich_item(content: &ClipboardContent) -> RichItem {
 /// reading at all (an image, a file list) — those gain their own
 /// `ClipboardContent` representation in a later step.
 pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<ClipboardContent> {
-    match decode_payload(payload).ok()? {
-        RichItem::RichText(rich) => Some(rich_text_to_content(&rich)),
-        item => item.plain_text().map(|plain| ClipboardContent {
-            plain_text: plain.into(),
+    let mut content = match decode_payload(payload).ok()? {
+        RichItem::RichText(rich) => rich_text_to_content(&rich),
+        item => ClipboardContent {
+            plain_text: item.plain_text()?.into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
-        }),
-    }
+            html: azul_css::OptionString::None,
+        },
+    };
+    // The markup NEXT to the runs: paragraphs, lists, quotes and links have
+    // nowhere to go in the runs, and a rich editor's paste (or a mail app's
+    // sanitizer) wants them.
+    content.html = html_flavour_of(payload).map(azul_css::AzString::from).into();
+    Some(content)
 }
 
 fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
@@ -272,6 +350,7 @@ fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
     ClipboardContent {
         plain_text: rich.as_str().into(),
         styled_runs: runs.into(),
+        html: azul_css::OptionString::None,
     }
 }
 
@@ -303,6 +382,7 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "boldplain".into(),
             styled_runs: vec![styled("bold", true, 16.0), styled("plain", false, 16.0)].into(),
+            html: azul_css::OptionString::None,
         };
         let payload = clipboard_content_to_payload(&content).expect("encodes");
         let back = payload_to_clipboard_content(&payload).expect("decodes");
@@ -330,6 +410,7 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "the real text".into(),
             styled_runs: vec![styled("other", false, 0.0)].into(),
+            html: azul_css::OptionString::None,
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "the real text"),
@@ -358,10 +439,46 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "just text".into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
+            html: azul_css::OptionString::None,
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "just text"),
             other => panic!("expected plain text, got {other:?}"),
         }
+    }
+
+    /// E-PASTE: a paste keeps the HTML flavour NEXT to the plain text - the
+    /// markup as the source put it, which the styled runs cannot hold
+    /// (paragraphs, lists, links). What the default paste inserts, and what
+    /// an app's `Paste` callback (a mail app's sanitizer) reads.
+    #[test]
+    fn a_paste_keeps_the_html_flavour_next_to_the_plain_text() {
+        let payload = ClipboardPayload::new(Platform::MacOs)
+            .with("public.utf8-plain-text", &b"a\nb"[..])
+            .with("public.html", &b"<p>a</p><p><b>b</b></p>"[..]);
+        let content = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(content.plain_text.as_str(), "a\nb");
+        assert_eq!(
+            content.html.as_ref().map(|h| h.as_str()),
+            Some("<p>a</p><p><b>b</b></p>")
+        );
+    }
+
+    /// A copy whose content carries HTML publishes THAT as the HTML flavour
+    /// (next to the plain text), and it reads back as it was written.
+    #[test]
+    fn a_copy_with_html_publishes_it_as_the_html_flavour() {
+        let content = ClipboardContent {
+            plain_text: "a\nb".into(),
+            styled_runs: StyledTextRunVec::from_const_slice(&[]),
+            html: azul_css::OptionString::Some("<p>a</p><p>b</p>".into()),
+        };
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(back.plain_text.as_str(), "a\nb");
+        assert_eq!(
+            back.html.as_ref().map(|h| h.as_str()),
+            Some("<p>a</p><p>b</p>")
+        );
     }
 }

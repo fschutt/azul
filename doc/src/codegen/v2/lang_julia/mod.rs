@@ -35,9 +35,10 @@
 //! 4. **`@enum` variant names are `Az`-prefixed** (`AzUpdate_RefreshDom`) because `@enum` injects
 //!    variant names into the enclosing module scope; prefixing avoids collisions between enums that
 //!    share a variant name (`None`, `Some`, …).
-//! 5. **`setfields` helper.** isbits structs are immutable, so nested field assignment
-//!    (`window.window_state.title = …`) is expressed as a functional update `setfields(x; field =
-//!    …)` that reconstructs the value via the default positional constructor.
+//! 5. **Field accessors.** isbits structs are immutable, so fields are written through a mutable
+//!    box (`Ref{AzT}`) or a `Ptr{AzT}` view: `get_<field>` / `set_<field>!` / `<field>_ptr`
+//!    (see [`fields`]) release the old value and deep-copy heap-owning reads. The older
+//!    `setfields(x; field = …)` functional update remains for plain-data fields only.
 //!
 //! # Build / link requirements
 //!
@@ -46,6 +47,7 @@
 //! (or points `AZUL_LIB` at its absolute path). The generated `azul.jl`
 //! is `include`d and `using .Azul`'d by the driver.
 
+pub mod fields;
 pub mod functions;
 pub mod types;
 
@@ -72,6 +74,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     functions::generate_aliases(&mut b, ir, config);
 
     emit_postlude(&mut b);
+    fields::generate_field_accessors(&mut b, ir, config);
 
     b.blank();
     b.line("export az_string, native_string, setfields");
@@ -133,8 +136,10 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.line("    setfields(x::T; field = value, ...) -> T");
     b.line("");
     b.line("Functional update for an immutable isbits struct: returns a copy of `x` with");
-    b.line("the named fields replaced. Used instead of field assignment (isbits structs");
-    b.line("are immutable) to customize e.g. `window.window_state.title`.");
+    b.line("the named fields replaced. For PLAIN-DATA fields only: it neither releases");
+    b.line("the replaced value nor copies the new one, so a string / vec / other");
+    b.line("heap-owning field set this way leaks the old value. Use the field accessors");
+    b.line("(`set_title!(window_state_ptr(opts), \"Hello\")`) for those.");
     b.line("\"\"\"");
     b.line("function setfields(x::T; kwargs...) where {T}");
     b.line("    names = fieldnames(T)");
@@ -147,6 +152,7 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.line("    return T(vals...)");
     b.line("end");
     b.blank();
+    fields::emit_helpers(b);
 }
 
 /// Emit helpers that reference generated `Az*` types in their signature.
@@ -467,4 +473,93 @@ pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
         }
     }
     true
+}
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::{super::config::CodegenConfig, generate};
+
+    fn out() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("julia codegen")
+        })
+    }
+
+    /// The one generated line that starts with `prefix`.
+    fn line(prefix: &str) -> &'static str {
+        out()
+            .lines()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix))
+    }
+
+    #[test]
+    fn the_window_title_is_read_without_consuming_it() {
+        let l = line("get_title(x::_AzRef{AzFullWindowState})");
+        assert!(l.contains("native_string(unsafe_load(_az_fptr(x, AzString, "), "{}", l);
+        assert!(!l.contains("_delete"), "{}", l);
+    }
+
+    #[test]
+    fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
+        let l = line("set_title!(x::_AzRef{AzFullWindowState}, v::AzString)");
+        assert!(l.contains("_az_replace!(_az_fptr(x, AzString, "), "{}", l);
+        assert!(l.contains("AzString_delete"), "{}", l);
+        let l = line("set_title!(x::_AzRef{AzFullWindowState}, v::AbstractString)");
+        assert!(l.contains("az_string(v)"), "{}", l);
+    }
+
+    #[test]
+    fn the_window_state_getter_returns_a_deep_copy() {
+        let l = line("get_window_state(x::_AzRef{AzWindowCreateOptions})");
+        assert!(
+            l.contains("AzFullWindowState_clone(_az_fptr(x, AzFullWindowState, 1))"),
+            "{}",
+            l
+        );
+    }
+
+    #[test]
+    fn setting_the_window_state_releases_the_old_one_then_takes_the_new_one() {
+        let l = line("set_window_state!(x::_AzRef{AzWindowCreateOptions}, v::AzFullWindowState)");
+        assert!(
+            l.contains(
+                "_az_replace!(_az_fptr(x, AzFullWindowState, 1), v, AzFullWindowState_delete)"
+            ),
+            "{}",
+            l
+        );
+    }
+
+    #[test]
+    fn a_checkbox_flag_reads_and_writes_as_a_bool_in_place() {
+        let l = line("get_checked(x::_AzRef{AzCheckBoxState})");
+        assert!(l.contains("unsafe_load(_az_fptr(x, Bool, 1))"), "{}", l);
+        let l = line("set_checked!(x::_AzRef{AzCheckBoxState}, v)");
+        assert!(l.contains("unsafe_store!(_az_fptr(x, Bool, 1), v)"), "{}", l);
+    }
+
+    #[test]
+    fn nested_writes_reach_the_window_options_through_field_views() {
+        let l = line("window_state_ptr(x::_AzRef{AzWindowCreateOptions})");
+        assert!(l.contains("_az_fptr(x, AzFullWindowState, 1)"), "{}", l);
+        line("size_ptr(x::_AzRef{AzFullWindowState})");
+        line("set_dimensions!(x::_AzRef{AzWindowSize}, v::AzLogicalSize)");
+    }
+
+    #[test]
+    fn the_text_input_text_is_settable_although_get_text_exists() {
+        let l = line("set_text!(x::_AzRef{AzTextInputState}, v::AzU32Vec)");
+        assert!(l.contains("AzU32Vec_delete"), "{}", l);
+    }
+
+    #[test]
+    fn a_callback_field_gets_no_accessor() {
+        assert!(!out().contains("set_layout_callback!("));
+        assert!(!out().contains("set_create_callback!("));
+    }
 }

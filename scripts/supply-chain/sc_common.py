@@ -332,9 +332,38 @@ def build_script_escapes(crate: VendoredCrate) -> list[str]:
 
 def proc_macro_paths(crate: VendoredCrate) -> list[Path]:
     """Sources of a proc-macro crate — these run INSIDE rustc, with the same
-    ambient authority a build script has and none of the visibility."""
+    ambient authority a build script has and none of the visibility.
+
+    All of `src/`, and — when the manifest's `[lib] path` lies outside it —
+    that file and everything it pulls in with `mod` / `#[path]` / `include!`.
+    `lazy-regex-proc_macros` keeps its macros in a root-level `mod.rs` and
+    `document-features` in `lib.rs`: reading `src/` alone pinned NOTHING for
+    them — `e3b0c442…`, the sha256 of empty input — so every later release
+    would have re-pinned to that very digest, payload or not.
+    """
     src = crate.path / "src"
-    return sorted(p for p in src.rglob("*.rs")) if src.is_dir() else []
+    paths = set(src.rglob("*.rs")) if src.is_dir() else set()
+    lib = _lib_path(crate)
+    if lib is not None and lib.is_file() and src not in lib.parents:
+        followed, _escapes = _follow_includes(crate.path, [lib])
+        paths |= set(followed)
+    return sorted(paths)
+
+
+_LIB_SECTION_RE = re.compile(r'(?ms)^\[lib\]\s*$(.*?)(?=^\[|\Z)')
+_LIB_PATH_RE = re.compile(r'(?m)^\s*path\s*=\s*"([^"]+)"')
+
+
+def _lib_path(crate: VendoredCrate) -> Path | None:
+    """The file the manifest's `[lib] path` names, if it names one."""
+    mani = crate.path / "Cargo.toml"
+    if not mani.is_file():
+        return None
+    section = _LIB_SECTION_RE.search(mani.read_text(encoding="utf-8", errors="replace"))
+    if section is None:
+        return None
+    pm = _LIB_PATH_RE.search(section.group(1))
+    return (crate.path / pm.group(1)).resolve() if pm else None
 
 
 def digest_files(root: Path, paths: list[Path]) -> str:

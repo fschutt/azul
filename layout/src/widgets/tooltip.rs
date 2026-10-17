@@ -1,30 +1,22 @@
 //! Tooltip widget — wraps an arbitrary anchor [`Dom`] and shows a small text
 //! popup near it while the pointer hovers, hiding it again on leave.
 //!
-//! ## Implementation note (CSS-based, see `TODO2` below)
-//!
-//! The drop-down popup path (`open_menu_for_hit_node` / `MenuPopupPosition`) is
-//! built for *menus* — a list of clickable `MenuItem`s — not arbitrary text
-//! shown next to an anchor, and it would also require a live window/hit-test to
-//! verify. This widget therefore takes the simpler, fully-compilable and
-//! self-contained CSS route the recipe allows: the tip is an absolutely-
-//! positioned child of a `position: relative` wrapper, hidden by default
-//! (`opacity: 0`) and revealed on `MouseEnter` / hidden on `MouseLeave` via
-//! `set_css_property`. No user callbacks are needed — the show/hide handlers are
-//! internal.
-//!
-//! TODO2: this is a CSS simplification of a "real" floating popover. The tip is
-//! placed at a fixed offset below the anchor (it does not measure the anchor's
-//! height, flip when near a screen edge, or escape an `overflow: hidden`
-//! ancestor). A future revision could route through the window-popup / menu
-//! popup path for true screen-anchored positioning once that is runtime-
-//! verifiable.
+//! The tip is shown in the operating system's tooltip window
+//! (`CallbackInfo::show_tooltip_at`, a transient window of the platform's
+//! tooltip kind), opened under the anchor on `MouseEnter` and closed on
+//! `MouseLeave`. A window is not clipped by the anchor's ancestors and does
+//! not move the page. The tip's styled node stays in the DOM, hidden: it is
+//! the anchor's accessible description and the look the window's text
+//! follows where a platform draws the tooltip itself.
 //!
 //! Key types: [`Tooltip`].
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    dom::{
+        AttributeType, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec,
+    },
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
@@ -47,7 +39,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static TOOLTIP_WRAPPER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tooltip"))];
@@ -57,7 +52,7 @@ static TOOLTIP_TIP_CLASS: &[IdOrClass] =
 // ---- layout (logical px) ----
 /// Fixed vertical offset of the tip below the wrapper's top edge. A
 /// simplification — see the module-level `TODO2`.
-const TIP_OFFSET_Y: isize = 22;
+pub(crate) const TIP_OFFSET_Y: isize = 22;
 const TIP_RADIUS: isize = 4;
 
 // ---- colours ----
@@ -81,17 +76,38 @@ const TIP_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_
 
 /// Wrapper around the anchor: an inline-block positioning context so the
 /// absolutely-positioned tip is placed relative to it.
-static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// The tip itself: absolutely positioned, hidden by default (`opacity: 0`).
-static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
+// ---- R5: the tip's BASE - what every theme's tip shares ----
+//
+// A theme's tip is `TIP_BASE`, THEN its skin (paint and metrics):
+// `TOOLTIP_TIP_STYLE` for flat, `themes::flora::tooltip_skin` for flora. The
+// base comes first in every theme, so an unpinned tooltip (`follow_skin`)
+// declares it once, outside every `@theme` block. The wrapper has no skin:
+// `TOOLTIP_WRAPPER_STYLE` is its whole style in every theme.
+
+/// The tip's structure, placement and starting state in every theme:
+/// absolutely placed [`TIP_OFFSET_Y`] below the wrapper, on one line, and
+/// hidden (`opacity: 0`) - the value the leave handler writes back; the
+/// enter / leave handlers write the opacity and nothing else.
+pub(crate) static TIP_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
     CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+    // Preserve the tip on one line so it does not wrap into the anchor's width.
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Nowrap,
+    ))),
+    // Hidden until hovered.
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+];
+
+/// The tip: flat's dark chip, on [`TIP_BASE`].
+pub(crate) static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(8),
     )),
@@ -121,12 +137,6 @@ static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
         inner: TIP_TEXT_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
-    // Preserve the tip on one line so it does not wrap into the anchor's width.
-    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
-        StyleWhiteSpace::Nowrap,
-    ))),
-    // Hidden until hovered.
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
 ];
 
 /// A tooltip: an anchor [`Dom`] plus the text shown on hover.
@@ -146,6 +156,56 @@ pub struct Tooltip {
     pub wrapper_style: OptionCssPropertyWithConditionsVec,
     /// Style of the tip popup.
     pub tip_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the tip is built from,
+    /// so switching it rebuilds the tooltip.
+    pub theme: OptionUiTheme,
+}
+
+/// What a theme supplies for a tooltip: the wrapper and the tip. Every
+/// theme's tip is absolutely placed [`TIP_OFFSET_Y`] below the wrapper and
+/// starts hidden (`opacity: 0`) - the enter / leave handlers write its
+/// opacity and nothing else. Built by `themes::flat::tooltip_skin` /
+/// `themes::flora::tooltip_skin`.
+pub(crate) struct TooltipSkin {
+    pub theme: UiTheme,
+    pub wrapper: CssPropertyWithConditionsVec,
+    pub tip: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws tooltips with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> TooltipSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::tooltip_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::tooltip_skin(),
+    }
+}
+
+/// The skin an UNPINNED tooltip is built with, so it follows the app theme:
+/// `structure`'s theme (its marker goes on the wrapper) and both parts in
+/// BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the cascade keeps
+/// the live theme's. The caller's anchor is never cloned or walked.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> TooltipSkin {
+    use crate::widgets::themes::theme_blocks::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    TooltipSkin {
+        theme: structure,
+        wrapper: both(flat.wrapper.as_slice(), flora.wrapper.as_slice()),
+        tip: both(flat.tip.as_slice(), flora.tip.as_slice()),
+    }
+}
+
+/// The skin a tooltip carrying `theme` renders with: the pinned theme's, or
+/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
+/// built for. What the render and the resolvers both ask.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> TooltipSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
+    }
 }
 
 impl Default for Tooltip {
@@ -169,14 +229,14 @@ impl Tooltip {
 
     /// The tip CSS this tooltip renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift.
+    /// `None` means no opinion, so the theme's tip applies - asked of the same
+    /// skin the render uses, so the two cannot drift.
     #[must_use]
     pub fn resolved_tip_style(&self) -> CssPropertyWithConditionsVec {
         self.tip_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).tip)
     }
 
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
@@ -187,7 +247,23 @@ impl Tooltip {
             text,
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
             tip_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the tooltip follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the tip text.
@@ -226,21 +302,57 @@ impl Tooltip {
         s
     }
 
+    /// Renders the tooltip. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the tooltip follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        // The hover handlers only navigate the DOM (the tip is found relative to
-        // the hovered wrapper), so no per-tooltip state is needed.
-        let marker = RefAny::new(());
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::tooltip(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::tooltip(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the tooltip with `skin` styling the wrapper and the tip - what
+    /// `themes::flat::tooltip` / `themes::flora::tooltip` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: TooltipSkin) -> Dom {
+        // What the tooltip window shows: the handlers get it with the event.
+        let marker = RefAny::new(TooltipText(self.text.clone()));
 
         // Resolved before `self.text` is moved out below.
-        let tip_css = self.resolved_tip_style();
-        let wrapper_css = self.resolved_wrapper_style();
+        let tip_css = self.tip_style.into_option().unwrap_or(skin.tip);
+        let wrapper_css = self
+            .wrapper_style
+
+            .into_option()
+            .unwrap_or(skin.wrapper);
+        // A screen reader reads the tip's text as the anchor's description
+        // ("Save, button, Saves the file"), as for `aria-describedby`. The tip
+        // itself is drawn on hover only; read on its own it would be a stray
+        // text after the anchor, so it is hidden from assistive technology.
+        let mut anchor = self.anchor;
+        let mut anchor_info = anchor
+            .root
+            .get_accessibility_info()
+            .cloned()
+            .unwrap_or_default();
+        if anchor_info.description.is_none() && !self.text.as_str().trim().is_empty() {
+            anchor_info.description = Some(self.text.clone()).into();
+            anchor.root.set_accessibility_info(anchor_info);
+        }
         let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
+            .with_attribute(AttributeType::Hidden)
             .with_css_props(tip_css);
 
+        let mut classes: Vec<IdOrClass> = TOOLTIP_WRAPPER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_WRAPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(wrapper_css)
             .with_callbacks(
                 vec![
@@ -264,33 +376,44 @@ impl Tooltip {
                 .into(),
             )
             // children: [anchor, tip] — the tip is the anchor's next sibling.
-            .with_children(vec![self.anchor, tip].into())
+            .with_children(vec![anchor, tip].into())
     }
 }
 
-/// Returns the tip node (the second child) of the hovered wrapper.
-fn tip_of_wrapper(info: &CallbackInfo) -> Option<azul_core::dom::DomNodeId> {
-    let wrapper = info.get_hit_node();
-    let anchor = info.get_first_child(wrapper)?;
-    info.get_next_sibling(anchor)
-}
+/// The text a tooltip's hover handlers show, carried as their payload.
+struct TooltipText(
+    /// The tip's text, as the widget was built with it.
+    AzString,
+);
 
-/// Pointer entered the wrapper → reveal the tip.
-extern "C" fn on_tooltip_enter(_data: RefAny, mut info: CallbackInfo) -> Update {
-    if let Some(tip) = tip_of_wrapper(&info) {
-        info.set_css_property(
-            tip,
-            CssProperty::const_opacity(StyleOpacity::const_new(100)),
-        );
+/// How far below its anchor the tooltip window opens, in logical px.
+const TIP_GAP: f32 = 4.0;
+
+/// Pointer entered the wrapper: open the tooltip window under the anchor
+/// with the tip's text.
+extern "C" fn on_tooltip_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(text) = data.downcast_ref::<TooltipText>().map(|t| t.0.clone()) else {
+        return Update::DoNothing;
+    };
+    if text.as_str().trim().is_empty() {
+        return Update::DoNothing;
+    }
+    match info.get_hit_node_rect() {
+        Some(rect) => info.show_tooltip_at(
+            text,
+            azul_core::geom::LogicalPosition::new(
+                rect.origin.x,
+                rect.origin.y + rect.size.height + TIP_GAP,
+            ),
+        ),
+        None => info.show_tooltip(text),
     }
     Update::DoNothing
 }
 
-/// Pointer left the wrapper → hide the tip.
+/// Pointer left the wrapper: close the tooltip window.
 extern "C" fn on_tooltip_leave(_data: RefAny, mut info: CallbackInfo) -> Update {
-    if let Some(tip) = tip_of_wrapper(&info) {
-        info.set_css_property(tip, CssProperty::const_opacity(StyleOpacity::const_new(0)));
-    }
+    info.hide_tooltip();
     Update::DoNothing
 }
 
@@ -418,11 +541,6 @@ mod autotest_generated {
                 _ => None,
             })
             .collect()
-    }
-
-    /// The `CssPropertyType` of `opacity`, without hard-coding the enum variant.
-    fn opacity_ty() -> CssPropertyType {
-        CssProperty::const_opacity(StyleOpacity::const_new(0)).get_type()
     }
 
     /// A style vec built from an owned `Vec` (the shape a *user* override has).
@@ -575,33 +693,8 @@ mod autotest_generated {
             .collect()
     }
 
-    /// Every recorded opacity write, as `(node index, normalized opacity)`.
-    fn opacity_writes(changes: &[CallbackChange]) -> Vec<(usize, f32)> {
-        let mut out = Vec::new();
-        for (idx, props) in css_writes(changes) {
-            for p in &props {
-                if let CssProperty::Opacity(v) = p {
-                    if let Some(o) = v.get_property() {
-                        out.push((idx, o.inner.normalized()));
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Index of the first node carrying `class` in a flattened `StyledDom`.
-    fn index_of_class(styled: &StyledDom, class: &str) -> Option<usize> {
-        styled.node_data.as_ref().iter().position(|nd| {
-            nd.get_ids_and_classes()
-                .as_ref()
-                .iter()
-                .any(|c| matches!(c, Class(s) if s.as_str() == class))
-        })
-    }
-
     /// A three-node styled DOM — `root(0)` with children `anchor(1)` and
-    /// `tip(2)` — i.e. the exact hierarchy `tip_of_wrapper` walks.
+    /// `tip(2)`, the hierarchy a built tooltip has.
     fn anchor_tip_dom() -> StyledDom {
         let styled = StyledDom::create_from_dom(
             Dom::create_div()
@@ -634,24 +727,26 @@ mod autotest_generated {
 
     #[test]
     fn new_uses_the_static_style_tables() {
-        let t = Tooltip::new(Dom::create_div(), AzString::from_const_str("x"));
+        // Flat's tables (an unpinned tooltip carries every theme's blocks).
+        let t = Tooltip::new(Dom::create_div(), AzString::from_const_str("x"))
+            .with_theme(UiTheme::Flat);
 
         assert_eq!(
             t.resolved_wrapper_style(),
             CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_WRAPPER_STYLE)
         );
+        // R5: the tip is the widget's `TIP_BASE`, then flat's table.
+        let flat_tip: Vec<CssPropertyWithConditions> =
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect();
         assert_eq!(
             t.resolved_tip_style(),
-            CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)
+            CssPropertyWithConditionsVec::from_vec(flat_tip.clone())
         );
         assert_eq!(
             t.resolved_wrapper_style().len(),
             TOOLTIP_WRAPPER_STYLE.len()
         );
-        assert_eq!(
-            t.resolved_tip_style().as_slice().len(),
-            TOOLTIP_TIP_STYLE.len()
-        );
+        assert_eq!(t.resolved_tip_style().as_slice().len(), flat_tip.len());
     }
 
     #[test]
@@ -902,11 +997,13 @@ mod autotest_generated {
     #[test]
     fn tip_style_starts_hidden_with_exactly_one_opacity_declaration() {
         // Two opacity declarations would make the last one win and could leave
-        // the tip permanently visible.
+        // the tip permanently visible. R5: the hidden start is the widget's
+        // `TIP_BASE`; the whole flat tip is that base, then flat's table.
+        let flat_tip = CssPropertyWithConditionsVec::from_vec(
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect(),
+        );
         assert_eq!(
-            declared_opacities(&CssPropertyWithConditionsVec::from_const_slice(
-                TOOLTIP_TIP_STYLE
-            )),
+            declared_opacities(&flat_tip),
             vec![0.0],
             "the tip must be hidden by default via a single opacity declaration"
         );
@@ -914,7 +1011,9 @@ mod autotest_generated {
 
     #[test]
     fn tip_style_is_absolutely_positioned_and_does_not_wrap() {
-        let style = CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE);
+        // R5: the placement and the single line are the widget's `TIP_BASE`,
+        // the same in every theme.
+        let style = CssPropertyWithConditionsVec::from_const_slice(TIP_BASE);
 
         assert_eq!(declared_positions(&style), vec![LayoutPosition::Absolute]);
         assert!(
@@ -955,11 +1054,14 @@ mod autotest_generated {
 
     #[test]
     fn neither_style_table_declares_a_property_type_twice() {
+        // R5: the tip as flat builds it - `TIP_BASE`, then flat's table.
+        let flat_tip: Vec<CssPropertyWithConditions> =
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect();
         for (name, table) in [
             ("wrapper", TOOLTIP_WRAPPER_STYLE),
-            ("tip", TOOLTIP_TIP_STYLE),
+            ("tip", flat_tip.as_slice()),
         ] {
-            let style = CssPropertyWithConditionsVec::from_const_slice(table);
+            let style = CssPropertyWithConditionsVec::from_vec(table.to_vec());
             let mut types = prop_types(&style);
             let declared = types.len();
             assert!(declared > 0, "{name} style must not be empty");
@@ -975,7 +1077,7 @@ mod autotest_generated {
 
     #[test]
     fn both_style_tables_apply_unconditionally() {
-        for table in [TOOLTIP_WRAPPER_STYLE, TOOLTIP_TIP_STYLE] {
+        for table in [TOOLTIP_WRAPPER_STYLE, TIP_BASE, TOOLTIP_TIP_STYLE] {
             assert!(
                 table.iter().all(|p| p.apply_if.as_ref().is_empty()),
                 "a stray condition would leave the tooltip unstyled"
@@ -1002,14 +1104,25 @@ mod autotest_generated {
         let anchor = Dom::create_div().with_child(
             Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
         );
-        let dom = Tooltip::new(anchor.clone(), AzString::from_const_str("tip")).dom();
+        // Flat's tables (an unpinned tooltip carries every theme's blocks).
+        let dom = Tooltip::new(anchor.clone(), AzString::from_const_str("tip"))
+            .with_theme(UiTheme::Flat)
+            .dom();
 
         assert!(has_class(&dom, WRAPPER_CLASS_NAME));
         assert_eq!(dom.root.get_node_type(), &NodeType::Div);
 
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 2, "children must be exactly [anchor, tip]");
-        assert_eq!(children[0], anchor, "child 0 must be the anchor, verbatim");
+        let mut described = anchor.clone();
+        described.root.set_accessibility_info(azul_core::dom::AccessibilityInfo {
+            description: Some(AzString::from_const_str("tip")).into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            children[0], described,
+            "child 0 must be the anchor, described by the tip for a screen reader"
+        );
         assert!(
             has_class(&children[1], TIP_CLASS_NAME),
             "child 1 must be the tip"
@@ -1017,8 +1130,8 @@ mod autotest_generated {
         assert_eq!(text_of(&children[1]), Some("tip"));
         assert_eq!(
             inline_properties(&children[1]).len(),
-            TOOLTIP_TIP_STYLE.len(),
-            "the tip must carry the full tip style"
+            TIP_BASE.len() + TOOLTIP_TIP_STYLE.len(),
+            "the tip must carry the full tip style (the widget's base, then flat's table)"
         );
         assert_eq!(
             inline_properties(&dom).len(),
@@ -1195,298 +1308,201 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // tip_of_wrapper
+    // the native tooltip window
     // ------------------------------------------------------------------
 
-    #[test]
-    fn tip_of_wrapper_without_a_layout_result_is_none() {
-        let (tip, changes) = with_info(None, node(0), |info| tip_of_wrapper(&info));
-        assert_eq!(tip, None);
-        assert!(changes.is_empty());
+    /// The payload a built tooltip hands its `event` handler.
+    fn payload_of(dom: &Dom, event: HoverEventFilter) -> RefAny {
+        dom.root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .find(|cb| cb.event == EventFilter::Hover(event))
+            .map(|cb| cb.refany.clone())
+            .expect("the wrapper takes the event")
     }
 
+    /// The user's report: the AzWidgets tooltip showcase never opens the
+    /// operating system's tooltip window - the tip is a styled child of the
+    /// page, clipped by its ancestors. Hovering the anchor opens the native
+    /// tooltip window with the tip's text; leaving it closes the window. The
+    /// page is not restyled for it.
     #[test]
-    fn tip_of_wrapper_with_a_stale_hit_node_is_none() {
-        for stale in [3usize, 999, usize::MAX / 2] {
-            let (tip, _) = with_info(Some(anchor_tip_dom()), node(stale), |info| {
-                tip_of_wrapper(&info)
-            });
-            assert_eq!(
-                tip, None,
-                "node {stale} does not exist in the 3-node fixture"
-            );
-        }
-    }
-
-    #[test]
-    fn tip_of_wrapper_with_a_none_hit_node_is_none() {
-        let (tip, _) = with_info(Some(anchor_tip_dom()), NodeHierarchyItemId::NONE, |info| {
-            tip_of_wrapper(&info)
-        });
-        assert_eq!(tip, None, "an unset hit node must not resolve to a tip");
-    }
-
-    #[test]
-    fn tip_of_wrapper_on_a_childless_node_is_none() {
-        // node 1 is a leaf -> no first child -> no tip.
-        let (tip, _) = with_info(Some(anchor_tip_dom()), node(1), |info| {
-            tip_of_wrapper(&info)
-        });
-        assert_eq!(tip, None);
-    }
-
-    #[test]
-    fn tip_of_wrapper_without_a_second_child_is_none() {
-        let styled = StyledDom::create_from_dom(Dom::create_div().with_child(Dom::create_div()));
-        let (tip, _) = with_info(Some(styled), node(0), |info| tip_of_wrapper(&info));
-        assert_eq!(
-            tip, None,
-            "a wrapper with a single child has no tip to reveal"
-        );
-    }
-
-    #[test]
-    fn tip_of_wrapper_returns_the_second_child() {
-        let (tip, _) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-            tip_of_wrapper(&info)
-        });
-        assert_eq!(
-            tip.and_then(|t| t.node.into_crate_internal())
-                .map(|n| n.index()),
-            Some(2)
-        );
-    }
-
-    #[test]
-    fn tip_of_wrapper_finds_the_tip_of_a_real_tooltip_dom() {
-        // The anchor has a subtree of its own, so the tip is *not* simply
-        // `hit + 1` — the handler must walk first-child -> next-sibling.
-        let dom = Tooltip::new(nested_anchor(3), AzString::from_const_str("tip")).dom();
-        let styled = StyledDom::create_from_dom(dom);
-        let wrapper = index_of_class(&styled, WRAPPER_CLASS_NAME).expect("wrapper class missing");
-        let expected = index_of_class(&styled, TIP_CLASS_NAME).expect("tip class missing");
-        assert!(
-            expected > wrapper + 1,
-            "fixture must have a non-trivial anchor subtree between wrapper and tip"
-        );
-
-        let (tip, _) = with_info(Some(styled), node(wrapper), |info| tip_of_wrapper(&info));
-        assert_eq!(
-            tip.and_then(|t| t.node.into_crate_internal())
-                .map(|n| n.index()),
-            Some(expected)
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // on_tooltip_enter / on_tooltip_leave
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn enter_reveals_and_leave_hides_exactly_the_tip() {
-        for (name, handler, expected) in [
-            (
-                "enter",
-                on_tooltip_enter as extern "C" fn(RefAny, CallbackInfo) -> Update,
-                1.0_f32,
-            ),
-            (
-                "leave",
-                on_tooltip_leave as extern "C" fn(RefAny, CallbackInfo) -> Update,
-                0.0_f32,
-            ),
-        ] {
-            let (update, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-                handler(RefAny::new(()), info)
-            });
-
-            assert_eq!(update, Update::DoNothing, "{name} must not relayout");
-            assert_eq!(
-                opacity_writes(&changes),
-                vec![(2, expected)],
-                "{name} must write exactly one opacity, on the tip node"
-            );
-            let writes = css_writes(&changes);
-            assert_eq!(
-                writes.len(),
-                changes.len(),
-                "{name} must only record CSS writes"
-            );
-            assert_eq!(writes[0].1.len(), 1, "{name} must write a single property");
-        }
-    }
-
-    #[test]
-    fn leave_restores_the_opacity_declared_in_the_static_tip_style() {
-        // Round-trip: what the handler writes on leave must be exactly what the
-        // stylesheet declares, otherwise the tip would not return to its
-        // initial rendering.
-        let declared = declared_opacities(&CssPropertyWithConditionsVec::from_const_slice(
-            TOOLTIP_TIP_STYLE,
-        ));
-        let (_, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-            on_tooltip_leave(RefAny::new(()), info)
-        });
-
-        assert_eq!(
-            opacity_writes(&changes)
-                .iter()
-                .map(|(_, o)| *o)
-                .collect::<Vec<_>>(),
-            declared
-        );
-    }
-
-    #[test]
-    fn enter_then_leave_is_a_round_trip() {
-        let enter = with_info(Some(anchor_tip_dom()), node(0), |info| {
-            on_tooltip_enter(RefAny::new(()), info)
-        })
-        .1;
-        let leave = with_info(Some(anchor_tip_dom()), node(0), |info| {
-            on_tooltip_leave(RefAny::new(()), info)
-        })
-        .1;
-
-        let (e, l) = (opacity_writes(&enter), opacity_writes(&leave));
-        assert_eq!(e.len(), 1);
-        assert_eq!(l.len(), 1);
-        assert_eq!(e[0].0, l[0].0, "both must target the same node");
-        assert!(
-            e[0].1 > l[0].1,
-            "enter must make the tip more visible than leave ({} vs {})",
-            e[0].1,
-            l[0].1
-        );
-        assert_eq!((e[0].1, l[0].1), (1.0, 0.0));
-    }
-
-    #[test]
-    fn handlers_are_noops_when_there_is_no_tip() {
-        let fixtures: Vec<(&str, Option<StyledDom>, NodeHierarchyItemId)> = vec![
-            ("no layout result", None, node(0)),
-            ("stale hit node", Some(anchor_tip_dom()), node(999)),
-            (
-                "none hit node",
-                Some(anchor_tip_dom()),
-                NodeHierarchyItemId::NONE,
-            ),
-            ("leaf hit node", Some(anchor_tip_dom()), node(1)),
-            (
-                "single child",
-                Some(StyledDom::create_from_dom(
-                    Dom::create_div().with_child(Dom::create_div()),
-                )),
-                node(0),
-            ),
-        ];
-
-        for (name, styled, hit) in fixtures {
-            for handler in [
-                on_tooltip_enter as extern "C" fn(RefAny, CallbackInfo) -> Update,
-                on_tooltip_leave as extern "C" fn(RefAny, CallbackInfo) -> Update,
-            ] {
-                let (update, changes) =
-                    with_info(styled.clone(), hit, |info| handler(RefAny::new(()), info));
-                assert_eq!(update, Update::DoNothing, "{name}");
-                assert!(
-                    changes.is_empty(),
-                    "{name}: nothing may be restyled without a tip"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn handlers_ignore_their_payload() {
-        // The handlers are stateless — a foreign (or even empty) payload must
-        // not change what they do.
-        for data in [
-            RefAny::new(()),
-            RefAny::new(0xdead_beef_u64),
-            RefAny::new(()),
-        ] {
-            let (update, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-                on_tooltip_enter(data.clone(), info)
-            });
-            assert_eq!(update, Update::DoNothing);
-            assert_eq!(opacity_writes(&changes), vec![(2, 1.0)]);
-        }
-    }
-
-    #[test]
-    fn repeated_enter_is_idempotent() {
-        let mut all = Vec::new();
-        for _ in 0..64 {
-            let (update, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-                on_tooltip_enter(RefAny::new(()), info)
-            });
-            assert_eq!(update, Update::DoNothing);
-            all.push(opacity_writes(&changes));
-        }
-        assert!(
-            all.iter().all(|w| *w == vec![(2, 1.0)]),
-            "repeated hovers must keep producing the same single write"
-        );
-    }
-
-    #[test]
-    fn handlers_never_restyle_the_wrapper_or_the_anchor() {
-        let dom = Tooltip::new(nested_anchor(2), AzString::from_const_str("tip")).dom();
-        let styled = StyledDom::create_from_dom(dom);
-        let wrapper = index_of_class(&styled, WRAPPER_CLASS_NAME).expect("wrapper class missing");
-        let tip = index_of_class(&styled, TIP_CLASS_NAME).expect("tip class missing");
-
-        for handler in [
-            on_tooltip_enter as extern "C" fn(RefAny, CallbackInfo) -> Update,
-            on_tooltip_leave as extern "C" fn(RefAny, CallbackInfo) -> Update,
-        ] {
-            let (_, changes) = with_info(Some(styled.clone()), node(wrapper), |info| {
-                handler(RefAny::new(()), info)
-            });
-            let touched: Vec<usize> = css_writes(&changes).into_iter().map(|(i, _)| i).collect();
-            assert_eq!(
-                touched,
-                vec![tip],
-                "only the tip may be restyled, never the wrapper or the anchor subtree"
-            );
-        }
-    }
-
-    #[test]
-    fn hovering_the_tip_itself_does_nothing() {
-        let dom = Tooltip::new(Dom::create_div(), AzString::from_const_str("tip")).dom();
-        let styled = StyledDom::create_from_dom(dom);
-        let tip = index_of_class(&styled, TIP_CLASS_NAME).expect("tip class missing");
-
-        let (update, changes) = with_info(Some(styled), node(tip), |info| {
-            on_tooltip_enter(RefAny::new(()), info)
+    fn hovering_a_tooltip_opens_the_native_tooltip_window_with_its_text() {
+        let dom = Tooltip::new(Dom::create_div(), AzString::from("Saves the file")).dom();
+        let (update, entered) = with_info(Some(anchor_tip_dom()), node(0), |info| {
+            on_tooltip_enter(payload_of(&dom, HoverEventFilter::MouseEnter), info)
         });
         assert_eq!(update, Update::DoNothing);
         assert!(
-            changes.is_empty(),
-            "the tip is a leaf text node — it has no tip of its own"
+            entered.iter().any(|c| matches!(
+                c,
+                CallbackChange::ShowTooltip { text, .. } if text.as_str() == "Saves the file"
+            )),
+            "entering the anchor opens the tooltip window with the text, {entered:?}"
+        );
+        assert!(css_writes(&entered).is_empty(), "nothing on the page is restyled");
+
+        let (_, left) = with_info(Some(anchor_tip_dom()), node(0), |info| {
+            on_tooltip_leave(payload_of(&dom, HoverEventFilter::MouseLeave), info)
+        });
+        assert!(
+            left.iter().any(|c| matches!(c, CallbackChange::HideTooltip)),
+            "leaving the anchor closes the tooltip window, {left:?}"
+        );
+        assert!(css_writes(&left).is_empty(), "nothing on the page is restyled");
+    }
+
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The tooltip's theme is a DOM-level choice: the tip is built from the
+    //! skin of the theme the tooltip carries, flat by default. In both the
+    //! tip's node starts hidden (`opacity: 0`): the tooltip window shows it.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn tooltip(theme: Option<UiTheme>) -> Dom {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("Explains it"));
+        match theme {
+            Some(th) => t.with_theme(th).dom(),
+            None => t.dom(),
+        }
+    }
+
+    fn tip(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_tooltip_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("x"));
+        assert_eq!(t.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&tooltip(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            tooltip(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Tooltip::new(Dom::create_div(), AzString::from("x"));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Tooltip::new(Dom::create_div(), AzString::from("x")).with_theme(UiTheme::Flora)
         );
     }
 
     #[test]
-    fn every_written_property_is_an_opacity() {
-        for handler in [
-            on_tooltip_enter as extern "C" fn(RefAny, CallbackInfo) -> Update,
-            on_tooltip_leave as extern "C" fn(RefAny, CallbackInfo) -> Update,
-        ] {
-            let (_, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
-                handler(RefAny::new(()), info)
+    fn a_flat_tip_is_the_established_dark_chip_in_both_modes() {
+        let dom = tooltip(Some(UiTheme::Flat));
+        for dark in [false, true] {
+            assert_eq!(bg(tip(&dom), dark), Some(TIP_BG_COLOR), "dark={dark}");
+            assert_eq!(tc::text_color(tip(&dom), dark), Some(TIP_TEXT_COLOR), "dark={dark}");
+        }
+    }
+
+    #[test]
+    fn a_flora_tip_is_dark_oak_never_black_by_day_and_by_night() {
+        use crate::widgets::themes::flora::{TOOLTIP_OAK, TOOLTIP_OAK_INK, TOOLTIP_OAK_RULE};
+        let dom = tooltip(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let t = tip(&dom);
+        assert_eq!(bg(t, false), Some(TOOLTIP_OAK.0));
+        assert_eq!(bg(t, true), Some(TOOLTIP_OAK.1));
+        assert_ne!(TOOLTIP_OAK.0, ColorU::rgb(0, 0, 0), "never black");
+        assert_eq!(tc::text_color(t, false), Some(TOOLTIP_OAK_INK.0));
+        assert_eq!(tc::text_color(t, true), Some(TOOLTIP_OAK_INK.1));
+        assert_eq!(tc::border_top_color(t, false, None), Some(TOOLTIP_OAK_RULE.0));
+        assert_eq!(tc::border_top_color(t, true, None), Some(TOOLTIP_OAK_RULE.1));
+        tc::assert_theme_invariants("tooltip Flora", &dom);
+    }
+
+    #[test]
+    fn every_theme_s_tip_starts_hidden_and_keeps_its_placement() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = tooltip(Some(theme));
+            let t = tip(&dom);
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Opacity, false, None),
+                Some(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+                "{theme:?}: the enter / leave handlers toggle opacity"
+            );
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Position, false, None),
+                Some(CssProperty::const_position(LayoutPosition::Absolute)),
+                "{theme:?}"
+            );
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Top, false, None),
+                Some(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_tip_resolver_answers_for_the_theme() {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("x")).with_theme(UiTheme::Flora);
+        assert!(t
+            .resolved_tip_style()
+            .as_ref()
+            .iter()
+            .any(|p| tc::bg_color(&p.property)
+                == Some(crate::widgets::themes::flora::TOOLTIP_OAK.0)));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        assert_eq!(
+            tc::a11y_outline(&tooltip(Some(UiTheme::Flat))),
+            tc::a11y_outline(&tooltip(Some(UiTheme::Flora)))
+        );
+    }
+}
+
+/// R5: a tooltip's STRUCTURE (display, position, white-space, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come. What a theme owns is its skin:
+/// paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+
+    use super::Tooltip;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_tooltip_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let dom = under(t, || {
+                Tooltip::new(Dom::create_div(), AzString::from("Save the file")).dom()
             });
-            for (_, props) in css_writes(&changes) {
-                for p in props {
-                    assert_eq!(
-                        p.get_type(),
-                        opacity_ty(),
-                        "the hover handlers must only toggle opacity"
-                    );
-                }
-            }
+            assert_structure_is_shared(&format!("tooltip, built for {}", t.name()), &dom, &[]);
         }
     }
 }

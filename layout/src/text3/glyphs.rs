@@ -41,12 +41,24 @@ pub struct SimpleGlyphRun {
     pub font_hash: u64,
     /// The font size in pixels.
     pub font_size_px: f32,
+    /// The run's style asks for a bold weight (600 or more). The display
+    /// list draws the run thickened when its face is lighter than that
+    /// ([`crate::text3::cache::needs_synthetic_bold`]). A face can serve a
+    /// regular and a bold run alike, so runs break where this changes.
+    pub asks_for_bold: bool,
     /// Text decoration (underline, strikethrough, overline)
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// Whether this is an IME composition preview (should be rendered with special styling)
     pub is_ime_preview: bool,
     /// The source DOM node that generated this text run (for hit-testing)
     pub source_node_id: Option<NodeId>,
+    /// Where the run ENDS on the inline axis, in the glyphs' space: the pen
+    /// after its last glyph (`x + advance`). A paint run does not carry
+    /// per-glyph advances (`GlyphInstance::size` is never populated), so
+    /// without this the extent of a run - its inline background and border,
+    /// its underline, its hit-test area - stopped at the LAST glyph's pen,
+    /// one letter short (`<u>W</u>` had no underline at all).
+    pub end_x: f32,
 }
 
 /// #25: the STORED form of a paint run's glyphs — 8 B/glyph instead of the
@@ -174,9 +186,13 @@ pub struct CompactGlyphRun {
     pub border: Option<InlineBorderInfo>,
     pub font_hash: u64,
     pub font_size_px: f32,
+    /// See [`SimpleGlyphRun::asks_for_bold`].
+    pub asks_for_bold: bool,
     pub text_decoration: crate::text3::cache::TextDecoration,
     pub is_ime_preview: bool,
     pub source_node_id: Option<NodeId>,
+    /// See [`SimpleGlyphRun::end_x`].
+    pub end_x: f32,
 }
 
 impl From<SimpleGlyphRun> for CompactGlyphRun {
@@ -189,9 +205,11 @@ impl From<SimpleGlyphRun> for CompactGlyphRun {
             border: r.border,
             font_hash: r.font_hash,
             font_size_px: r.font_size_px,
+            asks_for_bold: r.asks_for_bold,
             text_decoration: r.text_decoration,
             is_ime_preview: r.is_ime_preview,
             source_node_id: r.source_node_id,
+            end_x: r.end_x,
         }
     }
 }
@@ -209,9 +227,11 @@ impl CompactGlyphRun {
             border: self.border,
             font_hash: self.font_hash,
             font_size_px: self.font_size_px,
+            asks_for_bold: self.asks_for_bold,
             text_decoration: self.text_decoration,
             is_ime_preview: self.is_ime_preview,
             source_node_id: self.source_node_id,
+            end_x: self.end_x,
         }
     }
 }
@@ -229,9 +249,14 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
         && a.border == b.border
         && a.font_hash == b.font_hash
         && f(a.font_size_px, b.font_size_px)
+        && a.asks_for_bold == b.asks_for_bold
         && a.text_decoration == b.text_decoration
         && a.is_ime_preview == b.is_ime_preview
         && a.source_node_id == b.source_node_id
+        // The two builders reach the end pen by different sums (per-glyph
+        // advance + kerning, or the cluster's advance): equal up to float
+        // rounding, not bit for bit.
+        && ((a.end_x - b.end_x).abs() <= 1e-3 || (a.end_x.is_nan() && b.end_x.is_nan()))
         && a.glyphs.len() == b.glyphs.len()
         && a.glyphs.iter().zip(b.glyphs.iter()).all(|(g, h)| {
             g.index == h.index
@@ -278,6 +303,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let glyph_border = style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
+                    let asks_for_bold = style.asks_for_bold();
                     let text_decoration = style.text_decoration;
 
                     let absolute_position = LogicalPosition {
@@ -300,6 +326,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.background_content == glyph_background_content
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
+                            && run.asks_for_bold == asks_for_bold
                             && run.text_decoration == text_decoration
                             && run.source_node_id == source_node_id
                         {
@@ -315,9 +342,11 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 border: glyph_border,
                                 font_hash,
                                 font_size_px,
+                                asks_for_bold,
                                 text_decoration,
                                 is_ime_preview: false,
                                 source_node_id,
+                                end_x: pen_x,
                             });
                         }
                     } else {
@@ -330,13 +359,19 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             border: glyph_border,
                             font_hash,
                             font_size_px,
+                            asks_for_bold,
                             text_decoration,
                             is_ime_preview: false,
                             source_node_id,
+                            end_x: pen_x,
                         });
                     }
 
                     pen_x += glyph.advance + glyph.kerning;
+                    // The run this glyph joined now ends after it.
+                    if let Some(run) = current_run.as_mut() {
+                        run.end_x = pen_x;
+                    }
                 }
             };
 
@@ -759,6 +794,7 @@ mod autotest_generated {
             units_per_em: 0,
             x_height: None,
             cap_height: None,
+            browser_ascent_boost: false,
         }
     }
 

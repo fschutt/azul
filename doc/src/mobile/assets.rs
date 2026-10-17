@@ -72,9 +72,57 @@ const ASSETS: &[(&str, &str, bool)] = &[
         include_str!("../../../scripts/android/AzulFilePicker.java"),
         false,
     ),
+    // Every helper `build-android.sh` compiles (it takes all of
+    // scripts/android/*.java): AzulActivity imports most of them, so a cache
+    // missing one fails `javac` for every app built outside the checkout.
     (
         "scripts/android/NativeGestureBridge.java",
         include_str!("../../../scripts/android/NativeGestureBridge.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulBiometric.java",
+        include_str!("../../../scripts/android/AzulBiometric.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulGamepad.java",
+        include_str!("../../../scripts/android/AzulGamepad.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulGeolocation.java",
+        include_str!("../../../scripts/android/AzulGeolocation.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulKeyring.java",
+        include_str!("../../../scripts/android/AzulKeyring.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulMediaSession.java",
+        include_str!("../../../scripts/android/AzulMediaSession.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulNotifications.java",
+        include_str!("../../../scripts/android/AzulNotifications.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulPermissions.java",
+        include_str!("../../../scripts/android/AzulPermissions.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulSensors.java",
+        include_str!("../../../scripts/android/AzulSensors.java"),
+        false,
+    ),
+    (
+        "scripts/android/NativeTextBridge.java",
+        include_str!("../../../scripts/android/NativeTextBridge.java"),
         false,
     ),
     (

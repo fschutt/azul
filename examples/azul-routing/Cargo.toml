@@ -1,0 +1,41 @@
+[package]
+name = "azul-routing"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzMaps' road routing without azul types (examples/azul-maps/ROUTING.md):
+    the static routing tiles (Valhalla's road graph as gzipped protobuf at
+    zoom 8 / 11 / 14) with their manifest, cache and offline areas, an
+    edge-based A* that reads the tiles as the search reaches them, and the
+    generator that cuts an OpenStreetMap extract into the same tiles.
+"""
+publish = false
+
+[dependencies]
+# Both already in the tree: the tiles are gzipped (the protobuf reader is our
+# own, wire.rs), the manifest is JSON, and an OSM extract's blocks are zlib.
+# float_roundtrip: a manifest read back holds the very bounds it was written with (the default
+# parser may land one bit off); a feature of serde_json, no other crate.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+flate2 = "1"
+# The times of public transport journeys (RFC 3339 in, unix seconds out): the chrono most of the
+# apps already build, no crate enters Cargo.lock.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The download of the tiles (feature `http`): exactly the ureq and rustls azul-layout's `http`
+# builds (the pure-Rust RustCrypto provider, the Mozilla roots), so no crate enters Cargo.lock.
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
+rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+
+[features]
+default = []
+http = ["dep:ureq", "dep:rustls-rustcrypto"]
+
+[lib]
+name = "azul_routing"
+path = "src/lib.rs"
+
+[[bin]]
+name = "routing-tiles"
+path = "src/bin/routing-tiles.rs"

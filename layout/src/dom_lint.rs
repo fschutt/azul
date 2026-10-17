@@ -148,11 +148,56 @@ fn has_box_dependent_callback(data: &azul_core::dom::NodeData) -> bool {
         .any(|cb| matches!(cb.event, EventFilter::Hover(_) | EventFilter::Focus(_)))
 }
 
+/// Can the USER trigger one of this node's callbacks, i.e. is it a control?
+///
+/// The same split as [`has_box_dependent_callback`]: pointer (`Hover`) and
+/// keyboard (`Focus`) listeners are aimed at the node by the user. Lifecycle
+/// (`Component`: `AfterMount`, `NodeResized`), `Window`, `Application` and
+/// `External` listeners are delivered without anyone aiming at the node, so a
+/// node that has only those is not a control and owes nobody a name - the
+/// video widget's root (two lifecycle listeners around a `VirtualView`) was
+/// reported as an unnamed icon-only control.
+fn is_user_interactive(data: &azul_core::dom::NodeData) -> bool {
+    has_box_dependent_callback(data)
+}
+
+/// Does the element type carry a role of its own?
+///
+/// A declared role of `Unknown` means "not specified", and both accessibility
+/// trees then fall back to the element's own role
+/// (`managers::a11y_snapshot::node_type_to_role` and the accesskit mapping in
+/// `managers::a11y`): a named `<button>` IS a button there. Only the elements
+/// whose fallback is a real control or widget role are listed.
+const fn element_implies_a_role(node_type: &NodeType) -> bool {
+    matches!(
+        node_type,
+        NodeType::Button
+            | NodeType::A
+            | NodeType::Input
+            | NodeType::TextArea
+            | NodeType::Select
+            | NodeType::SelectOption
+            | NodeType::MenuItem
+            | NodeType::Progress
+            | NodeType::Meter
+    )
+}
+
 fn display_of(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     match get_display_property(styled_dom, Some(node_id)) {
         MultiValue::Exact(d) => d,
         _ => LayoutDisplay::Block,
     }
+}
+
+/// Whether `node_id` is absolutely or fixed positioned: out of flow, it
+/// takes no place in its parent's lines (CSS Position 3 §3).
+fn is_out_of_flow(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_css::props::layout::LayoutPosition;
+    matches!(
+        crate::solver3::positioning::get_position_type(styled_dom, Some(node_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    )
 }
 
 const fn is_flex_or_grid(display: LayoutDisplay) -> bool {
@@ -270,12 +315,16 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
             }
         } else {
             // Mixed inline + block content under one parent: the text has no
-            // dedicated line box of its own next to block siblings.
+            // dedicated line box of its own next to block siblings. An
+            // absolutely / fixed positioned sibling is out of flow and
+            // splits no line, so it does not count; a float still does
+            // (azul places no float inside an inline formatting context).
             let mut has_block_child = false;
             let mut sibling = h.first_child_id(node_id);
             while let Some(sib) = sibling {
                 if !is_text(node_data[sib].get_node_type())
                     && is_block_level(display_of(styled_dom, sib))
+                    && !is_out_of_flow(styled_dom, sib)
                 {
                     has_block_child = true;
                     break;
@@ -390,19 +439,30 @@ fn render(data: &azul_core::dom::NodeData, idx: usize, finding: Finding) -> Stri
 /// stable across edits, and it is what the developer actually fixes: one
 /// construction site.
 fn dedup_key(styled_dom: &StyledDom, node_id: NodeId, finding: Finding) -> u64 {
+    identity_key(styled_dom, node_id, |hasher| {
+        finding.rank().hash(hasher);
+        match finding {
+            Finding::Inert(flags) => flags.hash(hasher),
+            // NOT the child_count: adding an item to the container is not a
+            // new bug.
+            Finding::FlexItem { display, .. } => display.hash(hasher),
+            _ => {}
+        }
+    })
+}
+
+/// The key of a finding on `node_id`: what `kind` hashes (which finding),
+/// then the styling identity of the node and of its parent - THE problem
+/// identity every lint dedupes by (see [`dedup_key`]).
+fn identity_key(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    kind: impl FnOnce(&mut std::collections::hash_map::DefaultHasher),
+) -> u64 {
     let node_data = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-
-    finding.rank().hash(&mut hasher);
-    match finding {
-        Finding::Inert(flags) => flags.hash(&mut hasher),
-        // NOT the child_count: adding an item to the container is not a new
-        // bug.
-        Finding::FlexItem { display, .. } => display.hash(&mut hasher),
-        _ => {}
-    }
-
+    kind(&mut hasher);
     hash_identity(&node_data[node_id], &mut hasher);
     match hierarchy
         .get(node_id)
@@ -415,6 +475,22 @@ fn dedup_key(styled_dom: &StyledDom, node_id: NodeId, finding: Finding) -> u64 {
         }
     }
     hasher.finish()
+}
+
+/// Print a finding of the lint `lint` (its suppression tag) on `node_id` ONCE
+/// per process per problem ([`identity_key`]: the lint, what the node is and
+/// how it is selected, and its parent's), through
+/// `azul_core::diagnostics::emit_once`: the lints run whenever a new DOM is
+/// laid out, and an app renders the same shape again and again. The message
+/// is built only when it is printed. Returns whether it was.
+fn report_once(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    lint: &str,
+    message: impl FnOnce() -> String,
+) -> bool {
+    let key = identity_key(styled_dom, node_id, |hasher| lint.hash(hasher));
+    azul_core::diagnostics::emit_once(key, message)
 }
 
 /// The part of a node that survives a DOM rebuild: what it is and how it is
@@ -637,6 +713,40 @@ mod autotest_generated {
     }
 
     #[test]
+    fn text_next_to_an_absolutely_positioned_sibling_is_not_reported() {
+        // An out-of-flow box splits no line: the text keeps its line box
+        // beside a mark pinned over it (a check item's box, a badge).
+        for position in ["absolute", "fixed"] {
+            let sd = styled(
+                Dom::create_body().with_child(
+                    Dom::create_div()
+                        .with_child(Dom::create_div())
+                        .with_child(raw_text("title")),
+                ),
+                &format!("body > div > div {{ position: {position}; }}"),
+            );
+            assert_eq!(
+                collect_text_placement_warnings(&sd),
+                Vec::<String>::new(),
+                "position: {position}"
+            );
+        }
+        // A float still counts: azul places no float inside an inline
+        // formatting context yet.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("title")),
+            ),
+            "body > div > div { float: left; }",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("block-level siblings"), "{w:?}");
+    }
+
+    #[test]
     fn several_text_children_of_one_parent_are_all_reported() {
         // The per-parent memo must not swallow the sibling text runs it was
         // computed for.
@@ -803,20 +913,24 @@ pub fn warn_div_used_as_text_container(styled_dom: &StyledDom) {
             continue;
         };
 
-        reported += 1;
-        if reported > 8 {
+        if reported >= 8 {
             break; // one screenful is enough to act on
         }
-        let preview: String = text.as_str().chars().take(24).collect();
-        azul_core::diagnostics::emit(format!(
-            "[azul][div-as-text] node {} is a <div> whose only child is the text {preview:?}. A \
-             div is a generic container and says nothing about what the text IS. Use \
-             create_span_with_text for a label or a control's text (inline, stays inside its line \
-             box) or create_p_with_text for prose (block, announced as a paragraph). Assistive \
-             technology reads the element to decide what a thing is, and a div tells it nothing. \
-             (suppress with AZ_SUPPRESS={DIV_TEXT_SUPPRESS_TAG})",
-            node_id.index()
-        ));
+        let printed = report_once(styled_dom, node_id, DIV_TEXT_SUPPRESS_TAG, || {
+            let preview: String = text.as_str().chars().take(24).collect();
+            format!(
+                "[azul][div-as-text] node {} is a <div> whose only child is the text {preview:?}. \
+                 A div is a generic container and says nothing about what the text IS. Use \
+                 create_span_with_text for a label or a control's text (inline, stays inside its \
+                 line box) or create_p_with_text for prose (block, announced as a paragraph). \
+                 Assistive technology reads the element to decide what a thing is, and a div \
+                 tells it nothing. (suppress with AZ_SUPPRESS={DIV_TEXT_SUPPRESS_TAG})",
+                node_id.index()
+            )
+        });
+        if printed {
+            reported += 1;
+        }
     }
 }
 
@@ -860,15 +974,15 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
     }
 
     let nodes = styled_dom.node_data.as_container();
-    let hierarchy = styled_dom.node_hierarchy.as_container();
 
     let mut reported = 0usize;
     for (node_id, node) in nodes
         .linear_iter()
         .filter_map(|id| nodes.get(id).map(|n| (id, n)))
     {
-        // "Interactive" = the app attached a callback to it.
-        if node.get_callbacks().is_empty() {
+        // "Interactive" = the app attached a callback the USER can trigger.
+        // Lifecycle, window and application listeners do not make a control.
+        if !is_user_interactive(node) {
             continue;
         }
         if node.accessibility.is_some() {
@@ -876,60 +990,31 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
         }
 
         // Does a descendant text node spell out a usable label? Azul derives a
-        // name from it, so those controls DO announce themselves.
-        // Walk DESCENDANTS, not just direct children. A well-built control puts
-        // its label in a <span> — the shape this crate recommends — so the text
-        // is a grandchild. Scanning one level deep flagged every correctly
-        // written button, which a test caught before this shipped.
-        let mut has_readable_text = false;
-        let mut stack = vec![node_id];
-        let mut visited = 0usize;
-        while let Some(cur) = stack.pop() {
-            visited += 1;
-            if visited > 64 {
-                break; // a label is never buried this deep; bound the walk
-            }
-            if let Some(cn) = nodes.get(cur) {
-                if let NodeType::Text(t) = cn.get_node_type() {
-                    // A private-use glyph is an ICON, not a name: it reads as a
-                    // meaningless codepoint.
-                    if t.as_str()
-                        .chars()
-                        .any(|ch| ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch))
-                    {
-                        has_readable_text = true;
-                        break;
-                    }
-                }
-            }
-            if let Some(item) = hierarchy.get(cur) {
-                if let Some(first) = item.first_child_id(cur) {
-                    let mut sib = Some(first);
-                    while let Some(sid) = sib {
-                        stack.push(sid);
-                        sib = hierarchy
-                            .get(sid)
-                            .and_then(NodeHierarchyItem::next_sibling_id);
-                    }
-                }
-            }
-        }
-        if has_readable_text {
+        // name from it, so those controls DO announce themselves. (Descendants,
+        // not children: a well-built control puts its label in a <span>; and
+        // a private-use glyph is an icon, not a name - `has_readable_text_label`,
+        // the one answer both a11y lints use.)
+        if has_readable_text_label(styled_dom, node_id) {
             continue;
         }
 
-        reported += 1;
-        if reported > 8 {
+        if reported >= 8 {
             break;
         }
-        azul_core::diagnostics::emit(format!(
-            "[azul][a11y] node {} has a callback but no accessible name, and no text child that \
-             could serve as one — an icon-only control reads to a screen reader as a private-use \
-             codepoint, or as nothing. Add one: .with_accessibility_info(AccessibilityInfo {{ \
-             accessibility_name: Some(\"...\".into()).into(), ..Default::default() }}). (suppress \
-             with AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
-            node_id.index()
-        ));
+        let printed = report_once(styled_dom, node_id, A11Y_SUPPRESS_TAG, || {
+            format!(
+                "[azul][a11y] {} has a callback but no accessible name, and no text child \
+                 that could serve as one — an icon-only control reads to a screen reader as a \
+                 private-use codepoint, or as nothing. Add one: \
+                 .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
+                 Some(\"...\".into()).into(), ..Default::default() }}). (suppress with \
+                 AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
+                describe_node(styled_dom, node_id)
+            )
+        });
+        if printed {
+            reported += 1;
+        }
     }
 }
 
@@ -1040,6 +1125,336 @@ mod semantic_and_a11y_lint_tests {
         azul_core::diagnostics::clear();
     }
 
+    /// Lifecycle listeners (`AfterMount`, `NodeResized`) are delivered by node
+    /// identity, never by the user: a node that has only those is not a
+    /// control, and asking for its accessible name is noise (the video
+    /// widget's root was reported as an unnamed icon-only control).
+    #[test]
+    fn a_node_with_only_lifecycle_callbacks_is_not_an_unnamed_control() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let host = Dom::create_div()
+            .with_callback(
+                azul_core::dom::EventFilter::Component(
+                    azul_core::dom::ComponentEventFilter::AfterMount,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            )
+            .with_child(Dom::create_div());
+        warn_interactive_without_accessibility(&styled(Dom::create_body().with_child(host)));
+        assert!(
+            !azul_core::diagnostics::any_contains("[azul][a11y]"),
+            "a lifecycle listener does not make a node a control: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// A `<button>` element whose declared role is left `Unknown` (the "not
+    /// specified" default) IS a button to both accessibility trees, which fall
+    /// back to the element's own role. Naming it must not make the lint call
+    /// it "interactive, role Unknown".
+    #[test]
+    fn a_named_button_element_is_not_reported_as_role_unknown() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let button = Dom::create_node(NodeType::Button)
+            .with_accessibility_name("Play video")
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_a11y_shape(&styled(Dom::create_body().with_child(button)));
+        assert!(
+            !azul_core::diagnostics::any_contains("is Unknown"),
+            "a <button> falls back to the button role: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// Window-level listeners fire for the window, wherever the node is: a
+    /// drop zone listening for dropped files is not a control, so a name
+    /// without a role on it is not "interactive, role Unknown".
+    #[test]
+    fn a_node_with_only_window_callbacks_is_not_reported_as_role_unknown() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let zone = Dom::create_div()
+            .with_accessibility_name("Drop zone")
+            .with_callback(
+                azul_core::dom::EventFilter::Window(
+                    azul_core::dom::WindowEventFilter::DroppedFile,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            )
+            .with_child(Dom::create_span_with_text("Drag files here"));
+        warn_a11y_shape(&styled(Dom::create_body().with_child(zone)));
+        assert!(
+            !azul_core::diagnostics::any_contains("is Unknown"),
+            "a window listener does not make a node a control: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// Control for the two above: a plain div the user can CLICK, named but
+    /// with no role, is still reported.
+    #[test]
+    fn a_clickable_div_with_a_name_and_no_role_is_still_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let seek = Dom::create_div()
+            .with_accessibility_name("Seek")
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_a11y_shape(&styled(Dom::create_body().with_child(seek)));
+        assert!(
+            azul_core::diagnostics::any_contains("is Unknown"),
+            "a clickable div with no role must still be reported: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// How many recorded diagnostics contain `tag`.
+    fn printed(tag: &str) -> usize {
+        azul_core::diagnostics::recorded()
+            .iter()
+            .filter(|m| m.contains(tag))
+            .count()
+    }
+
+    /// A clickable div with a name and no role: one `[a11y-shape]` finding.
+    fn seek_control() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_accessibility_name("Seek")
+                .with_callback(
+                    azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                    azul_core::refany::RefAny::new(()),
+                    crate::callbacks::Callback::from_ptr(noop_cb),
+                ),
+        )
+    }
+
+    /// The same finding is printed ONCE per process (ANIMFRAME8 s8): an app
+    /// renders the same shape again and again, the lints meet each new DOM,
+    /// and `diagnostics::emit` does no dedupe - `[a11y-shape]` printed its
+    /// lines on every pass, as the bare-text lint never did.
+    #[test]
+    fn the_same_a11y_shape_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_a11y_shape(&styled(seek_control()));
+        warn_a11y_shape(&styled(seek_control()));
+        assert_eq!(
+            printed("[azul][a11y-shape]"),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// The same for the div-as-text lint.
+    #[test]
+    fn the_same_div_as_text_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || styled(Dom::create_body().with_child(Dom::create_div_with_text("Mute")));
+        warn_div_used_as_text_container(&page());
+        warn_div_used_as_text_container(&page());
+        assert_eq!(
+            printed("[azul][div-as-text]"),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// The same for the unnamed-control lint.
+    #[test]
+    fn the_same_unnamed_control_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || {
+            styled(
+                Dom::create_body().with_child(
+                    Dom::create_div()
+                        .with_child(Dom::create_span_with_text("\u{e161}"))
+                        .with_callback(
+                            azul_core::dom::EventFilter::Hover(
+                                azul_core::dom::HoverEventFilter::MouseUp,
+                            ),
+                            azul_core::refany::RefAny::new(()),
+                            crate::callbacks::Callback::from_ptr(noop_cb),
+                        ),
+                ),
+            )
+        };
+        warn_interactive_without_accessibility(&page());
+        warn_interactive_without_accessibility(&page());
+        assert_eq!(
+            printed("[azul][a11y] "),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// The recorded a11y findings (every lint tag starts `[azul][a11y`).
+    fn a11y_lines() -> Vec<String> {
+        azul_core::diagnostics::recorded()
+            .into_iter()
+            .filter(|m| m.contains("[azul][a11y"))
+            .collect()
+    }
+
+    /// A widget named on its built DOM (`.dom().with_accessibility_name(..)`,
+    /// a row helper naming its control by the row's label) IS named. Only the
+    /// finished DOM can tell, so nothing may be printed while it is built.
+    #[cfg(feature = "widgets")]
+    #[test]
+    fn a_check_box_named_after_it_is_built_prints_no_accessibility_warning() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = styled(
+            Dom::create_body().with_child(
+                crate::widgets::check_box::CheckBox::create(true)
+                    .dom()
+                    .with_accessibility_name("Remember me")
+                    .with_id("a11y17-named-check".into()),
+            ),
+        );
+        warn_interactive_without_accessibility(&page);
+        warn_a11y_shape(&page);
+        assert!(a11y_lines().is_empty(), "a named check box: {:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
+    /// An unnamed widget is ONE finding however often the app builds it, and
+    /// the finding says which node it is: the widget, its id, its classes.
+    #[cfg(feature = "widgets")]
+    #[test]
+    fn an_unnamed_check_box_is_one_finding_that_names_the_node() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || {
+            styled(
+                Dom::create_body().with_child(
+                    crate::widgets::check_box::CheckBox::create(false)
+                        .dom()
+                        .with_id("a11y17-unnamed-check".into()),
+                ),
+            )
+        };
+        warn_a11y_shape(&page());
+        warn_a11y_shape(&page());
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "one unnamed check box, built twice: {lines:?}");
+        assert!(
+            lines[0].contains("#a11y17-unnamed-check") && lines[0].contains("Checkbox"),
+            "the finding names the widget and its id: {lines:?}"
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    fn toolbar(buttons: Vec<Dom>) -> Dom {
+        let info = azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Toolbar,
+            accessibility_name: Some(azul_css::AzString::from("Formatting")).into(),
+            ..Default::default()
+        };
+        Dom::create_div()
+            .with_id("a11y17-toolbar".into())
+            .with_accessibility_info(info)
+            .with_children(buttons.into())
+    }
+
+    /// A composite widget - a toolbar, a menu bar, a tab list, a list box,
+    /// a tree, a grid - is ONE stop in the Tab order and the arrow keys move
+    /// inside it (`widgets::roving`). A toolbar that makes every button a Tab
+    /// stop makes a keyboard user Tab through all of them.
+    #[test]
+    fn a_toolbar_with_a_tab_stop_per_button_is_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let every_button_a_stop = toolbar(vec![
+            Dom::create_button_no_a11y("Bold".into()),
+            Dom::create_button_no_a11y("Italic".into()),
+            Dom::create_button_no_a11y("Underline".into()),
+        ]);
+        warn_composite_navigation(&styled(Dom::create_body().with_child(every_button_a_stop)));
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("[azul][a11y-nav]") && lines[0].contains("#a11y17-toolbar"),
+            "{lines:?}"
+        );
+
+        azul_core::diagnostics::clear();
+        let roving = toolbar(vec![
+            Dom::create_button_no_a11y("Bold".into()).with_tab_index(azul_core::dom::TabIndex::Auto),
+            Dom::create_button_no_a11y("Italic".into())
+                .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus),
+            Dom::create_button_no_a11y("Underline".into())
+                .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus),
+        ]);
+        warn_composite_navigation(&styled(Dom::create_body().with_child(roving)));
+        assert!(a11y_lines().is_empty(), "a roving toolbar: {:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
+    fn tile_grid(css: &str) -> Dom {
+        let mut grid = Dom::create_div().with_id("a11y17-grid".into()).with_css(css);
+        for k in 0..6 {
+            grid = grid.with_child(
+                Dom::create_div()
+                    .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus)
+                    .with_accessibility_name(format!("tile {k}")),
+            );
+        }
+        grid
+    }
+
+    /// In a grid of focusable tiles the arrow keys must move along its rows
+    /// and columns: `spatial-navigation-function: grid`. The default picks
+    /// the nearest tile by distance, which jumps diagonally.
+    #[test]
+    fn a_grid_of_focusable_tiles_without_grid_navigation_is_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_composite_navigation(&styled(Dom::create_body().with_child(tile_grid(
+            "display: grid; grid-template-columns: 1fr 1fr 1fr;",
+        ))));
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("spatial-navigation-function: grid") && lines[0].contains("#a11y17-grid"),
+            "{lines:?}"
+        );
+
+        azul_core::diagnostics::clear();
+        warn_composite_navigation(&styled(Dom::create_body().with_child(tile_grid(
+            "display: grid; grid-template-columns: 1fr 1fr 1fr; spatial-navigation-function: grid;",
+        ))));
+        assert!(a11y_lines().is_empty(), "{:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
     extern "C" fn noop_cb(
         _: azul_core::refany::RefAny,
         _: crate::callbacks::CallbackInfo,
@@ -1121,6 +1536,231 @@ fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     false
 }
 
+/// How a finding names its node: its index, the azul widget it belongs to,
+/// its ids and classes (the selectors a developer searches the app for) and
+/// the start of its text. "node 40" alone is a puzzle; "node 40 (a Slider
+/// #volume .settings-row)" is a call site.
+fn describe_node(styled_dom: &StyledDom, node_id: NodeId) -> String {
+    let nodes = styled_dom.node_data.as_container();
+    let Some(node) = nodes.get(node_id) else {
+        return format!("node {}", node_id.index());
+    };
+    let mut parts = Vec::new();
+    if let Some(kind) = azul_widget_kind(node) {
+        parts.push(format!("a {kind}"));
+    }
+    for ic in &node.get_ids_and_classes() {
+        match ic {
+            azul_core::dom::IdOrClass::Id(id) => parts.push(format!("#{}", id.as_str())),
+            azul_core::dom::IdOrClass::Class(c)
+                if !c.as_str().starts_with("__azul-native-") && parts.len() < 6 =>
+            {
+                parts.push(format!(".{}", c.as_str()));
+            }
+            azul_core::dom::IdOrClass::Class(_) => {}
+        }
+    }
+    if let Some(text) = first_text(styled_dom, node_id) {
+        parts.push(snippet_of(&text));
+    }
+    if parts.is_empty() {
+        format!("node {}", node_id.index())
+    } else {
+        format!("node {} ({})", node_id.index(), parts.join(" "))
+    }
+}
+
+/// The first non-blank text at or beneath `node_id` (bounded walk).
+fn first_text(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut stack = vec![node_id];
+    let mut visited = 0usize;
+    while let Some(cur) = stack.pop() {
+        visited += 1;
+        if visited > 64 {
+            return None;
+        }
+        if let Some(NodeType::Text(t)) =
+            nodes.get(cur).map(azul_core::dom::NodeData::get_node_type)
+        {
+            if !t.as_str().trim().is_empty() {
+                return Some(t.as_str().to_string());
+            }
+        }
+        let mut children = Vec::new();
+        let mut child = hierarchy.get(cur).and_then(|item| item.first_child_id(cur));
+        while let Some(c) = child {
+            children.push(c);
+            child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        // Document order: the first child is popped first.
+        stack.extend(children.into_iter().rev());
+    }
+    None
+}
+
+// ============================================================================
+// Lint: keyboard navigation inside composites and grids
+// ============================================================================
+
+/// Suppression tag for [`warn_composite_navigation`].
+pub const A11Y_NAV_SUPPRESS_TAG: &str = "a11y_nav";
+
+/// Whether the Tab key stops on `node`: a tab index other than
+/// "no keyboard focus", or an element focusable by itself (a link, a button,
+/// a select).
+const fn is_tab_stop(node: &azul_core::dom::NodeData) -> bool {
+    use azul_core::dom::TabIndex;
+    match node.get_tab_index() {
+        Some(TabIndex::NoKeyboardFocus) => false,
+        Some(_) => true,
+        None => matches!(
+            node.get_node_type(),
+            NodeType::A | NodeType::Button | NodeType::Select
+        ),
+    }
+}
+
+/// Whether `node` edits text: Tab is how a user leaves a field, so a field
+/// inside a composite (a toolbar's search box) keeps its own Tab stop.
+const fn edits_text(node: &azul_core::dom::NodeData) -> bool {
+    node.is_contenteditable() || matches!(node.get_node_type(), NodeType::Input | NodeType::TextArea)
+}
+
+/// Tell the developer where keyboard navigation goes wrong, from the shape
+/// of the DOM.
+///
+/// - A composite - a toolbar, a menu bar, a tab list, a list box, a list, a tree, a grid - is ONE
+///   stop in the Tab order and the arrow keys move inside it (WAI-ARIA APG, `widgets::roving`). One
+///   whose items are each a Tab stop makes a keyboard user Tab through all of them, and Shift+Tab
+///   back.
+/// - A CSS grid of focusable tiles needs `spatial-navigation-function: grid`, or the arrow keys pick
+///   the nearest tile by distance and jump diagonally instead of along the rows and columns.
+///
+/// Reported once per problem; suppress with `AZ_SUPPRESS=a11y_nav`.
+pub fn warn_composite_navigation(styled_dom: &StyledDom) {
+    use azul_core::a11y::AccessibilityRole as R;
+    use azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction;
+
+    if lint_suppressed(A11Y_NAV_SUPPRESS_TAG) {
+        return;
+    }
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let mut reported = 0usize;
+
+    for (node_id, node) in nodes
+        .linear_iter()
+        .filter_map(|id| nodes.get(id).map(|n| (id, n)))
+    {
+        if reported >= 8 {
+            break;
+        }
+        let role = node.accessibility.as_ref().map(|info| info.role);
+        let composite = matches!(
+            role,
+            Some(
+                R::Toolbar
+                    | R::MenuBar
+                    | R::PageTabList
+                    | R::DropList
+                    | R::List
+                    | R::Outline
+                    | R::Grid
+            )
+        );
+
+        if composite {
+            // The Tab stops inside it, a text field's aside.
+            let mut stops = 0usize;
+            let mut stack: Vec<NodeId> = Vec::new();
+            let mut child = hierarchy.get(node_id).and_then(|item| item.first_child_id(node_id));
+            while let Some(c) = child {
+                stack.push(c);
+                child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            let mut visited = 0usize;
+            while let Some(cur) = stack.pop() {
+                visited += 1;
+                if visited > 4096 {
+                    break;
+                }
+                let Some(data) = nodes.get(cur) else {
+                    continue;
+                };
+                if is_tab_stop(data) && !edits_text(data) {
+                    stops += 1;
+                }
+                let mut grandchild = hierarchy.get(cur).and_then(|item| item.first_child_id(cur));
+                while let Some(g) = grandchild {
+                    stack.push(g);
+                    grandchild = hierarchy.get(g).and_then(NodeHierarchyItem::next_sibling_id);
+                }
+            }
+            if stops > 1
+                && report_once(styled_dom, node_id, A11Y_NAV_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
+                    let role = role.map(|r| format!("{r:?}")).unwrap_or_default();
+                    format!(
+                        "[azul][a11y-nav] {who} is a {role} with {stops} Tab stops inside it. A \
+                         composite is ONE stop in the Tab order and the arrow keys move between \
+                         its items: build the active item with TabIndex::Auto and the others with \
+                         TabIndex::NoKeyboardFocus, move the stop on the arrow keys \
+                         (widgets::roving), or use the toolbar / tab / list widget that does. \
+                         (suppress with AZ_SUPPRESS={A11Y_NAV_SUPPRESS_TAG})"
+                    )
+                })
+            {
+                reported += 1;
+            }
+            continue;
+        }
+
+        if !matches!(display_of(styled_dom, node_id), LayoutDisplay::Grid | LayoutDisplay::InlineGrid) {
+            continue;
+        }
+        let mut tiles = 0usize;
+        let mut child = hierarchy.get(node_id).and_then(|item| item.first_child_id(node_id));
+        while let Some(c) = child {
+            if nodes
+                .get(c)
+                .is_some_and(|d| d.get_tab_index().is_some() || d.is_focusable())
+            {
+                tiles += 1;
+            }
+            child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        if tiles < 4 {
+            continue;
+        }
+        let grid_function = styled_nodes.get(node_id).is_some_and(|sn| {
+            matches!(
+                crate::solver3::getters::get_spatial_navigation_function(
+                    styled_dom,
+                    node_id,
+                    &sn.styled_node_state
+                ),
+                MultiValue::Exact(StyleSpatialNavigationFunction::Grid)
+            )
+        });
+        if !grid_function
+            && report_once(styled_dom, node_id, A11Y_NAV_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
+                format!(
+                    "[azul][a11y-nav] {who} is a CSS grid of {tiles} focusable tiles, and the arrow \
+                     keys pick the nearest tile by distance, so they jump diagonally. Add \
+                     `spatial-navigation-function: grid;` to it: the arrows then move along its rows \
+                     and columns. (suppress with AZ_SUPPRESS={A11Y_NAV_SUPPRESS_TAG})"
+                )
+            })
+        {
+            reported += 1;
+        }
+    }
+}
+
 // ============================================================================
 // Lint: what this node's SHAPE says it should declare
 // ============================================================================
@@ -1165,7 +1805,6 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
     use azul_core::a11y::{AccessibilityRole, AccessibilityState};
 
     let nodes = styled_dom.node_data.as_container();
-    let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut reported = 0usize;
 
     for (node_id, node) in nodes
@@ -1175,8 +1814,7 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         if reported >= 8 {
             break; // one screenful is enough to act on
         }
-        let idx = node_id.index();
-        let interactive = !node.get_callbacks().is_empty();
+        let interactive = is_user_interactive(node);
         let focusable = node.get_tab_index().is_some();
 
         let Some(info) = node.accessibility.as_ref() else {
@@ -1184,26 +1822,33 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             // which already reports interactive nodes. Here, add the shapes that
             // are worth naming even when they are not clickable.
             if matches!(node.get_node_type(), NodeType::Image(_)) {
-                reported += 1;
-                azul_core::diagnostics::emit(format!(
-                    "[azul][a11y-shape] node {idx} is an IMAGE with no accessibility info, so it \
-                     is absent from the accessibility tree entirely — a screen reader announces \
-                     nothing where a sighted user sees a picture. Give it \
-                     .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
-                     Some(\"what it shows\".into()).into(), role: AccessibilityRole::Graphic, \
-                     ..Default::default() }}), or, when it only decorates something named \
-                     elsewhere, mark it decorative with `role: AccessibilityRole::Nothing` and no \
-                     name. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                ));
-            } else if focusable {
-                reported += 1;
-                azul_core::diagnostics::emit(format!(
-                    "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
-                     declares no accessibility info, so tabbing lands on something the screen \
-                     reader cannot describe. At minimum give it a `role` and an \
-                     `accessibility_name`. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                ));
-            }
+                if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
+                    format!(
+                        "[azul][a11y-shape] {who} is an IMAGE with no accessibility info, so it \
+                         is absent from the accessibility tree entirely — a screen reader announces \
+                         nothing where a sighted user sees a picture. Give it \
+                         .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
+                         Some(\"what it shows\".into()).into(), role: AccessibilityRole::Graphic, \
+                         ..Default::default() }}), or, when it only decorates something named \
+                         elsewhere, mark it decorative with `role: AccessibilityRole::Nothing` and no \
+                         name. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                    )
+                }) {
+                    reported += 1;
+                }
+            } else if focusable
+                && report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
+                    format!(
+                        "[azul][a11y-shape] {who} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
+                         declares no accessibility info, so tabbing lands on something the screen \
+                         reader cannot describe. At minimum give it a `role` and an \
+                         `accessibility_name`. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                    )
+                }) {
+                    reported += 1;
+                }
             continue;
         };
 
@@ -1214,14 +1859,24 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         let has_name = info.accessibility_name.as_ref().is_some();
         let has_value = info.accessibility_value.as_ref().is_some();
 
-        if matches!(role, AccessibilityRole::Unknown) && (interactive || focusable) {
-            reported += 1;
-            azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] node {idx} is interactive and declares accessibility, but its \
-                 `role` is Unknown — a screen reader can say its name and not what it IS. Pick \
-                 from AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, Tab, \
-                 MenuItem, …). (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-            ));
+        // `Unknown` means "not specified": both accessibility trees then fall
+        // back to the ELEMENT's own role (a `<button>` is a button), so only a
+        // generic element left at `Unknown` really says nothing about itself.
+        if matches!(role, AccessibilityRole::Unknown)
+            && !element_implies_a_role(node.get_node_type())
+            && (interactive || focusable)
+        {
+            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
+                format!(
+                    "[azul][a11y-shape] {who} is interactive and declares accessibility, but its \
+                     `role` is Unknown — a screen reader can say its name and not what it IS. Pick \
+                     from AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, Tab, \
+                     MenuItem, …). (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                )
+            }) {
+                reported += 1;
+            }
             continue;
         }
 
@@ -1232,19 +1887,25 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 | AccessibilityRole::ScrollBar
         ) && !has_value
         {
-            reported += 1;
-            azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] node {idx} has role {role:?} but no `accessibility_value`. \
-                 The value IS the content of these controls — without it a screen reader \
-                 announces \"slider\" and never how far along it is. Set accessibility_value on \
-                 every change, not once. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-            ));
+            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
+                format!(
+                    "[azul][a11y-shape] {who} has role {role:?} but no `accessibility_value`. \
+                     The value IS the content of these controls — without it a screen reader \
+                     announces \"slider\" and never how far along it is. Set accessibility_value on \
+                     every change, not once. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                )
+            }) {
+                reported += 1;
+            }
             continue;
         }
 
         if matches!(
             role,
-            AccessibilityRole::CheckButton | AccessibilityRole::RadioButton
+            AccessibilityRole::CheckButton
+                | AccessibilityRole::RadioButton
+                | AccessibilityRole::Switch
         ) {
             let states = info.states.as_ref();
             let declares_checked = states.iter().any(|s| {
@@ -1256,14 +1917,18 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 )
             });
             if !declares_checked {
-                reported += 1;
-                azul_core::diagnostics::emit(format!(
-                    "[azul][a11y-shape] node {idx} has role {role:?} but declares no \
-                     CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked \
-                     no matter what it renders. Push the state into AccessibilityInfo::states \
-                     when the control toggles. (suppress with \
-                     AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                ));
+                if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
+                    format!(
+                        "[azul][a11y-shape] {who} has role {role:?} but declares no \
+                         CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked \
+                         no matter what it renders. Push the state into AccessibilityInfo::states \
+                         when the control toggles. (suppress with \
+                         AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                    )
+                }) {
+                    reported += 1;
+                }
                 continue;
             }
         }
@@ -1284,23 +1949,25 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             && info.labelled_by.as_ref().is_none()
             && !has_readable_text_label(styled_dom, node_id)
         {
-            reported += 1;
             // Name the WIDGET when the node admits which one it is. "Slider has
             // no name; add .with_accessibility_name(..)" is a fix someone can
             // apply; "node 40 is anonymous" is a puzzle they have to solve
             // first.
-            let who = azul_widget_kind(node)
-                .map_or_else(|| format!("node {idx}"), |w| format!("node {idx} (a {w})"));
-            azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] {who} declares accessibility (role {role:?}) but has neither \
-                 an `accessibility_name` nor a `labelled_by`. It is in the tree and anonymous. \
-                 This control has no text of its own to derive a name from, and only the CALL \
-                 SITE knows what it is called: add `.with_accessibility_name(\"…\")` there — it \
-                 MERGES, so the role, value and states above survive — or point at the label you \
-                 already render with `.with_accessibility_labelled_by(node)`, which cannot drift \
-                 out of sync the way a copied string does. (suppress with \
-                 AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-            ));
+            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
+                format!(
+                    "[azul][a11y-shape] {who} declares accessibility (role {role:?}) but has neither \
+                     an `accessibility_name` nor a `labelled_by`. It is in the tree and anonymous. \
+                     This control has no text of its own to derive a name from, and only the CALL \
+                     SITE knows what it is called: add `.with_accessibility_name(\"…\")` there — it \
+                     MERGES, so the role, value and states above survive — or point at the label you \
+                     already render with `.with_accessibility_labelled_by(node)`, which cannot drift \
+                     out of sync the way a copied string does. (suppress with \
+                     AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                )
+            }) {
+                reported += 1;
+            }
         }
     }
 }

@@ -22,7 +22,10 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
+    widgets::{
+        button::{Button, ButtonOnClick, ButtonOnClickCallback},
+        themes::{OptionUiTheme, UiTheme},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +50,11 @@ pub struct FileInput {
     pub label_style: OptionCssPropertyWithConditionsVec,
     /// Style of the image, or `None` to let the Button decide.
     pub image_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). A file input renders AS a [`Button`]: the
+    /// theme is the button's, a DOM-level choice, so switching it rebuilds
+    /// the input.
+    pub theme: OptionUiTheme,
 }
 
 impl Default for FileInput {
@@ -62,6 +70,8 @@ impl Default for FileInput {
             container_style: default_button.container_style,
             label_style: default_button.label_style,
             image_style: default_button.image_style,
+            // No opinion: the input follows the app theme (`dom`).
+            theme: OptionUiTheme::None,
         }
     }
 }
@@ -70,14 +80,15 @@ impl FileInput {
     /// The container CSS the Button this input renders as will use.
     ///
     /// A `FileInput` has no styling of its own: it builds a [`Button`] and forwards
-    /// these three fields to it. Each resolver therefore answers with the
-    /// Button's default, which is what the widget actually paints.
+    /// these three fields - and its theme - to it. Each resolver therefore
+    /// answers with the Button's default in that theme, which is what the
+    /// widget actually paints.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_container_style())
+            .unwrap_or_else(|| self.style_donor().resolved_container_style())
     }
 
     /// The label CSS the Button this input renders as will use.
@@ -86,7 +97,7 @@ impl FileInput {
         self.label_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_label_style())
+            .unwrap_or_else(|| self.style_donor().resolved_label_style())
     }
 
     /// The image CSS the Button this input renders as will use.
@@ -95,12 +106,32 @@ impl FileInput {
         self.image_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_image_style())
+            .unwrap_or_else(|| self.style_donor().resolved_image_style())
     }
 
-    /// The unstyled Button the three resolvers above defer to.
-    fn style_donor() -> Button {
-        Button::create(AzString::from_const_str(""))
+    /// The unstyled Button, in this input's theme, the three resolvers above
+    /// defer to.
+    fn style_donor(&self) -> Button {
+        let donor = Button::create(AzString::from_const_str(""));
+        match self.theme.into_option() {
+            Some(theme) => donor.with_theme(theme),
+            None => donor,
+        }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the input follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 }
 
@@ -113,6 +144,12 @@ pub struct FileInputStateWrapper {
     pub file_dialog_title: AzString,
     /// Default directory of file input
     pub default_dir: OptionString,
+    /// HTML `accept`: the kinds of file the dialog offers - extensions
+    /// (`.png`), MIME types (`image/png`) or a whole kind (`image/*`).
+    /// Empty = every file.
+    pub accept: StringVec,
+    /// HTML `multiple`: the dialog picks several files.
+    pub multiple: bool,
 }
 
 impl Default for FileInputStateWrapper {
@@ -122,20 +159,39 @@ impl Default for FileInputStateWrapper {
             on_path_change: None.into(),
             file_dialog_title: "Select File".into(),
             default_dir: None.into(),
+            accept: StringVec::from_const_slice(&[]),
+            multiple: false,
         }
     }
 }
 
-/// Current state of the file input (selected path)
+/// Current state of the file input (the selected files)
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputState {
+    /// The selected file - the first of `paths`.
     pub path: OptionString,
+    /// Every selected file (one without `multiple`), in the order picked.
+    pub paths: StringVec,
 }
 
 impl Default for FileInputState {
     fn default() -> Self {
-        Self { path: None.into() }
+        Self {
+            path: None.into(),
+            paths: StringVec::from_const_slice(&[]),
+        }
+    }
+}
+
+impl FileInputState {
+    /// The state holding `paths`: `path` is the first.
+    #[must_use]
+    pub fn create_with_paths(paths: StringVec) -> Self {
+        Self {
+            path: paths.as_ref().first().cloned().into(),
+            paths,
+        }
     }
 }
 
@@ -167,13 +223,52 @@ azul_core::impl_managed_callback! {
 impl FileInput {
     #[must_use]
     pub fn create(path: OptionString) -> Self {
+        let paths = StringVec::from_vec(path.as_ref().cloned().into_iter().collect());
         Self {
             file_input_state: FileInputStateWrapper {
-                inner: FileInputState { path },
+                inner: FileInputState { path, paths },
                 ..Default::default()
             },
             ..Default::default()
         }
+    }
+
+    /// The selected files (the first is `path`) - what a `multiple` input
+    /// shows after a pick of several.
+    pub fn set_paths(&mut self, paths: StringVec) {
+        self.file_input_state.inner = FileInputState::create_with_paths(paths);
+    }
+
+    /// [`Self::set_paths`] for the builder chain.
+    #[must_use]
+    pub fn with_paths(mut self, paths: StringVec) -> Self {
+        self.set_paths(paths);
+        self
+    }
+
+    /// HTML `accept`: the kinds of file the dialog offers (see
+    /// [`FileInputStateWrapper::accept`]).
+    pub fn set_accept(&mut self, accept: StringVec) {
+        self.file_input_state.accept = accept;
+    }
+
+    /// [`Self::set_accept`] for the builder chain.
+    #[must_use]
+    pub fn with_accept(mut self, accept: StringVec) -> Self {
+        self.set_accept(accept);
+        self
+    }
+
+    /// HTML `multiple`: the dialog picks several files.
+    pub const fn set_multiple(&mut self, multiple: bool) {
+        self.file_input_state.multiple = multiple;
+    }
+
+    /// [`Self::set_multiple`] for the builder chain.
+    #[must_use]
+    pub const fn with_multiple(mut self, multiple: bool) -> Self {
+        self.set_multiple(multiple);
+        self
     }
 
     #[inline]
@@ -220,12 +315,37 @@ impl FileInput {
         self
     }
 
+    /// Renders the input as a [`Button`] in its theme. Unpinned (`theme:
+    /// None`), it follows the APP theme: both themes' buttons are built and
+    /// merged (`themes::theme_blocks::follow_app_theme`) in the structure of the
+    /// theme its DOM is built for, carrying every theme's blocks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        // either show the default text or the file name
-        // including the extension as the button label
+        use crate::widgets::themes::theme_blocks;
+        match self.theme.into_option() {
+            Some(theme) => self.dom_in(theme),
+            None => theme_blocks::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+        }
+    }
+
+    /// [`Self::dom_in`] the flat theme.
+    fn dom_flat(self) -> Dom {
+        self.dom_in(UiTheme::Flat)
+    }
+
+    /// [`Self::dom_in`] the flora theme.
+    fn dom_flora(self) -> Dom {
+        self.dom_in(UiTheme::Flora)
+    }
+
+    /// The input as a [`Button`] pinned to `theme`.
+    fn dom_in(self, theme: UiTheme) -> Dom {
+        // either show the default text, the file name including the
+        // extension, or - several files picked - how many (HTML's "2 files")
+        let picked = self.file_input_state.inner.paths.as_ref().len();
         let button_label = match self.file_input_state.inner.path.as_ref() {
+            Some(_) if picked > 1 => AzString::from(alloc::format!("{picked} files")),
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
                 .map_or_else(
@@ -238,11 +358,13 @@ impl FileInput {
 
         Button {
             label: button_label,
-            theme: None.into(),
+            theme: OptionUiTheme::Some(theme),
             image: self.image,
             icon: AzString::from_const_str(""),
             icon_dom: None.into(),
             trailing_icon: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
+            form_action: crate::widgets::button::ButtonFormAction::None,
             button_type: crate::widgets::button::ButtonType::Default,
             container_style: self.container_style,
             label_style: self.label_style,
@@ -254,6 +376,8 @@ impl FileInput {
             // claim the caller asked for something.
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
+            disabled_reason: AzString::from_const_str(""),
+            toggled: OptionBool::None,
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {
@@ -276,22 +400,37 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     // path, and `Update::RefreshDom` is still returned for the relabel.
     #[cfg(feature = "extra")]
     {
-        use crate::desktop::dialogs::{FileDialog, OptionFileTypeList};
+        use crate::desktop::dialogs::FileDialog;
 
-        let (title, default_dir) = {
+        let (title, default_dir, filter, multiple) = {
             let Some(state) = refany.downcast_ref::<FileInputStateWrapper>() else {
                 return Update::DoNothing;
             };
-            (state.file_dialog_title.clone(), state.default_dir.clone())
+            (
+                state.file_dialog_title.clone(),
+                state.default_dir.clone(),
+                accept_filter(&state.accept),
+                state.multiple,
+            )
         };
         let _ = info;
-        let _request = FileDialog::open_file(
-            title,
-            default_dir,
-            OptionFileTypeList::None,
-            refany.clone(),
-            crate::callbacks::ResumeCallback::create(fileinput_on_file_picked),
-        );
+        let _request = if multiple {
+            FileDialog::open_multiple_files(
+                title,
+                default_dir,
+                filter,
+                refany.clone(),
+                crate::callbacks::ResumeCallback::create(fileinput_on_files_picked),
+            )
+        } else {
+            FileDialog::open_file(
+                title,
+                default_dir,
+                filter,
+                refany.clone(),
+                crate::callbacks::ResumeCallback::create(fileinput_on_file_picked),
+            )
+        };
         Update::DoNothing
     }
     // Without the `extra` feature there is no dialog to show; the widget
@@ -319,7 +458,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
 #[cfg(feature = "extra")]
 extern "C" fn fileinput_on_file_picked(
     mut refany: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
     result: RefAny,
 ) -> Update {
     use crate::desktop::dialogs::FileOpenResult;
@@ -330,11 +469,48 @@ extern "C" fn fileinput_on_file_picked(
     let Some(path) = picked.path.into_option() else {
         return Update::DoNothing;
     };
+    set_picked_files(
+        &mut refany,
+        info,
+        StringVec::from_vec(alloc::vec![path.inner]),
+    )
+}
+
+/// Resume half of [`fileinput_on_click`] for a `multiple` input: stores every
+/// picked file and fires the app's `on_path_change`. A cancelled dialog (no
+/// file) changes nothing.
+#[cfg(feature = "extra")]
+extern "C" fn fileinput_on_files_picked(
+    mut refany: RefAny,
+    info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    use crate::desktop::dialogs::FileOpenMultiResult;
+
+    let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let paths: Vec<AzString> = picked
+        .paths
+        .as_ref()
+        .iter()
+        .map(|p| p.inner.clone())
+        .collect();
+    if paths.is_empty() {
+        return Update::DoNothing;
+    }
+    set_picked_files(&mut refany, info, StringVec::from_vec(paths))
+}
+
+/// The user picked `paths`: the input holds them, the app's `on_path_change`
+/// hears them, and the relabel asks for a rebuild.
+#[cfg(feature = "extra")]
+fn set_picked_files(refany: &mut RefAny, info: CallbackInfo, paths: StringVec) -> Update {
     let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
         return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
-    fileinputstatewrapper.inner.path = OptionString::Some(path.inner);
+    fileinputstatewrapper.inner = FileInputState::create_with_paths(paths);
 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
@@ -345,6 +521,89 @@ extern "C" fn fileinput_on_file_picked(
     };
     result.max_self(Update::RefreshDom);
     result
+}
+
+/// The dialog filter for HTML `accept` tokens, `None` when they name nothing
+/// a filter can express (then the dialog offers every file, as HTML's does
+/// for an unknown `accept`).
+#[cfg(feature = "extra")]
+fn accept_filter(accept: &StringVec) -> crate::desktop::dialogs::OptionFileTypeList {
+    use crate::desktop::dialogs::{FileTypeList, OptionFileTypeList};
+
+    let patterns = accept_patterns(accept);
+    if patterns.is_empty() {
+        return OptionFileTypeList::None;
+    }
+    let descriptor = accept
+        .as_ref()
+        .iter()
+        .map(|t| t.as_str().trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    OptionFileTypeList::Some(FileTypeList {
+        document_types: StringVec::from_vec(patterns.into_iter().map(AzString::from).collect()),
+        document_descriptor: AzString::from(descriptor),
+    })
+}
+
+/// The file patterns (`*.png`) HTML `accept` tokens stand for, each once, in
+/// order: an extension is its own pattern (lower-case); a MIME type, the
+/// extensions of its files; `image/*`, `audio/*`, `video/*`, `text/*`, every
+/// extension of that kind a desktop knows. A MIME type this table does not
+/// know is taken by its subtype (`image/bmp` -> `*.bmp`).
+#[cfg_attr(not(feature = "extra"), allow(dead_code))]
+pub(crate) fn accept_patterns(accept: &StringVec) -> Vec<String> {
+    use alloc::{string::String, vec::Vec};
+
+    /// MIME type -> the extensions of its files.
+    const KNOWN: &[(&str, &[&str])] = &[
+        (
+            "image/*",
+            &["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tif", "tiff"],
+        ),
+        ("audio/*", &["mp3", "wav", "ogg", "flac", "m4a", "aac", "opus"]),
+        ("video/*", &["mp4", "webm", "mkv", "mov", "avi", "m4v"]),
+        ("text/*", &["txt", "csv", "md", "html", "htm", "css", "xml"]),
+        ("image/jpeg", &["jpg", "jpeg"]),
+        ("image/svg+xml", &["svg"]),
+        ("image/x-icon", &["ico"]),
+        ("image/tiff", &["tif", "tiff"]),
+        ("text/plain", &["txt"]),
+        ("text/html", &["html", "htm"]),
+        ("text/markdown", &["md"]),
+        ("audio/mpeg", &["mp3"]),
+        ("video/quicktime", &["mov"]),
+        ("application/pdf", &["pdf"]),
+        ("application/json", &["json"]),
+        ("application/zip", &["zip"]),
+        ("application/xml", &["xml"]),
+    ];
+
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |ext: &str| {
+        let pattern = alloc::format!("*.{ext}");
+        if !out.contains(&pattern) {
+            out.push(pattern);
+        }
+    };
+    for token in accept.as_ref() {
+        let token = token.as_str().trim().to_ascii_lowercase();
+        if let Some(ext) = token.strip_prefix('.') {
+            if !ext.is_empty() {
+                push(ext);
+            }
+        } else if let Some((_, exts)) = KNOWN.iter().find(|(mime, _)| *mime == token) {
+            for ext in exts.iter().copied() {
+                push(ext);
+            }
+        } else if let Some((_, sub)) = token.split_once('/') {
+            if !sub.is_empty() && sub.chars().all(|c| c.is_ascii_alphanumeric()) {
+                push(sub);
+            }
+        }
+    }
+    out
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -1445,6 +1704,7 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(FileInput::create(opt("/tmp/x.txt")).dom());
         let inner = RefAny::new(FileInputState {
             path: opt("/tmp/x.txt"),
+            paths: StringVec::from_vec(vec![AzString::from("/tmp/x.txt")]),
         });
 
         let (update, changes) = click(styled, &inner, node(0));
@@ -1667,5 +1927,147 @@ mod autotest_generated {
                 "the state was corrupted by the re-entrant attempt",
             );
         }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod theme_tests {
+    //! A file input renders AS a `Button`, so its theme is the button's: flat's
+    //! or flora's button face, light and dark, ringed on focus in both. With no
+    //! theme it follows the app theme.
+
+    use azul_core::dom::Dom;
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn input(theme: Option<UiTheme>) -> Dom {
+        let f = FileInput::create(OptionString::Some(AzString::from("/tmp/report.pdf")));
+        match theme {
+            Some(t) => f.with_theme(t).dom(),
+            None => f.dom(),
+        }
+    }
+
+    #[test]
+    fn a_file_input_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let f = FileInput::create(OptionString::None);
+        assert_eq!(f.theme, OptionUiTheme::None, "no opinion until the app picks one");
+        assert!(tc::has_class(&input(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            input(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = FileInput::create(OptionString::None);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, FileInput::create(OptionString::None).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_pinned_file_input_is_that_themes_button_in_both_modes() {
+        for (theme, marker) in [(UiTheme::Flat, FLAT), (UiTheme::Flora, FLORA)] {
+            let dom = input(Some(theme));
+            assert!(tc::has_class(&dom, marker), "{theme:?}");
+            let button = Button::create(AzString::from("report.pdf"))
+                .with_theme(theme)
+                .dom();
+            // The button's own suite pins its faces and rings in both modes.
+            assert_eq!(
+                dom.root.style, button.root.style,
+                "{theme:?}: the file input is styled exactly as that theme's button"
+            );
+        }
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        assert_eq!(
+            tc::a11y_outline(&input(Some(UiTheme::Flat))),
+            tc::a11y_outline(&input(Some(UiTheme::Flora)))
+        );
+    }
+
+    #[test]
+    fn the_style_resolvers_answer_for_the_theme() {
+        let f = FileInput::create(OptionString::None).with_theme(UiTheme::Flora);
+        let b = Button::create(AzString::from_const_str("")).with_theme(UiTheme::Flora);
+        assert_eq!(f.resolved_container_style(), b.resolved_container_style());
+        assert_eq!(f.resolved_label_style(), b.resolved_label_style());
+        assert_eq!(f.resolved_image_style(), b.resolved_image_style());
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_file_input_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_blocks::checks::{under, BOTH};
+        let paths = [
+            ("no file", OptionString::None),
+            ("a file", OptionString::Some(AzString::from("/tmp/report.pdf"))),
+        ];
+        for theme in BOTH {
+            for (what, path) in &paths {
+                let dom = under(theme, || FileInput::create(path.clone()).dom());
+                tc::assert_structure_is_shared(
+                    &format!("file_input ({what}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}
+
+/// HTML's `accept` - file extensions, MIME types, `image/*` - as the patterns
+/// the file dialog filters by.
+#[cfg(test)]
+mod accept_filter {
+    use azul_css::{AzString, StringVec};
+
+    use super::accept_patterns;
+
+    fn accept(tokens: &[&str]) -> StringVec {
+        StringVec::from_vec(tokens.iter().map(|t| AzString::from(*t)).collect())
+    }
+
+    #[test]
+    fn an_extension_is_its_own_pattern_whatever_its_case() {
+        assert_eq!(accept_patterns(&accept(&[".png", ".PDF"])), vec!["*.png", "*.pdf"]);
+    }
+
+    #[test]
+    fn a_mime_type_becomes_its_file_extensions() {
+        assert_eq!(accept_patterns(&accept(&["image/jpeg"])), vec!["*.jpg", "*.jpeg"]);
+        assert_eq!(accept_patterns(&accept(&["application/pdf"])), vec!["*.pdf"]);
+    }
+
+    #[test]
+    fn a_wildcard_mime_type_becomes_every_extension_of_its_kind() {
+        let images = accept_patterns(&accept(&["image/*"]));
+        assert!(images.contains(&"*.png".to_string()), "{images:?}");
+        assert!(images.contains(&"*.jpg".to_string()), "{images:?}");
+    }
+
+    #[test]
+    fn nothing_known_filters_nothing() {
+        assert!(accept_patterns(&accept(&[])).is_empty());
+        assert!(accept_patterns(&accept(&["", "  "])).is_empty());
+    }
+
+    #[test]
+    fn a_pattern_is_listed_once() {
+        assert_eq!(accept_patterns(&accept(&[".jpg", "image/jpeg"])), vec!["*.jpg", "*.jpeg"]);
     }
 }

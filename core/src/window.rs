@@ -44,8 +44,8 @@ use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType, Update},
     dom::{DomId, DomNodeId, NodeHierarchy},
     geom::{
-        LogicalPosition, LogicalRect, LogicalSize, OptionLogicalSize, PhysicalPositionI32,
-        PhysicalSize,
+        LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalSize,
+        PhysicalPositionI32, PhysicalSize,
     },
     gl::OptionGlContextPtr,
     hit_test::{ExternalScrollId, OverflowingScrollNode},
@@ -117,6 +117,11 @@ pub struct RendererOptions {
     pub vsync: Vsync,
     pub srgb: Srgb,
     pub hw_accel: HwAcceleration,
+    /// The highest frame rate this window paces at, in Hz, or `None` for the
+    /// refresh rate of the monitor it is on. Every frame-paced driver (the
+    /// animation clock, the caret tween, the frame pump) runs at the lower
+    /// of the two - see [`RendererOptions::frame_interval_nanos`].
+    pub max_frame_rate: OptionU32,
 }
 
 impl_option!(
@@ -135,6 +140,7 @@ impl Default for RendererOptions {
             // what the headless e2e tests render. GPU is re-selectable via
             // AZ_BACKEND=gpu / AZ_BACKEND=auto or HwAcceleration::Enabled.
             hw_accel: HwAcceleration::DontCare,
+            max_frame_rate: OptionU32::None,
         }
     }
 }
@@ -146,9 +152,47 @@ impl RendererOptions {
             vsync,
             srgb,
             hw_accel,
+            max_frame_rate: OptionU32::None,
         }
     }
+
+    /// The frame interval, in ns, of a window with these options on a
+    /// monitor refreshing at `monitor_hz` (see [`frame_interval_nanos`]).
+    #[must_use]
+    pub fn frame_interval_nanos(&self, monitor_hz: Option<u32>) -> u64 {
+        frame_interval_nanos(monitor_hz, self.max_frame_rate.into_option())
+    }
 }
+
+/// The refresh rate a window paces at while its monitor reports none, in Hz.
+pub const FALLBACK_REFRESH_RATE_HZ: u32 = 60;
+
+/// THE frame interval, in ns: one refresh of the monitor the window is on,
+/// slowed to `max_frame_rate` when that is lower.
+///
+/// `monitor_hz` is the monitor's refresh rate; `None` or an implausible reading
+/// falls back to [`FALLBACK_REFRESH_RATE_HZ`]. The one formula every
+/// frame-paced driver uses, so a 120 Hz panel animates at 120 Hz and a cap of
+/// 30 paces at 33.3 ms everywhere.
+#[must_use]
+pub fn frame_interval_nanos(monitor_hz: Option<u32>, max_frame_rate: Option<u32>) -> u64 {
+    // A reading outside what any display runs at (0 from a driver that
+    // does not know, garbage from a broken EDID) must neither stall nor
+    // spin a pacer.
+    let monitor_hz = monitor_hz
+        .filter(|hz| (MIN_PLAUSIBLE_REFRESH_RATE_HZ..=MAX_PLAUSIBLE_REFRESH_RATE_HZ).contains(hz))
+        .unwrap_or(FALLBACK_REFRESH_RATE_HZ);
+    let hz = match max_frame_rate {
+        Some(cap) if cap > 0 => monitor_hz.min(cap),
+        _ => monitor_hz,
+    };
+    1_000_000_000 / u64::from(hz)
+}
+
+/// The lowest refresh rate a monitor reading is believed at, in Hz.
+pub const MIN_PLAUSIBLE_REFRESH_RATE_HZ: u32 = 20;
+/// The highest refresh rate a monitor reading is believed at, in Hz.
+pub const MAX_PLAUSIBLE_REFRESH_RATE_HZ: u32 = 1000;
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
@@ -554,36 +598,72 @@ pub struct KeyboardState {
     pub current_physical_key: OptionPhysicalKey,
 }
 
+/// Raised by [`use_linux_shortcuts_on_macos`]; see there.
+static LINUX_SHORTCUTS_ON_MACOS: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Make a macOS process follow the Linux shortcut conventions: Ctrl as the
+/// primary modifier and as the word modifier.
+///
+/// Only the X11 backend on a macOS host (azul-dll's `x11-macos` feature,
+/// `AZ_BACKEND=x11`) calls this, once, before its first window. Its keys
+/// arrive the way an X server delivers them - Ctrl is Ctrl, and XQuartz sends
+/// the Command key as `Meta`, which X11 reads as Alt - so the Mac's
+/// Cmd-primary rule would leave Ctrl+C, Ctrl+V, Ctrl+A and Ctrl+Z dead in
+/// exactly the windows that exist to reproduce Linux behaviour.
+#[doc(hidden)]
+pub fn use_linux_shortcuts_on_macos() {
+    LINUX_SHORTCUTS_ON_MACOS.store(true, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Does this process follow the Mac's shortcut conventions - Cmd (super) as
+/// the primary modifier, Option (alt) as the word modifier?
+///
+/// `true` on macOS, unless the X11 backend draws the windows there (see
+/// [`use_linux_shortcuts_on_macos`]); `false` everywhere else.
+#[doc(hidden)]
+#[must_use]
+pub fn mac_shortcut_conventions() -> bool {
+    cfg!(target_os = "macos")
+        && !LINUX_SHORTCUTS_ON_MACOS.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 impl KeyboardState {
+    /// Is either Shift key held?
     #[must_use]
     pub fn shift_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift)
     }
+    /// Is either Ctrl key held? For a shortcut test [`Self::primary_down`]
+    /// (Cmd on macOS) instead.
     #[must_use]
     pub fn ctrl_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl)
     }
+    /// Is either Alt (Option) key held?
     #[must_use]
     pub fn alt_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt)
     }
+    /// Is either super key held - Cmd on macOS, the Win key elsewhere?
     #[must_use]
     pub fn super_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
     }
     /// The platform's PRIMARY shortcut modifier: Cmd (super) on macOS, Ctrl
     /// everywhere else (MWA-A2). Every standard editing shortcut
-    /// (copy / cut / paste / select-all / undo / redo) keys off this —
+    /// (copy / cut / paste / select-all / undo / redo) keys off this -
     /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
-    /// arrives as LWin/super.
+    /// arrives as LWin/super. "macOS" means [`mac_shortcut_conventions`]: an
+    /// X11 window on a Mac follows the Linux rule.
+    ///
+    /// Test this, never `ctrl_down() || super_down()` (the rule lives in
+    /// [`crate::events::KeyModifiers::primary_down_for`]).
     #[must_use]
     pub fn primary_down(&self) -> bool {
-        if cfg!(target_os = "macos") {
-            self.super_down()
-        } else {
-            self.ctrl_down()
-        }
+        self.derived_modifiers().primary_down()
     }
+    /// Is `key` held right now?
     #[must_use]
     pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)
@@ -1270,21 +1350,8 @@ impl_vec_debug!(TouchPoint, TouchPointVec);
 impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
 impl_vec_partialeq!(TouchPoint, TouchPointVec);
 
-/// State, size, etc of the window, for comparing to the last frame
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
-#[repr(C)]
-#[derive(Default)]
-pub enum WindowTheme {
-    DarkMode,
-    #[default]
-    LightMode,
-}
-
-impl_option!(
-    WindowTheme,
-    OptionWindowTheme,
-    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
-);
+/// Dark or light (see [`DarkLightMode`]); was `DarkLightMode`.
+pub use azul_css::system::{DarkLightMode, OptionDarkLightMode};
 
 /// Identifies a specific monitor/display
 ///
@@ -1426,6 +1493,19 @@ impl Hash for Monitor {
     }
 }
 
+impl Monitor {
+    /// The refresh rate of the monitor's current mode, in Hz, if it reports
+    /// one. Every platform's monitor list puts the current mode first.
+    #[must_use]
+    pub fn refresh_rate_hz(&self) -> Option<u32> {
+        self.video_modes
+            .as_ref()
+            .first()
+            .map(|mode| u32::from(mode.refresh_rate))
+            .filter(|hz| *hz > 0)
+    }
+}
+
 impl Default for Monitor {
     fn default() -> Self {
         Self {
@@ -1510,8 +1590,11 @@ pub struct WindowFlags {
     pub background_material: WindowBackgroundMaterial,
     /// Window type classification (Normal, Menu, Tooltip, Dialog)
     pub window_type: WindowType,
-    /// User clicked the close button (set by `WindowDelegate`, checked by event loop)
-    /// The `close_callback` can set this to false to prevent closing
+    /// A close was requested (the window manager's close button, Alt+F4,
+    /// `CallbackInfo::close_window`, the CSD titlebar's close button). The
+    /// backend runs the close protocol: `WindowEventFilter::CloseRequested`
+    /// callbacks run, and one that calls `CallbackInfo::prevent_window_close`
+    /// keeps the window open. Never clear it by hand.
     pub close_requested: bool,
     /// Is the window currently visible?
     pub is_visible: bool,
@@ -1916,6 +1999,14 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
+impl AzStringPair {
+    /// A pair from its two halves.
+    #[must_use]
+    pub const fn create(key: AzString, value: AzString) -> Self {
+        Self { key, value }
+    }
+}
+
 impl_option!(
     AzStringPair,
     OptionStringPair,
@@ -2000,14 +2091,22 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-/// macOS-specific window options (reserved for future use)
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+/// macOS-specific window options
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq)]
 #[repr(C)]
-// `_`-prefixed fields are C-ABI/api.json names; cannot rename.
-#[allow(clippy::pub_underscore_fields)]
 pub struct MacWindowOptions {
-    // empty for now, single field must be present for ABI compat - always set to 0
-    pub _reserved: u8,
+    /// Where the window's close / minimize / zoom buttons (the "traffic
+    /// lights") sit: the close button's top-left corner, in points from the
+    /// window's top-left corner, the other two following at `AppKit`'s own
+    /// spacing (Electron's `trafficLightPosition`). `None` leaves them where
+    /// `AppKit` puts them.
+    ///
+    /// For a window whose content runs under its titlebar
+    /// (`WindowDecorations::NoTitle`) and whose own title row is taller than
+    /// `AppKit`'s 28pt bar - a tab strip in the titlebar centres them on its
+    /// tabs with `TabsInTitlebar::traffic_light_position`. Kept through
+    /// resizes and full screen; ignored on every other platform.
+    pub traffic_light_position: OptionLogicalPosition,
 }
 
 /// WASM/web-specific window options (reserved for future use)

@@ -1,0 +1,59 @@
+[package]
+name = "azul-appkit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The app skeleton the Azlin apps share (build ledger F2 / F6 / F7): the
+    command-line switches (--screen, --size, --theme, --mode, --shot,
+    --sample, --data-dir), the per-user data layout (one folder per app under
+    the data root, the same keys the user's S3 bucket will have), the app
+    settings file, the keyboard-shortcut table and the About facts. With the
+    `azul` feature also the shared UI: the settings page in the shape of
+    Outlook 2010's Options dialog (General, Data, Shortcuts, About), the window's
+    title row, the `--shot` screenshot timer and file jobs that run on an
+    azul Thread through azul-storage's Drive (a LocalDrive today, an S3Drive
+    later). AzCalculator is its first user, AzContacts the second.
+"""
+publish = false
+
+[dependencies]
+# serde / serde_json and azul-storage are already in the tree (azul-storage,
+# AzCalendar, AzDrive); no new crates.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+azul-storage = { path = "../azul-storage" }
+# In Cargo.lock (AzSheets, AzKeys, AzERP): the one CSV reader (`csv` module).
+csv = "1.4"
+# No link mode here: the `azul` feature below adds link-dynamic; `look` alone leaves it to the
+# app's own azul dependency (AzMeet links statically on android / ios).
+azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
+# Haiku's icons, the flora theme's icon pack: `ui::app_config` registers them for every app
+# (the `azul` feature); the About rows credit them.
+azul-icons-haiku = { path = "../azul-icons-haiku" }
+# What azul-pim knows to say (a repeat rule's words, `l10n::t_said`): in the tree, as chrono
+# (the version and features azul-pim builds it with). No new crates.
+azul-pim = { path = "../azul-pim" }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The localization checks every app's test runs (`l10n_check`: the resources parse). No new
+# crate: azul-layout's Fluent parser, 0.12.0 in Cargo.lock (no build.rs, no proc-macro).
+fluent-syntax = { version = "0.12", default-features = false }
+
+[features]
+default = []
+# The settings page's look (Outlook's Options dialog in pieces) and the small
+# DOM pieces, on azul without a link mode: for an app that draws its settings
+# itself and links azul its own way (AzMeet).
+look = ["dep:azul"]
+# The shared UI (settings page, title row, --shot, file jobs on a Thread).
+# The apps turn it on; the unit tests of the plain modules need no libazul.
+azul = ["look", "azul/link-dynamic", "azul-icons-haiku/azul"]
+
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[lib]
+name = "azul_appkit"
+path = "src/lib.rs"

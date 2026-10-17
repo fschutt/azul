@@ -205,24 +205,39 @@ fn a_button_over_an_image_is_painted_once_and_maps_to_its_own_node() {
         }
     }
 
-    // The button's own background: `Default` is #f8f9fa.
+    // The button's own background: the fill (or the face's gradient - the
+    // Office 2010 raised face) the display list maps to the button's node
+    // (the `.mk` the test gave it in place of its classes).
     let mut boxes = Vec::new();
     for result in lw.layout_results.values() {
+        let styled = &result.styled_dom;
+        let button_node = (0..styled.node_data.as_ref().len()).find(|i| {
+            styled.node_data.as_ref()[*i]
+                .get_ids_and_classes()
+                .iter()
+                .any(|c| matches!(c.as_class(), Some(s) if s == "mk"))
+        });
+        let Some(button_node) = button_node else {
+            continue;
+        };
         let dl = &result.display_list;
         for (i, item) in dl.items.iter().enumerate() {
-            if let DisplayListItem::Rect { bounds, color, .. } = item {
-                if color.r == 0xf8 && color.g == 0xf9 && color.b == 0xfa && color.a > 0 {
-                    let o = bounds.origin();
-                    println!(
-                        "  item {i}: bg at ({}, {})  dom_node={:?}  emit={:?}",
-                        o.x,
-                        o.y,
-                        dl.node_mapping.get(i).and_then(|n| *n).map(|n| n.index()),
-                        dl.layout_node_mapping.get(i).and_then(|m| *m),
-                    );
-                    boxes.push((o.x, o.y));
-                }
+            let bounds = match item {
+                DisplayListItem::Rect { bounds, color, .. } if color.a > 0 => bounds,
+                DisplayListItem::LinearGradient { bounds, .. } => bounds,
+                _ => continue,
+            };
+            if dl.node_mapping.get(i).and_then(|n| *n).map(|n| n.index()) != Some(button_node) {
+                continue;
             }
+            let o = bounds.origin();
+            println!(
+                "  item {i}: bg at ({}, {})  emit={:?}",
+                o.x,
+                o.y,
+                dl.layout_node_mapping.get(i).and_then(|m| *m),
+            );
+            boxes.push((o.x, o.y));
         }
     }
     assert_eq!(

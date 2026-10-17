@@ -4,13 +4,13 @@
 //!
 //! Key types: [`Divider`], [`DividerOrientation`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class};
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::ColorU,
+        basic::{color::SystemColorRef, ColorU},
         layout::{
             LayoutAlignSelf, LayoutDisplay, LayoutFlexGrow, LayoutHeight, LayoutMarginBottom,
             LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutWidth,
@@ -44,7 +44,15 @@ pub struct Divider {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub divider_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this divider is PINNED to, or `None` to follow the
+    /// app theme (`AppConfig::with_theme`, `CallbackInfo::set_theme`; flat
+    /// unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// The class every divider carries, in every theme.
+pub(crate) static DIVIDER_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-divider"))];
 
 /// Default rule colour (#dddddd), matching the frame widget's border colour.
 const DIVIDER_COLOR: ColorU = ColorU {
@@ -57,25 +65,37 @@ const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Co
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
 
-static DIVIDER_STYLE_HORIZONTAL: &[CssPropertyWithConditions] = &[
+/// The rule in the dark theme: the desktop's separator colour, the same slot
+/// every other widget draws its dividers and outlines with.
+const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::SystemColor(SystemColorRef::Separator)];
+const DIVIDER_DARK_BG: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);
+
+/// The rule's structure, the same in every theme and both orientations (R5):
+/// a block that stretches across its parent's cross axis - the full width of
+/// a column, the full height of a row - and never grows along the main one.
+/// Every theme's skin (the thickness, the air, the colour) comes after it.
+pub(crate) static DIVIDER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(1))),
-    // Stretch across the parent's cross axis so the rule spans the full width.
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Flat's horizontal rule after [`DIVIDER_BASE`]: 1px tall, 4px of air.
+static DIVIDER_SKIN_HORIZONTAL: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(1))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(4))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(
         LayoutMarginBottom::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
-static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+/// Flat's vertical rule after [`DIVIDER_BASE`]: 1px wide, 4px of air.
+static DIVIDER_SKIN_VERTICAL: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
-    // Stretch across the parent's cross axis so the rule spans the full height.
-    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         4,
     ))),
@@ -83,6 +103,7 @@ static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
         LayoutMarginRight::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
 impl Divider {
@@ -100,6 +121,7 @@ impl Divider {
         Self {
             orientation,
             divider_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -111,17 +133,14 @@ impl Divider {
     /// that could still describe the other axis.
     #[must_use]
     pub fn resolved_divider_style(&self) -> CssPropertyWithConditionsVec {
-        self.divider_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(|| match self.orientation {
-                DividerOrientation::Horizontal => {
-                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL)
-                }
-                DividerOrientation::Vertical => {
-                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_VERTICAL)
-                }
-            })
+        self.divider_style.clone().into_option().unwrap_or_else(|| {
+            let skin = match self.orientation {
+                DividerOrientation::Horizontal => DIVIDER_SKIN_HORIZONTAL,
+                DividerOrientation::Vertical => DIVIDER_SKIN_VERTICAL,
+            };
+            // The widget's structure, then flat's rule.
+            CssPropertyWithConditionsVec::from_vec([DIVIDER_BASE, skin].concat())
+        })
     }
 
     /// Sets the orientation.
@@ -151,16 +170,34 @@ impl Divider {
         s
     }
 
-    /// Converts this divider into a DOM node with the `__azul-native-divider` class.
+    /// Pin the widget theme: the divider keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this divider into a DOM node with the `__azul-native-divider`
+    /// class. The look comes from the theme module (`themes::flat::divider` /
+    /// `themes::flora::divider`): the pinned theme's, or - with no theme -
+    /// both, each in its `@theme(<name>)` block, so the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static DIVIDER_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-divider"))];
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(DIVIDER_CLASS))
-            .with_css_props(self.resolved_divider_style())
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => flora::divider(self),
+            Some(UiTheme::Flat) => flat::divider(self),
+            None => theme_blocks::follow_app_theme(self, flat::divider, flora::divider),
+        }
     }
 }
 
@@ -194,8 +231,9 @@ mod autotest_generated {
     const ALL_ORIENTATIONS: [DividerOrientation; 2] =
         [DividerOrientation::Horizontal, DividerOrientation::Vertical];
 
-    /// The number of declarations each built-in style is expected to carry.
-    const DECL_COUNT: usize = 7;
+    /// The number of declarations each built-in style is expected to carry:
+    /// seven for the light rule plus its dark-theme colour.
+    const DECL_COUNT: usize = 8;
 
     /// The declared properties of a style vec, in declaration order.
     fn properties(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
@@ -320,21 +358,20 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The properties of a rendered node's *inline* style, in declaration
+    /// order, as the app theme the test builds for sees them (a divider with
+    /// no theme carries every theme's block; the live one reads like the
+    /// pinned divider).
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
+        crate::widgets::themes::theme_blocks::checks::live_properties(node)
     }
 
-    /// `(property, number-of-conditions)` for a rendered node, in declaration order.
+    /// `(property, number-of-conditions)` for a rendered node, in declaration
+    /// order, read like [`inline_properties`].
     fn inline_properties_with_condition_counts(node: &Dom) -> Vec<(CssProperty, usize)> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, c)| (p.clone(), c.as_ref().len()))
+        crate::widgets::themes::theme_blocks::checks::live_inline(node)
+            .into_iter()
+            .map(|(p, c)| (p, c.as_ref().len()))
             .collect()
     }
 
@@ -568,20 +605,31 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_or_the_dark_theme_colour() {
         // A divider is stateless — a declaration gated on `:hover`/`:active`
-        // would simply never paint.
+        // would simply never paint. The one conditional declaration is the
+        // rule's dark-theme colour, gated on the theme alone.
         for o in ALL_ORIENTATIONS {
+            let mut dark = 0;
             for p in Divider::create_with_orientation(o)
                 .resolved_divider_style()
                 .as_ref()
             {
+                if p.apply_if.as_ref().is_empty() {
+                    continue;
+                }
                 assert!(
-                    p.apply_if.as_ref().is_empty(),
+                    p.is_dark_twin() && p.pseudo_state_conditions().is_empty(),
                     "{o:?}: {:?} is conditional on a stateless widget",
                     p.property
                 );
+                assert!(
+                    matches!(p.property, CssProperty::BackgroundContent(_)),
+                    "{o:?}: only the rule colour has a dark-theme value"
+                );
+                dark += 1;
             }
+            assert_eq!(dark, 1, "{o:?}: the rule needs exactly one dark-theme colour");
         }
     }
 
@@ -590,7 +638,15 @@ mod autotest_generated {
         // A duplicated declaration is a last-one-wins ambiguity: two heights or
         // two backgrounds would make one of them silently dead.
         for o in ALL_ORIENTATIONS {
-            let props = properties(&Divider::create_with_orientation(o).resolved_divider_style());
+            // The light rule; its dark-theme colour re-declares the background
+            // under a theme condition, which is not a duplicate.
+            let props: Vec<CssProperty> = Divider::create_with_orientation(o)
+                .resolved_divider_style()
+                .as_ref()
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .map(|p| p.property.clone())
+                .collect();
             let mut seen = HashSet::new();
             for p in &props {
                 assert!(
@@ -798,7 +854,7 @@ mod autotest_generated {
                 CssProperty::const_height(LayoutHeight::const_px(42)),
             )]);
         let mut d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         d.set_orientation(DividerOrientation::Horizontal);
@@ -822,7 +878,7 @@ mod autotest_generated {
         // rebuild the vec to heal it. With no opinion stored there is nothing to
         // contradict: the resolver reads the orientation every time.
         let mut d = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::None,
         };
         assert_eq!(
@@ -841,7 +897,7 @@ mod autotest_generated {
         // An explicit style is the caller's answer and is honoured rather than
         // healed — that is what `Some` means.
         d.divider_style = OptionCssPropertyWithConditionsVec::Some(
-            CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            Divider::create().resolved_divider_style(),
         );
         d.set_orientation(DividerOrientation::Vertical);
         assert_eq!(
@@ -993,7 +1049,7 @@ mod autotest_generated {
                 CssProperty::const_width(LayoutWidth::const_px(9)),
             )]);
         let mut d = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         let taken = d.swap_with_default();
@@ -1145,9 +1201,9 @@ mod autotest_generated {
         // `orientation` contradicts its style therefore renders the *style* —
         // pinned so the divergence is documented rather than surprising.
         let desynced = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
-                CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+                Divider::create().resolved_divider_style(),
             ),
         };
         let rendered = inline_properties(&desynced.dom());
@@ -1163,7 +1219,7 @@ mod autotest_generated {
         // Boundary case: zero declarations. Must not panic and must keep the
         // class, otherwise the node becomes untargetable *and* invisible.
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::new(),
             ),
@@ -1193,7 +1249,7 @@ mod autotest_generated {
         let expected: Vec<CssProperty> = big.iter().map(|p| p.property.clone()).collect();
 
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_vec(big),
             ),
@@ -1218,7 +1274,7 @@ mod autotest_generated {
             ))),
         ];
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_vec(props),
             ),
@@ -1270,7 +1326,7 @@ mod autotest_generated {
         );
         // Same orientation, different style => not equal.
         let styled = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::new(),
             ),
@@ -1282,7 +1338,7 @@ mod autotest_generated {
         );
         // Same style, different orientation => not equal.
         let rotated = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::None,
         };
         assert_ne!(
@@ -1290,5 +1346,255 @@ mod autotest_generated {
             Divider::create(),
             "the orientation field must affect equality"
         );
+    }
+}
+
+/// The theme option: which look a divider renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn divider(orientation: DividerOrientation, theme: UiTheme) -> Dom {
+        Divider::create_with_orientation(orientation)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn last_bg(props: &[CssProperty]) -> Option<Vec<StyleBackgroundContent>> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        })
+    }
+
+    /// The inline properties as the app theme the test builds for sees them.
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        crate::widgets::themes::theme_blocks::checks::live_properties(dom)
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_divider_without_a_theme_renders_flat() {
+        let plain = Divider::create();
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            inline(&plain.dom()),
+            inline(&divider(DividerOrientation::Horizontal, UiTheme::Flat))
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Divider::create();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Divider::create().with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_divider_takes_the_system_separator_at_night() {
+        let dom = divider(DividerOrientation::Horizontal, UiTheme::Flat);
+        assert_eq!(
+            last_bg(&theme_probe::dark(&dom)),
+            Some(vec![StyleBackgroundContent::SystemColor(
+                SystemColorRef::Separator
+            )])
+        );
+    }
+
+    #[test]
+    fn a_flora_divider_is_a_hairline_in_flora_s_rule_colour() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            let dom = divider(orientation, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            assert_eq!(
+                last_bg(&rest),
+                Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SEP)]),
+                "{orientation:?}: flora.css `hr`: 1px of --fl-sep"
+            );
+            let one_px = Some(PixelValue::const_px(1));
+            let thickness = rest.iter().rev().find_map(|p| match (orientation, p) {
+                (DividerOrientation::Horizontal, CssProperty::Height(h)) => {
+                    h.get_property().and_then(|h| match h {
+                        LayoutHeight::Px(px) => Some(*px),
+                        _ => None,
+                    })
+                }
+                (DividerOrientation::Vertical, CssProperty::Width(w)) => {
+                    w.get_property().and_then(|w| match w {
+                        LayoutWidth::Px(px) => Some(*px),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            });
+            assert_eq!(thickness, one_px, "{orientation:?}: a hairline");
+        }
+    }
+
+    #[test]
+    fn a_flora_divider_at_night_takes_flora_s_night_rule() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            let dark = theme_probe::dark(&divider(orientation, UiTheme::Flora));
+            assert_eq!(
+                last_bg(&dark),
+                Some(vec![StyleBackgroundContent::Color(flora::DARK_SEP)]),
+                "{orientation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_divider_carries_the_flora_theme_marker() {
+        let dom = divider(DividerOrientation::Horizontal, UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-divider"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_divider_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                7
+            )))
+        ]);
+        let mut d = Divider::create().with_theme(UiTheme::Flora);
+        d.divider_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&d.dom()), expected);
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_divider_without_a_theme_follows_the_app_theme() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            checks::assert_follows_the_app_theme(
+                &format!("divider {orientation:?}"),
+                || Divider::create_with_orientation(orientation).dom(),
+                |t: UiTheme| Divider::create_with_orientation(orientation).with_theme(t).dom(),
+            );
+        }
+    }
+
+    #[test]
+    fn a_callers_divider_style_is_every_themes() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                7
+            )))
+        ]);
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || {
+                let mut d = Divider::create();
+                d.divider_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+                d.dom()
+            });
+            assert!(
+                checks::theme_names(&dom).is_empty(),
+                "built for {}: the caller chose this style for every theme",
+                theme.name()
+            );
+        }
+    }
+
+    /// Through the REAL cascade (the window's context, its app theme and
+    /// colour scheme): a divider with no theme paints flat's rule under the
+    /// app theme flat and flora's under flora, by day and at night.
+    #[test]
+    fn the_cascade_paints_the_app_themes_rule() {
+        use azul_core::{dom::NodeId, styled_dom::StyledDom};
+        use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+
+        use crate::widgets::themes::flora;
+
+        let painted = |theme: UiTheme, dark: bool| {
+            let dom = checks::under(theme, || Divider::create().dom());
+            let mut ctx = DynamicSelectorContext::default();
+            if dark {
+                ctx.mode = azul_css::system::DarkLightMode::Dark;
+            }
+            let ctx = ctx.with_app_theme(theme.name());
+            let sd = StyledDom::create_from_dom_with_context(
+                Dom::create_body().with_child(dom),
+                Some(ctx),
+            );
+            let rule = NodeId::new(1);
+            let states = sd.styled_nodes.as_container();
+            crate::solver3::getters::get_background_contents(
+                &sd,
+                rule,
+                &states[rule].styled_node_state,
+            )
+        };
+
+        assert_eq!(
+            painted(UiTheme::Flat, false),
+            alloc::vec![StyleBackgroundContent::Color(DIVIDER_COLOR)],
+            "flat by day: the established #DDDDDD rule"
+        );
+        assert_eq!(
+            painted(UiTheme::Flora, false),
+            alloc::vec![StyleBackgroundContent::Color(flora::LIGHT_SEP)],
+            "flora by day: --fl-sep"
+        );
+        assert_eq!(
+            painted(UiTheme::Flora, true),
+            alloc::vec![StyleBackgroundContent::Color(flora::DARK_SEP)],
+            "flora at night: --fl-sep's night value"
+        );
+        let flat_night = painted(UiTheme::Flat, true);
+        assert!(
+            !flat_night.is_empty()
+                && flat_night != painted(UiTheme::Flora, true)
+                && flat_night != painted(UiTheme::Flat, false),
+            "flat at night: the desktop's separator, neither flora's nor the day rule: \
+             {flat_night:?}"
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_divider_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+                let dom =
+                    checks::under(theme, || Divider::create_with_orientation(orientation).dom());
+                assert_structure_is_shared(
+                    &format!("divider {orientation:?} built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

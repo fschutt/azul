@@ -2233,7 +2233,12 @@ mod autotest_generated {
             EventType::MouseMove => EventType::MediaControl,
             EventType::MediaControl => EventType::PointerLockChange,
             EventType::PointerLockChange => EventType::SystemAudioChange,
-            EventType::SystemAudioChange => return None,
+            EventType::SystemAudioChange => EventType::TypingStyleChanged,
+            EventType::TypingStyleChanged => EventType::WebViewNavigationRequested,
+            EventType::WebViewNavigationRequested => EventType::WebViewLoadFinished,
+            EventType::WebViewLoadFinished => EventType::WebViewTitleChanged,
+            EventType::WebViewTitleChanged => EventType::WebViewLoadFailed,
+            EventType::WebViewLoadFailed => return None,
         })
     }
 
@@ -2397,6 +2402,11 @@ mod autotest_generated {
             (EventType::MediaControl, EventData::None),
             (EventType::PointerLockChange, EventData::None),
             (EventType::SystemAudioChange, EventData::None),
+            (EventType::TypingStyleChanged, EventData::None),
+            (EventType::WebViewNavigationRequested, EventData::None),
+            (EventType::WebViewLoadFinished, EventData::None),
+            (EventType::WebViewTitleChanged, EventData::None),
+            (EventType::WebViewLoadFailed, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
@@ -3047,12 +3057,18 @@ mod autotest_generated {
 
     #[test]
     fn collect_matching_callbacks_collects_nothing_once_immediate_stop_is_set() {
-        let mut result = PropagationResult::default();
+        let mut result = PathPropagationResult::default();
         let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
         callbacks.insert(
             NodeId::ZERO,
             vec![EventFilter::Hover(HoverEventFilter::MouseOver)],
         );
+        let filters_at = |at: DomNodeId| {
+            at.node
+                .into_crate_internal()
+                .and_then(|node| callbacks.get(&node))
+                .map(Vec::as_slice)
+        };
         let mut ev = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3063,15 +3079,15 @@ mod autotest_generated {
         ev.stop_immediate_propagation();
         collect_matching_callbacks(
             &ev,
-            NodeId::ZERO,
+            dnid(0, 0),
             EventPhase::Target,
-            &callbacks,
+            &filters_at,
             &mut result,
         );
         assert!(result.callbacks_to_invoke.is_empty());
 
         // A node with no registered callbacks is simply skipped.
-        let mut fresh = PropagationResult::default();
+        let mut fresh = PathPropagationResult::default();
         let clean = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3081,9 +3097,9 @@ mod autotest_generated {
         );
         collect_matching_callbacks(
             &clean,
-            NodeId::new(9),
+            dnid(0, 9),
             EventPhase::Target,
-            &callbacks,
+            &filters_at,
             &mut fresh,
         );
         assert!(fresh.callbacks_to_invoke.is_empty());
@@ -3091,8 +3107,8 @@ mod autotest_generated {
 
     #[test]
     fn propagate_phase_over_an_empty_iterator_only_sets_the_phase() {
-        let mut result = PropagationResult::default();
-        let callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        let mut result = PathPropagationResult::default();
+        let filters_at = |_: DomNodeId| -> Option<&[EventFilter]> { None };
         let mut ev = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3104,14 +3120,14 @@ mod autotest_generated {
             &mut ev,
             core::iter::empty(),
             EventPhase::Bubble,
-            &callbacks,
+            &filters_at,
             &mut result,
         );
         assert_eq!(ev.phase, EventPhase::Bubble);
         assert!(result.callbacks_to_invoke.is_empty());
 
         // propagate_target_phase resets phase + current_target to the target.
-        propagate_target_phase(&mut ev, NodeId::ZERO, &callbacks, &mut result);
+        propagate_target_phase(&mut ev, dnid(0, 0), &filters_at, &mut result);
         assert_eq!(ev.phase, EventPhase::Target);
         assert_eq!(ev.current_target, ev.target);
     }
@@ -3484,7 +3500,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let ev = key_event(VirtualKeyCode::Back as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&ev, &kb, None, true).is_none(),
+            handle_key_down(&ev, &kb, None, true, false).is_none(),
             "no focus => no keyboard system change"
         );
 
@@ -3496,7 +3512,7 @@ mod autotest_generated {
             tick(0),
             EventData::None,
         );
-        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1)), true).is_none());
+        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1)), true, false).is_none());
     }
 
     #[test]
@@ -3508,7 +3524,7 @@ mod autotest_generated {
         for code in [u32::MAX, u32::MAX - 1, 100_000, 9_999] {
             let ev = key_event(code, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target, true).is_none(),
+                handle_key_down(&ev, &kb, target, true, false).is_none(),
                 "key_code {code} must decode to None"
             );
         }
@@ -3522,7 +3538,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let target = dnid(0, 1);
         let ev = key_event(VirtualKeyCode::C as u32, primary_modifiers());
-        match handle_key_down(&ev, &kb, Some(target), true) {
+        match handle_key_down(&ev, &kb, Some(target), true, false) {
             Some(InternalEventAction::AddAndSkip(SystemChange::CopyToClipboard)) => {}
             _ => panic!("primary+C in the payload must copy, regardless of the live state"),
         }
@@ -3531,7 +3547,7 @@ mod autotest_generated {
         let live = keyboard_with_primary_held();
         let plain = key_event(VirtualKeyCode::C as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&plain, &live, Some(target), true).is_none(),
+            handle_key_down(&plain, &live, Some(target), true, false).is_none(),
             "an unmodified C is plain text input, not a copy"
         );
     }
@@ -3542,7 +3558,7 @@ mod autotest_generated {
         let target = dnid(0, 1);
 
         let expect_op = |ev: &SyntheticEvent| -> SelectionOp {
-            match handle_key_down(ev, &kb, Some(target), true) {
+            match handle_key_down(ev, &kb, Some(target), true, false) {
                 Some(InternalEventAction::AddAndSkip(SystemChange::ApplySelectionOp {
                     target: t,
                     op,
@@ -3590,6 +3606,28 @@ mod autotest_generated {
         assert_eq!(word_back.mode, SelectionMode::Delete);
     }
 
+    /// AzCalculator E2E (2026-10-02): with the `=` key (a focused button)
+    /// Backspace never reached the app's window key handler - the
+    /// interpreter claimed it for a text edit (`AddAndSkip` swallows the
+    /// key), as it once did the arrows. Only a text-editing focus owns
+    /// Backspace and Delete; anywhere else they are the app's keys.
+    #[test]
+    fn backspace_and_delete_pass_through_a_non_editable_focus() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        for vk in [VirtualKeyCode::Back, VirtualKeyCode::Delete] {
+            let ev = key_event(vk as u32, KeyModifiers::default());
+            assert!(
+                handle_key_down(&ev, &kb, target, false, false).is_none(),
+                "{vk:?} on a non-editable focus must reach the callbacks"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, true, false).is_some(),
+                "{vk:?} still edits text in an editable focus"
+            );
+        }
+    }
+
     #[test]
     fn handle_key_down_ignores_keys_it_does_not_interpret() {
         let kb = KeyboardState::default();
@@ -3603,10 +3641,181 @@ mod autotest_generated {
         ] {
             let ev = key_event(vk as u32, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target, true).is_none(),
+                handle_key_down(&ev, &kb, target, true, false).is_none(),
                 "{vk:?} must not generate a system change"
             );
         }
+    }
+
+    /// AzCalculator E2E (SMALL6, 2026-10-03): after a click on a keypad
+    /// button (a focused, non-editable button) Cmd/Ctrl+C never reached the
+    /// app's key handler - the interpreter claimed the Copy shortcut
+    /// (`AddAndSkip`), as it once did Backspace and Delete. An editing
+    /// shortcut (copy, cut, paste, select all) is the engine's on a
+    /// text-editing focus, or while text is selected (there is something to
+    /// copy); anywhere else it is the app's key.
+    #[test]
+    fn editing_shortcuts_reach_the_app_on_a_non_editable_focus_without_a_selection() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        for vk in [
+            VirtualKeyCode::C,
+            VirtualKeyCode::X,
+            VirtualKeyCode::V,
+            VirtualKeyCode::A,
+        ] {
+            let ev = key_event(vk as u32, primary_modifiers());
+            assert!(
+                handle_key_down(&ev, &kb, target, false, false).is_none(),
+                "{vk:?} on a focused button must reach the app's key handler"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, true, false).is_some(),
+                "{vk:?} in a text field is still the engine's"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, false, true).is_some(),
+                "{vk:?} over selected text is still the engine's"
+            );
+        }
+
+        // Through the interpreter: the Copy KeyDown is a user event, no
+        // CopyToClipboard is queued.
+        let mouse = MouseState::default();
+        let events = vec![key_event(VirtualKeyCode::C as u32, primary_modifiers())];
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events: &events,
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: target,
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+                focus_is_editable: false,
+                focus_hears_paste: false,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(r.system_changes.is_empty(), "{:?}", r.system_changes);
+        assert!(r
+            .user_events
+            .iter()
+            .any(|e| e.event_type == EventType::KeyDown));
+    }
+
+    /// A focused node that LISTENS for paste (a terminal: no text of its
+    /// own, no selection the engine knows) still gets the paste chord as the
+    /// engine's paste - only the engine can read the clipboard, and a
+    /// `Paste` callback is how a node asks for it. Copy, cut and select all
+    /// stay the node's keys: a terminal's Ctrl+C is the program's interrupt,
+    /// its Ctrl+A the start of the line.
+    #[test]
+    fn a_paste_chord_on_a_node_that_listens_for_paste_becomes_the_engines_paste() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        let paste = key_event(VirtualKeyCode::V as u32, primary_modifiers());
+        assert!(
+            handle_key_down_for(&paste, &kb, target, false, false, false).is_none(),
+            "without a paste listener the chord is the app's key"
+        );
+        assert!(
+            matches!(
+                handle_key_down_for(&paste, &kb, target, false, false, true),
+                Some(InternalEventAction::AddAndSkip(SystemChange::PasteFromClipboard))
+            ),
+            "a node listening for paste gets the engine's paste"
+        );
+        for vk in [VirtualKeyCode::C, VirtualKeyCode::X, VirtualKeyCode::A] {
+            let ev = key_event(vk as u32, primary_modifiers());
+            assert!(
+                handle_key_down_for(&ev, &kb, target, false, false, true).is_none(),
+                "{vk:?} on a paste listener is still the node's key"
+            );
+        }
+    }
+
+    /// Ctrl/Cmd+D (the next occurrence as another caret) is text editing
+    /// too: on a focused button it is the app's key (a "duplicate", a
+    /// bookmark), in a text field the engine's.
+    #[test]
+    fn ctrl_d_reaches_the_app_on_a_non_editable_focus() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        let ev = key_event(VirtualKeyCode::D as u32, primary_modifiers());
+        assert!(handle_key_down(&ev, &kb, target, false, false).is_none());
+        assert!(handle_key_down(&ev, &kb, target, true, false).is_some());
+    }
+
+    /// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the callbacks of an
+    /// editing focus: an editor that owns its history (a rich-text editor,
+    /// a document app) handles them. The engine's text undo is the key's
+    /// DEFAULT ACTION (layout's `default_actions`), run after the callbacks
+    /// unless one called `prevent_default` - the browser's keydown model,
+    /// where a page's keydown handler cancels the built-in undo.
+    ///
+    /// Before: the interpreter claimed the keys (`AddAndSkip` of
+    /// `UndoTextEdit` / `RedoTextEdit`), so no callback ever saw them and an
+    /// app's own history could not be reached from the keyboard.
+    #[test]
+    fn undo_and_redo_keys_reach_the_callbacks_of_an_editing_focus() {
+        let kb = KeyboardState::default();
+        let target = dnid(0, 1);
+        let primary = primary_modifiers();
+        let primary_shift = if cfg!(target_os = "macos") {
+            KeyModifiers::new().with_meta().with_shift()
+        } else {
+            KeyModifiers::new().with_ctrl().with_shift()
+        };
+        for (vk, mods) in [
+            (VirtualKeyCode::Z, primary),
+            (VirtualKeyCode::Z, primary_shift),
+            (VirtualKeyCode::Y, primary),
+        ] {
+            let ev = key_event(vk as u32, mods);
+            for editable in [true, false] {
+                assert!(
+                    handle_key_down(&ev, &kb, Some(target), editable, false).is_none(),
+                    "{vk:?} {mods:?} (editable focus: {editable}) must pass to the callbacks"
+                );
+            }
+        }
+
+        // Through the interpreter: the KeyDown is a user event and no undo
+        // runs before the callbacks.
+        let mouse = MouseState::default();
+        let events = vec![key_event(VirtualKeyCode::Z as u32, primary)];
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events: &events,
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: Some(target),
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+                focus_is_editable: true,
+                focus_hears_paste: false,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(
+            !r.system_changes
+                .iter()
+                .any(|c| matches!(c, SystemChange::UndoTextEdit { .. })),
+            "no undo before the callbacks: {:?}",
+            r.system_changes
+        );
+        assert!(
+            r.user_events
+                .iter()
+                .any(|e| e.event_type == EventType::KeyDown),
+            "the Ctrl/Cmd+Z KeyDown must reach the callbacks"
+        );
     }
 
     // ================================================ default_input_interpreter
@@ -3627,6 +3836,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: true,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
@@ -3672,6 +3882,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: true,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
@@ -4334,6 +4545,7 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         FocusEventFilter::Paste,
         FocusEventFilter::DocumentEdit,
         FocusEventFilter::TextChanged,
+        FocusEventFilter::TypingStyleChanged,
     ];
     const WINDOW: &[WindowEventFilter] = &[
         WindowEventFilter::MouseOver,
@@ -4762,14 +4974,14 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
 
     // EDITING: the caret owns the arrow.
     assert!(
-        super::handle_key_down(&arrow(), &kb, Some(target), true).is_some(),
+        super::handle_key_down(&arrow(), &kb, Some(target), true, false).is_some(),
         "a text-editing focus must still take the arrow for caret movement",
     );
 
     // NOT EDITING: the interpreter must keep its hands off, so the event
     // reaches the focused widget (and, failing that, the scroll default).
     assert!(
-        super::handle_key_down(&arrow(), &kb, Some(target), false).is_none(),
+        super::handle_key_down(&arrow(), &kb, Some(target), false, false).is_none(),
         "outside a text editor the arrow must pass through to the widget",
     );
 }
@@ -4903,5 +5115,274 @@ mod seat_dedup_tests {
         // One seat pressing twice in a pass still coalesces.
         let out = deduplicate_synthetic_events(vec![press(7), press(7)]);
         assert_eq!(out.len(), 1);
+    }
+
+    /// The primary shortcut modifier (Copy, Save, a list's toggle-click) is
+    /// Cmd under the Mac's conventions and Ctrl everywhere else - never
+    /// "Ctrl or Cmd": on a Mac Ctrl+click is the secondary click and Ctrl+S
+    /// is not Save; elsewhere the Win key is not Ctrl (DEDUP_WIDGETS_API F9).
+    #[test]
+    fn the_primary_modifier_is_cmd_on_a_mac_and_ctrl_elsewhere() {
+        use crate::window::{KeyboardState, VirtualKeyCode, VirtualKeyCodeVec};
+        let ctrl = KeyModifiers::default().with_ctrl();
+        let meta = KeyModifiers::default().with_meta();
+        assert!(meta.primary_down_for(true), "Cmd is primary on a Mac");
+        assert!(!ctrl.primary_down_for(true), "Ctrl is not primary on a Mac");
+        assert!(ctrl.primary_down_for(false), "Ctrl is primary elsewhere");
+        assert!(!meta.primary_down_for(false), "the Win key is not primary elsewhere");
+        assert!(!KeyModifiers::default().primary_down_for(true));
+        assert!(!KeyModifiers::default().primary_down_for(false));
+
+        // The host's rule, read from the pressed keys and from the modifier
+        // set alike.
+        let (primary, other) = if crate::window::mac_shortcut_conventions() {
+            (VirtualKeyCode::LWin, VirtualKeyCode::LControl)
+        } else {
+            (VirtualKeyCode::LControl, VirtualKeyCode::LWin)
+        };
+        for (key, expected) in [(primary, true), (other, false)] {
+            let ks = KeyboardState {
+                pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![key]),
+                ..KeyboardState::default()
+            };
+            assert_eq!(ks.primary_down(), expected, "{key:?} held");
+            assert_eq!(ks.derived_modifiers().primary_down(), expected, "{key:?} held");
+        }
+    }
+}
+
+/// An event aimed into a child dom - a `VirtualView` page: a progress bar, a
+/// video, a virtualized list - goes on through the node that hosts the page
+/// in its parent dom, as an event in a shadow tree goes on through its host
+/// (MEETDRIVE6: a double-click on a drive tile's capacity bar, a
+/// `ProgressBar`, which is a `VirtualView`, did not open the drive).
+#[cfg(test)]
+mod event_path_across_doms_tests {
+    use crate::{
+        callbacks::CoreCallbackData,
+        dom::{Dom, DomId, DomNodeId},
+        events::{
+            get_event_path, hover_callbacks_along_path, EventData, EventFilter, EventSource,
+            EventType, HoverEventFilter, SyntheticEvent,
+        },
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        task::{Instant, SystemTick},
+    };
+
+    fn at(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn event(event_type: EventType, target: DomNodeId) -> SyntheticEvent {
+        SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick { tick_counter: 0 }),
+            EventData::None,
+        )
+    }
+
+    /// A straight parent chain per dom: node i's parent is node i - 1.
+    fn chain_parent(_: DomId, node: NodeId) -> Option<NodeId> {
+        node.index().checked_sub(1).map(NodeId::new)
+    }
+
+    /// dom 1 is hosted by node 2 of dom 0.
+    fn page_in_node_2(dom: DomId) -> Option<(DomId, NodeId)> {
+        (dom.inner == 1).then_some((DomId { inner: 0 }, NodeId::new(2)))
+    }
+
+    #[test]
+    fn an_event_in_a_child_dom_goes_on_through_the_node_that_hosts_it() {
+        let path = get_event_path(at(1, 1), &chain_parent, &page_in_node_2);
+        assert_eq!(
+            path,
+            vec![at(0, 0), at(0, 1), at(0, 2), at(1, 0), at(1, 1)],
+            "root of the root dom first, the host, then the page down to the target"
+        );
+        // The root dom's own path is unchanged.
+        let path = get_event_path(at(0, 2), &chain_parent, &page_in_node_2);
+        assert_eq!(path, vec![at(0, 0), at(0, 1), at(0, 2)]);
+    }
+
+    #[test]
+    fn a_host_chain_that_loops_ends_the_event_path() {
+        // dom 1 claims to be hosted by its own node 0: the walk must stop.
+        let looping = |dom: DomId| (dom.inner == 1).then_some((DomId { inner: 1 }, NodeId::ZERO));
+        let path = get_event_path(at(1, 1), &chain_parent, &looping);
+        assert_eq!(path, vec![at(1, 0), at(1, 1)]);
+        // A target without a node has no path.
+        let none = DomNodeId {
+            dom: DomId { inner: 1 },
+            node: NodeHierarchyItemId::NONE,
+        };
+        assert!(get_event_path(none, &chain_parent, &page_in_node_2).is_empty());
+    }
+
+    fn on(filter: HoverEventFilter, id: usize) -> (EventFilter, usize) {
+        (EventFilter::Hover(filter), id)
+    }
+
+    fn listening(dom: Dom, callbacks: &[(EventFilter, usize)]) -> Dom {
+        callbacks.iter().fold(dom, |dom, (filter, id)| {
+            dom.with_callback(*filter, RefAny::new(0_u32), *id)
+        })
+    }
+
+    /// dom 0: body(0, `body`) > tile(1, `tile`) > host(2)
+    /// dom 1, hosted by node 2 of dom 0: body(0) > bar(1, `bar`)
+    fn tile_with_a_bar(
+        body: &[(EventFilter, usize)],
+        tile: &[(EventFilter, usize)],
+        bar: &[(EventFilter, usize)],
+    ) -> (StyledDom, StyledDom) {
+        let host = StyledDom::create_from_dom(
+            listening(Dom::create_body(), body)
+                .with_child(listening(Dom::create_div(), tile).with_child(Dom::create_div())),
+        );
+        let page = StyledDom::create_from_dom(
+            Dom::create_body().with_child(listening(Dom::create_div(), bar)),
+        );
+        (host, page)
+    }
+
+    fn planned_ids(plan: &[(DomNodeId, CoreCallbackData)]) -> Vec<(DomNodeId, usize)> {
+        plan.iter().map(|(n, cb)| (*n, cb.callback.cb)).collect()
+    }
+
+    #[test]
+    fn a_double_click_on_a_tiles_progress_bar_reaches_the_tiles_handler() {
+        let (host, page) = tile_with_a_bar(&[], &[on(HoverEventFilter::DoubleClick, 7)], &[]);
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::DoubleClick, at(1, 1)),
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(
+            planned_ids(&plan),
+            vec![(at(0, 1), 7)],
+            "the double-click on the bar must bubble out of the page to the tile"
+        );
+    }
+
+    #[test]
+    fn a_bubbling_event_reaches_the_page_then_its_host_each_callback_once() {
+        let dbl = HoverEventFilter::DoubleClick;
+        let (host, page) = tile_with_a_bar(
+            &[on(dbl, 9)],
+            // Two listeners on one node: each runs once, in their order.
+            &[on(dbl, 7), on(HoverEventFilter::MouseDown, 5), on(dbl, 8)],
+            &[on(dbl, 3)],
+        );
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::DoubleClick, at(1, 1)),
+            EventFilter::Hover(dbl),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(
+            planned_ids(&plan),
+            vec![(at(1, 1), 3), (at(0, 1), 7), (at(0, 1), 8), (at(0, 0), 9)],
+            "the target first, then up through the host, each callback once"
+        );
+    }
+
+    #[test]
+    fn an_enter_into_a_page_does_not_reach_its_host() {
+        // MouseEnter does not bubble: every node the pointer entered gets its
+        // own event, the host included - never the page's.
+        let enter = HoverEventFilter::MouseEnter;
+        let (host, page) = tile_with_a_bar(&[], &[on(enter, 7)], &[on(enter, 3)]);
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::MouseEnter, at(1, 1)),
+            EventFilter::Hover(enter),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(planned_ids(&plan), vec![(at(1, 1), 3)]);
+    }
+}
+
+#[cfg(test)]
+mod webview_event_tests {
+    use crate::events::{
+        event_type_to_filters, ComponentEventFilter, EventData, EventFilter, EventType,
+    };
+
+    /// A web view's four events each plan exactly their own `Component`
+    /// listener, at the web view's node: a sign-in page's
+    /// `WebViewNavigationRequested` callback is reached by a navigation of
+    /// that view and by nothing else, and no pointer event wakes it.
+    #[test]
+    fn every_web_view_event_plans_exactly_its_component_listener() {
+        const PAIRS: &[(EventType, ComponentEventFilter)] = &[
+            (
+                EventType::WebViewNavigationRequested,
+                ComponentEventFilter::WebViewNavigationRequested,
+            ),
+            (
+                EventType::WebViewLoadFinished,
+                ComponentEventFilter::WebViewLoadFinished,
+            ),
+            (
+                EventType::WebViewTitleChanged,
+                ComponentEventFilter::WebViewTitleChanged,
+            ),
+            (
+                EventType::WebViewLoadFailed,
+                ComponentEventFilter::WebViewLoadFailed,
+            ),
+        ];
+        for &(event_type, listener) in PAIRS {
+            let planned = event_type_to_filters(event_type, &EventData::None);
+            let components: Vec<ComponentEventFilter> = planned
+                .iter()
+                .filter_map(|f| match f {
+                    EventFilter::Component(c) => Some(*c),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                components,
+                vec![listener],
+                "{event_type:?} must reach exactly the {listener:?} listener; planned {planned:?}"
+            );
+            assert_eq!(
+                planned.len(),
+                1,
+                "{event_type:?} is a component event only; planned {planned:?}"
+            );
+        }
+        for ty in [EventType::Click, EventType::KeyDown, EventType::Mount] {
+            let planned = event_type_to_filters(ty, &EventData::None);
+            assert!(
+                !planned.iter().any(|f| PAIRS
+                    .iter()
+                    .any(|(_, l)| *f == EventFilter::Component(*l))),
+                "{ty:?} must not wake a web view listener; planned {planned:?}"
+            );
+        }
     }
 }

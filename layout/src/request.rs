@@ -33,13 +33,20 @@
 //! [`complete_erased`] / [`defer`] / [`take_completed`] as boundary imports
 //! and services them from JavaScript, and nothing else changes.
 //!
+//! Under this crate's own unit tests the queue is per THREAD instead (see
+//! `queue`): tests run side by side, and a drainer takes everything, so a
+//! shared queue let one test swallow the completion of the test beside it.
+//!
 //! ## Delivery order and ownership
 //!
 //! * FIFO. Nested completions (a resume that issues and immediately completes another request) are
 //!   appended to the end, never recursed into.
 //! * Entries are delivered by whichever window pumps next. Synchronous completions (every desktop
-//!   dialog / file / http call) are pumped by the requesting window right after the requesting
-//!   activation returns, so in practice a request resumes on the window that issued it.
+//!   dialog and file call) are pumped by the requesting window right after the requesting
+//!   activation returns. A deferred one (every HTTP request, answered by a worker; a mobile
+//!   picker) is delivered by whichever window drains the queue first after the answer - another
+//!   window, or a popup in its close pass. The shells therefore raise a resume's `RefreshDom` for
+//!   every window (`PlatformWindow::invoke_completed_requests` in the dll).
 //! * The queue holds a clone of the app's `data` until delivery, keeping the `RefAny` alive across
 //!   the gap. There is no cancellation in v1.
 
@@ -92,8 +99,6 @@ impl core::fmt::Debug for PendingRequest {
 
 #[cfg(feature = "std")]
 mod queue {
-    use std::sync::Mutex;
-
     use super::{CompletedRequest, PendingRequest};
 
     pub(super) struct RequestQueue {
@@ -101,11 +106,14 @@ mod queue {
         pub pending: Vec<PendingRequest>,
     }
 
-    pub(super) static REQUEST_QUEUE: Mutex<RequestQueue> = Mutex::new(RequestQueue {
+    /// The runtime's queue: ONE for the process (the module doc says why).
+    #[cfg(not(test))]
+    static REQUEST_QUEUE: std::sync::Mutex<RequestQueue> = std::sync::Mutex::new(RequestQueue {
         completed: Vec::new(),
         pending: Vec::new(),
     });
 
+    #[cfg(not(test))]
     pub(super) fn with_queue<R>(f: impl FnOnce(&mut RequestQueue) -> R) -> R {
         // A poisoned lock only means a callback panicked while the queue was
         // held; the queue itself is still a plain Vec pair, so keep serving.
@@ -113,6 +121,30 @@ mod queue {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         f(&mut guard)
+    }
+
+    // Under this crate's own tests: one queue per THREAD. The harness runs
+    // tests side by side on its threads and every drainer takes everything
+    // (`take_completed`; the e2e runner's pump inside many runner tests), so
+    // a shared queue let a test swallow its neighbour's completion. Each
+    // test issues its requests on its own thread - a `complete` there, or a
+    // `defer` whose poll its own pump runs (an http worker thread only
+    // answers the poll's channel) - so it sees exactly its own. The dll and
+    // every product build keep the process-wide queue above.
+    #[cfg(test)]
+    std::thread_local! {
+        static REQUEST_QUEUE: core::cell::RefCell<RequestQueue> =
+            const {
+                core::cell::RefCell::new(RequestQueue {
+                    completed: Vec::new(),
+                    pending: Vec::new(),
+                })
+            };
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_queue<R>(f: impl FnOnce(&mut RequestQueue) -> R) -> R {
+        REQUEST_QUEUE.with(|queue| f(&mut queue.borrow_mut()))
     }
 }
 
@@ -233,7 +265,12 @@ pub fn pending_count() -> usize {
 /// hanging modal is the worst outcome an e2e run can have - so every request
 /// function asks this store FIRST. The store is *armed* under an e2e run
 /// (`AZ_E2E` / `AZ_E2E_TEST` set, or `AZ_BACKEND=headless`; explicitly with
-/// [`arm`]) and disarmed in production, where it costs one relaxed load.
+/// [`arm`]) and disarmed in production, where it costs one relaxed load. A
+/// bare headless launch (no script) still sends unmocked HTTP requests: no
+/// modal can hang on one, and headless apps need the network. A scripted run
+/// sends the unmocked ones `AZ_E2E_ALLOW_HTTP` names (comma-separated URL
+/// patterns, `http://127.0.0.1:*`: the local stack it drives the app against)
+/// and refuses the rest.
 ///
 /// * A **mocked** operation resumes immediately with the canned answer; the resume path is the
 ///   normal one, so a mocked test exercises the whole request / resume machinery except the OS call
@@ -246,6 +283,10 @@ pub fn pending_count() -> usize {
 ///   documents are canned.
 /// * `FileDialog::save_bytes` never shows a dialog while armed: the bytes are recorded in
 ///   [`saved_files`] for `assert_saved_file`.
+/// * No capture or playback device (microphone, camera, screen, audio output) is opened while
+///   armed: each gets the synthetic stand-in the run asked for (`AZ_SYNTHETIC_DEVICES=camera,..`
+///   at launch, or the `mock` op), else nothing, recorded like an unmocked request
+///   ([`device`]).
 ///
 /// The JSON scenario op `{"op": "mock", "set": {...}}` fills the store; the
 /// same op is what the browser lane maps onto `window.__az_e2e_mock`.
@@ -261,7 +302,7 @@ pub mod mock {
     use azul_css::{props::basic::color::ColorU, AzString};
 
     /// A canned HTTP answer.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct MockHttpResponse {
         pub status: u16,
         pub body: Vec<u8>,
@@ -269,7 +310,7 @@ pub mod mock {
     }
 
     /// What a mocked HTTP request resolves to.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MockHttp {
         Response(MockHttpResponse),
         /// The transport failed (an `HttpError::Other` with this message).
@@ -295,10 +336,111 @@ pub mod mock {
         Unmocked,
     }
 
+    /// A capture or playback device, which a headless / e2e run never opens
+    /// for real: no camera light, no microphone, no permission prompt.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DeviceKind {
+        /// `MicrophoneWidget` capture. Stand-in: the widget's 440 Hz test tone.
+        Microphone,
+        /// `CameraWidget` capture. Stand-in: a colour-cycle pattern.
+        Camera,
+        /// `ScreenCaptureWidget` capture. Stand-in: a moving band.
+        Screen,
+        /// `AudioSink::open`. Stand-in: a sink that counts the frames it is
+        /// given and plays nothing.
+        AudioSink,
+    }
+
+    impl DeviceKind {
+        /// Every kind, in index order.
+        pub const ALL: [Self; 4] = [
+            Self::Microphone,
+            Self::Camera,
+            Self::Screen,
+            Self::AudioSink,
+        ];
+
+        const fn index(self) -> usize {
+            self as usize
+        }
+
+        /// The name in `AZ_SYNTHETIC_DEVICES` and in the `mock` op.
+        #[must_use]
+        pub const fn name(self) -> &'static str {
+            match self {
+                Self::Microphone => "microphone",
+                Self::Camera => "camera",
+                Self::Screen => "screen",
+                Self::AudioSink => "audio_sink",
+            }
+        }
+
+        /// The kind called `name` (see [`DeviceKind::name`]).
+        #[must_use]
+        pub fn from_name(name: &str) -> Option<Self> {
+            Self::ALL.into_iter().find(|kind| kind.name() == name)
+        }
+
+        /// What the `mock` op calls the synthetic stand-in.
+        #[must_use]
+        pub const fn stand_in(self) -> &'static str {
+            match self {
+                Self::Microphone => "tone",
+                Self::Camera | Self::Screen => "pattern",
+                Self::AudioSink => "count",
+            }
+        }
+
+        /// The operation an unavailable device is recorded as (see
+        /// [`unmocked_requests`]).
+        #[must_use]
+        pub const fn operation(self) -> &'static str {
+            match self {
+                Self::Microphone => "MicrophoneWidget capture",
+                Self::Camera => "CameraWidget capture",
+                Self::Screen => "ScreenCaptureWidget capture",
+                Self::AudioSink => "AudioSink::open",
+            }
+        }
+
+        /// What a headless run says when `self` is opened without a stand-in:
+        /// that nothing is opened, and how to ask for the synthetic one. The
+        /// stderr line of [`record_unavailable_device`], and the reason a
+        /// closed handle (`AudioSink::error_message`) gives.
+        #[must_use]
+        pub fn unavailable_message(self) -> String {
+            format!(
+                "{}: not available in a headless run, no device is opened. A synthetic \
+                 stand-in: AZ_SYNTHETIC_DEVICES={} or the mock op {{\"{}\": \"{}\"}}",
+                self.operation(),
+                self.name(),
+                self.name(),
+                self.stand_in()
+            )
+        }
+    }
+
+    /// What opening a device resolves to.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum MockDevice {
+        /// Not an e2e or headless run: open the real device.
+        Real,
+        /// A headless run that asked for this device's synthetic stand-in
+        /// (`AZ_SYNTHETIC_DEVICES`, or the `mock` op): use it, never the OS.
+        Synthetic,
+        /// A headless run that did not: nothing is opened ("not available in
+        /// a headless run"), and the attempt is recorded.
+        Unavailable,
+    }
+
     #[derive(Default)]
     struct MockState {
         /// `None` = decide from the environment on first use.
         armed: Option<bool>,
+        /// Whether a SCRIPT drives this run (`AZ_E2E` / `AZ_E2E_TEST`, or
+        /// [`arm`]) rather than a bare headless launch; `None` = decide from
+        /// the environment on first use.
+        scripted: Option<bool>,
         file_open: VecDeque<Option<AzString>>,
         file_open_multi: VecDeque<Vec<AzString>>,
         color_pick: VecDeque<Option<ColorU>>,
@@ -308,14 +450,25 @@ pub mod mock {
         /// `(url pattern, answer)`: an exact URL, a prefix ending in `*`, or
         /// `*` for everything; first match wins.
         http: Vec<(String, MockHttp)>,
+        /// The URL patterns (as in `http`) a scripted run fetches for real,
+        /// unmocked: `AZ_E2E_ALLOW_HTTP`, the local stack a script drives the
+        /// app against; `None` = read the variable on first use.
+        http_allowed: Option<Vec<String>>,
         audio_devices: Option<(Vec<AzString>, Vec<AzString>)>,
         video_decode_none: bool,
         saved_files: Vec<SavedFile>,
         unmocked: Vec<String>,
+        /// Which devices get their synthetic stand-in, by
+        /// [`DeviceKind::index`]; `None` = read `AZ_SYNTHETIC_DEVICES` on
+        /// first use.
+        synthetic_devices: Option<[bool; 4]>,
+        /// Which unavailable devices were already reported on stderr.
+        devices_reported: [bool; 4],
     }
 
     static STATE: Mutex<MockState> = Mutex::new(MockState {
         armed: None,
+        scripted: None,
         file_open: VecDeque::new(),
         file_open_multi: VecDeque::new(),
         color_pick: VecDeque::new(),
@@ -323,10 +476,13 @@ pub mod mock {
         save_bytes_accept: None,
         file_reads: BTreeMap::new(),
         http: Vec::new(),
+        http_allowed: None,
         audio_devices: None,
         video_decode_none: false,
         saved_files: Vec::new(),
         unmocked: Vec::new(),
+        synthetic_devices: None,
+        devices_reported: [false; 4],
     });
 
     fn with<R>(f: impl FnOnce(&mut MockState) -> R) -> R {
@@ -347,10 +503,54 @@ pub mod mock {
         *s.armed.get_or_insert_with(env_armed)
     }
 
+    /// A script drives the run (`AZ_E2E` / `AZ_E2E_TEST`), as opposed to a
+    /// bare headless launch.
+    fn env_scripted() -> bool {
+        let set = |k: &str| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false);
+        set("AZ_E2E") || set("AZ_E2E_TEST")
+    }
+
+    fn scripted_in(s: &mut MockState) -> bool {
+        *s.scripted.get_or_insert_with(env_scripted)
+    }
+
+    /// The devices `AZ_SYNTHETIC_DEVICES` gives a synthetic stand-in.
+    fn env_synthetic_devices() -> [bool; 4] {
+        std::env::var("AZ_SYNTHETIC_DEVICES")
+            .map(|list| parse_synthetic_devices(&list))
+            .unwrap_or([false; 4])
+    }
+
+    /// `AZ_SYNTHETIC_DEVICES`: comma-separated [`DeviceKind::name`]s, or
+    /// `all`. An unknown name is reported and ignored.
+    fn parse_synthetic_devices(list: &str) -> [bool; 4] {
+        let mut synthetic = [false; 4];
+        for name in list.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            if name == "all" {
+                synthetic = [true; 4];
+            } else if let Some(kind) = DeviceKind::from_name(name) {
+                synthetic[kind.index()] = true;
+            } else {
+                eprintln!(
+                    "[azul][e2e] AZ_SYNTHETIC_DEVICES: unknown device {name:?} (known: \
+                     microphone, camera, screen, audio_sink, all)"
+                );
+            }
+        }
+        synthetic
+    }
+
+    fn synthetic_in(s: &mut MockState) -> &mut [bool; 4] {
+        s.synthetic_devices.get_or_insert_with(env_synthetic_devices)
+    }
+
     /// Arm the store explicitly (an e2e host that is not driven by the
-    /// environment variables).
+    /// environment variables): a scripted run.
     pub fn arm() {
-        with(|s| s.armed = Some(true));
+        with(|s| {
+            s.armed = Some(true);
+            s.scripted = Some(true);
+        });
     }
 
     /// Disarm the store: every request performs its real OS call again.
@@ -368,9 +568,10 @@ pub mod mock {
     /// stays.
     pub fn reset() {
         with(|s| {
-            let armed = s.armed;
+            let (armed, scripted) = (s.armed, s.scripted);
             *s = MockState::default();
             s.armed = armed;
+            s.scripted = scripted;
         });
     }
 
@@ -443,6 +644,14 @@ pub mod mock {
         with(|s| s.video_decode_none = mocked);
     }
 
+    /// Give `kind` its synthetic stand-in in this run (`true`), or leave it
+    /// unavailable (`false`, the default unless `AZ_SYNTHETIC_DEVICES` names
+    /// it). Only an armed store consults this: a normal run always opens the
+    /// real device.
+    pub fn set_synthetic_device(kind: DeviceKind, synthetic: bool) {
+        with(|s| synthetic_in(s)[kind.index()] = synthetic);
+    }
+
     // ---- consumers (the request functions) ---------------------------------
 
     /// `op` names the caller for the unmocked record, e.g.
@@ -505,20 +714,55 @@ pub mod mock {
 
     #[must_use]
     pub fn take_http(url: &str) -> Answer<MockHttp> {
-        with(|s| {
-            if !armed_in(s) {
-                return Answer::NotArmed;
-            }
-            let found = s.http.iter().find(|(pattern, _)| {
-                pattern == "*"
-                    || pattern == url
-                    || pattern
-                        .strip_suffix('*')
-                        .is_some_and(|prefix| url.starts_with(prefix))
-            });
-            let taken = found.map(|(_, canned)| canned.clone());
-            answer(s, taken, &alloc::format!("http {url}"))
-        })
+        with(|s| take_http_in(s, url))
+    }
+
+    fn take_http_in(s: &mut MockState, url: &str) -> Answer<MockHttp> {
+        if !armed_in(s) {
+            return Answer::NotArmed;
+        }
+        let found = s.http.iter().find(|(pattern, _)| url_matches(pattern, url));
+        let taken = found.map(|(_, canned)| canned.clone());
+        // No modal can hang on an HTTP request: without a script to keep
+        // deterministic, an unmocked request goes out (see the tests); a
+        // scripted run sends the ones `AZ_E2E_ALLOW_HTTP` names (a local
+        // stack).
+        if taken.is_none() && (!scripted_in(s) || http_allowed_in(s, url)) {
+            return Answer::NotArmed;
+        }
+        answer(s, taken, &alloc::format!("http {url}"))
+    }
+
+    /// Whether `url` is what `pattern` names: an exact URL, a prefix ending
+    /// in `*`, or `*` for everything.
+    fn url_matches(pattern: &str, url: &str) -> bool {
+        pattern == "*"
+            || pattern == url
+            || pattern
+                .strip_suffix('*')
+                .is_some_and(|prefix| url.starts_with(prefix))
+    }
+
+    /// `AZ_E2E_ALLOW_HTTP`'s patterns: comma-separated, blanks dropped
+    /// (`http://127.0.0.1:*,http://localhost:*`).
+    fn parse_http_allowed(value: &str) -> Vec<String> {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(String::from)
+            .collect()
+    }
+
+    fn http_allowed_in(s: &mut MockState, url: &str) -> bool {
+        s.http_allowed
+            .get_or_insert_with(|| {
+                std::env::var("AZ_E2E_ALLOW_HTTP")
+                    .map(|v| parse_http_allowed(&v))
+                    .unwrap_or_default()
+            })
+            .iter()
+            .any(|pattern| url_matches(pattern, url))
     }
 
     #[must_use]
@@ -537,6 +781,42 @@ pub mod mock {
     #[must_use]
     pub fn video_decode_mocked() -> bool {
         with(|s| armed_in(s) && s.video_decode_none)
+    }
+
+    /// What opening `kind` resolves to: the real device in a normal run;
+    /// under an armed store (a headless or e2e run) never that - the
+    /// synthetic stand-in the run asked for, else nothing. Asking records
+    /// nothing; the caller reports an attempt to open an unavailable device
+    /// with [`record_unavailable_device`].
+    #[must_use]
+    pub fn device(kind: DeviceKind) -> MockDevice {
+        with(|s| device_in(s, kind))
+    }
+
+    fn device_in(s: &mut MockState, kind: DeviceKind) -> MockDevice {
+        if !armed_in(s) {
+            MockDevice::Real
+        } else if synthetic_in(s)[kind.index()] {
+            MockDevice::Synthetic
+        } else {
+            MockDevice::Unavailable
+        }
+    }
+
+    /// A headless run tried to open `kind`, which has no stand-in: say so on
+    /// stderr (once per kind) and record it like an unmocked request, so a
+    /// scenario can assert on it (`assert_unmocked_request`).
+    pub fn record_unavailable_device(kind: DeviceKind) {
+        with(|s| record_unavailable_in(s, kind));
+    }
+
+    fn record_unavailable_in(s: &mut MockState, kind: DeviceKind) {
+        let reported = &mut s.devices_reported[kind.index()];
+        if !*reported {
+            *reported = true;
+            eprintln!("[azul][e2e] {}", kind.unavailable_message());
+        }
+        s.unmocked.push(String::from(kind.operation()));
     }
 
     /// Records an export while armed; `None` when not armed (show the real
@@ -569,6 +849,157 @@ pub mod mock {
     pub fn unmocked_requests() -> Vec<String> {
         with(|s| s.unmocked.clone())
     }
+
+    #[cfg(test)]
+    mod network_tests {
+        use super::{parse_http_allowed, take_http_in, Answer, MockHttp, MockState};
+
+        fn store(scripted: bool) -> MockState {
+            MockState {
+                armed: Some(true),
+                scripted: Some(scripted),
+                ..MockState::default()
+            }
+        }
+
+        /// A bare headless launch (`AZ_BACKEND=headless`, no script) arms the
+        /// store so a picker or a permission prompt can never block it. An
+        /// HTTP request is neither: it has its own timeout, and a headless
+        /// app (CI screenshots, two AzMeet clients meeting through a local
+        /// server) needs the network. Unmocked, it goes out.
+        #[test]
+        fn a_headless_run_without_a_script_sends_its_http_requests() {
+            let mut s = store(false);
+            assert_eq!(take_http_in(&mut s, "http://127.0.0.1:8787/rooms"), Answer::NotArmed);
+            assert!(s.unmocked.is_empty(), "nothing to report: the request went out");
+        }
+
+        /// A scripted run against a local stack (the meeting server, S3, the
+        /// token server on 127.0.0.1): `AZ_E2E_ALLOW_HTTP` names what goes
+        /// out for real; every other unmocked request is still refused.
+        #[test]
+        fn a_scripted_run_sends_the_http_requests_its_allow_list_names() {
+            let mut s = store(true);
+            s.http_allowed = Some(vec!["http://127.0.0.1:*".into()]);
+            assert_eq!(
+                take_http_in(&mut s, "http://127.0.0.1:8790/rooms"),
+                Answer::NotArmed
+            );
+            assert_eq!(
+                take_http_in(&mut s, "https://example.org/feed.xml"),
+                Answer::Unmocked
+            );
+            assert_eq!(s.unmocked, ["http https://example.org/feed.xml"]);
+            assert_eq!(
+                parse_http_allowed(" http://127.0.0.1:*, ,http://localhost:8790/*,"),
+                ["http://127.0.0.1:*", "http://localhost:8790/*"]
+            );
+        }
+
+        /// A scripted run keeps its determinism: an unmocked request is
+        /// refused and recorded, and a canned answer is used in both runs.
+        #[test]
+        fn a_scripted_run_refuses_an_unmocked_http_request_and_both_take_canned_answers() {
+            let mut s = store(true);
+            assert_eq!(take_http_in(&mut s, "http://x/"), Answer::Unmocked);
+            assert_eq!(s.unmocked, ["http http://x/"]);
+            for scripted in [true, false] {
+                let mut s = store(scripted);
+                s.http.push(("http://x/*".into(), MockHttp::Error("canned".into())));
+                assert_eq!(
+                    take_http_in(&mut s, "http://x/rooms"),
+                    Answer::Mocked(MockHttp::Error("canned".into()))
+                );
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod device_tests {
+        use super::{
+            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, MockDevice,
+            MockState,
+        };
+
+        fn store(armed: bool, synthetic: [bool; 4]) -> MockState {
+            MockState {
+                armed: Some(armed),
+                scripted: Some(false),
+                synthetic_devices: Some(synthetic),
+                ..MockState::default()
+            }
+        }
+
+        /// Outside a headless / e2e run every device is the real one, even
+        /// when a stand-in was named: the store is not consulted.
+        #[test]
+        fn a_run_that_is_not_headless_opens_the_real_devices() {
+            let mut s = store(false, [true; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut s, kind), MockDevice::Real, "{kind:?}");
+            }
+        }
+
+        /// A headless run opens no microphone, camera, screen or audio
+        /// output: each is unavailable unless the run asked for its
+        /// synthetic stand-in, and then it gets exactly that one.
+        #[test]
+        fn a_headless_run_opens_no_device_unless_it_asked_for_a_synthetic_one() {
+            let mut s = store(true, [false; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut s, kind), MockDevice::Unavailable, "{kind:?}");
+            }
+            let mut s = store(true, [false, true, false, true]);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::Microphone),
+                MockDevice::Unavailable
+            );
+            assert_eq!(device_in(&mut s, DeviceKind::Camera), MockDevice::Synthetic);
+            assert_eq!(device_in(&mut s, DeviceKind::Screen), MockDevice::Unavailable);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::AudioSink),
+                MockDevice::Synthetic
+            );
+        }
+
+        /// Opening an unavailable device is a clear status, not a silent
+        /// blank: every attempt is recorded (a scenario can assert on it),
+        /// and stderr says so once per device.
+        #[test]
+        fn an_unavailable_device_is_recorded_every_time_it_is_opened() {
+            let mut s = store(true, [false; 4]);
+            record_unavailable_in(&mut s, DeviceKind::Camera);
+            record_unavailable_in(&mut s, DeviceKind::Camera);
+            record_unavailable_in(&mut s, DeviceKind::AudioSink);
+            assert_eq!(
+                s.unmocked,
+                [
+                    "CameraWidget capture",
+                    "CameraWidget capture",
+                    "AudioSink::open"
+                ]
+            );
+            assert_eq!(s.devices_reported, [false, true, false, true]);
+        }
+
+        /// `AZ_SYNTHETIC_DEVICES` names the devices a headless run gets a
+        /// stand-in for: a comma-separated list of names, or `all`; an
+        /// unknown name adds nothing.
+        #[test]
+        fn az_synthetic_devices_names_the_stand_ins_of_a_headless_run() {
+            assert_eq!(
+                parse_synthetic_devices("microphone, audio_sink"),
+                [true, false, false, true]
+            );
+            assert_eq!(parse_synthetic_devices("camera,screen"), [false, true, true, false]);
+            assert_eq!(parse_synthetic_devices("all"), [true; 4]);
+            assert_eq!(parse_synthetic_devices(""), [false; 4]);
+            assert_eq!(parse_synthetic_devices("speaker"), [false; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(DeviceKind::from_name(kind.name()), Some(kind));
+            }
+        }
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -595,7 +1026,8 @@ mod tests {
 
     #[test]
     fn complete_is_delivered_fifo_and_defer_waits_for_its_poll() {
-        // Other tests share the process-wide queue; drain whatever they left.
+        // The queue is per thread under tests; drain anything an earlier test
+        // on this harness thread left.
         let _ = take_completed();
 
         let cb = ResumeCallback::create(noop);
@@ -629,5 +1061,37 @@ mod tests {
         assert_eq!(result.downcast_ref::<u32>().map(|r| *r), Some(30));
         assert_eq!(pending_count(), 0);
         assert!(!has_work());
+    }
+
+    /// The test harness runs tests side by side on its threads, and every
+    /// drainer takes EVERYTHING (`take_completed`; the e2e runner's pump runs
+    /// inside many runner tests): with one process-wide queue a test's
+    /// completion could be swallowed by the test running beside it, and the
+    /// http tests' worker-thread answers made that window as long as a
+    /// transfer. Test B drains while test A's completion waits; A must still
+    /// find it.
+    #[test]
+    fn a_tests_completion_is_not_drained_by_a_test_running_beside_it() {
+        use std::sync::mpsc::channel;
+
+        let (completed_tx, completed_rx) = channel::<()>();
+        let (drained_tx, drained_rx) = channel::<()>();
+
+        let test_a = std::thread::spawn(move || {
+            let id = complete(RefAny::new(()), ResumeCallback::create(noop), 7u32);
+            completed_tx.send(()).expect("test B listens");
+            drained_rx.recv().expect("test B drained");
+            take_completed().iter().any(|c| c.request_id == id)
+        });
+        let test_b = std::thread::spawn(move || {
+            completed_rx.recv().expect("test A completed");
+            let _ = take_completed();
+            drained_tx.send(()).expect("test A listens");
+        });
+        test_b.join().expect("test B ran");
+        assert!(
+            test_a.join().expect("test A ran"),
+            "test A's completion is still in the queue for test A after test B drained"
+        );
     }
 }

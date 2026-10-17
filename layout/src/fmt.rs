@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use azul_css::{impl_option, impl_option_inner, AzString, StringVec};
+use azul_css::{impl_option, AzString, StringVec};
 
 /// A format argument value that can hold any primitive type or string.
 /// Used in [`FmtArg`] to pass typed values into `strfmt`-based formatting.

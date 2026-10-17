@@ -97,6 +97,16 @@ There is no CHANGELOG / ROADMAP / TODO file anywhere in the repo; this is the fi
 
 ---
 
+### E15. Image-icon tint pushes a bare `Flood` filter — `NEEDS-VERIFICATION` P2 S (logged 2026-09-29, from source reading only)
+
+`layout/src/icon.rs:341-342`: `tint_color` on an image icon becomes `StyleFilter::Flood(tint)`
+with no `Composite(In)` step. By flood semantics that paints the whole box in the tint instead of
+tinting the icon's alpha. Not verified on screen. **Test first:** a reftest with one PNG icon
+(monochrome on alpha) rendered at two tints; expected = the glyph shape in each tint on a
+transparent box. If RED, the fix is `Flood(tint)` followed by `Composite(In)` against the source
+(`css/src/props/style/filter.rs:55,62`). Context and the icon API extension it belongs to:
+`scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §8.1-8.2.
+
 ## 2. Widgets — tree view, list view, table (lobste.rs)
 
 The engine has the primitives (VirtualView with a 1M-row proof, keyed reconciliation + FLIP spring animation, drag auto-scroll, AccessKit on 5 platforms). `TreeView` (566 code lines, `layout/src/widgets/tree_view.rs`) and `ListView` (1171 lines, `list_view.rs`) use almost none of them. There is **no** `TableView`/`DataGrid`; `layout/src/widgets/mod.rs:334` has `// pub mod spreadsheet;` commented out.
@@ -358,5 +368,6 @@ The engine has the primitives (VirtualView with a 1M-row proof, keyed reconcilia
 - ListView v2: `on_sort` replaces `on_column_click`; widget owns virtualization, row measurement and estimation, lazy row fetching; plus filter bar, expandable rows, drag-reorderable headers, mobile key/value layout, `on_edit` with per-column editability and an optional pen icon; demo = CRUD over the `Db` key/value API with a filter bar in `examples/azul-widgets` (W2, W1 mirrors it for TreeView, W3 for the table).
 - TextInput selects its whole value when focus arrives via Tab, default on and disable-able, so data entry is tab → type → tab → type (W7; needs a focus-cause signal the engine does not have yet).
 - Android keeps its Java classes for now (M1).
+- Theming and ricing model decided 2026-09-29 (`scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md`, plus `THEME_ARCH_VS_QT_BREEZE_2026_09_29.md`): every widget carries every theme it knows as contained `@theme` blocks; the active theme is a chain (`xyz:pink → xyz → app default`, header `fallback:` when `:` is not enough); rank sorts before selector specificity; rice files carry a `//` header with `theme:`, `priority:` (default `base`, cannot break the app), `fallback:` and `app:`; light/dark are nested blocks holding variables; `var()` moves to cascade level first; `AZ_THEME` is refactored from the light/dark pin to the chain; icons get capability metadata (`currentColor` / mask / palette / variants) and a remap table per theme directory.
 
 Nothing is waiting on an answer. One constraint worth knowing before the ListView demo starts: azul's `Db` API is key/value + index by design and never exposes SQL (`api.json:9238`), so the "SQL CRUD" demo is `iterate` / `query_index` / `set` / `remove` over a store, not `SELECT … ORDER BY`.

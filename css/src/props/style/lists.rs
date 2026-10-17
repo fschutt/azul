@@ -3,8 +3,10 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode, corety::AzString, props::formatter::PrintAsCssValue,
+    corety::AzString, props::formatter::PrintAsCssValue,
 };
 
 // --- list-style-type ---
@@ -52,6 +54,7 @@ impl PrintAsCssValue for StyleListStyleType {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleListStyleType {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStyleType::{
@@ -107,6 +110,7 @@ impl PrintAsCssValue for StyleListStylePosition {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleListStylePosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStylePosition::{Inside, Outside};
@@ -124,6 +128,147 @@ impl fmt::Display for StyleListStylePosition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
+}
+
+// --- Counter representations ---
+
+/// The text of a counter `value` in the counter style `style` (CSS Counter
+/// Styles 3 s6).
+///
+/// What a list marker and `counter()` in generated content show. A style
+/// that cannot write a value (an alphabet has no zero) falls back to
+/// decimal, so the text is never blank.
+#[must_use]
+pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
+    match style {
+        StyleListStyleType::None => String::new(),
+        StyleListStyleType::Disc => "\u{2022}".to_string(),
+        StyleListStyleType::Circle => "\u{25e6}".to_string(),
+        StyleListStyleType::Square => "\u{25aa}".to_string(),
+        StyleListStyleType::Decimal => value.to_string(),
+        StyleListStyleType::DecimalLeadingZero => alloc::format!("{value:02}"),
+        StyleListStyleType::LowerAlpha => {
+            decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, false)))
+        }
+        StyleListStyleType::UpperAlpha => {
+            decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, true)))
+        }
+        StyleListStyleType::LowerRoman => with_sign(value, |n| to_roman(n, false)),
+        StyleListStyleType::UpperRoman => with_sign(value, |n| to_roman(n, true)),
+        StyleListStyleType::LowerGreek => {
+            decimal_fallback(value, with_sign(value, |n| to_greek(n, false)))
+        }
+        StyleListStyleType::UpperGreek => {
+            decimal_fallback(value, with_sign(value, |n| to_greek(n, true)))
+        }
+    }
+}
+
+/// `formatted`, or the decimal `value` when the style wrote nothing.
+fn decimal_fallback(value: i32, formatted: String) -> String {
+    if formatted.is_empty() {
+        value.to_string()
+    } else {
+        formatted
+    }
+}
+
+/// The magnitude of `value` written by `format`, with a `-` before a
+/// negative one (`-3` in lower-roman is `-iii`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a magnitude of an i32
+fn with_sign<F: Fn(usize) -> String>(value: i32, format: F) -> String {
+    if value < 0 {
+        let magnitude = i64::from(value).unsigned_abs() as usize;
+        alloc::format!("-{}", format(magnitude))
+    } else {
+        format(value as usize)
+    }
+}
+
+/// `num` in letters: a, b, ..., z, aa, ab, ... (`lower-alpha`,
+/// `upper-alpha`); empty for zero, which no alphabet writes.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // a remainder below 26
+pub fn to_alphabetic(mut num: usize, uppercase: bool) -> String {
+    let mut result = String::new();
+    let base = if uppercase { b'A' } else { b'a' };
+    while num > 0 {
+        let remainder = ((num - 1) % 26) as u8;
+        result.insert(0, (base + remainder) as char);
+        num = (num - 1) / 26;
+    }
+    result
+}
+
+/// `num` in Roman numerals (`lower-roman`, `upper-roman`). Past 3999,
+/// which the numerals cannot write, the decimal number.
+#[must_use]
+pub fn to_roman(mut num: usize, uppercase: bool) -> String {
+    const MAX_ROMAN: usize = 3999;
+    if num == 0 {
+        return "0".to_string();
+    }
+    if num > MAX_ROMAN {
+        return num.to_string();
+    }
+    let numerals = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ];
+    let mut result = String::new();
+    for (value, numeral) in &numerals {
+        while num >= *value {
+            result.push_str(numeral);
+            num -= value;
+        }
+    }
+    if uppercase {
+        result.to_uppercase()
+    } else {
+        result
+    }
+}
+
+/// `num` in Greek letters: alpha to omega, then two letters
+/// (`lower-greek`, `upper-greek`); empty for zero.
+#[must_use]
+pub fn to_greek(num: usize, uppercase: bool) -> String {
+    const GREEK_LOWER: &[char] = &[
+        '\u{3b1}', '\u{3b2}', '\u{3b3}', '\u{3b4}', '\u{3b5}', '\u{3b6}', '\u{3b7}', '\u{3b8}',
+        '\u{3b9}', '\u{3ba}', '\u{3bb}', '\u{3bc}', '\u{3bd}', '\u{3be}', '\u{3bf}', '\u{3c0}',
+        '\u{3c1}', '\u{3c3}', '\u{3c4}', '\u{3c5}', '\u{3c6}', '\u{3c7}', '\u{3c8}', '\u{3c9}',
+    ];
+    const GREEK_UPPER: &[char] = &[
+        '\u{391}', '\u{392}', '\u{393}', '\u{394}', '\u{395}', '\u{396}', '\u{397}', '\u{398}',
+        '\u{399}', '\u{39a}', '\u{39b}', '\u{39c}', '\u{39d}', '\u{39e}', '\u{39f}', '\u{3a0}',
+        '\u{3a1}', '\u{3a3}', '\u{3a4}', '\u{3a5}', '\u{3a6}', '\u{3a7}', '\u{3a8}', '\u{3a9}',
+    ];
+    if num == 0 {
+        return String::new();
+    }
+    let letters = if uppercase { GREEK_UPPER } else { GREEK_LOWER };
+    if num <= letters.len() {
+        return letters[num - 1].to_string();
+    }
+    let mut result = String::new();
+    let mut remaining = num;
+    while remaining > 0 {
+        remaining -= 1;
+        result.insert(0, letters[remaining % letters.len()]);
+        remaining /= letters.len();
+    }
+    result
 }
 
 // --- Parsing Logic ---
@@ -426,6 +571,7 @@ mod autotest_generated {
         assert_eq!(StyleListStylePosition::default().to_string(), "outside");
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn rust_code_names_the_variant_and_ignores_the_tab_argument() {
         for v in ALL_TYPES {

@@ -1,6 +1,6 @@
 //! Plain data of the `azul.iroh` API, shared by the native engine and the wasm stub.
 
-use azul_css::{impl_option, impl_option_inner, AzString, U8Vec};
+use azul_css::{impl_option, AzString, U8Vec};
 
 /// Where an endpoint may relay traffic when no direct UDP path to a peer exists.
 #[repr(C)]
@@ -28,6 +28,10 @@ pub struct IrohConfig {
     pub alpn: AzString,
     /// Relay fallback for peers without a direct path.
     pub relay_mode: IrohRelayMode,
+    /// Never use a direct path: no UDP socket is bound and no hole is punched, so every packet
+    /// goes through the relay of `relay_mode` (a network that blocks UDP, or a test that proves
+    /// the relay carries the traffic). Needs a relay; `port` does not apply.
+    pub relay_only: bool,
     /// Relay server URL, used when `relay_mode` is `Custom`.
     pub relay_url: AzString,
     /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
@@ -44,6 +48,7 @@ impl IrohConfig {
         IrohConfig {
             alpn,
             relay_mode: IrohRelayMode::Default,
+            relay_only: false,
             relay_url: AzString::from_const_str(""),
             secret_key: U8Vec::from_const_slice(&[]),
             port: 0,
@@ -61,6 +66,12 @@ impl IrohConfig {
     pub fn with_relay_url(mut self, url: AzString) -> Self {
         self.relay_mode = IrohRelayMode::Custom;
         self.relay_url = url;
+        self
+    }
+
+    /// Returns the config that sends every packet through the relay (`relay_only`): no direct path, no hole punching.
+    pub fn with_relay_only(mut self, relay_only: bool) -> Self {
+        self.relay_only = relay_only;
         self
     }
 
@@ -180,4 +191,9 @@ pub struct IrohPeerStats {
     pub frames_received: u64,
     /// Outbound frames replaced by a newer frame of the same track before they left.
     pub frames_skipped: u64,
+    /// Messages `send_message` accepted for this peer that have not been handed to the
+    /// connection yet: the outgoing backlog. It grows while the link is slower than the sender.
+    pub messages_queued: u64,
+    /// Payload bytes of `messages_queued`.
+    pub message_bytes_queued: u64,
 }

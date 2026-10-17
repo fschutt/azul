@@ -29,10 +29,20 @@
 //! [`WindowPosition::RelativeToParentWindow`]: azul_core::window::WindowPosition::RelativeToParentWindow
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{CoreCallback, CoreCallbackData},
     dom::{Dom, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec},
-    menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+    events::FocusEventFilter,
+    menu::{Menu, MenuItem, MenuItemState, MenuItemVec, StringMenuItem},
     refany::{OptionRefAny, RefAny},
+};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        layout::{LayoutAlignItems, LayoutDisplay, LayoutFlexDirection},
+        property::CssProperty,
+        style::StyleCursor,
+    },
 };
 
 /// Class on the injected bar root — also the detection marker the renderer / tests
@@ -41,48 +51,183 @@ pub const MENUBAR_CLASS: &str = "__azul-native-menubar";
 /// Class on each top-level bar item.
 pub const MENUBAR_ITEM_CLASS: &str = "azul-menubar-item";
 
-/// Inline CSS for the bar root: a full-width horizontal flex row themed from the
-/// OS (`system:` colors + `system:ui` font). Bare declarations, so the rule is
-/// scoped node-only at flatten time.
-const MENUBAR_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; width: 100%; \
-                           height: 26px; background: system:window-background; color: \
-                           system:text; font-family: system:ui; font-size: 14px; padding-left: \
-                           2px;";
+/// Inline CSS for the bar root, after [`base_bar`]: the flat skin of a
+/// full-width row, themed from the OS (`system:` colors + `system:ui` font).
+/// Bare declarations, so the rule is scoped node-only at flatten time.
+const MENUBAR_CSS: &str = "width: 100%; height: 26px; background: system:window-background; \
+                           color: system:text; font-family: system:ui; font-size: 14px; \
+                           padding-left: 2px;";
 
-/// Inline CSS for a top-level item: vertically-centered click target with hover
-/// feedback (the `:hover` block nests via CSS nesting in `parse_inline`).
-const MENUBAR_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-                                padding-left: 10px; padding-right: 10px; color: system:text; \
-                                cursor: pointer; :hover { background: \
-                                system:selection-background; color: system:selection-text; }";
+/// Inline CSS for a top-level item, after [`base_item`]: the flat skin of a
+/// click target, with hover feedback (the `:hover` block nests via CSS
+/// nesting in `parse_inline`).
+const MENUBAR_ITEM_CSS: &str = "padding-left: 10px; padding-right: 10px; color: system:text; \
+                                :hover { background: system:selection-background; color: \
+                                system:selection-text; }";
 
-/// Build the software menu-bar DOM from a [`Menu`].
+/// The bar's structure, the same in every theme (R5): a horizontal flex row
+/// whose items stretch to its height. Every theme's skin comes after it, so
+/// the merge (`themes::theme_blocks`) declares it once, outside every
+/// `@theme` block.
+#[must_use]
+pub(crate) fn base_bar() -> Vec<CssPropertyWithConditions> {
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Stretch,
+        )),
+    ]
+}
+
+/// A top-level item's structure, the same in every theme (R5): a row that
+/// centres its label vertically, a pointer target.
+#[must_use]
+pub(crate) fn base_item() -> Vec<CssPropertyWithConditions> {
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    ]
+}
+
+/// The software menu bar as a widget: a [`Menu`] and the theme to draw it in.
+///
+/// The window's own bar (`Dom::with_menu_bar`) is injected through
+/// [`build_menubar_dom`], which draws it flat; an application that draws a
+/// bar itself (in a custom titlebar, say) picks its look here.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct Menubar {
+    /// The menu whose top-level items the bar shows.
+    pub menu: Menu,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+impl Menubar {
+    /// A bar for `menu`, in the default theme.
+    #[must_use]
+    pub const fn create(menu: Menu) -> Self {
+        Self {
+            menu,
+            theme: crate::widgets::themes::OptionUiTheme::None,
+        }
+    }
+
+    /// Pin the widget theme: the bar keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// The bar's DOM. The look comes from the theme module
+    /// (`themes::flat::menubar` / `themes::flora::menubar`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::menubar(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::menubar(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::menubar,
+                crate::widgets::themes::flora::menubar,
+            ),
+        }
+    }
+}
+
+/// Build the software menu-bar DOM from a [`Menu`], in the flat look.
 ///
 /// The bar is a flex row of one item per top-level `MenuItem::String`
 /// (separators / break-lines are not rendered in the bar). Inject the returned
 /// `Dom` at the Dom level so its `with_css` rules are scoped in the main flatten.
 #[must_use]
 pub fn build_menubar_dom(menu: &Menu) -> Dom {
-    let mut bar = Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![
-            Class(MENUBAR_CLASS.into()),
-            Class("azul-menubar".into()),
-        ]))
-        .with_css(MENUBAR_CSS);
+    Menubar::create(menu.clone()).dom()
+}
 
+/// The bar's DOM with the look applied by `style_bar` (to the bar) and
+/// `style_item` (to each top-level item): the structure and the click
+/// behaviour are the same in every theme.
+pub(crate) fn build(
+    menu: &Menu,
+    marker: Option<&'static str>,
+    style_bar: impl Fn(Dom) -> Dom,
+    style_item: impl Fn(Dom) -> Dom,
+) -> Dom {
+    let mut classes = vec![Class(MENUBAR_CLASS.into()), Class("azul-menubar".into())];
+    if let Some(marker) = marker {
+        classes.push(Class(marker.into()));
+    }
+    let mut bar = style_bar(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(classes)))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::MenuBar,
+            ..Default::default()
+        });
+
+    // One Tab stop for the whole bar, on its first item; the arrow keys
+    // move it (`callbacks::menubar_item_key`).
+    let mut position = 0usize;
     for item in menu.items.as_slice() {
         if let MenuItem::String(s) = item {
-            bar = bar.with_child(build_menubar_item(s));
+            bar = bar.with_child(build_item(s, position, &style_item));
+            position += 1;
         }
     }
 
     bar
 }
 
+/// The flat bar: the widget's structure ([`base_bar`], [`base_item`]), then
+/// the `system:`-coloured inline CSS the bar has always had.
+pub(crate) fn build_flat(menu: &Menu) -> Dom {
+    build(menu, None, style_flat_bar, style_flat_item)
+}
+
+/// The flat bar's root: its structure, then flat's skin.
+fn style_flat_bar(bar: Dom) -> Dom {
+    bar.with_css_props(CssPropertyWithConditionsVec::from_vec(base_bar()))
+        .with_css(MENUBAR_CSS)
+}
+
+/// A flat top-level item: its structure, then flat's skin.
+fn style_flat_item(item: Dom) -> Dom {
+    item.with_css_props(CssPropertyWithConditionsVec::from_vec(base_item()))
+        .with_css(MENUBAR_ITEM_CSS)
+}
+
+/// One clickable top-level bar item, in the flat look.
+#[cfg(test)]
+fn build_menubar_item(item: &StringMenuItem) -> Dom {
+    build_item(item, 0, &style_flat_item)
+}
+
 /// One clickable top-level bar item. Its `MouseUp` callback opens the item's
 /// submenu (its children, or — for a top-level leaf — a one-item menu of itself
-/// so the leaf's own callback still fires) below the item.
-fn build_menubar_item(item: &StringMenuItem) -> Dom {
+/// so the leaf's own callback still fires) below the item; so do Down, Enter
+/// and Space when it has the keyboard, and Left / Right / Home / End move the
+/// bar's one Tab stop. `position` is its place among the bar's items: the
+/// first holds the Tab stop.
+fn build_item(item: &StringMenuItem, position: usize, style: &impl Fn(Dom) -> Dom) -> Dom {
     // The submenu carried (by value) into the click callback as its RefAny.
     let submenu = if item.children.as_slice().is_empty() {
         Menu::create(MenuItemVec::from_vec(vec![MenuItem::String(item.clone())]))
@@ -90,29 +235,98 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
         Menu::create(item.children.clone())
     };
 
-    Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
-            MENUBAR_ITEM_CLASS.into(),
-        )]))
-        .with_css(MENUBAR_ITEM_CSS)
-        .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
+    style(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+        MENUBAR_ITEM_CLASS.into(),
+    )])))
+    .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
-            vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                callback: CoreCallback {
-                    cb: callbacks::menubar_item_click as usize,
-                    ctx: OptionRefAny::None,
+            vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: callbacks::menubar_item_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: RefAny::new(submenu.clone()),
                 },
-                refany: RefAny::new(submenu),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: callbacks::menubar_item_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: RefAny::new(submenu),
+                },
+            ]
             .into(),
         )
+        .with_tab_index(crate::widgets::roving::item_tab_index(position, 0))
+        .with_accessibility_info(item_accessibility(item))
+}
+
+/// What a screen reader says for a bar item: a menu item by its label,
+/// collapsed (it opens a menu), unavailable when the app disabled it.
+fn item_accessibility(item: &StringMenuItem) -> AccessibilityInfo {
+    let mut states = vec![AccessibilityState::Collapsed];
+    if !matches!(item.menu_item_state, MenuItemState::Normal) {
+        states.push(AccessibilityState::Unavailable);
+    }
+    AccessibilityInfo {
+        role: AccessibilityRole::MenuItem,
+        accessibility_name: Some(item.label.clone()).into(),
+        states: AccessibilityStateVec::from_vec(states),
+        ..Default::default()
+    }
 }
 
 pub(crate) mod callbacks {
-    use azul_core::{callbacks::Update, menu::Menu, refany::RefAny};
+    use azul_core::{callbacks::Update, menu::Menu, refany::RefAny, window::VirtualKeyCode};
 
-    use crate::callbacks::CallbackInfo;
+    use super::MENUBAR_ITEM_CLASS;
+    use crate::{
+        callbacks::CallbackInfo,
+        widgets::roving::{self, Step},
+    };
+
+    /// A key on the bar item that has the keyboard: Left / Right / Home / End
+    /// move the bar's one Tab stop to another item (wrapping, as a menu bar
+    /// does), Down / Enter / Space open the item's menu below it. A chord
+    /// (Alt, Ctrl, Cmd, Shift held) is left to the app and the OS.
+    pub(super) extern "C" fn menubar_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+        let keyboard = info.get_current_keyboard_state();
+        let Some(key) = roving::plain_key(&keyboard) else {
+            return Update::DoNothing;
+        };
+        let step = match key {
+            VirtualKeyCode::Left => Step::Previous,
+            VirtualKeyCode::Right => Step::Next,
+            VirtualKeyCode::Home => Step::First,
+            VirtualKeyCode::End => Step::Last,
+            VirtualKeyCode::Down | VirtualKeyCode::Return | VirtualKeyCode::Space => {
+                if let Some(menu) = data.downcast_ref::<Menu>() {
+                    info.open_menu_for_hit_node(menu.clone());
+                }
+                info.prevent_default();
+                return Update::DoNothing;
+            }
+            _ => return Update::DoNothing,
+        };
+        info.prevent_default();
+        let focused = info.get_hit_node();
+        let Some(bar) = info.get_parent(focused) else {
+            return Update::DoNothing;
+        };
+        let items = roving::items_of(&info, bar, MENUBAR_ITEM_CLASS);
+        let Some(current) = items.iter().position(|n| *n == focused) else {
+            return Update::DoNothing;
+        };
+        if let Some(next) = roving::step_target(current, items.len(), step, true) {
+            if next != current {
+                roving::move_stop(&mut info, &items, next);
+            }
+        }
+        Update::DoNothing
+    }
 
     /// Top-level bar item clicked → open its submenu under the item. The submenu
     /// `Menu` is the callback's `data` (a backreference set at build time); its
@@ -292,9 +506,15 @@ mod autotest_generated {
 
     /// The `RefAny` a bar item carries on its click callback.
     fn refany_of(item_dom: &Dom) -> RefAny {
-        let cbs = item_dom.root.callbacks.as_ref();
-        assert_eq!(cbs.len(), 1, "a bar item registers exactly one callback");
-        cbs[0].refany.clone()
+        let clicks: Vec<_> = item_dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .filter(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+            .collect();
+        assert_eq!(clicks.len(), 1, "a bar item registers exactly one click callback");
+        clicks[0].refany.clone()
     }
 
     /// Decodes a bar item's backreference back into the `Menu` it will open.
@@ -794,10 +1014,62 @@ mod autotest_generated {
         );
     }
 
+    /// The software menu bar is a menu bar of named menu items to a screen
+    /// reader, ONE stop in the Tab order (its first item), and each item says
+    /// it opens a menu (collapsed until it does).
+    #[test]
+    fn a_menu_bar_is_a_menubar_of_named_menu_items_with_one_tab_stop() {
+        use azul_core::{
+            a11y::{AccessibilityRole, AccessibilityState},
+            dom::TabIndex,
+        };
+
+        let m = menu_of(vec![string_item("File"), string_item("Edit"), string_item("View")]);
+        let bar = build_menubar_dom(&m);
+        let role = bar.root.get_accessibility_info().map(|i| i.role);
+        assert_eq!(role, Some(AccessibilityRole::MenuBar), "the bar is a menu bar");
+
+        let items = bar.children.as_ref();
+        let declared: Vec<_> = items
+            .iter()
+            .map(|item| {
+                item.root.get_accessibility_info().map(|i| {
+                    (
+                        i.role,
+                        i.accessibility_name.as_option().map(|n| n.as_str().to_string()),
+                        i.states.as_ref().contains(&AccessibilityState::Collapsed),
+                    )
+                })
+            })
+            .collect();
+        let expected: Vec<_> = ["File", "Edit", "View"]
+            .iter()
+            .map(|n| Some((AccessibilityRole::MenuItem, Some(n.to_string()), true)))
+            .collect();
+        assert_eq!(declared, expected, "each item is a named, collapsed menu item");
+
+        let stops: Vec<_> = items.iter().map(|item| item.root.get_tab_index()).collect();
+        assert_eq!(
+            stops,
+            vec![
+                Some(TabIndex::Auto),
+                Some(TabIndex::NoKeyboardFocus),
+                Some(TabIndex::NoKeyboardFocus)
+            ],
+            "the bar is one Tab stop; the arrow keys move between its items"
+        );
+    }
+
     #[test]
     fn build_menubar_item_registers_exactly_one_mouseup_hover_callback() {
         let dom = build_menubar_item(&leaf("File"));
-        let cbs = dom.root.callbacks.as_ref();
+        let cbs: Vec<_> = dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .filter(|cb| matches!(cb.event, EventFilter::Hover(_)))
+            .collect();
 
         assert_eq!(cbs.len(), 1);
         assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
@@ -1171,5 +1443,242 @@ mod autotest_generated {
             assert_eq!(menu.items.as_slice().len(), N);
             assert_eq!(labels_of(&menu)[N - 1], format!("c{}", N - 1));
         });
+    }
+}
+
+/// The theme option: which look a menu bar renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn menu() -> Menu {
+        Menu::create(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::create("File".into())),
+            MenuItem::String(StringMenuItem::create("Edit".into())),
+        ]))
+    }
+
+    fn bar(theme: UiTheme) -> Dom {
+        Menubar::create(menu()).with_theme(theme).dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            // Keyboard focus raises `:focus` and `:focus-visible` together: a
+            // probe of the focused state sees the rings declared for either.
+            let conds = d.pseudo_state_conditions();
+            let focus_ring = state == PseudoStateType::Focus
+                && conds == [PseudoStateType::FocusVisible];
+            if conds != [state] && !focus_ring {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bottom_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                Class(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_menubar_without_a_theme_is_the_bar_the_shell_injects() {
+        let plain = Menubar::create(menu());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        let a = plain.clone().dom();
+        let b = build_menubar_dom(&menu());
+        assert_eq!(classes(&a), classes(&b));
+        assert_eq!(a.css.as_ref(), b.css.as_ref(), "the same flat stylesheet");
+        assert_eq!(a.children.as_ref().len(), b.children.as_ref().len());
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Menubar::create(menu());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Menubar::create(menu()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flora_menubar_is_flora_s_strip_closed_by_a_hairline() {
+        let dom = bar(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_STRIP)]),
+            "flora.css --fl-strip: toolbars"
+        );
+        assert_eq!(last(&rest, bottom_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        let dark = theme_probe::dark(&dom);
+        assert_eq!(
+            last(&dark, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_STRIP)])
+        );
+        assert_eq!(last(&dark, bottom_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_menubar_item_lifts_under_the_pointer_and_sinks_when_pressed() {
+        let dom = bar(UiTheme::Flora);
+        for item in dom.children.as_ref() {
+            assert_eq!(
+                in_state(item, PseudoStateType::Hover, bg),
+                (
+                    Some(vec![flora::HOVER_FACE_LIGHT]),
+                    Some(vec![flora::HOVER_FACE_DARK])
+                ),
+                "`.nav-links a:hover`: the hover face"
+            );
+            assert_eq!(
+                in_state(item, PseudoStateType::Active, bg),
+                (
+                    Some(vec![flora::PRESSED_FACE_LIGHT]),
+                    Some(vec![flora::PRESSED_FACE_DARK])
+                ),
+                "`.nav-links a:active`: the pressed face"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_menubar_keeps_every_items_click_key_and_tab_stop() {
+        let flora = bar(UiTheme::Flora);
+        let flat = bar(UiTheme::Flat);
+        assert_eq!(flora.children.as_ref().len(), flat.children.as_ref().len());
+        for (a, b) in flora.children.as_ref().iter().zip(flat.children.as_ref()) {
+            assert_eq!(classes(a), classes(b));
+            assert_eq!(
+                a.root.get_callbacks().as_ref().len(),
+                2,
+                "opens its submenu by click and by key"
+            );
+            assert_eq!(a.root.get_tab_index(), b.root.get_tab_index());
+        }
+        assert!(classes(&flora).iter().any(|c| c == "__azul-theme-flora"));
+        assert!(classes(&flora).iter().any(|c| c == MENUBAR_CLASS), "the shell's marker");
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn menu() -> Menu {
+        Menu::create(MenuItemVec::from_vec(alloc::vec![
+            MenuItem::String(StringMenuItem::create(azul_css::AzString::from("File"))),
+            MenuItem::String(StringMenuItem::create(azul_css::AzString::from("Edit"))),
+        ]))
+    }
+
+    #[test]
+    fn a_menubar_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "menubar",
+            || Menubar::create(menu()).dom(),
+            |t: UiTheme| Menubar::create(menu()).with_theme(t).dom(),
+        );
+    }
+
+    #[test]
+    fn the_windows_injected_bar_follows_the_app_theme() {
+        // `build_menubar_dom` is how the shell injects a window's own bar:
+        // no theme, so the app's.
+        checks::assert_follows_the_app_theme(
+            "injected menubar",
+            || build_menubar_dom(&menu()),
+            |t: UiTheme| Menubar::create(menu()).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_menubar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            let own = checks::under(theme, || Menubar::create(menu()).dom());
+            assert_structure_is_shared(&format!("menubar built for {}", theme.name()), &own, &[]);
+            let injected = checks::under(theme, || build_menubar_dom(&menu()));
+            assert_structure_is_shared(
+                &format!("injected menubar built for {}", theme.name()),
+                &injected,
+                &[],
+            );
+        }
     }
 }

@@ -49,10 +49,13 @@ pub fn probe_status(capability: Capability) -> PermissionState {
         Capability::PhotoLibrary => ph_status(2),
         Capability::PhotoLibraryWrite => ph_status(1),
         Capability::AppTrackingTransparency => att_status(),
+        // UN's getter is async-only; the notification backend reads it at
+        // launch (did_finish_launching) and keeps the answer.
+        Capability::Notifications => crate::desktop::notifications::apple_permission_state(),
         // The remaining capabilities (Motion, Contacts, Calendars,
-        // Reminders, Notifications, Bluetooth*, NearbyWifi, LocalNetwork,
-        // Biometric, ScreenCapture) expose async-only or per-framework
-        // status APIs and stay NotDetermined until their backend lands.
+        // Reminders, Bluetooth*, NearbyWifi, LocalNetwork, Biometric,
+        // ScreenCapture) expose async-only or per-framework status APIs and
+        // stay NotDetermined until their backend lands.
         _ => PermissionState::NotDetermined,
     }
 }

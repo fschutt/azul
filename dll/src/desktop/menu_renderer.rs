@@ -20,7 +20,10 @@ use azul_css::{css::Css, props::basic::pixel::DEFAULT_FONT_SIZE, system::SystemS
 use azul_layout::callbacks::CallbackInfo;
 
 use crate::{
-    desktop::{menu::MenuWindowData, shell2::common::debug_server::LogCategory},
+    desktop::{
+        menu::{MenuPicks, MenuWindowData},
+        shell2::common::debug_server::LogCategory,
+    },
     log_debug,
 };
 
@@ -28,8 +31,9 @@ use crate::{
 #[derive(Debug, Clone)]
 struct MenuItemCallbackData {
     menu_item: StringMenuItem,
-    menu_window_data: RefAny,
     item_index: usize,
+    /// The mailbox of the window that opened the menu: the item runs there.
+    picks: MenuPicks,
 }
 
 /// Data structure for submenu hover callbacks
@@ -42,9 +46,11 @@ struct SubmenuCallbackData {
 
 /// Callback invoked when a menu item is clicked
 ///
-/// This:
-/// 1. Invokes the menu item's original callback (if present)
-/// 2. Closes the menu window
+/// The item's own callback does NOT run here: this is the MENU's window, which closes now,
+/// and whatever the callback did to "the window" - a text it sets, the title, a timer, a
+/// thread, a rebuild - would land on the menu and die with it. The pick goes to the window
+/// that opened the menu ([`MenuPicks`]), which runs it as its own, as a native menu's item
+/// runs (`PlatformWindow::run_menu_picks`). Then the menu closes.
 extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let callback_data = match data.downcast_ref::<MenuItemCallbackData>() {
         Some(d) => d,
@@ -57,38 +63,18 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         }
     };
 
-    // Invoke the menu item's callback if present
     if let Some(menu_callback) = callback_data.menu_item.callback.as_option() {
-        // Convert CoreCallback to actual function pointer using safe wrapper
-        let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback.clone());
-
-        // Invoke with the menu item's data
-        let callback_data_refany = menu_callback.refany.clone();
-        let result = callback.invoke(callback_data_refany, info);
-
+        callback_data.picks.post(menu_callback.clone());
         log_debug!(
             LogCategory::General,
-            "[menu_item_click_callback] Invoked callback for menu item '{}' (index {})",
+            "[menu_item_click_callback] Picked menu item '{}' (index {}): it runs in the window \
+             that opened the menu",
             callback_data.menu_item.label.as_str(),
             callback_data.item_index
         );
-
-        // Close the menu window
-        let mut state = info.get_current_window_state().clone();
-        state.flags.close_requested = true;
-        info.modify_window_state(state);
-
-        // A menu item's action typically mutates the SHARED app state, and this menu
-        // window is closing — a plain RefreshDom would only re-layout the doomed menu
-        // window and be lost. Escalate to RefreshDomAllWindows so the parent window
-        // (and any siblings) re-layout to reflect the change.
-        return match result {
-            Update::RefreshDom | Update::RefreshDomAllWindows => Update::RefreshDomAllWindows,
-            Update::DoNothing => Update::DoNothing,
-        };
     }
 
-    // No callback attached, just close the menu
+    // Close the menu window
     let mut state = info.get_current_window_state().clone();
     state.flags.close_requested = true;
     info.modify_window_state(state);
@@ -142,6 +128,24 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
         }
     };
 
+    // A hover opens a submenu ONCE. `MouseOver` is the entry event, but the
+    // entry fires again whenever this menu's hover set is rebuilt — a
+    // re-layout, or the pointer grab re-entering the window — and every extra
+    // firing used to be another OS window: one hover on "More" produced THREE
+    // identical submenus on the live X11/XFCE run, each of them able to
+    // deliver its own activation for the single click the user then made.
+    // The marker is shared with every item of THIS menu, so moving to a
+    // different parent item still opens that item's submenu.
+    {
+        let Ok(mut open) = parent_menu_data.open_submenu.lock() else {
+            return Update::DoNothing;
+        };
+        if !crate::desktop::menu::should_open_submenu(*open, submenu_data.item_index) {
+            return Update::DoNothing;
+        }
+        *open = Some(submenu_data.item_index);
+    }
+
     // Get system style from CallbackInfo (safe Arc clone)
     let system_style = info.get_system_style();
 
@@ -158,8 +162,19 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
         context_mouse_btn: parent_menu_data.menu.context_mouse_btn,
     };
 
-    // Create submenu window (parent_menu_id = this menu's ID)
-    let parent_id = parent_menu_data.menu_window_id;
+    // The submenu is placed AGAINST THIS MENU WINDOW: `parent_pos` above is
+    // this menu's own origin and `item_rect` is local to it, so the offset
+    // `show_menu` derives is meaningless unless the backend is also told
+    // which window to add it to. `menu_window_id` was never assigned (it is
+    // `None` for every menu ever created), so the submenu named no parent,
+    // X11 resolved its offset against the MONITOR, and the parent-local
+    // (width, item y) became a screen position — the 160x54+160+94 measured
+    // beside a parent menu at +962+451.
+    //
+    // The registry key is the one thing a callback can always know about its
+    // own window: its raw handle.
+    let parent_id = crate::desktop::menu::registry_window_id(&info.get_current_window_handle());
+    let parent_id = (parent_id != 0).then_some(parent_id);
     let submenu_options = crate::desktop::menu::show_menu(
         submenu,
         system_style,
@@ -167,6 +182,9 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
         Some(item_rect),
         None, // No cursor position for submenu
         parent_id,
+        // A pick in the submenu runs where this menu's picks run: in the window that
+        // opened the chain.
+        parent_menu_data.picks.clone(),
     );
 
     // Create the submenu window
@@ -188,12 +206,16 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
 /// Returns a `Dom` with component CSS pushed via `.add_component_css()`
 /// (deferred cascade). Use this in `LayoutCallbackType` callbacks which
 /// return `Dom` instead of `StyledDom`.
+///
+/// `picks` is the mailbox of the window that opened the menu: an item picked in this DOM
+/// runs there ([`MenuPicks`]).
 pub fn create_menu_dom_with_css(
     menu: &Menu,
     system_style: &SystemStyle,
     menu_window_data: RefAny,
+    picks: &MenuPicks,
 ) -> Dom {
-    let mut dom = create_menu_dom(menu, &menu_window_data);
+    let mut dom = create_menu_dom(menu, &menu_window_data, picks);
     let css = system_style.create_menu_stylesheet();
     dom.add_component_css(css);
     dom
@@ -204,10 +226,11 @@ pub fn create_menu_dom_with_css(
 /// # Arguments
 /// * `menu` - Menu structure to render
 /// * `menu_window_data` - MenuWindowData RefAny for callbacks
+/// * `picks` - where the items picked in it go (the window that opened the menu)
 ///
 /// # Returns
 /// DOM tree for the menu (unstyled but with callbacks)
-fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
+fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny, picks: &MenuPicks) -> Dom {
     // Container for all menu items
     let mut container =
         Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
@@ -217,16 +240,26 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
     // A menu opened FOR A NODE is at least as wide as that node - the
     // `<select>` rule, and what the drop-down widget needs to stop looking
     // like a stray context menu (2026-09-01 request). Inline, so it beats the
-    // stylesheet's `min-width: 160px` floor; a longer item still widens the
-    // menu past it, because this is a MINIMUM.
-    let anchor_width = {
+    // stylesheet's own floor; a longer item still widens the menu past it,
+    // because this is a MINIMUM.
+    //
+    // ...and BECAUSE it beats the stylesheet, it has to carry the
+    // stylesheet's floor with it (`menu_anchor_min_width`): a menu bar item
+    // is narrower than any menu, and handing its bare width over as the
+    // minimum laid the dropdown out at ~45px with every label wrapped inside
+    // it. A right-click menu passes no anchor at all, which is why only the
+    // menu bar's dropdowns were mis-sized.
+    let (anchor_width, style_min_width) = {
         let mut d = menu_window_data.clone();
-        d.downcast_ref::<MenuWindowData>()
-            .and_then(|d| d.trigger_rect)
-            .map(|r| r.size.width)
-            .filter(|w| *w > 0.0)
+        d.downcast_ref::<MenuWindowData>().map_or((None, None), |d| {
+            (
+                d.trigger_rect.map(|r| r.size.width).filter(|w| *w > 0.0),
+                Some(MenuMetrics::from_system_style(&d.system_style).min_width),
+            )
+        })
     };
-    if let Some(width) = anchor_width {
+    if let Some(width) = anchor_width.map(|w| menu_anchor_min_width(Some(w), style_min_width.unwrap_or(w)))
+    {
         use azul_css::{
             dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
             props::{
@@ -244,9 +277,13 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
         ]));
     }
 
+    // One decision for the whole menu, so the labels line up (or the gutter
+    // is gone) across every item of it - see `menu_reserves_icon_column`.
+    let icon_column = menu_reserves_icon_column(menu);
+
     // Render each menu item with its index for identification
     for (idx, item) in menu.items.as_slice().iter().enumerate() {
-        let item_dom = create_menu_item_dom(item, idx, menu_window_data);
+        let item_dom = create_menu_item_dom(item, idx, menu_window_data, picks, icon_column);
         container = container.with_child(item_dom);
     }
 
@@ -259,13 +296,20 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
 /// * `item` - Menu item to render
 /// * `idx` - Index of this item in the menu (for identification)
 /// * `menu_window_data` - MenuWindowData RefAny for callbacks
+/// * `picks` - where the item goes when it is picked
 ///
 /// # Returns
 /// DOM node for this menu item
-fn create_menu_item_dom(item: &MenuItem, idx: usize, menu_window_data: &RefAny) -> Dom {
+fn create_menu_item_dom(
+    item: &MenuItem,
+    idx: usize,
+    menu_window_data: &RefAny,
+    picks: &MenuPicks,
+    icon_column: bool,
+) -> Dom {
     match item {
         MenuItem::String(string_item) => {
-            create_string_menu_item_dom(string_item, idx, menu_window_data)
+            create_string_menu_item_dom(string_item, idx, menu_window_data, picks, icon_column)
         }
         MenuItem::Separator => create_separator_dom(),
         MenuItem::BreakLine => {
@@ -291,12 +335,14 @@ fn create_menu_item_dom(item: &MenuItem, idx: usize, menu_window_data: &RefAny) 
 /// ```
 ///
 /// Callbacks:
-/// - MouseDown: Invoke item's callback (if not disabled)
+/// - MouseDown: Hand the item's callback to the window that opened the menu (if not disabled)
 /// - MouseOver: Show submenu if has children
 fn create_string_menu_item_dom(
     item: &StringMenuItem,
     idx: usize,
     menu_window_data: &RefAny,
+    picks: &MenuPicks,
+    icon_column: bool,
 ) -> Dom {
     let mut classes = vec![IdOrClass::Class("menu-item".into())];
 
@@ -320,6 +366,13 @@ fn create_string_menu_item_dom(
         classes.push(IdOrClass::Class("menu-item-has-submenu".into()));
     }
 
+    // The chosen item (a ticked checkbox: a drop-down's current choice)
+    // carries it on the ROW, so a theme can wash the whole row, not only the
+    // tick's gutter.
+    if matches!(item.icon.as_option(), Some(MenuItemIcon::Checkbox(true))) {
+        classes.push(IdOrClass::Class("menu-item-checked".into()));
+    }
+
     // Add unique ID for this menu item
     classes.push(IdOrClass::Id(format!("menu-item-{}", idx).into()));
 
@@ -327,8 +380,15 @@ fn create_string_menu_item_dom(
     let mut item_dom = Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(classes));
 
     // Icon section (checkbox, image, or empty space)
-    let icon_dom = create_icon_dom(&item.icon);
-    item_dom = item_dom.with_child(icon_dom);
+    // The gutter is the MENU's, not the item's: it is laid out for every
+    // item of a menu in which ANY item has an icon (so the labels line up),
+    // and for none of the items of a menu in which none does. Emitting the
+    // empty box unconditionally put a dead `icon_size + pad_h/2` column down
+    // the left edge of every menu that has no icons at all.
+    if icon_column {
+        let icon_dom = create_icon_dom(&item.icon);
+        item_dom = item_dom.with_child(icon_dom);
+    }
 
     // Label text
     // Wrap the label text in a block div so it lays out as a proper flex item: a
@@ -366,7 +426,10 @@ fn create_string_menu_item_dom(
         // arrow if the session registered one, then the Material glyph that
         // ships with the engine. An unresolved icon renders as an empty div,
         // so the chain is what keeps the indicator visible off-KDE.
-        let indicator = Dom::create_icon("system:arrow-right,chevron_right");
+        let indicator = Dom::create_icon("system:arrow-right,chevron_right")
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                "menu-item-arrow-glyph".into(),
+            )]));
         let arrow_dom = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-item-arrow".into(),
@@ -379,13 +442,12 @@ fn create_string_menu_item_dom(
     if !is_disabled {
         let mut callbacks = Vec::new();
 
-        // Click callback: Invoke menu item action
+        // Click callback: the item's action, for the window that opened the menu
         if item.callback.as_option().is_some() {
-            // Create callback data containing both the original callback and menu data
             let callback_data = MenuItemCallbackData {
                 menu_item: item.clone(),
-                menu_window_data: menu_window_data.clone(),
                 item_index: idx,
+                picks: picks.clone(),
             };
 
             callbacks.push(CoreCallbackData {
@@ -456,7 +518,13 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
                     // engine's Material glyph otherwise (an icon spec is a
                     // fallback chain; an unresolved icon renders as an empty
                     // div, so the tail is what keeps the mark visible).
-                    icon_dom = icon_dom.with_child(Dom::create_icon("system:checkmark,check"));
+                    icon_dom = icon_dom.with_child(
+                        Dom::create_icon("system:checkmark,check").with_ids_and_classes(
+                            IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                                "menu-item-checkbox-glyph".into(),
+                            )]),
+                        ),
+                    );
                 }
             }
             MenuItemIcon::Image(image_ref) => {
@@ -628,6 +696,225 @@ fn virtual_key_to_str(key: &azul_core::window::VirtualKeyCode) -> &'static str {
     }
 }
 
+/// Every number a menu is built from, derived ONCE from the live
+/// [`SystemStyle`] so that the size the popup is CREATED at and the CSS it is
+/// RENDERED with cannot disagree. They used to be two independent sets of
+/// literals (a 24px item and a 200px width in the Wayland estimate, a 28px
+/// item and a 220px width in the cross-platform one, a 160px floor in the
+/// stylesheet), so no menu was ever the size any of them said.
+///
+/// Per property, what a KDE Plasma desktop can actually tell azul:
+/// * `font_family` / `font_size_px` — KNOWN. `kdeglobals [General] menuFont`,
+///   read by `linux::system_style::discover_kde_style`. Reported in POINTS.
+/// * `border_width`, `corner_radius` — from `SystemMetrics`, but on KDE those
+///   are still the `defaults::kde_breeze_*` presets: Breeze keeps them in its
+///   compiled QStyle `Metrics` table and publishes no config key for them.
+/// * `pad_h` / `pad_v` — the desktop's CONTROL padding, halved vertically
+///   because a menu is tighter than a button in every toolkit. Breeze's own
+///   `Metrics::MenuItem_MarginWidth` is likewise not exported.
+/// * `icon_size` — derived from the font. Plasma DOES publish the small-icon
+///   size (`kdeglobals [Icons] Size`), but `LinuxCustomization` has no field
+///   to carry it, so no discovery code could read it today.
+/// * `min_width` — azul's own floor, expressed in ems so it tracks the
+///   desktop's font instead of pinning every menu to one pixel count. Qt
+///   sizes a menu to its contents and imposes no minimum of its own.
+/// * the drop shadow is deliberately NOT derived: KWin does not shadow a
+///   client's popup, Qt paints its own into a surface margin, and azul never
+///   calls `xdg_surface_set_window_geometry` — so a shadow drawn outside the
+///   container's border box is clipped away by the popup surface.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuMetrics {
+    /// The desktop's menu font, in CSS pixels (it reports POINTS).
+    pub font_size_px: f32,
+    /// The desktop's menu font family.
+    pub font_family: String,
+    /// Padding left and right of an item's contents.
+    pub pad_h: f32,
+    /// Padding above and below an item's contents.
+    pub pad_v: f32,
+    /// The content box of one item: the taller of the nominal line box and
+    /// the checkmark gutter. The REAL line box is only known after shaping;
+    /// this is the pre-layout estimate, which `measure_popup_content`
+    /// afterwards replaces with the truth.
+    pub row_height: f32,
+    /// One item's border box: `row_height` plus its vertical padding.
+    pub item_height: f32,
+    /// A separator's border box: the rule plus its margins.
+    pub separator_height: f32,
+    /// Padding the frame adds above the first and below the last item.
+    pub frame_pad_v: f32,
+    /// The frame's own line.
+    pub border_width: f32,
+    pub corner_radius: f32,
+    /// The checkmark / icon gutter.
+    pub icon_size: f32,
+    /// The submenu indicator's own box.
+    ///
+    /// An `<icon>` is a REPLACED element: a rule on the div that wraps it
+    /// does not reach it, so without a box of its own the icon pack's natural
+    /// size decided - a 16 or 24px themed arrow beside 13px text, which is
+    /// exactly how it looked on Mint's Mint-Y-Sand theme.
+    pub arrow_size: f32,
+    /// The width the stylesheet promises and the popup is measured at.
+    pub min_width: f32,
+}
+
+impl MenuMetrics {
+    /// A nominal line box, as a multiple of the font size. The real one comes
+    /// from the shaped font; this only has to be close enough to create the
+    /// popup surface with.
+    const NOMINAL_LINE_HEIGHT: f32 = 1.2;
+    /// The checkmark gutter, as a multiple of the font size — a fixed 20px box
+    /// beside 8px text is a huge gutter and beside 16px text a cramped one.
+    const ICON_COLUMN_EMS: f32 = 1.4;
+    /// The menu's minimum width, in ems of its own font.
+    const MIN_WIDTH_EMS: f32 = 12.0;
+    /// The submenu indicator, as a multiple of the font size: a chevron in
+    /// running text is about one em tall, and that is what a submenu arrow
+    /// reads as next to its label.
+    const ARROW_EMS: f32 = 1.0;
+
+    #[must_use]
+    pub fn from_system_style(style: &SystemStyle) -> Self {
+        // The system reports the size in POINTS. A typographic point is 1/72
+        // inch and a CSS pixel 1/96, so on Linux and Windows the point size is
+        // 4/3 as many pixels (KDE's "Noto Sans,10" is 13.3px); used as pixels
+        // it made every menu a quarter smaller than the desktop's. On macOS a
+        // Cocoa point already IS a logical pixel.
+        let px_per_pt = if matches!(style.platform, azul_css::system::Platform::MacOs) {
+            1.0
+        } else {
+            azul_css::props::basic::pixel::PT_TO_PX
+        };
+        // The MENU font, not the generic UI font: KDE and GNOME both let the
+        // user set it separately, and a menu laid out in the wrong face is the
+        // most visible way to not look like the desktop. Falls back to the UI
+        // font, which is what those desktops mean by "unset" anyway.
+        let font_size_px = style
+            .fonts
+            .menu_font_size
+            .as_option()
+            .or(style.fonts.ui_font_size.as_option())
+            .map(|pt| pt * px_per_pt)
+            .unwrap_or(14.0);
+        let font_family = style
+            .fonts
+            .menu_font
+            .as_option()
+            .or(style.fonts.ui_font.as_option())
+            .map(|f| f.as_str().to_string())
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        // Item padding follows the platform's control padding instead of one
+        // hardcoded number, so a Breeze menu is as tight as Breeze and an
+        // Adwaita one as roomy as Adwaita. Menus are tighter than buttons in
+        // every toolkit, hence the vertical halving.
+        let pad_h = style
+            .metrics
+            .button_padding_horizontal
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0);
+        let pad_v = style
+            .metrics
+            .button_padding_vertical
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0)
+            * 0.5;
+        let border_width = style
+            .metrics
+            .border_width
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(1.0);
+        let corner_radius = style
+            .metrics
+            .corner_radius
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(4.0);
+
+        let icon_size = (font_size_px * Self::ICON_COLUMN_EMS)
+            .round()
+            .clamp(14.0, 24.0);
+        let line_box = (font_size_px * Self::NOMINAL_LINE_HEIGHT).round();
+        // The icon div is always emitted, so it is a flex sibling of the label
+        // and the row is as tall as the taller of the two.
+        let row_height = line_box.max(icon_size);
+
+        Self {
+            font_size_px,
+            font_family,
+            pad_h,
+            pad_v,
+            row_height,
+            item_height: row_height + 2.0 * pad_v,
+            separator_height: border_width + 2.0 * pad_v,
+            frame_pad_v: pad_v,
+            border_width,
+            corner_radius,
+            icon_size,
+            arrow_size: (font_size_px * Self::ARROW_EMS).round(),
+            min_width: (font_size_px * Self::MIN_WIDTH_EMS).round(),
+        }
+    }
+
+    /// The size the popup surface is created at, before the DOM is measured.
+    ///
+    /// The WIDTH is the minimum the stylesheet promises and nothing more: a
+    /// menu is laid out at this width and `get_content_size` returns the
+    /// larger of it and thecontent, so it is the MEASUREMENT — not this
+    /// estimate — that decides how wide a menu ends up. An estimate wider
+    /// than the content (the old flat 200px) can never be corrected downwards,
+    /// which is why every menu used to be 200px wide whatever it contained.
+    #[must_use]
+    pub fn estimate_menu_size(&self, menu: &Menu) -> azul_core::geom::LogicalSize {
+        let content: f32 = menu
+            .items
+            .as_slice()
+            .iter()
+            .map(|item| match item {
+                MenuItem::Separator => self.separator_height,
+                _ => self.item_height,
+            })
+            .sum();
+        azul_core::geom::LogicalSize::new(
+            self.min_width,
+            2.0 * self.border_width + 2.0 * self.frame_pad_v + content,
+        )
+    }
+}
+
+/// The menu in the app theme `flora` (the design system's menu card, on
+/// flora.css's tokens): a paper popup (`--fl-fld` in a `--fl-bd2` rule at the
+/// house radius, a soft warm shadow), rows in Garamond in the house ink; the
+/// row under the pointer and the chosen one washed in the accent's soft tint
+/// with the deep tone's ink (at night: the stone with the paper ink, flora's
+/// selection), the shortcut right-aligned in the quiet ink, the separator a
+/// `--fl-sep2` hairline, a disabled row in `--fl-disTx`. Inside `@theme(flora)`
+/// the rules outrank the system's above them (a theme block ranks before
+/// selector specificity) and are inert in every other theme; a flora spin
+/// recolours the accent like every flora paint.
+const FLORA_MENU_CSS: &str = "
+@theme(flora) {
+  .menu-container { background: #FBFAF6; border-color: #B4B1A9; border-radius: 3px; box-shadow: 0 5px 14px rgba(48, 45, 38, 0.17); }
+  .menu-item { color: #262521; font-family: 'EB Garamond', Georgia, serif; font-size: 14px; }
+  .menu-item:hover { background: #E0E4EE; color: #1E3260; }
+  .menu-item-checked { background: #E0E4EE; color: #1E3260; font-weight: 600; }
+  .menu-item-disabled, .menu-item-greyed { color: #A3A099; }
+  .menu-item-disabled:hover, .menu-item-greyed:hover { background: transparent; color: #A3A099; }
+  .menu-item-shortcut { color: #827F76; opacity: 1; font-size: 12.5px; }
+  .menu-separator { background: #E0DDD7; }
+  @media (prefers-color-scheme: dark) {
+    .menu-container { background: #1D1D1D; border-color: #4A4A4A; box-shadow: 0 5px 14px rgba(0, 0, 0, 0.5); }
+    .menu-item { color: #E7E7E7; }
+    .menu-item:hover { background: #2F4A85; color: #F4F2EA; }
+    .menu-item-checked { background: #2F4A85; color: #F4F2EA; }
+    .menu-item-disabled, .menu-item-greyed { color: #666666; }
+    .menu-item-disabled:hover, .menu-item-greyed:hover { background: transparent; color: #666666; }
+    .menu-item-shortcut { color: #8C8C8C; }
+    .menu-separator { background: #2E2E2E; }
+  }
+}
+";
+
 /// Extension trait to add menu stylesheet creation to SystemStyle
 ///
 /// Generates a `Css` containing CSS classes for the menu system:
@@ -677,74 +964,58 @@ impl SystemStyleMenuExt for SystemStyle {
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(128, 128, 128)); // Fallback for disabled
+        // A separator is a LINE, and every desktop publishes the colour it
+        // rules its lines in (`Colors:Window/BackgroundAlternate` on KDE, read
+        // by `discover_kde_style`). `colors.background` is the CONTENT surface
+        // — a text field's white — so the rule came out as a bright bar across
+        // a light menu and a near-black one across a dark one.
         let separator_color = self
             .colors
-            .background
+            .separator
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(200, 200, 200)); // Fallback for separator
 
-        // Get font settings. The MENU font, not the generic UI font: KDE and
-        // GNOME both let the user set it separately, and a menu laid out in
-        // the wrong face is the most visible way to not look like the desktop.
-        // Falls back to the UI font, which is what those desktops mean by
-        // "unset" anyway.
-        let font_size = self
-            .fonts
-            .menu_font_size
-            .as_option()
-            .or(self.fonts.ui_font_size.as_option())
-            .copied()
-            .unwrap_or(14.0);
-        let font_family = self
-            .fonts
-            .menu_font
-            .as_option()
-            .or(self.fonts.ui_font.as_option())
-            .map(|f| f.as_str().to_string())
-            .unwrap_or_else(|| "sans-serif".to_string());
-
-        // Get metrics
-        let corner_radius = self
-            .metrics
-            .corner_radius
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(4.0);
-        // Item padding follows the platform's control padding instead of one
-        // hardcoded number, so a Breeze menu is as tight as Breeze and an
-        // Adwaita one as roomy as Adwaita. Menus are tighter than buttons in
-        // every toolkit, hence the vertical halving.
-        let pad_h = self
-            .metrics
-            .button_padding_horizontal
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(8.0);
-        let pad_v = self
-            .metrics
-            .button_padding_vertical
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(8.0)
-            * 0.5;
-        // The icon column tracks the text, the way a real menu's checkmark
-        // gutter does — a fixed 20px box beside 8px text is a huge gutter and
-        // beside 16px text is a cramped one.
-        let icon_size = (font_size * 1.4).round().clamp(14.0, 24.0);
-        let padding = pad_h;
+        // One derivation of every menu number, shared with the size the
+        // popup surface is created at (`MenuMetrics::estimate_menu_size`).
+        let m = MenuMetrics::from_system_style(self);
+        let font_size = m.font_size_px;
+        let font_family = m.font_family.clone();
+        let corner_radius = m.corner_radius;
+        let pad_h = m.pad_h;
+        let pad_v = m.pad_v;
+        let icon_size = m.icon_size;
 
         // Menu container
         css.push_str(&format!(
-            ".menu-container {{\nbackground: rgb({}, {}, {});\nborder: 1px solid rgb(180, 180, \
-             180);\nborder-radius: {}px;\nbox-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);\npadding: \
-             4px 0;\nmin-width: 160px;\n}}\n",
-            bg_color.r, bg_color.g, bg_color.b, corner_radius
+            ".menu-container {{\nbackground: rgb({}, {}, {});\nborder: {}px solid rgb({}, {}, \
+             {});\nborder-radius: {}px;\nbox-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);\npadding: \
+             {}px 0;\nmin-width: {}px;\n}}\n",
+            bg_color.r,
+            bg_color.g,
+            bg_color.b,
+            m.border_width,
+            separator_color.r,
+            separator_color.g,
+            separator_color.b,
+            corner_radius,
+            m.frame_pad_v,
+            m.min_width
         ));
 
         // Menu item
         css.push_str(&format!(
             ".menu-item {{\ndisplay: flex;\nflex-direction: row;\nalign-items: center;\npadding: \
-             {}px {}px;\ncolor: rgb({}, {}, {});\nfont-family: {};\nfont-size: {}px;\ncursor: \
-             pointer;\nuser-select: none;\n}}\n",
-            pad_v, pad_h, text_color.r, text_color.g, text_color.b, font_family, font_size
+             {}px {}px;\nmin-height: {}px;\ncolor: rgb({}, {}, {});\nfont-family: \
+             {};\nfont-size: {}px;\ncursor: pointer;\nuser-select: none;\n}}\n",
+            pad_v,
+            pad_h,
+            m.row_height,
+            text_color.r,
+            text_color.g,
+            text_color.b,
+            font_family,
+            font_size
         ));
 
         // Menu item hover state
@@ -808,18 +1079,34 @@ impl SystemStyleMenuExt for SystemStyle {
             font_size * 0.9
         ));
 
-        // Submenu arrow
+        // Submenu arrow. The box goes on the GLYPH as well as on its wrapper:
+        // an `<icon>` is a replaced element, so a rule on the wrapping div
+        // never reaches it and the icon pack's natural size decided how big
+        // the indicator after a parent item was drawn.
         css.push_str(&format!(
-            ".menu-item-arrow {{\nmargin-left: {}px;\nopacity: 0.6;\n}}\n",
-            pad_h / 2.0
+            ".menu-item-arrow {{\nmargin-left: {}px;\nopacity: 0.6;\nflex-shrink:              0;\nwidth: {}px;\nheight: {}px;\n}}\n",
+            pad_h / 2.0,
+            m.arrow_size,
+            m.arrow_size
+        ));
+        css.push_str(&format!(
+            ".menu-item-arrow-glyph {{\nwidth: {}px;\nheight: {}px;\nfont-size: {}px;\n}}\n",
+            m.arrow_size, m.arrow_size, m.arrow_size
+        ));
+        // Same for the checkmark: it is an `<icon>` inside the gutter box.
+        css.push_str(&format!(
+            ".menu-item-checkbox-glyph {{\nwidth: {}px;\nheight: {}px;\nfont-size: {}px;\n}}\n",
+            icon_size, icon_size, icon_size
         ));
 
         // Separator
         css.push_str(&format!(
-            ".menu-separator {{\nheight: 1px;\nbackground: rgb({}, {}, {});\nmargin: {}px \
+            ".menu-separator {{\nheight: {}px;\nbackground: rgb({}, {}, {});\nmargin: {}px \
              {}px;\n}}\n",
-            separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
+            m.border_width, separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
         ));
+
+        css.push_str(FLORA_MENU_CSS);
 
         // Parse CSS and extract first stylesheet
         let (mut parsed_css, errors) = new_from_str(&css);
@@ -931,6 +1218,46 @@ mod menu_stylesheet_tests {
         );
     }
 
+    /// The value of every font-size declaration in the menu stylesheet, as
+    /// printed ("16px").
+    fn font_sizes(css: &str) -> Vec<String> {
+        const KEY: &str = "StyleFontSize { inner: ";
+        css.match_indices(KEY)
+            .filter_map(|(i, _)| {
+                let rest = &css[i + KEY.len()..];
+                rest.find(' ').map(|end| rest[..end].to_string())
+            })
+            .collect()
+    }
+
+    /// The desktop reports its menu font in POINTS ("Noto Sans,10" on KDE);
+    /// CSS pixels are 1/96 inch, points 1/72. Laid out as pixels, a Breeze
+    /// menu came out at 10px instead of 13.3px - visibly smaller and tighter
+    /// than every other menu on the desktop. On macOS a Cocoa point IS a
+    /// logical pixel, so there the number stays.
+    #[test]
+    fn the_menu_font_size_is_the_desktops_point_size_in_css_pixels() {
+        let mut kde = defaults::kde_breeze_light();
+        kde.fonts.menu_font_size = OptionF32::Some(12.0);
+        let sizes = font_sizes(&css_text(&kde));
+        assert!(
+            sizes.iter().any(|s| s == "16px"),
+            "12pt must be laid out at 16px on Linux, got {sizes:?}"
+        );
+        assert!(
+            !sizes.iter().any(|s| s == "12px"),
+            "the point size must not be used as a pixel size, got {sizes:?}"
+        );
+
+        let mut mac = defaults::macos_modern_light();
+        mac.fonts.menu_font_size = OptionF32::Some(13.0);
+        let sizes = font_sizes(&css_text(&mac));
+        assert!(
+            sizes.iter().any(|s| s == "13px"),
+            "a macOS point is a logical pixel: 13pt stays 13px, got {sizes:?}"
+        );
+    }
+
     /// With no menu font detected, the UI font is what those desktops mean by
     /// "unset" — the menu must not fall back past it to `sans-serif`.
     #[test]
@@ -947,6 +1274,61 @@ mod menu_stylesheet_tests {
         );
     }
 
+    /// A menu's frame is the desktop's own line, at the desktop's own width.
+    /// A baked `1px solid rgb(180,180,180)` is a light-grey box drawn around
+    /// a Breeze DARK menu - the single most obviously foreign thing about it.
+    #[test]
+    fn the_menu_frame_is_the_systems_own_colour() {
+        use azul_css::props::basic::{ColorU, OptionColorU};
+
+        let mut style = defaults::kde_breeze_dark();
+        style.colors.separator = OptionColorU::Some(ColorU::new_rgb(11, 22, 33));
+        let css = css_text(&style);
+
+        assert!(
+            css.contains("r: 11, g: 22, b: 33"),
+            "the detected separator colour must draw the menu's frame"
+        );
+        assert!(
+            !css.contains("r: 180, g: 180, b: 180"),
+            "the menu frame must not be a hardcoded grey"
+        );
+    }
+
+    /// ...and at the desktop's own width.
+    #[test]
+    fn the_menu_frame_follows_the_detected_border_width() {
+        let mut thin = defaults::kde_breeze_dark();
+        thin.metrics.border_width = OptionPixelValue::Some(PixelValue::px(1.0));
+        let mut thick = defaults::kde_breeze_dark();
+        thick.metrics.border_width = OptionPixelValue::Some(PixelValue::px(3.0));
+
+        assert_ne!(
+            css_text(&thin),
+            css_text(&thick),
+            "the detected border width must reach the menu frame"
+        );
+    }
+
+    /// A separator is a LINE, and every desktop publishes the colour it draws
+    /// its lines in. Drawing it in the CONTENT background (`Colors:View`)
+    /// paints a white bar across a light menu and a near-black one across a
+    /// dark menu - the colour of a text field, not of a rule.
+    #[test]
+    fn the_separator_is_the_systems_separator_colour_not_its_content_background() {
+        use azul_css::props::basic::{ColorU, OptionColorU};
+
+        let mut style = defaults::kde_breeze_dark();
+        style.colors.background = OptionColorU::Some(ColorU::new_rgb(44, 55, 66));
+        style.colors.separator = OptionColorU::Some(ColorU::new_rgb(11, 22, 33));
+        let css = css_text(&style);
+
+        assert!(
+            !css.contains("r: 44, g: 55, b: 66"),
+            "the separator must not be drawn in the content background"
+        );
+    }
+
     /// Item padding follows the platform's control padding, so a Breeze menu
     /// is as tight as Breeze. A hardcoded number cannot be both.
     #[test]
@@ -960,6 +1342,189 @@ mod menu_stylesheet_tests {
             css_text(&tight),
             css_text(&roomy),
             "the detected control padding must change the menu's padding"
+        );
+    }
+}
+
+/// The inline minimum a menu carries for the control it was opened FOR.
+///
+/// A menu opened for a node is at least as wide as that node (the `<select>`
+/// rule). But the anchor is a floor ON TOP of the one the menu stylesheet
+/// already promises, never a replacement for it: the inline rule outranks the
+/// stylesheet (`rule_priority::INLINE` 30 vs `SYSTEM` 10), so handing it the
+/// bare anchor width REPLACED the menu's declared minimum. A right-click menu
+/// passes no anchor and keeps the 160px floor; a MENU BAR item passes its own
+/// ~45px rect, and its dropdown was laid out — and therefore measured and
+/// sized — at 45px, with every label wrapped inside it.
+#[must_use]
+pub fn menu_anchor_min_width(anchor_width: Option<f32>, stylesheet_min_width: f32) -> f32 {
+    anchor_width.map_or(stylesheet_min_width, |w| w.max(stylesheet_min_width))
+}
+
+/// Does THIS menu reserve the checkmark / icon gutter?
+///
+/// The column belongs to the MENU, not to the item: GTK and Qt both drop it
+/// when no item in the menu carries an icon or a checkmark, and keep it for
+/// every item as soon as one does, so the labels stay in a column. azul
+/// emitted the (empty, `flex-shrink: 0`) icon box for every item
+/// unconditionally, so a menu without a single icon carried a dead
+/// `icon_size + pad_h/2` gutter down its whole left edge.
+///
+/// Only this menu's OWN items are asked: a submenu is its own window and
+/// makes its own decision.
+#[must_use]
+pub fn menu_reserves_icon_column(menu: &Menu) -> bool {
+    menu.items.as_slice().iter().any(|item| match item {
+        MenuItem::String(s) => s.icon.as_option().is_some(),
+        _ => false,
+    })
+}
+
+/// The laws a menu's ITEM METRICS obey: the width a menu is measured at, the
+/// icon gutter, and the size of the submenu indicator. Pure, so they run
+/// headless.
+#[cfg(test)]
+mod menu_metrics_tests {
+    use alloc::sync::Arc;
+
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        menu::{MenuItemVec, MenuPopupPosition},
+        window::ContextMenuMouseButton,
+    };
+    use azul_css::system::defaults;
+
+    use super::*;
+    use crate::desktop::menu::MenuWindowData;
+
+    fn menu_of(items: Vec<MenuItem>) -> Menu {
+        Menu {
+            items: MenuItemVec::from_vec(items),
+            position: MenuPopupPosition::AutoCursor,
+            context_mouse_btn: ContextMenuMouseButton::Right,
+        }
+    }
+
+    fn plain(label: &str) -> MenuItem {
+        MenuItem::String(StringMenuItem::create(label.to_string().into()))
+    }
+
+    fn with_checkbox(label: &str, checked: bool) -> MenuItem {
+        let mut it = StringMenuItem::create(label.to_string().into());
+        it.icon = Some(MenuItemIcon::Checkbox(checked)).into();
+        MenuItem::String(it)
+    }
+
+    fn window_data() -> RefAny {
+        RefAny::new(MenuWindowData {
+            menu: menu_of(vec![]),
+            system_style: Arc::new(defaults::kde_breeze_light()),
+            parent_window_position: LogicalPosition::zero(),
+            trigger_rect: None,
+            cursor_position: None,
+            parent_menu_id: None,
+            menu_window_id: None,
+            child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
+            open_submenu: Arc::new(std::sync::Mutex::new(None)),
+            picks: MenuPicks::default(),
+        })
+    }
+
+    fn css_text(style: &SystemStyle) -> String {
+        let mut out = String::new();
+        for rule in style.create_menu_stylesheet().rules.as_ref() {
+            out.push_str(&format!("{:?}", rule));
+        }
+        out
+    }
+
+    /// The anchor widens a menu; it never narrows one. A menu bar item is
+    /// ~45px wide and the stylesheet's own floor is 160px (12em at Breeze's
+    /// 13.33px menu font), so the dropdown a menu bar opens must still be
+    /// measured at 160px. Today the anchor REPLACES the floor, which is why
+    /// the menu bar's dropdowns are sized wrong while right-click menus —
+    /// which pass no anchor — are not.
+    #[test]
+    fn the_anchor_is_a_floor_on_top_of_the_stylesheets_floor_not_a_replacement() {
+        assert_eq!(
+            menu_anchor_min_width(Some(45.0), 160.0),
+            160.0,
+            "a 45px menu bar item must not shrink its dropdown below the menu's declared minimum"
+        );
+        assert_eq!(
+            menu_anchor_min_width(Some(300.0), 160.0),
+            300.0,
+            "a wide control still widens its menu"
+        );
+        assert_eq!(
+            menu_anchor_min_width(None, 160.0),
+            160.0,
+            "no anchor: the stylesheet's floor stands"
+        );
+    }
+
+    /// The checkmark / icon gutter belongs to the MENU, not to the item: GTK
+    /// and Qt both drop the column when no item in the menu carries an icon,
+    /// and keep it for every item as soon as one does, so the labels stay in
+    /// a column. azul emitted the (empty, `flex-shrink: 0`) icon box for every
+    /// item unconditionally, so a menu without a single icon carried a dead
+    /// ~23px gutter down its whole left edge — the "excess padding on the
+    /// left of every item" from the live run.
+    #[test]
+    fn a_menu_with_no_icons_reserves_no_icon_column() {
+        let dom = create_menu_dom(
+            &menu_of(vec![plain("Cut"), plain("Copy")]),
+            &window_data(),
+            &MenuPicks::default(),
+        );
+        let item = &dom.children.as_ref()[0];
+        assert_eq!(
+            item.children.as_ref().len(),
+            1,
+            "a plain item in an icon-less menu is just its label; the empty icon box must not be \
+             laid out"
+        );
+    }
+
+    /// ...and the mirror law, so the column cannot simply be deleted: one
+    /// item with a checkmark gives EVERY item in that menu the gutter, or the
+    /// labels stop lining up.
+    #[test]
+    fn one_icon_in_a_menu_gives_every_item_in_it_the_gutter() {
+        let dom = create_menu_dom(
+            &menu_of(vec![with_checkbox("Bold", true), plain("Italic")]),
+            &window_data(),
+            &MenuPicks::default(),
+        );
+        for (idx, item) in dom.children.as_ref().iter().enumerate() {
+            assert_eq!(
+                item.children.as_ref().len(),
+                2,
+                "item {idx} must carry the icon box so the labels align"
+            );
+        }
+    }
+
+    /// The submenu indicator is a glyph in the menu's own text, so it is
+    /// sized from the menu's FONT. Nothing sized it at all: the `<icon>` node
+    /// inside `.menu-item-arrow` got no box, so the icon pack's own natural
+    /// size decided — a 16 or 24px themed arrow beside 13px text, which is
+    /// the "arrow after More is too large" report.
+    #[test]
+    fn the_submenu_indicator_is_sized_from_the_menus_font() {
+        let css = css_text(&defaults::kde_breeze_light());
+        assert!(
+            css.contains("menu-item-arrow-glyph"),
+            "the indicator GLYPH needs a box of its own; a rule on the wrapping div does not \
+             reach a replaced icon node"
+        );
+
+        let mut big = defaults::kde_breeze_light();
+        big.fonts.menu_font_size = azul_css::corety::OptionF32::Some(24.0);
+        assert_ne!(
+            css_text(&big),
+            css,
+            "a bigger menu font makes a bigger indicator"
         );
     }
 }

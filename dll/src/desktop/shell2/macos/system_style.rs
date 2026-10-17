@@ -10,12 +10,11 @@ use core::ffi::c_void;
 
 use azul_css::{
     corety::AzString,
-    css::Css,
     dynamic_selector::{BoolCondition, OsVersion},
     props::basic::color::{ColorU, OptionColorU},
     system::{
         defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
-        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, Theme,
+        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, DarkLightMode,
     },
 };
 
@@ -159,6 +158,16 @@ impl ObjcLib {
         f(target, sel, arg)
     }}
 
+    /// `[target respondsToSelector:sel]`. Sent to a CLASS it answers for
+    /// the class's own methods - which is what guards a class-method send
+    /// that older AppKit releases do not implement (an unknown selector is
+    /// an uncaught Objective-C exception, not a nil).
+    #[inline]
+    unsafe fn responds_to(&self, target: Id, sel: Sel) -> bool { unsafe {
+        let f: unsafe extern "C" fn(Id, Sel, Sel) -> i8 = core::mem::transmute(self.msg_send);
+        f(target, self.sel(b"respondsToSelector:\0"), sel) != 0
+    }}
+
     /// `[color getRed:&r green:&g blue:&b alpha:&a]` (returns void, 4 out-pointers)
     #[inline]
     unsafe fn send_get_rgba(
@@ -256,7 +265,7 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
 ///
 /// Falls back to the hardcoded `defaults::macos_modern_light()` if the
 /// Objective-C runtime cannot be loaded or if any query panics.
-pub(crate) fn discover() -> SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
     let lib = match ObjcLib::load() {
         Some(l) => l,
         None => return defaults::macos_modern_light(),
@@ -333,6 +342,31 @@ pub(crate) fn discover() -> SystemStyle {
         q!(link, b"linkColor\0");
         q!(separator, b"separatorColor\0");
         q!(grid, b"gridColor\0");
+
+        // The remaining semantic slots. Most arrived with Mojave's dark
+        // appearance (10.14), so each send is guarded: where AppKit does not
+        // know the colour the slot stays as it was, and a `system:` keyword
+        // naming it takes its own default for the theme.
+        macro_rules! q_if_known {
+            ($field:ident, $sel:expr) => {{
+                let sel = lib.sel($sel);
+                if lib.responds_to(nsc, sel) {
+                    if let Some(c) = extract_color(&lib, lib.send_id(nsc, sel)) {
+                        style.colors.$field = OptionColorU::Some(c);
+                    }
+                }
+            }};
+        }
+
+        q_if_known!(accent_text, b"alternateSelectedControlTextColor\0");
+        q_if_known!(under_page_background, b"underPageBackgroundColor\0");
+        q_if_known!(selection_text_inactive, b"unemphasizedSelectedTextColor\0");
+        q_if_known!(find_highlight, b"findHighlightColor\0");
+        q_if_known!(control_background, b"controlBackgroundColor\0");
+        q_if_known!(placeholder_text, b"placeholderTextColor\0");
+        q_if_known!(text_selection_background, b"selectedTextBackgroundColor\0");
+        // Sidebars are a vibrancy MATERIAL on macOS, not a colour AppKit
+        // publishes: `sidebar_background` / `sidebar_selection` stay unset.
 
         // Put back whatever was current, so this probe cannot leak an
         // appearance into unrelated AppKit drawing on this thread.
@@ -486,9 +520,9 @@ pub(crate) fn discover() -> SystemStyle {
                 &lib,
                 lib.send_id(cur_locale, lib.sel(b"localeIdentifier\0")),
             ) {
-                // Convert "en_US" → "en-US"
-                let bcp47 = ident.replace('_', "-");
-                style.language = AzString::from(bcp47);
+                // "en_US" → "en-US", RTL-ness from the app's known languages
+                style.language =
+                    azul_css::system::SystemLanguage::resolve(&ident, known_languages);
             }
         }
     }
@@ -505,7 +539,7 @@ pub(crate) fn discover() -> SystemStyle {
     };
 
     // ── CLI-based fallback discovery ────────────────────────────────────
-    discover_macos_cli_extras(&mut style);
+    discover_macos_cli_extras(&mut style, known_languages);
 
     // OS version: if native detection did not set it, try sw_vers
     if style.os_version == OsVersion::MACOS_SONOMA {
@@ -524,17 +558,15 @@ pub(crate) fn discover() -> SystemStyle {
         style.prefers_high_contrast = detect_macos_high_contrast();
     }
 
-    // App-specific stylesheet from ~/Library/Application Support/azul/styles/<exe>.css
-    if style.app_specific_stylesheet.is_none() {
-        style.app_specific_stylesheet =
-            load_app_specific_stylesheet().map(|s| Box::new(s));
-    }
+    // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
+    // `~/Library/Application Support/azul/styles/<exe>.css`) are not a system
+    // style: the rice loader (`azul_css::rice`) reads them for every window.
 
-    // `AZ_THEME=light|dark` overrides the lot — see
-    // `azul_css::system::apply_env_theme_pin`. Applied last so it outranks
+    // `AZ_MODE=light|dark` overrides the lot — see
+    // `azul_css::system::apply_env_mode_pin`. Applied last so it outranks
     // every probe above, and reaching the SYSTEM style (not just the cascade)
     // is what keeps a pinned capture's BACKGROUND in the theme it asked for.
-    azul_css::system::apply_env_theme_pin(
+    azul_css::system::apply_env_mode_pin(
         &mut style,
         defaults::macos_modern_light,
         defaults::macos_modern_dark,
@@ -588,11 +620,11 @@ fn run_command_with_timeout(
 /// Fill in SystemStyle fields from `defaults read` CLI commands.
 ///
 /// Only overwrites fields that have not already been set by native discovery.
-fn discover_macos_cli_extras(style: &mut SystemStyle) {
+fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_css::system::SystemLanguage]) {
     let timeout = core::time::Duration::from_millis(500);
 
     // ── Dark mode detection ─────────────────────────────────────────────
-    if style.theme == Theme::Light {
+    if style.mode == DarkLightMode::Light {
         if let Ok(val) =
             run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout)
         {
@@ -650,8 +682,11 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
     }
 
     // ── Locale / language ───────────────────────────────────────────────
-    if style.language.as_str().is_empty() {
-        style.language = detect_language_macos();
+    if style.language.id.as_str().is_empty() {
+        style.language = azul_css::system::SystemLanguage::resolve(
+            detect_language_macos().as_str(),
+            known_languages,
+        );
     }
 }
 
@@ -755,39 +790,6 @@ fn detect_language_macos() -> AzString {
     AzString::from(String::new())
 }
 
-/// Attempt to load an app-specific stylesheet from
-/// `~/Library/Application Support/azul/styles/<exe_name>.css`.
-///
-/// Returns `None` if the file does not exist, is unreadable, or
-/// `AZ_RICING=off` is set.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_name = exe_path.file_stem()?.to_str()?;
-
-    let home = std::env::var("HOME").ok()?;
-    let css_path = alloc::format!(
-        "{}/Library/Application Support/azul/styles/{}.css",
-        home,
-        exe_name,
-    );
-
-    let contents = std::fs::read_to_string(&css_path).ok()?;
-    if contents.trim().is_empty() {
-        return None;
-    }
-
-    let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
-}
-
 // ============================================================================
 // Runtime light/dark switching
 // ============================================================================
@@ -804,7 +806,7 @@ fn load_app_specific_stylesheet() -> Option<Css> {
 /// to be pushed onto a watcher thread — this one must NOT be moved off the loop
 /// thread. It is affordable there: one `objc_msgSend` pair and a short string
 /// read, no IPC and no subprocess.
-pub(crate) fn probe_effective_appearance() -> Option<Theme> {
+pub(crate) fn probe_effective_appearance() -> Option<DarkLightMode> {
     // Loaded ONCE, not per poll. `ObjcLib::load()` dlopens libobjc + AppKit and
     // its Drop dlcloses them, so calling it from a 500 ms poll would open and
     // close AppKit twice a second on the main thread forever. The handles are
@@ -825,7 +827,7 @@ pub(crate) fn probe_effective_appearance() -> Option<Theme> {
 
 /// The appearance read itself, split out so the cached handle can be borrowed.
 #[allow(clippy::unnecessary_wraps)]
-fn probe_with(lib: &ObjcLib) -> Option<Theme> {
+fn probe_with(lib: &ObjcLib) -> Option<DarkLightMode> {
     unsafe {
         let app = lib.send_id(lib.cls(b"NSApplication\0"), lib.sel(b"sharedApplication\0"));
         if app.is_null() {
@@ -837,9 +839,9 @@ fn probe_with(lib: &ObjcLib) -> Option<Theme> {
         }
         let name = nsstring_to_string(lib, lib.send_id(appearance, lib.sel(b"name\0")))?;
         Some(if name.contains("Dark") {
-            Theme::Dark
+            DarkLightMode::Dark
         } else {
-            Theme::Light
+            DarkLightMode::Light
         })
     }
 }
@@ -919,30 +921,46 @@ pub(crate) fn adopt_announced_theme(
 fn adopt_probed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     let theme = probe_effective_appearance()?;
     let theme = match theme {
-        Theme::Dark => WindowTheme::DarkMode,
-        Theme::Light => WindowTheme::LightMode,
+        DarkLightMode::Dark => DarkLightMode::Dark,
+        DarkLightMode::Light => DarkLightMode::Light,
     };
-    if common.current_window_state().theme == theme {
+    // The DESKTOP's light / dark, which is not necessarily the window's: an
+    // app that pins its mode keeps its window where it is, but the desktop is
+    // still recorded and its style re-discovered, so switching the app back
+    // to "follow the system" lands on the desktop's current mode at once.
+    if common.desktop_theme() == theme {
         return None;
     }
+    let window_theme = common.adopt_desktop_theme(theme);
 
     // The diff pipeline compares against previous_window_state to decide that a
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("macos.adopt_observed_theme");
 
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    if let Some(window_theme) = window_theme {
+        common.update_unsynced_state(|ws| ws.mode = window_theme);
+    }
 
     // RE-DISCOVER the style, the way the Windows backend does on
     // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
     // changed while leaving it every colour and metric from the OLD
     // appearance — an Aqua light/dark switch kept the light palette and only
     // the `@theme` CSS conditions moved.
-    Some(rediscovered_style_for(theme))
+    //
+    // The held language is the one the app's known languages resolved at
+    // startup; handing it back as the known list keeps its RTL-ness across
+    // the switch (an empty list re-resolved every language as LTR, so an
+    // Arabic UI flipped to left-to-right on its first appearance change).
+    let held_language = common.system_style.language.clone();
+    Some(rediscovered_style_for(
+        theme,
+        core::slice::from_ref(&held_language),
+    ))
 }
 
 /// The re-discovered style for an appearance, discovered ONCE per switch.
@@ -952,12 +970,12 @@ fn adopt_probed_theme(
 /// the window count for an identical answer. Cached against the theme it was
 /// discovered for, so a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(theme: azul_core::window::DarkLightMode, known_languages: &[azul_css::system::SystemLanguage]) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
         Option<(
-            azul_core::window::WindowTheme,
+            azul_core::window::DarkLightMode,
             alloc::sync::Arc<SystemStyle>,
         )>,
     > = Mutex::new(None);
@@ -970,7 +988,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
             return alloc::sync::Arc::clone(style);
         }
     }
-    let style = alloc::sync::Arc::new(discover());
+    let style = alloc::sync::Arc::new(discover(known_languages));
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }

@@ -155,7 +155,7 @@ fn detect_window_state_events(
     }
 
     // Theme changed
-    if current.theme != previous.theme {
+    if current.mode != previous.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -1225,7 +1225,7 @@ pub fn determine_all_events(
     }
 
     // Theme changed
-    if current_state.theme != previous_state.theme {
+    if current_state.mode != previous_state.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -2078,7 +2078,7 @@ mod autotest_generated {
     use azul_core::{
         geom::{LogicalSize, PhysicalPositionI32},
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, WindowTheme},
+        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, DarkLightMode},
     };
     use azul_css::{corety::OptionU32, AzString};
 
@@ -2477,7 +2477,7 @@ mod autotest_generated {
     #[test]
     fn window_theme_change_emits_exactly_one_theme_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let events = detect_window_state_events(&current, &state(), ts(0));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::ThemeChange);
@@ -2513,7 +2513,7 @@ mod autotest_generated {
         let mut current = cursor_at(10.0, 10.0);
         current.size.dimensions = LogicalSize::new(800.0, 600.0);
         current.position = WindowPosition::Initialized(PhysicalPositionI32 { x: 1, y: 2 });
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
 
         let events = detect_window_state_events(&current, &state(), ts(7));
         assert_eq!(events.len(), 4, "resize + move + theme + mouse-enter");
@@ -2600,7 +2600,7 @@ mod autotest_generated {
     #[test]
     fn from_managers_provider_event_dedups_against_the_window_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         // The provider claims the exact same (root, ThemeChange) slot.
         let provider = StaticProvider(vec![ev(EventType::ThemeChange, root(), 3)]);
         let providers: Vec<&dyn EventProvider> = vec![&provider];
@@ -3545,7 +3545,7 @@ mod autotest_generated {
     #[test]
     fn determine_all_events_accepts_a_u64_max_timestamp() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let hover = HoverManager::new();
         let focus = FocusManager::new();
         let file_drop = FileDropManager::new();
@@ -3862,6 +3862,7 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: 0.0,
             duration_ms: 0,
+            began: true,
         }));
         g
     }

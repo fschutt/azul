@@ -248,9 +248,37 @@ package extern (C) void _azulHeldDestructor(void* ptr) nothrow @nogc
         GC.removeRoot(*cast(void**) ptr);
 }
 
+/// An object standing for a RefAny the application already holds: the
+/// generated RefAny struct converts to one wherever the API asks for an
+/// object, so `FileOpenResult.downcast(result)` shares the engine's value
+/// instead of wrapping the struct in a second RefAny.
+package interface _AzulSharedRefAny
+{
+    AzRefAny _share() nothrow;
+}
+
+/// The object a RefAny struct `R` converts to (its `alias this`).
+package final class _AzulRefAnyBox(R) : _AzulSharedRefAny
+{
+    R value;
+
+    this(R value)
+    {
+        this.value = value;
+    }
+
+    AzRefAny _share() nothrow @trusted
+    {
+        return AzRefAny_clone(cast(AzRefAny*) value._ptr());
+    }
+}
+
 /// A new RefAny (refcount 1) naming `object` and/or a callback.
 package AzRefAny _azulRefAny(Object object, Object callback = null) @trusted
 {
+    if (callback is null)
+        if (auto shared_ = cast(_AzulSharedRefAny) object)
+            return shared_._share();
     auto held = new _AzulHeld;
     held.object = object;
     held.callback = callback;

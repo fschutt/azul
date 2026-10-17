@@ -464,7 +464,7 @@ fn emit_record_type(
 /// fields = [ptr : *mut|*const T, len : usize, cap : usize, destructor : <Self>Destructor]
 /// Returns the element type (T) on match.
 fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     let f_ptr = &s.fields[0];
