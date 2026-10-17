@@ -1205,3 +1205,5 @@ mod calmet_lines;
 mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
 #[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
 mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
+#[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
+mod a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text;
