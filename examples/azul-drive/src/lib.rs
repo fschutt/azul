@@ -2194,9 +2194,15 @@ pub(crate) fn reload_settings(
     };
 }
 
-/// The settings the Options' Cancel leaves: those the Options found when they opened.
-pub(crate) fn settings_after_cancel(found: model::Settings, _now: &model::Settings) -> model::Settings {
-    found
+/// The settings the Options' Cancel leaves: those the Options found when they opened, with
+/// the recovery as it is now. The recovery is no page setting but the record of what was done
+/// with the codes and the contacts (a recovery noted or finished, a drill, a share made), at the
+/// token server as on this computer: putting it back would forget a drive this computer holds.
+pub(crate) fn settings_after_cancel(found: model::Settings, now: &model::Settings) -> model::Settings {
+    model::Settings {
+        recovery: now.recovery.clone(),
+        ..found
+    }
 }
 
 /// Writes the settings file (on a Thread, through the settings folder's drive).
