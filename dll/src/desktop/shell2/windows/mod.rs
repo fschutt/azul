@@ -81,7 +81,7 @@ use self::{
 };
 use crate::desktop::{
     shell2::common::{
-        event::{self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_NONE},
+        event::{self, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_NONE},
         Compositor, WindowError,
     },
     wr_translate2::{

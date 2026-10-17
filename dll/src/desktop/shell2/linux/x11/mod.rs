@@ -133,7 +133,7 @@ use super::super::common::CSS_BREAKPOINTS;
 use crate::{
     desktop::{
         shell2::common::{
-            event::{self, HitTestNode, PlatformWindow},
+            event::{self, PlatformWindow},
             WindowError,
         },
         wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
