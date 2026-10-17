@@ -162,6 +162,8 @@ mod copy_path_tests;
 mod tree_leaves_tests;
 #[cfg(test)]
 mod notices_tests;
+#[cfg(test)]
+mod options_cancel_tests;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
 #[cfg(test)]
@@ -2183,12 +2185,18 @@ pub(crate) fn reload_settings(
     if let Some(mut guard) = app.downcast_mut::<DriveState>() {
         let s = &mut *guard;
         if let Some(found) = s.settings_found.take() {
-            if s.settings != found {
-                s.settings = found;
+            let back = settings_after_cancel(found, &s.settings);
+            if s.settings != back {
+                s.settings = back;
                 save_settings(info, &handle, s);
             }
         }
     };
+}
+
+/// The settings the Options' Cancel leaves: those the Options found when they opened.
+pub(crate) fn settings_after_cancel(found: model::Settings, _now: &model::Settings) -> model::Settings {
+    found
 }
 
 /// Writes the settings file (on a Thread, through the settings folder's drive).
