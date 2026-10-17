@@ -22,7 +22,9 @@
 //! On stdout, for scripts: `AZDRIVE_ADD_PAGE <page>`, `AZDRIVE_TESTED ok|error`,
 //! `AZDRIVE_SIGN_IN <scheme> <step>` (`waiting`, `exchanging`, `cancelled`, `timed-out`,
 //! `unsupported`, `failed`, `no-client`), `AZDRIVE_SIGNED_IN <scheme> ok|error`,
-//! `AZDRIVE_TIERS <n>`, `AZDRIVE_PILLS <method>:<provider> ...` (`-` for none: the v1 checkout),
+//! `AZDRIVE_COUNTRY <code>` (the buyer's country declared), `AZDRIVE_TIERS <n>`,
+//! `AZDRIVE_PILLS <method>:<provider> ...` (`-` for none: the v1 checkout; in the server's
+//! order), `AZDRIVE_PAY_REFUSED` (the token server refused this buyer),
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_PAY <state>`, `AZDRIVE_PAY_SURFACE <kind> <host>`,
 //! `AZDRIVE_PAY_BLOCKED <host>`, `AZDRIVE_OPEN_BROWSER <host>`, `AZDRIVE_ABANDONED <checkout id>
 //! ok|error`, `AZDRIVE_CLAIMED <checkout id> <drive id>`, `AZDRIVE_ADDED <drive id>`,
@@ -62,11 +64,11 @@ use azul_storage::{
 };
 
 use crate::{
-    add_drive::{AddDialog, BuyStep, OfferState, TiersState},
-    countries::COUNTRIES,
+    add_drive::{AddDialog, AddPage, BuyStep, OfferState, TiersState},
+    countries,
     browse::Place,
     go, ids,
-    jobs::{BoughtDrive, Job, PayVia, Started},
+    jobs::{BoughtDrive, Job, OptionsFailed, PayVia, Started},
     keyring, refresh_disks,
     sign_in::{self, PendingSignIn},
     spawn, with_state, DriveState, KeyringCall, KeyringOp, Popup, Slot,
@@ -98,8 +100,12 @@ pub(crate) enum AddEvent {
     Pill(Method),
     /// The pill's other provider (an index of the offer's providers).
     PillProvider(usize),
-    /// Buy storage's country (an index of `COUNTRIES`).
-    Country(usize),
+    /// "Change" beside Buy storage's country: the country picker again.
+    ChangeCountry,
+    /// A country of the picker's list.
+    PickCountry(&'static str),
+    /// The picker's Continue: the picked country is declared (and remembered).
+    ConfirmCountry,
     /// The order's consent.
     Consent,
     /// The popover's Pay.
@@ -139,10 +145,21 @@ fn print_page(d: &AddDialog) {
     println!("AZDRIVE_ADD_PAGE {}", d.page_line());
 }
 
-/// Opens the dialog on its two choices.
+/// Opens the dialog on its two choices, with the buyer's declared country (`AZLIN_COUNTRY`, else
+/// the one remembered on this computer) or - for Buy storage's first question - the guess from
+/// the window's locale, then the system's.
 pub(crate) fn open(s: &mut DriveState) {
     s.popups_opened += 1;
-    let d = AddDialog::new(s.popups_opened);
+    let mut d = AddDialog::new(s.popups_opened);
+    let env = |name: &str| std::env::var(name).ok();
+    d.country = countries::declared(s.settings.residence_country.as_deref(), env)
+        .unwrap_or_default();
+    let first = if d.country.is_empty() {
+        countries::guess(&l10n::locale(), env)
+    } else {
+        Some(d.country.clone())
+    };
+    d.country_pick = first.as_deref().and_then(countries::listed);
     print_page(&d);
     s.popup = Some(Popup::AddDrive(d));
 }
@@ -168,7 +185,9 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
     match event {
         AddEvent::ChooseBuy => {
             d.choose_buy();
-            load_tiers(info, app, s, false);
+            if d.page == AddPage::Buy {
+                load_tiers(info, app, s, false);
+            }
         }
         AddEvent::ChooseConnect => d.choose_connect(),
         AddEvent::Back => {
@@ -189,17 +208,19 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::Tier(index) => {
-            // The order is fixed while a payment runs.
-            if !d.busy() {
+            // The order is fixed while a payment runs; another tier has its own price and
+            // methods, so the options are asked for again.
+            if !d.busy() && d.tier != index {
                 d.tier = index;
                 d.notice.clear();
+                load_options(info, app, s);
             }
         }
         AddEvent::Yearly => {
             if !d.busy() {
                 d.yearly = !d.yearly;
                 d.notice.clear();
-                print_pills(d);
+                load_options(info, app, s);
             }
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
@@ -226,15 +247,15 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
                 d.choose_provider(index);
             }
         }
-        AddEvent::Country(index) => {
-            let changed = !d.busy()
-                && COUNTRIES
-                    .get(index)
-                    .is_some_and(|code| d.set_country(code));
-            if changed {
-                load_options(info, app, s);
+        AddEvent::ChangeCountry => {
+            if !d.busy() {
+                d.change_country();
             }
         }
+        AddEvent::PickCountry(code) => {
+            d.pick_country(code);
+        }
+        AddEvent::ConfirmCountry => confirm_country(info, app, s),
         AddEvent::Consent => {
             d.consent = !d.consent;
             if d.consent && matches!(d.pay, PayState::Choosing) {
@@ -273,6 +294,24 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             print_page(d);
         }
     }
+}
+
+/// The country picker's Continue: the picked country is the buyer's declared one - remembered on
+/// this computer (the settings file) - and Buy storage shows its tiers, priced in its currency.
+fn confirm_country(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    if !d.confirm_country() {
+        return;
+    }
+    let code = d.country.clone();
+    println!("AZDRIVE_COUNTRY {code}");
+    if s.settings.residence_country.as_deref() != Some(code.as_str()) {
+        s.settings.residence_country = Some(code);
+        crate::save_settings(info, app, s);
+    }
+    load_tiers(info, app, s, false);
 }
 
 /// Closes the dialog; a payment waited for is waited for no more.
@@ -648,7 +687,17 @@ fn load_tiers(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, again: 
     };
     d.tiers = TiersState::Loading;
     let serial = d.serial;
-    spawn(info, app, s, Job::Tiers { serial, token_url });
+    let country = d.country.clone();
+    spawn(
+        info,
+        app,
+        s,
+        Job::Tiers {
+            serial,
+            token_url,
+            country,
+        },
+    );
 }
 
 /// Why Buy storage cannot ask anyone.
@@ -709,11 +758,12 @@ fn load_options(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 }
 
 /// The payment options' answer: the offer, narrowed by azul-pay's registry (what it dropped
-/// goes to the log), or the v1 checkout (an older token server, a failure).
+/// goes to the log), the token server's refusal of this buyer (its own sentence, shown as it
+/// is: a country it does not serve), or the v1 checkout (an older token server, a failure).
 pub(crate) fn options_answered(
     s: &mut DriveState,
     serial: u64,
-    result: Result<Option<String>, String>,
+    result: Result<Option<String>, OptionsFailed>,
 ) {
     let token_url = s.token.url.clone().unwrap_or_default();
     let Some(d) = dialog_of(s, serial) else {
@@ -730,7 +780,11 @@ pub(crate) fn options_answered(
             Err(why) => d.offer = OfferState::Failed(why.to_string()),
         },
         Ok(None) => d.offer = OfferState::Legacy,
-        Err(why) => d.offer = OfferState::Failed(why),
+        Err(OptionsFailed::Refused(sentence)) => {
+            println!("AZDRIVE_PAY_REFUSED");
+            d.offer = OfferState::Refused(sentence);
+        }
+        Err(OptionsFailed::Failed(why)) => d.offer = OfferState::Failed(why),
     }
     tiers_ready(d);
 }
@@ -758,6 +812,11 @@ fn buy_parts(s: &mut DriveState) -> Option<(String, String, String, u64)> {
     let token_url = s.token.url.clone();
     let d = dialog(s)?;
     if d.busy() {
+        return None;
+    }
+    // The token server refused this buyer (a country it does not serve): its sentence stands.
+    if let Some(sentence) = d.refused().map(String::from) {
+        d.notice = sentence;
         return None;
     }
     let Some(token_url) = token_url else {
@@ -841,6 +900,10 @@ fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
 /// "Buy": with the token server's payment options, the chosen pill's checkout through azul-pay's
 /// machine (the consent first); without them the v1 checkout, its payment page in the browser.
 fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if dialog(s).is_some_and(|d| d.refused().is_some()) {
+        let _ = buy_parts(s);
+        return;
+    }
     if !dialog(s).is_some_and(|d| d.pays_with_pills()) {
         buy_on_the_payment_page(info, app, s);
         return;
@@ -858,7 +921,9 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         return;
     };
     let consent = d.consent;
-    let payer = azul_pay::Payer::default();
+    // What the payer typed for a method that asks the app; the machine checks it and the
+    // checkout takes it (the dialog drops it then).
+    let payer = d.payer.clone();
     let _ = pay(
         info,
         app,
@@ -985,7 +1050,9 @@ pub(crate) fn pay(
 /// One effect of the machine; whether it cancels the navigation asked about.
 fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect: Effect) -> bool {
     match effect {
-        Effect::CreateCheckout { surface, .. } => start_pay_checkout(info, app, s, surface),
+        Effect::CreateCheckout { surface, payer, .. } => {
+            start_pay_checkout(info, app, s, surface, payer);
+        }
         Effect::ShowSurface(surface) => {
             println!(
                 "AZDRIVE_PAY_SURFACE {} {}",
@@ -1089,12 +1156,15 @@ fn start_pay_checkout(
     app: &RefAny,
     s: &mut DriveState,
     surface: azul_pay::SurfaceKind,
+    payer: Option<azul_pay::Payer>,
 ) {
     let token_url = s.token.url.clone();
     let keyring = s.keyring.clone();
     let Some(d) = dialog(s) else {
         return;
     };
+    // The payer's details leave with this checkout alone: the dialog keeps none of them.
+    let _ = d.take_payer();
     let PayState::Preparing { choice, .. } = &d.pay else {
         return;
     };
@@ -1104,6 +1174,7 @@ fn start_pay_checkout(
         look: d.look(),
         country: d.country.clone(),
         consent: d.consent,
+        payer,
     };
     let (Some(token_url), Some(tier)) = (token_url, d.chosen_tier().map(|t| t.id.clone())) else {
         let _ = pay(

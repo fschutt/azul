@@ -141,14 +141,11 @@ impl Notice {
                 "Waiting for your letter: postal cash takes a while, AzDrive checks once a day. \
                  Nothing else tells you - look here again in a few days.",
             ),
-            Notice::IdentityIncomplete(fields) => {
-                let names: Vec<&str> = fields.iter().map(|f| f.as_str()).collect();
-                format!(
-                    "This payment method needs your {} first. They are sent once with the \
-                     order and not kept.",
-                    names.join(", ")
-                )
-            }
+            Notice::IdentityIncomplete(fields) => format!(
+                "This payment method needs your {} first. They are sent once with the order \
+                 and not kept.",
+                crate::identity::english_list(fields)
+            ),
         }
     }
 }

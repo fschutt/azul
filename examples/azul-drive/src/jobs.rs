@@ -95,13 +95,23 @@ pub(crate) struct BoughtDrive {
 }
 
 /// How the order button's checkout is paid (azul-pay): the pill's choice, the first surface,
-/// the fields page's look, the VAT country, the consent.
+/// the fields page's look, the VAT country (the buyer's declared country), the consent, and the
+/// payer's details for a method whose provider wants them from the app (sent with this one
+/// checkout, dropped with this value).
 pub(crate) struct PayVia {
     pub choice: Choice,
     pub surface: SurfaceKind,
     pub look: Look,
     pub country: String,
     pub consent: bool,
+    pub payer: Option<azul_pay::Payer>,
+}
+
+/// Why Buy storage has no payment options: the token server refused this buyer (its own
+/// sentence, shown as it is - a country it does not serve), or it could not be asked.
+pub(crate) enum OptionsFailed {
+    Refused(String),
+    Failed(String),
 }
 
 /// A checkout made: the token server's answer, the keyring's entry of it, and - through a
@@ -257,8 +267,13 @@ pub(crate) enum Job {
         code_verifier: String,
         redirect_uri: String,
     },
-    /// Buy storage's tier list from the token server at `token_url`.
-    Tiers { serial: u64, token_url: String },
+    /// Buy storage's tier list from the token server at `token_url`, priced for a buyer in
+    /// `country` (empty: the ladder as it is).
+    Tiers {
+        serial: u64,
+        token_url: String,
+        country: String,
+    },
     /// A test drive without payment (a development token server), its session into `keyring`
     /// under the drive's lock.
     CreateTestDrive {
@@ -570,7 +585,7 @@ pub(crate) enum Outcome {
     /// Buy storage's payment options: the offer's text (`None`: the token server has none).
     Options {
         serial: u64,
-        result: Result<Option<String>, String>,
+        result: Result<Option<String>, OptionsFailed>,
     },
     /// The checkout's next surface, checked (or why there is none).
     Surface {
@@ -2217,13 +2232,25 @@ fn start_checkout(
             None,
         ),
         Some(via) => {
+            // Only the details the method's provider wants from the app, only for this request.
+            let payer: Vec<(&str, &str)> = via
+                .payer
+                .as_ref()
+                .map(|p| {
+                    azul_pay::identity::APP_FIELDS
+                        .iter()
+                        .map(|f| (f.as_str(), p.get(*f)))
+                        .filter(|(_, text)| !text.trim().is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             let through = CheckoutVia {
                 provider: via.choice.provider.spec.id,
                 method: via.choice.method.method.as_str(),
                 surface: via.surface.as_str(),
                 vat_country: &via.country,
                 withdrawal_consent: via.consent,
-                payer: &[],
+                payer: &payer,
             };
             let (checkout, answer) = server
                 .checkout_via(tier, months, &through, &claim)
@@ -2822,10 +2849,14 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             .map_err(|e| e.to_string());
             Outcome::SignedIn { serial, result }
         }
-        Job::Tiers { serial, token_url } => {
+        Job::Tiers {
+            serial,
+            token_url,
+            country,
+        } => {
             let transport = AzulTransport::new(USER_AGENT);
             let result = TokenServer::new(&token_url, &transport)
-                .and_then(|server| server.tiers())
+                .and_then(|server| server.tiers_in(&country))
                 .map_err(|e| e.to_string());
             Outcome::Tiers { serial, result }
         }
@@ -2896,7 +2927,14 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             };
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.checkout_options(&query))
-                .map_err(|e| e.to_string());
+                .map_err(|e| match e {
+                    TokenError::Refused {
+                        status: 403,
+                        code,
+                        message,
+                    } => OptionsFailed::Refused(if message.is_empty() { code } else { message }),
+                    other => OptionsFailed::Failed(other.to_string()),
+                });
             Outcome::Options { serial, result }
         }
         Job::Surface {

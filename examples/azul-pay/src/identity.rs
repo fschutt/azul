@@ -61,6 +61,20 @@ impl PayerField {
         }
     }
 
+    /// The detail's English words (`email address`); an app says them in its own language by
+    /// the wire name.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            PayerField::Name => "name",
+            PayerField::Email => "email address",
+            PayerField::NationalId => "national ID number",
+            PayerField::Phone => "phone number",
+            PayerField::TaxId => "tax number",
+            PayerField::Address => "postal address",
+        }
+    }
+
     /// A wire name, in any case.
     #[must_use]
     pub fn parse(text: &str) -> Option<PayerField> {
@@ -249,5 +263,17 @@ fn filled(field: PayerField, text: &str) -> bool {
             .split_once('@')
             .is_some_and(|(user, host)| !user.is_empty() && host.contains('.') && !host.ends_with('.')),
         _ => !text.is_empty(),
+    }
+}
+
+/// `fields` as an English list: `name`, `name and email address`, `name, email address and
+/// national ID number`.
+#[must_use]
+pub fn english_list(fields: &[PayerField]) -> String {
+    let words: Vec<&str> = fields.iter().map(|f| f.label()).collect();
+    match words.split_last() {
+        None => String::new(),
+        Some((last, [])) => (*last).to_string(),
+        Some((last, first)) => format!("{} and {last}", first.join(", ")),
     }
 }

@@ -3,9 +3,14 @@
 //! ```text
 //! Choose     [Buy storage]          Azlin cloud storage, the first month free
 //!            [Connect data source]  S3, WebDAV, FTP, Google Drive, GitHub, databases, ...
-//! Buy        < Back   the tiers (size, price a month or a year)   [ ] Pay yearly
-//!            with the token server's payment options: Country [Germany v], the pills (a
-//!            method each, "via <provider>", a switch where two providers offer it), the price,
+//! Country    < Back   "Where do you live?" (first, while no country is declared): why it is
+//!            asked, [search], the matching countries (the guess picked)  [Cancel] [Continue]
+//! Buy        < Back   "You live in Poland. [Change]"; the tiers (size, price a month or a
+//!            year, in the country's currency)   [ ] Pay yearly
+//!            with the token server's payment options: the pills in the country's order (a
+//!            method each, where the payer finishes and "via <provider>", a switch where two
+//!            providers offer it), the chosen pill's notes (what it tells about the payer, what
+//!            the payer does), the details a provider wants from the app, the price,
 //!            [ ] the consent the order needs
 //!            Name [Azlin Storage]   [Create test drive] (a development server)  [Buy ...]
 //!            the payment popover under Buy (its own window): [lock] host - what, legal name;
@@ -46,7 +51,7 @@ use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     bridge::{clean_name, CardBrand},
     machine::{Chip, Page},
-    Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
+    Choice, Event as PayEvent, Method, PayerField, SecretUrl, State as PayState, SurfaceKind,
 };
 use azul_storage::{
     catalog::{FieldKind, FieldSpec, ServiceSpec},
@@ -55,7 +60,7 @@ use azul_storage::{
 
 use crate::{
     add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState},
-    countries::{self, COUNTRIES},
+    countries,
     add_flow::{self, AddEvent},
     ids, look, pay_words,
     sign_in::{self, SignInSettings, SignInStep},
@@ -100,6 +105,10 @@ enum TextTarget {
     VoucherCode,
     /// "Pick up a paid drive with a claim code"'s code.
     ClaimCode,
+    /// The country picker's search.
+    CountrySearch,
+    /// A payer's detail a method's provider wants from the app (never printed).
+    Payer(PayerField),
 }
 
 /// The app, for a callback that builds its event from what it is given (a choice's index, the
@@ -264,7 +273,8 @@ pub(crate) fn dialog(
 ) -> (String, Dom) {
     let (title, page) = match d.page {
         AddPage::Choose => (t("azdrive-add-title"), choose(app)),
-        AddPage::Buy | AddPage::Country => (t("azdrive-add-buy-title"), buy(d, development, app)),
+        AddPage::Buy => (t("azdrive-add-buy-title"), buy(d, development, app)),
+        AddPage::Country => (t("azdrive-add-country-title"), country(d, app)),
         AddPage::Sources => (t("azdrive-add-sources-title"), sources(app)),
         AddPage::Voucher => (t("azdrive-options-redeem-voucher"), voucher(d, app)),
         AddPage::ClaimCode => (t("azdrive-add-claim-title"), claim_code(d, app)),
@@ -392,6 +402,30 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         note("azdrive-add-storage-azdrive-azmail-every"),
         note("azdrive-add-every-file-compressed-encrypted"),
     ];
+    // The declared country: the tiers' currency and the methods follow it.
+    if !d.country.is_empty() {
+        let said = t_args(
+            "azdrive-add-country-line",
+            &[("country", Arg::from(countries::name(&d.country)))],
+        );
+        children.push(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 8px;")
+                .with_child(
+                    Dom::create_span_with_text(AzString::from(said))
+                        .with_css("flex-grow: 1; min-width: 0px;")
+                        .with_id(ids::ADD_COUNTRY_LINE),
+                )
+                .with_child(button(
+                    app,
+                    "azdrive-add-country-change",
+                    ButtonType::Default,
+                    AddEvent::ChangeCountry,
+                    ids::ADD_COUNTRY,
+                    d.busy().then_some("azdrive-add-wait-step"),
+                )),
+        );
+    }
     match &d.tiers {
         TiersState::NotLoaded | TiersState::Loading => {
             children.push(line("azdrive-add-loading-storage-tiers").with_id(ids::ADD_STATUS));
@@ -466,6 +500,9 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                 children.extend(payment(d, app));
             } else if matches!(d.offer, OfferState::Loading) {
                 children.push(note("azdrive-add-loading-payment-options"));
+            } else if let Some(sentence) = d.refused() {
+                // The token server's own sentence (a country it does not serve), as it is.
+                children.push(error_line(sentence));
             }
             if !d.pays_with_pills() {
                 if let Some(consent) = &tiers.withdrawal_consent {
@@ -525,6 +562,8 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         }
         let busy = d.busy().then_some("azdrive-add-wait-step");
         let not_loaded = (!loaded).then_some("azdrive-add-tiers-not-loaded");
+        // Nothing can be bought where the token server refused this buyer.
+        let not_loaded = not_loaded.or(d.refused());
         if development {
             row.push(button(
                 app,
@@ -589,6 +628,83 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
     column(children).with_id(ids::ADD_BUY)
 }
 
+/// Buy storage's first question, "Where do you live?": why it is asked, the search, the
+/// matching countries (the pick highlighted - first the guess from the locale), Continue.
+fn country(d: &AddDialog, app: &RefAny) -> Dom {
+    let mut children = vec![
+        back(app),
+        note("azdrive-add-country-why"),
+        text_field(
+            app,
+            &d.country_query,
+            "azdrive-add-country-search",
+            false,
+            TextTarget::CountrySearch,
+        )
+        .with_id(ids::ADD_COUNTRY_SEARCH),
+    ];
+    let matches = d.country_matches();
+    if matches.is_empty() {
+        children.push(note("azdrive-add-country-none"));
+    } else {
+        let rows: Vec<Dom> = matches
+            .iter()
+            .map(|code| {
+                let picked = d.country_pick == Some(*code);
+                Dom::create_div()
+                    .with_css(format!(
+                        "{} {}",
+                        look::ROW,
+                        if picked { look::ROW_SELECTED } else { "" }
+                    ))
+                    .with_css("padding-left: 8px;")
+                    .with_child(Dom::create_span_with_text(AzString::from(countries::name(
+                        code,
+                    ))))
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::Click),
+                        event_ref(app, AddEvent::PickCountry(*code)),
+                        on_event,
+                    )
+                    .with_id(ids::add_country_option(code))
+            })
+            .collect();
+        children.push(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: column; margin-top: 8px; max-height: 260px; \
+                     overflow-y: auto;",
+                )
+                .with_children(DomVec::from(rows))
+                .with_id(ids::ADD_COUNTRY_LIST),
+        );
+    }
+    if !d.notice.is_empty() {
+        children.push(line(&d.notice).with_id(ids::ADD_STATUS));
+    }
+    children.push(buttons(vec![
+        button(
+            app,
+            "kit-button-cancel",
+            ButtonType::Default,
+            AddEvent::Cancel,
+            ids::ADD_CANCEL,
+            None,
+        ),
+        button(
+            app,
+            "azdrive-add-country-continue",
+            ButtonType::Primary,
+            AddEvent::ConfirmCountry,
+            ids::ADD_COUNTRY_CONTINUE,
+            d.country_pick
+                .is_none()
+                .then_some("azdrive-add-country-pick-first"),
+        ),
+    ]));
+    column(children).with_id(ids::ADD_COUNTRY_PAGE)
+}
+
 /// "I have a voucher": its code, then the new drive it buys - the voucher's months (or its
 /// value) of the tier it names, else of the tier chosen; named as Buy storage's name says.
 fn voucher(d: &AddDialog, app: &RefAny) -> Dom {
@@ -637,27 +753,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
     let Some(offer) = d.offer() else {
         return Vec::new();
     };
-    let mut parts = vec![label("azdrive-add-country")];
-    let selected = COUNTRIES
-        .iter()
-        .position(|code| *code == d.country)
-        .unwrap_or(0);
-    parts.push(
-        DropDown::create(StringVec::from(
-            COUNTRIES
-                .iter()
-                .map(|code| AzString::from(countries::name(code)))
-                .collect::<Vec<AzString>>(),
-        ))
-        .with_selected(selected)
-        .with_accessibility_name(l10n::label("azdrive-add-country"))
-        .with_on_choice_change(
-            RefAny::new(AppRef { app: app.clone() }),
-            on_country as DropDownOnChoiceChangeCallbackType,
-        )
-        .dom()
-        .with_id(ids::ADD_COUNTRY),
-    );
+    let mut parts = Vec::new();
     let shown = d.pills();
     if shown.is_empty() {
         parts.push(note("azdrive-add-no-payment-method-app"));
@@ -673,11 +769,19 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
                 _ => pill,
             };
             let selected = chosen.as_ref().is_some_and(|c| c.method == pill.method);
+            // Where the payer finishes is said on the pill, before it is picked.
+            let via = pay_words::via(pill.provider(offer));
+            let hint = Choice::of(offer, pill, &d.pill_context())
+                .and_then(|choice| pay_words::pill_hint(&choice));
+            let detail = match hint {
+                Some(hint) => format!("{hint} · {via}"),
+                None => via,
+            };
             tile(
                 app,
                 pill.method.icon(),
                 &pay_words::method(pill.method),
-                &pay_words::via(pill.provider(offer)),
+                &detail,
                 AddEvent::Pill(pill.method),
                 selected,
                 "width: 146px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
@@ -715,6 +819,31 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
                 .dom()
                 .with_id(ids::ADD_PROVIDER),
         );
+    }
+    // The chosen pill's notes: what it tells about the payer and who asks, what the payer does.
+    if let Some(choice) = d.choice() {
+        let notes: Vec<Dom> = pay_words::pill_note(&choice)
+            .iter()
+            .map(|sentence| note(sentence))
+            .collect();
+        if !notes.is_empty() {
+            parts.push(column(notes).with_id(ids::ADD_PILL_NOTE));
+        }
+        // The details a provider wants from the app: exactly these, sent once with the order.
+        let asked = choice.method.identity.app_fields().to_vec();
+        if !asked.is_empty() {
+            parts.push(label(&t_args(
+                "azdrive-pay-payer-heading",
+                &[("provider", Arg::from(choice.provider.spec.name))],
+            )));
+            for field in asked {
+                let words = pay_words::payer_label(field);
+                parts.push(
+                    text_field(app, d.payer.get(field), &words, false, TextTarget::Payer(field))
+                        .with_id(ids::add_payer(field.as_str())),
+                );
+            }
+        }
     }
     if let Some(price) = &offer.price {
         parts.push(note(&pay_words::price(price)).with_id(ids::ADD_PRICE));
@@ -1286,16 +1415,6 @@ extern "C" fn on_popover_closed(data: RefAny, info: CallbackInfo, _state: Dialog
     on_event(data, info)
 }
 
-/// Buy storage's country: its index of `COUNTRIES`.
-extern "C" fn on_country(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    let Some(mut app) = data.downcast_ref::<AppRef>().map(|r| r.app.clone()) else {
-        return Update::DoNothing;
-    };
-    everywhere(with_state(&mut app, &mut info, |info, app, s| {
-        add_flow::event(info, app, s, AddEvent::Country(index))
-    }))
-}
-
 /// A pill's provider switch: its index of the switch's providers.
 extern "C" fn on_pill_provider(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     let Some((mut app, provider)) = data
@@ -1382,6 +1501,12 @@ extern "C" fn on_text(
                 d.claim_code = text;
                 d.notice.clear();
             }
+            // The list under the search follows every keystroke.
+            TextTarget::CountrySearch => {
+                d.search_country(&text);
+                redraw = true;
+            }
+            TextTarget::Payer(field) => d.set_payer(field, &text),
         }
     }
     OnTextInputReturn {

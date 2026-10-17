@@ -42,6 +42,13 @@ pub(crate) fn offered(code: &str) -> bool {
     COUNTRIES.contains(&code.as_str())
 }
 
+/// `code` (any case) as the list's own text, when the list has it.
+#[must_use]
+pub(crate) fn listed(code: &str) -> Option<&'static str> {
+    let code = code.trim().to_ascii_uppercase();
+    COUNTRIES.iter().copied().find(|c| *c == code)
+}
+
 /// The country a locale names by its region - BCP 47 (`pt-BR`, `zh-Hant-TW`) or POSIX
 /// (`de_DE.UTF-8`, `nl_NL@euro`) - when Buy storage lists it. A language alone (`de`), a
 /// numeric region (`es-419`, Latin America) and `C` / `POSIX` name none.

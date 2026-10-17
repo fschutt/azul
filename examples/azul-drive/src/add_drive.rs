@@ -1,12 +1,16 @@
 //! The "Add drive" dialog as data (no azul types: tested without a window). Two choices first:
 //!
-//! - **Buy storage**: Azlin's storage tiers from the token server (`GET /v1/tiers`), each with
-//!   its size and price, monthly or yearly; on a development token server "Create test drive"
-//!   (a drive without payment), everywhere "Buy". With the token server's payment options
-//!   (`GET /v1/checkout/options`, narrowed by azul-pay's registry) Buy storage shows a pill per
-//!   payment method for the payer's country and period, the consent the order needs, and Buy
-//!   runs azul-pay's checkout machine: the provider's hosted fields in a popover, its hosted
-//!   page, or the system browser. Without them (an older token server) the v1 checkout's
+//! - **Buy storage**: first, while the buyer has declared none, "Where do you live?" (the
+//!   country guessed from the locale, a searchable list; remembered on this computer only).
+//!   Then Azlin's storage tiers from the token server (`GET /v1/tiers?country=`), each with its
+//!   size and price in the country's currency, monthly or yearly; on a development token server
+//!   "Create test drive" (a drive without payment), everywhere "Buy". With the token server's
+//!   payment options (`GET /v1/checkout/options`, narrowed by azul-pay's registry) Buy storage
+//!   shows a pill per payment method the server offers for that country and period, in the
+//!   country's order, each saying where the payer finishes; the chosen one's notes (what it
+//!   tells about the payer) and the details its provider wants from the app; the consent the
+//!   order needs; and Buy runs azul-pay's checkout machine: the provider's hosted fields in a
+//!   popover, its hosted page, or the system browser. Without them (an older token server) the v1 checkout's
 //!   payment page opens in the browser. Either way the dialog waits for the drive (the claim).
 //! - **Connect data source**: the sources of azul-storage's catalog this build can open, in
 //!   their groups (S3-compatible storage and a folder on this computer always; OpenDAL's
@@ -187,6 +191,9 @@ pub(crate) enum OfferState {
     Loaded(Offer),
     /// Why there are none (Buy storage falls back to the v1 checkout).
     Failed(String),
+    /// The token server refused this buyer, in its own sentence (a country it does not serve):
+    /// nothing can be bought.
+    Refused(String),
 }
 
 impl fmt::Debug for AddDialog {
@@ -303,9 +310,14 @@ impl AddDialog {
         self.service.and_then(catalog::service)
     }
 
-    /// Buy storage.
+    /// Buy storage: its first question, where the buyer lives, while no country is declared;
+    /// else the tiers of the declared country.
     pub(crate) fn choose_buy(&mut self) {
-        self.page = AddPage::Buy;
+        self.page = if self.country.is_empty() {
+            AddPage::Country
+        } else {
+            AddPage::Buy
+        };
         self.notice.clear();
     }
 
@@ -345,11 +357,13 @@ impl AddDialog {
         true
     }
 
-    /// One page back: a form to the sources, the sources and Buy storage to the choices.
+    /// One page back: a form to the sources, the sources and Buy storage to the choices, the
+    /// country picker to the tiers of the declared country (to the choices before one is).
     pub(crate) fn back(&mut self) {
         self.page = match self.page {
             AddPage::Form if self.editing.is_none() => AddPage::Sources,
             AddPage::Form => AddPage::Form,
+            AddPage::Country if !self.country.is_empty() => AddPage::Buy,
             AddPage::Sources
             | AddPage::Buy
             | AddPage::Choose
@@ -567,10 +581,11 @@ impl AddDialog {
         }
     }
 
-    /// The token server's offer is in: the default pill is chosen.
+    /// The token server's offer is in (again, for another tier or period): the chosen pill
+    /// stays while the offer has it ([`Self::chosen_pill`] falls back to the default), its
+    /// provider switch does not.
     pub(crate) fn offer_loaded(&mut self, offer: Offer) {
         self.offer = OfferState::Loaded(offer);
-        self.pill = None;
         self.pill_provider = None;
     }
 
@@ -599,6 +614,15 @@ impl AddDialog {
     #[must_use]
     pub(crate) fn pays_with_pills(&self) -> bool {
         !self.pills().is_empty()
+    }
+
+    /// The token server's refusal of this buyer, its own sentence: nothing can be bought.
+    #[must_use]
+    pub(crate) fn refused(&self) -> Option<&str> {
+        match &self.offer {
+            OfferState::Refused(sentence) => Some(sentence),
+            _ => None,
+        }
     }
 
     /// The pill chosen - the default one when none is, or the chosen one went away - with the
@@ -652,59 +676,83 @@ impl AddDialog {
         Choice::of(offer, &self.chosen_pill()?, &self.pill_context())
     }
 
-    /// The payer's country is `code` now: whether it changed (a listed country only). The
-    /// options are asked for again.
+    /// The buyer's country is `code` now: whether it changed (a listed country only). The tiers
+    /// (priced in its currency) and the options are asked for again; a chosen pill and the
+    /// payer's details typed for it are dropped.
     pub(crate) fn set_country(&mut self, code: &str) -> bool {
         let code = code.trim().to_ascii_uppercase();
         if code == self.country || !crate::countries::offered(&code) {
             return false;
         }
         self.country = code;
+        self.tiers = TiersState::NotLoaded;
         self.offer = OfferState::NotLoaded;
         self.pill = None;
         self.pill_provider = None;
+        self.payer = Payer::default();
         true
     }
 
-    /// "Change" beside the country: the picker again (stub).
-    pub(crate) fn change_country(&mut self) {}
+    /// "Change" beside the country: the picker again, the declared country picked.
+    pub(crate) fn change_country(&mut self) {
+        self.country_pick = crate::countries::listed(&self.country).or(self.country_pick);
+        self.country_query.clear();
+        self.page = AddPage::Country;
+        self.notice.clear();
+    }
 
-    /// The picker's search says `text` now (stub).
+    /// The picker's search says `text` now (the pick stays).
     pub(crate) fn search_country(&mut self, text: &str) {
-        let _ = text;
+        self.country_query = text.to_string();
     }
 
-    /// A country of the picker's list was clicked (stub).
+    /// A country of the picker's list was clicked: whether it is one the picker lists.
     pub(crate) fn pick_country(&mut self, code: &str) -> bool {
-        let _ = code;
-        false
+        let Some(listed) = crate::countries::listed(code) else {
+            return false;
+        };
+        self.country_pick = Some(listed);
+        self.notice.clear();
+        true
     }
 
-    /// The picker's Continue (stub).
+    /// The picker's Continue: the picked country becomes the declared one and the tiers show;
+    /// `false` (and a sentence) while nothing is picked.
     pub(crate) fn confirm_country(&mut self) -> bool {
-        false
+        let Some(code) = self.country_pick else {
+            self.notice = t("azdrive-add-country-pick-first");
+            return false;
+        };
+        self.set_country(code);
+        self.page = AddPage::Buy;
+        self.notice.clear();
+        true
     }
 
-    /// The countries the picker lists (stub).
+    /// The countries the picker lists for its search, best first.
     #[must_use]
     pub(crate) fn country_matches(&self) -> Vec<&'static str> {
-        Vec::new()
+        crate::countries::search(&self.country_query)
     }
 
-    /// The details the chosen method's provider wants from the app (stub).
+    /// The details the chosen method's provider wants from the app (none where its own page
+    /// asks, or the method needs nothing): the fields under the pills.
     #[must_use]
     pub(crate) fn asked_fields(&self) -> Vec<PayerField> {
-        Vec::new()
+        self.choice()
+            .map(|c| c.method.identity.app_fields().to_vec())
+            .unwrap_or_default()
     }
 
-    /// A payer's detail typed (stub).
+    /// The payer's detail `field` says `text` now.
     pub(crate) fn set_payer(&mut self, field: PayerField, text: &str) {
         self.payer.set(field, text);
+        self.notice.clear();
     }
 
-    /// The payer's details for the checkout (stub).
+    /// The payer's details, for the order button's checkout: the dialog keeps none of them.
     pub(crate) fn take_payer(&mut self) -> Payer {
-        self.payer.clone()
+        std::mem::take(&mut self.payer)
     }
 
     /// For scripts: each pill's method and chosen provider, `sepa_debit:gocardless card:stripe`.
