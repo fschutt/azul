@@ -2223,6 +2223,7 @@ fn start_checkout(
                 surface: via.surface.as_str(),
                 vat_country: &via.country,
                 withdrawal_consent: via.consent,
+                payer: &[],
             };
             let (checkout, answer) = server
                 .checkout_via(tier, months, &through, &claim)

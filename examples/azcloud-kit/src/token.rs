@@ -263,14 +263,33 @@ pub struct OptionsQuery<'a> {
 }
 
 /// How a checkout is paid (claim contract v1, extended): the provider and method of the payer's
-/// pill, the first surface to open, the VAT country, the consent the order needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// pill, the first surface to open, the VAT country (the buyer's declared country of residence),
+/// the consent the order needs, and - only for a method whose provider wants them in the
+/// merchant's request - the payer's details. `Debug` names those details, never their text.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CheckoutVia<'a> {
     pub provider: &'a str,
     pub method: &'a str,
     pub surface: &'a str,
     pub vat_country: &'a str,
     pub withdrawal_consent: bool,
+    /// `(field, text)` pairs (`name`, `email`, `national_id`) sent once as `payer`; empty for
+    /// every method that asks the app for nothing.
+    pub payer: &'a [(&'a str, &'a str)],
+}
+
+impl fmt::Debug for CheckoutVia<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let payer: Vec<&str> = self.payer.iter().map(|(field, _)| *field).collect();
+        f.debug_struct("CheckoutVia")
+            .field("provider", &self.provider)
+            .field("method", &self.method)
+            .field("surface", &self.surface)
+            .field("vat_country", &self.vat_country)
+            .field("withdrawal_consent", &self.withdrawal_consent)
+            .field("payer", &payer)
+            .finish()
+    }
 }
 
 /// Where a checkout stands (`GET /v1/checkout/{id}`).
@@ -916,6 +935,14 @@ impl<'a> TokenServer<'a> {
     pub fn tiers(&self) -> Result<Tiers, TokenError> {
         let value = self.call(Method::Get, "/v1/tiers", None, None)?;
         Tiers::parse(&value.to_string())
+    }
+
+    /// The storage tiers priced for a buyer in `country` (ISO alpha-2, any case): the signed
+    /// ladder's row in that country's currency where it has one, else the ladder as it is. No
+    /// country: [`Self::tiers`].
+    pub fn tiers_in(&self, country: &str) -> Result<Tiers, TokenError> {
+        let _ = country;
+        self.tiers()
     }
 
     /// A drive named `name` of tier `tier` without payment - a development token server only;

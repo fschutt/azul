@@ -51,6 +51,31 @@ fn the_tier_ladder_reads_with_its_prices() {
     assert_eq!(header(call, "authorization"), None);
 }
 
+/// The ladder's rows in zloty, as GET /v1/tiers?country=PL answers for a buyer in Poland.
+const LADDER_PLN: &str = r#"{"tiers": [
+    {"id": "100GB", "quota_bytes": 100000000000, "price_cents_month": 449,
+     "price_cents_year": 4490, "currency": "PLN", "first_month_free": true}],
+  "methods": ["card"]}"#;
+
+#[test]
+fn the_tier_list_is_asked_for_in_the_buyers_country_and_priced_in_its_currency() {
+    let fake = Fake::new(|_, _| Ok(json(200, LADDER_PLN)));
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let tiers = server.tiers_in(" pl ").unwrap();
+    assert_eq!(tiers.tiers[0].currency, "PLN");
+    assert_eq!(tiers.tiers[0].price_cents_month, Some(449));
+    let call = &fake.calls()[0];
+    assert_eq!(call.method, Method::Get);
+    assert_eq!(call.url, format!("{TOKEN}/v1/tiers?country=PL"));
+    assert_eq!(header(call, "authorization"), None);
+    let any = Fake::new(|_, _| Ok(json(200, LADDER)));
+    let transport = Shared(any.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    server.tiers_in("").unwrap();
+    assert_eq!(any.calls()[0].url, format!("{TOKEN}/v1/tiers"), "no country: the ladder as it is");
+}
+
 #[test]
 fn a_ladder_without_prices_still_reads() {
     let fake = Fake::new(|_, _| {
@@ -561,6 +586,7 @@ fn a_checkout_through_a_provider_names_it_and_answers_its_surface() {
         surface: "fields",
         vat_country: "DE",
         withdrawal_consent: true,
+        payer: &[],
     };
     let (started, answer) = server.checkout_via("1TB", 12, &via, &claim).unwrap();
     assert_eq!(started.checkout_id, "ck_9");
@@ -585,6 +611,39 @@ fn a_checkout_through_a_provider_names_it_and_answers_its_surface() {
 }
 
 #[test]
+fn a_checkout_sends_the_payers_details_only_for_a_method_that_asks_the_app() {
+    let claim = ClaimKey::generate().unwrap();
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            201,
+            r#"{"checkout_id": "ck_11", "provider": "fake-dlocal", "method": "pix",
+                "surface": {"kind": "browser", "url": "http://127.0.0.1:8784/dlocal/pay/1"}}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let asked = [("name", "Ana Souza"), ("national_id", "123.456.789-09")];
+    let via = CheckoutVia {
+        provider: "fake-dlocal",
+        method: "pix",
+        surface: "browser",
+        vat_country: "BR",
+        withdrawal_consent: true,
+        payer: &asked,
+    };
+    server.checkout_via("100GB", 1, &via, &claim).unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&fake.calls()[0].body).unwrap();
+    assert_eq!(
+        body["payer"],
+        serde_json::json!({"name": "Ana Souza", "national_id": "123.456.789-09"})
+    );
+    let anonymous = CheckoutVia { payer: &[], ..via };
+    server.checkout_via("100GB", 1, &anonymous, &claim).unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&fake.calls()[1].body).unwrap();
+    assert!(body.get("payer").is_none(), "nothing of the payer for a method that asks nothing");
+}
+
+#[test]
 fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
     let claim = ClaimKey::generate().unwrap();
     let via = CheckoutVia {
@@ -593,6 +652,7 @@ fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
         surface: "browser",
         vat_country: "DE",
         withdrawal_consent: true,
+        payer: &[],
     };
     let without_page = Fake::new(|_, _| {
         Ok(json(
