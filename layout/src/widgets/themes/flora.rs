@@ -1232,6 +1232,25 @@ pub(crate) fn quiet_command() -> Vec<CssPropertyWithConditions> {
     v
 }
 
+/// The words of a disabled command on leather: the grey [`quiet_command`]
+/// gives the pill. The label carries an ink of its own, so it does not
+/// inherit the pill's and takes the grey itself.
+#[must_use]
+pub(crate) const fn quiet_words() -> [CssPropertyWithConditions; 2] {
+    super::decl::themed_ink(LIGHT_DISTX, DARK_DISTX)
+}
+
+/// The icon of a disabled command on leather: the grey of its words, and a
+/// little fainter, as the design draws it.
+#[must_use]
+pub(crate) fn quiet_icon() -> Vec<CssPropertyWithConditions> {
+    let mut v = quiet_words().to_vec();
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity {
+        inner: PercentageValue::const_new(70),
+    })));
+    v
+}
+
 /// A frosted recessed panel: the frost, its rim and a shadow along its
 /// top, the raised depth taken away. `on` tints it with the accent (a
 /// toggled command, a picked gallery cell).

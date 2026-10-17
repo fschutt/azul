@@ -21,18 +21,25 @@ fn page(body: &str) -> Painted {
 /// How far the red inline-block after the span moves when the span gets
 /// `decoration` (the same page without it as the reference), in `wrapper`.
 fn shift(wrapper: &str, decoration: &str) -> i64 {
+    shift_from(wrapper, "", decoration)
+}
+
+/// [`shift`] for a span already styled `base` in both pages (a font size
+/// that also widens the span's own text).
+fn shift_from(wrapper: &str, base: &str, decoration: &str) -> i64 {
     let left = |span_style: &str| {
         let p = page(&format!(
             "<p style=\"{wrapper}\">X<span style=\"{span_style}\">Y</span><i class=\"ib\"></i></p>"
         ));
         p.bounds_of(RED, 10).expect("the red inline-block is painted").0 as i64
     };
-    left(decoration) - left("")
+    left(&format!("{base} {decoration}")) - left(base)
 }
 
 #[test]
 fn an_em_border_is_as_wide_as_its_font_size_says() {
-    let moved = shift("", "font-size: 20px; border-left: 0.5em solid blue;");
+    // The 20px font widens the span's own "Y" too, so both pages have it.
+    let moved = shift_from("", "font-size: 20px;", "border-left: 0.5em solid blue;");
     assert!(
         (moved - 10).abs() <= 1,
         "0.5em of a 20px font is 10px, not the raw 0.5: moved {moved}px"
