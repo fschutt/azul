@@ -2109,6 +2109,9 @@ fn resolve_endpoints(kit_ref: &RefAny, flags: &azlin::Endpoints) -> azlin::Endpo
 }
 
 pub fn start() {
+    // This thread runs the window: its pump delivers every network answer, so it never waits
+    // for one (debug builds assert it).
+    azul_storage::ui_thread::mark_ui_thread();
     let args = match args::MailArgs::from_env() {
         Ok(args) => args,
         Err(text) => {

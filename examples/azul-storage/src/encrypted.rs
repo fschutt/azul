@@ -54,6 +54,7 @@ use crate::{
     ops::check_folder,
     time::now_unix,
     packing::{PackOptions, PackState, PackedAt},
+    ui_thread::NetworkLock,
     BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
     ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
 };
@@ -301,7 +302,8 @@ pub struct AutoEncrypted {
     drive: String,
     keyring: Arc<dyn KeyringStore>,
     provider: Option<Arc<dyn IndexProvider>>,
-    opened: Mutex<Option<Arc<dyn Drive>>>,
+    /// Held across the first call's requests, so the UI thread never takes it.
+    opened: NetworkLock<Option<Arc<dyn Drive>>>,
     /// What `opened` decided, for the question that must not wait for it ([`Self::is_encrypted`]):
     /// the first call decides while it holds `opened`, and deciding reads the bucket.
     decided: AtomicU8,
@@ -336,7 +338,7 @@ impl AutoEncrypted {
             drive: drive.to_string(),
             keyring,
             provider,
-            opened: Mutex::new(None),
+            opened: NetworkLock::new(None),
             decided: AtomicU8::new(UNDECIDED),
         }
     }
@@ -357,7 +359,7 @@ impl AutoEncrypted {
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
     /// this device got its key).
     pub fn reopen(&self) {
-        let mut opened = lock(&self.opened);
+        let mut opened = self.opened.lock();
         *opened = None;
         self.decided.store(UNDECIDED, Ordering::SeqCst);
     }
@@ -376,7 +378,7 @@ impl AutoEncrypted {
 
     /// The drive every call goes to: decided on the first call.
     fn resolved(&self) -> Result<Arc<dyn Drive>, DriveError> {
-        let mut opened = lock(&self.opened);
+        let mut opened = self.opened.lock();
         if let Some(drive) = opened.as_ref() {
             return Ok(Arc::clone(drive));
         }

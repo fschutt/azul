@@ -29,6 +29,7 @@ use std::{
 use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
+    ui_thread::NetworkLock,
     ops, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
     ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
@@ -69,7 +70,8 @@ struct Current {
 pub struct AzlinDrive {
     entry: DriveEntry,
     token_url: String,
-    current: Mutex<Current>,
+    /// Held across a refresh's requests, so the UI thread never takes it.
+    current: NetworkLock<Current>,
     /// Where the drive's session lives between processes, and the lock its refreshes hold.
     keyring: SharedKeyring,
     transports: TransportFactory,
@@ -184,7 +186,7 @@ impl AzlinDrive {
         Ok(AzlinDrive {
             entry: entry.clone(),
             token_url: token_url.trim_end_matches('/').to_string(),
-            current: Mutex::new(Current {
+            current: NetworkLock::new(Current {
                 session,
                 drive: None,
             }),
@@ -263,10 +265,9 @@ impl AzlinDrive {
         self.lock().session.clone()
     }
 
+    #[track_caller]
     fn lock(&self) -> std::sync::MutexGuard<'_, Current> {
-        self.current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.current.lock()
     }
 
     /// The bucket with credentials that work now (refreshed first when they run out), and the

@@ -22,13 +22,12 @@
 //! signed in at), and a code or a token only over https - plain http only to this computer
 //! ([`is_token_endpoint`]). Nothing here logs a token or puts one in `Debug` output.
 
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Mutex, PoisonError},
-};
+use std::{collections::BTreeMap, fmt};
 
-use crate::{config::SecretOptions, sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
+use crate::{
+    config::SecretOptions, sigv4::uri_encode, ui_thread::NetworkLock, HttpCall, HttpReply, Method,
+    Transport,
+};
 
 /// A provider a drive signs in at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,7 +394,8 @@ pub struct RefreshingTransport {
     provider_name: String,
     token_url: String,
     client: OAuthClient,
-    held: Mutex<Held>,
+    /// Held across a refresh's request, so the UI thread never takes it.
+    held: NetworkLock<Held>,
     on_new_refresh_token: Option<Box<dyn Fn(&str) + Send + Sync>>,
 }
 
@@ -425,7 +425,7 @@ impl RefreshingTransport {
             provider_name: provider_name.to_string(),
             token_url: token_url.to_string(),
             client,
-            held: Mutex::new(Held {
+            held: NetworkLock::new(Held {
                 access_token: None,
                 refresh_token: refresh_token.to_string(),
             }),
@@ -435,10 +435,8 @@ impl RefreshingTransport {
 
     /// Starts with `access_token` (one the sign-in just got) instead of a refresh.
     #[must_use]
-    pub fn with_access_token(self, access_token: &str) -> Self {
-        if let Ok(mut held) = self.held.lock() {
-            held.access_token = Some(access_token.to_string()).filter(|t| !t.is_empty());
-        }
+    pub fn with_access_token(mut self, access_token: &str) -> Self {
+        self.held.get_mut().access_token = Some(access_token.to_string()).filter(|t| !t.is_empty());
         self
     }
 
@@ -453,7 +451,7 @@ impl RefreshingTransport {
     /// there is none - then a new one from the token endpoint. One refresh at a time: the
     /// others wait for it and take its token.
     fn access_token(&self, stale: Option<&str>) -> Result<String, String> {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = self.held.lock();
         if let Some(token) = held
             .access_token
             .as_ref()

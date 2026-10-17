@@ -3369,6 +3369,9 @@ fn data_slot(data_root: &Path) -> Slot {
 }
 
 pub fn start() {
+    // This thread runs the window: its pump delivers every network answer, so it never waits
+    // for one (debug builds assert it).
+    azul_storage::ui_thread::mark_ui_thread();
     // The switches; a variable an older build read fills in a switch that is absent.
     let args = match args::Args::parse(std::env::args().skip(1)) {
         Ok(args) => args.with_env_fallbacks(|var| std::env::var(var).ok()),

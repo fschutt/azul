@@ -10,7 +10,9 @@
 //! through a channel. The cost is one UI pump per request (about 16 ms).
 //!
 //! Never call it from a UI callback: the answer is delivered BY the UI thread,
-//! so waiting for it there would wait forever (the timeout ends the wait).
+//! so waiting for it there would wait forever. The thread the answers arrive on is
+//! marked as the UI thread ([`crate::ui_thread`]): `send` there panics in a debug
+//! build and fails at once in a release build.
 //!
 //! Every `AzulTransport` of the process sends through ONE `HttpClient`: its connections
 //! are pooled (a multipart upload's parts and a download's ranges reuse them), its DNS answers
@@ -126,6 +128,7 @@ fn answer_of(result: RefAny) -> Answer {
 
 /// Runs on the UI thread: passes the answer to the thread waiting in `send`.
 extern "C" fn on_answer(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    crate::ui_thread::mark_ui_thread();
     let answer = answer_of(result);
     if let Some(waiter) = data.downcast_ref::<Waiter>() {
         let sender = waiter.reply.lock().ok().and_then(|mut slot| slot.take());
@@ -158,6 +161,13 @@ fn method_of(method: Method) -> Result<HttpMethod, String> {
 
 impl Transport for AzulTransport {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        crate::ui_thread::assert_may_wait("AzulTransport::send");
+        if crate::ui_thread::is_ui_thread() {
+            return Err(String::from(
+                "a request was sent from the UI thread, which delivers its answer: it never \
+                 arrives there",
+            ));
+        }
         let method = method_of(call.method)?;
         let (sender, receiver) = mpsc::channel::<Answer>();
         let mut config = HttpRequestConfig::create()
