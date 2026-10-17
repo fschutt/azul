@@ -2062,29 +2062,70 @@ fn parse_damage_fill(v: Option<&str>) -> (u8, u8, u8, u8) {
 }
 
 /// Physical-pixel damage boxes `[x0, y0, x1, y1]` made pairwise disjoint, so a
-/// repaint pass per box paints every damaged pixel once.
+/// repaint pass per box paints every damaged pixel once. Two overlapping boxes
+/// whose bounding box is barely larger than what they cover become that one
+/// box (fewer passes); any others are cut apart, each keeping what the boxes
+/// before it leave. A bounding box of everything that overlaps is often the
+/// whole window: a grown window's stretched top bar meets the newly exposed
+/// right strip, and their box covers the untouched middle as well.
 fn disjoint_damage(mut boxes: Vec<[i32; 4]>) -> Vec<[i32; 4]> {
-    let overlap = |a: &[i32; 4], b: &[i32; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-    let mut i = 0;
-    while i < boxes.len() {
-        let mut j = i + 1;
-        let mut merged_any = false;
-        while j < boxes.len() {
-            if overlap(&boxes[i], &boxes[j]) {
+    let area = |b: &[i32; 4]| i64::from(b[2] - b[0]) * i64::from(b[3] - b[1]);
+    'merge: loop {
+        for i in 0..boxes.len() {
+            for j in i + 1..boxes.len() {
                 let (a, b) = (boxes[i], boxes[j]);
-                boxes[i] = [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])];
-                boxes.swap_remove(j);
-                merged_any = true;
-            } else {
-                j += 1;
+                if !boxes_overlap(&a, &b) {
+                    continue;
+                }
+                let bound = [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])];
+                let shared = [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
+                let covered = area(&a) + area(&b) - area(&shared);
+                // At most a quarter more than what the two cover.
+                if area(&bound) * 4 <= covered * 5 {
+                    boxes[i] = bound;
+                    boxes.swap_remove(j);
+                    continue 'merge;
+                }
             }
         }
-        if merged_any && boxes.len() > 1 {
-            continue;
-        }
-        i += 1;
+        break;
     }
-    boxes
+    let mut out: Vec<[i32; 4]> = Vec::with_capacity(boxes.len());
+    for b in boxes {
+        let mut pieces = vec![b];
+        for d in &out {
+            pieces = pieces.into_iter().flat_map(|p| box_minus(p, *d)).collect();
+        }
+        out.extend(pieces);
+    }
+    out
+}
+
+fn boxes_overlap(a: &[i32; 4], b: &[i32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// What of box `p` lies outside box `d`: up to four boxes (the bands above
+/// and below `d`, then the parts left and right of it in between).
+fn box_minus(p: [i32; 4], d: [i32; 4]) -> Vec<[i32; 4]> {
+    if !boxes_overlap(&p, &d) {
+        return vec![p];
+    }
+    let mut out = Vec::with_capacity(4);
+    if d[1] > p[1] {
+        out.push([p[0], p[1], p[2], d[1]]);
+    }
+    if d[3] < p[3] {
+        out.push([p[0], d[3], p[2], p[3]]);
+    }
+    let (y0, y1) = (p[1].max(d[1]), p[3].min(d[3]));
+    if d[0] > p[0] {
+        out.push([p[0], y0, d[0], y1]);
+    }
+    if d[2] < p[2] {
+        out.push([d[2], y0, p[2], y1]);
+    }
+    out
 }
 
 /// `AZ_DEBUG_DAMAGE=1` — log what each damaged repaint actually touched.
