@@ -256,6 +256,8 @@ mod hover_manager;
 mod icon_pipeline;
 #[path = "a_measured_dom_ends_where_its_scroll_box_ends.rs"]
 mod a_measured_dom_ends_where_its_scroll_box_ends;
+#[path = "a_table_column_is_as_wide_as_a_fit_content_box_of_the_same_text.rs"]
+mod a_table_column_is_as_wide_as_a_fit_content_box_of_the_same_text;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
 #[path = "ime_geometry_follows_the_fields_scroll.rs"]
