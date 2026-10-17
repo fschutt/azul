@@ -6962,10 +6962,7 @@ unsafe extern "system" fn window_proc(
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
                 core::slice::from_ref(&held_language),
             ));
-            let desktop_theme = match new_style.mode {
-                DarkLightMode::Dark => azul_core::window::DarkLightMode::Dark,
-                DarkLightMode::Light => azul_core::window::DarkLightMode::Light,
-            };
+            let desktop_theme = new_style.mode;
             // The DESKTOP's light / dark: the window takes it only while the
             // app follows the desktop (an app that pins its mode stays put;
             // the desktop is remembered for when it follows again).
