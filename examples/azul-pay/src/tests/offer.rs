@@ -411,3 +411,31 @@ fn the_sandboxs_stripe_stand_in_offers_its_local_methods_on_loopback_pages() {
     let page = WebUrl::parse("http://127.0.0.1:8784/stripe/c/pay/cs_test_1").unwrap();
     assert!(fake.allows(&page), "the sandbox's own pages, any port of this computer");
 }
+
+#[cfg(feature = "fake-providers")]
+#[test]
+fn the_dlocal_stand_in_wants_the_payers_details_from_the_app_in_the_browser() {
+    let local = OfferContext::for_token_url("http://127.0.0.1:8081");
+    let text = json!({"offers": [{
+        "provider": "fake-dlocal", "origins": ["127.0.0.1"],
+        "methods": [{"method": "pix", "surfaces": ["page", "browser"], "rank": 0,
+                     "needs_identity": {"fields": ["name", "email", "national_id"],
+                                        "asked_by": "app"}}]}]})
+    .to_string();
+    let offer = Offer::parse(&text, &local).unwrap();
+    let fake = offer.provider("fake-dlocal").expect("the stand-in");
+    let pix = fake.method(Method::Pix).unwrap();
+    assert_eq!(
+        pix.surfaces,
+        vec![SurfaceKind::SystemBrowser],
+        "its pages are never framed: the browser only"
+    );
+    assert_eq!(
+        pix.identity.app_fields(),
+        &[
+            crate::identity::PayerField::Name,
+            crate::identity::PayerField::Email,
+            crate::identity::PayerField::NationalId
+        ]
+    );
+}
