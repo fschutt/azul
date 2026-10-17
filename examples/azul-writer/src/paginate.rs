@@ -19,7 +19,8 @@ use azul::{
     image::ImageCacheSnapshot,
     pdf::Pdf,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
-    widgets::{RichPageStart, RichPageStartVec, RichTextDoc, RichTextEditor, RichTextEditorState},
+    vec::RichPageStartVec,
+    widgets::{RichPageStart, RichTextDoc, RichTextEditor, RichTextEditorState},
 };
 
 use crate::AppState;
