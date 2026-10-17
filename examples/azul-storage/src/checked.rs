@@ -101,9 +101,10 @@ impl<R: Read> HashCheck<R> {
         self.changed
     }
 
-    /// The bytes read so far.
+    /// How many bytes were read so far. (Not `bytes`: that name is
+    /// `Read::bytes`, which a call on an owned reader resolves to first.)
     #[must_use]
-    pub fn bytes(&self) -> u64 {
+    pub fn bytes_read(&self) -> u64 {
         self.read
     }
 }

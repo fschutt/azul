@@ -78,7 +78,7 @@ pub trait RemoteStore: Send + Sync {
         }
         let mut hashed = HashCheck::new(fs::File::open(path)?, &check.blake3);
         match self.put_from(key, &mut hashed, check.size) {
-            Ok(_) => Ok(Some(hashed.bytes())),
+            Ok(_) => Ok(Some(hashed.bytes_read())),
             Err(_) if hashed.changed() => Ok(None),
             Err(e) => Err(e),
         }
