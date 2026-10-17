@@ -116,7 +116,11 @@ sheet of `--dialogs inline`:
        BLIK saying "Code from your banking app" before it is picked and "valid for 2 minutes"
        when it is; Buy: a fake-stripe BLIK checkout of PLN 4.49 for PL whose hosted page shows
        in the popover; the code typed there (a POST of the page's form) pays it, the return page
-       hands back, the drive arrives.
+       hands back, the drive arrives. Then Brazil with Fake dLocal on: Pix says its provider
+       needs the name, email address and national ID number with the order; Buy without them
+       names them and sends nothing; typed, they go once with the BRL checkout (the mock keeps
+       none of them, the dialog drops them), its page opens in the browser, paid there, the
+       drive arrives.
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 11 nothing loads
@@ -1129,6 +1133,74 @@ def country_steps(app, stack, args, logs, out, binary, switches, env, keyring_fi
         "BLIK said where the payer finishes and how long its code lives; the checkout %s of "
         "PLN 4.49 showed Fake Stripe's BLIK page in the popover, the code paid it, %s arrived"
         % (pills, checkout, paid))
+
+    # A method whose provider wants the payer's details from the app: Fake dLocal's Pix.
+    stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS) + ["fake-dlocal"])
+    added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
+    dialog = open_dialog(app, "the source list",
+                         lambda: app.click(selector="#" + I("side-add-drive")))
+    app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+              lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    dialog.page("country", lambda: dialog.click("country"))
+    dialog.type_into("country_search", "brazil")
+    dialog.win.until("Brazil found", lambda: dialog.win.has(add_id("country_option_br")))
+
+    def declare_brazil():
+        dialog.click("country_option_br")
+        dialog.click("country_continue")
+    pills = app.after("the pills for Brazil", "AZDRIVE_PILLS", r".+",
+                      lambda: app.after("Brazil declared", "AZDRIVE_COUNTRY", r"BR",
+                                        declare_brazil))
+    if pills.split()[0] != "pix:fake-dlocal":
+        raise Failure("the pills for Brazil are %r, not Pix first" % pills)
+    dialog.click("pill_pix")
+    asked = ("Fake dLocal needs your name, email address and national ID number with the "
+             "order. AzDrive sends them once and does not keep them.")
+    dialog.win.until("the note on the details", lambda: dialog.shows(asked))
+    for field in ("payer_name", "payer_email", "payer_national_id"):
+        dialog.win.until("the field %s" % field, lambda: dialog.win.has(add_id(field)))
+    dialog.click("consent")
+    before = len(stack.token.state.checkouts)
+    dialog.click("buy_button")
+    dialog.win.until("the missing details named", lambda: dialog.shows(
+        "needs your name, email address and national ID number first"))
+    if len(stack.token.state.checkouts) != before:
+        raise Failure("a checkout went out without the details the provider wants")
+    typed = {"payer_name": "Ana Teste", "payer_email": "ana.teste@example.com",
+             "payer_national_id": "529.982.247-25"}
+    for field, text in typed.items():
+        dialog.type_into(field, text)
+    dialog.screenshot(os.path.join(out, "16-brazil-pix-details.png"))
+    browsers = app.count("AZDRIVE_OPEN_BROWSER", r".+")
+    checkout = app.after("the Pix checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                         lambda: dialog.click("buy_button"))
+    app.until("the Pix page in the browser",
+              lambda: app.count("AZDRIVE_OPEN_BROWSER", r".+") > browsers)
+    record = stack.token.state.checkouts.get(checkout) or {}
+    if (record.get("provider"), record.get("method"), record.get("currency"),
+            record.get("vat_country")) != ("fake-dlocal", "pix", "BRL", "BR"):
+        raise Failure("the Pix checkout is %r" % {k: record.get(k) for k in
+                                                  ("provider", "method", "currency",
+                                                   "vat_country")})
+    kept = json.dumps(record)
+    if any(text in kept for text in typed.values()):
+        raise Failure("the token server kept the payer's details: %s" % kept)
+    dialog.win.until("the details gone from the dialog",
+                     lambda: not any(dialog.shows(text) for text in typed.values()))
+    # The payment on Fake dLocal's page in the browser (a POST of its form).
+    page_url = "%s/fake-dlocal/pay/%s" % (token, record["provider_ref"])
+    form = urllib.parse.urlencode({"action": "authorize"}).encode("ascii")
+    with urllib.request.urlopen(urllib.request.Request(page_url, data=form, method="POST"),
+                                timeout=10):
+        pass
+    by_pix = new_drive(app, Payment(checkout, dialog, "browser", added))
+    new_drive_encrypted(app, by_pix)
+    wait_closed(app)
+    stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
+    log("16c. A payer in Brazil: Pix via Fake dLocal said its provider needs the name, email "
+        "address and national ID number with the order; Buy without them named them and sent "
+        "nothing; typed, they went once with %s (BRL, BR) - the token server kept none and the "
+        "dialog dropped them; paid in the browser, %s arrived" % (checkout, by_pix))
 
 
 def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file):
