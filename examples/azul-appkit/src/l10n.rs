@@ -27,6 +27,7 @@ use azul::{
     prelude::*,
     str::{String as AzString, StringPair},
     vec::{DomVec, FluentArgKVVec, FmtArgVec, StringPairVec, StringVec},
+    widgets::{MoneyCurrency, MoneyInput, MoneyLocale},
 };
 
 pub use azul_pim::said::{Said, SaidArg};
@@ -375,17 +376,20 @@ pub fn decimal(text: &str) -> String {
     out
 }
 
-/// `cents` of `currency` (`EUR`) as the language of the layout pass writes money (`kit-money`,
-/// its digits [`grouped`], its cents after the decimal mark): `EUR 1,234.50` in English,
-/// `1.234,50 EUR` in German.
+/// `cents` - minor units - of `currency` (`EUR`) as the language of the layout pass writes money:
+/// the currency's own decimals (ISO 4217: none for the yen, three for the Kuwaiti dinar), the
+/// locale's decimal mark and grouping (azul's `MoneyLocale`, which knows lakhs and crores), and
+/// the currency where the language puts it (`kit-money`): `EUR 1,234.50` in English,
+/// `1.234,50 EUR` in German, `JPY 160`.
 #[must_use]
 pub fn money(cents: u64, currency: &str) -> String {
-    let amount = format!(
-        "{}{}{:02}",
-        grouped(cents / 100),
-        word("kit-number-decimal-separator", "."),
-        cents % 100
+    let digits = MoneyCurrency::from_code(currency).minor_digits;
+    let number = MoneyInput::format_amount(
+        i64::try_from(cents).unwrap_or(i64::MAX),
+        MoneyCurrency::create("", "", digits),
+        MoneyLocale::from_tag(locale().as_str()),
     );
+    let amount = number.as_str().to_string();
     let said = t_args(
         "kit-money",
         &[
