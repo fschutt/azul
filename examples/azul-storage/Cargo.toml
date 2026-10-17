@@ -160,3 +160,5 @@ path = "src/lib.rs"
 name = "git-remote-azlin"
 path = "src/bin/git-remote-azlin.rs"
 required-features = ["encryption"]
+# The helper holds no unit tests: tests/git_remote_azlin.rs runs it as git does.
+test = false
