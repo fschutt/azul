@@ -28,6 +28,16 @@ ignore = [
     { id = "RUSTSEC-2026-0347", reason = "rustls 0.23.45 sends buffered data to the outer server after an ECH rejection. azul never enables EchMode::Enable. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
     { id = "RUSTSEC-2026-0348", reason = "rustls 0.23.45 Brotli certificate decompression window. Only with the non-default brotli feature, which azul does not enable (Cargo.lock: rustls has no brotli dependency). Fixed in 0.23.46 (cooldown until 2026-10-28)." },
     { id = "RUSTSEC-2026-0349", reason = "rustls 0.23.45 remembers an unauthenticated key-exchange group, downgrading a hybrid post-quantum handshake. azul's rustls runs on ring, which offers no X25519MLKEM768, so there is no hybrid group to lose. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
+    # ── zip extraction to the filesystem. Every zip reader in the tree reads
+    # entries into memory by index or name (azul-layout's zip.rs, AzMaps' KMZ
+    # import, ironcalc's xlsx import in AzSheets, azul-doc's bundler); nothing
+    # calls ZipArchive::extract or ZipStreamReader::extract, the only paths that
+    # create files, symlinks or permission bits from an archive. Fixed in zip
+    # >= 9.0.0: a major-version move for azul-layout (2.4) and azul-doc (6.0),
+    # and ironcalc 0.8 pins 0.6. ──
+    { id = "RUSTSEC-2026-0367", reason = "zip keeps SUID/SGID bits when extracting to disk. azul never extracts an archive to the filesystem (in-memory reads by index/name only), so no file is created with archive permissions. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0368", reason = "zip's ZipArchive::extract creates symlinks whose targets leave the destination. No caller of ZipArchive::extract exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0369", reason = "zip's extract() applies Unix permissions through extracted symlinks. No caller of extract() exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
     # ── Unmaintained — no known vulnerability; deep-transitive in third-party
     # crates we don't own. Tracked, with fix paths noted. ──
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3/2.0.1 — team ceased development; 1.3.3 is declared a complete/stable release. Transitive via webrender 0.62, hyphenation (build dep), and rust-fontconfig. Migrating off it (postcard/…) needs upstream changes in those crates." },
