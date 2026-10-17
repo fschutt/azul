@@ -1701,7 +1701,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     } else {
         defaults::kde_breeze_light()
     };
-    style.theme = if is_dark { DarkLightMode::Dark } else { DarkLightMode::Light };
+    style.mode = if is_dark { DarkLightMode::Dark } else { DarkLightMode::Light };
 
     // ── Fonts ───────────────────────────────────────────────────────
     // KDE font spec: "Noto Sans,10,-1,5,50,0,0,0,0,0" (family, point size, …).
@@ -2091,7 +2091,7 @@ fn parse_pywal_colors(json_str: &str, style: &mut SystemStyle) {
     if let Some(bg) = extract_json_value(json_str, "background") {
         if let Ok(c) = parse_css_color(bg) {
             style.colors.window_background = OptionColorU::Some(c);
-            style.theme = DarkLightMode::Dark; // pywal usually means dark
+            style.mode = DarkLightMode::Dark; // pywal usually means dark
         }
     }
 
@@ -2522,7 +2522,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // "prefer-dark" from a stale GTK flag must not repaint a light session.
     if let Some((color_scheme, accent_rgb)) = portal_result.filter(|_| !desktop_answered) {
         match color_scheme {
-            1 if style.theme != DarkLightMode::Dark => {
+            1 if style.mode != DarkLightMode::Dark => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2531,7 +2531,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
                 style.linux = linux;
                 style.metrics = metrics;
             }
-            2 if style.theme != DarkLightMode::Light => {
+            2 if style.mode != DarkLightMode::Light => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2608,7 +2608,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // xdg-desktop-portal still has a light/dark answer for the WINDOW theme.
     // See `effective_system_theme`.
     DISCOVERED_THEME.store(
-        match style.theme {
+        match style.mode {
             DarkLightMode::Dark => 1,
             DarkLightMode::Light => 2,
         },
@@ -3190,7 +3190,7 @@ pub(crate) fn adopt_observed_theme(
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
 
     if let Some(window_theme) = window_theme {
-        common.update_unsynced_state(|ws| ws.theme = window_theme);
+        common.update_unsynced_state(|ws| ws.mode = window_theme);
     }
 
     // RE-DISCOVER the style, the way the Windows backend does on
@@ -3315,7 +3315,7 @@ pub fn dump_discovered_style() -> String {
         "kde_config_files    {} source(s)",
         kde_color_sources().len()
     );
-    let _ = writeln!(o, "theme               {:?}", s.theme);
+    let _ = writeln!(o, "mode                {:?}", s.mode);
     let _ = writeln!(o, "language            {}", s.language.id.as_str());
     let _ = writeln!(o, "-- fonts --");
     let _ = writeln!(

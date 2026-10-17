@@ -214105,17 +214105,17 @@
                         ],
                         "struct_fields": [
                             {
-                                "status": {
-                                    "type": "HeardStatus"
-                                },
                                 "text": {
                                     "type": "String"
                                 },
-                                "confidence": {
-                                    "type": "f32"
-                                },
                                 "message": {
                                     "type": "String"
+                                },
+                                "status": {
+                                    "type": "HeardStatus"
+                                },
+                                "confidence": {
+                                    "type": "f32"
                                 }
                             }
                         ],

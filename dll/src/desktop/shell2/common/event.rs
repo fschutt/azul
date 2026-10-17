@@ -4047,10 +4047,15 @@ macro_rules! impl_platform_window_getters {
         fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
             self.$field.cpu_hit_tester.as_ref()
         }
-        fn get_last_hovered_node(&self) -> Option<&HitTestNode> {
+        fn get_last_hovered_node(
+            &self,
+        ) -> Option<&$crate::desktop::shell2::common::HitTestNode> {
             self.$field.last_hovered_node.as_ref()
         }
-        fn set_last_hovered_node(&mut self, node: Option<HitTestNode>) {
+        fn set_last_hovered_node(
+            &mut self,
+            node: Option<$crate::desktop::shell2::common::HitTestNode>,
+        ) {
             self.$field.last_hovered_node = node;
         }
         fn get_document_id(&self) -> DocumentId {
