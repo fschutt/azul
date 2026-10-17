@@ -4,6 +4,7 @@
 use serde_json::{json, Value};
 
 use crate::{
+    identity::Payer,
     machine::{step, Effect, Event, State},
     offer::{Offer, OfferContext},
     pills::{Choice, Pill, PillContext},
@@ -98,6 +99,7 @@ pub fn presenting_card() -> State {
             Event::Pay {
                 choice: choice.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&choice, &answer("ck_card", Method::Card, fields_surface())),
         ],
@@ -126,4 +128,69 @@ pub fn complete_card() -> State {
         ],
     );
     state
+}
+
+/// The token server's options for a payer in Poland, a 1 TB month: Stripe's BLIK, Przelewy24
+/// and card in Poland's order of use, priced in zloty as the signed ladder froze it; the card
+/// tells the card network the cardholder's name, typed on the provider's own fields.
+pub fn options_pl() -> Value {
+    json!({
+        "country": "PL", "currency": "PLN",
+        "offers": [{
+            "provider": "stripe", "kind": "processor", "origins": ["checkout.stripe.com"],
+            "methods": [
+                {"method": "card", "provider_type": "card", "surfaces": ["fields", "page", "browser"],
+                 "settles": "instant", "recurring": false, "flow": "fields", "handoff": "none",
+                 "rank": 2, "expires_minutes": 0, "fee_level": "medium", "preferred": true,
+                 "amount_cents": 449, "currency": "PLN",
+                 "needs_identity": ["name"]},
+                {"method": "blik", "provider_type": "blik", "surfaces": ["page", "browser"],
+                 "settles": "instant", "recurring": false, "flow": "code", "handoff": "bank_app",
+                 "rank": 0, "expires_minutes": 2, "fee_level": "low", "preferred": true,
+                 "amount_cents": 449, "currency": "PLN"},
+                {"method": "p24", "provider_type": "p24", "surfaces": ["browser"],
+                 "settles": "days", "recurring": false, "flow": "redirect", "handoff": "bank_login",
+                 "rank": 1, "expires_minutes": 0, "fee_level": "low", "preferred": true,
+                 "amount_cents": 449, "currency": "PLN"}
+            ]}],
+        "price": {"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
+                  "vat_cents": 84, "vat_included": true},
+        "legal": {"withdrawal_consent": "I ask Azlin to start the service now."}
+    })
+}
+
+/// The options for a payer in Germany: GoCardless's direct debit (the cheaper route of it) listed
+/// before Stripe, whose PayPal, direct debit, card and Wero follow Germany's order of use - so
+/// the pills' order is the ranks', not the providers'.
+pub fn options_de() -> Value {
+    json!({
+        "country": "DE", "currency": "EUR",
+        "offers": [
+            {"provider": "gocardless", "kind": "processor", "default": true,
+             "methods": [
+                {"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
+                 "rank": 1, "preferred": true, "amount_cents": 499, "currency": "EUR",
+                 "needs_identity": ["name", "email"]}]},
+            {"provider": "stripe", "kind": "processor",
+             "methods": [
+                {"method": "paypal", "surfaces": ["browser"], "rank": 0, "preferred": true,
+                 "amount_cents": 499, "currency": "EUR"},
+                {"method": "sepa_debit", "surfaces": ["iban", "fields", "page", "browser"],
+                 "settles": "days", "rank": 1, "preferred": false, "amount_cents": 499,
+                 "currency": "EUR",
+                 "needs_identity": ["name", "email"]},
+                {"method": "card", "rank": 2, "preferred": true, "amount_cents": 499,
+                 "currency": "EUR", "needs_identity": ["name"]},
+                {"method": "wero", "surfaces": ["browser"], "rank": 4, "preferred": true,
+                 "amount_cents": 499, "currency": "EUR"}]}
+        ],
+        "price": {"amount_cents": 499, "currency": "EUR", "vat_rate_permille": 190,
+                  "vat_cents": 80, "vat_included": true}
+    })
+}
+
+/// A live token server's offer of `value`.
+pub fn live_offer(value: &Value) -> Offer {
+    Offer::parse(&value.to_string(), &OfferContext::for_token_url("https://token.azlin.io"))
+        .expect("an offer")
 }

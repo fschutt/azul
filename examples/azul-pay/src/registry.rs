@@ -36,7 +36,10 @@ pub const FIELDS_PREFIX: &str = "/fields/";
 
 const PAY_PAGES: Origin = Origin::Exact(Cow::Borrowed(PAY_HOST));
 
-/// How a payer pays.
+/// How a payer pays: the pill. The wire names are the payment methods registry's (azul-apps
+/// `azul-pay-methods`), so the token server and the app name a method the same way. The app knows
+/// the methods its providers can carry; a method it does not know is never shown (adding one is an
+/// app update, like adding a provider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Method {
     /// SEPA Direct Debit.
@@ -53,11 +56,189 @@ pub enum Method {
     /// Cash in an envelope with the printed slip (cash contract v1): the operator activates the
     /// checkout when the letter arrived.
     Cash,
+    GooglePay,
+    /// Stripe's saved-payment login.
+    Link,
+    AmazonPay,
+    Klarna,
+    /// ACH Direct Debit (the United States).
+    UsBankAccount,
+    /// Bacs Direct Debit (the United Kingdom).
+    BacsDebit,
+    /// Autogiro (Sweden).
+    Autogiro,
+    /// Betalingsservice (Denmark).
+    Betalingsservice,
+    /// BECS Direct Debit (Australia).
+    BecsDebit,
+    /// BECS Direct Debit (New Zealand).
+    BecsNzDebit,
+    /// Pre-authorized debit (Canada).
+    PadDebit,
+    /// iDEAL (the Netherlands): a login at the payer's bank.
+    Ideal,
+    Bancontact,
+    Eps,
+    /// Przelewy24 (Poland).
+    P24,
+    /// BLIK (Poland): a six-digit code from the banking app.
+    Blik,
+    Twint,
+    Swish,
+    MobilePay,
+    Vipps,
+    MbWay,
+    Multibanco,
+    Bizum,
+    Satispay,
+    RevolutPay,
+    /// Pay by Bank (the United Kingdom).
+    PayByBank,
+    Upi,
+    Pix,
+    Boleto,
+    Alipay,
+    WechatPay,
+    /// A Korean card through the Korean card networks' own page.
+    KrCard,
+    KakaoPay,
+    NaverPay,
+    Payco,
+    SamsungPay,
+    /// Konbini (Japan): paid in cash at a convenience store.
+    Konbini,
+    PayPay,
+    Oxxo,
+    PayNow,
+    PromptPay,
+    Fpx,
+    GrabPay,
+}
+
+/// What the payer does to pay with a method (the registry's `flow`): the popover's words and the
+/// pill's help follow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Flow {
+    /// Types card or account details into fields.
+    Fields,
+    /// Goes to another site (a bank, a wallet) and comes back.
+    Redirect,
+    /// Scans a QR code with a phone.
+    Qr,
+    /// Types a short code that an app on the phone shows.
+    Code,
+    /// Confirms a request the phone app receives.
+    Push,
+    /// Pays a reference later, in a shop or at a bank.
+    Voucher,
+    /// Gives a mandate for a direct debit.
+    Debit,
+    /// Sends a bank transfer.
+    Transfer,
+    /// Posts a printed slip with cash (Azlin's own).
+    Paper,
+}
+
+/// Where the payer finishes paying (the registry's `handoff`): what a pill says before it is
+/// picked - a phone app, a bank's website, a shop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Handoff {
+    /// In the payment page itself.
+    None,
+    /// A QR code scanned with a phone app.
+    PhoneQr,
+    /// A request confirmed in a phone app.
+    PhonePush,
+    /// A code read from the banking app.
+    BankApp,
+    /// A login at the payer's bank.
+    BankLogin,
+    /// A login at the wallet's provider (PayPal, Alipay).
+    ProviderLogin,
+    /// Cash paid in a shop with a reference.
+    StoreCash,
+    /// A transfer made from the payer's bank.
+    BankTransfer,
+    /// A letter with cash.
+    Post,
+}
+
+impl Handoff {
+    /// The wire name (`phone_qr`, `bank_login`, ...).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Handoff::None => "none",
+            Handoff::PhoneQr => "phone_qr",
+            Handoff::PhonePush => "phone_push",
+            Handoff::BankApp => "bank_app",
+            Handoff::BankLogin => "bank_login",
+            Handoff::ProviderLogin => "provider_login",
+            Handoff::StoreCash => "store_cash",
+            Handoff::BankTransfer => "bank_transfer",
+            Handoff::Post => "post",
+        }
+    }
+
+    /// The payer needs a phone app to finish.
+    #[must_use]
+    pub const fn needs_phone(self) -> bool {
+        matches!(self, Handoff::PhoneQr | Handoff::PhonePush | Handoff::BankApp)
+    }
+
+    /// The payer logs in somewhere else (a bank, a wallet): the page leaves for another site.
+    #[must_use]
+    pub const fn leaves(self) -> bool {
+        matches!(self, Handoff::BankLogin | Handoff::ProviderLogin)
+    }
+}
+
+impl Flow {
+    /// The wire name (`fields`, `redirect`, `qr`, ...).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Flow::Fields => "fields",
+            Flow::Redirect => "redirect",
+            Flow::Qr => "qr",
+            Flow::Code => "code",
+            Flow::Push => "push",
+            Flow::Voucher => "voucher",
+            Flow::Debit => "debit",
+            Flow::Transfer => "transfer",
+            Flow::Paper => "paper",
+        }
+    }
+}
+
+/// One row of the method table: what [`Method`]'s accessors read.
+struct MethodRow {
+    id: &'static str,
+    label: &'static str,
+    icon: &'static str,
+    flow: Flow,
+    handoff: Handoff,
+}
+
+const fn row(
+    id: &'static str,
+    label: &'static str,
+    icon: &'static str,
+    flow: Flow,
+    handoff: Handoff,
+) -> MethodRow {
+    MethodRow {
+        id,
+        label,
+        icon,
+        flow,
+        handoff,
+    }
 }
 
 impl Method {
     /// Every method, in the order the app lists them when nothing else orders them.
-    pub const ALL: [Method; 8] = [
+    pub const ALL: [Method; 51] = [
         Method::SepaDebit,
         Method::Card,
         Method::ApplePay,
@@ -66,21 +247,115 @@ impl Method {
         Method::BankTransfer,
         Method::Voucher,
         Method::Cash,
+        Method::GooglePay,
+        Method::Link,
+        Method::AmazonPay,
+        Method::Klarna,
+        Method::UsBankAccount,
+        Method::BacsDebit,
+        Method::Autogiro,
+        Method::Betalingsservice,
+        Method::BecsDebit,
+        Method::BecsNzDebit,
+        Method::PadDebit,
+        Method::Ideal,
+        Method::Bancontact,
+        Method::Eps,
+        Method::P24,
+        Method::Blik,
+        Method::Twint,
+        Method::Swish,
+        Method::MobilePay,
+        Method::Vipps,
+        Method::MbWay,
+        Method::Multibanco,
+        Method::Bizum,
+        Method::Satispay,
+        Method::RevolutPay,
+        Method::PayByBank,
+        Method::Upi,
+        Method::Pix,
+        Method::Boleto,
+        Method::Alipay,
+        Method::WechatPay,
+        Method::KrCard,
+        Method::KakaoPay,
+        Method::NaverPay,
+        Method::Payco,
+        Method::SamsungPay,
+        Method::Konbini,
+        Method::PayPay,
+        Method::Oxxo,
+        Method::PayNow,
+        Method::PromptPay,
+        Method::Fpx,
+        Method::GrabPay,
     ];
 
-    /// The wire name (`sepa_debit`, `card`, ...).
+    /// The table's row: the wire name, the English words, the icon, the flow and the handoff
+    /// (as the payment methods registry has them, read 2026-10-17).
+    const fn row(self) -> MethodRow {
+        use Flow as F;
+        use Handoff as H;
+        match self {
+            Method::SepaDebit => row("sepa_debit", "Direct debit", "account_balance", F::Debit, H::None),
+            Method::Card => row("card", "Card", "credit_card", F::Fields, H::None),
+            Method::ApplePay => row("apple_pay", "Apple Pay", "phone_iphone", F::Fields, H::None),
+            Method::PayPal => row("paypal", "PayPal", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Wero => row("wero", "Wero", "smartphone", F::Qr, H::PhoneQr),
+            Method::BankTransfer => row("bank_transfer", "Bank transfer", "receipt_long", F::Transfer, H::BankTransfer),
+            Method::Voucher => row("voucher", "Voucher", "redeem", F::Fields, H::None),
+            Method::Cash => row("cash", "Cash by post", "mail", F::Paper, H::Post),
+            Method::GooglePay => row("google_pay", "Google Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Link => row("link", "Link", "link", F::Redirect, H::ProviderLogin),
+            Method::AmazonPay => row("amazon_pay", "Amazon Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Klarna => row("klarna", "Klarna", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::UsBankAccount => row("us_bank_account", "ACH Direct Debit", "account_balance", F::Debit, H::BankLogin),
+            Method::BacsDebit => row("bacs_debit", "Bacs Direct Debit", "account_balance", F::Debit, H::None),
+            Method::Autogiro => row("autogiro", "Autogiro", "account_balance", F::Debit, H::None),
+            Method::Betalingsservice => row("betalingsservice", "Betalingsservice", "account_balance", F::Debit, H::None),
+            Method::BecsDebit => row("becs_debit", "BECS Direct Debit", "account_balance", F::Debit, H::None),
+            Method::BecsNzDebit => row("becs_nz_debit", "BECS Direct Debit (New Zealand)", "account_balance", F::Debit, H::None),
+            Method::PadDebit => row("pad_debit", "Pre-authorized debit", "account_balance", F::Debit, H::None),
+            Method::Ideal => row("ideal", "iDEAL", "account_balance", F::Redirect, H::BankLogin),
+            Method::Bancontact => row("bancontact", "Bancontact", "account_balance", F::Redirect, H::BankLogin),
+            Method::Eps => row("eps", "EPS", "account_balance", F::Redirect, H::BankLogin),
+            Method::P24 => row("p24", "Przelewy24", "account_balance", F::Redirect, H::BankLogin),
+            Method::Blik => row("blik", "BLIK", "dialpad", F::Code, H::BankApp),
+            Method::Twint => row("twint", "TWINT", "qr_code", F::Qr, H::PhoneQr),
+            Method::Swish => row("swish", "Swish", "qr_code", F::Qr, H::PhoneQr),
+            Method::MobilePay => row("mobilepay", "MobilePay", "smartphone", F::Push, H::PhonePush),
+            Method::Vipps => row("vipps", "Vipps", "smartphone", F::Push, H::PhonePush),
+            Method::MbWay => row("mb_way", "MB WAY", "smartphone", F::Push, H::PhonePush),
+            Method::Multibanco => row("multibanco", "Multibanco", "receipt_long", F::Voucher, H::StoreCash),
+            Method::Bizum => row("bizum", "Bizum", "smartphone", F::Push, H::PhonePush),
+            Method::Satispay => row("satispay", "Satispay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::RevolutPay => row("revolut_pay", "Revolut Pay", "qr_code", F::Qr, H::PhoneQr),
+            Method::PayByBank => row("pay_by_bank", "Pay by Bank", "account_balance", F::Redirect, H::BankLogin),
+            Method::Upi => row("upi", "UPI", "qr_code", F::Qr, H::PhoneQr),
+            Method::Pix => row("pix", "Pix", "qr_code", F::Qr, H::PhoneQr),
+            Method::Boleto => row("boleto", "Boleto", "receipt_long", F::Voucher, H::StoreCash),
+            Method::Alipay => row("alipay", "Alipay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::WechatPay => row("wechat_pay", "WeChat Pay", "qr_code", F::Qr, H::PhoneQr),
+            Method::KrCard => row("kr_card", "Korean card", "credit_card", F::Redirect, H::BankLogin),
+            Method::KakaoPay => row("kakao_pay", "Kakao Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::NaverPay => row("naver_pay", "Naver Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Payco => row("payco", "PAYCO", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::SamsungPay => row("samsung_pay", "Samsung Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Konbini => row("konbini", "Konbini", "storefront", F::Voucher, H::StoreCash),
+            Method::PayPay => row("paypay", "PayPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Oxxo => row("oxxo", "OXXO", "storefront", F::Voucher, H::StoreCash),
+            Method::PayNow => row("paynow", "PayNow", "qr_code", F::Qr, H::PhoneQr),
+            Method::PromptPay => row("promptpay", "PromptPay", "qr_code", F::Qr, H::PhoneQr),
+            Method::Fpx => row("fpx", "FPX", "account_balance", F::Redirect, H::BankLogin),
+            Method::GrabPay => row("grabpay", "GrabPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+        }
+    }
+
+    /// The wire name (`sepa_debit`, `card`, `blik`, ...).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "sepa_debit",
-            Method::Card => "card",
-            Method::ApplePay => "apple_pay",
-            Method::PayPal => "paypal",
-            Method::Wero => "wero",
-            Method::BankTransfer => "bank_transfer",
-            Method::Voucher => "voucher",
-            Method::Cash => "cash",
-        }
+        self.row().id
     }
 
     /// A wire name, in any case (`sepa`, the claim contract v1's name, is SEPA Direct Debit).
@@ -93,34 +368,35 @@ impl Method {
         Method::ALL.into_iter().find(|m| m.as_str() == text)
     }
 
-    /// The pill's words.
+    /// The pill's words in English (an app says them in its own language by the wire name).
     #[must_use]
     pub const fn label(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "Direct debit",
-            Method::Card => "Card",
-            Method::ApplePay => "Apple Pay",
-            Method::PayPal => "PayPal",
-            Method::Wero => "Wero",
-            Method::BankTransfer => "Bank transfer",
-            Method::Voucher => "Voucher",
-            Method::Cash => "Cash by post",
-        }
+        self.row().label
     }
 
     /// The pill's icon: a Material icon name the app ships (never loaded from the network).
     #[must_use]
     pub const fn icon(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "account_balance",
-            Method::Card => "credit_card",
-            Method::ApplePay => "phone_iphone",
-            Method::PayPal => "account_balance_wallet",
-            Method::Wero => "smartphone",
-            Method::BankTransfer => "receipt_long",
-            Method::Voucher => "redeem",
-            Method::Cash => "mail",
-        }
+        self.row().icon
+    }
+
+    /// What the payer does.
+    #[must_use]
+    pub const fn flow(self) -> Flow {
+        self.row().flow
+    }
+
+    /// Where the payer finishes.
+    #[must_use]
+    pub const fn handoff(self) -> Handoff {
+        self.row().handoff
+    }
+
+    /// Paid without telling anyone who pays: cash by post and Azlin's vouchers. Every other
+    /// method passes through a bank, a card network or a wallet that knows the payer.
+    #[must_use]
+    pub const fn anonymous(self) -> bool {
+        matches!(self, Method::Cash | Method::Voucher)
     }
 }
 
@@ -366,6 +642,23 @@ const fn suffix(suffix: &'static str) -> Origin {
     Origin::Suffix(Cow::Borrowed(suffix))
 }
 
+/// One method of a provider (the table's rows are calls of it).
+const fn spec(
+    method: Method,
+    chain: &'static [SurfaceKind],
+    embed: EmbedPolicy,
+    leave: &'static [Origin],
+    settles: Settles,
+) -> MethodSpec {
+    MethodSpec {
+        method,
+        chain,
+        embed,
+        leave,
+        settles,
+    }
+}
+
 /// Embedded, within the allowlist (`window.open` stays in the web view).
 const EMBED_OK: EmbedPolicy = EmbedPolicy {
     webview: Webview::Allowed,
@@ -373,11 +666,63 @@ const EMBED_OK: EmbedPolicy = EmbedPolicy {
     breaks: &[],
 };
 
-/// A provider login: never in a web view.
+/// A provider's or a wallet's login (PayPal, Klarna, Alipay, the Korean wallets): never in a
+/// web view.
 const EMBED_LOGIN: EmbedPolicy = EmbedPolicy {
     webview: Webview::Forbidden,
     popups: Popups::SystemBrowser,
     breaks: &[Breaks::ProviderLogin],
+};
+
+/// A login at the payer's bank, or a switch to the banking app, which in-app browser views
+/// refuse: the system browser.
+const EMBED_BANK: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// iDEAL: its scheme forbids web views (the bank's login and its app switch).
+const EMBED_BANK_FORBIDDEN: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// A QR page whose web-view behaviour is unverified (Wero): the browser until it is tested.
+const EMBED_UNTESTED_QR: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// A provider whose pages may never be framed (dLocal's): the system browser only.
+#[cfg(feature = "fake-providers")]
+const EMBED_NEVER_FRAMED: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[],
+};
+
+/// GoCardless says nothing either way about web views: the chain keeps what is tested.
+const EMBED_GOCARDLESS: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[],
+};
+
+/// Apple Pay on the web needs no injected script and an iOS web view: the native sheet.
+const EMBED_APPLE_PAY: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::ApplePayWeb],
+};
+
+/// Google Pay's pop-ups and PaymentRequest: the system browser.
+const EMBED_GOOGLE_PAY: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::GooglePay],
 };
 
 const FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
@@ -385,7 +730,15 @@ const FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
     SurfaceKind::WebviewPage,
     SurfaceKind::SystemBrowser,
 ];
+/// SEPA through Stripe: the app's own IBAN field first, then its fields, its page, the browser.
+const IBAN_FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
+    SurfaceKind::NativeIban,
+    SurfaceKind::PopoverFields,
+    SurfaceKind::WebviewPage,
+    SurfaceKind::SystemBrowser,
+];
 const PAGE_BROWSER: &[SurfaceKind] = &[SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser];
+const SHEET_BROWSER: &[SurfaceKind] = &[SurfaceKind::NativeSheet, SurfaceKind::SystemBrowser];
 /// A slip on paper, nothing else.
 const PAPER: &[SurfaceKind] = &[SurfaceKind::Paper];
 
@@ -404,11 +757,89 @@ const STRIPE_LEAVE: &[Origin] = &[
     exact("link.com"),
     suffix(".link.com"),
 ];
+/// A method whose pages never leave for the browser.
+const NO_LEAVE: &[Origin] = &[];
+
+/// Stripe's methods, the same for Stripe and its sandbox stand-in (only where their pages may
+/// leave for the browser differs: `$leave`), with `$extra` the real one's alone. Cards in the
+/// Payment Element (no statement against web views; Link off - it is a login), SEPA natively or
+/// in the Payment Element, PayPal and the wallets' logins outside any web view (Stripe's in-app
+/// web view table: "Not supported"), and the local methods of its routes (the payment methods
+/// registry, read 2026-10-17): a hosted page that shows a QR code, asks for a code or a phone
+/// number, or gives a voucher may be shown in the popover; a bank's or a wallet's login goes to
+/// the system browser.
+macro_rules! stripe_methods {
+    ($leave:expr; $($extra:expr),* $(,)?) => {
+        &[
+            spec(Method::Card, FIELDS_PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::SepaDebit, IBAN_FIELDS_PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::PayPal, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Wero, BROWSER, EMBED_UNTESTED_QR, NO_LEAVE, Settles::Instant),
+            $($extra,)*
+            // A page of its own, then the browser.
+            spec(Method::BankTransfer, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Blik, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Twint, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Swish, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::MobilePay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Vipps, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::MbWay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Multibanco, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Bizum, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::RevolutPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Upi, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Pix, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Boleto, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::WechatPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Konbini, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Oxxo, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::PayNow, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::PromptPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            // A login at the bank: the system browser only.
+            spec(Method::Ideal, BROWSER, EMBED_BANK_FORBIDDEN, NO_LEAVE, Settles::Instant),
+            spec(Method::Bancontact, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::Eps, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::P24, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            spec(Method::PayByBank, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::KrCard, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::Fpx, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            spec(Method::UsBankAccount, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            // A login at the wallet: the system browser only.
+            spec(Method::GooglePay, BROWSER, EMBED_GOOGLE_PAY, NO_LEAVE, Settles::Instant),
+            spec(Method::Link, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::AmazonPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Klarna, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Satispay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Alipay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::KakaoPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::NaverPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Payco, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::SamsungPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::PayPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::GrabPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+        ]
+    };
+}
+
+/// GoCardless's direct debit schemes on its hosted Billing Request Flow, then the browser - the
+/// same for GoCardless and its stand-in - after `$sepa`, the SEPA row (the real one has a
+/// fields page of ours as well). ACH logs in at the bank: the browser only.
+macro_rules! gocardless_methods {
+    ($sepa:expr) => {
+        &[
+            $sepa,
+            spec(Method::BacsDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::Autogiro, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::Betalingsservice, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::BecsDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::BecsNzDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::PadDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::UsBankAccount, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+        ]
+    };
+}
 
 static PROVIDERS: &[ProviderSpec] = &[
-    // Cards in the Payment Element (no statement against web views; Link off - it is a login),
-    // SEPA in the Payment Element (or natively with the publishable key), PayPal / Wero / Apple
-    // Pay outside any web view (Stripe's in-app web view table: "Not supported").
     ProviderSpec {
         id: "stripe",
         kind: ProviderKind::Processor,
@@ -421,62 +852,13 @@ static PROVIDERS: &[ProviderSpec] = &[
         ],
         pages: PAY_PAGES,
         fields: Some("/fields/stripe/v1"),
-        methods: &[
-            MethodSpec {
-                method: Method::Card,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: STRIPE_LEAVE,
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::SepaDebit,
-                chain: &[
-                    SurfaceKind::NativeIban,
-                    SurfaceKind::PopoverFields,
-                    SurfaceKind::WebviewPage,
-                    SurfaceKind::SystemBrowser,
-                ],
-                embed: EMBED_OK,
-                leave: STRIPE_LEAVE,
-                settles: Settles::Days,
-            },
-            MethodSpec {
-                method: Method::PayPal,
-                chain: BROWSER,
-                embed: EMBED_LOGIN,
-                leave: &[],
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::ApplePay,
-                chain: &[SurfaceKind::NativeSheet, SurfaceKind::SystemBrowser],
-                embed: EmbedPolicy {
-                    webview: Webview::Forbidden,
-                    popups: Popups::SystemBrowser,
-                    breaks: &[Breaks::ApplePayWeb],
-                },
-                leave: &[],
-                settles: Settles::Instant,
-            },
-            // The QR page in a web view is unverified: the browser until it is tested.
-            MethodSpec {
-                method: Method::Wero,
-                chain: BROWSER,
-                embed: EmbedPolicy {
-                    webview: Webview::Discouraged,
-                    popups: Popups::SystemBrowser,
-                    breaks: &[Breaks::BankAppSwitch],
-                },
-                leave: &[],
-                settles: Settles::Instant,
-            },
-        ],
+        methods: stripe_methods!(STRIPE_LEAVE;
+            spec(Method::ApplePay, SHEET_BROWSER, EMBED_APPLE_PAY, NO_LEAVE, Settles::Instant)),
         icon: "credit_card",
         fake: false,
     },
     // SEPA Direct Debit: the Drop-in on our fields page, the hosted Billing Request Flow, the
-    // browser. No statement on web views either way: the chain keeps what is tested.
+    // browser; the other schemes on the flow page.
     ProviderSpec {
         id: "gocardless",
         kind: ProviderKind::Processor,
@@ -485,17 +867,13 @@ static PROVIDERS: &[ProviderSpec] = &[
         origins: &[exact("pay.gocardless.com"), exact("pay-sandbox.gocardless.com")],
         pages: PAY_PAGES,
         fields: Some("/fields/gocardless/v1"),
-        methods: &[MethodSpec {
-            method: Method::SepaDebit,
-            chain: FIELDS_PAGE_BROWSER,
-            embed: EmbedPolicy {
-                webview: Webview::Discouraged,
-                popups: Popups::SystemBrowser,
-                breaks: &[],
-            },
-            leave: &[],
-            settles: Settles::Days,
-        }],
+        methods: gocardless_methods!(spec(
+            Method::SepaDebit,
+            FIELDS_PAGE_BROWSER,
+            EMBED_GOCARDLESS,
+            NO_LEAVE,
+            Settles::Days
+        )),
         icon: "account_balance",
         fake: false,
     },
@@ -510,29 +888,27 @@ static PROVIDERS: &[ProviderSpec] = &[
         origins: &[],
         pages: PAY_PAGES,
         fields: None,
-        methods: &[MethodSpec {
-            method: Method::Cash,
-            chain: PAPER,
-            embed: EMBED_NONE,
-            leave: &[],
-            settles: Settles::Post,
-        }],
+        methods: &[spec(Method::Cash, PAPER, EMBED_NONE, NO_LEAVE, Settles::Post)],
         icon: "mail",
         fake: false,
     },
 ];
 
-/// The fakes' pages: the mock token server's host.
+/// The fakes' pages: the mock token server's and the payment sandbox's host.
 #[cfg(feature = "fake-providers")]
 const FAKE_PAGES: Origin = Origin::LoopbackHost(Cow::Borrowed("127.0.0.1"));
 /// A fake provider login: the same computer under another name.
 #[cfg(feature = "fake-providers")]
 const FAKE_LOGIN: Origin = Origin::LoopbackHost(Cow::Borrowed("localhost"));
+/// Where a fake's pages leave for the browser: its login.
+#[cfg(feature = "fake-providers")]
+const FAKE_LEAVE: &[Origin] = &[FAKE_LOGIN];
 
 #[cfg(feature = "fake-providers")]
 static FAKE_PROVIDERS: &[ProviderSpec] = &[
-    // Stripe's shape: a fields page that takes Stripe's test card numbers, a hosted page, a
-    // PayPal login on "localhost" that the card page may jump to.
+    // Stripe's shape, its methods (Apple Pay aside: no sheet here): a fields page that takes
+    // Stripe's test card numbers, a hosted page per method, a PayPal login on "localhost" that
+    // the card page may jump to.
     ProviderSpec {
         id: "fake-stripe",
         kind: ProviderKind::Processor,
@@ -541,33 +917,12 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
         origins: &[FAKE_PAGES],
         pages: FAKE_PAGES,
         fields: Some("/fields/fake-stripe/v1"),
-        methods: &[
-            MethodSpec {
-                method: Method::Card,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: &[FAKE_LOGIN],
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::SepaDebit,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: &[FAKE_LOGIN],
-                settles: Settles::Days,
-            },
-            MethodSpec {
-                method: Method::PayPal,
-                chain: BROWSER,
-                embed: EMBED_LOGIN,
-                leave: &[],
-                settles: Settles::Instant,
-            },
-        ],
+        methods: stripe_methods!(FAKE_LEAVE;),
         icon: "credit_card",
         fake: true,
     },
-    // GoCardless's shape: a hosted Billing Request Flow page taking a test IBAN.
+    // GoCardless's shape: a hosted Billing Request Flow page taking a test IBAN (or the test
+    // account of another scheme).
     ProviderSpec {
         id: "fake-gocardless",
         kind: ProviderKind::Processor,
@@ -576,13 +931,13 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
         origins: &[FAKE_PAGES],
         pages: FAKE_PAGES,
         fields: None,
-        methods: &[MethodSpec {
-            method: Method::SepaDebit,
-            chain: PAGE_BROWSER,
-            embed: EMBED_OK,
-            leave: &[],
-            settles: Settles::Days,
-        }],
+        methods: gocardless_methods!(spec(
+            Method::SepaDebit,
+            PAGE_BROWSER,
+            EMBED_OK,
+            NO_LEAVE,
+            Settles::Days
+        )),
         icon: "account_balance",
         fake: true,
     },
@@ -603,6 +958,25 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
             settles: Settles::Instant,
         }],
         icon: "account_balance_wallet",
+        fake: true,
+    },
+    // dLocal's shape: its API takes the payer's name, email and national ID in the merchant's
+    // request (the app asks for them, the token server passes them on), and its pages may never
+    // be framed - the system browser only.
+    ProviderSpec {
+        id: "fake-dlocal",
+        kind: ProviderKind::Processor,
+        name: "Fake dLocal",
+        legal_name: "Fake dLocal (a local test provider)",
+        origins: &[FAKE_PAGES],
+        pages: FAKE_PAGES,
+        fields: None,
+        methods: &[
+            spec(Method::Pix, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Instant),
+            spec(Method::Oxxo, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
+            spec(Method::Boleto, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
+        ],
+        icon: "account_balance",
         fake: true,
     },
     // A merchant of record in Polar's shape: its embed / hosted page, the browser.

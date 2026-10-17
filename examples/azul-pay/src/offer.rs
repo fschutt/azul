@@ -1,25 +1,36 @@
 //! The token server's offer: its provider descriptors (`GET /v1/checkout/options`), checked
 //! against the registry (CHECKOUT-PLAN §3.3, §3.11).
 //!
-//! The server chooses, the app constrains. A descriptor names a provider of the registry and
-//! says, for this country, currency, tier and period:
+//! The server chooses, the app constrains. The server answers for the buyer's declared country:
+//! only the methods that are switched on and routed there, each ranked by that country's order
+//! of use and priced in its currency (the signed price ladder's frozen row). A descriptor names
+//! a provider of the registry and says, for this country, currency, tier and period:
 //!
 //! ```json
-//! {"offers": [
+//! {"country": "PL", "currency": "PLN",
+//!  "offers": [
 //!   {"provider": "stripe", "kind": "processor", "default": true,
 //!    "origins": ["checkout.stripe.com"],
 //!    "fields_page": "https://pay.azlin.io/fields/stripe/v1",
 //!    "return": {"success": "https://pay.azlin.io/return/ok",
 //!               "cancel": "https://pay.azlin.io/return/cancel",
 //!               "pending": "https://pay.azlin.io/return/pending"},
-//!    "methods": [{"method": "card", "surfaces": ["fields", "page", "browser"],
-//!                 "embed": "webview", "settles": "instant", "recurring": false}]}],
-//!  "price": {"amount_cents": 4990, "currency": "EUR", "vat_rate_permille": 190,
-//!            "vat_cents": 797, "vat_included": true},
+//!    "methods": [{"method": "blik", "surfaces": ["page", "browser"],
+//!                 "embed": "webview", "settles": "instant", "recurring": false,
+//!                 "rank": 0, "preferred": true, "expires_minutes": 2,
+//!                 "amount_cents": 449, "currency": "PLN"},
+//!                {"method": "card", "rank": 2, "amount_cents": 449, "currency": "PLN",
+//!                 "needs_identity": ["name"], "identity_in_app": []}]}],
+//!  "price": {"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
+//!            "vat_cents": 84, "vat_included": true},
 //!  "legal": {"withdrawal_consent": "...", "order_button": "...", "terms_url": "..."}}
 //! ```
 //!
-//! Everything but `provider` and `methods[].method` is optional. What the app keeps of it:
+//! Everything but `provider` and `methods[].method` is optional (`rank`: the pills' order;
+//! `preferred`: the cheaper route of a method two providers carry; `presented_in`: the currency
+//! a converting provider shows the payer; `needs_identity` and `identity_in_app`:
+//! [`crate::identity`]). What the app
+//! keeps of it:
 //!
 //! - an unknown provider, a provider whose `kind` contradicts the registry, and a fake provider
 //!   from a token server that is not on this computer are dropped;
@@ -32,7 +43,8 @@
 //! - `fields_page` must be on the provider's pages origin (`https://pay.azlin.io`) under
 //!   `/fields/<provider id>/`; without one there is no popover;
 //! - `return` URLs must be on the pages origin, else the default paths stand;
-//! - `name` is never taken: the chrome shows the registry's names.
+//! - `name` is never taken: the chrome shows the registry's names;
+//! - a method whose payer details the app may not ask for itself is dropped.
 //!
 //! What was dropped is said in [`Offer::dropped`] (for the app's log; never a secret).
 
@@ -42,6 +54,7 @@ use serde_json::Value;
 
 pub use crate::registry::Settles;
 use crate::{
+    identity::Identity,
     registry::{
         self, Method, MethodSpec, ProviderSpec, SurfaceKind, FIELDS_PREFIX, RETURN_CANCEL,
         RETURN_PENDING, RETURN_SUCCESS,
@@ -156,6 +169,15 @@ pub struct Legal {
     pub terms_url: Option<String>,
 }
 
+/// What a checkout charges for a method: an amount in minor units of a currency (cents, groszy,
+/// yen) - the price of the tier in the payer's currency, as the signed price ladder froze it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Charge {
+    pub amount_cents: u64,
+    /// The ISO 4217 code (`PLN`).
+    pub currency: String,
+}
+
 /// One method a provider offers, as the app may show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OfferedMethod {
@@ -167,6 +189,20 @@ pub struct OfferedMethod {
     pub recurring: bool,
     /// Its registry entry.
     pub spec: &'static MethodSpec,
+    /// Its place in the payer country's order of use (0 = the most used): the pills' order.
+    /// `None` from a server that sends no order (its list order stands).
+    pub rank: Option<u32>,
+    /// What the checkout charges with it; `None` when the server names no tier.
+    pub charge: Option<Charge>,
+    /// The currency the payer sees when the provider converts the charge (a euro price paid in
+    /// zloty); `None` when the charge is paid as it is.
+    pub presented_in: Option<String>,
+    /// How long its code, QR or voucher lives (0: not applicable).
+    pub expires_minutes: u32,
+    /// What it tells about the payer, and who asks ([`crate::identity`]).
+    pub identity: Identity,
+    /// The cheapest route of this method among the providers: the pill's default provider.
+    pub preferred: bool,
 }
 
 /// One provider of the offer, as the app may show it.
@@ -230,6 +266,10 @@ impl Returns {
 /// it refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
+    /// The payer's country the server answered for (ISO alpha-2), if it says.
+    pub country: Option<String>,
+    /// The payer's currency the server priced in (ISO 4217), if it says.
+    pub currency: Option<String>,
     /// In the server's order.
     pub providers: Vec<OfferedProvider>,
     pub price: Option<Price>,
@@ -255,6 +295,8 @@ impl Offer {
             .filter_map(|d| provider(d, ctx, &mut dropped))
             .collect();
         Ok(Offer {
+            country: code(&value["country"], 2),
+            currency: code(&value["currency"], 3),
             providers,
             price: price(&value["price"]),
             legal: legal(&value["legal"]),
@@ -466,6 +508,13 @@ fn method(
         ));
         return None;
     }
+    let identity = match Identity::parse(m) {
+        Ok(identity) => identity,
+        Err(why) => {
+            dropped.push(format!("{} {} is not shown: {}", spec.id, method.as_str(), said(&why)));
+            return None;
+        }
+    };
     let settles = match m["settles"].as_str() {
         // Cash comes by post whatever the server says: the app never waits for it.
         _ if method_spec.settles == Settles::Post => Settles::Post,
@@ -480,6 +529,30 @@ fn method(
         settles,
         recurring: m["recurring"].as_bool().unwrap_or(false),
         spec: method_spec,
+        rank: m["rank"].as_u64().and_then(|r| u32::try_from(r).ok()),
+        charge: charge(m),
+        presented_in: code(&m["presented_in"], 3),
+        expires_minutes: m["expires_minutes"]
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(0),
+        identity,
+        preferred: m["preferred"].as_bool().unwrap_or(false),
+    })
+}
+
+/// An ISO code of `len` letters (`PL`, `PLN`), upper case; `None` for anything else.
+fn code(value: &Value, len: usize) -> Option<String> {
+    let text = value.as_str()?.trim();
+    (text.len() == len && text.bytes().all(|b| b.is_ascii_alphabetic()))
+        .then(|| text.to_ascii_uppercase())
+}
+
+/// A method's own `amount_cents` and `currency`: what its checkout charges.
+fn charge(m: &Value) -> Option<Charge> {
+    Some(Charge {
+        amount_cents: m["amount_cents"].as_u64()?,
+        currency: code(&m["currency"], 3)?,
     })
 }
 

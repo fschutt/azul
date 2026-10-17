@@ -3,7 +3,9 @@
 //!
 //! | call                                  | what for                                          |
 //! |---------------------------------------|---------------------------------------------------|
-//! | `GET /v1/tiers`                       | the storage tiers and their prices                |
+//! | `GET /v1/tiers[?country=PL]`          | the storage tiers and their prices (in the        |
+//! |                                       | buyer's country's currency where the ladder has   |
+//! |                                       | it)                                               |
 //! | `POST /v1/drives`                     | a drive without payment (development servers)     |
 //! | `POST /v1/checkout`                   | a paid drive: where the browser pays (the claim   |
 //! |                                       | key the sign-up is sealed to)                     |
@@ -13,7 +15,8 @@
 //! | `GET /v1/checkout/options`            | the providers' offer for a tier, period, country  |
 //! |                                       | (azul-pay narrows it to the app's registry)       |
 //! | `POST /v1/checkout` + provider        | a checkout through a provider: its surface (the   |
-//! |                                       | fields page, a hosted page, the browser)          |
+//! |                                       | fields page, a hosted page, the browser); `payer` |
+//! |                                       | only for a method that asks the app for it        |
 //! | `POST /v1/checkout/{id}/surface`      | the same checkout on the next surface             |
 //! | `POST /v1/checkout/{id}/abandon`      | the provider session expires (popover closed)     |
 //! | `GET /v1/tokens/keys`                 | the period tokens' issuer keys (tier and year)    |
@@ -263,14 +266,33 @@ pub struct OptionsQuery<'a> {
 }
 
 /// How a checkout is paid (claim contract v1, extended): the provider and method of the payer's
-/// pill, the first surface to open, the VAT country, the consent the order needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// pill, the first surface to open, the VAT country (the buyer's declared country of residence),
+/// the consent the order needs, and - only for a method whose provider wants them in the
+/// merchant's request - the payer's details. `Debug` names those details, never their text.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CheckoutVia<'a> {
     pub provider: &'a str,
     pub method: &'a str,
     pub surface: &'a str,
     pub vat_country: &'a str,
     pub withdrawal_consent: bool,
+    /// `(field, text)` pairs (`name`, `email`, `national_id`) sent once as `payer`; empty for
+    /// every method that asks the app for nothing.
+    pub payer: &'a [(&'a str, &'a str)],
+}
+
+impl fmt::Debug for CheckoutVia<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let payer: Vec<&str> = self.payer.iter().map(|(field, _)| *field).collect();
+        f.debug_struct("CheckoutVia")
+            .field("provider", &self.provider)
+            .field("method", &self.method)
+            .field("surface", &self.surface)
+            .field("vat_country", &self.vat_country)
+            .field("withdrawal_consent", &self.withdrawal_consent)
+            .field("payer", &payer)
+            .finish()
+    }
 }
 
 /// Where a checkout stands (`GET /v1/checkout/{id}`).
@@ -918,6 +940,19 @@ impl<'a> TokenServer<'a> {
         Tiers::parse(&value.to_string())
     }
 
+    /// The storage tiers priced for a buyer in `country` (ISO alpha-2, any case): the signed
+    /// ladder's row in that country's currency where it has one, else the ladder as it is. No
+    /// country: [`Self::tiers`].
+    pub fn tiers_in(&self, country: &str) -> Result<Tiers, TokenError> {
+        let country = country.trim().to_ascii_uppercase();
+        if country.is_empty() {
+            return self.tiers();
+        }
+        let path = format!("/v1/tiers?country={}", uri_encode(&country, true));
+        let value = self.call(Method::Get, &path, None, None)?;
+        Tiers::parse(&value.to_string())
+    }
+
     /// A drive named `name` of tier `tier` without payment - a development token server only;
     /// a production one answers [`TokenError::is_checkout_only`].
     pub fn create_dev_drive(&self, name: &str, tier: &str) -> Result<DriveBundle, TokenError> {
@@ -987,7 +1022,7 @@ impl<'a> TokenServer<'a> {
         via: &CheckoutVia<'_>,
         claim: &ClaimKey,
     ) -> Result<(Checkout, Value), TokenError> {
-        let body = json!({
+        let mut body = json!({
             "tier": tier.trim(),
             "months": months,
             "provider": via.provider.trim(),
@@ -997,6 +1032,16 @@ impl<'a> TokenServer<'a> {
             "withdrawal_consent": via.withdrawal_consent,
             "claim_key": claim.public_base64(),
         });
+        // The payer's details go only where the method's provider wants them in this request;
+        // the token server passes them on and keeps none.
+        if !via.payer.is_empty() {
+            let payer: serde_json::Map<String, Value> = via
+                .payer
+                .iter()
+                .map(|(field, text)| ((*field).to_string(), Value::from(text.trim())))
+                .collect();
+            body["payer"] = Value::Object(payer);
+        }
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() {

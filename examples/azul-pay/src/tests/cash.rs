@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 use super::fixtures::run;
 use crate::{
+    identity::Payer,
     cash::{self, amount_in_words, CashSlip, ACTIVATION_PREFIX},
     machine::{step, Effect, Event, Notice, State},
     offer::{Offer, OfferContext, Settles},
@@ -211,6 +212,7 @@ fn buying_with_cash_makes_a_paper_checkout_and_opens_no_page() {
         Event::Pay {
             choice: choice.clone(),
             consent: true,
+            payer: Payer::default(),
         },
     );
     assert_eq!(state.name(), "preparing");
@@ -220,6 +222,7 @@ fn buying_with_cash_makes_a_paper_checkout_and_opens_no_page() {
             provider: "cash",
             method: Method::Cash,
             surface: SurfaceKind::Paper,
+            payer: None,
         }]
     );
     let (state, effects) = step(state, Event::Posted(Box::new(slip())));
@@ -254,6 +257,7 @@ fn closing_the_dialog_after_the_slip_keeps_the_cash_checkout() {
             Event::Pay {
                 choice: cash_choice(),
                 consent: true,
+                payer: Payer::default(),
             },
             Event::Posted(Box::new(slip())),
             Event::Close,
@@ -275,6 +279,7 @@ fn a_posted_checkout_becomes_the_drive_when_the_money_arrived_or_says_why_not() 
                 Event::Pay {
                     choice: cash_choice(),
                     consent: true,
+                    payer: Payer::default(),
                 },
                 Event::Posted(Box::new(slip())),
             ],

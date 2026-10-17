@@ -6,6 +6,7 @@ use super::fixtures::{
     page_surface, presenting_card, run, APP,
 };
 use crate::{
+    identity::Payer,
     bridge::CardBrand,
     machine::{step, ChipPage, Effect, Event, Notice, State, WaitReason},
     registry::{Method, SurfaceKind},
@@ -58,6 +59,7 @@ fn pay_without_the_consent_stays_choosing_and_says_why() {
         Event::Pay {
             choice: choice(Method::Card),
             consent: false,
+            payer: Payer::default(),
         },
     );
     assert_eq!(state, State::Choosing);
@@ -71,6 +73,7 @@ fn pay_with_the_consent_prepares_the_first_surface_the_app_can_show() {
         Event::Pay {
             choice: choice(Method::Card),
             consent: true,
+            payer: Payer::default(),
         },
     );
     assert_eq!(state.name(), "preparing");
@@ -80,6 +83,7 @@ fn pay_with_the_consent_prepares_the_first_surface_the_app_can_show() {
             provider: "stripe",
             method: Method::Card,
             surface: SurfaceKind::PopoverFields,
+            payer: None,
         }]
     );
     let page_only = choice_with(Method::Card, &[SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser]);
@@ -88,6 +92,7 @@ fn pay_with_the_consent_prepares_the_first_surface_the_app_can_show() {
         Event::Pay {
             choice: page_only,
             consent: true,
+            payer: Payer::default(),
         },
     );
     assert_eq!(
@@ -96,6 +101,7 @@ fn pay_with_the_consent_prepares_the_first_surface_the_app_can_show() {
             provider: "stripe",
             method: Method::Card,
             surface: SurfaceKind::WebviewPage,
+            payer: None,
         }]
     );
 }
@@ -105,6 +111,7 @@ fn a_second_order_while_one_is_open_does_nothing() {
     let pay = || Event::Pay {
         choice: choice(Method::Card),
         consent: true,
+        payer: Payer::default(),
     };
     let (preparing, _) = step(State::Choosing, pay());
     let (again, effects) = step(preparing.clone(), pay());
@@ -123,6 +130,7 @@ fn a_failed_create_goes_back_to_the_pills_with_the_reason() {
             Event::Pay {
                 choice: choice(Method::Card),
                 consent: true,
+                payer: Payer::default(),
             },
             Event::CreateFailed("provider_unavailable".to_string()),
         ],
@@ -143,6 +151,7 @@ fn a_created_fields_checkout_shows_the_popover() {
             Event::Pay {
                 choice: choice.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&choice, &answer("ck_card", Method::Card, super::fixtures::fields_surface())),
         ],
@@ -176,6 +185,7 @@ fn a_created_browser_checkout_opens_the_browser_and_waits() {
             Event::Pay {
                 choice: paypal.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&paypal, &answer("ck_paypal", Method::PayPal, browser_surface())),
         ],
@@ -540,6 +550,7 @@ fn a_load_failure_on_the_last_surface_gives_up_and_offers_another_method() {
             Event::Pay {
                 choice: fields_only.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&fields_only, &answer("ck_1", Method::Card, super::fixtures::fields_surface())),
         ],
@@ -691,6 +702,7 @@ fn approved_is_done_and_declined_says_why() {
         Event::Pay {
             choice: choice(Method::Card),
             consent: true,
+            payer: Payer::default(),
         },
     );
     assert_eq!(again.name(), "preparing");
@@ -706,6 +718,7 @@ fn a_checkout_that_arrives_after_the_dialog_closed_is_abandoned() {
             Event::Pay {
                 choice: card.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             Event::Close,
             created(&card, &answer("ck_late", Method::Card, super::fixtures::fields_surface())),
@@ -729,6 +742,7 @@ fn a_method_that_settles_in_days_says_so_while_waiting() {
             Event::Pay {
                 choice: sepa.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&sepa, &answer("ck_sepa", Method::SepaDebit, browser_surface())),
         ],
@@ -752,4 +766,182 @@ fn a_navigation_where_no_page_should_be_is_cancelled() {
         assert_eq!(effects, vec![Effect::CancelNavigation]);
     }
     let _ = APP;
+}
+
+// ==== The payer's details: asked by the app, sent once ====
+
+/// Stripe's card described further by `extra` (its `needs_identity`, `identity_in_app`; the
+/// provider's surfaces as the registry has them).
+fn card_asking(extra: serde_json::Value) -> crate::pills::Choice {
+    use crate::{offer::{Offer, OfferContext}, pills::{Choice, Pill, PillContext}};
+    let mut card = serde_json::json!({"method": "card"});
+    if let (Some(c), Some(e)) = (card.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            c.insert(k.clone(), v.clone());
+        }
+    }
+    let text = serde_json::json!({"offers": [{"provider": "stripe", "methods": [card]}]})
+        .to_string();
+    let offer = Offer::parse(&text, &OfferContext::for_token_url("https://token.azlin.io")).unwrap();
+    let pill = Pill {
+        method: Method::Card,
+        providers: vec![0],
+        chosen: 0,
+    };
+    let ctx = PillContext {
+        country: "BR",
+        currency: "BRL",
+        months: 1,
+        recurring: false,
+        surfaces: APP,
+    };
+    Choice::of(&offer, &pill, &ctx).unwrap()
+}
+
+#[test]
+fn a_method_the_app_asks_details_for_waits_for_them_before_the_checkout() {
+    use crate::identity::PayerField;
+    let choice = card_asking(serde_json::json!({
+        "needs_identity": ["name", "email", "national_id"],
+        "identity_in_app": ["name", "email", "national_id"]}));
+    let mut payer = Payer::default();
+    payer.set(PayerField::Name, "Ana Souza");
+    let (state, effects) = step(
+        State::Choosing,
+        Event::Pay {
+            choice,
+            consent: true,
+            payer,
+        },
+    );
+    assert_eq!(state, State::Choosing);
+    assert_eq!(
+        notices(&effects),
+        vec![&Notice::IdentityIncomplete(vec![PayerField::Email, PayerField::NationalId])]
+    );
+    assert!(!effects.iter().any(|e| matches!(e, Effect::CreateCheckout { .. })));
+}
+
+#[test]
+fn the_payers_details_go_once_with_the_checkout_and_no_state_keeps_them() {
+    use crate::identity::PayerField;
+    let choice = card_asking(serde_json::json!({
+        "needs_identity": ["name", "national_id"],
+        "identity_in_app": ["name", "national_id"]}));
+    let mut payer = Payer::default();
+    payer.set(PayerField::Name, " Ana Souza ");
+    payer.set(PayerField::Email, "typed-but-not-asked@example.com");
+    payer.set(PayerField::NationalId, "123.456.789-09");
+    let (state, effects) = step(
+        State::Choosing,
+        Event::Pay {
+            choice,
+            consent: true,
+            payer,
+        },
+    );
+    assert_eq!(state.name(), "preparing");
+    let sent = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::CreateCheckout { payer, .. } => Some(payer.clone()),
+            _ => None,
+        })
+        .expect("the checkout");
+    let sent = sent.expect("the app asks: the details go with the checkout");
+    assert_eq!(sent.name, "Ana Souza");
+    assert_eq!(sent.national_id, "123.456.789-09");
+    assert!(sent.email.is_empty(), "only what the method asks for");
+    let kept = format!("{state:?}");
+    assert!(!kept.contains("Ana") && !kept.contains("123.456"), "{kept}");
+}
+
+#[test]
+fn a_method_whose_provider_asks_sends_nothing_of_the_payer() {
+    use crate::identity::PayerField;
+    let choice = card_asking(serde_json::json!({"needs_identity": ["name"]}));
+    let mut payer = Payer::default();
+    payer.set(PayerField::Name, "Ana Souza");
+    let (_, effects) = step(
+        State::Choosing,
+        Event::Pay {
+            choice,
+            consent: true,
+            payer,
+        },
+    );
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::CreateCheckout { payer: None, .. })));
+}
+
+// ==== The payment sandbox's local methods (the fakes of the local stack) ====
+
+#[cfg(feature = "fake-providers")]
+#[test]
+fn a_local_method_of_the_sandbox_opens_in_the_popover_or_the_browser_as_its_surface_says() {
+    use crate::{
+        offer::{Offer, OfferContext},
+        pills::{Choice, Pill, PillContext},
+        surface::{Created, Look},
+    };
+    let text = serde_json::json!({"offers": [{
+        "provider": "fake-stripe", "origins": ["127.0.0.1"],
+        "methods": [{"method": "blik", "surfaces": ["page", "browser"], "rank": 0},
+                    {"method": "p24", "surfaces": ["browser"], "rank": 1}]}]})
+    .to_string();
+    let offer = Offer::parse(&text, &OfferContext::for_token_url("http://127.0.0.1:8081")).unwrap();
+    let ctx = PillContext {
+        country: "PL",
+        currency: "PLN",
+        months: 1,
+        recurring: false,
+        surfaces: APP,
+    };
+    let look = Look {
+        locale: "en".into(),
+        look: "flat-light".into(),
+    };
+    for (method, kind, opens_popover) in [
+        (Method::Blik, "page", true),
+        (Method::P24, "browser", false),
+    ] {
+        let pill = Pill {
+            method,
+            providers: vec![0],
+            chosen: 0,
+        };
+        let choice = Choice::of(&offer, &pill, &ctx).unwrap();
+        let (state, effects) = step(
+            State::Choosing,
+            Event::Pay {
+                choice: choice.clone(),
+                consent: true,
+                payer: Payer::default(),
+            },
+        );
+        let expected = if opens_popover {
+            SurfaceKind::WebviewPage
+        } else {
+            SurfaceKind::SystemBrowser
+        };
+        assert!(
+            effects.iter().any(
+                |e| matches!(e, Effect::CreateCheckout { surface, .. } if *surface == expected)
+            ),
+            "{method:?}: {effects:?}"
+        );
+        let answer = serde_json::json!({
+            "checkout_id": "ck_local1", "provider": "fake-stripe", "method": method.as_str(),
+            "surface": {"kind": kind, "url": "http://127.0.0.1:8784/stripe/c/pay/cs_test_local1"}});
+        let created = Created::parse(&answer, &choice, &look).expect("the sandbox's own page");
+        let (state, effects) = step(state, Event::Created(Box::new(created)));
+        if opens_popover {
+            assert_eq!(state.name(), "presenting", "{method:?}");
+            assert!(effects.iter().any(|e| matches!(e, Effect::ShowSurface(_))), "{method:?}");
+        } else {
+            assert_eq!(state.name(), "waiting", "{method:?}");
+            assert_eq!(opened(&effects).len(), 1, "{method:?}");
+        }
+    }
 }

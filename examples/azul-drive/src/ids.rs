@@ -199,15 +199,42 @@ pub fn add_tier(index: usize) -> AzString {
     AzString::from(format!("__azdrive_add_tier_{index}"))
 }
 
-/// Buy storage's payment: the country, the provider switch of a pill, the price line, the
-/// consent, "Check again" and "Open the page again"; a pill is `__azdrive_add_pill_<method>`
-/// (`card`, `sepa_debit`, ...).
+/// Buy storage's payment: the country's "Change", the provider switch of a pill, the chosen
+/// pill's notes, the price line, the consent, "Check again" and "Open the page again"; a pill
+/// is `__azdrive_add_pill_<method>` (`card`, `sepa_debit`, ...), a payer's detail
+/// `__azdrive_add_payer_<field>` (`name`, `email`, `national_id`).
 pub const ADD_COUNTRY: AzString = AzString::from_const_str("__azdrive_add_country");
+/// The country line of Buy storage ("You live in Poland.").
+pub const ADD_COUNTRY_LINE: AzString = AzString::from_const_str("__azdrive_add_country_line");
+pub const ADD_PILL_NOTE: AzString = AzString::from_const_str("__azdrive_add_pill_note");
+/// The country picker ("Where do you live?"): its page, its search, its list, Continue; a
+/// country of the list is `__azdrive_add_country_option_<code>` (`pl`).
+pub const ADD_COUNTRY_PAGE: AzString = AzString::from_const_str("__azdrive_add_country_page");
+pub const ADD_COUNTRY_SEARCH: AzString =
+    AzString::from_const_str("__azdrive_add_country_search");
+pub const ADD_COUNTRY_LIST: AzString = AzString::from_const_str("__azdrive_add_country_list");
+pub const ADD_COUNTRY_CONTINUE: AzString =
+    AzString::from_const_str("__azdrive_add_country_continue");
 pub const ADD_PROVIDER: AzString = AzString::from_const_str("__azdrive_add_provider");
 pub const ADD_PRICE: AzString = AzString::from_const_str("__azdrive_add_price");
 pub const ADD_CONSENT: AzString = AzString::from_const_str("__azdrive_add_consent");
 pub const ADD_CHECK_AGAIN: AzString = AzString::from_const_str("__azdrive_add_check_again");
 pub const ADD_OPEN_AGAIN: AzString = AzString::from_const_str("__azdrive_add_open_again");
+
+/// A country of the picker's list: `__azdrive_add_country_option_pl`.
+#[must_use]
+pub fn add_country_option(code: &str) -> AzString {
+    AzString::from(format!(
+        "__azdrive_add_country_option_{}",
+        id_part(&code.to_ascii_lowercase())
+    ))
+}
+
+/// A payer's detail a provider wants from the app: `__azdrive_add_payer_national_id`.
+#[must_use]
+pub fn add_payer(field: &str) -> AzString {
+    AzString::from(format!("__azdrive_add_payer_{}", id_part(field)))
+}
 
 /// A payment pill of Buy storage: `__azdrive_add_pill_card`.
 #[must_use]

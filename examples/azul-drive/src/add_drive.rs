@@ -1,12 +1,16 @@
 //! The "Add drive" dialog as data (no azul types: tested without a window). Two choices first:
 //!
-//! - **Buy storage**: Azlin's storage tiers from the token server (`GET /v1/tiers`), each with
-//!   its size and price, monthly or yearly; on a development token server "Create test drive"
-//!   (a drive without payment), everywhere "Buy". With the token server's payment options
-//!   (`GET /v1/checkout/options`, narrowed by azul-pay's registry) Buy storage shows a pill per
-//!   payment method for the payer's country and period, the consent the order needs, and Buy
-//!   runs azul-pay's checkout machine: the provider's hosted fields in a popover, its hosted
-//!   page, or the system browser. Without them (an older token server) the v1 checkout's
+//! - **Buy storage**: first, while the buyer has declared none, "Where do you live?" (the
+//!   country guessed from the locale, a searchable list; remembered on this computer only).
+//!   Then Azlin's storage tiers from the token server (`GET /v1/tiers?country=`), each with its
+//!   size and price in the country's currency, monthly or yearly; on a development token server
+//!   "Create test drive" (a drive without payment), everywhere "Buy". With the token server's
+//!   payment options (`GET /v1/checkout/options`, narrowed by azul-pay's registry) Buy storage
+//!   shows a pill per payment method the server offers for that country and period, in the
+//!   country's order, each saying where the payer finishes; the chosen one's notes (what it
+//!   tells about the payer) and the details its provider wants from the app; the consent the
+//!   order needs; and Buy runs azul-pay's checkout machine: the provider's hosted fields in a
+//!   popover, its hosted page, or the system browser. Without them (an older token server) the v1 checkout's
 //!   payment page opens in the browser. Either way the dialog waits for the drive (the claim).
 //! - **Connect data source**: the sources of azul-storage's catalog this build can open, in
 //!   their groups (S3-compatible storage and a folder on this computer always; OpenDAL's
@@ -24,6 +28,7 @@ use std::{
 use azcloud_kit::{PendingCheckout, Tier, Tiers};
 use azul_appkit::l10n::{t, t_args, Arg};
 use azul_pay::{
+    identity::{Payer, PayerField},
     offer::Offer,
     pills::{self, Choice, Pill, PillContext},
     registry::{Method, SurfaceKind},
@@ -57,6 +62,8 @@ pub(crate) enum AddPage {
     /// "Pick up a paid drive with a claim code" (cash by post, on another computer than the
     /// one that bought it): the code, the drive's name.
     ClaimCode,
+    /// Buy storage's first question, "Where do you live?": the search and the country list.
+    Country,
 }
 
 /// The tier list of Buy storage.
@@ -128,8 +135,17 @@ pub(crate) struct AddDialog {
     pub pill: Option<Method>,
     /// The provider chosen in a pill of two (an index of the offer's providers).
     pub pill_provider: Option<usize>,
-    /// The payer's country (ISO alpha-2): which pills show, the VAT country.
+    /// The buyer's declared country of residence (ISO alpha-2; empty until declared): the
+    /// tiers' currency, the methods the server offers, the VAT country. Remembered on this
+    /// computer only.
     pub country: String,
+    /// The country picker's search, as typed.
+    pub country_query: String,
+    /// The country picked in the picker and not confirmed yet (first the guess from the locale).
+    pub country_pick: Option<&'static str>,
+    /// What the payer typed for a method whose provider wants the details from the app: sent
+    /// once with the checkout ([`Self::take_payer`]), never printed.
+    pub payer: Payer,
     /// The consent the order needs is ticked.
     pub consent: bool,
     /// The checkout's state machine.
@@ -164,59 +180,6 @@ pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
     SurfaceKind::Paper,
 ];
 
-/// The countries of Buy storage's "Country" choice (ISO alpha-2, the name shown).
-pub(crate) const COUNTRIES: &[(&str, &str)] = &[
-    ("DE", "Germany"),
-    ("AT", "Austria"),
-    ("CH", "Switzerland"),
-    ("FR", "France"),
-    ("NL", "Netherlands"),
-    ("BE", "Belgium"),
-    ("LU", "Luxembourg"),
-    ("IT", "Italy"),
-    ("ES", "Spain"),
-    ("PL", "Poland"),
-    ("SE", "Sweden"),
-    ("GB", "United Kingdom"),
-    ("US", "United States"),
-];
-
-/// The country of a locale (`de_DE.UTF-8`, `en-GB`, `nl_NL@euro`) when it is one of
-/// [`COUNTRIES`].
-#[must_use]
-pub(crate) fn country_of_locale(locale: &str) -> Option<String> {
-    let base = locale.split(['.', '@']).next().unwrap_or_default();
-    let (_, region) = base.split_once(['_', '-'])?;
-    let region = region.to_ascii_uppercase();
-    COUNTRIES
-        .iter()
-        .any(|(code, _)| *code == region)
-        .then_some(region)
-}
-
-/// The payer's country this run starts with ([`country_from`] the environment).
-#[must_use]
-pub(crate) fn default_country() -> String {
-    country_from(|name| std::env::var(name).ok())
-}
-
-/// The payer's country from the environment `var`: `AZLIN_COUNTRY` (a code of [`COUNTRIES`],
-/// any case), else the locale's (`LC_ALL`, `LC_MESSAGES`, `LANG`), else Germany.
-#[must_use]
-pub(crate) fn country_from(var: impl Fn(&str) -> Option<String>) -> String {
-    let named = var("AZLIN_COUNTRY")
-        .map(|code| code.trim().to_ascii_uppercase())
-        .filter(|code| COUNTRIES.iter().any(|(c, _)| c == code));
-    named
-        .or_else(|| {
-            ["LC_ALL", "LC_MESSAGES", "LANG"]
-                .iter()
-                .filter_map(|name| var(*name))
-                .find_map(|locale| country_of_locale(&locale))
-        })
-        .unwrap_or_else(|| String::from("DE"))
-}
-
 /// The token server's payment options for Buy storage.
 #[derive(Clone, Debug)]
 pub(crate) enum OfferState {
@@ -228,6 +191,9 @@ pub(crate) enum OfferState {
     Loaded(Offer),
     /// Why there are none (Buy storage falls back to the v1 checkout).
     Failed(String),
+    /// The token server refused this buyer, in its own sentence (a country it does not serve):
+    /// nothing can be bought.
+    Refused(String),
 }
 
 impl fmt::Debug for AddDialog {
@@ -266,6 +232,9 @@ impl fmt::Debug for AddDialog {
             .field("pill", &self.pill)
             .field("pill_provider", &self.pill_provider)
             .field("country", &self.country)
+            .field("country_query", &self.country_query)
+            .field("country_pick", &self.country_pick)
+            .field("payer", &self.payer)
             .field("consent", &self.consent)
             .field("pay", &self.pay)
             .field("card_name", &"<hidden>")
@@ -300,7 +269,10 @@ impl AddDialog {
             offer: OfferState::NotLoaded,
             pill: None,
             pill_provider: None,
-            country: default_country(),
+            country: String::new(),
+            country_query: String::new(),
+            country_pick: None,
+            payer: Payer::default(),
             consent: false,
             pay: PayState::Choosing,
             card_name: String::new(),
@@ -338,9 +310,14 @@ impl AddDialog {
         self.service.and_then(catalog::service)
     }
 
-    /// Buy storage.
+    /// Buy storage: its first question, where the buyer lives, while no country is declared;
+    /// else the tiers of the declared country.
     pub(crate) fn choose_buy(&mut self) {
-        self.page = AddPage::Buy;
+        self.page = if self.country.is_empty() {
+            AddPage::Country
+        } else {
+            AddPage::Buy
+        };
         self.notice.clear();
     }
 
@@ -380,14 +357,18 @@ impl AddDialog {
         true
     }
 
-    /// One page back: a form to the sources, the sources and Buy storage to the choices.
+    /// One page back: a form to the sources, the sources and Buy storage to the choices, the
+    /// country picker to the tiers of the declared country (to the choices before one is).
     pub(crate) fn back(&mut self) {
         self.page = match self.page {
             AddPage::Form if self.editing.is_none() => AddPage::Sources,
             AddPage::Form => AddPage::Form,
-            AddPage::Sources | AddPage::Buy | AddPage::Choose | AddPage::ClaimCode => {
-                AddPage::Choose
-            }
+            AddPage::Country if !self.country.is_empty() => AddPage::Buy,
+            AddPage::Sources
+            | AddPage::Buy
+            | AddPage::Choose
+            | AddPage::ClaimCode
+            | AddPage::Country => AddPage::Choose,
             AddPage::Voucher => AddPage::Buy,
         };
         self.error.clear();
@@ -533,6 +514,7 @@ impl AddDialog {
             AddPage::Form => format!("form {}", self.service.unwrap_or("-")),
             AddPage::Voucher => String::from("voucher"),
             AddPage::ClaimCode => String::from("claim-code"),
+            AddPage::Country => String::from("country"),
         }
     }
 
@@ -599,10 +581,11 @@ impl AddDialog {
         }
     }
 
-    /// The token server's offer is in: the default pill is chosen.
+    /// The token server's offer is in (again, for another tier or period): the chosen pill
+    /// stays while the offer has it ([`Self::chosen_pill`] falls back to the default), its
+    /// provider switch does not.
     pub(crate) fn offer_loaded(&mut self, offer: Offer) {
         self.offer = OfferState::Loaded(offer);
-        self.pill = None;
         self.pill_provider = None;
     }
 
@@ -631,6 +614,15 @@ impl AddDialog {
     #[must_use]
     pub(crate) fn pays_with_pills(&self) -> bool {
         !self.pills().is_empty()
+    }
+
+    /// The token server's refusal of this buyer, its own sentence: nothing can be bought.
+    #[must_use]
+    pub(crate) fn refused(&self) -> Option<&str> {
+        match &self.offer {
+            OfferState::Refused(sentence) => Some(sentence),
+            _ => None,
+        }
     }
 
     /// The pill chosen - the default one when none is, or the chosen one went away - with the
@@ -684,18 +676,103 @@ impl AddDialog {
         Choice::of(offer, &self.chosen_pill()?, &self.pill_context())
     }
 
-    /// The payer's country is `code` now: whether it changed (a code of [`COUNTRIES`] only).
-    /// The options are asked for again.
+    /// The buyer's country is `code` now: whether it changed (a listed country only). The tiers
+    /// (priced in its currency) and the options are asked for again; a chosen pill and the
+    /// payer's details typed for it are dropped.
     pub(crate) fn set_country(&mut self, code: &str) -> bool {
         let code = code.trim().to_ascii_uppercase();
-        if code == self.country || !COUNTRIES.iter().any(|(c, _)| *c == code) {
+        if code == self.country || !crate::countries::offered(&code) {
             return false;
         }
         self.country = code;
+        self.tiers = TiersState::NotLoaded;
         self.offer = OfferState::NotLoaded;
         self.pill = None;
         self.pill_provider = None;
+        self.payer = Payer::default();
         true
+    }
+
+    /// "Change" beside the country: the picker again, the declared country picked.
+    pub(crate) fn change_country(&mut self) {
+        self.country_pick = crate::countries::listed(&self.country).or(self.country_pick);
+        self.country_query.clear();
+        self.page = AddPage::Country;
+        self.notice.clear();
+    }
+
+    /// The picker's search says `text` now (the pick stays).
+    pub(crate) fn search_country(&mut self, text: &str) {
+        self.country_query = text.to_string();
+    }
+
+    /// A country of the picker's list was clicked: whether it is one the picker lists.
+    pub(crate) fn pick_country(&mut self, code: &str) -> bool {
+        let Some(listed) = crate::countries::listed(code) else {
+            return false;
+        };
+        self.country_pick = Some(listed);
+        self.notice.clear();
+        true
+    }
+
+    /// The picker's Continue: the picked country becomes the declared one and the tiers show;
+    /// `false` (and a sentence) while nothing is picked.
+    pub(crate) fn confirm_country(&mut self) -> bool {
+        let Some(code) = self.country_pick else {
+            self.notice = t("azdrive-add-country-pick-first");
+            return false;
+        };
+        self.set_country(code);
+        self.page = AddPage::Buy;
+        self.notice.clear();
+        true
+    }
+
+    /// The countries the picker lists for its search, best first.
+    #[must_use]
+    pub(crate) fn country_matches(&self) -> Vec<&'static str> {
+        crate::countries::search(&self.country_query)
+    }
+
+    /// What the options are asked for: the tier, the months paid at once, the country
+    /// (`1TB/12/PL`). An answer is taken only while it is still this.
+    #[must_use]
+    pub(crate) fn options_key(&self) -> String {
+        let tier = self.chosen_tier().map_or("", |t| t.id.as_str());
+        format!("{tier}/{}/{}", self.months(), self.country)
+    }
+
+    /// Whether an options answer asked for `key` is for the order as it is now.
+    #[must_use]
+    pub(crate) fn options_current(&self, key: &str) -> bool {
+        self.options_key() == key
+    }
+
+    /// Whether a tier list asked for `country` is for the declared country now.
+    #[must_use]
+    pub(crate) fn tiers_current(&self, country: &str) -> bool {
+        self.country == country
+    }
+
+    /// The details the chosen method's provider wants from the app (none where its own page
+    /// asks, or the method needs nothing): the fields under the pills.
+    #[must_use]
+    pub(crate) fn asked_fields(&self) -> Vec<PayerField> {
+        self.choice()
+            .map(|c| c.method.identity.app_fields().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// The payer's detail `field` says `text` now.
+    pub(crate) fn set_payer(&mut self, field: PayerField, text: &str) {
+        self.payer.set(field, text);
+        self.notice.clear();
+    }
+
+    /// The payer's details, for the order button's checkout: the dialog keeps none of them.
+    pub(crate) fn take_payer(&mut self) -> Payer {
+        std::mem::take(&mut self.payer)
     }
 
     /// For scripts: each pill's method and chosen provider, `sepa_debit:gocardless card:stripe`.

@@ -9,7 +9,7 @@ use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     machine::{ChipPage, Notice},
     offer::Price,
-    Method, OfferedProvider,
+    Choice, Handoff, Method, OfferedProvider, PayerField, SurfaceKind,
 };
 
 /// A payment method's name (a pill, the popover's title): `Direct debit`, `Lastschrift`.
@@ -75,6 +75,10 @@ pub(crate) fn notice(notice: &Notice) -> String {
         Notice::NoBrowserSurface => t("azdrive-pay-notice-no-browser"),
         Notice::SurfaceRefused(reason) => why("azdrive-pay-notice-surface-refused", reason),
         Notice::WaitingForLetter => t("azdrive-pay-notice-waiting-for-letter"),
+        Notice::IdentityIncomplete(fields) => t_args(
+            "azdrive-pay-notice-identity-incomplete",
+            &[("fields", Arg::from(payer_fields(fields)))],
+        ),
     }
 }
 
@@ -129,4 +133,155 @@ pub(crate) fn tier_price(tier: &Tier, yearly: bool) -> Option<String> {
         key,
         &[("price", Arg::from(l10n::money(cents, &tier.currency)))],
     ))
+}
+
+/// The payer details a method asks for, joined as the window's language joins a list: `name
+/// and email address`, `Name und E-Mail-Adresse`.
+#[must_use]
+pub(crate) fn payer_fields(fields: &[PayerField]) -> String {
+    let words: Vec<String> = fields.iter().map(|f| payer_field(*f)).collect();
+    l10n::and_list(words)
+}
+
+/// One payer detail's words: `email address`, `E-Mail-Adresse`.
+#[must_use]
+pub(crate) fn payer_field(field: PayerField) -> String {
+    l10n::app_word(
+        "AzDrive",
+        &format!("pay-field-{}", field.as_str().replace('_', "-")),
+        field.label(),
+    )
+}
+
+/// A payer detail's field label in the popover's form: `Name`, `Email address`.
+#[must_use]
+pub(crate) fn payer_label(field: PayerField) -> String {
+    t(&format!("azdrive-pay-payer-{}", field.as_str().replace('_', "-")))
+}
+
+/// The pill's short line under its name: where the payer finishes - a code from the banking
+/// app, a phone, the bank's or the wallet's website, a shop, the browser - said before the pill
+/// is picked; `None` for a method paid on the page itself.
+#[must_use]
+pub(crate) fn pill_hint(choice: &Choice) -> Option<String> {
+    let method = choice.method.method;
+    let key = match method.handoff() {
+        Handoff::PhoneQr => "azdrive-pay-hint-phone-qr",
+        Handoff::PhonePush => "azdrive-pay-hint-phone-push",
+        Handoff::BankApp => "azdrive-pay-hint-bank-app",
+        Handoff::BankLogin => "azdrive-pay-hint-bank-login",
+        Handoff::ProviderLogin => {
+            return Some(t_args(
+                "azdrive-pay-hint-provider-login",
+                &[("method", Arg::from(self::method(method)))],
+            ))
+        }
+        Handoff::StoreCash => "azdrive-pay-hint-store-cash",
+        Handoff::BankTransfer => "azdrive-pay-hint-bank-transfer",
+        Handoff::Post => "azdrive-pay-hint-post",
+        Handoff::None if browser_only(choice) => "azdrive-pay-hint-browser",
+        Handoff::None => return None,
+    };
+    Some(t(key))
+}
+
+/// The chosen pill's sentences, under the pills: what the method tells about the payer and who
+/// asks for it, what the payer does, how long a code lives, that it opens in the browser, a
+/// converted price.
+#[must_use]
+pub(crate) fn pill_note(choice: &Choice) -> Vec<String> {
+    let offered = &choice.method;
+    let method = offered.method;
+    let name = Arg::from(self::method(method));
+    let mut out = Vec::new();
+    let identity = &offered.identity;
+    let provider = Arg::from(choice.provider.spec.name);
+    if method.anonymous() && identity.is_none() {
+        out.push(t_args("azdrive-pay-note-anonymous", &[("method", name.clone())]));
+    }
+    // What the app sends with the order, then what the provider's own page asks for (a card's
+    // is the card network's), then once that the files stay encrypted.
+    if !identity.app_fields().is_empty() {
+        out.push(t_args(
+            "azdrive-pay-note-identity-app",
+            &[
+                ("method", name.clone()),
+                ("provider", provider.clone()),
+                ("fields", Arg::from(payer_fields(identity.app_fields()))),
+            ],
+        ));
+    }
+    let on_page = identity.page_fields();
+    if !on_page.is_empty() {
+        let fields = Arg::from(payer_fields(&on_page));
+        out.push(if pays_by_card(method) {
+            t_args(
+                "azdrive-pay-note-identity-card",
+                &[("method", name.clone()), ("fields", fields)],
+            )
+        } else {
+            t_args(
+                "azdrive-pay-note-identity-provider",
+                &[("method", name.clone()), ("provider", provider.clone()), ("fields", fields)],
+            )
+        });
+    }
+    if !identity.is_none() {
+        out.push(t("azdrive-pay-note-files"));
+    }
+    let does = match method.handoff() {
+        Handoff::PhoneQr => Some("azdrive-pay-note-phone-qr"),
+        Handoff::PhonePush => Some("azdrive-pay-note-phone-push"),
+        Handoff::BankApp => Some("azdrive-pay-note-bank-app"),
+        Handoff::BankLogin => Some("azdrive-pay-note-bank-login"),
+        Handoff::ProviderLogin => Some("azdrive-pay-note-provider-login"),
+        Handoff::StoreCash => Some("azdrive-pay-note-store-cash"),
+        Handoff::BankTransfer => Some("azdrive-pay-note-bank-transfer"),
+        Handoff::Post | Handoff::None => None,
+    };
+    if let Some(key) = does {
+        out.push(t_args(key, &[("method", name)]));
+    }
+    if offered.expires_minutes > 0 {
+        out.push(lifetime(offered.expires_minutes));
+    }
+    if browser_only(choice) {
+        out.push(t("azdrive-pay-note-browser"));
+    }
+    if let Some(currency) = &offered.presented_in {
+        out.push(t_args(
+            "azdrive-pay-note-converted",
+            &[
+                ("provider", Arg::from(choice.provider.spec.name)),
+                ("currency", Arg::from(currency.as_str())),
+            ],
+        ));
+    }
+    out
+}
+
+/// How long a method's code, QR code or voucher stays valid: in minutes up to two hours, in
+/// hours up to two days, else in days.
+fn lifetime(minutes: u32) -> String {
+    let (key, count) = if minutes < 120 {
+        ("azdrive-pay-note-valid-minutes", minutes)
+    } else if minutes < 2880 {
+        ("azdrive-pay-note-valid-hours", minutes / 60)
+    } else {
+        ("azdrive-pay-note-valid-days", minutes / 1440)
+    };
+    t_args(key, &[("count", Arg::from(u64::from(count)))])
+}
+
+/// The choice opens in the system browser only.
+fn browser_only(choice: &Choice) -> bool {
+    choice.method.surfaces == [SurfaceKind::SystemBrowser]
+}
+
+/// A method paid with a card, whose card network sees the cardholder's name.
+fn pays_by_card(method: Method) -> bool {
+    matches!(
+        method,
+        Method::Card | Method::ApplePay | Method::GooglePay | Method::KrCard
+    )
 }

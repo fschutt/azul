@@ -115,6 +115,26 @@ fn money_and_decimals_are_written_as_the_language_writes_them() {
     set_locale("en-US");
 }
 
+/// Money in the payer's own currency (Buy storage's prices in zloty, yen, rupees): each
+/// currency's own decimals (ISO 4217 - the yen and the won have none, the dinar three) and the
+/// window's locale's marks and grouping (azul's MoneyLocale: lakhs and crores in India).
+#[test]
+fn money_has_the_currencys_own_decimals_and_the_locales_marks() {
+    keep(&sources(&[]));
+    set_locale("en-US");
+    assert_eq!(money(160, "JPY"), "JPY 160");
+    assert_eq!(money(1_500_000, "KRW"), "KRW 1,500,000");
+    assert_eq!(money(449, "PLN"), "PLN 4.49");
+    assert_eq!(money(1_234_567, "KWD"), "KWD 1,234.567");
+    set_locale("de-DE");
+    assert_eq!(money(160, "JPY"), "160 JPY");
+    assert_eq!(money(449, "PLN"), "4,49 PLN");
+    assert_eq!(money(123_450, "EUR"), "1.234,50 EUR");
+    set_locale("en-IN");
+    assert_eq!(money(123_456_789, "INR"), "INR 12,34,567.89");
+    set_locale("en-US");
+}
+
 /// A word kept as its key (a worker thread's reason: it has no language) is said when its
 /// phrase is shown, in the window's language - its own words when the resources have none.
 #[test]

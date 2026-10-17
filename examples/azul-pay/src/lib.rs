@@ -29,6 +29,9 @@
 //!   wait, stopped, done or declined. The app runs the effects (an HTTP call on a thread, the
 //!   web view's src, `prevent_default`, `Url::open`, the poll) and feeds the results back.
 //!
+//! - **The payer's identity** ([`identity`]): what a method tells about the payer and who asks
+//!   for it - the provider's own page, or the popover for the few providers that want a name, an
+//!   email or a national ID in the merchant's request (sent once with the checkout, never kept).
 //! - **Cash by post** ([`cash`]): a provider on paper alone - the token server's cash checkout
 //!   becomes a slip (the activation code, the operator's address, the amount in digits and in
 //!   words) for the app to print, and the machine waits for nothing: the background claims look
@@ -42,6 +45,7 @@
 
 pub mod bridge;
 pub mod cash;
+pub mod identity;
 pub mod machine;
 pub mod offer;
 pub mod pills;
@@ -50,10 +54,11 @@ pub mod surface;
 pub mod url;
 
 pub use cash::CashSlip;
+pub use identity::{Identity, Payer, PayerField};
 pub use machine::{step, Effect, Event, Notice, State};
 pub use offer::{Offer, OfferContext, OfferedProvider};
 pub use pills::{Choice, Pill, PillContext};
-pub use registry::{Method, ProviderKind, SurfaceKind};
+pub use registry::{Flow, Handoff, Method, ProviderKind, SurfaceKind};
 pub use surface::{Created, Look, SecretUrl, Surface};
 
 #[cfg(test)]

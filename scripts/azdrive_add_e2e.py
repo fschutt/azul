@@ -47,7 +47,8 @@ sheet of `--dialogs inline`:
 
     7. A card payment in the popover (CHECKOUT-PLAN §4.3, the mock's fake providers on): Buy
        storage shows the pills (direct debit via Fake GoCardless, card via Fake Stripe), the card
-       pill and the consent, Buy: the checkout goes through fake-stripe with a claim key; the
+       pill and the consent, Buy: the checkout goes through fake-stripe with a claim key, in
+       euros for a payer in Germany (AZLIN_COUNTRY); the
        payment popover - its own window - shows the verified chip, the card artwork and Fake
        Stripe's fields page in its <webview> (list_webviews); the fields page "says" ready,
        visa and complete (simulate_webview_navigation to /_bridge/...: each cancelled), the
@@ -105,6 +106,21 @@ sheet of `--dialogs inline`:
        computer" downloads its files into a folder picked (the mock store's file_open); the
        mock's clock past the end: the drive shows "This drive was closed on <date> because
        <reason>." and nothing else.
+   16. The buyer's country (after step 11): on a second profile whose buyer declared none (no
+       AZLIN_COUNTRY, the window in English: the guess is the United States) Buy storage asks
+       "Where do you live?" first, the guess picked in the list; typing "germ" finds Germany,
+       Continue declares it (AZDRIVE_COUNTRY DE, the settings file's residence_country) and the
+       tiers show in euros; started again, that profile goes straight to the tiers ("You live in
+       Germany."). On the buyer's computer "Change" -> "pol" -> Poland: the tiers in zloty
+       (PLN 4.49 a month), the pills in Poland's order (BLIK, Przelewy24, the card, PayPal),
+       BLIK saying "Code from your banking app" before it is picked and "valid for 2 minutes"
+       when it is; Buy: a fake-stripe BLIK checkout of PLN 4.49 for PL whose hosted page shows
+       in the popover; the code typed there (a POST of the page's form) pays it, the return page
+       hands back, the drive arrives. Then Brazil with Fake dLocal on: Pix says its provider
+       needs the name, email address and national ID number with the order; Buy without them
+       names them and sends nothing; typed, they go once with the BRL checkout (the mock keeps
+       none of them, the dialog drops them), its page opens in the browser, paid there, the
+       drive arrives.
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 11 nothing loads
@@ -139,6 +155,8 @@ import sqlite3
 import sys
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 
 import azlin_claim
 import azlin_client
@@ -1017,6 +1035,195 @@ def other_profile(logs, name, switches, env):
     return other, dict(env, AZ_KEYRING_FILE=os.path.join(root, "keyring.json"))
 
 
+def country_steps(app, stack, args, logs, out, binary, switches, env, keyring_file):
+    """16. The buyer's country: Buy storage's first question on a computer whose buyer declared
+    none, remembered there; on the buyer's computer a payer in Poland pays in zloty with BLIK."""
+    token = stack.token_url
+    # A second computer: no AZLIN_COUNTRY, the window in English (en-US: the guess is the US).
+    first_switches, first_env = other_profile(logs, "country-first", switches, env)
+    first_env = {k: v for k, v in first_env.items() if k != "AZLIN_COUNTRY"}
+    data_dir = first_switches[first_switches.index("--data-dir") + 1]
+    fresh = Drive("azdrive-country", binary, first_switches, args.debug_port + 2, logs,
+                  args.timeout, extra_env=first_env)
+    try:
+        fresh.until("the This PC view", lambda: fresh.printed("AZDRIVE_PLACE", r"this-pc"))
+        fresh.until("the debug server", lambda: fresh.op("get_dom_tree"))
+        dialog = open_dialog(fresh, "the source list",
+                             lambda: fresh.click(selector="#" + I("side-add-drive")))
+        dialog.page("country", lambda: dialog.click("choice_buy"))
+        for text in ("Where do you live?", "remembers it on this computer only",
+                     "United States"):
+            dialog.win.until("the picker's %r" % text, lambda: dialog.shows(text))
+        guess = add_id("country_option_us")
+        dialog.win.until("the guess in the list", lambda: dialog.win.has(guess))
+        dialog.screenshot(os.path.join(out, "16-country-picker.png"))
+        dialog.type_into("country_search", "germ")
+        dialog.win.until("Germany alone found", lambda: dialog.win.has(add_id(
+            "country_option_de")) and not dialog.win.has(guess))
+
+        def declare_germany():
+            dialog.click("country_option_de")
+            dialog.click("country_continue")
+        fresh.after("Germany declared", "AZDRIVE_COUNTRY", r"DE", declare_germany)
+        fresh.until("the tiers in euros", lambda: fresh.printed("AZDRIVE_TIERS", r"\d+"))
+        dialog.win.until("the euro prices", lambda: dialog.shows("EUR 0.99 a month"))
+        fresh.until("the country remembered on this computer",
+                    lambda: '"residence_country": "DE"' in settings_text(data_dir))
+        dialog.click("cancel")
+        wait_closed(fresh)
+    finally:
+        fresh.stop()
+    again = Drive("azdrive-country-again", binary, first_switches, args.debug_port + 2, logs,
+                  args.timeout, extra_env=first_env)
+    try:
+        again.until("the This PC view", lambda: again.printed("AZDRIVE_PLACE", r"this-pc"))
+        again.until("the debug server", lambda: again.op("get_dom_tree"))
+        dialog = open_dialog(again, "the source list",
+                             lambda: again.click(selector="#" + I("side-add-drive")))
+        dialog.page("buy", lambda: dialog.click("choice_buy"))
+        dialog.win.until("the remembered country", lambda: dialog.shows("You live in Germany."))
+        dialog.click("cancel")
+        wait_closed(again)
+    finally:
+        again.stop()
+    log("16a. A computer whose buyer declared no country asked \"Where do you live?\" first "
+        "(the guess, the United States, picked); \"germ\" found Germany, Continue declared it "
+        "(tiers in euros, residence_country in its settings); started again it went straight "
+        "to the tiers")
+
+    # The buyer's computer: Germany declared (AZLIN_COUNTRY); Change -> Poland.
+    added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
+    dialog = open_dialog(app, "the source list",
+                         lambda: app.click(selector="#" + I("side-add-drive")))
+    app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+              lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    dialog.win.until("the country line", lambda: dialog.shows("You live in Germany."))
+    dialog.page("country", lambda: dialog.click("country"))
+    dialog.type_into("country_search", "pol")
+    dialog.win.until("Poland found", lambda: dialog.win.has(add_id("country_option_pl")))
+
+    def declare_poland():
+        dialog.click("country_option_pl")
+        dialog.click("country_continue")
+    pills = app.after("the pills for Poland", "AZDRIVE_PILLS", r".+",
+                      lambda: app.after("Poland declared", "AZDRIVE_COUNTRY", r"PL",
+                                        declare_poland))
+    if pills.split()[:3] != ["blik:fake-stripe", "p24:fake-stripe", "card:fake-stripe"]:
+        raise Failure("the pills for Poland are %r, not BLIK, Przelewy24, the card first" % pills)
+    if "sepa_debit" in pills:
+        raise Failure("a direct debit is offered in zloty: %r" % pills)
+    for text in ("You live in Poland.", "PLN 4.49 a month", "Code from your banking app"):
+        dialog.win.until("the dialog's %r" % text, lambda: dialog.shows(text))
+    dialog.click("pill_blik")
+    dialog.win.until("BLIK's note", lambda: dialog.shows("valid for 2 minutes"))
+    dialog.click("consent")
+    dialog.screenshot(os.path.join(out, "16-poland-blik.png"))
+    shown = app.count("AZDRIVE_PAY_SURFACE", r".+")
+    checkout = app.after("the BLIK checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                         lambda: dialog.click("buy_button"))
+    surface = app.until("the BLIK page", lambda: app.count("AZDRIVE_PAY_SURFACE", r".+") > shown
+                        and app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1])
+    if not re.fullmatch(r"page 127\.0\.0\.1:\d+", surface):
+        raise Failure("the BLIK checkout opened %r, not its hosted page in the popover" % surface)
+    record = stack.token.state.checkouts.get(checkout) or {}
+    charged = tuple(record.get(k) for k in ("provider", "method", "currency", "amount",
+                                            "vat_country"))
+    if charged != ("fake-stripe", "blik", "PLN", 449, "PL"):
+        raise Failure("the BLIK checkout is %r, not fake-stripe BLIK PLN 4.49 for PL"
+                      % (charged,))
+    popover = popover_of(app, dialog)
+    view = the_view(popover)
+    if not view.get("src", "").startswith(token + "/fake-stripe/c/pay/cs_test_"):
+        raise Failure("the popover shows %r, not Fake Stripe's BLIK page" % view.get("src"))
+    popover.until("the chip", lambda: popover.shows("payment page of Fake Stripe"))
+    popover.screenshot(os.path.join(out, "16-blik-popover.png"))
+    # The payer types the code from the banking app on the page: its form posted, as the page
+    # sends it; the fake provider's signed webhook approves.
+    form = urllib.parse.urlencode({"blik_code": "123456"}).encode("ascii")
+    with urllib.request.urlopen(urllib.request.Request(view["src"], data=form, method="POST"),
+                                timeout=10):
+        pass
+    if (stack.token.state.checkouts.get(checkout) or {}).get("status") != "approved":
+        raise Failure("the BLIK code did not pay the checkout: %r"
+                      % stack.token.state.checkouts.get(checkout, {}).get("status"))
+    hand_back(app, popover, view, token + "/return/ok")
+    paid = new_drive(app, Payment(checkout, dialog, surface, added))
+    new_drive_encrypted(app, paid)
+    wait_closed(app)
+    log("16b. A payer in Poland: Change -> \"pol\" -> Poland; the tiers in zloty, the pills %s; "
+        "BLIK said where the payer finishes and how long its code lives; the checkout %s of "
+        "PLN 4.49 showed Fake Stripe's BLIK page in the popover, the code paid it, %s arrived"
+        % (pills, checkout, paid))
+
+    # A method whose provider wants the payer's details from the app: Fake dLocal's Pix.
+    stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS) + ["fake-dlocal"])
+    added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
+    dialog = open_dialog(app, "the source list",
+                         lambda: app.click(selector="#" + I("side-add-drive")))
+    app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+              lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    dialog.page("country", lambda: dialog.click("country"))
+    dialog.type_into("country_search", "brazil")
+    dialog.win.until("Brazil found", lambda: dialog.win.has(add_id("country_option_br")))
+
+    def declare_brazil():
+        dialog.click("country_option_br")
+        dialog.click("country_continue")
+    pills = app.after("the pills for Brazil", "AZDRIVE_PILLS", r".+",
+                      lambda: app.after("Brazil declared", "AZDRIVE_COUNTRY", r"BR",
+                                        declare_brazil))
+    if pills.split()[0] != "pix:fake-dlocal":
+        raise Failure("the pills for Brazil are %r, not Pix first" % pills)
+    dialog.click("pill_pix")
+    asked = ("Fake dLocal needs your name, email address and national ID number with the "
+             "order. AzDrive sends them once and does not keep them.")
+    dialog.win.until("the note on the details", lambda: dialog.shows(asked))
+    for field in ("payer_name", "payer_email", "payer_national_id"):
+        dialog.win.until("the field %s" % field, lambda: dialog.win.has(add_id(field)))
+    dialog.click("consent")
+    before = len(stack.token.state.checkouts)
+    dialog.click("buy_button")
+    dialog.win.until("the missing details named", lambda: dialog.shows(
+        "needs your name, email address and national ID number first"))
+    if len(stack.token.state.checkouts) != before:
+        raise Failure("a checkout went out without the details the provider wants")
+    typed = {"payer_name": "Ana Teste", "payer_email": "ana.teste@example.com",
+             "payer_national_id": "529.982.247-25"}
+    for field, text in typed.items():
+        dialog.type_into(field, text)
+    dialog.screenshot(os.path.join(out, "16-brazil-pix-details.png"))
+    browsers = app.count("AZDRIVE_OPEN_BROWSER", r".+")
+    checkout = app.after("the Pix checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                         lambda: dialog.click("buy_button"))
+    app.until("the Pix page in the browser",
+              lambda: app.count("AZDRIVE_OPEN_BROWSER", r".+") > browsers)
+    record = stack.token.state.checkouts.get(checkout) or {}
+    if (record.get("provider"), record.get("method"), record.get("currency"),
+            record.get("vat_country")) != ("fake-dlocal", "pix", "BRL", "BR"):
+        raise Failure("the Pix checkout is %r" % {k: record.get(k) for k in
+                                                  ("provider", "method", "currency",
+                                                   "vat_country")})
+    kept = json.dumps(record)
+    if any(text in kept for text in typed.values()):
+        raise Failure("the token server kept the payer's details: %s" % kept)
+    dialog.win.until("the details gone from the dialog",
+                     lambda: not any(dialog.shows(text) for text in typed.values()))
+    # The payment on Fake dLocal's page in the browser (a POST of its form).
+    page_url = "%s/fake-dlocal/pay/%s" % (token, record["provider_ref"])
+    form = urllib.parse.urlencode({"action": "authorize"}).encode("ascii")
+    with urllib.request.urlopen(urllib.request.Request(page_url, data=form, method="POST"),
+                                timeout=10):
+        pass
+    by_pix = new_drive(app, Payment(checkout, dialog, "browser", added))
+    new_drive_encrypted(app, by_pix)
+    wait_closed(app)
+    stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
+    log("16c. A payer in Brazil: Pix via Fake dLocal said its provider needs the name, email "
+        "address and national ID number with the order; Buy without them named them and sent "
+        "nothing; typed, they went once with %s (BRL, BR) - the token server kept none and the "
+        "dialog dropped them; paid in the browser, %s arrived" % (checkout, by_pix))
+
+
 def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file):
     """14. Cash by post: the pill, the checkout and its slip, both PDFs, the waiting order, the
     operator's activation and the daily look that brings the drive, the claim code picked up on
@@ -1794,6 +2001,10 @@ def run(args, logs):
         if record.get("provider") != "fake-stripe" or record.get("method") != "card":
             raise Failure("the checkout went through %r" % {k: record.get(k) for k in
                                                             ("provider", "method", "surface")})
+        if (record.get("currency"), record.get("amount"), record.get("vat_country")) \
+                != ("EUR", 99, "DE"):
+            raise Failure("the card checkout charges %r, not EUR 0.99 for Germany"
+                          % {k: record.get(k) for k in ("currency", "amount", "vat_country")})
         if len(base64.b64decode(record.get("claim_key") or "")) != 32:
             raise Failure("the card checkout names no claim key")
         if card not in pending_checkouts(keyring_file):
@@ -1970,6 +2181,9 @@ def run(args, logs):
                           % stack.token.state.checkouts.get(closed, {}).get("status"))
         log("11. Closing the dialog while the popover showed the fields abandoned %s at the "
             "token server and took it off the keyring's list" % closed)
+
+        # 16. The buyer's country: the first question elsewhere, a payer in Poland here.
+        country_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
 
         # 12. A consumer cloud's sign-in. Dropbox has no client id in this run: the form says
         # which setting is missing.

@@ -12,10 +12,7 @@ use azul_storage::{
 };
 
 use crate::{
-    add_drive::{
-        country_from, country_of_locale, source_groups, AddDialog, AddPage, OfferState,
-        TiersState, COUNTRIES,
-    },
+    add_drive::{source_groups, AddDialog, AddPage, OfferState, TiersState},
     sign_in::{self, PendingSignIn, SignInSettings, SignInStep},
 };
 
@@ -137,6 +134,7 @@ fn a_drive_whose_keys_are_gone_opens_its_form_again_without_them() {
 fn buy_storage_shows_the_chosen_tier_and_its_price() {
     crate::l10n::in_english();
     let mut dialog = AddDialog::new(1);
+    dialog.country = String::from("DE");
     dialog.choose_buy();
     assert_eq!(dialog.page_line(), "buy");
     assert!(matches!(dialog.tiers, TiersState::NotLoaded));
@@ -191,9 +189,9 @@ fn offer() -> Offer {
 /// Buy storage with the tiers and the offer in, paying from `country`.
 fn paying_dialog(country: &str) -> AddDialog {
     let mut dialog = AddDialog::new(1);
+    dialog.country = country.to_string();
     dialog.choose_buy();
     dialog.tiers = TiersState::Loaded(tiers());
-    dialog.country = country.to_string();
     dialog.offer_loaded(offer());
     dialog
 }
@@ -223,36 +221,40 @@ fn buy_storage_without_payment_options_pays_on_the_v1_payment_page() {
 }
 
 #[test]
-fn the_pills_follow_the_country_and_the_period() {
-    let mut dialog = paying_dialog("DE");
-    assert!(dialog.pays_with_pills());
-    assert_eq!(methods(&dialog), vec![Method::SepaDebit, Method::Card]);
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::SepaDebit));
-    dialog.yearly = true;
-    assert_eq!(
-        methods(&dialog),
-        vec![Method::SepaDebit, Method::Card, Method::PayPal],
-        "PayPal for a prepaid year"
-    );
-    let mut us = paying_dialog("US");
-    assert_eq!(methods(&us), vec![Method::Card]);
-    assert_eq!(us.chosen_pill().map(|p| p.method), Some(Method::Card));
-    us.yearly = true;
-    assert_eq!(methods(&us), vec![Method::Card, Method::PayPal]);
+fn the_pills_are_the_methods_the_server_offered_in_its_order() {
+    // The server answered for the payer's country and period: the app hides none of it.
+    for country in ["DE", "US"] {
+        let mut dialog = paying_dialog(country);
+        assert!(dialog.pays_with_pills());
+        assert_eq!(
+            methods(&dialog),
+            vec![Method::SepaDebit, Method::Card, Method::PayPal],
+            "{country}"
+        );
+        assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::SepaDebit));
+        dialog.yearly = true;
+        assert_eq!(methods(&dialog).len(), 3, "{country}: the same offer, the same pills");
+    }
 }
 
 #[test]
-fn a_chosen_pill_stays_chosen_when_the_period_changes() {
+fn a_chosen_pill_stays_chosen_while_the_offer_has_it() {
     let mut dialog = paying_dialog("DE");
-    dialog.choose_pill(Method::Card);
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
-    dialog.yearly = true;
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
     dialog.choose_pill(Method::PayPal);
-    dialog.yearly = false;
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::PayPal));
+    dialog.yearly = true;
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::PayPal));
+    let without_paypal = Offer::parse(
+        &serde_json::json!({"offers": [{"provider": "stripe",
+                                        "methods": [{"method": "card"}]}]})
+        .to_string(),
+        &OfferContext::for_token_url("https://token.azlin.io"),
+    )
+    .unwrap();
+    dialog.offer = OfferState::Loaded(without_paypal);
     assert_eq!(
         dialog.chosen_pill().map(|p| p.method),
-        Some(Method::SepaDebit),
+        Some(Method::Card),
         "a pill that went away gives way to the default"
     );
 }
@@ -292,54 +294,176 @@ fn the_choice_carries_the_surfaces_azdrive_can_show() {
             SurfaceKind::SystemBrowser
         ]
     );
-    assert_eq!(dialog.pills_line(), "sepa_debit:gocardless card:stripe");
+    assert_eq!(
+        dialog.pills_line(),
+        "sepa_debit:gocardless card:stripe paypal:stripe"
+    );
 }
 
 #[test]
-fn a_country_change_asks_for_the_options_again() {
+fn a_new_country_asks_for_the_tiers_and_the_options_again_in_its_currency() {
     let mut dialog = paying_dialog("DE");
-    assert!(dialog.set_country("FR"));
-    assert_eq!(dialog.country, "FR");
+    dialog.choose_pill(Method::Card);
+    assert!(dialog.set_country("pl"));
+    assert_eq!(dialog.country, "PL");
+    assert!(matches!(dialog.tiers, TiersState::NotLoaded), "prices in zloty now");
     assert!(matches!(dialog.offer, OfferState::NotLoaded));
-    assert!(!dialog.set_country("FR"), "the same country");
-    assert!(!dialog.set_country("XX"), "not a country of the list");
-    assert_eq!(dialog.country, "FR");
-    assert!(COUNTRIES.iter().any(|(code, _)| *code == "DE"));
+    assert_eq!(dialog.pill, None);
+    assert!(!dialog.set_country("PL"), "the same country");
+    assert!(!dialog.set_country("XX"), "not a listed country");
+    assert!(!dialog.set_country("RU"), "a country no checkout may come from");
+    assert_eq!(dialog.country, "PL");
+}
+
+// ==== Buy storage's first question: where the buyer lives ====
+
+#[test]
+fn buy_storage_asks_where_the_buyer_lives_first_when_nothing_is_declared() {
+    crate::l10n::in_english();
+    let mut dialog = AddDialog::new(1);
+    assert_eq!(dialog.country, "", "nothing declared yet");
+    dialog.country_pick = Some("PL");
+    dialog.choose_buy();
+    assert_eq!(dialog.page, AddPage::Country);
+    assert_eq!(dialog.page_line(), "country");
+    assert_eq!(dialog.country_matches().len(), crate::countries::COUNTRIES.len());
+    assert!(dialog.confirm_country(), "the guess confirmed");
+    assert_eq!(dialog.country, "PL");
+    assert_eq!(dialog.page, AddPage::Buy);
+    let mut unsure = AddDialog::new(2);
+    unsure.choose_buy();
+    assert_eq!(unsure.page, AddPage::Country);
+    assert!(!unsure.confirm_country(), "no guess and nothing picked");
+    assert_eq!(unsure.page, AddPage::Country);
+    assert!(!unsure.notice.is_empty(), "it says to pick a country");
 }
 
 #[test]
-fn the_country_comes_from_the_locale() {
-    assert_eq!(country_of_locale("de_DE.UTF-8").as_deref(), Some("DE"));
-    assert_eq!(country_of_locale("en_GB").as_deref(), Some("GB"));
-    assert_eq!(country_of_locale("fr-FR").as_deref(), Some("FR"));
-    assert_eq!(country_of_locale("nl_NL@euro").as_deref(), Some("NL"));
-    assert_eq!(country_of_locale("C"), None);
-    assert_eq!(country_of_locale("POSIX"), None);
-    assert_eq!(country_of_locale("en_ZZ.UTF-8"), None);
-    assert_eq!(country_of_locale(""), None);
+fn a_declared_country_goes_straight_to_the_tiers_and_can_be_changed() {
+    let mut dialog = AddDialog::new(1);
+    dialog.country = String::from("DE");
+    dialog.choose_buy();
+    assert_eq!(dialog.page, AddPage::Buy);
+    dialog.change_country();
+    assert_eq!(dialog.page, AddPage::Country);
+    assert_eq!(dialog.country_pick, Some("DE"), "the declared country is picked");
+    dialog.back();
+    assert_eq!(dialog.page, AddPage::Buy, "back to the tiers of the declared country");
+    let mut first = AddDialog::new(2);
+    first.choose_buy();
+    first.back();
+    assert_eq!(first.page, AddPage::Choose);
 }
 
 #[test]
-fn azlin_country_names_the_payers_country_before_the_locale() {
-    let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |name: &str| {
-            pairs
-                .iter()
-                .find(|(k, _)| *k == name)
-                .map(|(_, v)| (*v).to_string())
+fn the_picker_lists_the_countries_matching_the_search_and_keeps_the_pick() {
+    crate::l10n::in_english();
+    let mut dialog = AddDialog::new(1);
+    dialog.choose_buy();
+    dialog.search_country("pol");
+    assert_eq!(dialog.country_query, "pol");
+    assert_eq!(dialog.country_matches().first(), Some(&"PL"));
+    assert!(dialog.pick_country("pl"));
+    assert_eq!(dialog.country_pick, Some("PL"));
+    assert!(!dialog.pick_country("RU"), "never a country no checkout may come from");
+    assert!(!dialog.pick_country("XX"));
+    assert_eq!(dialog.country_pick, Some("PL"));
+    dialog.search_country("united");
+    assert_eq!(dialog.country_pick, Some("PL"), "searching again keeps the pick");
+    assert!(dialog.confirm_country());
+    assert_eq!(dialog.country, "PL");
+}
+
+// ==== The payer's details: only for a method whose provider wants them from the app ====
+
+/// Stripe's card described further by `extra` (its `needs_identity`, `identity_in_app`).
+fn card_offer(extra: serde_json::Value) -> Offer {
+    let mut card = serde_json::json!({"method": "card"});
+    if let (Some(c), Some(e)) = (card.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            c.insert(k.clone(), v.clone());
         }
-    };
+    }
+    Offer::parse(
+        &serde_json::json!({"offers": [{"provider": "stripe", "methods": [card]}]}).to_string(),
+        &OfferContext::for_token_url("https://token.azlin.io"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_payers_details_are_asked_only_where_the_provider_wants_them_from_the_app() {
+    use azul_pay::PayerField;
+    let mut dialog = paying_dialog("BR");
+    dialog.offer_loaded(card_offer(serde_json::json!({
+        "needs_identity": ["name", "email", "national_id"],
+        "identity_in_app": ["name", "email", "national_id"]})));
     assert_eq!(
-        country_from(env(&[("AZLIN_COUNTRY", "fr"), ("LANG", "de_DE.UTF-8")])),
-        "FR"
+        dialog.asked_fields(),
+        vec![PayerField::Name, PayerField::Email, PayerField::NationalId]
     );
+    dialog.offer_loaded(card_offer(serde_json::json!({"needs_identity": ["name"]})));
+    assert!(dialog.asked_fields().is_empty(), "the provider's own page asks for the name");
+    dialog.offer_loaded(card_offer(serde_json::json!({})));
+    assert!(dialog.asked_fields().is_empty());
+}
+
+#[test]
+fn the_payers_details_leave_the_dialog_with_the_checkout_and_are_never_shown() {
+    use azul_pay::PayerField;
+    let mut dialog = paying_dialog("BR");
+    dialog.set_payer(PayerField::Name, "Ana Souza");
+    dialog.set_payer(PayerField::NationalId, "123.456.789-09");
+    let text = format!("{dialog:?}");
+    assert!(!text.contains("Ana") && !text.contains("123.456"), "{text}");
+    let sent = dialog.take_payer();
+    assert_eq!(sent.name, "Ana Souza");
+    assert!(dialog.payer.is_empty(), "the dialog keeps none of them");
+}
+
+#[test]
+fn new_options_keep_the_chosen_pill_while_they_offer_it() {
+    let mut dialog = paying_dialog("DE");
+    dialog.choose_pill(Method::Card);
+    dialog.offer_loaded(offer());
     assert_eq!(
-        country_from(env(&[("AZLIN_COUNTRY", "XX"), ("LANG", "nl_NL.UTF-8")])),
-        "NL",
-        "a country not of the list is no choice"
+        dialog.chosen_pill().map(|p| p.method),
+        Some(Method::Card),
+        "the options asked again for another tier or period"
     );
-    assert_eq!(country_from(env(&[("LC_ALL", "C"), ("LANG", "en_GB.UTF-8")])), "GB");
-    assert_eq!(country_from(env(&[])), "DE");
+}
+
+#[test]
+fn an_answer_for_another_country_tier_or_period_is_not_taken() {
+    // The options are asked for again on every change; an answer that was on its way for the
+    // order as it was before must not replace the current one.
+    let mut dialog = paying_dialog("DE");
+    let asked = dialog.options_key();
+    assert!(dialog.options_current(&asked));
+    dialog.yearly = true;
+    assert!(!dialog.options_current(&asked), "the period changed since");
+    dialog.yearly = false;
+    dialog.tier = 1;
+    assert!(!dialog.options_current(&asked), "another tier");
+    dialog.tier = 0;
+    assert!(dialog.options_current(&asked));
+    dialog.set_country("PL");
+    assert!(!dialog.options_current(&asked), "another country");
+    assert!(dialog.tiers_current("PL") && !dialog.tiers_current("DE"));
+}
+
+#[test]
+fn the_buyers_country_is_remembered_in_this_computers_settings_only() {
+    let mut settings = crate::model::Settings::default();
+    assert_eq!(settings.residence_country, None);
+    settings.residence_country = Some(String::from("PL"));
+    let text = settings.to_json();
+    assert!(text.contains("\"residence_country\": \"PL\""), "{text}");
+    assert_eq!(
+        crate::model::Settings::from_json(&text).residence_country.as_deref(),
+        Some("PL")
+    );
+    assert_eq!(crate::model::Settings::from_json("{}").residence_country, None);
 }
 
 #[test]
@@ -353,6 +477,7 @@ fn the_dialog_is_busy_while_a_payment_runs_and_its_debug_text_holds_no_secret() 
         azul_pay::Event::Pay {
             choice: choice.clone(),
             consent: true,
+            payer: azul_pay::Payer::default(),
         },
     );
     assert_eq!(effects.len(), 1);

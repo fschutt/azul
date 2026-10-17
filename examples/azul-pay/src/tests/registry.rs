@@ -3,7 +3,7 @@
 
 use crate::{
     registry::{
-        self, Breaks, Method, ProviderKind, SurfaceKind, Webview, BRIDGE_PREFIX, FIELDS_PREFIX,
+        self, Breaks, Method, ProviderKind, Settles, SurfaceKind, Webview, BRIDGE_PREFIX, FIELDS_PREFIX,
         PAY_HOST, RETURN_CANCEL, RETURN_PENDING, RETURN_SUCCESS,
     },
     url::{Origin, WebUrl},
@@ -217,4 +217,163 @@ fn the_fake_providers_live_on_this_computer_only() {
         paypal.method(Method::PayPal).unwrap().chain,
         &[SurfaceKind::SystemBrowser]
     );
+}
+
+// ==== The local methods ====
+
+#[test]
+fn every_method_says_what_the_payer_does_and_where_they_finish() {
+    use crate::registry::{Flow, Handoff};
+    assert_eq!(Method::ALL.len(), 51);
+    for method in Method::ALL {
+        assert!(
+            method
+                .as_str()
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+            "{method:?}"
+        );
+        // A method that logs in at a bank or a wallet leaves the payment page; one that needs a
+        // phone shows a QR code, a push or a code - never both.
+        assert!(!(method.handoff().leaves() && method.handoff().needs_phone()), "{method:?}");
+    }
+    assert_eq!((Method::Blik.flow(), Method::Blik.handoff()), (Flow::Code, Handoff::BankApp));
+    assert!(Method::Blik.handoff().needs_phone());
+    assert!(Method::Twint.handoff().needs_phone() && Method::MbWay.handoff().needs_phone());
+    assert!(Method::Ideal.handoff().leaves() && Method::PayPal.handoff().leaves());
+    assert!(!Method::Card.handoff().leaves() && !Method::Card.handoff().needs_phone());
+    assert_eq!(Method::Multibanco.handoff(), Handoff::StoreCash);
+    assert!(Method::Cash.anonymous() && Method::Voucher.anonymous());
+    assert!(!Method::Card.anonymous() && !Method::Blik.anonymous());
+    assert_eq!(Method::parse("BLIK"), Some(Method::Blik));
+    assert_eq!(Method::parse("mb_way"), Some(Method::MbWay));
+}
+
+#[test]
+fn stripe_carries_the_local_methods_of_its_routes_on_the_surfaces_they_allow() {
+    let stripe = registry::provider("stripe").unwrap();
+    let page_browser = [SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser];
+    for method in [
+        Method::Blik,
+        Method::Twint,
+        Method::Swish,
+        Method::MobilePay,
+        Method::Vipps,
+        Method::MbWay,
+        Method::Multibanco,
+        Method::Bizum,
+        Method::RevolutPay,
+        Method::Upi,
+        Method::Pix,
+        Method::Boleto,
+        Method::WechatPay,
+        Method::Konbini,
+        Method::Oxxo,
+        Method::PayNow,
+        Method::PromptPay,
+    ] {
+        let spec = stripe.method(method).unwrap_or_else(|| panic!("{method:?}"));
+        assert_eq!(spec.chain, page_browser.as_slice(), "{method:?}: its page, then the browser");
+    }
+    for method in [
+        Method::Ideal,
+        Method::Bancontact,
+        Method::Eps,
+        Method::P24,
+        Method::Klarna,
+        Method::Satispay,
+        Method::PayByBank,
+        Method::Alipay,
+        Method::GooglePay,
+        Method::Link,
+        Method::AmazonPay,
+        Method::UsBankAccount,
+        Method::KrCard,
+        Method::KakaoPay,
+        Method::NaverPay,
+        Method::Payco,
+        Method::SamsungPay,
+        Method::PayPay,
+        Method::Fpx,
+        Method::GrabPay,
+    ] {
+        let spec = stripe.method(method).unwrap_or_else(|| panic!("{method:?}"));
+        assert_eq!(
+            spec.chain,
+            [SurfaceKind::SystemBrowser].as_slice(),
+            "{method:?}: a login or a bank, the system browser only"
+        );
+    }
+    assert_eq!(stripe.method(Method::BankTransfer).unwrap().chain, page_browser.as_slice());
+    assert_eq!(stripe.method(Method::P24).unwrap().settles, Settles::Days);
+    assert_eq!(stripe.method(Method::Blik).unwrap().settles, Settles::Instant);
+}
+
+#[test]
+fn gocardless_carries_its_direct_debit_schemes_on_its_page_and_the_browser() {
+    let gocardless = registry::provider("gocardless").unwrap();
+    for method in [
+        Method::BacsDebit,
+        Method::Autogiro,
+        Method::Betalingsservice,
+        Method::BecsDebit,
+        Method::BecsNzDebit,
+        Method::PadDebit,
+    ] {
+        let spec = gocardless.method(method).unwrap_or_else(|| panic!("{method:?}"));
+        assert_eq!(
+            spec.chain,
+            [SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser].as_slice(),
+            "{method:?}"
+        );
+        assert_eq!(spec.settles, Settles::Days, "{method:?}");
+    }
+    assert_eq!(
+        gocardless.method(Method::UsBankAccount).unwrap().chain,
+        [SurfaceKind::SystemBrowser].as_slice(),
+        "ACH logs in at the bank"
+    );
+}
+
+#[test]
+fn a_method_that_logs_in_at_a_bank_or_a_wallet_never_shows_in_a_web_view() {
+    for spec in registry::providers() {
+        for method in spec.methods {
+            if method.method.handoff().leaves() {
+                assert!(
+                    method.chain.iter().all(|s| !s.in_webview()),
+                    "{} {:?}",
+                    spec.id,
+                    method.method
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fake-providers")]
+#[test]
+fn the_stripe_and_gocardless_stand_ins_carry_the_real_ones_methods_on_this_computer() {
+    for (real, fake) in [("stripe", "fake-stripe"), ("gocardless", "fake-gocardless")] {
+        let real = registry::provider(real).unwrap();
+        let fake = registry::provider(fake).unwrap();
+        for method in real.methods {
+            // Apple Pay needs the system's sheet: no stand-in has one.
+            if method.method == Method::ApplePay {
+                continue;
+            }
+            let stand_in = fake
+                .method(method.method)
+                .unwrap_or_else(|| panic!("{} lacks {:?}", fake.id, method.method));
+            assert_eq!(
+                stand_in.chain.last(),
+                method.chain.last(),
+                "{} {:?}",
+                fake.id,
+                method.method
+            );
+            assert_eq!(stand_in.settles, method.settles, "{} {:?}", fake.id, method.method);
+        }
+        assert!(fake.origins.iter().all(Origin::is_loopback), "{}", fake.id);
+    }
 }

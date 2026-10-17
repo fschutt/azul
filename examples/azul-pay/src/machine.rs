@@ -2,8 +2,8 @@
 //! event to the next state and the effects the app runs. No window, no network, no clock.
 //!
 //! ```text
-//! Choosing --Pay (consent)--> Preparing --Created--> Presenting (fields / page)
-//!                                       \--Created (browser)--> Waiting
+//! Choosing --Pay (consent, the asked payer details)--> Preparing
+//! Preparing --Created (fields / page)--> Presenting   Preparing --Created (browser)--> Waiting
 //! Preparing --CreateFailed--> Choosing
 //! Presenting --Confirm (fields complete)--> Confirming --result succeeded / processing--> Waiting
 //! Confirming --result failed--> Presenting (the provider's message; Pay works again)
@@ -18,7 +18,8 @@
 //! ```
 //!
 //! The app runs the effects: [`Effect::CreateCheckout`] (`POST /v1/checkout` with the claim key,
-//! azcloud-kit's), [`Effect::ShowSurface`] (the popover with the web view's `src`),
+//! azcloud-kit's, and - for a method that asks the app for them - the payer's details, which no
+//! state keeps), [`Effect::ShowSurface`] (the popover with the web view's `src`),
 //! [`Effect::AllowNavigation`] / [`Effect::CancelNavigation`] (`prevent_default` in the web
 //! view's `WebViewNavigationRequested` callback - exactly one of the two for every
 //! [`Event::Navigation`] of a page), [`Effect::WebviewNavigate`] (`webview_navigate`),
@@ -37,6 +38,7 @@
 use std::fmt;
 
 use crate::{
+    identity::{Payer, PayerField},
     bridge::{command_url, parse_bridge, BridgeMessage, CardBrand, Outcome, PageCommand},
     offer::{ReturnKind, Returns, Settles},
     pills::Choice,
@@ -81,6 +83,8 @@ pub enum Notice {
     SurfaceRefused(String),
     /// A cash checkout's slip is printed: the drive comes when the letter arrived.
     WaitingForLetter,
+    /// The method needs these details of the payer, typed in the popover, before the order.
+    IdentityIncomplete(Vec<PayerField>),
 }
 
 impl Notice {
@@ -136,6 +140,11 @@ impl Notice {
             Notice::WaitingForLetter => String::from(
                 "Waiting for your letter: postal cash takes a while, AzDrive checks once a day. \
                  Nothing else tells you - look here again in a few days.",
+            ),
+            Notice::IdentityIncomplete(fields) => format!(
+                "This payment method needs your {} first. They are sent once with the order \
+                 and not kept.",
+                crate::identity::english_list(fields)
             ),
         }
     }
@@ -364,8 +373,14 @@ impl State {
 /// What happened.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Event {
-    /// The order button, with the pill's choice and whether the consent is ticked.
-    Pay { choice: Choice, consent: bool },
+    /// The order button, with the pill's choice, whether the consent is ticked, and what the
+    /// payer typed for a method the app asks details for (sent once with the checkout, never
+    /// kept in a state).
+    Pay {
+        choice: Choice,
+        consent: bool,
+        payer: Payer,
+    },
     /// `POST /v1/checkout` answered, checked.
     Created(Box<Created>),
     CreateFailed(String),
@@ -399,11 +414,16 @@ pub enum Event {
 impl fmt::Debug for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Event::Pay { choice, consent } => f
+            Event::Pay {
+                choice,
+                consent,
+                payer,
+            } => f
                 .debug_struct("Pay")
                 .field("provider", &choice.provider.spec.id)
                 .field("method", &choice.method.method)
                 .field("consent", consent)
+                .field("payer", payer)
                 .finish(),
             Event::Created(created) => f.debug_tuple("Created").field(created).finish(),
             Event::CreateFailed(why) => f.debug_tuple("CreateFailed").field(why).finish(),
@@ -437,11 +457,13 @@ impl fmt::Debug for Event {
 /// What the app does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
-    /// `POST /v1/checkout` for this provider, method and first surface.
+    /// `POST /v1/checkout` for this provider, method and first surface - with the payer's
+    /// details where the method asks the app for them (`payer`, sent once; `None` otherwise).
     CreateCheckout {
         provider: &'static str,
         method: Method,
         surface: SurfaceKind,
+        payer: Option<Payer>,
     },
     /// The popover shows `Surface` (the web view's `src`).
     ShowSurface(Surface),
@@ -532,17 +554,32 @@ pub fn step(state: State, event: Event) -> (State, Vec<Effect>) {
 
 fn choosing(event: Event) -> (State, Vec<Effect>) {
     match event {
-        Event::Pay { choice, consent } => {
+        Event::Pay {
+            choice,
+            consent,
+            payer,
+        } => {
             if !consent {
                 return (State::Choosing, vec![Effect::Notice(Notice::ConsentRequired)]);
             }
             let Some(&surface) = choice.method.surfaces.first() else {
                 return (State::Choosing, vec![Effect::Notice(Notice::NoSurface)]);
             };
+            // The details a method asks the app for go with the checkout, once; the states
+            // after it keep none of them.
+            let identity = &choice.method.identity;
+            let missing = payer.missing(identity);
+            if !missing.is_empty() {
+                return (
+                    State::Choosing,
+                    vec![Effect::Notice(Notice::IdentityIncomplete(missing))],
+                );
+            }
             let effect = Effect::CreateCheckout {
                 provider: choice.provider.spec.id,
                 method: choice.method.method,
                 surface,
+                payer: payer.for_checkout(identity),
             };
             (State::Preparing { choice, surface }, vec![effect])
         }
