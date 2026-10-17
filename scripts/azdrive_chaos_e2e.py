@@ -291,7 +291,9 @@ class Stack:
         if revoked:
             return (403, "InvalidAccessKeyId", "credentials_revoked")
         if time.time() + self.proxy.clock_offset > expires:
-            return (400, "ExpiredToken", None)
+            # As a node refuses a session that ran out: S3's ExpiredToken, named in the header
+            # (a HEAD's answer has no body to say it).
+            return (403, "ExpiredToken", "session_expired")
         return None
 
     @property
@@ -880,13 +882,14 @@ def statuses_seen(laptop, drive_id=None):
 
 def raw_errors(statuses):
     """Status lines that show a technical error to the user (an HTTP code, an S3 code, a Rust
-    error's words) instead of a sentence."""
+    error's words) instead of a sentence. Only the words the user reads are judged: the line's
+    `error=` is the name of the message's argument, not part of the sentence."""
     technical = re.compile(r"HTTP \d{3}|x-azlin-error|Error\b|\(os error|InternalError|SlowDown|"
                            r"ExpiredToken|InvalidAccessKeyId|RequestTimeTooSkewed|"
                            r"Connection refused|Connection reset|no answer from|https?://|"
                            r"timed out|errno", re.I)
-    return [s for s in statuses if s.startswith("azdrive-sync-status-failed") and
-            technical.search(s)]
+    failed = "azdrive-sync-status-failed(error="
+    return [s for s in statuses if s.startswith(failed) and technical.search(s[len(failed):])]
 
 
 def blob_writes(stack, drive_id):
@@ -1401,6 +1404,9 @@ def revoked(ctx):
                  if e["t"] > revoked_at + 1 and 200 <= (e.get("status") or 0) < 300]
         checks.expect(not later, "writes landed after the removal: %s" % later[:3])
         checks.expect(status != UP_TO_DATE, "removed, the status says Up to date")
+        checks.expect(status.startswith("azlin-error-credentials-revoked"),
+                      "removed, the status is not the table's \"This device was removed from "
+                      "the drive. Sign in again.\": %s" % status)
         raw = raw_errors(statuses_seen(laptop, drive))
         checks.expect(not raw, "the removal showed as a technical error: %s" % raw[:2])
         checks.expect(knocked <= 2, "a removed device ran %d passes in 10 s against refused "

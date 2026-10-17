@@ -86,6 +86,8 @@ AZLIN_ERRORS = {
     "wrong_block": (301, "PermanentRedirect", None),
     "internal": (500, "InternalError", None),
     "drive_banned": (403, "AccessDenied", None),
+    "session_expired": (403, "ExpiredToken", None),
+    "clock_skew": (403, "RequestTimeTooSkewed", None),
 }
 
 # How far a request's x-amz-date may be off the node's clock (S3's 15 minutes).
