@@ -557,7 +557,11 @@ impl VirtualViewCallbackInfo {
             crate::resources::AppLogLevel::Trace => "trace",
         };
         if level != crate::resources::AppLogLevel::Off {
-            crate::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
         }
     }
 
@@ -857,9 +861,22 @@ impl Default for TimerCallbackReturn {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TextDirection {
+    LeftToRight,
+    RightToLeft,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {
+    pub locale: &'a AzString,
+    pub accessed_locale: core::cell::Cell<bool>,
+    pub accessed_text_direction: core::cell::Cell<bool>,
+    pub text_direction: TextDirection,
+
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
     /// OpenGL context so that the `layout()` function can render textures
@@ -1324,6 +1341,20 @@ impl core::fmt::Debug for LayoutCallbackInfo {
 }
 
 impl LayoutCallbackInfo {
+    pub fn get_locale(&self) -> &AzString {
+        unsafe {
+            (*self.ref_data).accessed_locale.set(true);
+            (*self.ref_data).locale
+        }
+    }
+
+    pub fn is_rtl(&self) -> bool {
+        unsafe {
+            (*self.ref_data).accessed_text_direction.set(true);
+            (*self.ref_data).text_direction == TextDirection::RightToLeft
+        }
+    }
+
     /// Report a diagnostic from inside this callback.
     ///
     /// The same sink `CallbackInfo::log` writes to, so a binding's callback
@@ -1340,7 +1371,11 @@ impl LayoutCallbackInfo {
             crate::resources::AppLogLevel::Trace => "trace",
         };
         if level != crate::resources::AppLogLevel::Off {
-            crate::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
         }
     }
 

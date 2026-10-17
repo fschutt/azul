@@ -2580,7 +2580,7 @@ jobs:
           failed=()
           reused=()
           built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             demo_dir=""
             for cand in "examples/$demo" "demos/$demo" "$demo"; do
               [ -d "$cand" ] && { demo_dir="$cand"; break; }
@@ -2648,7 +2648,7 @@ jobs:
         run: |
           mkdir -p demos-staging
           staged=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             src="$(sed -n "s|^${demo}=||p" demo-exe-paths.txt 2>/dev/null | tail -1 || true)"
             if [ -n "$src" ] && [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -3927,7 +3927,7 @@ jobs:
           mkdir -p mobile-apps
           ios_failed=()
           ios_built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -4033,7 +4033,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
-          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter; do
+          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter AzBuilder; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"

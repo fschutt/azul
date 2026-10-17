@@ -1684,6 +1684,44 @@ impl AttributeType {
 
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
+
+/// A strongly-typed argument for Fluent localization strings.
+/// Supports standard pluralization and interpolation formatting.
+#[repr(C, u8)]
+#[derive(Debug, Clone, PartialEq)]
+#[allow(variant_size_differences)]
+pub enum FluentArg {
+    String(AzString),
+    I32(i32),
+    F32(f32),
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct FluentArgKV {
+    pub key: AzString,
+    pub value: FluentArg,
+}
+
+azul_css::impl_option!(
+    FluentArgKV,
+    OptionFluentArgKV,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+azul_css::impl_vec!(
+    FluentArgKV,
+    FluentArgKVVec,
+    FluentArgKVVecDestructor,
+    FluentArgKVVecDestructorType,
+    FluentArgKVVecSlice,
+    OptionFluentArgKV
+);
+azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);
+azul_css::impl_vec_clone!(FluentArgKV, FluentArgKVVec, FluentArgKVVecDestructor);
+azul_css::impl_vec_partialeq!(FluentArgKV, FluentArgKVVec);
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct NodeData {
@@ -1710,6 +1748,8 @@ pub struct NodeData {
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
+    /// Fluent arguments for localizable text nodes.
+    pub fluent_args: Option<Box<FluentArgKVVec>>,
 }
 
 impl_option!(
@@ -1743,6 +1783,7 @@ impl Drop for NodeData {
     fn drop(&mut self) {
         drop(self.accessibility.take());
         drop(self.extra.take());
+        drop(self.fluent_args.take());
     }
 }
 
@@ -2499,6 +2540,7 @@ impl Clone for NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 }
@@ -2760,6 +2802,7 @@ impl NodeData {
             },
             flags: NodeFlags::new(),
             accessibility: None,
+            fluent_args: None,
             extra: None,
         }
     }
@@ -3239,6 +3282,17 @@ impl NodeData {
     #[must_use]
     pub fn with_marker(mut self, marker: OptionString) -> Self {
         self.set_marker(marker);
+        self
+    }
+
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.fluent_args = Some(Box::new(args.into()));
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
         self
     }
 
@@ -3824,6 +3878,7 @@ impl NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 
@@ -7055,6 +7110,18 @@ impl Dom {
         self.root.add_id(id);
         self
     }
+    
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.root.set_fluent_args(args);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
+        self
+    }
+    
     #[inline]
     #[must_use]
     pub fn with_class(mut self, class: AzString) -> Self {

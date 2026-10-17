@@ -156,7 +156,7 @@ fn color_from_sys(u32: &FnGetSysColor, index: i32) -> ColorU {
 /// Discover Windows system style via LoadLibrary.
 ///
 /// Falls back to `defaults::windows_11_light()` if any DLL fails to load.
-pub(crate) fn discover() -> azul_css::system::SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
     let u32_lib = match User32::load() {
         Some(l) => l,
         None => return defaults::windows_11_light(),
@@ -324,7 +324,10 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
     // ── CLI fallback discovery ───────────────────────────────────────
     discover_windows_cli_extras(&mut style);
     style.os_version = detect_windows_version();
-    style.language = detect_language_windows();
+    
+        let bcp47 = detect_language_windows().as_str().to_string();
+        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
+        
 
     let rm = detect_windows_reduced_motion();
     if rm == BoolCondition::True {

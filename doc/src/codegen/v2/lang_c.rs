@@ -1827,5 +1827,42 @@ impl CGenerator {
 
         builder.line("#endif /* __cplusplus - end of C-only reflection macro */");
         builder.blank();
+
+        // Inject TR and AzString_fromConstStr macros for C/C++
+        builder.line("/* Helper macros for zero-allocation AzString creation from string literals */");
+        builder.line("#ifdef __cplusplus");
+        builder.line("extern \"C\" {");
+        builder.line("#endif");
+        builder.line("static inline AzString AzString_fromConstStr(const char* key, size_t len) {");
+        builder.line("    AzU8VecDestructor dest;");
+        builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
+        builder.line("    AzU8Vec vec;");
+        builder.line("    vec.ptr = (const uint8_t*)key;");
+        builder.line("    vec.len = len;");
+        builder.line("    vec.cap = 0;");
+        builder.line("    vec.destructor = dest;");
+        builder.line("    vec.flags = 0;");
+        builder.line("    AzString s;");
+        builder.line("    s.vec = vec;");
+        builder.line("    return s;");
+        builder.line("}");
+        builder.line("static inline AzString AzString_tr(const char* key, size_t len) {");
+        builder.line("    AzU8VecDestructor dest;");
+        builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
+        builder.line("    AzU8Vec vec;");
+        builder.line("    vec.ptr = (const uint8_t*)key;");
+        builder.line("    vec.len = len;");
+        builder.line("    vec.cap = 0;");
+        builder.line("    vec.destructor = dest;");
+        builder.line("    vec.flags = 1;");
+        builder.line("    AzString s;");
+        builder.line("    s.vec = vec;");
+        builder.line("    return s;");
+        builder.line("}");
+        builder.line("#ifdef __cplusplus");
+        builder.line("}");
+        builder.line("#endif");
+        builder.line("#define TR(key) AzString_tr(key, sizeof(key) - 1)");
+        builder.blank();
     }
 }

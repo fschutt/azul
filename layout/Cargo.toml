@@ -552,3 +552,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 [[bench]]
 name = "fast_dom_bench"
 harness = false
+
+[[test]]
+name = "xml_equivalence"
+path = "tests/xml_equivalence.rs"

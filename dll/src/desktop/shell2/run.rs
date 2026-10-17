@@ -288,6 +288,115 @@ fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
 }
 
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+fn run_e2e_dispatcher(dir: &str) {
+    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+            .collect(),
+        Err(e) => {
+            eprintln!("error: cannot read E2E directory '{}': {}", dir, e);
+            std::process::exit(1);
+        }
+    };
+    files.sort();
+    if files.is_empty() {
+        eprintln!("error: no *.json E2E files found in directory '{}'", dir);
+        std::process::exit(1);
+    }
+
+    let total = files.len();
+    eprintln!("\n[E2E] Dispatching {} test{} in parallel processes...", total, if total == 1 { "" } else { "s" });
+
+    // Number of concurrent jobs: max(1, CPU cores - 1)
+    let max_jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).saturating_sub(1).max(1);
+    
+    let files = std::sync::Arc::new(std::sync::Mutex::new(files.into_iter()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    
+    let current_exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            eprintln!("error: cannot get current executable path for dispatcher: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    for _ in 0..max_jobs {
+        let files = files.clone();
+        let tx = tx.clone();
+        let current_exe = current_exe.clone();
+        
+        std::thread::spawn(move || {
+            loop {
+                let file = {
+                    let mut lock = files.lock().unwrap();
+                    match lock.next() {
+                        Some(f) => f,
+                        None => break,
+                    }
+                };
+                
+                let output = std::process::Command::new(&current_exe)
+                    .env("AZ_E2E", &file)
+                    .output();
+                    
+                let res = match output {
+                    Ok(out) => {
+                        let success = out.status.success();
+                        (file, success, out.stdout, out.stderr)
+                    },
+                    Err(e) => {
+                        (file, false, Vec::new(), format!("Failed to spawn child: {}", e).into_bytes())
+                    }
+                };
+                let _ = tx.send(res);
+            }
+        });
+    }
+    
+    drop(tx); // Close the master sender so the receiver terminates when all workers finish
+    
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut failures = Vec::new();
+    
+    let target_dir = std::path::Path::new("target/e2e/logs");
+    let _ = std::fs::create_dir_all(target_dir);
+    
+    for (file, success, stdout, stderr) in rx {
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        if success {
+            passed += 1;
+            eprintln!("test {} ... ok", name);
+        } else {
+            failed += 1;
+            eprintln!("test {} ... FAILED", name);
+            
+            let log_path = target_dir.join(format!("{}.log", name));
+            let mut log_content = String::new();
+            log_content.push_str("--- STDOUT ---\n");
+            log_content.push_str(&String::from_utf8_lossy(&stdout));
+            log_content.push_str("\n--- STDERR ---\n");
+            log_content.push_str(&String::from_utf8_lossy(&stderr));
+            let _ = std::fs::write(&log_path, log_content);
+            
+            failures.push((name.into_owned(), log_path));
+        }
+    }
+    
+    eprintln!("\ntest result: {}. {} passed; {} failed", if failed == 0 { "ok" } else { "FAILED" }, passed, failed);
+    
+    if failed > 0 {
+        eprintln!("\nfailures:");
+        for (name, log_path) in failures {
+            eprintln!("    {} (logs saved to {})", name, log_path.display());
+        }
+        std::process::exit(1);
+    }
+    std::process::exit(0);
+}
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn setup_e2e_runner(test_file: &str) {
     let tests = load_e2e_tests(test_file);
     if tests.is_empty() {
@@ -556,9 +665,24 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
-        let debug_port = debug_server::get_debug_port();
+        let mut debug_port = config.remote_control.debug_port.into_option();
+        if debug_port.is_none() {
+            debug_port = debug_server::get_debug_port();
+        }
         let e2e_file = e2e_test_file();
-        let needs_debug = debug_port.is_some() || e2e_file.is_some();
+        
+        let mut needs_debug = false;
+        if debug_port.is_some() && config.remote_control.allow_remote_control {
+            needs_debug = true;
+        }
+        if e2e_file.is_some() {
+            if !config.remote_control.allow_e2e_tests {
+                eprintln!("error: AZ_E2E is disabled in AppConfig::remote_control.allow_e2e_tests");
+                std::process::exit(1);
+            }
+            needs_debug = true;
+            debug_port = None; // AZ_E2E overrides starting a localhost server
+        }
 
         let (debug_request_rx, component_map) = if needs_debug {
             let cm = Arc::new(Mutex::new(azul_core::xml::ComponentMap::from_libraries(
@@ -588,7 +712,15 @@ fn setup_debug_and_e2e(
         };
 
         if let Some(ref test_file) = e2e_file {
-            setup_e2e_runner(test_file);
+            let meta = std::fs::metadata(test_file).unwrap_or_else(|e| {
+                eprintln!("error: cannot stat E2E path '{}': {}", test_file, e);
+                std::process::exit(1);
+            });
+            if meta.is_dir() {
+                run_e2e_dispatcher(test_file);
+            } else {
+                setup_e2e_runner(test_file);
+            }
         }
 
         (debug_request_rx, component_map)

@@ -2305,4 +2305,33 @@ mod autotest_generated {
         };
         assert!(img.into_loaded_image_source().is_none());
     }
+
+    #[test]
+    fn app_config_match_route_specificity() {
+        let mut config = AppConfig::create();
+        let cb: crate::callbacks::LayoutCallbackType = autotest_layout;
+        extern "C" fn autotest_layout(_: RefAny, _: crate::callbacks::LayoutCallbackInfo) -> crate::dom::Dom {
+            crate::dom::Dom::create_body()
+        }
+        
+        // Register a catch-all first
+        config.add_route(AzString::from_const_str("/:type/:id"), cb);
+        // Register a more specific one second
+        config.add_route(AzString::from_const_str("/user/:id"), cb);
+        // Register an exact match last
+        config.add_route(AzString::from_const_str("/user/42"), cb);
+        
+        // /user/42 should match the exact route (specificity 2)
+        let (r1, _) = config.match_route_for_path("/user/42").unwrap();
+        assert_eq!(r1.pattern.as_str(), "/user/42");
+
+        // /user/99 should match /user/:id (specificity 1)
+        let (r2, _) = config.match_route_for_path("/user/99").unwrap();
+        assert_eq!(r2.pattern.as_str(), "/user/:id");
+
+        // /post/123 should match /:type/:id (specificity 0)
+        let (r3, _) = config.match_route_for_path("/post/123").unwrap();
+        assert_eq!(r3.pattern.as_str(), "/:type/:id");
+    }
+
 }

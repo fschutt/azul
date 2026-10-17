@@ -130,6 +130,28 @@ impl Url {
         self.scheme.as_str() == "http"
     }
 
+    /// Opens this URL in the system's default browser.
+    #[cfg(feature = "std")]
+    pub fn open(&self) -> bool {
+        let s = self.href.as_str();
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd").args(&["/C", "start", s]).spawn().is_ok()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(s).spawn().is_ok()
+        }
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open").arg(s).spawn().is_ok()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            false
+        }
+    }
+
     /// Get the effective port (using default ports for http/https)
     #[must_use]
     pub fn effective_port(&self) -> u16 {

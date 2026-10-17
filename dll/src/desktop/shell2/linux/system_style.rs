@@ -2427,7 +2427,7 @@ fn parse_font_name_and_size(s: &str) -> Option<(String, f32)> {
 ///
 /// Tries XDG Desktop Portal first (raw D-Bus), then CLI-based discovery
 /// (KDE, GNOME, riced desktops), and finally hardcoded GNOME Adwaita defaults.
-pub(crate) fn discover() -> SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal();
 
@@ -2535,7 +2535,10 @@ pub(crate) fn discover() -> SystemStyle {
     // ── 3. Fill in extras and metadata ──────────────────────────────
     discover_linux_extras(&mut style);
     style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
-    style.language = detect_language_linux();
+    
+        let bcp47 = detect_language_linux().as_str().to_string();
+        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
+        
     style.os_version = detect_linux_version();
 
     // Accessibility — try GNOME first, then KDE

@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "AzBuilder"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
 name = "AzMaps"
 version = "0.1.0"
 dependencies = [

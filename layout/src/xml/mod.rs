@@ -558,6 +558,45 @@ fn parse_xml_to_fast_dom_with_css(
                     _ => {}
                 }
             }
+
+            // ---- Fluent / l10n handling ----
+            // `<p data-l10n="greeting_key" data-l10n-name="Alice">` becomes a
+            // localizable Text node with fluent args populated. We do a second
+            // pass over the same attrs slice rather than keeping state inside the
+            // match because we need all of them to be visible at once.
+            if let Some((_, l10n_key)) = attrs.iter().find(|(k, _)| k == "data-l10n") {
+                if !l10n_key.is_empty() {
+                    // Build a localizable AzString carrying the key.
+                    let localizable_text = azul_css::corety::AzString::tr(l10n_key.as_str());
+                    nd.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(localizable_text)));
+
+                    // Collect data-l10n-* arguments.
+                    let mut fluent_args: Vec<azul_core::dom::FluentArgKV> = Vec::new();
+                    for (k, v) in attrs.iter() {
+                        if k == "data-l10n" { continue; }
+                        let arg_name = match k.strip_prefix("data-l10n-") {
+                            Some(n) => n,
+                            None => continue,
+                        };
+                        let value = if let Ok(i) = v.parse::<i32>() {
+                            azul_core::dom::FluentArg::I32(i)
+                        } else if let Ok(f) = v.parse::<f32>() {
+                            azul_core::dom::FluentArg::F32(f)
+                        } else {
+                            azul_core::dom::FluentArg::String(v.as_str().into())
+                        };
+                        fluent_args.push(azul_core::dom::FluentArgKV {
+                            key: arg_name.into(),
+                            value,
+                        });
+                    }
+                    if !fluent_args.is_empty() {
+                        use azul_core::dom::FluentArgKVVec;
+                        nd.fluent_args = Some(Box::new(FluentArgKVVec::from_vec(fluent_args)));
+                    }
+                }
+            }
+
             if !attr_vec.is_empty() {
                 nd.set_attributes(attr_vec.into());
             }

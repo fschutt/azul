@@ -4580,4 +4580,89 @@ mod autotest_generated {
         assert!(json.contains("\"fields\""), "got {json}");
         assert!(ComponentDataModel::from_json(&json).is_ok());
     }
+
+    // ---- Fluent l10n: data-l10n attribute parsing ----
+
+    #[test]
+    fn test_data_l10n_creates_localizable_text_node() {
+        // `<p data-l10n="greeting">` should produce a Text node whose AzString
+        // is marked localizable and carries the key "greeting".
+        use crate::dom::{NodeType, FluentArg};
+        use azul_css::css::BoxOrStatic;
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut v = crate::window::StringPairVec::from_const_slice(&[]);
+                let mut pairs = v.into_library_owned_vec();
+                pairs.push(crate::window::AzStringPair {
+                    key: "data-l10n".into(),
+                    value: "greeting".into(),
+                });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
+            .expect("parse ok");
+
+        match &dom.root.node_type {
+            NodeType::Text(boxed) => {
+                let s = boxed.as_ref();
+                assert!(s.is_localizable(), "text node must be flagged localizable");
+                assert_eq!(s.as_str(), "greeting", "text node must carry the l10n key");
+            }
+            other => panic!("expected Text node, got {:?}", other),
+        }
+        assert!(dom.root.fluent_args.is_none(), "no fluent args expected");
+    }
+
+    #[test]
+    fn test_data_l10n_with_fluent_args() {
+        // `<p data-l10n="user-count" data-l10n-count="42">` should produce a
+        // localizable Text node AND a FluentArgKV with key="count", value=I32(42).
+        use crate::dom::{NodeType, FluentArg};
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut pairs = Vec::new();
+                pairs.push(crate::window::AzStringPair { key: "data-l10n".into(), value: "user-count".into() });
+                pairs.push(crate::window::AzStringPair { key: "data-l10n-count".into(), value: "42".into() });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
+            .expect("parse ok");
+
+        match &dom.root.node_type {
+            NodeType::Text(boxed) => {
+                assert!(boxed.as_ref().is_localizable());
+                assert_eq!(boxed.as_ref().as_str(), "user-count");
+            }
+            other => panic!("expected Text node, got {:?}", other),
+        }
+
+        let args = dom.root.fluent_args.as_ref().expect("fluent_args must be set");
+        assert_eq!(args.as_slice().len(), 1);
+        let kv = &args.as_slice()[0];
+        assert_eq!(kv.key.as_str(), "count");
+        assert!(matches!(kv.value, FluentArg::I32(42)));
+    }
+
+    #[test]
+    fn test_azstring_tr_is_localizable() {
+        // `AzString::tr("key")` should be flagged localizable; a regular string should not.
+        let regular = azul_css::corety::AzString::from("hello");
+        assert!(!regular.is_localizable(), "plain string must NOT be localizable");
+
+        let tr = azul_css::corety::AzString::tr("greeting");
+        assert!(tr.is_localizable(), "tr() string MUST be localizable");
+        assert_eq!(tr.as_str(), "greeting", "key stored correctly");
+    }
 }

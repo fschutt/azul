@@ -387,6 +387,27 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     out.push_str("    const Self = @This();\n");
     out.push('\n');
 
+    if s.name == "String" {
+        out.push_str(
+            "    /// Creates a localizable String from a string literal without allocating memory.\n",
+        );
+        out.push_str("    pub fn tr(comptime key: []const u8) Self {\n");
+        out.push_str("        return Self{\n");
+        out.push_str("            .inner = C.AzString{\n");
+        out.push_str("                .vec = C.AzU8Vec{\n");
+        out.push_str("                    .ptr = key.ptr,\n");
+        out.push_str("                    .len = key.len,\n");
+        out.push_str("                    .cap = 0,\n");
+        out.push_str(
+            "                    .destructor = .{ .NoDestructor = .{ .tag = C.AzU8VecDestructor_Tag_NoDestructor } },\n",
+        );
+        out.push_str("                    .flags = 1,\n");
+        out.push_str("                }\n");
+        out.push_str("            }\n");
+        out.push_str("        };\n");
+        out.push_str("    }\n\n");
+    }
+
     // Zig disallows duplicate struct members. Some IR types expose
     // BOTH a `new` and a `create` factory (e.g. `ColorU.new`, exposed
     // by the C ABI for back-compat); both map to Zig `create()` after
@@ -406,6 +427,9 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
                 let zig_method = sanitize_identifier(&idiomatic_method_name(f));
+                if s.name == "String" && zig_method == "tr" {
+                    continue;
+                }
                 if !seen.insert(zig_method.clone()) {
                     out.push_str(&format!(
                         "    // SKIPPED: duplicate `pub fn {}` — IR carries another factory \

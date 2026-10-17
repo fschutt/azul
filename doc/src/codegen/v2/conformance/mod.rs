@@ -249,7 +249,7 @@ impl ConformancePlan {
         // category the IR gave it: the plan must not inherit a classifier bug.
         for s in &ir.structs {
             let has = |n: &str| s.fields.iter().any(|f| f.name == n);
-            if !(s.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor")) {
+            if !(s.fields.len() == 5 && has("ptr") && has("len") && has("cap") && has("destructor")) {
                 continue;
             }
             let Some(elem) = s.fields.iter().find(|f| f.name == "ptr").map(|f| f.type_name.as_str()) else {
@@ -399,7 +399,7 @@ fn recipe(ir: &CodegenIR, fns: &FnIndex<'_>, ty: &str) -> Result<Recipe, String>
         // inherit a classifier bug), made with its argument-free `create`.
         let has = |n: &str| s.fields.iter().any(|f| f.name == n);
         let vec_layout =
-            s.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor");
+            s.fields.len() == 5 && has("ptr") && has("len") && has("cap") && has("destructor");
         if vec_layout {
             if let Some(f) = fns.by_method.get(&(ty, "create")).filter(|f| f.args.is_empty()) {
                 return Ok(Recipe::EmptyVec { ty: ty.to_string(), c_fn: f.c_name.clone() });

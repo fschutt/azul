@@ -5475,8 +5475,8 @@ impl X11Window {
                         // stays at exactly 96 DPI, and an ordinary-density
                         // monitor (a 27" 1080p panel estimates 0.84) must not
                         // shrink the window when it is dragged onto it.
-                        let new_dpi = ((((display.scale_factor * 4.0).round() / 4.0).max(1.0))
-                            * 96.0) as u32;
+                        let new_dpi =
+                            ((((display.scale_factor * 4.0).round() / 4.0).max(1.0)) * 96.0) as u32;
                         let old_dpi = self.common.current_window_state().size.dpi;
                         if !has_xft_dpi
                             && new_dpi > 0

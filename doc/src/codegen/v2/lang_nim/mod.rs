@@ -85,6 +85,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Idiomatic wrappers (drop the `Az` prefix).
     wrappers::generate_wrappers(&mut builder, ir, config, &mut procs)?;
 
+    builder.blank();
+    builder.line("template tr*(key: string): AzString =");
+    builder.line("  AzString(vec: AzU8Vec(ptr: cast[ptr uint8](key[0].addr), len: cast[uint](key.len), cap: 0, destructor: AzU8VecDestructor(NoDestructor: AzU8VecDestructorVariant_NoDestructor(tag: AzU8VecDestructor_Tag_NoDestructor)), flags: 1))");
+    builder.blank();
+
     Ok(builder.finish())
 }
 
