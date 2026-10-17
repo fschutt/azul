@@ -4221,6 +4221,15 @@ pub trait PlatformWindow {
             });
         let result = self.process_window_events(0);
         let confirmed = self.get_current_window_state().flags.close_requested;
+        if !confirmed {
+            // A veto lowered the flag the protocol raised: the app's answer to
+            // this request, not input owed to a later pass. Left in the
+            // baseline, the next snapshot read it as an unconsumed delta.
+            if let Some(mut previous) = self.get_previous_window_state().clone() {
+                previous.flags.close_requested = false;
+                self.set_previous_window_state(previous);
+            }
+        }
         WindowCloseOutcome { confirmed, result }
     }
 
@@ -5411,6 +5420,14 @@ pub trait PlatformWindow {
             .update_window_state(WindowStateSource::App, |ws| {
                 ws.flags.close_requested = true;
             });
+        // The raised flag is the app's request, owed to the close protocol
+        // (which lowers it, takes its own baseline and raises it again), not
+        // input for the next pass: the baseline carries it too, or the next
+        // snapshot reads it as an unconsumed delta.
+        if let Some(mut previous) = self.get_previous_window_state().clone() {
+            previous.flags.close_requested = true;
+            self.set_previous_window_state(previous);
+        }
     }
 
     /// Give the OS the window's shape: `rects` (physical pixels of the
