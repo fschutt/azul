@@ -1051,8 +1051,9 @@ def country_steps(app, stack, args, logs, out, binary, switches, env, keyring_fi
         dialog = open_dialog(fresh, "the source list",
                              lambda: fresh.click(selector="#" + I("side-add-drive")))
         dialog.page("country", lambda: dialog.click("choice_buy"))
-        for text in ("Where do you live?", "remembers it on this computer only",
-                     "United States"):
+        # The page's title, "Where do you live?", is its dialog window's title (the window
+        # chrome, not the page); the page says why it asks.
+        for text in ("remembers it on this computer only", "United States"):
             dialog.win.until("the picker's %r" % text, lambda: dialog.shows(text))
         guess = add_id("country_option_us")
         dialog.win.until("the guess in the list", lambda: dialog.win.has(guess))
