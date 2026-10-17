@@ -153,7 +153,7 @@ impl crate::callbacks::CallbackInfo {
         if registered {
             // This window's cache takes the face now; every other cache
             // takes it when its window resolves its fonts again.
-            let _ = ensure_in(&self.get_layout_window().font_manager.fc_cache);
+            drop(ensure_in(&self.get_layout_window().font_manager.fc_cache));
         }
         registered
     }

@@ -1011,7 +1011,7 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         ));
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
-            shared.clone(),
+            shared,
             crate::callbacks::Callback::from_ptr(on_popup_dismissed).to_core(),
         );
         children.push(

@@ -195,7 +195,7 @@ pub(crate) fn memory_font_pattern(
 }
 
 /// The index entry of an in-memory face `id` of the style `style`.
-pub(crate) fn memory_face(
+pub(crate) const fn memory_face(
     id: FontId,
     unicode_ranges: Vec<UnicodeRange>,
     style: &FaceStyle,

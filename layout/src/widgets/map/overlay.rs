@@ -692,6 +692,8 @@ fn dash_runs(points: &[(f64, f64)], dash: f64, gap: f64) -> Vec<Vec<(f64, f64)>>
             continue;
         }
         let mut done = 0.0;
+        // Each step moves `done` on by a positive `left` towards the finite `len`.
+        #[allow(clippy::while_float)]
         while len - done > left {
             done += left;
             let p = (a.0 + (b.0 - a.0) * done / len, a.1 + (b.1 - a.1) * done / len);

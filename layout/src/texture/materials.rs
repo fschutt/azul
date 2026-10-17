@@ -1129,6 +1129,8 @@ pub fn sheen_sprite(
     let reach = |along_x: bool| -> f32 {
         let step = (size / 32.0).max(0.5);
         let mut d = step;
+        // The walk steps by a positive length and stops past a finite bound.
+        #[allow(clippy::while_float)]
         while d < size * 64.0 {
             let alpha = if along_x { alpha_at(d, 0.0) } else { alpha_at(0.0, d) };
             if alpha * span < 0.5 / 255.0 {
@@ -1453,6 +1455,7 @@ fn cached_render(key: u64) -> Option<ImageRef> {
     let entry = cache.remove(i);
     let found = entry.1.clone();
     cache.push(entry);
+    drop(cache);
     Some(found)
 }
 

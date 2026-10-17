@@ -927,11 +927,12 @@ fn generated_texts(
     out
 }
 
-/// The number every list item shows (its `list-item` counter, CSS Lists 3
-/// s4.6: `counter-reset`, `<ol start / reversed>`, `<li value>` and
-/// `counter-increment` taken into account), by DOM node: block list items,
-/// whose marker the layout makes, and inline ones alike. One walk of the
-/// document; an element with `display: none` counts nothing.
+/// The number every list item shows, by DOM node.
+///
+/// Its `list-item` counter (CSS Lists 3 s4.6: `counter-reset`, `<ol start /
+/// reversed>`, `<li value>` and `counter-increment` taken into account), for
+/// block list items, whose marker the layout makes, and inline ones alike.
+/// One walk of the document; an element with `display: none` counts nothing.
 #[must_use]
 pub fn list_item_numbers(styled_dom: &StyledDom) -> BTreeMap<NodeId, i32> {
     let states: Vec<StyledNodeState> = styled_dom
@@ -963,18 +964,19 @@ pub fn list_item_numbers(styled_dom: &StyledDom) -> BTreeMap<NodeId, i32> {
 ///
 /// Runs after a cascade and reads what it resolved; walks the DOM once in
 /// document order, the order counters count in. A DOM without generated
-/// nodes returns after one scan. Returns the text nodes whose text changed.
+/// nodes returns after one scan. A text that did not change is left as it
+/// is; the layout finds a changed one by its content, and a state change that
+/// moves it also changes its generated node's `content`, which relays it out.
 pub fn fill_generated_text(
     node_data: &mut [NodeData],
     hierarchy: &[NodeHierarchyItem],
     cache: &CssPropertyCache,
     states: &[StyledNodeState],
-) -> Vec<NodeId> {
+) {
     if !node_data.iter().any(NodeData::is_generated_content) {
-        return Vec::new();
+        return;
     }
     let texts = generated_texts(node_data, hierarchy, cache, states);
-    let mut changed = Vec::new();
     for (text_node, text) in texts {
         let Some(node) = node_data.get_mut(text_node) else {
             continue;
@@ -985,17 +987,15 @@ pub fn fill_generated_text(
         );
         if !same {
             node.set_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from(text))));
-            changed.push(NodeId::new(text_node));
         }
     }
-    changed
 }
 
 impl StyledDom {
     /// Re-writes the generated text from the current cascade and interaction
     /// states: after a restyle, or when a state change switched a generated
-    /// node's `content`. Returns the text nodes whose text changed.
-    pub fn refill_generated_text(&mut self) -> Vec<NodeId> {
+    /// node's `content`.
+    pub fn refill_generated_text(&mut self) {
         let states: Vec<StyledNodeState> = self
             .styled_nodes
             .as_container()
@@ -1005,7 +1005,7 @@ impl StyledDom {
             .collect();
         let hierarchy = self.node_hierarchy.as_container().internal;
         let node_data = self.node_data.as_container_mut().internal;
-        fill_generated_text(node_data, hierarchy, &self.css_property_cache.ptr, &states)
+        fill_generated_text(node_data, hierarchy, &self.css_property_cache.ptr, &states);
     }
 }
 

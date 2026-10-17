@@ -133,7 +133,7 @@ fn handler(lw: &LayoutWindow, node: NodeId, event: EventFilter) -> (Callback, Re
 std::thread_local! {
     /// The popup windows the handlers opened or closed, as (node, open): the
     /// harness lands no window changes, so the tests read them here.
-    static POPUPS: std::cell::RefCell<Vec<(NodeId, bool)>> = std::cell::RefCell::new(Vec::new());
+    static POPUPS: std::cell::RefCell<Vec<(NodeId, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The popup requests since the last call, as (node, open).

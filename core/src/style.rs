@@ -106,8 +106,10 @@ impl AncestorStates<'_> {
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
-/// that element). The compounds left of the subject are in no interaction state; the cascade
-/// passes the real ones through [`matches_html_element_in`].
+/// that element).
+///
+/// The compounds left of the subject are in no interaction state; the cascade passes the real
+/// ones through [`matches_html_element_in`].
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[must_use]
 pub fn matches_html_element(
@@ -130,8 +132,10 @@ pub fn matches_html_element(
 }
 
 /// [`matches_html_element`] with the states of the nodes the compounds left
-/// of the subject land on (`.btn:hover .ink`, `.anchor:hover + .tip`).
-/// Without states such a compound's interaction pseudo-class never holds.
+/// of the subject land on.
+///
+/// As in `.btn:hover .ink` or `.anchor:hover + .tip`: without states such a
+/// compound's interaction pseudo-class never holds.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[must_use]

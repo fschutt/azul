@@ -508,7 +508,7 @@ pub fn push_generated_pseudo_element(path: &mut Vec<CssPathSelector>, tag: NodeT
 /// The pseudo-element of a selector that is nothing but one (a bare
 /// `::before` parses as `* > ::before`), so that a nested one can attach to
 /// its parent rule.
-fn bare_generated_pseudo_element(path: &[CssPathSelector]) -> Option<NodeTypeTag> {
+const fn bare_generated_pseudo_element(path: &[CssPathSelector]) -> Option<NodeTypeTag> {
     match path {
         [CssPathSelector::Global, CssPathSelector::DirectChildren, CssPathSelector::Type(tag), ..]
             if matches!(tag, NodeTypeTag::Before | NodeTypeTag::After) =>

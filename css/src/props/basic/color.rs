@@ -1772,10 +1772,9 @@ impl SystemColorRef {
                 self.fallback(dark)
             }
         });
-        match self.ink_of() {
-            Some(fill) => readable_accent_ink(fill.resolve_for_theme(colors, dark), own),
-            None => own,
-        }
+        self.ink_of().map_or(own, |fill| {
+            readable_accent_ink(fill.resolve_for_theme(colors, dark), own)
+        })
     }
 
     /// The colour this reference stands for when no platform palette says

@@ -268,7 +268,7 @@ pub(crate) fn background_tile(
     }
     // A percentage `p` puts the tile's point at `p` on the area's point at
     // `p`: an offset of `p * (area - tile)`. A length is the offset itself.
-    let offset = |value: azul_css::props::basic::PixelValue, free: f32| {
+    let offset = |value: PixelValue, free: f32| {
         value.to_percent().map_or_else(
             || value.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
             |p| p.get() * free,
@@ -322,7 +322,7 @@ impl BackgroundPlacement {
     /// The placement lists of `node_id`, `None` when all of `layers` are
     /// colours.
     pub(crate) fn of(
-        styled_dom: &azul_core::styled_dom::StyledDom,
+        styled_dom: &StyledDom,
         node_id: NodeId,
         node_state: &azul_core::styled_dom::StyledNodeState,
         layers: &[azul_css::props::style::StyleBackgroundContent],
@@ -345,7 +345,7 @@ impl BackgroundPlacement {
                 StyleBackgroundContent::Image(id) => image_cache
                     .get_css_image_id(id)
                     .filter(|image| !image.is_callback())
-                    .map(azul_core::resources::ImageRef::get_size)
+                    .map(ImageRef::get_size)
                     .filter(|s| s.width > 0.0 && s.height > 0.0),
                 _ => None,
             })
@@ -3582,7 +3582,7 @@ impl DisplayListBuilder {
         bounds: LogicalRect,
         background_color: Option<ColorU>,
         background_contents: &[azul_css::props::style::StyleBackgroundContent],
-        border: Option<&crate::text3::cache::InlineBorderInfo>,
+        border: Option<&text3::cache::InlineBorderInfo>,
         content: &crate::overlay::ResolvedContent<'_>,
     ) {
         // The layers hold the solid colour too (`background_color` is their
@@ -8619,7 +8619,7 @@ where
             .is_some();
 
         let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
-        let glyphs = crate::text3::cache::shape_placeholder_text(
+        let glyphs = text3::cache::shape_placeholder_text(
             text,
             &style,
             &self.ctx.font_manager.font_chain_cache,
@@ -9286,7 +9286,7 @@ where
     fn inline_run_shifts(
         &self,
         node_index: usize,
-        glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        glyph_runs: &[text3::glyphs::CompactGlyphRun],
         cb_size: LogicalSize,
     ) -> Option<Vec<LogicalPosition>> {
         let ifc_root = super::fc::ifc_root_style_dom_id(self.positioned_tree.tree, node_index)?;
@@ -9341,7 +9341,7 @@ where
         &self,
         dom_id: NodeId,
         layout: &UnifiedLayout,
-        dense: Option<&crate::text3::dense::DenseText>,
+        dense: Option<&text3::dense::DenseText>,
         clamped: bool,
         content_width: f32,
     ) -> Option<TextOverflowEllipsis> {
@@ -9416,7 +9416,7 @@ where
             },
         ));
         let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
-        let glyphs = crate::text3::cache::shape_ellipsis(
+        let glyphs = text3::cache::shape_ellipsis(
             &style,
             &self.ctx.font_manager.font_chain_cache,
             &self.ctx.font_manager.fc_cache,
@@ -9604,10 +9604,9 @@ where
             })
             .collect();
         for &(_, text) in &clusters {
-            if !ancestors.contains_key(&text) {
-                let found = self.inline_ancestors(text, root);
-                ancestors.insert(text, found);
-            }
+            ancestors
+                .entry(text)
+                .or_insert_with(|| self.inline_ancestors(text, root));
         }
         let anc = |text: NodeId| ancestors.get(&text).map_or(&[][..], Vec::as_slice);
 
@@ -9622,23 +9621,20 @@ where
                     continue;
                 }
                 let key = (node, item.line_index);
-                let f = match open.get(&key) {
-                    Some(&f) => {
-                        fragments[f].last = j;
-                        f
-                    }
-                    None => {
-                        fragments.push(Fragment {
-                            node,
-                            line: item.line_index,
-                            first: j,
-                            last: j,
-                            own_baseline: None,
-                            baseline,
-                        });
-                        open.insert(key, fragments.len() - 1);
-                        fragments.len() - 1
-                    }
+                let f = if let Some(&f) = open.get(&key) {
+                    fragments[f].last = j;
+                    f
+                } else {
+                    fragments.push(Fragment {
+                        node,
+                        line: item.line_index,
+                        first: j,
+                        last: j,
+                        own_baseline: None,
+                        baseline,
+                    });
+                    open.insert(key, fragments.len() - 1);
+                    fragments.len() - 1
                 };
                 if depth + 1 == boxes.len() && fragments[f].own_baseline.is_none() {
                     fragments[f].own_baseline = Some(baseline);
@@ -9748,9 +9744,9 @@ where
         container_rect: LogicalRect,
         viewport_clip_rect: LogicalRect,
         layout: &Arc<UnifiedLayout>,
-        dense_view: Option<&crate::text3::dense::DenseText>,
+        dense_view: Option<&text3::dense::DenseText>,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
-        glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        glyph_runs: &[text3::glyphs::CompactGlyphRun],
         run_shifts: Option<&[LogicalPosition]>,
         source_node_index: usize,
         ellipsis: Option<&TextOverflowEllipsis>,
@@ -9796,7 +9792,7 @@ where
                         .iter()
                         .map(|l| l.top_y + l.height)
                         .fold(0.0f32, f32::max);
-                    crate::text3::cache::Rect {
+                    text3::cache::Rect {
                         x: 0.0,
                         y: 0.0,
                         width: w,
@@ -9923,7 +9919,7 @@ where
                 let mut moved = UnifiedLayout {
                     items: if layout.items.is_empty() {
                         dense_view
-                            .map(crate::text3::dense::DenseText::to_unified_items)
+                            .map(text3::dense::DenseText::to_unified_items)
                             .unwrap_or_default()
                     } else {
                         layout.items.clone()
@@ -10007,7 +10003,7 @@ where
             let expanded;
             let items: &[PositionedItem] = if layout.items.is_empty() {
                 expanded = dense_view
-                    .map(crate::text3::dense::DenseText::to_unified_items)
+                    .map(text3::dense::DenseText::to_unified_items)
                     .unwrap_or_default();
                 &expanded
             } else {
@@ -10461,7 +10457,7 @@ where
         builder: &mut DisplayListBuilder,
         object_bounds: LogicalRect,
         shape: &InlineShape,
-        bounds: &crate::text3::cache::Rect,
+        bounds: &text3::cache::Rect,
     ) {
         let Some(node_id) = shape.source_node_id else {
             return;
@@ -10478,7 +10474,7 @@ where
         builder: &mut DisplayListBuilder,
         object_bounds: LogicalRect,
         shape: &InlineShape,
-        bounds: &crate::text3::cache::Rect,
+        bounds: &text3::cache::Rect,
         node_id: NodeId,
     ) {
         // Render inline-block backgrounds and borders using their CSS styling
@@ -13135,7 +13131,7 @@ pub(crate) fn ellipsis_cuts(
             .find(|item| matches!(item.item, ShapedItem::Cluster(_)))
             .copied()
             .unwrap_or(last);
-        let (ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
+        let (ascent, _) = text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
         let top = line.iter().map(|item| item.position.y).fold(f32::INFINITY, f32::min);
         let bottom = line
             .iter()
@@ -13173,7 +13169,7 @@ pub(crate) fn line_clamp_cut(
     while order.len() > 1
         && order
             .last()
-            .is_some_and(|item| crate::text3::cache::is_word_separator(&item.item))
+            .is_some_and(|item| text3::cache::is_word_separator(&item.item))
     {
         order.pop();
     }
@@ -13186,7 +13182,7 @@ pub(crate) fn line_clamp_cut(
         .find(|item| matches!(item.item, ShapedItem::Cluster(_)))
         .copied()
         .unwrap_or(last);
-    let (ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
+    let (ascent, _) = text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
     let top = line.iter().map(|item| item.position.y).fold(f32::INFINITY, f32::min);
     let bottom = line
         .iter()
@@ -13203,7 +13199,7 @@ pub(crate) fn line_clamp_cut(
 /// The ellipsis of an IFC whose root asks for `text-overflow: ellipsis`, and
 /// the lines it ends: the glyphs, shaped in the root's style, and its paint.
 struct TextOverflowEllipsis {
-    glyphs: Vec<crate::text3::cache::Glyph>,
+    glyphs: Vec<text3::cache::Glyph>,
     font_size_px: f32,
     /// The root's text asks for bold: the ellipsis is thickened like the
     /// text it ends when its face has no bold cut.

@@ -2701,7 +2701,7 @@ pub fn get_background_sizes(
         .ptr
         .get_background_size(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| v.iter().cloned().collect())
+        .map(|v| v.iter().copied().collect())
         .unwrap_or_default()
 }
 
@@ -6481,7 +6481,7 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
             // The registry's cache loads what the probe resolves.
-            let _ = crate::text3::fontreg::ensure_in(&registry.shared_cache());
+            drop(crate::text3::fontreg::ensure_in(&registry.shared_cache()));
             let mut fast =
                 resolve_font_chains_fast(&collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));

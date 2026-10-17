@@ -233,7 +233,7 @@ impl RichFont {
 
 /// `half_points` as a point count: `21` -> `10.5`, `48` -> `24`.
 fn half_points_text(half_points: u16) -> String {
-    if half_points % 2 == 0 {
+    if half_points.is_multiple_of(2) {
         alloc::format!("{}", half_points / 2)
     } else {
         alloc::format!("{}.5", half_points / 2)

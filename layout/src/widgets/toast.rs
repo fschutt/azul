@@ -492,7 +492,7 @@ extern "C" fn on_toast_mounted(mut data: RefAny, mut info: CallbackInfo) -> Upda
         TimerCallback::create(on_toast_timeout),
         info.get_system_time_fn(),
     )
-    .with_delay(span.clone())
+    .with_delay(span)
     .with_interval(span);
     info.add_timer(TimerId::unique(), timer);
     Update::DoNothing
@@ -2935,7 +2935,7 @@ mod auto_dismiss_and_stack_tests {
             })
             .expect("a timer");
         let ms = Duration::System(SystemTimeDiff::from_millis(3200));
-        assert_eq!(timer.delay.into_option(), Some(ms.clone()), "it fires after 3.2 s");
+        assert_eq!(timer.delay.into_option(), Some(ms), "it fires after 3.2 s");
         assert_eq!(timer.interval.into_option(), Some(ms), "and does not wake the window before");
         // A toast that stays has no clock.
         let stays = StyledDom::create_from_dom(Toast::create(AzString::from("Hi")).dom());

@@ -1099,20 +1099,21 @@ fn run_dom(ctx: &RenderCtx<'_>, run: &RichRun) -> Dom {
     // in em), so a run inside a heading keeps the size it names, and a
     // zoomed editor (a larger `font_px`) scales it with the body.
     if let Some(family) = run.font.family_str().filter(|_| !f.code) {
-        css.push_str(&format!(
-            "font-family: {};",
-            crate::widgets::rich_text::doc::family_css(family)
-        ));
+        css.push_str("font-family: ");
+        css.push_str(&crate::widgets::rich_text::doc::family_css(family));
+        css.push(';');
     }
     if let Some(points) = run.font.points() {
         if ctx.body_pt > 0.0 {
-            css.push_str(&format!("font-size: {}px;", points / ctx.body_pt * ctx.font_px));
+            css.push_str("font-size: ");
+            css.push_str(&(points / ctx.body_pt * ctx.font_px).to_string());
+            css.push_str("px;");
         }
     }
     let mut node = match run.link_str() {
         Some(url) => {
             css.push_str("color: system:link;");
-            let link = Dom::create_a_no_a11y(AzString::from(url), azul_css::OptionString::None);
+            let link = Dom::create_a_no_a11y(AzString::from(url), OptionString::None);
             match ctx.data {
                 // Ctrl / Cmd + click opens the link (a plain click places the
                 // caret).
@@ -1842,14 +1843,9 @@ pub(crate) fn whole_text(old: &str, seen: &str, from: usize, to: Option<usize>) 
 /// `@<byte>` when it starts inside that block, `~<block>@<byte>` when its
 /// last block goes on to the next page ([`page_place`] reads it back).
 fn page_host_id(host_id: &str, start: (usize, usize), stop: (usize, usize)) -> String {
-    let mut id = format!("{host_id}-page-{}", start.0);
-    if start.1 > 0 {
-        id.push_str(&format!("@{}", start.1));
-    }
-    if stop.1 > 0 {
-        id.push_str(&format!("~{}@{}", stop.0, stop.1));
-    }
-    id
+    let at = if start.1 > 0 { format!("@{}", start.1) } else { String::new() };
+    let until = if stop.1 > 0 { format!("~{}@{}", stop.0, stop.1) } else { String::new() };
+    format!("{host_id}-page-{}{at}{until}", start.0)
 }
 
 /// The editing host `node` is in (or is) - the editor's one host (DOM id

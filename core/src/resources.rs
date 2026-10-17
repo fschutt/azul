@@ -2581,11 +2581,12 @@ impl RendererResourcesTrait for RendererResources {
     }
 }
 
-/// A background layer whose image is a render callback (`builtin(leather)`,
-/// `url(id)` naming a `RenderImageCallback`): the frames the callback draws
-/// for the layer belong to it. The engine draws the layer from its slot's
-/// latest frame and renders a new one only when what the frame is drawn
-/// from changes.
+/// A background layer whose image is a render callback.
+///
+/// `builtin(leather)`, or `url(id)` naming a `RenderImageCallback`: the
+/// frames the callback draws for the layer belong to it. The engine draws
+/// the layer from its slot's latest frame and renders a new one only when
+/// what the frame is drawn from changes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BackgroundSlot {
     /// The DOM the layer is painted in.

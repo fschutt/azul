@@ -211,34 +211,38 @@ pub(crate) fn remap_dom_keys<V>(
     }
 }
 
-/// Remap the keys of a map keyed by background layer
-/// (`azul_core::resources::BackgroundSlot`) in place: the layers of `dom` follow
-/// their node (or are dropped with it), the canvas's layers and other DOMs'
-/// are left untouched.
+/// Where a background layer (`azul_core::resources::BackgroundSlot`) is after
+/// `dom` was rebuilt: a layer of `dom` follows its node (`None` when the node
+/// is gone), the canvas's layers and other DOMs' stay where they are.
+fn remapped_background_slot(
+    slot: azul_core::resources::BackgroundSlot,
+    dom: DomId,
+    node_map: &NodeIdMap,
+) -> Option<azul_core::resources::BackgroundSlot> {
+    match slot.node {
+        Some(old_id) if slot.dom == dom => {
+            node_map
+                .resolve(old_id)
+                .map(|new_id| azul_core::resources::BackgroundSlot {
+                    node: Some(new_id),
+                    ..slot
+                })
+        }
+        _ => Some(slot),
+    }
+}
+
+/// Remap the keys of a map keyed by background layer in place
+/// ([`remapped_background_slot`]).
 pub(crate) fn remap_background_slots<V>(
     map: &mut BTreeMap<azul_core::resources::BackgroundSlot, V>,
     dom: DomId,
     node_map: &NodeIdMap,
 ) {
-    let old = core::mem::take(map);
-    for (slot, v) in old {
-        match slot.node {
-            Some(old_id) if slot.dom == dom => {
-                if let Some(new_id) = node_map.resolve(old_id) {
-                    map.insert(
-                        azul_core::resources::BackgroundSlot {
-                            node: Some(new_id),
-                            ..slot
-                        },
-                        v,
-                    );
-                }
-            }
-            _ => {
-                map.insert(slot, v);
-            }
-        }
-    }
+    *map = core::mem::take(map)
+        .into_iter()
+        .filter_map(|(slot, v)| Some((remapped_background_slot(slot, dom, node_map)?, v)))
+        .collect();
 }
 
 /// [`remap_background_slots`] for a set of background layers.
@@ -247,10 +251,10 @@ pub(crate) fn remap_background_slot_set(
     dom: DomId,
     node_map: &NodeIdMap,
 ) {
-    let mut as_map: BTreeMap<azul_core::resources::BackgroundSlot, ()> =
-        core::mem::take(set).into_iter().map(|slot| (slot, ())).collect();
-    remap_background_slots(&mut as_map, dom, node_map);
-    *set = as_map.into_keys().collect();
+    *set = core::mem::take(set)
+        .into_iter()
+        .filter_map(|slot| remapped_background_slot(slot, dom, node_map))
+        .collect();
 }
 
 // ============================================================================

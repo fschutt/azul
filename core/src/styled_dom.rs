@@ -1499,7 +1499,7 @@ impl StyledDom {
         css_property_cache.compact_cache = Some(compact);
         // The generated nodes' text, from what the cascade resolved (before
         // the prune drops the entries the counters read).
-        let _ = crate::generated_content::fill_generated_text(
+        crate::generated_content::fill_generated_text(
             &mut compact_dom.node_data.internal,
             node_hierarchy.as_container().internal,
             &css_property_cache,
@@ -2008,7 +2008,7 @@ impl StyledDom {
 
         self.recascade_ua_inheritance_and_compact();
         // `content` and the counters may have moved with the cascade.
-        let _ = self.refill_generated_text();
+        self.refill_generated_text();
         // The new sheet may add or drop `:backdrop` rules.
         self.sync_backdrop_state();
     }
@@ -2618,7 +2618,7 @@ impl StyledDom {
             })
         };
         if content_moved {
-            let _ = self.refill_generated_text();
+            self.refill_generated_text();
         }
         changes
     }

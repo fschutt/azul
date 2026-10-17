@@ -1731,7 +1731,7 @@ pub struct LayoutWindow {
     pub layout_cache: Solver3LayoutCache,
     /// The layout cache of each child DOM (`VirtualView` content), kept between its
     /// passes as `layout_cache` is kept for the root: a view that renders again lays
-    /// out from what it had instead of cold (AzPdf's page view paid a cold layout of
+    /// out from what it had instead of cold (`AzPdf`'s page view paid a cold layout of
     /// its whole page per re-render). Swapped into `layout_cache` for the child's pass
     /// and out after it; dropped when the child DOM goes, and by `clear_caches`.
     pub child_layout_caches: BTreeMap<DomId, Solver3LayoutCache>,
@@ -10076,17 +10076,18 @@ impl LayoutWindow {
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier};
 
-        let old = self.content_overlay.background_frame(&slot).cloned();
-        if old.as_ref().map(ImageRef::get_hash) == Some(image.get_hash()) {
+        if self.content_overlay.background_frame(&slot).map(ImageRef::get_hash)
+            == Some(image.get_hash())
+        {
             return ContentChangeResult {
                 tier: ContentDirtyTier::Unchanged,
             };
         }
+        let old = self.content_overlay.set_background(slot, image.clone());
         // The items draw the declared callback until the layer's first frame,
         // then the frame before this one.
         let mut replaced = vec![slot.declared];
         replaced.extend(old.as_ref().map(ImageRef::get_hash));
-        let _ = self.content_overlay.set_background(slot, image.clone());
         self.content_journal.record(AppliedChange::Background {
             slot,
             old,
@@ -12159,7 +12160,7 @@ impl LayoutWindow {
     /// is only needed where no shell installed that wake, for a worker that asked
     /// for a `Tick` each frame (`Thread::with_frame_ticks`), and while a thread told
     /// to stop has not left (the poll is what notices its grace period ran out).
-    /// AzMonitor's sampler used to keep its window waking sixty times a second.
+    /// `AzMonitor`'s sampler used to keep its window waking sixty times a second.
     #[must_use]
     pub fn thread_poll_needed(&self) -> bool {
         if self.threads.is_empty() {
@@ -13440,7 +13441,7 @@ impl LayoutWindow {
         self.focus_manager
             .set_focused_node_with_visibility(Some(node), false);
         self.focus_manager
-            .defer_focus_target(azul_core::callbacks::FocusTarget::Id(node));
+            .defer_focus_target(FocusTarget::Id(node));
     }
 
     /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
@@ -16054,10 +16055,7 @@ impl LayoutWindow {
         let (new_node_data, new_hierarchy): (
             &[azul_core::dom::NodeData],
             &[azul_core::styled_dom::NodeHierarchyItem],
-        ) = match laid_out {
-            Some(tree) => tree,
-            None => (&[], &[]),
-        };
+        ) = laid_out.unwrap_or_default();
 
         // Rebuilt wholesale: after a rebuild the previous NodeIds are
         // meaningless, and a surviving stale entry would push this frame's

@@ -102,7 +102,7 @@ fn emboldened_vertices(
     path: &PathStorage,
     embolden_64: u16,
     px_per_unit: f64,
-) -> Option<Vec<agg_rust::basics::VertexD>> {
+) -> Option<Vec<VertexD>> {
     if embolden_64 == 0 || !px_per_unit.is_finite() || px_per_unit <= 0.0 {
         return None;
     }
@@ -518,7 +518,7 @@ impl GlyphCache {
                 let bold = emboldened_vertices(path, embolden_64, px_per_unit);
                 let mut src = agg_rust::conv_curve::ConvCurve::new(
                     agg_rust::conv_transform::ConvTransform::new(
-                        SliceVertexSource::new(bold.as_deref().unwrap_or(path.vertices())),
+                        SliceVertexSource::new(bold.as_deref().unwrap_or_else(|| path.vertices())),
                         transform,
                     ),
                 );
@@ -687,7 +687,7 @@ impl GlyphCache {
                 let bold = emboldened_vertices(path, embolden_64, px_per_unit);
                 let mut src = agg_rust::conv_curve::ConvCurve::new(
                     agg_rust::conv_transform::ConvTransform::new(
-                        SliceVertexSource::new(bold.as_deref().unwrap_or(path.vertices())),
+                        SliceVertexSource::new(bold.as_deref().unwrap_or_else(|| path.vertices())),
                         t,
                     ),
                 );

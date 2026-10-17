@@ -90,6 +90,9 @@ fn signed_area2(verts: &[VertexD], contours: &[(usize, usize)]) -> f64 {
 /// `strength` (holes shrink). Coordinates may be in any axis orientation:
 /// which side is outside comes from the outline's own winding. Nothing
 /// changes for a strength of zero or less, or an outline without area.
+// The geometry keeps its textbook names (s / e contour bounds, n count, p
+// point, i index): spelled out they read worse than the formulas they are.
+#[allow(clippy::many_single_char_names)]
 pub fn embolden_vertices(verts: &mut [VertexD], strength: f64) {
     if !strength.is_finite() || strength <= 0.0 {
         return;
@@ -173,7 +176,7 @@ mod tests {
     use super::*;
 
     fn square(x0: f64, y0: f64, x1: f64, y1: f64, clockwise: bool) -> Vec<VertexD> {
-        let mut pts = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+        let mut pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
         if clockwise {
             pts.reverse();
         }

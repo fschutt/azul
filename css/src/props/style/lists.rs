@@ -133,9 +133,11 @@ impl fmt::Display for StyleListStylePosition {
 // --- Counter representations ---
 
 /// The text of a counter `value` in the counter style `style` (CSS Counter
-/// Styles 3 s6): what a list marker and `counter()` in generated content
-/// show. A style that cannot write a value (an alphabet has no zero) falls
-/// back to decimal, so the text is never blank.
+/// Styles 3 s6).
+///
+/// What a list marker and `counter()` in generated content show. A style
+/// that cannot write a value (an alphabet has no zero) falls back to
+/// decimal, so the text is never blank.
 #[must_use]
 pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
     match style {

@@ -312,7 +312,7 @@ mod set {
         measure: &dyn Fn(&str) -> f32,
     ) -> Vec<core::ops::Range<usize>> {
         let Some(max) = max else {
-            return vec![start..end];
+            return core::iter::once(start..end).collect();
         };
         let is_space = |c: char| c == ' ' || c == '\t';
         // (word start, word end, end after its spaces)
@@ -422,7 +422,7 @@ mod set {
                     let mut runs = Vec::with_capacity(visual.len());
                     let mut width = 0.0_f32;
                     for run in visual {
-                        let run_rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
+                        let run_rtl = levels.get(run.start).is_some_and(Level::is_rtl);
                         let glyphs = shape(parsed, &paragraph[run.clone()], run_rtl, shaping)?;
                         width += advance(&glyphs);
                         runs.push(SetRun {

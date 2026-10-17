@@ -1075,7 +1075,7 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
         // The bar hears its own size: it measures itself after a layout.
         .with_callback(
             EventFilter::Component(azul_core::dom::ComponentEventFilter::NodeResized),
-            shared.clone(),
+            shared,
             on_toolbar_resized as usize,
         )
         .with_children(DomVec::from_vec(children))
@@ -1088,7 +1088,7 @@ extern "C" fn on_toolbar_resized(mut data: RefAny, info: CallbackInfo) -> Update
     let Some(size) = info.get_node_size(bar) else {
         return Update::DoNothing;
     };
-    let node_widths: Vec<f32> = crate::widgets::roving::children_of(&info, bar)
+    let node_widths: Vec<f32> = roving::children_of(&info, bar)
         .into_iter()
         .map(|node| info.get_node_size(node).map_or(0.0, |s| s.width))
         .collect();
