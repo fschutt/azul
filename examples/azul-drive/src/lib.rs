@@ -176,6 +176,10 @@ mod add_flow;
 mod cash;
 #[cfg(test)]
 mod cash_tests;
+/// Buy storage's first question: the buyer's country (the list, the guess, the search).
+mod countries;
+#[cfg(test)]
+mod countries_tests;
 /// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
 mod sign_in;
 pub mod args;
