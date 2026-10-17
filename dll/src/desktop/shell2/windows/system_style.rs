@@ -240,7 +240,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         if let Some(ref bg) = style.colors.window_background.as_option() {
             let luma = (bg.r as u16 + bg.g as u16 + bg.b as u16) / 3;
             if luma < 128 {
-                style.theme = DarkLightMode::Dark;
+                style.mode = DarkLightMode::Dark;
             }
         }
 
@@ -314,7 +314,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
 
     // GetSysColor stays light in dark mode; use the palette of the discovered theme (not under high contrast).
     if hc != BoolCondition::True {
-        let theme = style.theme;
+        let theme = style.mode;
         azul_css::system::adopt_theme_palette(
             &mut style,
             theme,
@@ -398,9 +398,9 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
         2000,
     ) {
         if output.contains("0x0") {
-            style.theme = DarkLightMode::Dark;
+            style.mode = DarkLightMode::Dark;
         } else if output.contains("0x1") {
-            style.theme = DarkLightMode::Light;
+            style.mode = DarkLightMode::Light;
         }
     }
 

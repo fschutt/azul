@@ -632,7 +632,7 @@ impl Win32Window {
             size: initial_window_state.size.clone(),
             position: initial_window_state.position,
             flags: initial_window_state.flags,
-            theme: initial_window_state.theme,
+            mode: initial_window_state.mode,
             debug_state: initial_window_state.debug_state,
             keyboard_state: Default::default(),
             mouse_state: Default::default(),
@@ -807,7 +807,7 @@ impl Win32Window {
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu);
         let mut common = event::CommonWindowState::new(
             current_window_state,
-            options.theme,
+            options.mode,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,
@@ -2794,7 +2794,7 @@ impl Win32Window {
             return;
         };
         let dark: i32 = i32::from(matches!(
-            self.common.current_window_state().theme,
+            self.common.current_window_state().mode,
             azul_core::window::DarkLightMode::Dark
         ));
         unsafe {
@@ -2834,7 +2834,7 @@ impl Win32Window {
         };
 
         // App-driven theme change (system changes arrive via WM_SETTINGCHANGE).
-        if previous.theme != current.theme {
+        if previous.mode != current.mode {
             self.apply_titlebar_theme();
         }
 
@@ -6962,10 +6962,7 @@ unsafe extern "system" fn window_proc(
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
                 core::slice::from_ref(&held_language),
             ));
-            let desktop_theme = match new_style.theme {
-                DarkLightMode::Dark => azul_core::window::DarkLightMode::Dark,
-                DarkLightMode::Light => azul_core::window::DarkLightMode::Light,
-            };
+            let desktop_theme = new_style.mode;
             // The DESKTOP's light / dark: the window takes it only while the
             // app follows the desktop (an app that pins its mode stays put;
             // the desktop is remembered for when it follows again).
@@ -6975,7 +6972,7 @@ unsafe extern "system" fn window_proc(
                 // and only the event diff carries the transition.
                 window.common.update_window_state(
                     crate::desktop::shell2::common::event::WindowStateSource::Os,
-                    |ws| ws.theme = new_theme,
+                    |ws| ws.mode = new_theme,
                 );
             }
             window.apply_titlebar_theme();

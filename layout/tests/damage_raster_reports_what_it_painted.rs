@@ -1,11 +1,13 @@
 //! The damaged renderer reports the rects it actually painted.
 //!
-//! Overlapping damage rects are merged into their bounding box before the
-//! per-rect clear and repaint, so the renderer writes pixels between them
-//! that neither rect asked for (a scroll strip and a scrollbar column that
-//! meet in a corner). The frame presents - and, on an ARGB8888 pool,
-//! byte-converts - exactly what the renderer reports, so what it reports has
-//! to be what it wrote, or those pixels go out stale or with R and B swapped.
+//! Overlapping damage rects are made disjoint before the per-rect clear and
+//! repaint: two whose bounding box is barely larger than what they cover
+//! become that box, so the renderer writes pixels neither rect asked for;
+//! any others are cut apart (a scroll strip and a scrollbar column that meet
+//! in a corner are painted as the L they are). The frame presents - and, on
+//! an ARGB8888 pool, byte-converts - exactly what the renderer reports, so
+//! what it reports has to be what it wrote, or those pixels go out stale or
+//! with R and B swapped.
 
 use azul_core::{
     dom::{Dom, DomId},
@@ -36,8 +38,9 @@ fn contains(rects: &[LogicalRect], x: u32, y: u32) -> bool {
     })
 }
 
-#[test]
-fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
+/// Repaints `requested` of a blue page over a marked buffer: how many written
+/// pixels lie outside what the renderer reported, and outside what was asked.
+fn paint(requested: &[LogicalRect]) -> (usize, usize, Vec<LogicalRect>) {
     let dom = Dom::create_body().with_css("margin: 0; background-color: #3c78c8;");
     let styled = StyledDom::create_from_dom(dom);
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -66,11 +69,6 @@ fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
         px.copy_from_slice(&MARK);
     }
 
-    // Two squares overlapping on the diagonal. Their bounding box is barely
-    // bigger than the pair, so the renderer merges them and paints the two
-    // empty corners as well - more than was asked for, which is the case
-    // this law is about.
-    let requested = [rect(0.0, 0.0, 50.0, 50.0), rect(25.0, 25.0, 50.0, 50.0)];
     let state = cpurender::CpuRenderState::new(Default::default());
     let painted = cpurender::render_display_list_damaged(
         &dl,
@@ -80,7 +78,7 @@ fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
         &lw.font_manager,
         &mut glyph_cache,
         &state,
-        &requested,
+        requested,
     )
     .unwrap();
 
@@ -95,59 +93,98 @@ fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
         if !contains(&painted, x, y) {
             written_outside_reported += 1;
         }
-        if !contains(&requested, x, y) {
+        if !contains(requested, x, y) {
             written_outside_requested += 1;
         }
     }
+    (written_outside_reported, written_outside_requested, painted)
+}
+
+#[test]
+fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
+    // Two rects that overlap almost entirely: they are painted as their
+    // bounding box, two corners of which neither asked for.
+    let requested = [rect(0.0, 0.0, 100.0, 100.0), rect(10.0, 10.0, 100.0, 100.0)];
+    let (outside_reported, outside_requested, painted) = paint(&requested);
     assert!(
-        written_outside_requested > 0,
-        "premise: merging the two squares paints their bounding box, i.e. more than was asked for"
+        outside_requested > 0,
+        "premise: the two rects are painted as their bounding box, more than was asked for"
     );
     assert_eq!(
-        written_outside_reported, 0,
-        "{written_outside_reported} painted pixels lie outside the reported damage {painted:?}"
+        outside_reported, 0,
+        "{outside_reported} painted pixels lie outside the reported damage {painted:?}"
     );
+}
 
-    // An L - a column and a strip meeting in the corner - is the shape whose
-    // bounding box is the whole surface. It is kept apart instead of merged,
-    // so here the renderer paints exactly what it was asked for, and the law
-    // above holds with nothing to spare.
-    for px in pixmap.data_mut().chunks_exact_mut(4) {
-        px.copy_from_slice(&MARK);
+#[test]
+fn an_l_of_damage_is_painted_as_the_l() {
+    // A column and a strip that overlap in the corner: their bounding box is
+    // nearly three times what they cover, so they are cut apart, not boxed.
+    let requested = [rect(0.0, 0.0, 20.0, 100.0), rect(0.0, 80.0, 100.0, 20.0)];
+    let (outside_reported, outside_requested, painted) = paint(&requested);
+    assert_eq!(outside_requested, 0, "nothing outside the L is painted: {painted:?}");
+    assert_eq!(
+        outside_reported, 0,
+        "{outside_reported} painted pixels lie outside the reported damage {painted:?}"
+    );
+}
+
+/// A rounded box whose edge a damage rect boundary crosses is painted, rect by
+/// rect, exactly as one full repaint paints it: the anti-aliased pixels of its
+/// top row (above the boundary) come out of the first rect's pass bit for bit.
+/// Cutting the geometry at the pass's clip changed their coverage by one step
+/// (a slider thumb dragged across a strip boundary left a 1-LSB ring).
+#[test]
+fn a_shape_across_two_damage_rects_is_painted_as_in_one_pass() {
+    let dom = Dom::create_body()
+        .with_css("margin: 0; background-color: #ffffff;")
+        .with_child(Dom::create_div().with_css(
+            "margin-left: 103px; margin-top: 44px; width: 16px; height: 16px; \
+             border-radius: 8px; background-color: #0d6efd;",
+        ));
+    let styled = StyledDom::create_from_dom(dom);
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+    lw.current_window_state = ws.clone();
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut None)
+        .unwrap();
+    let dl = lw.get_layout_result(&DomId::ROOT_ID).unwrap().display_list.clone();
+    let mut glyph_cache = GlyphCache::new();
+    let opts = RenderOptions {
+        width: 200.0,
+        height: 100.0,
+        dpi_factor: 1.0,
+    };
+    let full =
+        cpurender::render_with_font_manager(&dl, &rr, &lw.font_manager, opts, &mut glyph_cache)
+            .unwrap();
+    let mut parts = full.clone_pixmap();
+    for px in parts.data_mut().chunks_exact_mut(4) {
+        px.copy_from_slice(&[1, 2, 3, 4]);
     }
-    let l = [rect(0.0, 0.0, 20.0, 100.0), rect(0.0, 80.0, 100.0, 20.0)];
-    let painted_l = cpurender::render_display_list_damaged(
+    let state = cpurender::CpuRenderState::new(Default::default());
+    cpurender::render_display_list_damaged(
         &dl,
-        &mut pixmap,
+        &mut parts,
         1.0,
         &rr,
         &lw.font_manager,
         &mut glyph_cache,
         &state,
-        &l,
+        &[rect(0.0, 0.0, 200.0, 45.0), rect(0.0, 45.0, 200.0, 55.0)],
     )
     .unwrap();
-    let mut l_outside_reported = 0usize;
-    let mut l_outside_requested = 0usize;
-    for (i, px) in pixmap.data().chunks_exact(4).enumerate() {
-        if px == MARK {
-            continue;
-        }
-        let (x, y) = (i as u32 % w, i as u32 / w);
-        if !contains(&painted_l, x, y) {
-            l_outside_reported += 1;
-        }
-        if !contains(&l, x, y) {
-            l_outside_requested += 1;
-        }
-    }
-    assert_eq!(
-        l_outside_reported, 0,
-        "{l_outside_reported} painted pixels lie outside the reported damage {painted_l:?}"
-    );
-    assert_eq!(
-        l_outside_requested, 0,
-        "an L is not worth its bounding box: {l_outside_requested} pixels painted outside it, \
-         reported {painted_l:?}"
-    );
+    let w = full.width();
+    let differ: Vec<(u32, u32)> = full
+        .data()
+        .chunks_exact(4)
+        .zip(parts.data().chunks_exact(4))
+        .enumerate()
+        .filter(|(_, (a, b))| a[..3] != b[..3])
+        .map(|(i, _)| (i as u32 % w, i as u32 / w))
+        .collect();
+    assert!(differ.is_empty(), "{} pixels differ from one full repaint: {:?}", differ.len(), &differ[..differ.len().min(8)]);
 }

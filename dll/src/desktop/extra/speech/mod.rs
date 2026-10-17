@@ -105,13 +105,13 @@ pub enum HeardStatus {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeechHeard {
-    pub status: HeardStatus,
     /// What was understood (empty unless `Heard`).
     pub text: AzString,
-    /// How sure the recognizer is, 0 to 1 (0 where it does not say).
-    pub confidence: f32,
     /// Why nothing was heard, readable enough to show (empty for `Heard`).
     pub message: AzString,
+    pub status: HeardStatus,
+    /// How sure the recognizer is, 0 to 1 (0 where it does not say).
+    pub confidence: f32,
 }
 
 impl SpeechHeard {

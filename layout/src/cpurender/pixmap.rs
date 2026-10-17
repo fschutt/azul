@@ -1301,6 +1301,28 @@ pub fn svg_user_space_mapping(
     }
 }
 
+/// The box the AA rasterizer clips a path's GEOMETRY to for the pixel clip
+/// `clip`: the clip grown by a margin, within the pixmap. Cutting the geometry
+/// exactly at the clip changes the coverage of the pixels along the cut by a
+/// step (the cut's own rounding), so a shape painted in two passes whose clips
+/// meet differed from one pass in the anti-aliased pixels along the seam;
+/// grown, the cut lies in pixels the pixel clip (`clip_box_i`) never writes.
+/// The geometric clip still bounds the sweep (the huge-coordinate guard).
+fn geometry_clip_box(clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
+    const MARGIN: f64 = 2.0;
+    clip.map_or_else(
+        || (0.0, 0.0, f64::from(w), f64::from(h)),
+        |c| {
+            (
+                (f64::from(c.x) - MARGIN).max(0.0),
+                (f64::from(c.y) - MARGIN).max(0.0),
+                (f64::from(c.x + c.width) + MARGIN).min(f64::from(w)),
+                (f64::from(c.y + c.height) + MARGIN).min(f64::from(h)),
+            )
+        },
+    )
+}
+
 pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
@@ -1336,17 +1358,7 @@ pub fn agg_fill_path_clipped(
     // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
     // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
     // rasterizer's clip box bounds the work to the visible area.
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
     // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
@@ -1441,17 +1453,7 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     let mut clamped = ClampVertexSource {
         inner: path,

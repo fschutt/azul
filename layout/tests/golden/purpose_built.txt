@@ -728,7 +728,7 @@ n50 p49 d50 Inline @0,224 40.8125x12 ov=40.796875x12 bl=10 ic=40.8125/40.8125 re
 n51 p48 d51 TableRow @2,180 62.8125x42 ic=18.8125/18.8125 rel=2,2
 n52 p51 d52 TableCell @2,180 14x42 bl=10 ic=12/12 rel=0,0
 n53 p52 d53 Inline @3,181 -x- ic=12/12
-n54 p51 d54 TableCell @18,180 18.796875x42 bl=10 ic=16.8125/16.8125 rel=16,0
+n54 p51 d54 TableCell @18,180 18.8125x42 bl=10 ic=16.8125/16.8125 rel=16,0
 n55 p54 d55 Inline @19,181 -x- ic=16.8125/16.8125
 n56 p51 d56 TableCell @38.8125,180 8x42 bl=22 ic=6/6 rel=36.8125,0
   line 0 y=8 items=2 glyphs=1 x=0..6
@@ -834,8 +834,8 @@ n96 p95 d96 Inline @3,335 -x- ic=31.203125/222.60938
   dl58 HitTestArea 2,180 14x42
   dl59 Text -9,181 36x40 glyphs=2 fs=12
   dl60 HitTestArea 3,209.40625 12x12
-  dl61 HitTestArea 18,180 18.796875x42
-  dl62 Text 7,181 40.796875x40 glyphs=2 fs=12
+  dl61 HitTestArea 18,180 18.8125x42
+  dl62 Text 7,181 40.8125x40 glyphs=2 fs=12
   dl63 HitTestArea 19,195.40625 16.796875x12
   dl64 HitTestArea 38.8125,180 8x42
   dl65 Text 27.8125,181 30x40 glyphs=1 fs=12
