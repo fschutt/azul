@@ -5,7 +5,10 @@
 //!   (at most [`PARALLEL_PARTS`] in memory), and read to its end before the upload is completed:
 //!   a reader that checks what it read (a sync's BLAKE3) stops a wrong upload by failing at its
 //!   end. A body of one part or less is one PUT. A failed upload is aborted: a reader cannot be
-//!   read again, so nothing could resume it.
+//!   read again, so nothing could resume it. With a resume folder the upload keeps a record
+//!   there while it runs, locked by the uploading process: an abort that was refused (the
+//!   credentials ran out) or never sent (the app was killed) leaves the record, and the next
+//!   sweep aborts the upload.
 //! - A local file ([`Drive::put_file`]) is read part by part where each part lies, and its
 //!   upload outlives the app: with a resume folder ([`S3Drive::with_resume_dir`], or the app's
 //!   [`set_resume_folder`]) a state file per upload keeps the upload id, the parts' ETags, and
@@ -14,7 +17,7 @@
 //!   ones. An upload that is stale ([`STALE_AFTER_SECS`]) or whose file changed is aborted and
 //!   started again - it is never completed with parts of two versions - and so is one whose
 //!   file changed while it was sent. [`S3Drive::abort_stale_uploads`] sweeps the ones nobody
-//!   resumes.
+//!   resumes; every new multipart upload of the drive sweeps first.
 //! - A conditional upload (`If-None-Match: *`, `If-Match`) asks its condition when it is
 //!   completed (S3 checks it on CompleteMultipartUpload): a 412 is [`DriveError::Conflict`],
 //!   and its parts are aborted.
@@ -24,7 +27,7 @@
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -231,6 +234,89 @@ fn write_state(path: &Path, state: &UploadState) {
     }
 }
 
+/// The record of a streamed upload under way (`stream-<hash of the upload id>.json` in the
+/// resume folder). A stream cannot be resumed, so the record only names the upload to abort:
+/// the uploading process holds the file locked while it sends, and a sweep that can lock it
+/// knows the upload's process is done with it - killed, or its abort refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StreamRecord {
+    version: u32,
+    endpoint: String,
+    bucket: String,
+    key: String,
+    upload_id: String,
+    /// When the upload started, in seconds since 1970 (for a person reading the folder).
+    started_at: u64,
+}
+
+/// A streamed upload's record, held (locked) while the upload runs.
+struct HeldStream {
+    path: PathBuf,
+    /// Open and locked for as long as the upload runs; dropping it lets the lock go.
+    file: File,
+}
+
+/// Where the record of the streamed upload `upload_id` lives.
+fn stream_record_path(folder: &Path, upload_id: &str) -> PathBuf {
+    let hash = blake3::hash(upload_id.as_bytes()).to_hex();
+    folder.join(format!("stream-{}.json", &hash.as_str()[..32]))
+}
+
+/// Whether `path` is a streamed upload's record (not a file upload's state file).
+fn is_stream_record(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("stream-") && name.ends_with(".json"))
+}
+
+/// Records the streamed upload `upload_id` of `key` and locks the record for as long as the
+/// returned handle lives; `None` without a resume folder, or when the record cannot be made
+/// (best effort: the upload is sent all the same).
+fn hold_stream(drive: &S3Drive, key: &str, upload_id: &str) -> Option<HeldStream> {
+    let folder = drive.resume_dir()?;
+    fs::create_dir_all(&folder).ok()?;
+    let path = stream_record_path(&folder, upload_id);
+    let record = StreamRecord {
+        version: STATE_VERSION,
+        endpoint: drive.config().endpoint.clone(),
+        bucket: drive.config().bucket.clone(),
+        key: key.to_string(),
+        upload_id: upload_id.to_string(),
+        started_at: drive.now(),
+    };
+    // Written and locked under a name no sweep reads, then renamed: a sweep never finds the
+    // record unlocked or half written (the lock stays with the file through the rename).
+    let draft = path.with_extension("json.draft");
+    let mut file = File::options()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&draft)
+        .ok()?;
+    let written = file.lock().is_ok()
+        && serde_json::to_vec_pretty(&record)
+            .ok()
+            .is_some_and(|text| file.write_all(&text).is_ok())
+        && fs::rename(&draft, &path).is_ok();
+    if !written {
+        drop(file);
+        let _ = fs::remove_file(&draft);
+        return None;
+    }
+    Some(HeldStream { path, file })
+}
+
+/// Lets the record go; it is removed when the upload is `done` with (completed, or aborted),
+/// and kept for a later sweep otherwise.
+fn release_stream(held: Option<HeldStream>, done: bool) {
+    if let Some(HeldStream { path, file }) = held {
+        drop(file);
+        if done {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
 /// Whether `e` says the service no longer knows the upload.
 fn upload_gone(e: &DriveError) -> bool {
     match e {
@@ -292,11 +378,20 @@ pub(crate) fn upload_stream(
         };
         return Ok((n, etag));
     }
+    abort_stale(drive);
     let upload = drive.start_multipart(key)?;
+    let held = hold_stream(drive, key, &upload);
     match stream_parts(drive, key, &upload, vec![first, second], body, condition) {
-        Ok(done) => Ok(done),
+        Ok(done) => {
+            release_stream(held, true);
+            Ok(done)
+        }
         Err(e) => {
-            let _ = drive.abort_multipart(key, &upload);
+            let aborted = match drive.abort_multipart(key, &upload) {
+                Ok(()) => true,
+                Err(gone) => upload_gone(&gone),
+            };
+            release_stream(held, aborted);
             Err(e)
         }
     }
@@ -470,6 +565,7 @@ fn upload_file_with(
     let state = match state {
         Some(state) => state,
         None => {
+            abort_stale(drive);
             let upload_id = drive.start_multipart(key)?;
             let state = UploadState {
                 version: STATE_VERSION,
@@ -562,7 +658,8 @@ fn upload_file_with(
 }
 
 /// Aborts the unfinished uploads of `drive`'s bucket in its resume folder that will not be
-/// resumed - stale, or their file is gone or changed - and forgets them; how many.
+/// resumed - a file upload that is stale, or whose file is gone or changed; a streamed upload
+/// no process holds any more - and forgets them; how many.
 pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
     let Some(folder) = drive.resume_dir() else {
         return 0;
@@ -576,6 +673,10 @@ pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        if is_stream_record(&path) {
+            aborted += usize::from(abort_dead_stream(drive, &path));
             continue;
         }
         let Some(state) = read_state(&path) else {
@@ -599,4 +700,39 @@ pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
         aborted += 1;
     }
     aborted
+}
+
+/// Aborts the streamed upload the record at `path` names when no process holds the record any
+/// more (an upload under way keeps it locked) and it is of `drive`'s bucket; whether it did.
+fn abort_dead_stream(drive: &S3Drive, path: &Path) -> bool {
+    let Ok(mut file) = File::options().read(true).write(true).open(path) else {
+        return false;
+    };
+    if file.try_lock().is_err() {
+        return false;
+    }
+    let mut text = Vec::new();
+    let record = file
+        .read_to_end(&mut text)
+        .ok()
+        .and_then(|_| serde_json::from_slice::<StreamRecord>(&text).ok());
+    let Some(record) = record else {
+        // Cut off while it was written (the app died at once): it names no upload.
+        drop(file);
+        let _ = fs::remove_file(path);
+        return false;
+    };
+    let config = drive.config();
+    if record.endpoint != config.endpoint || record.bucket != config.bucket {
+        return false;
+    }
+    match drive.abort_multipart(&record.key, &record.upload_id) {
+        Ok(()) => {}
+        Err(e) if upload_gone(&e) => {}
+        // No answer, or refused: tried again at the next sweep.
+        Err(_) => return false,
+    }
+    drop(file);
+    let _ = fs::remove_file(path);
+    true
 }
