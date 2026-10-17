@@ -8,7 +8,10 @@ use std::fmt;
 
 use azul_storage::{keyring::KeyringError, DriveError};
 
-use crate::token::TokenError;
+use crate::{
+    token::TokenError,
+    user_errors::{Code, UserError},
+};
 
 /// Why an account, sync or share call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,11 +62,12 @@ impl CloudError {
         }
     }
 
-    /// The token server refused this device's drive token (revoked, reused, unknown): retrying
-    /// does not help, signing in to (joining) the drive again does.
+    /// The token server refused this device's drive token (revoked, reused, unknown), or a node
+    /// the credentials it was given for it: retrying does not help, signing in to (joining) the
+    /// drive again does.
     #[must_use]
     pub fn is_sign_in(&self) -> bool {
-        matches!(self.root(), CloudError::Token(TokenError::SignIn(_)))
+        UserError::from_cloud_error(self).is_some_and(|user| user.code == Code::CredentialsRevoked)
     }
 }
 

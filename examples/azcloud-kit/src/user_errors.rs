@@ -43,6 +43,9 @@ pub enum Behaviour {
     ReadsOnly,
     /// Stop and ask to sign in to the drive again.
     SignInAgain,
+    /// Fresh credentials with the drive token, then the call again - the drive does it by
+    /// itself; no node is asked again with the old ones, every node refuses them.
+    RefreshSession,
     /// This file is skipped.
     SkipFile,
     /// Both versions are kept.
@@ -69,6 +72,9 @@ pub enum Code {
     CredentialsRevoked,
     /// The drive's credentials or token are gone on this device - the client's own.
     SignIn,
+    /// The session's credentials ran out, or were made under a signing epoch that ended: the
+    /// drive refreshes them with its drive token.
+    SessionExpired,
     ObjectTooLarge,
     NameConflict,
     LinkBlocked,
@@ -101,7 +107,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 21] = [
+    pub const ALL: [Code; 22] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -109,6 +115,7 @@ impl Code {
         Code::ReadOnlyUnpaid,
         Code::CredentialsRevoked,
         Code::SignIn,
+        Code::SessionExpired,
         Code::ObjectTooLarge,
         Code::NameConflict,
         Code::LinkBlocked,
@@ -136,6 +143,7 @@ impl Code {
             Code::ReadOnlyUnpaid => "read_only_unpaid",
             Code::CredentialsRevoked => "credentials_revoked",
             Code::SignIn => "sign_in",
+            Code::SessionExpired => "session_expired",
             Code::ObjectTooLarge => "object_too_large",
             Code::NameConflict => "name_conflict",
             Code::LinkBlocked => "link_blocked",
@@ -246,6 +254,14 @@ pub const ROWS: &[Row] = &[
         behaviour: Behaviour::SignInAgain,
         en: "This device can no longer open the drive. Sign in to it again.",
         de: "Dieses Gerät kann das Laufwerk nicht mehr öffnen. Melde dich erneut an.",
+    },
+    Row {
+        code: Code::SessionExpired,
+        class: Class::Retry,
+        behaviour: Behaviour::RefreshSession,
+        en: "Renewing this device's access to the drive - syncing goes on in a moment.",
+        de: "Der Zugang dieses Geräts zum Laufwerk wird erneuert - die Synchronisierung geht \
+             gleich weiter.",
     },
     Row {
         code: Code::ObjectTooLarge,
