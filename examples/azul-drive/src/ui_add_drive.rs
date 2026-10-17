@@ -240,6 +240,10 @@ fn tile(
         ))
 }
 
+/// A tile of Buy storage's grids (the tiers, the payment pills): two to a line across the
+/// dialog's 460 px, the width holding the tile's padding and the margin after it.
+const TWO_TO_A_LINE: &str = "width: 222px; box-sizing: border-box; margin: 0px 8px 8px 0px;";
+
 /// A text field writing to `target`.
 fn text_field(app: &RefAny, value: &str, placeholder: &str, secret: bool, target: TextTarget) -> Dom {
     let base = if secret {
@@ -459,8 +463,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                         &price,
                         AddEvent::Tier(index),
                         index == d.tier,
-                        // two to a line: the width holds the tile's padding
-                        "width: 222px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
+                        TWO_TO_A_LINE,
                     )
                     .with_id(ids::add_tier(index))
                 })
@@ -773,8 +776,9 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
             let via = pay_words::via(pill.provider(offer));
             let hint = Choice::of(offer, pill, &d.pill_context())
                 .and_then(|choice| pay_words::pill_hint(&choice));
+            // Where the payer finishes and who takes the payment, a line each.
             let detail = match hint {
-                Some(hint) => format!("{hint} · {via}"),
+                Some(hint) => format!("{hint}\n{via}"),
                 None => via,
             };
             tile(
@@ -784,7 +788,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
                 &detail,
                 AddEvent::Pill(pill.method),
                 selected,
-                "width: 146px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
+                TWO_TO_A_LINE,
             )
             .with_id(ids::add_pill(pill.method.as_str()))
         })

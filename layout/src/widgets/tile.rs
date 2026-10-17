@@ -7,7 +7,8 @@
 //! The bar is the [`ProgressBar`] widget (the tile picks its fill from the
 //! theme: the capacity blue, or the alarm red past [`TileCapacity::is_nearly_full`]),
 //! the text is [`TileCapacity::label`]. A tile without a capacity shows its
-//! [`Tile::detail`] instead ("S3 bucket", "Folder").
+//! [`Tile::detail`] instead ("S3 bucket", "Folder"), a line under the title for
+//! each of its lines. A line too long for the tile ends in an ellipsis.
 //!
 //! A tile is a keyboard stop and a list item for assistive technology; it
 //! reports a click and a double-click (open) to the app, which owns the
@@ -32,9 +33,9 @@ use azul_css::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
             LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutFlexShrink, LayoutMinWidth, LayoutOverflow,
+            LayoutFlexShrink, LayoutMinWidth, LayoutOverflow, StyleTextOverflow,
         },
-        property::{CssProperty, StyleWhiteSpaceValue},
+        property::{CssProperty, StyleTextOverflowValue, StyleWhiteSpaceValue},
         style::{StyleBackgroundContentVec, StyleCursor, StyleUserSelect, StyleWhiteSpace},
     },
     AzString,
@@ -149,7 +150,8 @@ pub struct Tile {
     pub icon: AzString,
     /// The first line: the drive's or file's name.
     pub title: AzString,
-    /// The line under the title when the tile has no capacity ("S3 bucket").
+    /// The lines under the title when the tile has no capacity ("S3 bucket");
+    /// a line break starts another line ("Code from your banking app\nvia Stripe").
     pub detail: AzString,
     /// The capacity bar and its "x free of y" text; `None` shows `detail`.
     pub capacity: OptionTileCapacity,
@@ -226,12 +228,16 @@ pub(crate) static TILE_COLUMN_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
 ];
 
-/// A text line of the column: one line, clipped at the column's edge.
+/// A text line of the column: one line, cut at the column's edge where it ends
+/// in an ellipsis, never through a letter.
 pub(crate) static TILE_LINE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Nowrap,
     ))),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::TextOverflow(StyleTextOverflowValue::Exact(
+        StyleTextOverflow::Ellipsis,
+    ))),
 ];
 
 /// The bar's box: a block across the column.
@@ -471,8 +477,8 @@ pub(crate) fn build(tile: Tile, look: &TileLook) -> Dom {
             column.push(line(capacity.label(), TILE_DETAIL_CLASS, &look.detail));
         }
         None => {
-            if !detail.as_str().is_empty() {
-                column.push(line(detail, TILE_DETAIL_CLASS, &look.detail));
+            for text in detail.as_str().split('\n').filter(|t| !t.is_empty()) {
+                column.push(line(AzString::from(text), TILE_DETAIL_CLASS, &look.detail));
             }
         }
     }
