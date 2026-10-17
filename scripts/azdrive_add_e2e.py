@@ -948,10 +948,18 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
     third = start("azdrive-kit-after", kit_switches, kit_env)
     try:
         options_drives(third)
-        third.after("the recovery finished", "AZDRIVE_RECOVERY_FINISHED", re.escape(drive_id),
-                    lambda: third.click(selector="#__azdrive_recovery_finish_" + part))
-        third.until("its row in CLOUD", lambda: third.has(side_drive(drive_id)))
+        def finished():
+            # A failure fails at once with AzDrive's reason, not after the timeout.
+            failed = third.printed("AZDRIVE_RECOVERY_NOT_FINISHED", r"%s .*" % re.escape(drive_id))
+            if failed:
+                raise Failure("the recovery did not finish: %s" % failed[-1])
+            return third.printed("AZDRIVE_RECOVERY_FINISHED", re.escape(drive_id))
+        third.click(selector="#__azdrive_recovery_finish_" + part)
+        third.until("the recovery finished", finished)
+        # Options cover the window: the source list shows again once they close (the recovery
+        # saved the drive at once, as the lockdown before it did).
         third.key("escape")
+        third.until("its row in CLOUD", lambda: third.has(side_drive(drive_id)))
         drive_menu(third, drive_id, "Unlock with the recovery code…")
         popup = e2e.modal_window(third)
         popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
@@ -961,6 +969,19 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
                     lambda: popup.click_exact("Unlock"))
         third.until("its file", lambda: "hello.txt" in item_names(third))
         third.screenshot(os.path.join(out, "13g-recovered.png"))
+    except Failure:
+        # What the windows show says why: a message dialog, a notice in the status bar (the
+        # wait that failed may have spent the app's time: the pictures get their own).
+        third.deadline = time.time() + 30
+        try:
+            third.screenshot(os.path.join(out, "13g-failed.png"))
+            for w in (third.value("list_windows") or {}).get("windows") or []:
+                if not w.get("is_default"):
+                    e2e.InWindow(third, w.get("window_id")).screenshot(
+                        os.path.join(out, "13g-failed-%s.png" % w.get("window_id")))
+        except Failure as why:
+            log("no picture of the failure: %s" % why)
+        raise
     finally:
         third.stop()
     log("13g. A fresh profile recovered %s by its kit alone: the findable key looked it up, the "
