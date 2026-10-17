@@ -3282,7 +3282,7 @@ jobs:
         with:
           path: |
             target/release
-            target/pyext-e2e/release
+            target/pyext-e2e/pyext-e2e
           key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -3295,17 +3295,19 @@ jobs:
           if [ "${{ steps.build-cache.outputs.cache-hit }}" != "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # The dll, and on Linux and macOS the Python extension too: a cache restored by a key
+          # prefix may come from a run that kept the extension elsewhere.
           case "${{ matrix.os }}" in
-            ubuntu-22.04) F="target/release/libazul.so" ;;
-            macos-14)     F="target/release/libazul.dylib" ;;
-            windows-2022) F="target/release/azul.dll" ;;
+            ubuntu-22.04) F="target/release/libazul.so";    P="target/pyext-e2e/pyext-e2e/libazul.so" ;;
+            macos-14)     F="target/release/libazul.dylib"; P="target/pyext-e2e/pyext-e2e/libazul.dylib" ;;
+            windows-2022) F="target/release/azul.dll";      P="$F" ;;
           esac
-          if [ -f "$F" ]; then
-            echo "Cache valid - $F exists"
+          if [ -f "$F" ] && [ -f "$P" ]; then
+            echo "Cache valid - $F and $P exist"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Cache restored but $F missing - rebuilding"
-            rm -rf target/release target/pyext-e2e/release
+            echo "::warning::Cache restored but $F or $P missing - rebuilding"
+            rm -rf target/release target/pyext-e2e/pyext-e2e
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -3347,7 +3349,8 @@ jobs:
           python-version: '3.12'
       - name: Build python extension (debug-server, for e2e)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
-        run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+        # The pyext-e2e profile (Cargo.toml): -O1, no debuginfo - the extension is a test artifact.
+        run: cargo build --profile pyext-e2e -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
 
       - name: Stage DLL + codegen artifact
         shell: bash
@@ -3356,8 +3359,8 @@ jobs:
           rm -rf e2e-dll && mkdir -p e2e-dll/release e2e-dll/codegen
           cp -a target/codegen/. e2e-dll/codegen/
           if [ "${{ matrix.os }}" != "windows-2022" ]; then
-            cp target/pyext-e2e/release/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
-              || cp target/pyext-e2e/release/libazul.so e2e-dll/release/azul-pyext.so
+            cp target/pyext-e2e/pyext-e2e/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
+              || cp target/pyext-e2e/pyext-e2e/libazul.so e2e-dll/release/azul-pyext.so
           fi
           if [ "${{ matrix.os }}" = "macos-14" ]; then
             cp target/release/libazul.dylib e2e-dll/release/
