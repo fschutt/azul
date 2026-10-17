@@ -526,6 +526,7 @@ mod tile_tests {
     use std::sync::{Arc, Mutex};
 
     use azul_core::dom::NodeType;
+    use azul_css::props::layout::StyleTextOverflow;
 
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, UiTheme};
@@ -622,6 +623,64 @@ mod tile_tests {
             matches!(bare.children.as_ref()[0].root.get_node_type(), NodeType::Div),
             "no icon: an empty slot keeps the column in place"
         );
+    }
+
+    #[test]
+    fn a_detail_with_a_line_break_shows_each_line_under_the_title() {
+        // A payment method's tile says where the payer finishes and who takes the payment, on
+        // a line each; one line would not hold both in a tile two to a line.
+        for theme in checks::BOTH {
+            let dom = Tile::create(AzString::from("BLIK"))
+                .with_icon(AzString::from("dialpad"))
+                .with_detail(AzString::from("Code from your banking app\nvia Stripe"))
+                .with_theme(theme)
+                .dom();
+            let column = dom.children.as_ref()[1].children.as_ref();
+            let lines: Vec<Option<&str>> = column.iter().map(text_of).collect();
+            assert_eq!(
+                lines,
+                vec![
+                    Some("BLIK"),
+                    Some("Code from your banking app"),
+                    Some("via Stripe")
+                ],
+                "{}",
+                theme.name()
+            );
+            assert!(
+                column[1..]
+                    .iter()
+                    .all(|line| has_class(line, "__azul-native-tile-detail")),
+                "{}: both are detail lines",
+                theme.name()
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_longer_than_its_tile_ends_in_an_ellipsis_not_in_a_cut_letter() {
+        // Explorer's tiles: a name or a detail too long for the tile is cut at a letter and
+        // ends in "...", never cut through a letter at the tile's edge.
+        let ellipsis = CssProperty::TextOverflow(StyleTextOverflow::Ellipsis.into());
+        for theme in checks::BOTH {
+            for tile in [home(), bucket()] {
+                let dom = tile.with_theme(theme).dom();
+                for line in dom.children.as_ref()[1].children.as_ref() {
+                    if has_class(line, "__azul-native-tile-bar") {
+                        continue;
+                    }
+                    assert!(
+                        line.root
+                            .style
+                            .iter_inline_properties()
+                            .any(|(p, _)| *p == ellipsis),
+                        "{}: {:?} is clipped without an ellipsis",
+                        theme.name(),
+                        text_of(line)
+                    );
+                }
+            }
+        }
     }
 
     #[test]

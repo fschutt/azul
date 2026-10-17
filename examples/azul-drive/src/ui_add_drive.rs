@@ -1602,7 +1602,9 @@ extern "C" fn on_path_picked(mut data: RefAny, mut info: CallbackInfo, result: R
 #[cfg(test)]
 mod tests {
     use azcloud_kit::{Tier, Tiers};
-    use azul::css::{CssDeclaration, CssProperty, StyleFontSizeValue};
+    use azul::css::{
+        CssDeclaration, CssProperty, LayoutWidth, LayoutWidthValue, StyleFontSizeValue,
+    };
 
     use super::*;
 
@@ -1664,6 +1666,92 @@ mod tests {
             withdrawal_consent: None,
         });
         dialog(&d, false, &SignInSettings::default(), &RefAny::new(())).1
+    }
+
+    /// The width (px) `dom`'s own sheets give it.
+    fn own_width(dom: &Dom) -> Option<f32> {
+        dom.css
+            .as_slice()
+            .iter()
+            .flat_map(|css| css.rules.as_slice().iter())
+            .flat_map(|rule| rule.declarations.as_slice().iter())
+            .filter_map(|declaration| match declaration {
+                CssDeclaration::Static(CssProperty::Width(LayoutWidthValue::Exact(
+                    LayoutWidth::Px(size),
+                ))) => Some(size.number.get()),
+                _ => None,
+            })
+            .next_back()
+    }
+
+    /// Every text of `dom`, in document order.
+    fn texts_of(dom: &Dom) -> Vec<String> {
+        let mut out: Vec<String> = dom
+            .root
+            .node_type
+            .get_text()
+            .into_option()
+            .map(|t| t.as_str().to_string())
+            .into_iter()
+            .collect();
+        for child in dom.children.as_slice() {
+            out.extend(texts_of(child));
+        }
+        out
+    }
+
+    /// Buy storage from Poland, paying through Stripe: BLIK (a code from the banking app) and
+    /// PayPal (its website).
+    fn polish_buy_page() -> Dom {
+        crate::l10n::in_english();
+        let tier = |id: &str, gb: u64| Tier {
+            id: id.to_string(),
+            quota_bytes: gb * 1_000_000_000,
+            price_cents_month: Some(449),
+            price_cents_year: Some(4490),
+            currency: "PLN".to_string(),
+            first_month_free: true,
+        };
+        let mut d = AddDialog::new(1);
+        assert!(d.set_country("PL"));
+        d.choose_buy();
+        d.tiers = TiersState::Loaded(Tiers {
+            tiers: vec![tier("100GB", 100), tier("1TB", 1000)],
+            methods: vec!["blik".to_string(), "paypal".to_string()],
+            withdrawal_consent: None,
+        });
+        let offer = azul_pay::offer::Offer::parse(
+            &serde_json::json!({"offers": [{"provider": "stripe",
+                "methods": [{"method": "blik"}, {"method": "paypal"}]}]})
+            .to_string(),
+            &azul_pay::offer::OfferContext::for_token_url("https://token.azlin.io"),
+        )
+        .expect("an offer");
+        d.offer_loaded(offer);
+        assert!(d.pays_with_pills(), "harness: the page pays through the pills");
+        dialog(&d, false, &SignInSettings::default(), &RefAny::new(())).1
+    }
+
+    /// A pill says its method, where the payer finishes and who takes the payment. In tiles
+    /// three to a line that never fit beside the tiers' two (3 x 154 px > 460 px) the last two
+    /// were cut through a letter ("Code from you", "Opens PayPal'"); the pills now stand two to
+    /// a line as the tiers above them, with the hint and the provider on a line each.
+    #[test]
+    fn a_pill_stands_as_wide_as_a_tier_and_says_its_hint_and_provider_on_lines_of_their_own() {
+        let page = polish_buy_page();
+        let tier = with_id(&page, &ids::add_tier(0)).expect("the first tier");
+        let blik = with_id(&page, &ids::add_pill("blik")).expect("the BLIK pill");
+        let paypal = with_id(&page, &ids::add_pill("paypal")).expect("the PayPal pill");
+        assert_eq!(own_width(blik), own_width(tier), "a pill is as wide as a tier");
+        assert_eq!(own_width(paypal), own_width(tier));
+        assert_eq!(
+            texts_of(blik),
+            vec!["BLIK", "Code from your banking app", "via Stripe"]
+        );
+        assert_eq!(
+            texts_of(paypal),
+            vec!["PayPal", "Opens PayPal's website", "via Stripe"]
+        );
     }
 
     /// The dialog kit's sizes (azul's wizard pages, settings rows and standard dialogs): text and
