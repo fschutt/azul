@@ -294,7 +294,7 @@ use crate::{
         shell2::common::{
             debug_server::LogCategory,
             event::{
-                self, scrollbar_stops_the_button_event, PlatformWindow,
+                self, scrollbar_stops_the_button_event, HitTestNode, PlatformWindow,
                 BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
             },
             WindowError,
