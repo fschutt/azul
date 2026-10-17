@@ -1209,3 +1209,7 @@ mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
 mod a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text;
 #[path = "an_inline_block_inside_a_word_is_never_lost_to_hyphenation.rs"]
 mod an_inline_block_inside_a_word_is_never_lost_to_hyphenation;
+#[path = "common/paged_payload.rs"]
+mod paged_payload;
+#[path = "a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload.rs"]
+mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;

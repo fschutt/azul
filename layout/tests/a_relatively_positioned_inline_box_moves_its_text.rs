@@ -17,32 +17,12 @@
 //!
 //! Not compiled by the author (house rule); RED before the fix.
 
-use std::{collections::BTreeMap, sync::Arc};
-
-use azul_core::{
-    dom::{Dom, DomId},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
-    resources::RendererResources,
-};
+use azul_core::geom::LogicalPosition;
 use azul_layout::{
-    font::loading::build_font_cache,
-    font_traits::{FontManager, TextLayoutCache},
-    paged::FragmentationContext,
-    solver3::{
-        display_list::{DisplayListItem, WindowLogicalRect},
-        layout_tree::TextPayload,
-        paged_layout::layout_document_paged_with_config,
-        pagination::FakePageConfig,
-    },
-    text3::{
-        cache::{PositionedItem, ShapedItem, UnifiedLayout},
-        default::PathLoader,
-    },
-    window::LayoutWindow,
-    xml::DomXmlExt,
-    Solver3LayoutCache,
+    solver3::display_list::DisplayListItem, text3::cache::PositionedItem, window::LayoutWindow,
 };
 
+use crate::paged_payload::{cluster_at, has_cluster, paged_text_layouts};
 use crate::table_markup::{body, items, near, rect, rects_of_color};
 
 const RED: (u8, u8, u8) = (255, 0, 0);
@@ -206,33 +186,6 @@ fn an_em_offset_resolves_against_the_inline_boxs_own_font_size() {
 
 // ---- the paged (PDF) path: printpdf draws the `TextLayout` payload ----
 
-/// The items of a `TextLayout` payload: a bare layout, or the cached
-/// payload's sparse half (expanded from its dense half when retired).
-fn payload_items(payload: &Arc<dyn std::any::Any + Send + Sync>) -> Option<Vec<PositionedItem>> {
-    if let Some(layout) = payload.downcast_ref::<UnifiedLayout>() {
-        return Some(layout.items.clone());
-    }
-    let p = payload.downcast_ref::<TextPayload>()?;
-    Some(if p.sparse.items.is_empty() {
-        p.dense.to_unified_items()
-    } else {
-        p.sparse.items.clone()
-    })
-}
-
-/// Where the cluster of text `text` sits in `items`.
-fn cluster_at(items: &[PositionedItem], text: &str) -> LogicalPosition {
-    items
-        .iter()
-        .find_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.text() == text => {
-                Some(LogicalPosition::new(it.position.x, it.position.y))
-            }
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("no cluster {text:?} in the layout"))
-}
-
 #[test]
 fn a_relatively_positioned_inline_box_moves_its_text_in_the_pdf_payload() {
     let html = format!(
@@ -240,59 +193,12 @@ fn a_relatively_positioned_inline_box_moves_its_text_in_the_pdf_payload() {
         paragraph("control", ""),
         paragraph("moved", "position: relative; top: -10px; left: 4px"),
     );
-    let styled_dom = Dom::from_xml_string(html);
-    let mut font_manager =
-        FontManager::new(build_font_cache()).expect("Failed to create font manager");
-    let mut layout_cache = Solver3LayoutCache::default();
-    let mut text_cache = TextLayoutCache::new();
-    let content_size = LogicalSize::new(800.0, 600.0);
-    let loader = PathLoader::new();
-    let font_loader = |bytes: Arc<rust_fontconfig::FontBytes>, index: usize| {
-        loader.load_font_shared(bytes, index)
-    };
-    let display_lists = layout_document_paged_with_config(
-        &mut layout_cache,
-        &mut text_cache,
-        FragmentationContext::new_paged(content_size),
-        &styled_dom,
-        LogicalRect::new(LogicalPosition::zero(), content_size),
-        &mut font_manager,
-        &BTreeMap::new(),
-        &mut Some(Vec::new()),
-        None,
-        &RendererResources::default(),
-        azul_core::resources::IdNamespace(0),
-        DomId::ROOT_ID,
-        font_loader,
-        FakePageConfig::new(),
-        &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback {
-            cb: azul_core::task::get_system_time_libstd,
-        },
-        false,
-    )
-    .expect("the document lays out");
-
     // One payload per paragraph, in document order (each its own page-top
     // relative layout; only positions WITHIN one are compared).
-    let mut layouts: Vec<(f32, Vec<PositionedItem>)> = display_lists
-        .iter()
-        .flat_map(|dl| dl.items.iter())
-        .filter_map(|item| match item {
-            DisplayListItem::TextLayout {
-                layout,
-                bounds: WindowLogicalRect(bounds),
-                ..
-            } => payload_items(layout).map(|items| (bounds.origin.y, items)),
-            _ => None,
-        })
-        .filter(|(_, items)| {
-            items
-                .iter()
-                .any(|it| matches!(&it.item, ShapedItem::Cluster(c) if c.text() == "a"))
-        })
+    let layouts: Vec<(f32, Vec<PositionedItem>)> = paged_text_layouts(&html)
+        .into_iter()
+        .filter(|(_, items)| has_cluster(items, "a"))
         .collect();
-    layouts.sort_by(|a, b| a.0.total_cmp(&b.0));
     assert_eq!(layouts.len(), 2, "one text layout per paragraph");
 
     let a_from_m = |items: &[PositionedItem]| minus(cluster_at(items, "a"), cluster_at(items, "m"));
