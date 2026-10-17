@@ -389,3 +389,57 @@ fn a_sweep_aborts_the_unfinished_uploads_that_are_stale_or_whose_file_is_gone() 
     assert!(state_files(&resume).is_empty());
     assert!(s3.uploads().is_empty());
 }
+
+#[test]
+fn a_streamed_upload_whose_abort_was_refused_is_aborted_before_the_next_upload_starts() {
+    // A streamed upload cannot resume, so a failed one is aborted. Credentials that ran out
+    // refuse the abort too (and a killed app sends none): the record the upload keeps in the
+    // resume folder while it runs lets the drive's next upload abort it.
+    let tmp = TempDir::new("multipart-stream-sweep");
+    let resume = tmp.path().join("resume");
+    let s3 = FakeBucket::new();
+    let drive = drive_on(&s3, Some(&resume), NOW);
+    s3.take_parts(Some(1));
+    s3.refuse_aborts(true);
+    let body = vec![7u8; 6 * PART];
+    assert!(drive.put_from("streamed.bin", &mut body.as_slice()).is_err());
+    assert_eq!(s3.uploads().len(), 1, "the refused abort left the upload");
+    s3.take_parts(None);
+    s3.refuse_aborts(false);
+    let (path, bytes) = file_with(&tmp, "next.bin", 3, 1);
+    drive.put_file("next.bin", &path, &no_progress).unwrap();
+    assert_eq!(s3.object("next.bin").unwrap(), bytes);
+    assert!(
+        s3.uploads().is_empty(),
+        "the next upload aborted the dead one first: {:?}",
+        s3.log()
+    );
+    assert!(state_files(&resume).is_empty());
+}
+
+#[test]
+fn a_streamed_upload_under_way_is_never_aborted_by_another_upload() {
+    let tmp = TempDir::new("multipart-stream-busy");
+    let resume = tmp.path().join("resume");
+    let s3 = FakeBucket::new();
+    s3.slow_parts(Duration::from_millis(150));
+    let streaming = {
+        let drive = drive_on(&s3, Some(&resume), NOW);
+        std::thread::spawn(move || {
+            let body = vec![3u8; 8 * PART];
+            drive.put_from("streamed.bin", &mut body.as_slice())
+        })
+    };
+    // The other upload starts while the stream sends its parts.
+    while s3.count("POST start streamed.bin") == 0 {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let (path, _) = file_with(&tmp, "next.bin", 3, 2);
+    drive_on(&s3, Some(&resume), NOW)
+        .put_file("next.bin", &path, &no_progress)
+        .unwrap();
+    streaming.join().unwrap().expect("the stream goes up whole");
+    assert_eq!(s3.object("streamed.bin").unwrap(), vec![3u8; 8 * PART]);
+    assert_eq!(s3.count("DELETE abort"), 0, "{:?}", s3.log());
+    assert!(state_files(&resume).is_empty());
+}

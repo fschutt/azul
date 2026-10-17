@@ -56,6 +56,8 @@ pub(super) struct FakeBucket {
     part_delay: Mutex<Duration>,
     in_flight: AtomicUsize,
     most_in_flight: AtomicUsize,
+    /// Aborts are refused as credentials that ran out refuse every request (403 ExpiredToken).
+    aborts_refused: std::sync::atomic::AtomicBool,
     /// `Some(n)`: n more ranged GETs are answered, then none gets an answer.
     ranges_left: Mutex<Option<usize>>,
     range_delay: Mutex<Duration>,
@@ -211,6 +213,11 @@ impl FakeBucket {
         Ok(())
     }
 
+    /// Every abort from now on is refused (`true`) or answered (`false`).
+    pub(super) fn refuse_aborts(&self, refused: bool) {
+        self.aborts_refused.store(refused, Ordering::SeqCst);
+    }
+
     pub(super) fn log(&self) -> Vec<String> {
         lock(&self.log).clone()
     }
@@ -266,6 +273,9 @@ impl FakeBucket {
             (Method::Post, Some(id)) => Ok(self.complete(&key, &id, call)),
             (Method::Delete, Some(id)) => {
                 self.note(format!("DELETE abort {key}"));
+                if self.aborts_refused.load(Ordering::SeqCst) {
+                    return Ok(error(403, "ExpiredToken"));
+                }
                 let removed = lock(&self.state).uploads.remove(&id).is_some();
                 Ok(if removed {
                     reply(204, &[], Vec::new())
