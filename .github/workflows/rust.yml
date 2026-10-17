@@ -1044,6 +1044,12 @@ jobs:
           cargo test -p azul-routing --features http --no-fail-fast 2>&1 | tee azul-routing-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-routing-tests.txt
 
+      - name: Run azul-fonts-calmet tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-fonts-calmet --no-fail-fast 2>&1 | tee azul-fonts-calmet-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-fonts-calmet-tests.txt
+
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
