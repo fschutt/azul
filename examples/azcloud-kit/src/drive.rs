@@ -114,7 +114,7 @@ fn drive_error_of(e: &TokenError) -> DriveError {
         // The token is refused (this device was removed, or its token spent elsewhere): only
         // signing in again helps. That is the errors table's credentials_revoked, as a node's
         // refusal of revoked credentials is; `Denied` would read as the drive's own refusal
-        // (no key for an encrypted drive on this device yet), which keeps its own words.
+        // (a read-only grant), which keeps its own words.
         TokenError::SignIn(_) => DriveError::Service(ServiceError {
             status: 401,
             code: String::from("Unauthorized"),
