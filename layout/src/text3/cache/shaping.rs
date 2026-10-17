@@ -195,11 +195,13 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                             // Cluster-level re-stamp: style no longer lives on
                             // glyphs, so a cache hit is a few writes per
                             // cluster instead of an Arc clone per glyph (T2
-                            // pins this). `source_text` is deliberately NOT
-                            // re-stamped: the cache key includes the text, so
-                            // the cached Arc is content-equal to the hitting
-                            // item's — keeping it SHARES one allocation across
-                            // all equal-text nodes.
+                            // pins this). The text the cluster slices is the
+                            // hitting item's whole logical text: the key holds
+                            // the visual run's text only, and the cached
+                            // cluster's offset moves into this item below.
+                            if let Some(text) = &current.text {
+                                sc.source_text = text.clone();
+                            }
                             sc.source_content_index = current.source;
                             sc.source_cluster_id.source_run = current.source.run_index;
                             // The byte is relative to the item's LOGICAL run:

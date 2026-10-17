@@ -1201,3 +1201,17 @@ mod a_material_is_drawn_only_when_what_it_is_drawn_from_changes;
 mod a_cursor_over_the_leather_ribbon_costs_a_cpu_frame_nothing;
 #[path = "a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough.rs"]
 mod a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough;
+#[path = "common/calmet_lines.rs"]
+mod calmet_lines;
+#[path = "a_hyphenated_word_breaks_where_its_dictionary_breaks_it.rs"]
+mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
+#[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
+mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
+#[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
+mod a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text;
+#[path = "an_inline_block_inside_a_word_is_never_lost_to_hyphenation.rs"]
+mod an_inline_block_inside_a_word_is_never_lost_to_hyphenation;
+#[path = "common/paged_payload.rs"]
+mod paged_payload;
+#[path = "a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload.rs"]
+mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;

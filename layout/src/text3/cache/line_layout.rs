@@ -605,6 +605,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // distributed across line boxes "When an inline box exceeds the logical
             // width of a line box, it is split into several fragments, which are
             // partitioned across multiple line boxes."
+            let position_before_line = (cursor.next_item_index, cursor.partial_remainder.len());
             let (mut line_items, was_hyphenated) = break_one_line(
                 cursor,
                 &line_constraints,
@@ -616,9 +617,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 effective_overflow_wrap,
             );
             if line_items.is_empty() {
+                // An empty line ends the column only at the end of the content.
+                // With content left, the breaker took items and stripped them all
+                // as white space at the line's edges: such a line has no box, and
+                // the next line starts here. Ending the column there
+                // would drop the rest of the paragraph without a trace.
+                if cursor.is_done() {
+                    break;
+                }
+                if (cursor.next_item_index, cursor.partial_remainder.len()) != position_before_line
+                {
+                    continue;
+                }
+                // Defensive: the breaker always consumes an item while content
+                // is left, so this never happens; it must not loop forever.
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(
-                        "  Break returned no items. Ending column.".to_string(),
+                    msgs.push(LayoutDebugMessage::warning(
+                        "  Break returned no items and consumed none with content left. \
+                         Ending column."
+                            .to_string(),
                     ));
                 }
                 break;
@@ -1164,66 +1181,56 @@ pub fn break_one_line<T: ParsedFontTrait>(
 /// Represents a single valid hyphenation point within a word.
 #[derive(Debug, Clone)]
 pub struct HyphenationBreak {
-    /// The number of characters from the original word string included on the line.
+    /// The number of characters of the word on the line, before the hyphen.
+    /// The engine's line breakers do not read it; it is for other callers.
     pub char_len_on_line: usize,
-    /// The total advance width of the line part + the hyphen.
+    /// The width the line breaker counts for the line part and the hyphen:
+    /// their advances with kerning and the letter- and word-spacing the pen
+    /// adds after each (`fold_line_width`), so a part that fits by this width
+    /// also fits where the line is positioned.
     pub width_on_line: f32,
     /// The cluster(s) that will remain on the current line.
     pub line_part: Vec<ShapedItem>,
     /// The cluster that represents the hyphen character itself.
     pub hyphen_item: ShapedItem,
     /// The cluster(s) that will be carried over to the next line.
-    /// CRITICAL FIX: Changed from `ShapedItem` to Vec<ShapedItem>
     pub remainder_part: Vec<ShapedItem>,
 }
 
-/// A "word" is defined as a sequence of one or more adjacent `ShapedClusters`.
-#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+/// Every place the hyphenation dictionary breaks the word made of
+/// `word_clusters`, as the clusters on each side and the line part's width.
+///
+/// The dictionary names its breaks as byte offsets into the word's text.
+/// A break is taken where a cluster starts at that byte; one inside a
+/// cluster (between the letters of a ligature, or inside a grapheme) has no
+/// cluster boundary to split at and is skipped. Bytes, characters and
+/// clusters only coincide for ASCII text with one character per cluster.
+///
 /// # Panics
 ///
-/// Panics if a word's cluster or glyph list is unexpectedly empty (an internal invariant).
+/// Panics if a word's last cluster has no glyphs (an internal invariant: the
+/// hyphen takes its font from it).
 #[must_use]
 pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
-    is_vertical: bool, // Pass this in to use correct metrics
+    is_vertical: bool,
     fonts: &LoadedFonts<T>,
 ) -> Option<Vec<HyphenationBreak>> {
     if word_clusters.is_empty() {
         return None;
     }
 
-    // --- 1. Concatenate the TRUE text and build a robust map ---
+    // The word's text, and the byte at which each of its clusters starts.
     let mut word_string = String::new();
-    let mut char_map = Vec::new();
-    let mut current_width = 0.0;
-
-    for (cluster_idx, cluster) in word_clusters.iter().enumerate() {
-        for (char_byte_offset, _ch) in cluster.text().char_indices() {
-            let glyph_idx = cluster
-                .glyphs
-                .iter()
-                .rposition(|g| g.cluster_offset as usize <= char_byte_offset)
-                .unwrap_or(0);
-            let glyph = &cluster.glyphs[glyph_idx];
-
-            let num_chars_in_glyph = cluster.text()[glyph.cluster_offset as usize..]
-                .chars()
-                .count();
-            let advance_per_char = if is_vertical {
-                glyph.vertical_advance
-            } else {
-                glyph.advance
-            } / (num_chars_in_glyph as f32).max(1.0);
-
-            current_width += advance_per_char;
-            char_map.push((cluster_idx, glyph_idx, current_width));
-        }
+    let mut cluster_starts = Vec::with_capacity(word_clusters.len());
+    for cluster in word_clusters {
+        cluster_starts.push(word_string.len());
         word_string.push_str(cluster.text());
     }
 
     // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and
-    // explicit (soft hyphen) opportunities --- 2. Get hyphenation opportunities ---
+    // explicit (soft hyphen) opportunities
     let opportunities = hyphenator.hyphenate(&word_string);
     if opportunities.breaks.is_empty() {
         return None;
@@ -1238,77 +1245,84 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     let (hyphen_glyph_id, hyphen_advance) =
         font.get_hyphen_glyph_and_advance(style.font_size_px)?;
 
-    let mut possible_breaks = Vec::new();
-
-    // --- 3. Generate a HyphenationBreak for each valid opportunity ---
-    for &break_char_idx in &opportunities.breaks {
-        // The break is *before* the character at this index.
-        // So the last character on the line is at `break_char_idx - 1`.
-        if break_char_idx == 0 || break_char_idx > char_map.len() {
-            continue;
-        }
-
-        let (_, _, width_at_break) = char_map[break_char_idx - 1];
-
-        // The line part is all clusters *before* the break index.
-        let line_part: Vec<ShapedItem> = word_clusters[..break_char_idx]
-            .iter()
-            .map(|c| ShapedItem::Cluster(c.clone()))
-            .collect();
-
-        // The remainder is all clusters *from* the break index onward.
-        let remainder_part: Vec<ShapedItem> = word_clusters[break_char_idx..]
-            .iter()
-            .map(|c| ShapedItem::Cluster(c.clone()))
-            .collect();
-
-        let hyphen_item = ShapedItem::Cluster(ShapedCluster {
-            flags: ClusterFlags::classify("-"),
-            source_text: Arc::from("-"),
-            source_byte_len: 1,
-            source_cluster_id: GraphemeClusterId {
-                source_run: u32::MAX,
-                start_byte_in_run: u32::MAX,
-            },
-            source_content_index: ContentIndex {
-                run_index: u32::MAX,
-                item_index: u32::MAX,
-            },
-            source_node_id: None, // Hyphen is generated, not from DOM
-            glyphs: smallvec![ShapedGlyph {
-                kind: GlyphKind::Hyphen,
-                glyph_id: hyphen_glyph_id,
-                font_hash: last_glyph.font_hash,
-                font_metrics: last_glyph.font_metrics,
-                cluster_offset: 0,
-                script: Script::Latin,
-                advance: hyphen_advance,
-                kerning: 0.0,
-                offset: Point::default(),
-                vertical_advance: hyphen_advance,
-                vertical_offset: Point::default(),
-            }],
+    let hyphen_item = ShapedItem::Cluster(ShapedCluster {
+        flags: ClusterFlags::classify("-"),
+        source_text: Arc::from("-"),
+        source_byte_len: 1,
+        source_cluster_id: GraphemeClusterId {
+            source_run: u32::MAX,
+            start_byte_in_run: u32::MAX,
+        },
+        source_content_index: ContentIndex {
+            run_index: u32::MAX,
+            item_index: u32::MAX,
+        },
+        source_node_id: None, // Hyphen is generated, not from DOM
+        glyphs: smallvec![ShapedGlyph {
+            kind: GlyphKind::Hyphen,
+            glyph_id: hyphen_glyph_id,
+            font_hash: last_glyph.font_hash,
+            font_metrics: last_glyph.font_metrics,
+            cluster_offset: 0,
+            script: Script::Latin,
             advance: hyphen_advance,
-            direction: BidiDirection::Ltr,
-            style: style.clone(),
-            marker_position_outside: None,
-            is_first_fragment: true,
-            is_last_fragment: true,
-        });
+            kerning: 0.0,
+            offset: Point::default(),
+            vertical_advance: hyphen_advance,
+            vertical_offset: Point::default(),
+        }],
+        advance: hyphen_advance,
+        direction: BidiDirection::Ltr,
+        style,
+        marker_position_outside: None,
+        is_first_fragment: true,
+        is_last_fragment: true,
+    });
 
-        possible_breaks.push(HyphenationBreak {
-            char_len_on_line: break_char_idx,
-            width_on_line: width_at_break + hyphen_advance,
-            line_part,
-            hyphen_item,
-            remainder_part,
-        });
+    let possible_breaks: Vec<HyphenationBreak> = opportunities
+        .breaks
+        .iter()
+        .filter_map(|&break_byte| {
+            // The break is before the cluster that starts at its byte.
+            let split = cluster_starts.binary_search(&break_byte).ok()?;
+            if split == 0 {
+                return None;
+            }
+            let line_part: Vec<ShapedItem> = word_clusters[..split]
+                .iter()
+                .map(|c| ShapedItem::Cluster(c.clone()))
+                .collect();
+            let remainder_part: Vec<ShapedItem> = word_clusters[split..]
+                .iter()
+                .map(|c| ShapedItem::Cluster(c.clone()))
+                .collect();
+            let width_on_line = line_part
+                .iter()
+                .chain(std::iter::once(&hyphen_item))
+                .fold(0.0, |width, item| fold_line_width(width, item, is_vertical));
+            Some(HyphenationBreak {
+                char_len_on_line: word_string[..break_byte].chars().count(),
+                width_on_line,
+                line_part,
+                hyphen_item: hyphen_item.clone(),
+                remainder_part,
+            })
+        })
+        .collect();
+
+    if possible_breaks.is_empty() {
+        None
+    } else {
+        Some(possible_breaks)
     }
-
-    Some(possible_breaks)
 }
 
 /// Tries to find a hyphenation point within a word, returning the line part and remainder.
+///
+/// `word_items` is one unbreakable unit of the line breaker. A unit that
+/// holds anything but text clusters (an inline-block inside a word) is not
+/// hyphenated: the line and remainder parts are made of clusters only, and
+/// the other items would be lost.
 pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
     word_items: &[ShapedItem],
     remaining_width: f32,
@@ -1318,8 +1332,8 @@ pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 ) -> Option<HyphenationResult> {
     let word_clusters: Vec<ShapedCluster> = word_items
         .iter()
-        .filter_map(|item| item.as_cluster().cloned())
-        .collect();
+        .map(|item| item.as_cluster().cloned())
+        .collect::<Option<_>>()?;
 
     if word_clusters.is_empty() {
         return None;
@@ -1583,7 +1597,8 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         let mut current_segment_width = 0.0;
         while item_cursor < line_items.len() {
             let item = &line_items[item_cursor];
-            let item_measure = get_item_measure(item, is_vertical);
+            // With the spacing after it, as the line breaker measured it.
+            let item_measure = get_item_measure_with_spacing(item, is_vertical);
             // Put at least one item in the segment to avoid getting stuck.
             // For nowrap/pre the overflow must stay on the line (see above).
             if !no_wrap
@@ -1602,36 +1617,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             continue;
         }
 
-        // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify;
-        // non-collapsible WS may skip justification
-        // 2. Calculate justification spacing *for this segment only*.
-        // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when
-        // text-align is justify CSS Text 3 §6: text-justify controls HOW to justify, but
-        // only applies when text-align is justify/justify-all. Without this check, ALL text
-        // gets justified because text-justify defaults to auto (→ InterWord).
-        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
-            == TextAlign::Justify
-            || constraints.text_align == TextAlign::JustifyAll)
-            && constraints.text_justify != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
-            && constraints.text_justify != JustifyContent::Kashida
-        {
-            let segment_line_constraints = LineConstraints {
-                segments: vec![*segment],
-                total_available: segment.width,
-                is_min_content: false,
-            };
-            calculate_justification_spacing(
-                &segment_items,
-                &segment_line_constraints,
-                constraints.text_justify,
-                is_vertical,
-            )
-        } else {
-            (0.0, 0.0)
-        };
-
-        // Kashida justification needs to be segment-aware if used.
+        // 2. Kashida justification needs to be segment-aware if used.
         let justified_segment_items = if constraints.text_justify == JustifyContent::Kashida
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
         {
@@ -1740,9 +1726,38 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         };
         let effective_segment_width = final_segment_width - trailing_ws_width;
 
+        // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify;
+        // non-collapsible WS may skip justification
+        // 3. Justification spacing *for this segment only*: the room the
+        // segment leaves, measured by the width the line is aligned by (the
+        // spacing the pen adds after every cluster and the inline box edges
+        // included), so a justified line ends on its segment's edge whatever
+        // its letter- and word-spacing. Kashida justification inserts glyphs
+        // instead and adds no spacing.
+        // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when
+        // text-align is justify CSS Text 3 §6: text-justify controls HOW to justify, but
+        // only applies when text-align is justify/justify-all. Without this check, ALL text
+        // gets justified because text-justify defaults to auto (→ InterWord).
+        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
+            == TextAlign::Justify
+            || constraints.text_align == TextAlign::JustifyAll)
+            && constraints.text_justify != JustifyContent::None
+            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
+            && constraints.text_justify != JustifyContent::Kashida
+        {
+            calculate_justification_spacing(
+                &justified_segment_items,
+                effective_segment_width,
+                segment.width,
+                constraints.text_justify,
+            )
+        } else {
+            (0.0, 0.0)
+        };
+
         // +spec:text-alignment-spacing:287316 - overflow content is start-aligned; alignment offset
         // within line box
-        // 3. Calculate alignment offset *within this segment*.
+        // 4. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - effective_segment_width;
 
         // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic
@@ -1805,7 +1820,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             0.0
         };
 
-        // 4. Position the items belonging to this segment.
+        // 5. Position the items belonging to this segment.
         //
         // +spec:inline-formatting-context:267438 - Content positioning: position aligned subtree
         // and baseline-shift values within line box
@@ -1833,6 +1848,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         // The inline margin/border/padding offsets at span boundaries
         // (`inline_offsets` above, the rule the intrinsic scan shares) move
         // the pen as the items are placed.
+        let segment_item_count = justified_segment_items.len();
         for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
@@ -1951,15 +1967,11 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             // +spec:text-alignment-spacing:e09bd1 - justification space added on top of
             // letter-spacing/word-spacing +spec:text-alignment-spacing:456643 - cursive
             // scripts don't admit inter-character gaps
-            let is_cursive = if let ShapedItem::Cluster(c) = &item {
-                is_cursive_script_cluster(c)
-            } else {
-                false
-            };
-            if !is_outside_marker
-                && extra_char_spacing > 0.0
-                && can_justify_after(&item)
-                && !is_cursive
+            // The space goes between letters: none after the segment's last
+            // one, which ends on the segment's edge.
+            if extra_char_spacing > 0.0
+                && inline_offset_idx + 1 < segment_item_count
+                && takes_inter_character_space(&item)
             {
                 main_axis_pen += extra_char_spacing;
             }

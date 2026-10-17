@@ -39,15 +39,22 @@ use super::*;
 ///
 /// This is used for stripping leading/trailing whitespace at line edges —
 /// distinct from `is_word_separator` which is for word-spacing per §7.1.
+///
+/// A cluster without text is no white space: every shaped cluster has the
+/// text it was shaped from, so one whose text cannot be read lost its
+/// mapping to it, and its glyphs are text. Stripped at a line's edges, a
+/// paragraph whose clusters all lost their text would vanish without a trace.
 #[must_use]
 pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text().chars().all(|ch| {
-            matches!(
-                ch,
-                ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
-            )
-        })
+        let text = c.text();
+        !text.is_empty()
+            && text.chars().all(|ch| {
+                matches!(
+                    ch,
+                    ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
+                )
+            })
     } else {
         false
     }

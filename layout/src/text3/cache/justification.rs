@@ -41,10 +41,13 @@ use super::*;
 /// with cached `ShapedItem` data.
 ///
 /// # Arguments
-/// * `items` - A slice of items on the line.
-/// * `line_constraints` - The geometric constraints for the line.
+/// * `items` - A slice of items on the line (one segment of it).
+/// * `content_width` - The width the items take where the line is positioned:
+///   their advances, the letter- and word-spacing the pen adds after them and
+///   the inline box edges, without hanging white space. The width the line is
+///   aligned by, so a justified line fills its box whatever its spacing.
+/// * `available_width` - The width of the segment the line fills.
 /// * `text_justify` - The type of justification to calculate.
-/// * `is_vertical` - Whether the layout is vertical.
 ///
 /// # Returns
 /// A tuple `(extra_per_word, extra_per_char)` containing the extra space in pixels
@@ -56,22 +59,16 @@ use super::*;
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 pub(super) fn calculate_justification_spacing(
     items: &[ShapedItem],
-    line_constraints: &LineConstraints,
+    content_width: f32,
+    available_width: f32,
     text_justify: JustifyContent,
-    is_vertical: bool,
 ) -> (f32, f32) {
     // (extra_per_word, extra_per_char)
-    let total_width: f32 = items
-        .iter()
-        .map(|item| get_item_measure(item, is_vertical))
-        .sum();
-    let available_width = line_constraints.total_available;
-
-    if total_width >= available_width || available_width <= 0.0 {
+    if content_width >= available_width || available_width <= 0.0 {
         return (0.0, 0.0);
     }
 
-    let extra_space = available_width - total_width;
+    let extra_space = available_width - content_width;
 
     // +spec:text-alignment-spacing:71314a - script categories for justification: inter-word for
     // clustered, kashida for cursive (Arabic), inter-character for block (CJK)
@@ -86,11 +83,11 @@ pub(super) fn calculate_justification_spacing(
             }
         }
         JustifyContent::InterCharacter | JustifyContent::Distribute => {
-            // Count justification opportunities (between non-combining characters).
-            let gap_count = items
+            // The gaps the pen widens: after every letter that takes the
+            // space, but the last.
+            let gap_count = items[..items.len().saturating_sub(1)]
                 .iter()
-                .enumerate()
-                .filter(|(i, item)| *i < items.len() - 1 && can_justify_after(item))
+                .filter(|item| takes_inter_character_space(item))
                 .count();
             if gap_count > 0 {
                 (0.0, extra_space / gap_count as f32)
@@ -123,9 +120,11 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             "\n--- Entering justify_kashida_and_rebuild ---".to_string(),
         ));
     }
+    // With the spacing the pen adds after each cluster: the width the line
+    // is positioned at.
     let total_width: f32 = items
         .iter()
-        .map(|item| get_item_measure(item, is_vertical))
+        .map(|item| get_item_measure_with_spacing(item, is_vertical))
         .sum();
     let available_width = line_constraints.total_available;
     if let Some(msgs) = debug_messages {
@@ -347,6 +346,23 @@ pub(super) fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: boo
         }
     }
     trailing_ws
+}
+
+/// Whether `text-justify: inter-character` widens the gap after `item`: a
+/// letter that justification may space (not white space or a combining
+/// mark), not of a cursive script (those admit no gaps between letters) and
+/// not an outside list marker (it hangs in the gutter). The pen adds the
+/// space after such an item unless it is the last of its segment, and the
+/// justification divides the room among exactly those gaps.
+pub(super) fn takes_inter_character_space(item: &ShapedItem) -> bool {
+    match item {
+        ShapedItem::Cluster(c) => {
+            c.marker_position_outside != Some(true)
+                && can_justify_after(item)
+                && !is_cursive_script_cluster(c)
+        }
+        _ => false,
+    }
 }
 
 /// Helper to identify if space can be added after an item.

@@ -1907,7 +1907,7 @@
     }
 
     #[test]
-    fn is_collapsible_whitespace_is_vacuously_true_for_an_empty_cluster() {
+    fn is_collapsible_whitespace_holds_for_white_space_and_never_for_a_cluster_without_text() {
         assert!(is_collapsible_whitespace(&cl(" ", 4.0)));
         assert!(is_collapsible_whitespace(&cl("\t", 8.0)));
         assert!(is_collapsible_whitespace(&cl("\u{1680}", 4.0)));
@@ -1922,11 +1922,12 @@
             "all() — mixed is false"
         );
         assert!(!is_collapsible_whitespace(&obj(1.0, 1.0, 0.0)));
-        // QUIRK: `chars().all(..)` on an empty string is vacuously TRUE, so a
-        // zero-text cluster is treated as strippable whitespace at line edges.
+        // A cluster whose text cannot be read lost its mapping to the text it
+        // was shaped from; its glyphs are text, never white space to strip at
+        // a line's edges, where a whole paragraph of such clusters would vanish.
         assert!(
-            is_collapsible_whitespace(&cl("", 0.0)),
-            "an empty cluster counts as collapsible whitespace"
+            !is_collapsible_whitespace(&cl("", 8.0)),
+            "a cluster without text is not collapsible white space"
         );
     }
 
@@ -4420,5 +4421,43 @@
             m.get_font_by_hash(0xDEAD).is_none(),
             "an unreferenced face must eventually be dropped — the GC exists because font-cycling \
              apps leaked every font they ever touched"
+        );
+    }
+
+    #[test]
+    fn a_line_the_breaker_strips_to_nothing_never_ends_the_paragraph() {
+        // Two white-space clusters whose flags call them letters offer no
+        // break opportunity, so they form one unit the line's start does not
+        // strip; the line they start holds white space only and is stripped
+        // to nothing at its end. The word after them still gets its line.
+        let unbreakable_space = || {
+            let mut item = cl(" ", 5.0);
+            if let ShapedItem::Cluster(c) = &mut item {
+                c.flags = ClusterFlags::classify("x");
+            }
+            item
+        };
+        let items = vec![
+            unbreakable_space(),
+            unbreakable_space(),
+            cl(" ", 5.0),
+            cl("w", 80.0),
+        ];
+        let mut cursor = BreakCursor::new(&items);
+        let constraints = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(50.0),
+            ..UnifiedConstraints::default()
+        };
+        let fonts: LoadedFonts<TestFont> = LoadedFonts::new();
+        let layout = perform_fragment_layout(&mut cursor, &[], &constraints, &mut None, &fonts)
+            .expect("laid out");
+        let texts: Vec<&str> = layout
+            .items
+            .iter()
+            .filter_map(|it| it.item.as_cluster().map(ShapedCluster::text))
+            .collect();
+        assert!(
+            texts.contains(&"w"),
+            "the word after a line stripped to nothing is positioned: {texts:?}"
         );
     }
