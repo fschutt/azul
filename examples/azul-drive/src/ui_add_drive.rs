@@ -1643,7 +1643,8 @@ mod tests {
         dom.children.as_slice().iter().find_map(|child| with_id(child, id))
     }
 
-    /// Buy storage with two tiers loaded.
+    /// Buy storage with two tiers loaded, for a buyer who declared where they live (the
+    /// tiers come after that question).
     fn buy_page() -> Dom {
         crate::l10n::in_english();
         let tier = |id: &str, gb: u64| Tier {
@@ -1655,6 +1656,7 @@ mod tests {
             first_month_free: true,
         };
         let mut d = AddDialog::new(1);
+        assert!(d.set_country("DE"));
         d.choose_buy();
         d.tiers = TiersState::Loaded(Tiers {
             tiers: vec![tier("100GB", 100), tier("1TB", 1000)],
