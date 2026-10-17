@@ -157,7 +157,7 @@ def run(args, logs):
         if "sub" not in shown or "notes.txt" in shown:
             raise Failure("the Pictures filter shows %r (sub yes, notes.txt no)" % shown)
         select_item(app, "a.png")
-        app.click(selector="#" + I("pick-ok"))
+        app.click(selector="#" + I("pick-ok"), frames=0)  # AzDrive answers and ends
         path = picked_path(app.answer(), "Open")
     finally:
         app.stop()
@@ -169,7 +169,9 @@ def run(args, logs):
     app = Picker("pick-cancel", binary, switches, port, logs, args.timeout, request("open", home))
     try:
         app.ready("a.png")
-        app.key("escape")
+        # Escape answers and ends AzDrive at its press: no key_up can follow.
+        app.must("key_down", key="escape",
+                 modifiers={"shift": False, "ctrl": False, "alt": False, "meta": False})
         answer = app.answer()
     finally:
         app.stop()
@@ -182,7 +184,7 @@ def run(args, logs):
     try:
         app.ready("a.png")
         app.text_input("#" + I("pick-name"), "report.txt")
-        app.click(selector="#" + I("pick-ok"))
+        app.click(selector="#" + I("pick-ok"), frames=0)  # AzDrive answers and ends
         path = picked_path(app.answer(), "Save")
     finally:
         app.stop()
@@ -197,7 +199,7 @@ def run(args, logs):
         app.ready("sub")
         open_item(app, "sub")
         app.until("the folder sub", lambda: app.printed("AZDRIVE_LISTED", r"home sub/ \d+"))
-        app.click(selector="#" + I("pick-ok"))
+        app.click(selector="#" + I("pick-ok"), frames=0)  # AzDrive answers and ends
         path = picked_path(app.answer(), "Select folder")
     finally:
         app.stop()
@@ -234,7 +236,7 @@ def run(args, logs):
             try:
                 app.ready("minutes.txt")
                 select_item(app, "minutes.txt")
-                app.click(selector="#" + I("pick-ok"))
+                app.click(selector="#" + I("pick-ok"), frames=0)  # AzDrive answers and ends
                 answer = app.answer()
             finally:
                 app.stop()
