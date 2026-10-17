@@ -792,10 +792,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // out, and the viewport is the one laid out: the reconcile could only
     // rebuild the retained tree (4-7 ms of a page like AzWidgets'). Content
     // the overlay holds (an edited text, a swapped image) is no part of that
-    // diff, so a window with any keeps reconciling.
+    // diff, so a window whose overlay shapes the layout now, or shaped the
+    // tree it kept, keeps reconciling.
+    let overlay_shapes_layout =
+        content_overlay.is_some_and(crate::overlay::ContentOverlay::shapes_layout);
     let unchanged = !resize_only
         && !overrides_only
-        && content_overlay.is_none_or(crate::overlay::ContentOverlay::is_empty)
+        && !overlay_shapes_layout
+        && !cache.laid_out_with_overlay
         && cache.viewport == Some(viewport)
         && css_dirty
             .iter()
@@ -804,6 +808,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .dom_diff_clean
             .as_ref()
             .is_some_and(|clean| clean.len() == dom_len_for_hint && clean.iter().all(|c| *c));
+    // Every path below leaves the tree laid out for this pass's overlay.
+    cache.laid_out_with_overlay = overlay_shapes_layout;
     let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
         && cache.tree.as_ref().is_some_and(|t| {
             t.dom_to_layout

@@ -6291,6 +6291,7 @@ pub fn render_component_preview(
         last_cascade_epoch: 0,
         paged_css_dirty: Vec::new(),
         font_epoch: 0,
+        laid_out_with_overlay: false,
         previous_sizes: Vec::new(),
         dom_diff_clean: None,
         last_fingerprint_skips: 0,

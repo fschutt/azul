@@ -538,6 +538,13 @@ pub struct LayoutCache {
     /// (`text3::fontreg::generation`): when a face is registered, the next
     /// pass drops the tree and lays the document out cold.
     pub font_epoch: u64,
+    /// Whether the retained tree was laid out with overlay content that
+    /// shapes the layout (`ContentOverlay::shapes_layout`: an edited text, a
+    /// pending structure). Its boxes then differ from what the DOM alone
+    /// says, so a pass the DOM diff calls unchanged still reconciles: the
+    /// overlay entry may have been retired meanwhile (the app's re-render
+    /// caught up) and the tree would keep showing it.
+    pub laid_out_with_overlay: bool,
     /// Census: did the LAST `layout_document` take a reconcile-skip branch
     /// (resize-only or overrides-only)? The external observable that
     /// distinguishes "skipped the walk" from "walked and found everything
