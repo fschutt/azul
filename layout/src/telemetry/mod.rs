@@ -736,8 +736,9 @@ pub fn drain_probe_events() -> usize {
 /// Not collecting, this used to drain and DISCARD the buffer - every span a
 /// relayout recorded after its last DOM pass (the accessibility tree, the
 /// scroll registration, the hit-tester rebuild) vanished from the CPU report
-/// before the next pass could print it. Now the report keeps them; with no
-/// report the buffer is still emptied, so it stays bounded. A report that
+/// before the next pass could print it. Now the report keeps them, and so
+/// does a caller that switched the recording on to read them itself; with
+/// neither the buffer is still emptied, so it stays bounded. A report that
 /// sees no layout pass for a long time (a video playing) could grow it, so
 /// past `CPU_REPORT_BACKLOG` events it is emptied anyway.
 #[doc(hidden)]
@@ -745,7 +746,11 @@ pub fn drain_probe_events() -> usize {
 pub fn drain_probe_events_for(cpu_report: bool) -> usize {
     const CPU_REPORT_BACKLOG: usize = 1 << 20;
     if !is_collecting() {
-        if !cpu_report || crate::probe::Probe::peek_len() > CPU_REPORT_BACKLOG {
+        // Nothing reads the buffer but the CPU report and a caller that
+        // switched the recording on to drain it itself; with neither it is
+        // emptied here, so it stays bounded.
+        let read_later = cpu_report || crate::probe::Probe::drained_by_its_caller();
+        if !read_later || crate::probe::Probe::peek_len() > CPU_REPORT_BACKLOG {
             crate::probe::Probe::drop_events();
         }
         return 0;
