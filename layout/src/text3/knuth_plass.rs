@@ -1,5 +1,10 @@
 //! An implementation of the Knuth-Plass line-breaking algorithm
 //! for simple rectangular layouts.
+//!
+//! Every width here is an item's width on the line as the pen moves over it:
+//! its advance with the letter-spacing after it, and the word-spacing after a
+//! space ([`get_item_measure_with_spacing`], the measure the greedy breaker and
+//! positioner use), so the lines are chosen by the widths they are drawn at.
 
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Standard};
@@ -7,10 +12,11 @@ use hyphenation::{Hyphenator, Standard};
 #[cfg(not(feature = "text_layout_hyphenation"))]
 use crate::text3::cache::Standard;
 use crate::text3::cache::{
-    get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
-    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError,
-    LineConstraints, LineSegment, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point,
-    PositionedItem, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
+    get_base_direction_from_logical, get_item_measure, get_item_measure_with_spacing,
+    is_no_break_space, is_word_separator, is_zero_width_space, AvailableSpace, BidiDirection,
+    JustifyContent, LayoutError, LineConstraints, LineSegment, LoadedFonts, LogicalItem,
+    OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
+    UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -142,12 +148,14 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 });
             }
             item if is_word_separator(item) => {
-                let width = get_item_measure(item, is_vertical);
+                // The space stretches and shrinks by the font's space; the
+                // word- and letter-spacing are in its natural width only.
+                let space = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
-                    width,
-                    stretch: width * SPACE_STRETCH_RATIO,
-                    shrink: width * SPACE_SHRINK_RATIO,
+                    width: get_item_measure_with_spacing(item, is_vertical),
+                    stretch: space * SPACE_STRETCH_RATIO,
+                    shrink: space * SPACE_SHRINK_RATIO,
                 });
                 // NBSP & friends (UAX#14 class GL/WJ) add word-spacing Glue but are NOT
                 // soft-wrap opportunities, so suppress the break Penalty for them —
@@ -163,7 +171,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
             ShapedItem::Cluster(cluster)
                 if cluster.text().ends_with('\u{002D}') || cluster.text().ends_with('\u{2010}') =>
             {
-                let width = get_item_measure(item, is_vertical);
+                let width = get_item_measure_with_spacing(item, is_vertical);
                 nodes.push(LayoutNode::Box(item.clone(), width));
                 // +spec:line-breaking:2d3674 - U+002D/U+2010 are soft wrap opportunities, not
                 // hyphenation opportunities (no extra glyph inserted) Zero-width
@@ -241,12 +249,13 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         for item in b.line_part.iter().skip(current_item_cursor) {
                             nodes.push(LayoutNode::Box(
                                 item.clone(),
-                                get_item_measure(item, is_vertical),
+                                get_item_measure_with_spacing(item, is_vertical),
                             ));
                         }
                         current_item_cursor += num_items_in_syllable;
 
-                        let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
+                        let hyphen_measure =
+                            get_item_measure_with_spacing(&b.hyphen_item, is_vertical);
                         nodes.push(LayoutNode::Penalty {
                             item: Some(b.hyphen_item.clone()),
                             width: hyphen_measure,
@@ -259,14 +268,16 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         for remainder_item in &last_break.remainder_part {
                             nodes.push(LayoutNode::Box(
                                 remainder_item.clone(),
-                                get_item_measure(remainder_item, is_vertical),
+                                get_item_measure_with_spacing(remainder_item, is_vertical),
                             ));
                         }
                     } else {
                         // This case happens if find_all_hyphenation_breaks returned an empty vec.
                         // Fallback to just adding the original word.
                         for c in current_word_clusters {
-                            nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
+                            let item = ShapedItem::Cluster(c);
+                            let width = get_item_measure_with_spacing(&item, is_vertical);
+                            nodes.push(LayoutNode::Box(item, width));
                         }
                     }
                 } else {
@@ -280,7 +291,9 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     // CJK runs never gained intra-word breaks.
                     let n_word = current_word_clusters.len();
                     for (ci, c) in current_word_clusters.iter().enumerate() {
-                        nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
+                        let item = ShapedItem::Cluster(c.clone());
+                        let width = get_item_measure_with_spacing(&item, is_vertical);
+                        nodes.push(LayoutNode::Box(item, width));
                         let is_last = ci + 1 == n_word;
                         if !is_last
                             && crate::text3::cache::is_break_opportunity_with_word_break(
@@ -624,9 +637,13 @@ fn position_lines_from_breaks(
             line_items.pop();
         }
 
-        // Note: Calculate spacing, do not mutate items
+        // The line's width as the pen below moves over it, the letter- and
+        // word-spacing after each item included.
         let mut extra_per_space = 0.0;
-        let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
+        let line_width: f32 = line_items
+            .iter()
+            .map(|item| get_item_measure_with_spacing(item, false))
+            .sum();
 
         // the last line and lines ending with a forced break
         let ends_with_forced_break = line_nodes.iter().any(|n| {
@@ -698,10 +715,7 @@ fn position_lines_from_breaks(
         }
 
         // Alignment & Positioning
-        let total_width: f32 = line_items
-            .iter()
-            .map(|item| get_item_measure(item, false))
-            .sum();
+        let total_width = line_width;
 
         // For MaxContent, don't apply alignment (treat as left-aligned)
         let is_indefinite = matches!(
@@ -738,7 +752,9 @@ fn position_lines_from_breaks(
             );
 
         for item in line_items {
-            let item_advance = get_item_measure(&item, false);
+            // The pen moves by the advance and the spacing after it, as on
+            // every line (position_one_line).
+            let item_advance = get_item_measure_with_spacing(&item, false);
 
             let draw_pos = match &item {
                 ShapedItem::Cluster(c) if !c.glyphs.is_empty() => {
