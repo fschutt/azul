@@ -2196,9 +2196,15 @@ pub(crate) fn on_outcome(
                 if matches!(s.popup, Some(Popup::Encryption(Dialog::Busy { .. }))) {
                     s.popup = None;
                 }
+                // The drive was unlocked to be opened (its menu offers it wherever the window is):
+                // it shows now, read again when it showed already.
+                if s.current_drive_id().as_deref() == Some(drive_id.as_str()) {
+                    crate::refresh(info, app, s);
+                } else {
+                    crate::go(info, app, s, browse::Place::folder(&drive_id, ""), true);
+                }
                 let name = drive_name(s, &drive_id);
                 s.info(Phrase::new("azdrive-enc-unlocked").arg("name", name));
-                crate::refresh(info, app, s);
             }
             Err(why) => {
                 s.popup = Some(Popup::Encryption(Dialog::Message {
