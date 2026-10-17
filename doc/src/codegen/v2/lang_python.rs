@@ -752,6 +752,7 @@ fn __azul_write_back(obj: &Bound<'_, PyAny>) -> PyResult<()> {
                 len,
                 cap,
                 destructor: AzU8VecDestructor::DefaultRust,
+                flags: 0,
             }
         }
     }
@@ -781,6 +782,7 @@ impl From<Vec<u8>> for AzU8Vec {
             len,
             cap,
             destructor: AzU8VecDestructor::DefaultRust,
+            flags: 0,
         }
     }
 }
@@ -867,6 +869,7 @@ impl AzStringVec {
             len,
             cap,
             destructor: AzStringVecDestructor::DefaultRust,
+            flags: 0,
         }
     }
     
@@ -902,6 +905,7 @@ impl FromPyObject<'_, '_> for AzGLuintVec {
             len,
             cap,
             destructor: AzGLuintVecDestructor::DefaultRust,
+            flags: 0,
         })
     }
 }
@@ -931,6 +935,7 @@ impl FromPyObject<'_, '_> for AzGLintVec {
             len,
             cap,
             destructor: AzGLintVecDestructor::DefaultRust,
+            flags: 0,
         })
     }
 }
@@ -2972,9 +2977,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     .replace(&format!("({},", sv), &format!("({},", self_ref))
                     .replace(&format!("({}, ", sv), &format!("({}, ", self_ref))
                     .replace(&format!("({})", sv), &format!("({})", self_ref))
-                    .replace(&format!(", {},", sv), ", __cloned,")
-                    .replace(&format!(", {}, ", sv), ", __cloned, ")
-                    .replace(&format!(", {})", sv), ", __cloned)")
+                    .replace(&format!(", {},", sv), &format!(", {},", self_ref))
+                    .replace(&format!(", {}, ", sv), &format!(", {}, ", self_ref))
+                    .replace(&format!(", {})", sv), &format!(", {})", self_ref))
                     .replace(&format!("&mut {},", sv), &format!("{},", explicit_mut))
                     .replace(&format!("&mut {})", sv), &format!("{})", explicit_mut))
                     .replace(&format!("&{},", sv), &format!("{},", explicit_ref))
