@@ -630,7 +630,8 @@ fn show_hover(w: &mut SeekBarWrapper, info: &mut CallbackInfo) {
     let Some(tip) = info.get_first_child(track).and_then(|fills| info.get_next_sibling(fills)) else {
         return;
     };
-    info.set_css_property(tip, CssProperty::const_display(LayoutDisplay::Flex));
+    // Shown by the trough's `:hover` (`hover_tip_sheet`); the callback only
+    // moves it to the pointer.
     info.set_css_property(
         tip,
         CssProperty::const_left(LayoutLeft::percent(seek_fraction(t, duration) * 100.0)),
@@ -660,15 +661,6 @@ fn show_hover(w: &mut SeekBarWrapper, info: &mut CallbackInfo) {
     }
 }
 
-/// The hover tip goes when the pointer leaves the trough.
-fn hide_hover(info: &mut CallbackInfo) {
-    use azul_css::props::property::CssProperty;
-    let track = info.get_hit_node();
-    if let Some(tip) = info.get_first_child(track).and_then(|fills| info.get_next_sibling(fills)) {
-        info.set_css_property(tip, CssProperty::const_display(LayoutDisplay::None));
-    }
-}
-
 /// Pointer up: the scrub ends where it is (reported with `dragging` false: seek now).
 #[must_use]
 pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, info: CallbackInfo) -> Update {
@@ -685,7 +677,7 @@ pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, info: CallbackInfo) -
 /// Pointer leave: a scrub ends when the pointer left the TROUGH (not just its thumb - the
 /// slider's rule: every event bubbles here, the cursor decides).
 #[must_use]
-pub extern "C" fn on_seek_bar_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_seek_bar_pointer_leave(data: RefAny, info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
         info.get_hit_node_rect(),
@@ -698,12 +690,7 @@ pub extern "C" fn on_seek_bar_pointer_leave(mut data: RefAny, mut info: Callback
     if still_inside {
         return Update::DoNothing;
     }
-    let is_bar = data
-        .downcast_ref::<SeekBarWrapper>()
-        .is_some_and(|w| w.surface == SeekSurface::Bar);
-    if is_bar {
-        hide_hover(&mut info);
-    }
+    // The hover tip goes with the trough's `:hover` (`hover_tip_sheet`).
     on_seek_bar_pointer_up(data, info)
 }
 
@@ -875,6 +862,41 @@ pub(crate) static SEEK_HOVER_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
+
+/// The trough shows its hover tip while the pointer is over it
+/// (`.track:hover > .tip { display: flex }`): the tip's visibility stays the
+/// cascade's, so no callback has to set it, and none leaves it set over a
+/// later rebuild.
+fn hover_tip_sheet() -> azul_css::css::Css {
+    use azul_css::{
+        css::{
+            rule_priority, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector,
+            CssRuleBlock,
+        },
+        dynamic_selector::DynamicSelectorVec,
+    };
+    Css {
+        rules: alloc::vec![CssRuleBlock {
+            path: CssPath {
+                selectors: alloc::vec![
+                    CssPathSelector::Class(AzString::from_const_str("__azul-native-seek-bar-track")),
+                    CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+                    CssPathSelector::DirectChildren,
+                    CssPathSelector::Class(AzString::from_const_str(HOVER_CLASS)),
+                ]
+                .into(),
+            },
+            declarations: alloc::vec![CssDeclaration::Static(CssProperty::const_display(
+                LayoutDisplay::Flex
+            ))]
+            .into(),
+            conditions: DynamicSelectorVec::from_const_slice(&[]),
+            priority: rule_priority::WIDGETS,
+        }]
+        .into(),
+        ..Css::default()
+    }
+}
 
 /// The tip's picture: a 160 x 90 frame.
 pub(crate) static SEEK_HOVER_PICTURE_BASE: &[CssPropertyWithConditions] = &[
@@ -1069,6 +1091,7 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
     let track = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
         .with_css_props(props(part(SEEK_TRACK_BASE, &look.track)))
+        .with_component_css(hover_tip_sheet())
         .with_callbacks(callbacks.into())
         .with_dataset(OptionRefAny::Some(data))
         .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
