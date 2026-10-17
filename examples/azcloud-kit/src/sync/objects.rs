@@ -250,6 +250,19 @@ impl Drive for ObjectCache {
         self.inner.put_file(key, path, progress)
     }
 
+    /// The drive below's own: a bucket resumes a file upload a dropped connection or a killed
+    /// app cut off (the trait's default would stream it, start over and abort on a failure).
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &azul_storage::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
+        self.evict(key)?;
+        self.inner.put_file_checked(key, path, check, progress)
+    }
+
     fn put_from_if(
         &self,
         key: &str,
