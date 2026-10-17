@@ -1164,66 +1164,56 @@ pub fn break_one_line<T: ParsedFontTrait>(
 /// Represents a single valid hyphenation point within a word.
 #[derive(Debug, Clone)]
 pub struct HyphenationBreak {
-    /// The number of characters from the original word string included on the line.
+    /// The number of characters of the word on the line, before the hyphen.
+    /// The engine's line breakers do not read it; it is for other callers.
     pub char_len_on_line: usize,
-    /// The total advance width of the line part + the hyphen.
+    /// The width the line breaker counts for the line part and the hyphen:
+    /// their advances with kerning and the letter- and word-spacing the pen
+    /// adds after each (`fold_line_width`), so a part that fits by this width
+    /// also fits where the line is positioned.
     pub width_on_line: f32,
     /// The cluster(s) that will remain on the current line.
     pub line_part: Vec<ShapedItem>,
     /// The cluster that represents the hyphen character itself.
     pub hyphen_item: ShapedItem,
     /// The cluster(s) that will be carried over to the next line.
-    /// CRITICAL FIX: Changed from `ShapedItem` to Vec<ShapedItem>
     pub remainder_part: Vec<ShapedItem>,
 }
 
-/// A "word" is defined as a sequence of one or more adjacent `ShapedClusters`.
-#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+/// Every place the hyphenation dictionary breaks the word made of
+/// `word_clusters`, as the clusters on each side and the line part's width.
+///
+/// The dictionary names its breaks as byte offsets into the word's text.
+/// A break is taken where a cluster starts at that byte; one inside a
+/// cluster (between the letters of a ligature, or inside a grapheme) has no
+/// cluster boundary to split at and is skipped. Bytes, characters and
+/// clusters only coincide for ASCII text with one character per cluster.
+///
 /// # Panics
 ///
-/// Panics if a word's cluster or glyph list is unexpectedly empty (an internal invariant).
+/// Panics if a word's last cluster has no glyphs (an internal invariant: the
+/// hyphen takes its font from it).
 #[must_use]
 pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
-    is_vertical: bool, // Pass this in to use correct metrics
+    is_vertical: bool,
     fonts: &LoadedFonts<T>,
 ) -> Option<Vec<HyphenationBreak>> {
     if word_clusters.is_empty() {
         return None;
     }
 
-    // --- 1. Concatenate the TRUE text and build a robust map ---
+    // The word's text, and the byte at which each of its clusters starts.
     let mut word_string = String::new();
-    let mut char_map = Vec::new();
-    let mut current_width = 0.0;
-
-    for (cluster_idx, cluster) in word_clusters.iter().enumerate() {
-        for (char_byte_offset, _ch) in cluster.text().char_indices() {
-            let glyph_idx = cluster
-                .glyphs
-                .iter()
-                .rposition(|g| g.cluster_offset as usize <= char_byte_offset)
-                .unwrap_or(0);
-            let glyph = &cluster.glyphs[glyph_idx];
-
-            let num_chars_in_glyph = cluster.text()[glyph.cluster_offset as usize..]
-                .chars()
-                .count();
-            let advance_per_char = if is_vertical {
-                glyph.vertical_advance
-            } else {
-                glyph.advance
-            } / (num_chars_in_glyph as f32).max(1.0);
-
-            current_width += advance_per_char;
-            char_map.push((cluster_idx, glyph_idx, current_width));
-        }
+    let mut cluster_starts = Vec::with_capacity(word_clusters.len());
+    for cluster in word_clusters {
+        cluster_starts.push(word_string.len());
         word_string.push_str(cluster.text());
     }
 
     // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and
-    // explicit (soft hyphen) opportunities --- 2. Get hyphenation opportunities ---
+    // explicit (soft hyphen) opportunities
     let opportunities = hyphenator.hyphenate(&word_string);
     if opportunities.breaks.is_empty() {
         return None;
@@ -1238,77 +1228,84 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     let (hyphen_glyph_id, hyphen_advance) =
         font.get_hyphen_glyph_and_advance(style.font_size_px)?;
 
-    let mut possible_breaks = Vec::new();
-
-    // --- 3. Generate a HyphenationBreak for each valid opportunity ---
-    for &break_char_idx in &opportunities.breaks {
-        // The break is *before* the character at this index.
-        // So the last character on the line is at `break_char_idx - 1`.
-        if break_char_idx == 0 || break_char_idx > char_map.len() {
-            continue;
-        }
-
-        let (_, _, width_at_break) = char_map[break_char_idx - 1];
-
-        // The line part is all clusters *before* the break index.
-        let line_part: Vec<ShapedItem> = word_clusters[..break_char_idx]
-            .iter()
-            .map(|c| ShapedItem::Cluster(c.clone()))
-            .collect();
-
-        // The remainder is all clusters *from* the break index onward.
-        let remainder_part: Vec<ShapedItem> = word_clusters[break_char_idx..]
-            .iter()
-            .map(|c| ShapedItem::Cluster(c.clone()))
-            .collect();
-
-        let hyphen_item = ShapedItem::Cluster(ShapedCluster {
-            flags: ClusterFlags::classify("-"),
-            source_text: Arc::from("-"),
-            source_byte_len: 1,
-            source_cluster_id: GraphemeClusterId {
-                source_run: u32::MAX,
-                start_byte_in_run: u32::MAX,
-            },
-            source_content_index: ContentIndex {
-                run_index: u32::MAX,
-                item_index: u32::MAX,
-            },
-            source_node_id: None, // Hyphen is generated, not from DOM
-            glyphs: smallvec![ShapedGlyph {
-                kind: GlyphKind::Hyphen,
-                glyph_id: hyphen_glyph_id,
-                font_hash: last_glyph.font_hash,
-                font_metrics: last_glyph.font_metrics,
-                cluster_offset: 0,
-                script: Script::Latin,
-                advance: hyphen_advance,
-                kerning: 0.0,
-                offset: Point::default(),
-                vertical_advance: hyphen_advance,
-                vertical_offset: Point::default(),
-            }],
+    let hyphen_item = ShapedItem::Cluster(ShapedCluster {
+        flags: ClusterFlags::classify("-"),
+        source_text: Arc::from("-"),
+        source_byte_len: 1,
+        source_cluster_id: GraphemeClusterId {
+            source_run: u32::MAX,
+            start_byte_in_run: u32::MAX,
+        },
+        source_content_index: ContentIndex {
+            run_index: u32::MAX,
+            item_index: u32::MAX,
+        },
+        source_node_id: None, // Hyphen is generated, not from DOM
+        glyphs: smallvec![ShapedGlyph {
+            kind: GlyphKind::Hyphen,
+            glyph_id: hyphen_glyph_id,
+            font_hash: last_glyph.font_hash,
+            font_metrics: last_glyph.font_metrics,
+            cluster_offset: 0,
+            script: Script::Latin,
             advance: hyphen_advance,
-            direction: BidiDirection::Ltr,
-            style: style.clone(),
-            marker_position_outside: None,
-            is_first_fragment: true,
-            is_last_fragment: true,
-        });
+            kerning: 0.0,
+            offset: Point::default(),
+            vertical_advance: hyphen_advance,
+            vertical_offset: Point::default(),
+        }],
+        advance: hyphen_advance,
+        direction: BidiDirection::Ltr,
+        style,
+        marker_position_outside: None,
+        is_first_fragment: true,
+        is_last_fragment: true,
+    });
 
-        possible_breaks.push(HyphenationBreak {
-            char_len_on_line: break_char_idx,
-            width_on_line: width_at_break + hyphen_advance,
-            line_part,
-            hyphen_item,
-            remainder_part,
-        });
+    let possible_breaks: Vec<HyphenationBreak> = opportunities
+        .breaks
+        .iter()
+        .filter_map(|&break_byte| {
+            // The break is before the cluster that starts at its byte.
+            let split = cluster_starts.binary_search(&break_byte).ok()?;
+            if split == 0 {
+                return None;
+            }
+            let line_part: Vec<ShapedItem> = word_clusters[..split]
+                .iter()
+                .map(|c| ShapedItem::Cluster(c.clone()))
+                .collect();
+            let remainder_part: Vec<ShapedItem> = word_clusters[split..]
+                .iter()
+                .map(|c| ShapedItem::Cluster(c.clone()))
+                .collect();
+            let width_on_line = line_part
+                .iter()
+                .chain(std::iter::once(&hyphen_item))
+                .fold(0.0, |width, item| fold_line_width(width, item, is_vertical));
+            Some(HyphenationBreak {
+                char_len_on_line: word_string[..break_byte].chars().count(),
+                width_on_line,
+                line_part,
+                hyphen_item: hyphen_item.clone(),
+                remainder_part,
+            })
+        })
+        .collect();
+
+    if possible_breaks.is_empty() {
+        None
+    } else {
+        Some(possible_breaks)
     }
-
-    Some(possible_breaks)
 }
 
 /// Tries to find a hyphenation point within a word, returning the line part and remainder.
+///
+/// `word_items` is one unbreakable unit of the line breaker. A unit that
+/// holds anything but text clusters (an inline-block inside a word) is not
+/// hyphenated: the line and remainder parts are made of clusters only, and
+/// the other items would be lost.
 pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
     word_items: &[ShapedItem],
     remaining_width: f32,
@@ -1318,8 +1315,8 @@ pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 ) -> Option<HyphenationResult> {
     let word_clusters: Vec<ShapedCluster> = word_items
         .iter()
-        .filter_map(|item| item.as_cluster().cloned())
-        .collect();
+        .map(|item| item.as_cluster().cloned())
+        .collect::<Option<_>>()?;
 
     if word_clusters.is_empty() {
         return None;
