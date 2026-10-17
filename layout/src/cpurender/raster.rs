@@ -2207,6 +2207,12 @@ pub fn render_display_list_damaged(
             // removes is inside `a`, which is repainted anyway. Otherwise
             // (an overlap that reaches into the middle of `b`) a single trim
             // cannot separate them, and the union is still the answer.
+            // Worth avoiding only when the merge is EXPENSIVE: the union
+            // has to balloon past the pair AND be a large share of the
+            // surface. A small overlap costs a few hundred pixels to merge
+            // and splitting it would gain nothing, while cutting an item's
+            // antialiased edge across a new seam is not free - the slider's
+            // thumb loses its top row of coverage that way.
             let union_balloons = overlap && {
                 let x0 = a.x0.min(b.x0);
                 let y0 = a.y0.min(b.y0);
@@ -2215,7 +2221,8 @@ pub fn render_display_list_damaged(
                 let au = i64::from(x1 - x0) * i64::from(y1 - y0);
                 let aa = i64::from(a.x1 - a.x0) * i64::from(a.y1 - a.y0);
                 let ab = i64::from(b.x1 - b.x0) * i64::from(b.y1 - b.y0);
-                au * 2 > (aa + ab) * 3 + 128
+                let surface = i64::from(pw_i) * i64::from(ph_i);
+                au * 2 > (aa + ab) * 3 + 128 && au * 4 > surface
             };
             if union_balloons {
                 if let Some(trimmed) = trim_against(&rects[i], &rects[j], dpi_factor) {
