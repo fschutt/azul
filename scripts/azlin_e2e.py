@@ -359,8 +359,26 @@ class App:
             "http://127.0.0.1:%d/" % self.port,
             data=json.dumps(body).encode("utf-8"), method="POST",
         )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.loads(response.read().decode("utf-8") or "{}")
+        except TimeoutError:
+            # The caller decides whether to ask again; the stacks say where it hung.
+            self.log("did not answer %r in 15 s: %s" % (op, self.sample_hang()))
+            raise
+
+    def sample_hang(self):
+        """Where the app's threads are while it does not answer (macOS `sample`, 2 s): a hang
+        leaves its stacks beside its log instead of only a timeout."""
+        path = self.err_path + ".hang.txt"
+        if sys.platform != "darwin" or not self.alive():
+            return "no stacks (the app is gone or this is not macOS)"
+        try:
+            subprocess.run(["sample", str(self.process.pid), "2", "-file", path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return "no stacks (sample failed)"
+        return "its threads' stacks are in %s" % path
 
     def must(self, op, **params):
         answer = self.op(op, **params)
