@@ -53,18 +53,27 @@ impl AzlinSession {
 
     /// The keyring entry's text read back.
     pub fn from_keyring_secret(text: &str) -> Result<AzlinSession, TokenError> {
-        // The parser's message is not passed on: it could quote the secret.
-        let session: AzlinSession = serde_json::from_str(text.trim()).map_err(|_| {
-            TokenError::Protocol(String::from(
-                "the keyring entry does not hold an Azlin drive's session",
-            ))
-        })?;
+        let session = Self::from_keyring_secret_without_credentials(text)?;
         if session.drive_token.trim().is_empty() || session.access_key_id.trim().is_empty() {
             return Err(TokenError::Protocol(String::from(
                 "the keyring entry has no drive token or no credentials",
             )));
         }
         Ok(session)
+    }
+
+    /// The keyring entry's text read back whether or not it holds credentials yet. A drive
+    /// being recovered keeps only its drive token while the token server's notice runs (no
+    /// credentials are handed out meanwhile); finishing the recovery trades that token for
+    /// them. Everything that opens the bucket reads the entry with
+    /// [`Self::from_keyring_secret`].
+    pub fn from_keyring_secret_without_credentials(text: &str) -> Result<AzlinSession, TokenError> {
+        // The parser's message is not passed on: it could quote the secret.
+        serde_json::from_str(text.trim()).map_err(|_| {
+            TokenError::Protocol(String::from(
+                "the keyring entry does not hold an Azlin drive's session",
+            ))
+        })
     }
 
     /// The S3 credentials (with the session token of temporary ones).

@@ -26,7 +26,8 @@
 //! stays "later".
 //!
 //! On stdout, for scripts: `AZDRIVE_KIT_LOOKUP <drives found>`, `AZDRIVE_KIT_LOCKDOWN <drive>`,
-//! `AZDRIVE_RECOVERY_FINISHED <drive>`, `AZDRIVE_RECOVERY_PENDING <drive>`,
+//! `AZDRIVE_RECOVERY_FINISHED <drive>`, `AZDRIVE_RECOVERY_NOT_FINISHED <drive> <why>`,
+//! `AZDRIVE_RECOVERY_PENDING <drive>`,
 //! `AZDRIVE_RECOVERY_KEYS <drive> <count>`, `AZDRIVE_RECOVERY_CODE_ADDED <drive>`,
 //! `AZDRIVE_RECOVERY_FINDABLE <drive>`, `AZDRIVE_RECOVERY_KEY_REMOVED <drive> <key>`,
 //! `AZDRIVE_RECOVERY_KEY_KEPT <drive> <key>` (the token server kept it: the last key),
@@ -866,7 +867,8 @@ fn finish(
     let session = keyring
         .get(&entry_key)
         .map_err(|e| e.to_string())?
-        .map(|text| AzlinSession::from_keyring_secret(&text))
+        // A drive being recovered holds its drive token alone until this trade.
+        .map(|text| AzlinSession::from_keyring_secret_without_credentials(&text))
         .transpose()
         .map_err(|e| e.to_string())?
         .filter(|session| session.drive_id == drive_id && !session.drive_token.is_empty())
@@ -1095,11 +1097,15 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 s.success(Phrase::new("azdrive-keys-finished").arg("drive", drive_id.as_str()));
                 save_settings(info, app, s);
             }
-            Err(why) => s.warn(
-                Phrase::new("azdrive-keys-not-finished")
-                    .arg("drive", drive_id.as_str())
-                    .arg("why", t_label(&why)),
-            ),
+            Err(why) => {
+                // The notice says why; scripts read it here, on one line.
+                println!("AZDRIVE_RECOVERY_NOT_FINISHED {drive_id} {}", why.replace('\n', " "));
+                s.warn(
+                    Phrase::new("azdrive-keys-not-finished")
+                        .arg("drive", drive_id.as_str())
+                        .arg("why", t_label(&why)),
+                );
+            }
         },
         KeysDone::Listed { drive_id, result } => match result {
             Ok(keys) => {
