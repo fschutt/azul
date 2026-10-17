@@ -4209,16 +4209,70 @@ pub mod parsed {
                 );
             }
 
-            // Elsewhere the platform's own table stays as it is, but for
-            // `system-ui` (the OS UI font, see the next test).
+            // Elsewhere the platform's own generic families stay as they are,
+            // but for `system-ui` (the OS UI font, see the next test); the
+            // named families' metric twins are the test after it.
             for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
                 let mut config = FcFallbackConfig::os_defaults(os);
                 browser_generic_families(&mut config, os);
                 config.generic_families.remove(&GenericFamily::SystemUi);
                 let mut table = FcFallbackConfig::os_defaults(os);
                 table.generic_families.remove(&GenericFamily::SystemUi);
-                assert_eq!(config, table, "{os:?}");
+                assert_eq!(config.generic_families, table.generic_families, "{os:?}");
+                assert_eq!(config.script_fallbacks, table.script_fallbacks, "{os:?}");
+                assert_eq!(config.last_resort, table.last_resort, "{os:?}");
             }
+        }
+
+        /// A named family the machine lacks draws in its metric-compatible
+        /// face, as in Chrome (fontconfig's metric aliases): Arial in
+        /// Liberation Sans or Arimo, on every OS, after any substitute the
+        /// system configured. Applying it twice changes nothing.
+        #[test]
+        fn a_missing_family_is_substituted_by_its_metric_compatible_twin() {
+            use rust_fontconfig::{FcFallbackConfig, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            for os in [OperatingSystem::MacOS, OperatingSystem::Windows, OperatingSystem::Linux] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                browser_generic_families(&mut config, os);
+                assert_eq!(
+                    config.substitutions_for("Arial"),
+                    ["Liberation Sans", "Arimo", "Albany AMT"],
+                    "{os:?}"
+                );
+                assert_eq!(
+                    &config.substitutions_for("times new roman")[..2],
+                    ["Liberation Serif", "Tinos"],
+                    "{os:?}: the lookup ignores case"
+                );
+                assert_eq!(
+                    &config.substitutions_for("Courier New")[..2],
+                    ["Liberation Mono", "Cousine"],
+                    "{os:?}"
+                );
+                let once = config.clone();
+                browser_generic_families(&mut config, os);
+                assert_eq!(config, once, "{os:?}: idempotent");
+            }
+
+            let mut configured = FcFallbackConfig::empty();
+            configured.substitutions.insert(
+                rust_fontconfig::utils::normalize_family_name("Arial"),
+                vec!["Arimo".to_string()],
+            );
+            browser_generic_families(&mut configured, OperatingSystem::Linux);
+            assert_eq!(
+                configured.substitutions_for("Arial"),
+                ["Arimo", "Liberation Sans", "Albany AMT"],
+                "the system's substitute stays first"
+            );
+            assert_eq!(
+                configured.expand_family("Arial", &[]),
+                ["Arial", "Arimo", "Liberation Sans", "Albany AMT"],
+                "the family itself comes first: an installed Arial draws"
+            );
         }
 
         /// `system-ui` is the font the OS draws its own UI in, the ONE list

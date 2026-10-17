@@ -11400,6 +11400,52 @@ mod autotest_generated {
         );
     }
 
+    /// `color: inherit` is the parent's colour, for the node and for what
+    /// inherits from it, and `color: initial` the initial colour: the UA's
+    /// themed CanvasText (CSS Color 4 s3.1). Neither is "no colour", which
+    /// the used colour asserts never happens on a cascaded DOM.
+    #[test]
+    fn a_css_wide_colour_keyword_is_the_parents_or_the_initial_colour() {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_class("p".into())
+                .with_child(
+                    Dom::create_div()
+                        .with_class("inherits".into())
+                        .with_child(Dom::create_div()),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_class("initial".into())
+                        .with_child(Dom::create_div()),
+                ),
+        );
+        let sd = StyledDom::create(
+            &mut dom,
+            parse(".p { color: red; } .inherits { color: inherit; } .initial { color: initial; }"),
+        );
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let ctx = sd
+            .css_property_cache
+            .ptr
+            .dynamic_context
+            .as_deref()
+            .cloned()
+            .unwrap_or_default();
+        let canvas_text = azul_core::ua_css::evaluate_ua_root_text_color(&ctx).inner;
+        assert_ne!(canvas_text, red, "the test tells the two colours apart");
+        let used = |i: usize| get_used_text_color(&sd, NodeId::new(i), &normal());
+        assert_eq!(used(2), red, "`color: inherit` is the parent's red");
+        assert_eq!(used(3), red, "and its child inherits the red");
+        assert_eq!(used(4), canvas_text, "`color: initial` is the UA's text colour");
+        assert_eq!(used(5), canvas_text, "and its child inherits that");
+    }
+
     #[test]
     fn get_style_properties_stays_finite_for_every_degenerate_viewport() {
         let sd = body_with_text("hello");
@@ -11887,6 +11933,55 @@ mod memory_font_tier_tests {
         let a = covering_font(chain, 'a');
         assert!(a.is_some(), "premise: the stack covers 'a'");
         assert_ne!(a, Some(stand_in), "the installed face of the generic draws, not the stand-in");
+    }
+
+    /// A page set in Arial on a machine without Arial draws in Liberation
+    /// Sans, which has Arial's advances and line heights, ahead of the
+    /// `sans-serif` the stack falls back to - as Chrome on Linux does.
+    #[test]
+    fn a_family_that_is_not_installed_draws_in_its_metric_compatible_twin() {
+        use crate::text3::cache::{FontManager, FontSelector};
+        let mock = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        let mut config = rust_fontconfig::FcFallbackConfig::empty();
+        config
+            .generic_families
+            .insert(rust_fontconfig::GenericFamily::SansSerif, vec!["DejaVu Sans".to_string()]);
+        crate::font::loading::browser_generic_families(
+            &mut config,
+            rust_fontconfig::OperatingSystem::Linux,
+        );
+        let registry = registry_over(
+            "azul-metric-twin",
+            &[("DejaVuSans.ttf", &mock), ("LiberationSans-Regular.ttf", &mock)],
+            config,
+        );
+        let fonts = FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+            .expect("font manager");
+        let collected = CollectedFontStacks {
+            font_stacks: vec![["Arial", "sans-serif"]
+                .iter()
+                .map(|family| FontSelector {
+                    family: (*family).to_string(),
+                    ..FontSelector::default()
+                })
+                .collect()],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        let used: std::collections::BTreeSet<char> = ['a'].into_iter().collect();
+        let resolved =
+            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+        let chain = resolved.chains.values().next().expect("the stack's chain");
+        let first = chain
+            .css_fallbacks
+            .iter()
+            .find(|g| !g.fonts.is_empty())
+            .map(|g| g.css_name.as_str());
+        assert_eq!(first, Some("Liberation Sans"), "{:?}", chain.css_fallbacks);
     }
 }
 
