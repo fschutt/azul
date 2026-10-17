@@ -89,6 +89,11 @@ pub struct GpuValueCache {
     pub sheen_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Each sheen's eased strength now, 0 (none) to 1.
     pub sheen_current_opacity_values: HashMap<NodeId, f32>,
+    /// The light the sheens shine in: the window's material light's colour
+    /// and intensity, which the layer bakes into its highlight's stops (so it
+    /// is in the emission fingerprint: a new colour is a new list). `None`
+    /// until the layout window sets it: the default light's.
+    pub sheen_light: Option<(azul_css::props::basic::ColorU, f32)>,
     /// Animation opacity keys (keyed by node ID).
     pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
@@ -286,6 +291,11 @@ impl GpuValueCache {
         }
         for (n, k) in &self.sheen_opacity_keys {
             entries.push((14, n.index() as u64, k.id as u64));
+        }
+        // ...in the colour of the window's light, baked into its stops.
+        if let Some((c, intensity)) = self.sheen_light {
+            let rgba = u64::from(u32::from_be_bytes([c.r, c.g, c.b, c.a]));
+            entries.push((15, rgba, u64::from(intensity.to_bits())));
         }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
