@@ -46,6 +46,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -113,18 +114,48 @@ def make_upload(documents, upload_mb, small_files):
     return big, folder
 
 
-def copy_between(app, source_click, source_listed, names, target_click, target_listed):
+def copy_between(app, source_click, source_listed, names, target_click, target_listed,
+                 during=None):
     """Copies the items `names` of one folder (opened by `source_click`, listed when the
     AZDRIVE_LISTED line matches `source_listed`) into another (`target_click`,
-    `target_listed`), one item at a time, and waits for each paste to finish."""
+    `target_listed`), one item at a time, and waits for each paste to finish. `during` runs
+    while the first paste is under way (after its "planned" line, before its "done" one)."""
     for name in names:
         app.after("the source folder", "AZDRIVE_LISTED", source_listed, source_click)
         app.after("%s selected" % name, "AZDRIVE_SELECTED", r"1 .*%s/?" % re.escape(name),
                   lambda: select_item(app, name))
         app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
         app.after("the target folder", "AZDRIVE_LISTED", target_listed, target_click)
-        app.after("Ctrl+V of %s" % name, "AZDRIVE_TRANSFER", r"\d+ done \d+",
-                  lambda: app.key("v", primary=True))
+        planned = app.count("AZDRIVE_TRANSFER", r"\d+ planned \d+")
+        done = app.count("AZDRIVE_TRANSFER", r"\d+ done \d+")
+        app.key("v", primary=True)
+        if during:
+            app.until("the paste of %s under way" % name, lambda: app.count(
+                "AZDRIVE_TRANSFER", r"\d+ planned \d+") > planned)
+            during()
+            if app.count("AZDRIVE_TRANSFER", r"\d+ done \d+") > done:
+                raise Failure("the paste of %s was done before the step meant for its middle "
+                              "ended: give it a bigger file (--upload-mb)" % name)
+            during = None
+        app.until("the paste of %s done" % name, lambda: app.count(
+            "AZDRIVE_TRANSFER", r"\d+ done \d+") > done)
+
+
+def run_hook(what, command, result):
+    """Runs one of the stack's steps (a shell command: a disk failed, a node restarted, ...),
+    keeps its output in the result, and fails the run when it fails."""
+    log("%s: %s" % (what, command))
+    started = time.time()
+    done = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=900)
+    output = (done.stdout + done.stderr).strip()
+    result.setdefault("hooks", []).append({"what": what, "command": command,
+                                           "status": done.returncode,
+                                           "seconds": round(time.time() - started, 1),
+                                           "output": output[-4000:]})
+    if done.returncode != 0:
+        raise Failure("%s failed (%d): %s" % (what, done.returncode, output[-800:]))
+    for line in output.splitlines()[-6:]:
+        log("   %s" % line)
 
 
 def start_app(tag, binary, switches, port, logs, timeout, env, window):
@@ -278,14 +309,33 @@ def run(args, logs):
             % (drive_id, tokens[-1].split()[-1]))
 
         # 5. The file and the folder into the drive.
+        during = None
+        if args.during_upload:
+            during = lambda: run_hook("during the upload", args.during_upload, result)
         copy_between(app, lambda: app.click(selector="#" + I("side-fav-documents")),
                      r"home Documents/ \d+", [big, folder],
                      lambda: app.click(selector=side_drive(drive_id)),
-                     r"%s / \d+" % re.escape(drive_id))
+                     r"%s / \d+" % re.escape(drive_id), during=during)
         app.after("F5", "AZDRIVE_LISTED", r"%s / 2" % re.escape(drive_id), lambda: app.key("f5"))
         app.screenshot(os.path.join(out, "06-uploaded.png"))
         log("5. %s and %s/ (%d files in all) copied into %s"
             % (big, folder, len(uploaded), drive_id))
+        if args.after_upload:
+            # The stack changes under the running AzDrive (a node restarted): the drive lists
+            # again and takes one more file.
+            run_hook("after the upload", args.after_upload, result)
+            late = "after-the-step.txt"
+            with open(os.path.join(documents, late), "wb") as f:
+                f.write(b"written after the stack's step\n")
+            uploaded[late] = sha256_of(os.path.join(documents, late))
+            copy_between(app, lambda: app.click(selector="#" + I("side-fav-documents")),
+                         r"home Documents/ \d+", [late],
+                         lambda: app.click(selector=side_drive(drive_id)),
+                         r"%s / \d+" % re.escape(drive_id))
+            app.after("F5", "AZDRIVE_LISTED", r"%s / 3" % re.escape(drive_id),
+                      lambda: app.key("f5"))
+            log("5b. after the step AzDrive listed %s again and copied %s into it"
+                % (drive_id, late))
     finally:
         app.stop()
     with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
@@ -319,8 +369,9 @@ def run(args, logs):
         popup.text_input("#__azdrive_unlock_code", recovery)
         popup.click_exact("Unlock")
         second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
+        names = [big, folder] + (["after-the-step.txt"] if args.after_upload else [])
         copy_between(second, lambda: second.click(selector=side_drive(drive_id)),
-                     r"%s / \d+" % re.escape(drive_id), [big, folder],
+                     r"%s / \d+" % re.escape(drive_id), names,
                      lambda: second.click(selector="#" + I("side-fav-documents")),
                      r"home Documents/ \d+")
         second.screenshot(os.path.join(out, "07-second-computer.png"))
@@ -356,6 +407,10 @@ def main():
     parser.add_argument("--upload-mb", type=int, default=5)
     parser.add_argument("--small-files", type=int, default=24)
     parser.add_argument("--window", action="store_true", help="real windows, not headless")
+    parser.add_argument("--during-upload", help="a shell command run while the big file uploads "
+                        "(a storage fault)")
+    parser.add_argument("--after-upload", help="a shell command run after the upload (a node "
+                        "restart); AzDrive then lists the drive again and takes one more file")
     args = parser.parse_args()
     if args.logs:
         if os.path.exists(args.logs):
