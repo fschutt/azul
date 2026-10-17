@@ -43,7 +43,10 @@ fn a_big_listing_in_small_pages_reads_the_tree_once_not_once_per_page() {
     let started = Instant::now();
     let listed = ops::list_all_paged(&drive, "many/", 7).unwrap();
     let took = started.elapsed();
-    assert_eq!(listed.len(), 4000);
+    // The drive index lists the folder's own marker with its files, as an S3
+    // console's folder has one (`many/` first).
+    assert_eq!(listed.first().map(|o| o.key.as_str()), Some("many/"));
+    assert_eq!(listed.len(), 4000 + 1);
     assert!(
         listed.windows(2).all(|w| w[0].key < w[1].key),
         "in key order, each once"
@@ -55,12 +58,12 @@ fn a_big_listing_in_small_pages_reads_the_tree_once_not_once_per_page() {
     // A change between two listings is in the next one.
     drive.put("many/zz-new.txt", b"y").unwrap();
     let again = ops::list_all_paged(&drive, "many/", 7).unwrap();
-    assert_eq!(again.len(), 4001);
+    assert_eq!(again.len(), 4001 + 1);
     assert_eq!(
         again.last().map(|o| o.key.as_str()),
         Some("many/zz-new.txt")
     );
     // One folder level pages the same way.
     let folder = ops::list_folder_all(&drive, "many/").unwrap();
-    assert_eq!(folder.objects.len(), 4001);
+    assert_eq!(folder.objects.len(), 4001 + 1);
 }

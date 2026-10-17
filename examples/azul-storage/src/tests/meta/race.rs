@@ -55,12 +55,20 @@ fn a_409_on_the_manifest_swap_is_tried_again() {
     let mut store = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
     bucket.fail_next_write(keys::MANIFEST, raced(keys::MANIFEST));
     assert_eq!(publish(&mut store, "c1"), 2);
-    let logs = bucket
+    // The manifest names the one entry that landed. The first attempt's entry
+    // stays in the bucket unnamed: a 409 may be this very swap still under way,
+    // and removing an entry a manifest then names would break the repository;
+    // the orphan sweep retires it once it is old enough.
+    let named: Vec<String> = store.manifest().unwrap().log.iter().map(|r| r.key.clone()).collect();
+    assert_eq!(named.len(), 1);
+    let logs: Vec<String> = bucket
         .objects()
         .into_iter()
-        .filter(|(key, _)| key.starts_with(keys::LOG_DIR))
-        .count();
-    assert_eq!(logs, 1);
+        .map(|(key, _)| key)
+        .filter(|key| key.starts_with(keys::LOG_DIR))
+        .collect();
+    assert!(logs.contains(&named[0]), "the named entry is in the bucket: {logs:?}");
+    assert!(logs.len() <= 2, "at most the one unnamed attempt beside it: {logs:?}");
     let phone = MetaStore::open(bucket, sealer(), "phone").unwrap();
     assert_eq!(phone.state().refs.get(MAIN).map(String::as_str), Some("c1"));
 }
