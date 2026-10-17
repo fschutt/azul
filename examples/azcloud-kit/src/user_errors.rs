@@ -46,6 +46,9 @@ pub enum Behaviour {
     /// Fresh credentials with the drive token, then the call again - the drive does it by
     /// itself; no node is asked again with the old ones, every node refuses them.
     RefreshSession,
+    /// Ask to unlock the drive on this device: its recovery code, or a join code from a device
+    /// that holds its key.
+    Unlock,
     /// This file is skipped.
     SkipFile,
     /// Both versions are kept.
@@ -75,6 +78,8 @@ pub enum Code {
     /// The session's credentials ran out, or were made under a signing epoch that ended: the
     /// drive refreshes them with its drive token.
     SessionExpired,
+    /// An encrypted drive this device holds no key for (yet) - the client's own.
+    Locked,
     ObjectTooLarge,
     NameConflict,
     LinkBlocked,
@@ -107,7 +112,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 22] = [
+    pub const ALL: [Code; 23] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -116,6 +121,7 @@ impl Code {
         Code::CredentialsRevoked,
         Code::SignIn,
         Code::SessionExpired,
+        Code::Locked,
         Code::ObjectTooLarge,
         Code::NameConflict,
         Code::LinkBlocked,
@@ -144,6 +150,7 @@ impl Code {
             Code::CredentialsRevoked => "credentials_revoked",
             Code::SignIn => "sign_in",
             Code::SessionExpired => "session_expired",
+            Code::Locked => "locked",
             Code::ObjectTooLarge => "object_too_large",
             Code::NameConflict => "name_conflict",
             Code::LinkBlocked => "link_blocked",
@@ -262,6 +269,15 @@ pub const ROWS: &[Row] = &[
         en: "Renewing this device's access to the drive - syncing goes on in a moment.",
         de: "Der Zugang dieses Geräts zum Laufwerk wird erneuert - die Synchronisierung geht \
              gleich weiter.",
+    },
+    Row {
+        code: Code::Locked,
+        class: Class::ReAuth,
+        behaviour: Behaviour::Unlock,
+        en: "This drive is locked on this computer. Unlock it with its recovery code, or join it \
+             from a device that has it.",
+        de: "Dieses Laufwerk ist auf diesem Computer gesperrt. Entsperre es mit seinem \
+             Wiederherstellungscode oder tritt ihm von einem Gerät aus bei, das es hat.",
     },
     Row {
         code: Code::ObjectTooLarge,
@@ -449,6 +465,7 @@ impl UserError {
             DriveError::Service(service) => UserError::from_service(service),
             DriveError::Transport(why) => UserError::new(Code::Network, why.clone()),
             DriveError::Denied { message } => UserError::new(Code::SignIn, message.clone()),
+            DriveError::Locked { .. } => UserError::new(Code::Locked, e.to_string()),
             DriveError::Conflict { .. } => UserError::new(Code::NameConflict, e.to_string()),
             DriveError::Corrupt { .. } => UserError::new(Code::Integrity, e.to_string()),
             DriveError::Protocol(why) => UserError::new(Code::Other, why.clone()),

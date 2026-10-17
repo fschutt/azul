@@ -1274,6 +1274,10 @@ pub(crate) fn drive_answer(e: DriveError) -> Response {
         DriveError::NotFound { .. } => Response::text(Status::NOT_FOUND, "Not there."),
         DriveError::InvalidKey { reason, .. } => Response::text(Status::CONFLICT, reason),
         DriveError::Denied { .. } => Response::text(Status::FORBIDDEN, "The drive refused."),
+        DriveError::Locked { .. } => Response::text(
+            Status::FORBIDDEN,
+            "The drive is locked on this computer: unlock it in AzDrive.",
+        ),
         other => Response::text(Status::BAD_GATEWAY, &other.to_string()),
     }
 }

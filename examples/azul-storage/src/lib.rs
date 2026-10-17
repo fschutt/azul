@@ -517,6 +517,9 @@ pub enum DriveError {
     InvalidRange { key: String },
     /// Not allowed: a read-only grant, missing credentials.
     Denied { message: String },
+    /// An encrypted drive this device holds no key for (yet): it is unlocked with the drive's
+    /// recovery code, or joined with a code from a device that has the key.
+    Locked { drive: String },
     /// The service answered with an error.
     Service(ServiceError),
     /// The request did not get an answer (DNS, connection, TLS, timeout).
@@ -549,6 +552,11 @@ impl fmt::Display for DriveError {
                 write!(f, "the requested range is outside \"{key}\"")
             }
             DriveError::Denied { message } => write!(f, "not allowed: {message}"),
+            DriveError::Locked { drive } => write!(
+                f,
+                "this device has no key for \"{drive}\" yet: join it with a code from a device \
+                 that has one, or unlock it with the recovery code"
+            ),
             DriveError::Service(e) => write!(f, "the storage service answered {e}"),
             DriveError::Transport(message) => {
                 write!(f, "no answer from the storage service: {message}")
