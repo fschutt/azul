@@ -120,3 +120,25 @@ fn long_lived_keys_never_need_a_refresh() {
     assert!(!session.needs_refresh(u64::MAX / 2));
     assert!(session.is_valid_at(u64::MAX / 2));
 }
+
+/// A drive being recovered keeps only its drive token while the token server's notice runs:
+/// the entry reads back as that token for finishing the recovery, and never as credentials.
+#[test]
+fn a_recovering_drives_entry_reads_back_its_drive_token_alone() {
+    let pending = AzlinSession {
+        drive_id: String::from("d_1"),
+        drive_token: String::from("dt_f.0.aaa"),
+        access_key_id: String::new(),
+        secret_access_key: String::new(),
+        session_token: None,
+        expires_at: Some(0),
+    };
+    let secret = pending.to_keyring_secret();
+    assert!(
+        AzlinSession::from_keyring_secret(&secret).is_err(),
+        "no credentials: the entry opens no bucket"
+    );
+    let read = AzlinSession::from_keyring_secret_without_credentials(&secret).unwrap();
+    assert_eq!((read.drive_id.as_str(), read.drive_token.as_str()), ("d_1", "dt_f.0.aaa"));
+    assert!(AzlinSession::from_keyring_secret_without_credentials("not a session").is_err());
+}
