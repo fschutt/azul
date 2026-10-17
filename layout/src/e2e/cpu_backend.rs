@@ -416,7 +416,18 @@ impl CpuBackend {
             eprintln!(
                 "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} \
                  gpu_rects={} zombie={}",
-                dl_damage.as_ref().map(Vec::len),
+                dl_damage.as_ref().map(|r| {
+                    r.iter()
+                        .map(|x| {
+                            (
+                                x.origin.x as i32,
+                                x.origin.y as i32,
+                                x.size.width as i32,
+                                x.size.height as i32,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }),
                 diff_path_ran,
                 layout_window.layout_cache.last_build_was_patched,
                 resize_damage.len(),
