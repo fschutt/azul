@@ -1580,7 +1580,8 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         let mut current_segment_width = 0.0;
         while item_cursor < line_items.len() {
             let item = &line_items[item_cursor];
-            let item_measure = get_item_measure(item, is_vertical);
+            // With the spacing after it, as the line breaker measured it.
+            let item_measure = get_item_measure_with_spacing(item, is_vertical);
             // Put at least one item in the segment to avoid getting stuck.
             // For nowrap/pre the overflow must stay on the line (see above).
             if !no_wrap
@@ -1599,36 +1600,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             continue;
         }
 
-        // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify;
-        // non-collapsible WS may skip justification
-        // 2. Calculate justification spacing *for this segment only*.
-        // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when
-        // text-align is justify CSS Text 3 §6: text-justify controls HOW to justify, but
-        // only applies when text-align is justify/justify-all. Without this check, ALL text
-        // gets justified because text-justify defaults to auto (→ InterWord).
-        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
-            == TextAlign::Justify
-            || constraints.text_align == TextAlign::JustifyAll)
-            && constraints.text_justify != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
-            && constraints.text_justify != JustifyContent::Kashida
-        {
-            let segment_line_constraints = LineConstraints {
-                segments: vec![*segment],
-                total_available: segment.width,
-                is_min_content: false,
-            };
-            calculate_justification_spacing(
-                &segment_items,
-                &segment_line_constraints,
-                constraints.text_justify,
-                is_vertical,
-            )
-        } else {
-            (0.0, 0.0)
-        };
-
-        // Kashida justification needs to be segment-aware if used.
+        // 2. Kashida justification needs to be segment-aware if used.
         let justified_segment_items = if constraints.text_justify == JustifyContent::Kashida
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
         {
@@ -1737,9 +1709,38 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         };
         let effective_segment_width = final_segment_width - trailing_ws_width;
 
+        // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify;
+        // non-collapsible WS may skip justification
+        // 3. Justification spacing *for this segment only*: the room the
+        // segment leaves, measured by the width the line is aligned by (the
+        // spacing the pen adds after every cluster and the inline box edges
+        // included), so a justified line ends on its segment's edge whatever
+        // its letter- and word-spacing. Kashida justification inserts glyphs
+        // instead and adds no spacing.
+        // +spec:text-alignment-spacing:30d322 - justify lines with justification opportunities when
+        // text-align is justify CSS Text 3 §6: text-justify controls HOW to justify, but
+        // only applies when text-align is justify/justify-all. Without this check, ALL text
+        // gets justified because text-justify defaults to auto (→ InterWord).
+        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
+            == TextAlign::Justify
+            || constraints.text_align == TextAlign::JustifyAll)
+            && constraints.text_justify != JustifyContent::None
+            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
+            && constraints.text_justify != JustifyContent::Kashida
+        {
+            calculate_justification_spacing(
+                &justified_segment_items,
+                effective_segment_width,
+                segment.width,
+                constraints.text_justify,
+            )
+        } else {
+            (0.0, 0.0)
+        };
+
         // +spec:text-alignment-spacing:287316 - overflow content is start-aligned; alignment offset
         // within line box
-        // 3. Calculate alignment offset *within this segment*.
+        // 4. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - effective_segment_width;
 
         // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic
@@ -1802,7 +1803,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             0.0
         };
 
-        // 4. Position the items belonging to this segment.
+        // 5. Position the items belonging to this segment.
         //
         // +spec:inline-formatting-context:267438 - Content positioning: position aligned subtree
         // and baseline-shift values within line box
@@ -1830,6 +1831,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         // The inline margin/border/padding offsets at span boundaries
         // (`inline_offsets` above, the rule the intrinsic scan shares) move
         // the pen as the items are placed.
+        let segment_item_count = justified_segment_items.len();
         for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
@@ -1948,15 +1950,11 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             // +spec:text-alignment-spacing:e09bd1 - justification space added on top of
             // letter-spacing/word-spacing +spec:text-alignment-spacing:456643 - cursive
             // scripts don't admit inter-character gaps
-            let is_cursive = if let ShapedItem::Cluster(c) = &item {
-                is_cursive_script_cluster(c)
-            } else {
-                false
-            };
-            if !is_outside_marker
-                && extra_char_spacing > 0.0
-                && can_justify_after(&item)
-                && !is_cursive
+            // The space goes between letters: none after the segment's last
+            // one, which ends on the segment's edge.
+            if extra_char_spacing > 0.0
+                && inline_offset_idx + 1 < segment_item_count
+                && takes_inter_character_space(&item)
             {
                 main_axis_pen += extra_char_spacing;
             }
