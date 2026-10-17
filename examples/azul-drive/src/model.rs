@@ -829,6 +829,10 @@ pub struct Settings {
     pub recent_searches: Vec<String>,
     /// The rows' heights of the folder view and the navigation pane.
     pub density: Density,
+    /// The country of residence the buyer declared in Buy storage (ISO alpha-2): its first
+    /// question is not asked again. Kept on this computer only; it leaves it in a checkout
+    /// alone (the VAT country).
+    pub residence_country: Option<String>,
 }
 
 impl Default for Settings {
@@ -859,6 +863,7 @@ impl Default for Settings {
             search_scope: crate::find::SearchScope::Drive,
             recent_searches: Vec::new(),
             density: Density::Normal,
+            residence_country: None,
         }
     }
 }

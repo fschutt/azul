@@ -24,6 +24,7 @@ use std::{
 use azcloud_kit::{PendingCheckout, Tier, Tiers};
 use azul_appkit::l10n::{t, t_args, Arg};
 use azul_pay::{
+    identity::{Payer, PayerField},
     offer::Offer,
     pills::{self, Choice, Pill, PillContext},
     registry::{Method, SurfaceKind},
@@ -57,6 +58,8 @@ pub(crate) enum AddPage {
     /// "Pick up a paid drive with a claim code" (cash by post, on another computer than the
     /// one that bought it): the code, the drive's name.
     ClaimCode,
+    /// Buy storage's first question, "Where do you live?": the search and the country list.
+    Country,
 }
 
 /// The tier list of Buy storage.
@@ -128,8 +131,17 @@ pub(crate) struct AddDialog {
     pub pill: Option<Method>,
     /// The provider chosen in a pill of two (an index of the offer's providers).
     pub pill_provider: Option<usize>,
-    /// The payer's country (ISO alpha-2): which pills show, the VAT country.
+    /// The buyer's declared country of residence (ISO alpha-2; empty until declared): the
+    /// tiers' currency, the methods the server offers, the VAT country. Remembered on this
+    /// computer only.
     pub country: String,
+    /// The country picker's search, as typed.
+    pub country_query: String,
+    /// The country picked in the picker and not confirmed yet (first the guess from the locale).
+    pub country_pick: Option<&'static str>,
+    /// What the payer typed for a method whose provider wants the details from the app: sent
+    /// once with the checkout ([`Self::take_payer`]), never printed.
+    pub payer: Payer,
     /// The consent the order needs is ticked.
     pub consent: bool,
     /// The checkout's state machine.
@@ -163,59 +175,6 @@ pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
     SurfaceKind::SystemBrowser,
     SurfaceKind::Paper,
 ];
-
-/// The countries of Buy storage's "Country" choice (ISO alpha-2, the name shown).
-pub(crate) const COUNTRIES: &[(&str, &str)] = &[
-    ("DE", "Germany"),
-    ("AT", "Austria"),
-    ("CH", "Switzerland"),
-    ("FR", "France"),
-    ("NL", "Netherlands"),
-    ("BE", "Belgium"),
-    ("LU", "Luxembourg"),
-    ("IT", "Italy"),
-    ("ES", "Spain"),
-    ("PL", "Poland"),
-    ("SE", "Sweden"),
-    ("GB", "United Kingdom"),
-    ("US", "United States"),
-];
-
-/// The country of a locale (`de_DE.UTF-8`, `en-GB`, `nl_NL@euro`) when it is one of
-/// [`COUNTRIES`].
-#[must_use]
-pub(crate) fn country_of_locale(locale: &str) -> Option<String> {
-    let base = locale.split(['.', '@']).next().unwrap_or_default();
-    let (_, region) = base.split_once(['_', '-'])?;
-    let region = region.to_ascii_uppercase();
-    COUNTRIES
-        .iter()
-        .any(|(code, _)| *code == region)
-        .then_some(region)
-}
-
-/// The payer's country this run starts with ([`country_from`] the environment).
-#[must_use]
-pub(crate) fn default_country() -> String {
-    country_from(|name| std::env::var(name).ok())
-}
-
-/// The payer's country from the environment `var`: `AZLIN_COUNTRY` (a code of [`COUNTRIES`],
-/// any case), else the locale's (`LC_ALL`, `LC_MESSAGES`, `LANG`), else Germany.
-#[must_use]
-pub(crate) fn country_from(var: impl Fn(&str) -> Option<String>) -> String {
-    let named = var("AZLIN_COUNTRY")
-        .map(|code| code.trim().to_ascii_uppercase())
-        .filter(|code| COUNTRIES.iter().any(|(c, _)| c == code));
-    named
-        .or_else(|| {
-            ["LC_ALL", "LC_MESSAGES", "LANG"]
-                .iter()
-                .filter_map(|name| var(*name))
-                .find_map(|locale| country_of_locale(&locale))
-        })
-        .unwrap_or_else(|| String::from("DE"))
-}
 
 /// The token server's payment options for Buy storage.
 #[derive(Clone, Debug)]
@@ -266,6 +225,9 @@ impl fmt::Debug for AddDialog {
             .field("pill", &self.pill)
             .field("pill_provider", &self.pill_provider)
             .field("country", &self.country)
+            .field("country_query", &self.country_query)
+            .field("country_pick", &self.country_pick)
+            .field("payer", &self.payer)
             .field("consent", &self.consent)
             .field("pay", &self.pay)
             .field("card_name", &"<hidden>")
@@ -300,7 +262,10 @@ impl AddDialog {
             offer: OfferState::NotLoaded,
             pill: None,
             pill_provider: None,
-            country: default_country(),
+            country: String::new(),
+            country_query: String::new(),
+            country_pick: None,
+            payer: Payer::default(),
             consent: false,
             pay: PayState::Choosing,
             card_name: String::new(),
@@ -385,9 +350,11 @@ impl AddDialog {
         self.page = match self.page {
             AddPage::Form if self.editing.is_none() => AddPage::Sources,
             AddPage::Form => AddPage::Form,
-            AddPage::Sources | AddPage::Buy | AddPage::Choose | AddPage::ClaimCode => {
-                AddPage::Choose
-            }
+            AddPage::Sources
+            | AddPage::Buy
+            | AddPage::Choose
+            | AddPage::ClaimCode
+            | AddPage::Country => AddPage::Choose,
             AddPage::Voucher => AddPage::Buy,
         };
         self.error.clear();
@@ -533,6 +500,7 @@ impl AddDialog {
             AddPage::Form => format!("form {}", self.service.unwrap_or("-")),
             AddPage::Voucher => String::from("voucher"),
             AddPage::ClaimCode => String::from("claim-code"),
+            AddPage::Country => String::from("country"),
         }
     }
 
@@ -684,11 +652,11 @@ impl AddDialog {
         Choice::of(offer, &self.chosen_pill()?, &self.pill_context())
     }
 
-    /// The payer's country is `code` now: whether it changed (a code of [`COUNTRIES`] only).
-    /// The options are asked for again.
+    /// The payer's country is `code` now: whether it changed (a listed country only). The
+    /// options are asked for again.
     pub(crate) fn set_country(&mut self, code: &str) -> bool {
         let code = code.trim().to_ascii_uppercase();
-        if code == self.country || !COUNTRIES.iter().any(|(c, _)| *c == code) {
+        if code == self.country || !crate::countries::offered(&code) {
             return false;
         }
         self.country = code;
@@ -696,6 +664,47 @@ impl AddDialog {
         self.pill = None;
         self.pill_provider = None;
         true
+    }
+
+    /// "Change" beside the country: the picker again (stub).
+    pub(crate) fn change_country(&mut self) {}
+
+    /// The picker's search says `text` now (stub).
+    pub(crate) fn search_country(&mut self, text: &str) {
+        let _ = text;
+    }
+
+    /// A country of the picker's list was clicked (stub).
+    pub(crate) fn pick_country(&mut self, code: &str) -> bool {
+        let _ = code;
+        false
+    }
+
+    /// The picker's Continue (stub).
+    pub(crate) fn confirm_country(&mut self) -> bool {
+        false
+    }
+
+    /// The countries the picker lists (stub).
+    #[must_use]
+    pub(crate) fn country_matches(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
+    /// The details the chosen method's provider wants from the app (stub).
+    #[must_use]
+    pub(crate) fn asked_fields(&self) -> Vec<PayerField> {
+        Vec::new()
+    }
+
+    /// A payer's detail typed (stub).
+    pub(crate) fn set_payer(&mut self, field: PayerField, text: &str) {
+        self.payer.set(field, text);
+    }
+
+    /// The payer's details for the checkout (stub).
+    pub(crate) fn take_payer(&mut self) -> Payer {
+        self.payer.clone()
     }
 
     /// For scripts: each pill's method and chosen provider, `sepa_debit:gocardless card:stripe`.

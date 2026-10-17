@@ -62,7 +62,8 @@ use azul_storage::{
 };
 
 use crate::{
-    add_drive::{AddDialog, BuyStep, OfferState, TiersState, COUNTRIES},
+    add_drive::{AddDialog, BuyStep, OfferState, TiersState},
+    countries::COUNTRIES,
     browse::Place,
     go, ids,
     jobs::{BoughtDrive, Job, PayVia, Started},
@@ -229,7 +230,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             let changed = !d.busy()
                 && COUNTRIES
                     .get(index)
-                    .is_some_and(|(code, _)| d.set_country(code));
+                    .is_some_and(|code| d.set_country(code));
             if changed {
                 load_options(info, app, s);
             }

@@ -145,3 +145,17 @@ pub(crate) fn payer_fields(fields: &[azul_pay::PayerField]) -> String {
         .collect();
     l10n::and_list(words)
 }
+
+/// The pill's short line: where the payer finishes (stub).
+#[must_use]
+pub(crate) fn pill_hint(choice: &azul_pay::Choice) -> Option<String> {
+    let _ = choice;
+    None
+}
+
+/// The chosen pill's sentences (stub).
+#[must_use]
+pub(crate) fn pill_note(choice: &azul_pay::Choice) -> Vec<String> {
+    let _ = choice;
+    Vec::new()
+}

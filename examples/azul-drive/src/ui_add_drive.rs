@@ -54,7 +54,8 @@ use azul_storage::{
 };
 
 use crate::{
-    add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState, COUNTRIES},
+    add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState},
+    countries::{self, COUNTRIES},
     add_flow::{self, AddEvent},
     ids, look, pay_words,
     sign_in::{self, SignInSettings, SignInStep},
@@ -263,7 +264,7 @@ pub(crate) fn dialog(
 ) -> (String, Dom) {
     let (title, page) = match d.page {
         AddPage::Choose => (t("azdrive-add-title"), choose(app)),
-        AddPage::Buy => (t("azdrive-add-buy-title"), buy(d, development, app)),
+        AddPage::Buy | AddPage::Country => (t("azdrive-add-buy-title"), buy(d, development, app)),
         AddPage::Sources => (t("azdrive-add-sources-title"), sources(app)),
         AddPage::Voucher => (t("azdrive-options-redeem-voucher"), voucher(d, app)),
         AddPage::ClaimCode => (t("azdrive-add-claim-title"), claim_code(d, app)),
@@ -639,19 +640,13 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
     let mut parts = vec![label("azdrive-add-country")];
     let selected = COUNTRIES
         .iter()
-        .position(|(code, _)| *code == d.country)
+        .position(|code| *code == d.country)
         .unwrap_or(0);
     parts.push(
         DropDown::create(StringVec::from(
             COUNTRIES
                 .iter()
-                .map(|(code, name)| {
-                    AzString::from(l10n::app_word(
-                        "AzDrive",
-                        &format!("country-{}", code.to_ascii_lowercase()),
-                        name,
-                    ))
-                })
+                .map(|code| AzString::from(countries::name(code)))
                 .collect::<Vec<AzString>>(),
         ))
         .with_selected(selected)
