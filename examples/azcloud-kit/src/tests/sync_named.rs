@@ -49,6 +49,27 @@ pub(super) fn s3_drive(s3: &Arc<FakeS3>) -> Arc<dyn Drive> {
     Arc::new(drive)
 }
 
+/// [`s3_drive`] in parts of 1 MiB whose file uploads keep their state in `resume` (they resume
+/// with the parts the bucket lacks).
+pub(super) fn s3_drive_resuming(s3: &Arc<FakeS3>, resume: &Path) -> Arc<dyn Drive> {
+    let config = S3Config {
+        endpoint: S3.to_string(),
+        region: String::from("us-east-1"),
+        bucket: BUCKET.to_string(),
+        path_style: true,
+    };
+    let drive = S3Drive::new(
+        config,
+        Credentials::new("AKID1", "secret-of-AKID1"),
+        Box::new(S3Handle(s3.clone())),
+    )
+    .unwrap()
+    .with_clock(|| 1_791_450_900)
+    .with_part_size(1024 * 1024)
+    .with_resume_dir(resume);
+    Arc::new(drive)
+}
+
 /// A drive that names each file's BLAKE3 in its metadata, as an encrypted drive's index does.
 struct NamesHashes(Arc<dyn Drive>);
 
