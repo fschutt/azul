@@ -296,9 +296,11 @@ pub(crate) enum Job {
         via: Option<Box<PayVia>>,
     },
     /// Buy storage's payment options (`GET /v1/checkout/options`) for `tier`, `months`, the
-    /// payer's `country` and `currency`.
+    /// payer's `country` and `currency`; `asked` the dialog's key of that order (its answer is
+    /// taken only while the order is still that).
     Options {
         serial: u64,
+        asked: String,
         token_url: String,
         tier: String,
         months: u32,
@@ -567,9 +569,10 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<azul_storage::oauth::Tokens, String>,
     },
-    /// Buy storage's tier list (or why there is none).
+    /// Buy storage's tier list for a buyer in `country` (or why there is none).
     Tiers {
         serial: u64,
+        country: String,
         result: Result<Tiers, String>,
     },
     /// A development server's test drive (or why there is none).
@@ -582,9 +585,11 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<Started, String>,
     },
-    /// Buy storage's payment options: the offer's text (`None`: the token server has none).
+    /// Buy storage's payment options for the order `asked`: the offer's text (`None`: the
+    /// token server has none).
     Options {
         serial: u64,
+        asked: String,
         result: Result<Option<String>, OptionsFailed>,
     },
     /// The checkout's next surface, checked (or why there is none).
@@ -2858,7 +2863,11 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.tiers_in(&country))
                 .map_err(|e| e.to_string());
-            Outcome::Tiers { serial, result }
+            Outcome::Tiers {
+                serial,
+                country,
+                result,
+            }
         }
         Job::CreateTestDrive {
             serial,
@@ -2907,6 +2916,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         },
         Job::Options {
             serial,
+            asked,
             token_url,
             tier,
             months,
@@ -2935,7 +2945,11 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                     } => OptionsFailed::Refused(if message.is_empty() { code } else { message }),
                     other => OptionsFailed::Failed(other.to_string()),
                 });
-            Outcome::Options { serial, result }
+            Outcome::Options {
+                serial,
+                asked,
+                result,
+            }
         }
         Job::Surface {
             serial,

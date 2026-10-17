@@ -2848,10 +2848,18 @@ pub(crate) extern "C" fn on_job_done(
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
         Outcome::SignedIn { serial, result } => add_flow::signed_in(s, serial, result),
-        Outcome::Tiers { serial, result } => {
-            add_flow::tiers_answered(&mut info, &handle, s, serial, result);
+        Outcome::Tiers {
+            serial,
+            country,
+            result,
+        } => {
+            add_flow::tiers_answered(&mut info, &handle, s, serial, &country, result);
         }
-        Outcome::Options { serial, result } => add_flow::options_answered(s, serial, result),
+        Outcome::Options {
+            serial,
+            asked,
+            result,
+        } => add_flow::options_answered(s, serial, &asked, result),
         Outcome::Surface { serial, result } => {
             add_flow::surface_answered(&mut info, &handle, s, serial, result);
         }

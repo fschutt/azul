@@ -712,9 +712,12 @@ pub(crate) fn tiers_answered(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
+    country: &str,
     result: Result<Tiers, String>,
 ) {
-    let Some(d) = dialog_of(s, serial) else {
+    // A list for the country declared before is not this one's (its prices are in another
+    // currency): the list asked for since answers.
+    let Some(d) = dialog_of(s, serial).filter(|d| d.tiers_current(country)) else {
         return;
     };
     match result {
@@ -748,6 +751,7 @@ fn load_options(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     d.offer = OfferState::Loading;
     let job = Job::Options {
         serial: d.serial,
+        asked: d.options_key(),
         token_url,
         tier,
         months: d.months(),
@@ -763,10 +767,13 @@ fn load_options(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 pub(crate) fn options_answered(
     s: &mut DriveState,
     serial: u64,
+    asked: &str,
     result: Result<Option<String>, OptionsFailed>,
 ) {
     let token_url = s.token.url.clone().unwrap_or_default();
-    let Some(d) = dialog_of(s, serial) else {
+    // An answer for the order as it was before (another tier, period or country) is dropped:
+    // the one asked for since answers.
+    let Some(d) = dialog_of(s, serial).filter(|d| d.options_current(asked)) else {
         return;
     };
     match result {
