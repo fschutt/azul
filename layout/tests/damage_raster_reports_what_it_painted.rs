@@ -66,8 +66,11 @@ fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
         px.copy_from_slice(&MARK);
     }
 
-    // An L: a column and a strip that overlap in the corner.
-    let requested = [rect(0.0, 0.0, 20.0, 100.0), rect(0.0, 80.0, 100.0, 20.0)];
+    // Two squares overlapping on the diagonal. Their bounding box is barely
+    // bigger than the pair, so the renderer merges them and paints the two
+    // empty corners as well - more than was asked for, which is the case
+    // this law is about.
+    let requested = [rect(0.0, 0.0, 50.0, 50.0), rect(25.0, 25.0, 50.0, 50.0)];
     let state = cpurender::CpuRenderState::new(Default::default());
     let painted = cpurender::render_display_list_damaged(
         &dl,
@@ -98,10 +101,53 @@ fn every_pixel_it_writes_is_inside_the_damage_it_reports() {
     }
     assert!(
         written_outside_requested > 0,
-        "premise: merging the two rects paints their bounding box, i.e. more than was asked for"
+        "premise: merging the two squares paints their bounding box, i.e. more than was asked for"
     );
     assert_eq!(
         written_outside_reported, 0,
         "{written_outside_reported} painted pixels lie outside the reported damage {painted:?}"
+    );
+
+    // An L - a column and a strip meeting in the corner - is the shape whose
+    // bounding box is the whole surface. It is kept apart instead of merged,
+    // so here the renderer paints exactly what it was asked for, and the law
+    // above holds with nothing to spare.
+    for px in pixmap.data_mut().chunks_exact_mut(4) {
+        px.copy_from_slice(&MARK);
+    }
+    let l = [rect(0.0, 0.0, 20.0, 100.0), rect(0.0, 80.0, 100.0, 20.0)];
+    let painted_l = cpurender::render_display_list_damaged(
+        &dl,
+        &mut pixmap,
+        1.0,
+        &rr,
+        &lw.font_manager,
+        &mut glyph_cache,
+        &state,
+        &l,
+    )
+    .unwrap();
+    let mut l_outside_reported = 0usize;
+    let mut l_outside_requested = 0usize;
+    for (i, px) in pixmap.data().chunks_exact(4).enumerate() {
+        if px == MARK {
+            continue;
+        }
+        let (x, y) = (i as u32 % w, i as u32 / w);
+        if !contains(&painted_l, x, y) {
+            l_outside_reported += 1;
+        }
+        if !contains(&l, x, y) {
+            l_outside_requested += 1;
+        }
+    }
+    assert_eq!(
+        l_outside_reported, 0,
+        "{l_outside_reported} painted pixels lie outside the reported damage {painted_l:?}"
+    );
+    assert_eq!(
+        l_outside_requested, 0,
+        "an L is not worth its bounding box: {l_outside_requested} pixels painted outside it, \
+         reported {painted_l:?}"
     );
 }

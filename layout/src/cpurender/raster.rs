@@ -2068,6 +2068,63 @@ fn damage_logging_enabled() -> bool {
     *E.get_or_init(|| std::env::var_os("AZ_DEBUG_DAMAGE").is_some())
 }
 
+/// A damage rect snapped to physical pixels, carried both ways so the clear,
+/// the clip and the item filter all read the same box.
+struct SnappedRect {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    logical: LogicalRect,
+}
+
+impl SnappedRect {
+    fn from_physical(x0: i32, y0: i32, x1: i32, y1: i32, dpi_factor: f32) -> Self {
+        Self {
+            x0,
+            y0,
+            x1,
+            y1,
+            logical: LogicalRect {
+                origin: LogicalPosition {
+                    x: x0 as f32 / dpi_factor,
+                    y: y0 as f32 / dpi_factor,
+                },
+                size: LogicalSize {
+                    width: (x1 - x0) as f32 / dpi_factor,
+                    height: (y1 - y0) as f32 / dpi_factor,
+                },
+            },
+        }
+    }
+}
+
+/// `b` with the part `a` already covers cut off, when that part is a full
+/// slab across `b` - which is the only shape a single cut can remove without
+/// losing coverage. `None` when no such cut exists, or when the cut would
+/// leave nothing.
+fn trim_against(a: &SnappedRect, b: &SnappedRect, dpi_factor: f32) -> Option<SnappedRect> {
+    // The overlap spans b's whole height: cut along x.
+    if a.y0 <= b.y0 && b.y1 <= a.y1 {
+        if a.x0 <= b.x0 && a.x1 < b.x1 {
+            return Some(SnappedRect::from_physical(a.x1, b.y0, b.x1, b.y1, dpi_factor));
+        }
+        if b.x0 < a.x0 && b.x1 <= a.x1 {
+            return Some(SnappedRect::from_physical(b.x0, b.y0, a.x0, b.y1, dpi_factor));
+        }
+    }
+    // The overlap spans b's whole width: cut along y.
+    if a.x0 <= b.x0 && b.x1 <= a.x1 {
+        if a.y0 <= b.y0 && a.y1 < b.y1 {
+            return Some(SnappedRect::from_physical(b.x0, a.y1, b.x1, b.y1, dpi_factor));
+        }
+        if b.y0 < a.y0 && b.y1 <= a.y1 {
+            return Some(SnappedRect::from_physical(b.x0, b.y0, b.x1, a.y0, dpi_factor));
+        }
+    }
+    None
+}
+
 #[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
 #[allow(clippy::tuple_array_conversions)] // explicit [r,g,b,a]->(r,g,b,a) is correct; .into() was
                                           // not
@@ -2084,17 +2141,6 @@ pub fn render_display_list_damaged(
     // The strip/damage raster body - the previously UNSPANNED majority of a
     // scroll frame's present time (7 of 10.2ms measured 2026-08-29).
     let _p = crate::probe::Probe::span("raster_damage_body");
-
-    // A damage rect snapped OUTWARD to physical-pixel boundaries, carried
-    // BOTH as physical ints (clear + clip) and as the equivalent logical
-    // rect (item filter).
-    struct SnappedRect {
-        x0: i32,
-        y0: i32,
-        x1: i32,
-        y1: i32,
-        logical: LogicalRect,
-    }
 
     if damage_rects.is_empty() {
         return Ok(Vec::new()); // nothing changed
@@ -2148,6 +2194,36 @@ pub fn render_display_list_damaged(
         while j < rects.len() {
             let (a, b) = (&rects[i], &rects[j]);
             let overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+            // An overlap is removed by UNIONING the pair - unless the union
+            // balloons, which is what two perpendicular strips meeting in a
+            // corner do: their bounding box is the whole surface.
+            // `coalesce_damage_rects` refuses that merge for the same reason,
+            // and merging here anyway undid its decision one step later.
+            //
+            // When the overlap is a full slab of `b` - `b` sits entirely
+            // within `a`'s range on one axis, so the shared part is a strip
+            // across `b`'s whole width or height - `b` can simply be TRIMMED
+            // back to where `a` begins. Nothing is lost: what the trim
+            // removes is inside `a`, which is repainted anyway. Otherwise
+            // (an overlap that reaches into the middle of `b`) a single trim
+            // cannot separate them, and the union is still the answer.
+            let union_balloons = overlap && {
+                let x0 = a.x0.min(b.x0);
+                let y0 = a.y0.min(b.y0);
+                let x1 = a.x1.max(b.x1);
+                let y1 = a.y1.max(b.y1);
+                let au = i64::from(x1 - x0) * i64::from(y1 - y0);
+                let aa = i64::from(a.x1 - a.x0) * i64::from(a.y1 - a.y0);
+                let ab = i64::from(b.x1 - b.x0) * i64::from(b.y1 - b.y0);
+                au * 2 > (aa + ab) * 3 + 128
+            };
+            if union_balloons {
+                if let Some(trimmed) = trim_against(&rects[i], &rects[j], dpi_factor) {
+                    rects[j] = trimmed;
+                    j += 1;
+                    continue;
+                }
+            }
             if overlap {
                 let x0 = a.x0.min(b.x0);
                 let y0 = a.y0.min(b.y0);
