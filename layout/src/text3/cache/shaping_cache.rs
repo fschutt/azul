@@ -1475,7 +1475,7 @@ impl TextShapingCache {
 /// the scan and the breaker fold separately-shaped item lists whose sums can
 /// differ by a few ULP (observed live: the breaker's fold came out one bit
 /// ABOVE the reported max-content and a shrink-to-fit "Decrease Indent"
-/// wrapped under Noto Sans, even with both passes sharing fold_line_width).
+/// wrapped under Noto Sans, even with both passes sharing `fold_line_width`).
 /// 1/64 px is invisible on screen and orders of magnitude above float noise;
 /// values already on the grid (mock/test fonts with integral advances)
 /// round-trip bit-identically. Every measurement of content for a box's

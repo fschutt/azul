@@ -2101,7 +2101,7 @@ fn disjoint_damage(mut boxes: Vec<[i32; 4]>) -> Vec<[i32; 4]> {
     out
 }
 
-fn boxes_overlap(a: &[i32; 4], b: &[i32; 4]) -> bool {
+const fn boxes_overlap(a: &[i32; 4], b: &[i32; 4]) -> bool {
     a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 }
 
