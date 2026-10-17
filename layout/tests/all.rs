@@ -1203,3 +1203,5 @@ mod a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough;
 mod calmet_lines;
 #[path = "a_hyphenated_word_breaks_where_its_dictionary_breaks_it.rs"]
 mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
+#[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
+mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
