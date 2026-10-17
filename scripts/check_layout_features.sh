@@ -14,7 +14,9 @@
 # `html_multithreaded`, `svg`). Keep the printpdf rows in sync with it. Every
 # set is checked even after one fails, so one run names every broken set.
 #
-# Usage: scripts/check_layout_features.sh   (from the repository root)
+# Usage: scripts/check_layout_features.sh [cargo check flags, e.g. --release]
+#        (from the repository root; locally --release shares the release build's
+#        target folder instead of filling a dev-profile one)
 
 set -uo pipefail
 
@@ -32,12 +34,13 @@ SETS=(
 )
 
 failed=()
+flags=("$@")
 for set in "${SETS[@]}"; do
   echo "::group::azul-layout --no-default-features --features \"$set\""
   if [ -z "$set" ]; then
-    cargo check -p azul-layout --no-default-features || failed+=("(none)")
+    cargo check ${flags[@]+"${flags[@]}"} -p azul-layout --no-default-features || failed+=("(none)")
   else
-    cargo check -p azul-layout --no-default-features --features "$set" || failed+=("$set")
+    cargo check ${flags[@]+"${flags[@]}"} -p azul-layout --no-default-features --features "$set" || failed+=("$set")
   fi
   echo "::endgroup::"
 done

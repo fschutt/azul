@@ -14,14 +14,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[cfg(feature = "a11y")]
 use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
-#[cfg(feature = "a11y")]
-use azul_core::styled_dom::NodeHierarchyItem;
 use azul_core::{
     dom::{
         AccessibilityAction, AccessibilityInfo, AccessibilityRole, AccessibilityState, DomId,
         DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
     },
     geom::{LogicalPosition, LogicalSize},
+    styled_dom::NodeHierarchyItem,
 };
 use azul_css::AzString;
 
