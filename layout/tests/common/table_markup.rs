@@ -235,7 +235,7 @@ pub fn glyphs_inside(lw: &LayoutWindow, id: &str) -> Vec<(f32, f32)> {
                 .nodes
                 .get(*source)
                 .and_then(|n| n.dom_node_id);
-            if dom_node.is_some_and(|n| is_inside(n)) {
+            if dom_node.is_some_and(&is_inside) {
                 out.extend(glyphs.iter().map(|g| (g.point.x, g.point.y)));
             }
         }
