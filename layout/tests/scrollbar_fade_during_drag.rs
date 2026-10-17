@@ -7,7 +7,7 @@
 //! under the user's finger, because the drag itself was recorded in the
 //! shell's window state where the fade could not see it.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
 
 use azul_core::{
     dom::{Dom, DomId, IdOrClass, NodeId, ScrollbarOrientation},
@@ -69,12 +69,16 @@ fn scroll_box() -> NodeId {
     NodeId::new(1)
 }
 
-/// Deterministic tick clock: the sync reads "now" through the system
-/// callbacks, so the test owns that clock.
-static CLOCK: AtomicU64 = AtomicU64::new(0);
+// Deterministic tick clock: the sync reads "now" through the system
+// callbacks, so the test owns that clock. One per thread: the tests of this
+// file run side by side, and a clock they shared let one test's "now" move
+// under another's reading.
+thread_local! {
+    static CLOCK: Cell<u64> = const { Cell::new(0) };
+}
 
 extern "C" fn tick_clock() -> Instant {
-    Instant::Tick(SystemTick::new(CLOCK.load(Ordering::SeqCst)))
+    Instant::Tick(SystemTick::new(CLOCK.with(Cell::get)))
 }
 
 fn at(t: u64) -> Instant {
@@ -91,7 +95,7 @@ const FADE_DURATION: u64 = 200;
 /// Run the per-frame opacity sync at tick `now` and return the vertical
 /// scrollbar's opacity for the scroll box.
 fn opacity_at(lw: &mut LayoutWindow, now: u64) -> f32 {
-    CLOCK.store(now, Ordering::SeqCst);
+    CLOCK.with(|c| c.set(now));
     let cbs = ExternalSystemCallbacks {
         create_thread_fn: ExternalSystemCallbacks::rust_internal().create_thread_fn,
         get_system_time_fn: GetSystemTimeCallback { cb: tick_clock },
