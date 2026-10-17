@@ -54,7 +54,7 @@ pub mod surface;
 pub mod url;
 
 pub use cash::CashSlip;
-pub use identity::{AskedBy, Identity, Payer, PayerField};
+pub use identity::{Identity, Payer, PayerField};
 pub use machine::{step, Effect, Event, Notice, State};
 pub use offer::{Offer, OfferContext, OfferedProvider};
 pub use pills::{Choice, Pill, PillContext};

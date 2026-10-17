@@ -20,7 +20,7 @@
 //!                 "rank": 0, "preferred": true, "expires_minutes": 2,
 //!                 "amount_cents": 449, "currency": "PLN"},
 //!                {"method": "card", "rank": 2, "amount_cents": 449, "currency": "PLN",
-//!                 "needs_identity": {"fields": ["name"], "asked_by": "provider"}}]}],
+//!                 "needs_identity": ["name"], "identity_in_app": []}]}],
 //!  "price": {"amount_cents": 449, "currency": "PLN", "vat_rate_permille": 230,
 //!            "vat_cents": 84, "vat_included": true},
 //!  "legal": {"withdrawal_consent": "...", "order_button": "...", "terms_url": "..."}}
@@ -28,7 +28,8 @@
 //!
 //! Everything but `provider` and `methods[].method` is optional (`rank`: the pills' order;
 //! `preferred`: the cheaper route of a method two providers carry; `presented_in`: the currency
-//! a converting provider shows the payer; `needs_identity`: [`crate::identity`]). What the app
+//! a converting provider shows the payer; `needs_identity` and `identity_in_app`:
+//! [`crate::identity`]). What the app
 //! keeps of it:
 //!
 //! - an unknown provider, a provider whose `kind` contradicts the registry, and a fake provider
@@ -507,7 +508,7 @@ fn method(
         ));
         return None;
     }
-    let identity = match Identity::parse(&m["needs_identity"]) {
+    let identity = match Identity::parse(m) {
         Ok(identity) => identity,
         Err(why) => {
             dropped.push(format!("{} {} is not shown: {}", spec.id, method.as_str(), said(&why)));

@@ -26,7 +26,7 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     a month / a year, the methods) in the
                                                     country's currency where the signed ladder
                                                     has its row (PLN, CHF, GBP, USD, JPY, BRL),
-                                                    else EUR; 403 country_not_served for a
+                                                    else EUR; 403 blocked_country for a
                                                     country no checkout may come from
     POST /v1/checkout {"tier", "months", "method",  201 a checkout: its pay_url, its amount
                        "claim_key"}                 (400 claim_key_required without the key)
@@ -155,11 +155,13 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     GET /v1/checkout/options?tier&months&country    200 for the buyer's country: the methods a
         &currency&surfaces                          fake has on AND routed there, in its order of
                                                     use (`rank`), priced in its currency, each
-                                                    with `needs_identity` where it tells about
-                                                    the payer, `preferred` on the cheaper route;
-                                                    the price with the country's VAT, the legal
-                                                    texts (404 without providers: the v1
-                                                    checkout; 403 country_not_served)
+                                                    with `needs_identity` (what its provider
+                                                    learns of the payer) and `identity_in_app`
+                                                    (the part the app asks for), `preferred` on
+                                                    the cheaper route; the price with the
+                                                    country's VAT, the legal texts (404 without
+                                                    providers: the v1 checkout; 403
+                                                    blocked_country)
     POST /v1/checkout {..., "provider", "method",   201 + provider, method, surface (a fields page
                        "surface", "vat_country",    with its client secret, a hosted page, a page
                        "withdrawal_consent",        for the browser), return pages, expires_at,
@@ -370,15 +372,18 @@ METHOD_SETTLES = {'sepa_debit': 'days', 'p24': 'days', 'boleto': 'days', 'oxxo':
                   'cash': 'post'}
 # How long a method's code, QR code or voucher lives (minutes).
 METHOD_EXPIRES = {'blik': 2, 'pix': 60, 'oxxo': 7200, 'boleto': 4320}
-# What a method tells about the payer and who asks for it (`needs_identity`): the provider's own
-# page, or the app - whose details go once with the checkout and are never kept here.
+# What a method tells its provider about the payer (`needs_identity`, wherever it is typed) and
+# the part the provider wants in the merchant's request (`identity_in_app`: the app asks for
+# exactly these, they come once with the checkout and are never kept here) - the shape of
+# azlin-token's options (PAYCUR23).
 METHOD_IDENTITY = {
-    ('fake-stripe', 'card'): {'fields': ['name'], 'asked_by': 'provider'},
-    ('fake-mor', 'card'): {'fields': ['name', 'email'], 'asked_by': 'provider'},
-    ('fake-gocardless', 'sepa_debit'): {'fields': ['name', 'email'], 'asked_by': 'provider'},
-    ('fake-dlocal', 'pix'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
-    ('fake-dlocal', 'boleto'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
-    ('fake-dlocal', 'oxxo'): {'fields': ['name', 'email', 'national_id'], 'asked_by': 'app'},
+    ('fake-stripe', 'card'): (['name'], []),
+    ('fake-mor', 'card'): (['name', 'email'], []),
+    ('fake-gocardless', 'sepa_debit'): (['name', 'email'], []),
+    ('fake-dlocal', 'pix'): (['name', 'email', 'national_id'], ['name', 'email', 'national_id']),
+    ('fake-dlocal', 'boleto'): (['name', 'email', 'national_id'],
+                                ['name', 'email', 'national_id']),
+    ('fake-dlocal', 'oxxo'): (['name', 'email', 'national_id'], ['name', 'email', 'national_id']),
 }
 # The methods people in each country pay with, most used first (the payment methods registry's
 # order of use, azul-apps iso/crates/azul-pay-methods): what the options offer for a buyer there,
@@ -417,11 +422,11 @@ LADDER_ROWS = {
 # VAT per country (permille; the stack's few, else Germany's).
 VAT_RATES = {'PL': 230, 'CH': 81, 'AT': 200, 'NL': 210, 'FR': 200, 'BR': 0, 'US': 0, 'GB': 200,
              'JP': 100, 'MX': 160}
-# Countries no checkout may come from (EU restrictive measures, the payment providers' prohibited
-# lists): the options, the tier list and a checkout refuse them with this sentence.
-NOT_SERVED = {'BY', 'CU', 'IR', 'KP', 'RU', 'SY'}
-NOT_SERVED_SENTENCE = ("Azlin cannot sell storage to buyers in this country: sanctions and the "
-                       "payment providers' rules forbid it.")
+# Countries no checkout may come from - where EU sanctions forbid the sale (azlin-tax's
+# jurisdictions table; Iran, Syria and Cuba are sold to): the options, the tier list and a
+# checkout refuse them 403 blocked_country with azlin-token's sentence.
+NOT_SERVED = {'BY', 'KP', 'RU'}
+NOT_SERVED_SENTENCE = 'Azlin Storage cannot be sold to %s (EU sanctions)'
 # BLIK's test codes (Stripe's: any six digits pay); this one is refused, for a declined try.
 DECLINING_BLIK = '000000'
 PROVIDER_KINDS = {'fake-mor': 'merchant_of_record'}
@@ -534,9 +539,10 @@ def currency_of(country):
 
 
 def check_served(country):
-    """Refuses a buyer from a country no checkout may come from (403 country_not_served)."""
-    if (country or '').strip().upper() in NOT_SERVED:
-        raise ApiError(403, 'country_not_served', NOT_SERVED_SENTENCE)
+    """Refuses a buyer from a country no checkout may come from (403 blocked_country)."""
+    code = (country or '').strip().upper()
+    if code in NOT_SERVED:
+        raise ApiError(403, 'blocked_country', NOT_SERVED_SENTENCE % code)
 
 
 def ladder_prices(tier, currency):
@@ -586,13 +592,14 @@ def money_text(amount, currency):
 
 def payer_problem(identity, payer):
     """What is missing of the payer's details a method asks the app for (a sentence), or None."""
-    if not identity or identity.get('asked_by') != 'app':
+    in_app = identity[1] if identity else []
+    if not in_app:
         return None
     payer = payer if isinstance(payer, dict) else {}
-    missing = [f for f in identity['fields'] if not str(payer.get(f) or '').strip()]
+    missing = [f for f in in_app if not str(payer.get(f) or '').strip()]
     if missing:
         return 'this payment method needs the payer\'s %s' % ', '.join(missing)
-    if 'email' in identity['fields'] and '@' not in str(payer.get('email')):
+    if 'email' in in_app and '@' not in str(payer.get('email')):
         return 'the payer\'s email address is no email address'
     return None
 DEFAULT_TTL = 12 * 3600
@@ -1062,9 +1069,9 @@ class TokenState:
         the methods a provider here has switched on AND that are routed for that country, in the
         country's order of use (`rank`), each priced in the country's currency (the ladder's
         frozen row; the euro where it has none), with what it tells about the payer
-        (`needs_identity`); the cheaper route of a method two providers carry is `preferred`.
-        403 country_not_served for a country no checkout may come from; 404 without providers (an
-        older token server: the apps pay on the v1 page)."""
+        (`needs_identity`, `identity_in_app`); the cheaper route of a method two providers carry
+        is `preferred`. 403 blocked_country for a country no checkout may come from; 404 without
+        providers (an older token server: the apps pay on the v1 page)."""
         if not self.providers:
             raise ApiError(404, 'not_found', 'this token server has no payment options')
         first = lambda key, default='': (query.get(key) or [default])[0]  # noqa: E731
@@ -1096,9 +1103,9 @@ class TokenState:
                 if amount is not None:
                     offered['amount_cents'] = amount
                     offered['currency'] = currency
-                identity = METHOD_IDENTITY.get((provider, method))
-                if identity:
-                    offered['needs_identity'] = identity
+                learns, in_app = METHOD_IDENTITY.get((provider, method), ([], []))
+                offered['needs_identity'] = list(learns)
+                offered['identity_in_app'] = list(in_app)
                 per_provider.setdefault(provider, []).append(offered)
         offers = []
         for provider in self.providers:

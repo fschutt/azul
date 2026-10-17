@@ -1,24 +1,25 @@
-//! What a payment method tells about the payer, and who asks for it.
+//! What a payment method tells about the payer, and which part of it the app asks for.
 //!
 //! Azlin keeps nothing about who pays: the files are encrypted and the drive is not linked to the
-//! payment. A payment method may still need the payer's name or email - a card network sees the
+//! payment. A payment method may still tell its provider who pays - a card network sees the
 //! cardholder's name, a mandate names the account holder, some providers want a national ID. The
-//! token server marks such a method with `needs_identity` in its offer:
+//! token server's offer names, per method, two lists of detail names:
 //!
 //! ```json
-//! {"method": "card", "needs_identity": {"fields": ["name"], "asked_by": "provider"}}
-//! {"method": "pix", "needs_identity": {"fields": ["name", "email", "national_id"],
-//!                                      "asked_by": "app"}}
+//! {"method": "card", "needs_identity": ["name"], "identity_in_app": []}
+//! {"method": "pix", "needs_identity": ["name", "email", "national_id"],
+//!  "identity_in_app": ["name", "email", "national_id"]}
 //! ```
 //!
-//! - `asked_by: "provider"` (the default, also for a bare list of fields): the provider's own page
-//!   asks for them; the app shows a note before the method is picked and sends nothing.
-//! - `asked_by: "app"`: the provider wants them in the merchant's request and has no page of its
-//!   own for them. The popover asks for exactly these fields, they go once with `POST
-//!   /v1/checkout` as `payer`, and the app keeps none of them. The app asks only for a name, an
-//!   email and a national ID: a method that wants anything else from the app is not shown.
+//! - `needs_identity`: everything the provider learns, wherever it is typed. The pill says so
+//!   before the method is picked.
+//! - `identity_in_app`: the part the provider wants in the merchant's request because its own
+//!   page does not ask for it. The popover asks for exactly these, they go once with
+//!   `POST /v1/checkout` as `payer`, and the app keeps none of them. The rest the provider's own
+//!   page asks for. The app never asks for a postal address: a method that wants one from it is
+//!   not shown.
 //!
-//! A method without `needs_identity` asks for nothing beyond what paying with it implies.
+//! A method without either list asks for nothing beyond what paying with it implies.
 //! [`Payer`] never shows what was typed: its `Debug` names the filled fields only.
 
 use std::fmt;
@@ -85,27 +86,24 @@ impl PayerField {
     }
 }
 
-/// The fields the app itself may ask for: anything else stays with the provider's own page.
-pub const APP_FIELDS: &[PayerField] = &[PayerField::Name, PayerField::Email, PayerField::NationalId];
+/// The details the app itself may ask for; an address stays with the provider's own page.
+pub const APP_FIELDS: &[PayerField] = &[
+    PayerField::Name,
+    PayerField::Email,
+    PayerField::NationalId,
+    PayerField::TaxId,
+    PayerField::Phone,
+];
 
-/// Who asks the payer for a method's details.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AskedBy {
-    /// The provider's own page (the app sends nothing).
-    #[default]
-    Provider,
-    /// The app's popover, sent once with the checkout.
-    App,
-}
-
-/// What a method tells about the payer and who asks for it; no fields for a method that needs
-/// nothing.
+/// What a method tells its provider about the payer, and which part the app asks for; no fields
+/// for a method that needs nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Identity {
-    /// In the server's order, each once.
+    /// Everything the provider learns, in the server's order, each once (the app's part
+    /// included): what the pill's note names.
     pub fields: Vec<PayerField>,
-    pub asked_by: AskedBy,
-    /// The part the app asks for (stub).
+    /// The part the provider wants in the merchant's request: the popover's fields, sent once
+    /// with the checkout. Empty where the provider's own page asks for everything.
     pub in_app: Vec<PayerField>,
 }
 
@@ -116,62 +114,63 @@ impl Identity {
         self.fields.is_empty()
     }
 
-    /// What the provider's own page asks for (stub).
-    #[must_use]
-    pub fn page_fields(&self) -> Vec<PayerField> {
-        self.fields.clone()
-    }
-
-    /// The fields the app has to ask for (none when the provider asks).
+    /// The fields the app has to ask for.
     #[must_use]
     pub fn app_fields(&self) -> &[PayerField] {
-        match self.asked_by {
-            AskedBy::App => &self.fields,
-            AskedBy::Provider => &[],
-        }
+        &self.in_app
     }
 
-    /// Reads a method's `needs_identity` (see the module docs): `Ok` of nothing for a missing,
-    /// `null`, `false` or empty one.
+    /// What the provider's own page asks for: everything it learns that the app does not ask.
+    #[must_use]
+    pub fn page_fields(&self) -> Vec<PayerField> {
+        self.fields
+            .iter()
+            .copied()
+            .filter(|f| !self.in_app.contains(f))
+            .collect()
+    }
+
+    /// Reads a method's `needs_identity` and `identity_in_app` (see the module docs): nothing for
+    /// missing or `null` lists.
     ///
     /// # Errors
     ///
-    /// Why the method cannot be shown: an unknown field, an unknown `asked_by`, or a field the app
-    /// never asks for itself.
-    pub fn parse(value: &Value) -> Result<Identity, String> {
-        let (list, asked_by) = match value {
-            Value::Null | Value::Bool(false) => return Ok(Identity::default()),
-            Value::Array(list) => (list.as_slice(), AskedBy::Provider),
-            Value::Object(map) => {
-                let asked_by = match map.get("asked_by").and_then(Value::as_str) {
-                    None | Some("provider") => AskedBy::Provider,
-                    Some("app") => AskedBy::App,
-                    Some(other) => return Err(format!("nobody named {other:?} asks for the payer's details")),
-                };
-                let list = map
-                    .get("fields")
-                    .and_then(Value::as_array)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-                (list, asked_by)
-            }
-            _ => return Err(String::from("its payer details are not a list")),
-        };
-        let mut fields = Vec::new();
-        for item in list {
-            let text = item.as_str().unwrap_or_default();
-            let Some(field) = PayerField::parse(text) else {
-                return Err(format!("it asks for an unknown payer detail {text:?}"));
-            };
-            if asked_by == AskedBy::App && !APP_FIELDS.contains(&field) {
-                return Err(format!("the app never asks for the payer's {}", field.as_str()));
-            }
-            if !fields.contains(&field) {
-                fields.push(field);
+    /// Why the method cannot be shown: a list that is none, an unknown detail, or a detail the app
+    /// never asks for itself in `identity_in_app`.
+    pub fn parse(method: &Value) -> Result<Identity, String> {
+        let learns = details(&method["needs_identity"], "needs_identity")?;
+        let in_app = details(&method["identity_in_app"], "identity_in_app")?;
+        if let Some(field) = in_app.iter().find(|f| !APP_FIELDS.contains(f)) {
+            return Err(format!("the app never asks for the payer's {}", field.as_str()));
+        }
+        let mut fields = learns;
+        for field in &in_app {
+            if !fields.contains(field) {
+                fields.push(*field);
             }
         }
-        Ok(Identity { fields, asked_by })
+        Ok(Identity { fields, in_app })
     }
+}
+
+/// The details a list `value` names, each once; `key` for the error.
+fn details(value: &Value, key: &str) -> Result<Vec<PayerField>, String> {
+    let list = match value {
+        Value::Null => return Ok(Vec::new()),
+        Value::Array(list) => list,
+        _ => return Err(format!("its {key} is no list")),
+    };
+    let mut out = Vec::new();
+    for item in list {
+        let text = item.as_str().unwrap_or_default();
+        let Some(field) = PayerField::parse(text) else {
+            return Err(format!("its {key} names an unknown payer detail {text:?}"));
+        };
+        if !out.contains(&field) {
+            out.push(field);
+        }
+    }
+    Ok(out)
 }
 
 /// What the payer typed into the popover for a method the app asks for: sent once with the
@@ -181,9 +180,7 @@ pub struct Payer {
     pub name: String,
     pub email: String,
     pub national_id: String,
-    /// (stub)
     pub tax_id: String,
-    /// (stub)
     pub phone: String,
 }
 
@@ -206,18 +203,23 @@ impl Payer {
             PayerField::Name => &self.name,
             PayerField::Email => &self.email,
             PayerField::NationalId => &self.national_id,
-            _ => "",
+            PayerField::TaxId => &self.tax_id,
+            PayerField::Phone => &self.phone,
+            PayerField::Address => "",
         }
     }
 
     /// The field `field` says `text` now (a field the app never asks for is ignored).
     pub fn set(&mut self, field: PayerField, text: &str) {
-        match field {
-            PayerField::Name => self.name = text.to_string(),
-            PayerField::Email => self.email = text.to_string(),
-            PayerField::NationalId => self.national_id = text.to_string(),
-            _ => {}
-        }
+        let slot = match field {
+            PayerField::Name => &mut self.name,
+            PayerField::Email => &mut self.email,
+            PayerField::NationalId => &mut self.national_id,
+            PayerField::TaxId => &mut self.tax_id,
+            PayerField::Phone => &mut self.phone,
+            PayerField::Address => return,
+        };
+        *slot = text.to_string();
     }
 
     /// Nothing typed at all.
@@ -271,9 +273,9 @@ impl Payer {
 fn filled(field: PayerField, text: &str) -> bool {
     let text = text.trim();
     match field {
-        PayerField::Email => text
-            .split_once('@')
-            .is_some_and(|(user, host)| !user.is_empty() && host.contains('.') && !host.ends_with('.')),
+        PayerField::Email => text.split_once('@').is_some_and(|(user, host)| {
+            !user.is_empty() && host.contains('.') && !host.ends_with('.')
+        }),
         _ => !text.is_empty(),
     }
 }

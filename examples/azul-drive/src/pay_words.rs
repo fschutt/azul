@@ -9,7 +9,7 @@ use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     machine::{ChipPage, Notice},
     offer::Price,
-    AskedBy, Choice, Handoff, Method, OfferedProvider, PayerField, SurfaceKind,
+    Choice, Handoff, Method, OfferedProvider, PayerField, SurfaceKind,
 };
 
 /// A payment method's name (a pill, the popover's title): `Direct debit`, `Lastschrift`.
@@ -195,25 +195,39 @@ pub(crate) fn pill_note(choice: &Choice) -> Vec<String> {
     let name = Arg::from(self::method(method));
     let mut out = Vec::new();
     let identity = &offered.identity;
+    let provider = Arg::from(choice.provider.spec.name);
     if method.anonymous() && identity.is_none() {
         out.push(t_args("azdrive-pay-note-anonymous", &[("method", name.clone())]));
-    } else if !identity.is_none() {
-        let fields = Arg::from(payer_fields(&identity.fields));
-        let provider = Arg::from(choice.provider.spec.name);
-        out.push(match identity.asked_by {
-            AskedBy::App => t_args(
-                "azdrive-pay-note-identity-app",
-                &[("method", name.clone()), ("provider", provider), ("fields", fields)],
-            ),
-            AskedBy::Provider if pays_by_card(method) => t_args(
+    }
+    // What the app sends with the order, then what the provider's own page asks for (a card's
+    // is the card network's), then once that the files stay encrypted.
+    if !identity.app_fields().is_empty() {
+        out.push(t_args(
+            "azdrive-pay-note-identity-app",
+            &[
+                ("method", name.clone()),
+                ("provider", provider.clone()),
+                ("fields", Arg::from(payer_fields(identity.app_fields()))),
+            ],
+        ));
+    }
+    let on_page = identity.page_fields();
+    if !on_page.is_empty() {
+        let fields = Arg::from(payer_fields(&on_page));
+        out.push(if pays_by_card(method) {
+            t_args(
                 "azdrive-pay-note-identity-card",
                 &[("method", name.clone()), ("fields", fields)],
-            ),
-            AskedBy::Provider => t_args(
+            )
+        } else {
+            t_args(
                 "azdrive-pay-note-identity-provider",
-                &[("method", name.clone()), ("provider", provider), ("fields", fields)],
-            ),
+                &[("method", name.clone()), ("provider", provider.clone()), ("fields", fields)],
+            )
         });
+    }
+    if !identity.is_none() {
+        out.push(t("azdrive-pay-note-files"));
     }
     let does = match method.handoff() {
         Handoff::PhoneQr => Some("azdrive-pay-note-phone-qr"),
