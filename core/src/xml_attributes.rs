@@ -88,7 +88,7 @@ impl AttributeScope {
 }
 
 /// The form controls: the elements whose HTML attributes (`type`, `value`,
-/// `min`, `checked`, `data-*` ...) land as the typed attributes a
+/// `min`, `checked` ...) land as the typed attributes a
 /// `Dom::create_input(..).with_attribute(..)` would carry.
 ///
 /// `<button>` is here for its `type` / `name` / `value` / `disabled`: a
@@ -426,7 +426,7 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("xml:lang", AnyElement, 10, lang),
     entry("style", AnyElement, 10, style),
     entry("data-l10n*", AnyElement, 11, l10n),
-    entry("data-*", FormControls, 5, data),
+    entry("data-*", AnyElement, 5, data),
     entry("on*", AnyElement, 12, callback),
 ];
 

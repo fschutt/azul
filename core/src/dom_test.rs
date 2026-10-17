@@ -2454,7 +2454,7 @@ mod attribute_getter_tests {
         node.set_attributes(
             vec![
                 AttributeType::Data(AttributeNameValue {
-                    attr_name: AzString::from("id"),
+                    attr_name: AzString::from("data-id"),
                     value: AzString::from("7"),
                 }),
                 AttributeType::Disabled,

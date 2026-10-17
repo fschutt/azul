@@ -2979,9 +2979,9 @@ impl NodeData {
                 | ("tabindex", AttributeType::TabIndex(n)) => Some(number(*n)),
                 ("contenteditable", AttributeType::ContentEditable(b))
                 | ("draggable", AttributeType::Draggable(b)) => Some(b.to_string().into()),
-                (_, AttributeType::Data(nv))
-                    if name.strip_prefix("data-") == Some(nv.attr_name.as_str()) =>
-                {
+                // A data attribute keeps its whole name (`data-id`), as the
+                // XML loaders and `AttributeType::name` spell it.
+                (_, AttributeType::Data(nv)) if nv.attr_name.as_str() == name => {
                     Some(nv.value.clone())
                 }
                 (_, AttributeType::AriaState(nv) | AttributeType::AriaProperty(nv))

@@ -158,9 +158,17 @@ fn a_form_controls_attributes_are_typed_and_data_attributes_ride_along() {
         })),
         "{a:?}"
     );
-    // Only form controls take them.
+    // Only form controls take `min`; `data-*` is a global attribute in HTML,
+    // so a div keeps it too (a `content: attr(data-x)` reads it).
     let div = attrs_of(&parsed("div", &[("min", "0"), ("data-x", "1")], vec![]));
-    assert!(div.is_empty(), "{div:?}");
+    assert_eq!(
+        div,
+        vec![AttributeType::Data(AttributeNameValue {
+            attr_name: "data-x".into(),
+            value: "1".into(),
+        })],
+        "{div:?}"
+    );
 }
 
 #[test]
