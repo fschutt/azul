@@ -14,7 +14,8 @@
 //! did not end on its box's edge.
 
 use azul_layout::text3::cache::{
-    ShapedItem, Spacing, StyleProperties, TextAlign, TextWrap, UnifiedConstraints, UnifiedLayout,
+    JustifyContent, ShapedItem, Spacing, StyleProperties, TextAlign, TextWrap, UnifiedConstraints,
+    UnifiedLayout,
 };
 
 use crate::calmet_lines::{calmet_ui, lay_out, lines};
@@ -37,6 +38,8 @@ fn laid_out(
         |paragraph: &mut UnifiedConstraints| {
             paragraph.text_wrap = wrap;
             paragraph.text_align = align;
+            // `text-justify: auto`, as the solver resolves it.
+            paragraph.text_justify = JustifyContent::InterWord;
         },
     )
 }
@@ -48,7 +51,7 @@ fn first_line_starts(layout: &UnifiedLayout, count: usize) -> Vec<(String, f32)>
         .iter()
         .filter(|item| item.line_index == 0)
         .filter_map(|item| match &item.item {
-            ShapedItem::Cluster(c) => Some((c.text(), item.position.x)),
+            ShapedItem::Cluster(c) => Some((c.text().to_string(), item.position.x)),
             _ => None,
         })
         .take(count)
