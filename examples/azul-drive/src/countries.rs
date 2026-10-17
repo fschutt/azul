@@ -47,8 +47,13 @@ pub(crate) fn offered(code: &str) -> bool {
 /// numeric region (`es-419`, Latin America) and `C` / `POSIX` name none.
 #[must_use]
 pub(crate) fn region_of_locale(locale: &str) -> Option<String> {
-    let _ = locale;
-    None
+    let base = locale.split(['.', '@']).next().unwrap_or_default();
+    let region = base
+        .split(['_', '-'])
+        .skip(1)
+        .find(|part| part.len() == 2 && part.bytes().all(|b| b.is_ascii_alphabetic()))?
+        .to_ascii_uppercase();
+    offered(&region).then_some(region)
 }
 
 /// The first guess of the buyer's country: the window locale's region, else the system
@@ -56,8 +61,12 @@ pub(crate) fn region_of_locale(locale: &str) -> Option<String> {
 /// a country Buy storage lists.
 #[must_use]
 pub(crate) fn guess(window_locale: &str, var: impl Fn(&str) -> Option<String>) -> Option<String> {
-    let _ = (window_locale, var);
-    None
+    region_of_locale(window_locale).or_else(|| {
+        ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .filter_map(|name| var(*name))
+            .find_map(|locale| region_of_locale(&locale))
+    })
 }
 
 /// The country the buyer declared: `AZLIN_COUNTRY` (read through `var`: a test's, or a
@@ -90,6 +99,57 @@ pub(crate) fn name(code: &str) -> String {
 /// lists every country by name.
 #[must_use]
 pub(crate) fn search(query: &str) -> Vec<&'static str> {
-    let _ = query;
-    Vec::new()
+    let wanted = fold(query.trim());
+    let mut found: Vec<(u8, String, &'static str)> = COUNTRIES
+        .iter()
+        .filter_map(|code| {
+            let named = fold(&name(code));
+            let rank = if wanted.is_empty() {
+                3
+            } else if wanted.len() == 2 && fold(code) == wanted {
+                0
+            } else if named.starts_with(&wanted) {
+                1
+            } else if named
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|word| word.starts_with(&wanted))
+            {
+                2
+            } else if named.contains(&wanted) {
+                3
+            } else {
+                return None;
+            };
+            Some((rank, named, *code))
+        })
+        .collect();
+    found.sort();
+    found.into_iter().map(|(_, _, code)| code).collect()
+}
+
+/// `text` for matching: lower case, the common Latin accents taken off (Ö is o, ß is ss, Å is a).
+fn fold(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars().flat_map(char::to_lowercase) {
+        match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ą' => out.push('a'),
+            'æ' => out.push_str("ae"),
+            'ç' | 'ć' | 'č' => out.push('c'),
+            'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ę' | 'ě' => out.push('e'),
+            'ì' | 'í' | 'î' | 'ï' | 'ī' => out.push('i'),
+            'ł' => out.push('l'),
+            'ñ' | 'ń' | 'ň' => out.push('n'),
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' => out.push('o'),
+            'œ' => out.push_str("oe"),
+            'ř' => out.push('r'),
+            'ś' | 'š' => out.push('s'),
+            'ß' => out.push_str("ss"),
+            'ť' => out.push('t'),
+            'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' => out.push('u'),
+            'ý' | 'ÿ' => out.push('y'),
+            'ź' | 'ż' | 'ž' => out.push('z'),
+            other => out.push(other),
+        }
+    }
+    out
 }
