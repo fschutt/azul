@@ -2061,6 +2061,32 @@ fn parse_damage_fill(v: Option<&str>) -> (u8, u8, u8, u8) {
     }
 }
 
+/// Physical-pixel damage boxes `[x0, y0, x1, y1]` made pairwise disjoint, so a
+/// repaint pass per box paints every damaged pixel once.
+fn disjoint_damage(mut boxes: Vec<[i32; 4]>) -> Vec<[i32; 4]> {
+    let overlap = |a: &[i32; 4], b: &[i32; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    let mut i = 0;
+    while i < boxes.len() {
+        let mut j = i + 1;
+        let mut merged_any = false;
+        while j < boxes.len() {
+            if overlap(&boxes[i], &boxes[j]) {
+                let (a, b) = (boxes[i], boxes[j]);
+                boxes[i] = [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])];
+                boxes.swap_remove(j);
+                merged_any = true;
+            } else {
+                j += 1;
+            }
+        }
+        if merged_any && boxes.len() > 1 {
+            continue;
+        }
+        i += 1;
+    }
+    boxes
+}
+
 /// `AZ_DEBUG_DAMAGE=1` — log what each damaged repaint actually touched.
 fn damage_logging_enabled() -> bool {
     use std::sync::OnceLock;
@@ -2134,57 +2160,31 @@ pub fn render_display_list_damaged(
             },
         })
     };
-    let mut rects: Vec<SnappedRect> = damage_rects.iter().filter_map(snap_out).collect();
+    let snapped: Vec<SnappedRect> = damage_rects.iter().filter_map(snap_out).collect();
 
-    // Merge OVERLAPPING rects (strictly overlapping in physical pixels; rects
-    // that merely touch stay separate). After this, the rects are pairwise
-    // disjoint, so the per-rect passes below clear + paint every damaged pixel
-    // EXACTLY once — no double alpha-blend where rects used to overlap, and no
-    // ballooned union.
-    let mut i = 0;
-    while i < rects.len() {
-        let mut j = i + 1;
-        let mut merged_any = false;
-        while j < rects.len() {
-            let (a, b) = (&rects[i], &rects[j]);
-            let overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
-            if overlap {
-                let x0 = a.x0.min(b.x0);
-                let y0 = a.y0.min(b.y0);
-                let x1 = a.x1.max(b.x1);
-                let y1 = a.y1.max(b.y1);
-                rects[i] = SnappedRect {
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    logical: LogicalRect {
-                        origin: LogicalPosition {
-                            x: x0 as f32 / dpi_factor,
-                            y: y0 as f32 / dpi_factor,
-                        },
-                        size: LogicalSize {
-                            width: (x1 - x0) as f32 / dpi_factor,
-                            height: (y1 - y0) as f32 / dpi_factor,
-                        },
-                    },
-                };
-                rects.swap_remove(j);
-                merged_any = true;
-                // rects[i] grew — restart its inner scan, it may now overlap
-                // rects it previously missed.
-            } else {
-                j += 1;
-            }
-        }
-        if merged_any {
-            // re-scan the same i (the union may reach earlier-skipped rects)
-            if rects.len() > 1 {
-                continue;
-            }
-        }
-        i += 1;
-    }
+    // Pairwise DISJOINT rects (rects that merely touch stay separate), so the
+    // per-rect passes below clear + paint every damaged pixel EXACTLY once - no
+    // double alpha-blend where rects overlapped.
+    let boxes = disjoint_damage(snapped.iter().map(|r| [r.x0, r.y0, r.x1, r.y1]).collect());
+    let rects: Vec<SnappedRect> = boxes
+        .into_iter()
+        .map(|[x0, y0, x1, y1]| SnappedRect {
+            x0,
+            y0,
+            x1,
+            y1,
+            logical: LogicalRect {
+                origin: LogicalPosition {
+                    x: x0 as f32 / dpi_factor,
+                    y: y0 as f32 / dpi_factor,
+                },
+                size: LogicalSize {
+                    width: (x1 - x0) as f32 / dpi_factor,
+                    height: (y1 - y0) as f32 / dpi_factor,
+                },
+            },
+        })
+        .collect();
 
     // One pass PER damage rect, each with its own clip seeded to exactly that
     // rect. An item spanning several rects renders once per rect, but the
@@ -12294,5 +12294,52 @@ mod unplaceable_glyph_geometry_tests {
             text_clip_pixel_box(rect(-500.0, 0.0, 10.0, 10.0), W, H),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod disjoint_damage_tests {
+    use super::disjoint_damage;
+
+    fn area(boxes: &[[i32; 4]]) -> i64 {
+        boxes.iter().map(|b| i64::from(b[2] - b[0]) * i64::from(b[3] - b[1])).sum()
+    }
+
+    fn covers(boxes: &[[i32; 4]], x: i32, y: i32) -> usize {
+        boxes.iter().filter(|b| b[0] <= x && x < b[2] && b[1] <= y && y < b[3]).count()
+    }
+
+    /// A window grown from 500x600 to 800x900 whose top bar stretched: the bar's
+    /// row, the exposed right strip and the exposed bottom strip. They overlap
+    /// in corners, and their bounding box is the whole window; the repaint is
+    /// the area they cover, each pixel once.
+    #[test]
+    fn overlapping_damage_is_cut_apart_not_boxed_together() {
+        let bar = [0, 0, 800, 30];
+        let right = [500, 0, 800, 900];
+        let bottom = [0, 600, 800, 900];
+        let boxes = disjoint_damage(vec![bar, right, bottom]);
+        let union = 500 * 30 + 300 * 900 + 500 * 300;
+        assert_eq!(area(&boxes), union, "the area they cover, not their bounding box: {boxes:?}");
+        for (x, y) in [(10, 10), (600, 10), (600, 700), (10, 700), (499, 29), (500, 600)] {
+            assert_eq!(covers(&boxes, x, y), 1, "({x}, {y}) is painted once: {boxes:?}");
+        }
+        assert_eq!(covers(&boxes, 10, 300), 0, "the untouched middle is not painted: {boxes:?}");
+    }
+
+    /// Two rects that overlap almost entirely are one box: cutting them apart
+    /// would only add passes.
+    #[test]
+    fn nearly_the_same_damage_is_one_box() {
+        let boxes = disjoint_damage(vec![[0, 0, 100, 100], [2, 2, 102, 102]]);
+        assert_eq!(boxes, vec![[0, 0, 102, 102]]);
+    }
+
+    /// Rects that only touch stay as they are.
+    #[test]
+    fn touching_damage_stays_apart() {
+        let boxes = disjoint_damage(vec![[0, 0, 10, 10], [10, 0, 20, 10]]);
+        assert_eq!(boxes.len(), 2);
+        assert_eq!(area(&boxes), 200);
     }
 }
