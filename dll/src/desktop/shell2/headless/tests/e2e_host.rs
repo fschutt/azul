@@ -1201,6 +1201,49 @@ extern "C" fn drag_and_drop_layout(data: RefAny, _info: LayoutCallbackInfo) -> D
         )
 }
 
+/// [`drag_and_drop_layout`] with the source holding its words in a span, as
+/// AzTasks' planned task does: the press lands on selectable text.
+extern "C" fn drag_text_and_drop_layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let mut dom = drag_and_drop_layout(data, info);
+    if let Some(source) = dom.children.as_mut().first_mut() {
+        source.add_child(Dom::create_span_with_text("Water the ferns"));
+    }
+    dom
+}
+
+extern "C" fn dnd_press_rebuilds(
+    _data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// [`drag_text_and_drop_layout`] with a source a click selects, as AzTasks'
+/// planned task is: it takes the focus, and its press asks for a new DOM
+/// (the app marks the task selected) while the button is still down.
+extern "C" fn drag_selects_and_drops_layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::TabIndex,
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    let press = CoreCallbackData {
+        event: EventFilter::Hover(HoverEventFilter::MouseDown),
+        callback: CoreCallback {
+            cb: dnd_press_rebuilds as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    };
+    let mut dom = drag_text_and_drop_layout(data, info);
+    if let Some(source) = dom.children.as_mut().first_mut() {
+        source.root.set_tab_index(TabIndex::Auto);
+        source.root.add_callback(press.event, press.refany, press.callback.cb);
+    }
+    dom
+}
+
 /// The debug server's `mouse_down` / `mouse_move` / `mouse_up` ops, as a
 /// script drags: a press on the source at (60, 28), moves down a frame each,
 /// the release on the target at (60, 128).
@@ -1268,6 +1311,80 @@ fn a_scripted_drag_from_a_draggable_node_drops_on_the_target_under_the_release()
         starts, 1,
         "the press on the source and the moves past the threshold are a drag"
     );
+    assert_eq!(drops, 1, "the release over the target drops there");
+}
+
+/// A press on the words inside a draggable node drags the node, as in a
+/// browser: the text in it is not selected by that drag (AzTasks' planned
+/// task, whose title is a span, never dropped on another day).
+#[test]
+fn a_scripted_drag_from_the_words_of_a_draggable_node_drops_on_the_target() {
+    let state = Arc::new(RefCell::new(RefAny::new(DragAndDrop {
+        starts: 0,
+        drops: 0,
+    })));
+    let mut window = make_window_with(&state, drag_text_and_drop_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_drag_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let (starts, drops) = state
+        .borrow_mut()
+        .downcast_ref::<DragAndDrop>()
+        .map(|d| (d.starts, d.drops))
+        .expect("the counters");
+    assert_eq!(starts, 1, "the press on the words and the moves are the node's drag");
+    assert_eq!(drops, 1, "the release over the target drops there");
+}
+
+/// A press that selects the dragged node (it takes the focus and the app
+/// asks for a new DOM while the button is down) still drags it and drops
+/// on the target (AzTasks' planned task, dragged onto another day).
+#[test]
+fn a_scripted_drag_whose_press_rebuilds_the_dom_still_drops_on_the_target() {
+    let state = Arc::new(RefCell::new(RefAny::new(DragAndDrop {
+        starts: 0,
+        drops: 0,
+    })));
+    let mut window = make_window_with(&state, drag_selects_and_drops_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_drag_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..6 {
+        window.pump_once(true);
+    }
+
+    let (starts, drops) = state
+        .borrow_mut()
+        .downcast_ref::<DragAndDrop>()
+        .map(|d| (d.starts, d.drops))
+        .expect("the counters");
+    assert_eq!(starts, 1, "the press and the moves are the node's drag");
     assert_eq!(drops, 1, "the release over the target drops there");
 }
 
