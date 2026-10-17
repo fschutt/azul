@@ -2,8 +2,8 @@
 //! event to the next state and the effects the app runs. No window, no network, no clock.
 //!
 //! ```text
-//! Choosing --Pay (consent)--> Preparing --Created--> Presenting (fields / page)
-//!                                       \--Created (browser)--> Waiting
+//! Choosing --Pay (consent, the asked payer details)--> Preparing
+//! Preparing --Created (fields / page)--> Presenting   Preparing --Created (browser)--> Waiting
 //! Preparing --CreateFailed--> Choosing
 //! Presenting --Confirm (fields complete)--> Confirming --result succeeded / processing--> Waiting
 //! Confirming --result failed--> Presenting (the provider's message; Pay works again)
@@ -18,7 +18,8 @@
 //! ```
 //!
 //! The app runs the effects: [`Effect::CreateCheckout`] (`POST /v1/checkout` with the claim key,
-//! azcloud-kit's), [`Effect::ShowSurface`] (the popover with the web view's `src`),
+//! azcloud-kit's, and - for a method that asks the app for them - the payer's details, which no
+//! state keeps), [`Effect::ShowSurface`] (the popover with the web view's `src`),
 //! [`Effect::AllowNavigation`] / [`Effect::CancelNavigation`] (`prevent_default` in the web
 //! view's `WebViewNavigationRequested` callback - exactly one of the two for every
 //! [`Event::Navigation`] of a page), [`Effect::WebviewNavigate`] (`webview_navigate`),
@@ -567,12 +568,21 @@ fn choosing(event: Event) -> (State, Vec<Effect>) {
             let Some(&surface) = choice.method.surfaces.first() else {
                 return (State::Choosing, vec![Effect::Notice(Notice::NoSurface)]);
             };
-            let _ = payer;
+            // The details a method asks the app for go with the checkout, once; the states
+            // after it keep none of them.
+            let identity = &choice.method.identity;
+            let missing = payer.missing(identity);
+            if !missing.is_empty() {
+                return (
+                    State::Choosing,
+                    vec![Effect::Notice(Notice::IdentityIncomplete(missing))],
+                );
+            }
             let effect = Effect::CreateCheckout {
                 provider: choice.provider.spec.id,
                 method: choice.method.method,
                 surface,
-                payer: None,
+                payer: payer.for_checkout(identity),
             };
             (State::Preparing { choice, surface }, vec![effect])
         }

@@ -1,11 +1,11 @@
-//! The payment pills (CHECKOUT-PLAN §2.2): which methods show for a country, a currency and a
-//! period, with which provider, and which is the default.
+//! The payment pills (CHECKOUT-PLAN §2.2): the methods the server offered for the payer's
+//! country, in its order, with which provider, and which is the default.
 
 use serde_json::{json, Value};
 
 use crate::{
     offer::{Offer, OfferContext},
-    pills::{default_pill, pills, Choice, PillContext, SEPA_COUNTRIES},
+    pills::{default_pill, pills, Choice, PillContext},
     registry::{Method, SurfaceKind},
 };
 
@@ -47,71 +47,6 @@ fn ctx(country: &'static str, months: u32) -> PillContext<'static> {
 
 fn methods(offer: &Offer, ctx: &PillContext) -> Vec<Method> {
     pills(offer, ctx).iter().map(|p| p.method).collect()
-}
-
-#[test]
-fn sepa_shows_in_the_sepa_zone_in_euros_and_is_the_default() {
-    let offer = full_offer();
-    let de = ctx("DE", 1);
-    let shown = pills(&offer, &de);
-    assert_eq!(
-        shown.iter().map(|p| p.method).collect::<Vec<_>>(),
-        vec![Method::SepaDebit, Method::Card, Method::Wero],
-        "in the server's order; PayPal waits for a prepaid year, Apple Pay for the native sheet"
-    );
-    assert_eq!(shown[default_pill(&shown)].method, Method::SepaDebit);
-    assert!(SEPA_COUNTRIES.contains(&"DE") && SEPA_COUNTRIES.contains(&"CH"));
-    assert!(!SEPA_COUNTRIES.contains(&"US"));
-    let usd = PillContext {
-        currency: "USD",
-        ..ctx("DE", 1)
-    };
-    assert!(!methods(&offer, &usd).contains(&Method::SepaDebit), "SEPA is in euros");
-}
-
-#[test]
-fn outside_the_sepa_zone_the_card_is_the_default() {
-    let offer = full_offer();
-    let us = ctx("US", 12);
-    let shown = pills(&offer, &us);
-    assert_eq!(
-        shown.iter().map(|p| p.method).collect::<Vec<_>>(),
-        vec![Method::Card, Method::PayPal]
-    );
-    assert_eq!(shown[default_pill(&shown)].method, Method::Card);
-    assert_eq!(default_pill(&[]), 0);
-}
-
-#[test]
-fn paypal_shows_for_a_prepaid_year_or_two_only() {
-    let offer = full_offer();
-    for months in [1, 3, 6] {
-        assert!(!methods(&offer, &ctx("DE", months)).contains(&Method::PayPal), "{months}");
-    }
-    for months in [12, 24] {
-        assert!(methods(&offer, &ctx("DE", months)).contains(&Method::PayPal), "{months}");
-    }
-    let recurring = PillContext {
-        recurring: true,
-        ..ctx("DE", 12)
-    };
-    assert!(!methods(&offer, &recurring).contains(&Method::PayPal));
-}
-
-#[test]
-fn wero_shows_in_its_five_countries_and_never_for_a_recurring_plan() {
-    let offer = full_offer();
-    for country in ["DE", "BE", "FR", "LU", "NL", "de"] {
-        assert!(methods(&offer, &ctx(country, 1)).contains(&Method::Wero), "{country}");
-    }
-    for country in ["AT", "IT", "US"] {
-        assert!(!methods(&offer, &ctx(country, 1)).contains(&Method::Wero), "{country}");
-    }
-    let recurring = PillContext {
-        recurring: true,
-        ..ctx("DE", 1)
-    };
-    assert!(!methods(&offer, &recurring).contains(&Method::Wero));
 }
 
 #[test]

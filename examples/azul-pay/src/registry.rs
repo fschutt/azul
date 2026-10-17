@@ -642,6 +642,23 @@ const fn suffix(suffix: &'static str) -> Origin {
     Origin::Suffix(Cow::Borrowed(suffix))
 }
 
+/// One method of a provider (the table's rows are calls of it).
+const fn spec(
+    method: Method,
+    chain: &'static [SurfaceKind],
+    embed: EmbedPolicy,
+    leave: &'static [Origin],
+    settles: Settles,
+) -> MethodSpec {
+    MethodSpec {
+        method,
+        chain,
+        embed,
+        leave,
+        settles,
+    }
+}
+
 /// Embedded, within the allowlist (`window.open` stays in the web view).
 const EMBED_OK: EmbedPolicy = EmbedPolicy {
     webview: Webview::Allowed,
@@ -649,11 +666,55 @@ const EMBED_OK: EmbedPolicy = EmbedPolicy {
     breaks: &[],
 };
 
-/// A provider login: never in a web view.
+/// A provider's or a wallet's login (PayPal, Klarna, Alipay, the Korean wallets): never in a
+/// web view.
 const EMBED_LOGIN: EmbedPolicy = EmbedPolicy {
     webview: Webview::Forbidden,
     popups: Popups::SystemBrowser,
     breaks: &[Breaks::ProviderLogin],
+};
+
+/// A login at the payer's bank, or a switch to the banking app, which in-app browser views
+/// refuse: the system browser.
+const EMBED_BANK: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// iDEAL: its scheme forbids web views (the bank's login and its app switch).
+const EMBED_BANK_FORBIDDEN: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// A QR page whose web-view behaviour is unverified (Wero): the browser until it is tested.
+const EMBED_UNTESTED_QR: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::BankAppSwitch],
+};
+
+/// GoCardless says nothing either way about web views: the chain keeps what is tested.
+const EMBED_GOCARDLESS: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[],
+};
+
+/// Apple Pay on the web needs no injected script and an iOS web view: the native sheet.
+const EMBED_APPLE_PAY: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::ApplePayWeb],
+};
+
+/// Google Pay's pop-ups and PaymentRequest: the system browser.
+const EMBED_GOOGLE_PAY: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Discouraged,
+    popups: Popups::SystemBrowser,
+    breaks: &[Breaks::GooglePay],
 };
 
 const FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
@@ -661,7 +722,15 @@ const FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
     SurfaceKind::WebviewPage,
     SurfaceKind::SystemBrowser,
 ];
+/// SEPA through Stripe: the app's own IBAN field first, then its fields, its page, the browser.
+const IBAN_FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
+    SurfaceKind::NativeIban,
+    SurfaceKind::PopoverFields,
+    SurfaceKind::WebviewPage,
+    SurfaceKind::SystemBrowser,
+];
 const PAGE_BROWSER: &[SurfaceKind] = &[SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser];
+const SHEET_BROWSER: &[SurfaceKind] = &[SurfaceKind::NativeSheet, SurfaceKind::SystemBrowser];
 /// A slip on paper, nothing else.
 const PAPER: &[SurfaceKind] = &[SurfaceKind::Paper];
 
@@ -680,11 +749,89 @@ const STRIPE_LEAVE: &[Origin] = &[
     exact("link.com"),
     suffix(".link.com"),
 ];
+/// A method whose pages never leave for the browser.
+const NO_LEAVE: &[Origin] = &[];
+
+/// Stripe's methods, the same for Stripe and its sandbox stand-in (only where their pages may
+/// leave for the browser differs: `$leave`), with `$extra` the real one's alone. Cards in the
+/// Payment Element (no statement against web views; Link off - it is a login), SEPA natively or
+/// in the Payment Element, PayPal and the wallets' logins outside any web view (Stripe's in-app
+/// web view table: "Not supported"), and the local methods of its routes (the payment methods
+/// registry, read 2026-10-17): a hosted page that shows a QR code, asks for a code or a phone
+/// number, or gives a voucher may be shown in the popover; a bank's or a wallet's login goes to
+/// the system browser.
+macro_rules! stripe_methods {
+    ($leave:expr; $($extra:expr),* $(,)?) => {
+        &[
+            spec(Method::Card, FIELDS_PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::SepaDebit, IBAN_FIELDS_PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::PayPal, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Wero, BROWSER, EMBED_UNTESTED_QR, NO_LEAVE, Settles::Instant),
+            $($extra,)*
+            // A page of its own, then the browser.
+            spec(Method::BankTransfer, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Blik, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Twint, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Swish, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::MobilePay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Vipps, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::MbWay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Multibanco, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Bizum, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::RevolutPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Upi, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Pix, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Boleto, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::WechatPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::Konbini, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::Oxxo, PAGE_BROWSER, EMBED_OK, $leave, Settles::Days),
+            spec(Method::PayNow, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            spec(Method::PromptPay, PAGE_BROWSER, EMBED_OK, $leave, Settles::Instant),
+            // A login at the bank: the system browser only.
+            spec(Method::Ideal, BROWSER, EMBED_BANK_FORBIDDEN, NO_LEAVE, Settles::Instant),
+            spec(Method::Bancontact, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::Eps, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::P24, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            spec(Method::PayByBank, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::KrCard, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Instant),
+            spec(Method::Fpx, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            spec(Method::UsBankAccount, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+            // A login at the wallet: the system browser only.
+            spec(Method::GooglePay, BROWSER, EMBED_GOOGLE_PAY, NO_LEAVE, Settles::Instant),
+            spec(Method::Link, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::AmazonPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Klarna, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Satispay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Alipay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::KakaoPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::NaverPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::Payco, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::SamsungPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::PayPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+            spec(Method::GrabPay, BROWSER, EMBED_LOGIN, NO_LEAVE, Settles::Instant),
+        ]
+    };
+}
+
+/// GoCardless's direct debit schemes on its hosted Billing Request Flow, then the browser - the
+/// same for GoCardless and its stand-in - after `$sepa`, the SEPA row (the real one has a
+/// fields page of ours as well). ACH logs in at the bank: the browser only.
+macro_rules! gocardless_methods {
+    ($sepa:expr) => {
+        &[
+            $sepa,
+            spec(Method::BacsDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::Autogiro, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::Betalingsservice, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::BecsDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::BecsNzDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::PadDebit, PAGE_BROWSER, EMBED_GOCARDLESS, NO_LEAVE, Settles::Days),
+            spec(Method::UsBankAccount, BROWSER, EMBED_BANK, NO_LEAVE, Settles::Days),
+        ]
+    };
+}
 
 static PROVIDERS: &[ProviderSpec] = &[
-    // Cards in the Payment Element (no statement against web views; Link off - it is a login),
-    // SEPA in the Payment Element (or natively with the publishable key), PayPal / Wero / Apple
-    // Pay outside any web view (Stripe's in-app web view table: "Not supported").
     ProviderSpec {
         id: "stripe",
         kind: ProviderKind::Processor,
@@ -697,62 +844,13 @@ static PROVIDERS: &[ProviderSpec] = &[
         ],
         pages: PAY_PAGES,
         fields: Some("/fields/stripe/v1"),
-        methods: &[
-            MethodSpec {
-                method: Method::Card,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: STRIPE_LEAVE,
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::SepaDebit,
-                chain: &[
-                    SurfaceKind::NativeIban,
-                    SurfaceKind::PopoverFields,
-                    SurfaceKind::WebviewPage,
-                    SurfaceKind::SystemBrowser,
-                ],
-                embed: EMBED_OK,
-                leave: STRIPE_LEAVE,
-                settles: Settles::Days,
-            },
-            MethodSpec {
-                method: Method::PayPal,
-                chain: BROWSER,
-                embed: EMBED_LOGIN,
-                leave: &[],
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::ApplePay,
-                chain: &[SurfaceKind::NativeSheet, SurfaceKind::SystemBrowser],
-                embed: EmbedPolicy {
-                    webview: Webview::Forbidden,
-                    popups: Popups::SystemBrowser,
-                    breaks: &[Breaks::ApplePayWeb],
-                },
-                leave: &[],
-                settles: Settles::Instant,
-            },
-            // The QR page in a web view is unverified: the browser until it is tested.
-            MethodSpec {
-                method: Method::Wero,
-                chain: BROWSER,
-                embed: EmbedPolicy {
-                    webview: Webview::Discouraged,
-                    popups: Popups::SystemBrowser,
-                    breaks: &[Breaks::BankAppSwitch],
-                },
-                leave: &[],
-                settles: Settles::Instant,
-            },
-        ],
+        methods: stripe_methods!(STRIPE_LEAVE;
+            spec(Method::ApplePay, SHEET_BROWSER, EMBED_APPLE_PAY, NO_LEAVE, Settles::Instant)),
         icon: "credit_card",
         fake: false,
     },
     // SEPA Direct Debit: the Drop-in on our fields page, the hosted Billing Request Flow, the
-    // browser. No statement on web views either way: the chain keeps what is tested.
+    // browser; the other schemes on the flow page.
     ProviderSpec {
         id: "gocardless",
         kind: ProviderKind::Processor,
@@ -761,17 +859,13 @@ static PROVIDERS: &[ProviderSpec] = &[
         origins: &[exact("pay.gocardless.com"), exact("pay-sandbox.gocardless.com")],
         pages: PAY_PAGES,
         fields: Some("/fields/gocardless/v1"),
-        methods: &[MethodSpec {
-            method: Method::SepaDebit,
-            chain: FIELDS_PAGE_BROWSER,
-            embed: EmbedPolicy {
-                webview: Webview::Discouraged,
-                popups: Popups::SystemBrowser,
-                breaks: &[],
-            },
-            leave: &[],
-            settles: Settles::Days,
-        }],
+        methods: gocardless_methods!(spec(
+            Method::SepaDebit,
+            FIELDS_PAGE_BROWSER,
+            EMBED_GOCARDLESS,
+            NO_LEAVE,
+            Settles::Days
+        )),
         icon: "account_balance",
         fake: false,
     },
@@ -786,29 +880,27 @@ static PROVIDERS: &[ProviderSpec] = &[
         origins: &[],
         pages: PAY_PAGES,
         fields: None,
-        methods: &[MethodSpec {
-            method: Method::Cash,
-            chain: PAPER,
-            embed: EMBED_NONE,
-            leave: &[],
-            settles: Settles::Post,
-        }],
+        methods: &[spec(Method::Cash, PAPER, EMBED_NONE, NO_LEAVE, Settles::Post)],
         icon: "mail",
         fake: false,
     },
 ];
 
-/// The fakes' pages: the mock token server's host.
+/// The fakes' pages: the mock token server's and the payment sandbox's host.
 #[cfg(feature = "fake-providers")]
 const FAKE_PAGES: Origin = Origin::LoopbackHost(Cow::Borrowed("127.0.0.1"));
 /// A fake provider login: the same computer under another name.
 #[cfg(feature = "fake-providers")]
 const FAKE_LOGIN: Origin = Origin::LoopbackHost(Cow::Borrowed("localhost"));
+/// Where a fake's pages leave for the browser: its login.
+#[cfg(feature = "fake-providers")]
+const FAKE_LEAVE: &[Origin] = &[FAKE_LOGIN];
 
 #[cfg(feature = "fake-providers")]
 static FAKE_PROVIDERS: &[ProviderSpec] = &[
-    // Stripe's shape: a fields page that takes Stripe's test card numbers, a hosted page, a
-    // PayPal login on "localhost" that the card page may jump to.
+    // Stripe's shape, its methods (Apple Pay aside: no sheet here): a fields page that takes
+    // Stripe's test card numbers, a hosted page per method, a PayPal login on "localhost" that
+    // the card page may jump to.
     ProviderSpec {
         id: "fake-stripe",
         kind: ProviderKind::Processor,
@@ -817,33 +909,12 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
         origins: &[FAKE_PAGES],
         pages: FAKE_PAGES,
         fields: Some("/fields/fake-stripe/v1"),
-        methods: &[
-            MethodSpec {
-                method: Method::Card,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: &[FAKE_LOGIN],
-                settles: Settles::Instant,
-            },
-            MethodSpec {
-                method: Method::SepaDebit,
-                chain: FIELDS_PAGE_BROWSER,
-                embed: EMBED_OK,
-                leave: &[FAKE_LOGIN],
-                settles: Settles::Days,
-            },
-            MethodSpec {
-                method: Method::PayPal,
-                chain: BROWSER,
-                embed: EMBED_LOGIN,
-                leave: &[],
-                settles: Settles::Instant,
-            },
-        ],
+        methods: stripe_methods!(FAKE_LEAVE;),
         icon: "credit_card",
         fake: true,
     },
-    // GoCardless's shape: a hosted Billing Request Flow page taking a test IBAN.
+    // GoCardless's shape: a hosted Billing Request Flow page taking a test IBAN (or the test
+    // account of another scheme).
     ProviderSpec {
         id: "fake-gocardless",
         kind: ProviderKind::Processor,
@@ -852,13 +923,13 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
         origins: &[FAKE_PAGES],
         pages: FAKE_PAGES,
         fields: None,
-        methods: &[MethodSpec {
-            method: Method::SepaDebit,
-            chain: PAGE_BROWSER,
-            embed: EMBED_OK,
-            leave: &[],
-            settles: Settles::Days,
-        }],
+        methods: gocardless_methods!(spec(
+            Method::SepaDebit,
+            PAGE_BROWSER,
+            EMBED_OK,
+            NO_LEAVE,
+            Settles::Days
+        )),
         icon: "account_balance",
         fake: true,
     },

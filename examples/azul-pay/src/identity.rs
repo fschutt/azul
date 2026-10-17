@@ -117,8 +117,38 @@ impl Identity {
     /// Why the method cannot be shown: an unknown field, an unknown `asked_by`, or a field the app
     /// never asks for itself.
     pub fn parse(value: &Value) -> Result<Identity, String> {
-        let _ = value;
-        Ok(Identity::default())
+        let (list, asked_by) = match value {
+            Value::Null | Value::Bool(false) => return Ok(Identity::default()),
+            Value::Array(list) => (list.as_slice(), AskedBy::Provider),
+            Value::Object(map) => {
+                let asked_by = match map.get("asked_by").and_then(Value::as_str) {
+                    None | Some("provider") => AskedBy::Provider,
+                    Some("app") => AskedBy::App,
+                    Some(other) => return Err(format!("nobody named {other:?} asks for the payer's details")),
+                };
+                let list = map
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                (list, asked_by)
+            }
+            _ => return Err(String::from("its payer details are not a list")),
+        };
+        let mut fields = Vec::new();
+        for item in list {
+            let text = item.as_str().unwrap_or_default();
+            let Some(field) = PayerField::parse(text) else {
+                return Err(format!("it asks for an unknown payer detail {text:?}"));
+            };
+            if asked_by == AskedBy::App && !APP_FIELDS.contains(&field) {
+                return Err(format!("the app never asks for the payer's {}", field.as_str()));
+            }
+            if !fields.contains(&field) {
+                fields.push(field);
+            }
+        }
+        Ok(Identity { fields, asked_by })
     }
 }
 
@@ -174,16 +204,27 @@ impl Payer {
     /// without `@` and a dot after it).
     #[must_use]
     pub fn missing(&self, identity: &Identity) -> Vec<PayerField> {
-        let _ = identity;
-        Vec::new()
+        identity
+            .app_fields()
+            .iter()
+            .copied()
+            .filter(|field| !filled(*field, self.get(*field)))
+            .collect()
     }
 
     /// Only the fields `identity` asks the app for, trimmed; `None` when it asks for none - so
     /// nothing is sent for a method that does not ask.
     #[must_use]
     pub fn for_checkout(&self, identity: &Identity) -> Option<Payer> {
-        let _ = identity;
-        None
+        let asked = identity.app_fields();
+        if asked.is_empty() {
+            return None;
+        }
+        let mut out = Payer::default();
+        for field in asked {
+            out.set(*field, self.get(*field).trim());
+        }
+        Some(out)
     }
 
     /// The JSON of `POST /v1/checkout`'s `payer`: the filled fields only.
@@ -197,5 +238,16 @@ impl Payer {
             }
         }
         Value::Object(map)
+    }
+}
+
+/// Whether `text` fills `field`.
+fn filled(field: PayerField, text: &str) -> bool {
+    let text = text.trim();
+    match field {
+        PayerField::Email => text
+            .split_once('@')
+            .is_some_and(|(user, host)| !user.is_empty() && host.contains('.') && !host.ends_with('.')),
+        _ => !text.is_empty(),
     }
 }

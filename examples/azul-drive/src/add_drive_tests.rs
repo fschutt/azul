@@ -223,36 +223,40 @@ fn buy_storage_without_payment_options_pays_on_the_v1_payment_page() {
 }
 
 #[test]
-fn the_pills_follow_the_country_and_the_period() {
-    let mut dialog = paying_dialog("DE");
-    assert!(dialog.pays_with_pills());
-    assert_eq!(methods(&dialog), vec![Method::SepaDebit, Method::Card]);
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::SepaDebit));
-    dialog.yearly = true;
-    assert_eq!(
-        methods(&dialog),
-        vec![Method::SepaDebit, Method::Card, Method::PayPal],
-        "PayPal for a prepaid year"
-    );
-    let mut us = paying_dialog("US");
-    assert_eq!(methods(&us), vec![Method::Card]);
-    assert_eq!(us.chosen_pill().map(|p| p.method), Some(Method::Card));
-    us.yearly = true;
-    assert_eq!(methods(&us), vec![Method::Card, Method::PayPal]);
+fn the_pills_are_the_methods_the_server_offered_in_its_order() {
+    // The server answered for the payer's country and period: the app hides none of it.
+    for country in ["DE", "US"] {
+        let mut dialog = paying_dialog(country);
+        assert!(dialog.pays_with_pills());
+        assert_eq!(
+            methods(&dialog),
+            vec![Method::SepaDebit, Method::Card, Method::PayPal],
+            "{country}"
+        );
+        assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::SepaDebit));
+        dialog.yearly = true;
+        assert_eq!(methods(&dialog).len(), 3, "{country}: the same offer, the same pills");
+    }
 }
 
 #[test]
-fn a_chosen_pill_stays_chosen_when_the_period_changes() {
+fn a_chosen_pill_stays_chosen_while_the_offer_has_it() {
     let mut dialog = paying_dialog("DE");
-    dialog.choose_pill(Method::Card);
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
-    dialog.yearly = true;
-    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
     dialog.choose_pill(Method::PayPal);
-    dialog.yearly = false;
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::PayPal));
+    dialog.yearly = true;
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::PayPal));
+    let without_paypal = Offer::parse(
+        &serde_json::json!({"offers": [{"provider": "stripe",
+                                        "methods": [{"method": "card"}]}]})
+        .to_string(),
+        &OfferContext::for_token_url("https://token.azlin.io"),
+    )
+    .unwrap();
+    dialog.offer = OfferState::Loaded(without_paypal);
     assert_eq!(
         dialog.chosen_pill().map(|p| p.method),
-        Some(Method::SepaDebit),
+        Some(Method::Card),
         "a pill that went away gives way to the default"
     );
 }
@@ -292,7 +296,10 @@ fn the_choice_carries_the_surfaces_azdrive_can_show() {
             SurfaceKind::SystemBrowser
         ]
     );
-    assert_eq!(dialog.pills_line(), "sepa_debit:gocardless card:stripe");
+    assert_eq!(
+        dialog.pills_line(),
+        "sepa_debit:gocardless card:stripe paypal:stripe"
+    );
 }
 
 #[test]

@@ -1,48 +1,31 @@
 //! The payment pills (CHECKOUT-PLAN §2.2): a pill is a payment METHOD, with its provider named
 //! under it ("via GoCardless") - people pick how they pay, not whom. Where two providers offer
-//! one method the pill keeps both, the server's default chosen, and the popover can switch.
+//! one method the pill keeps both, the cheaper route chosen (the server's `preferred`), and the
+//! popover can switch.
 //!
-//! The server's offer decides which pills may exist; the app decides which it shows, by the
-//! launch rules of the plan:
+//! The token server decides which pills exist and in which order: it answers for the buyer's
+//! declared country with only the methods that are switched on and routed there, ranked by that
+//! country's order of use. The app shows them in that order and keeps only what it can show:
 //!
-//! | Method        | Shown when                                                        |
-//! |---------------|-------------------------------------------------------------------|
-//! | Direct debit  | the payer's country is in the SEPA zone and the currency is EUR   |
-//! | Card          | always                                                            |
-//! | Apple Pay     | the app can show the native sheet                                 |
-//! | PayPal        | a prepaid period of 12 or 24 months (not recurring)               |
-//! | Wero          | a payer in DE, BE, FR, LU or NL, in EUR, not recurring            |
-//! | Bank transfer | a prepaid period of 12 or 24 months (not recurring)               |
-//! | Voucher       | never a pill ("I have a voucher" is a line of its own)            |
-//! | Cash by post  | one prepaid payment (not recurring), where the app prints paper   |
+//! - a method with no surface this app can show has no pill;
+//! - Apple Pay needs the native sheet (never its page in a web view);
+//! - a voucher is never a pill ("I have a voucher" is a line of its own);
+//! - cash by post is one prepaid payment, never a recurring plan.
 //!
-//! and only with a surface the app can show. The default pill is the direct debit where it
-//! shows, else the card, else the first.
+//! The default pill is the first one (the country's most used method), cash by post aside: it
+//! waits for a letter.
 
 use crate::{
     offer::{Offer, OfferedMethod, OfferedProvider},
     registry::{Method, SurfaceKind},
 };
 
-/// The countries of the SEPA zone (ISO 3166 alpha-2): the EU, the EEA, Switzerland, the United
-/// Kingdom, the microstates and the members admitted since (EPC's list).
-pub const SEPA_COUNTRIES: &[&str] = &[
-    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "HR", "HU", "IE",
-    "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK", // the EU
-    "IS", "LI", "NO", // the EEA
-    "CH", "GB", "MC", "SM", "VA", "AD", // the others
-    "AL", "MD", "ME", "MK", // admitted 2024 - 2025
-];
-
-/// Where Wero takes payments from (its launch countries).
-pub const WERO_COUNTRIES: &[&str] = &["DE", "BE", "FR", "LU", "NL"];
-
 /// Who pays what, and what the app can show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PillContext<'a> {
-    /// The payer's country (ISO alpha-2, any case): the dialog's "Country".
+    /// The payer's declared country (ISO alpha-2): what the offer was asked for.
     pub country: &'a str,
-    /// `EUR`.
+    /// The currency the offer was asked in (`PLN`).
     pub currency: &'a str,
     /// The months paid at once.
     pub months: u32,
@@ -52,18 +35,12 @@ pub struct PillContext<'a> {
     pub surfaces: &'a [SurfaceKind],
 }
 
-/// Whether the plan's launch rules show `method` to this payer (the surfaces aside).
+/// Whether the app shows `method` at all (its surfaces aside): the server has already chosen
+/// for the country, the currency and the period.
 #[must_use]
 pub fn method_shown(method: Method, ctx: &PillContext) -> bool {
-    let country = ctx.country.trim().to_ascii_uppercase();
-    let euro = ctx.currency.trim().eq_ignore_ascii_case("EUR");
-    let prepaid_year = ctx.months >= 12 && !ctx.recurring;
     match method {
-        Method::SepaDebit => euro && SEPA_COUNTRIES.contains(&country.as_str()),
-        Method::Card => true,
         Method::ApplePay => ctx.surfaces.contains(&SurfaceKind::NativeSheet),
-        Method::PayPal | Method::BankTransfer => prepaid_year,
-        Method::Wero => euro && !ctx.recurring && WERO_COUNTRIES.contains(&country.as_str()),
         Method::Voucher => false,
         Method::Cash => !ctx.recurring,
         _ => true,
@@ -113,39 +90,71 @@ fn showable(offered: &OfferedMethod, ctx: &PillContext) -> Vec<SurfaceKind> {
         .collect()
 }
 
-/// The pills of `offer` for this payer, in the order the server offered their methods.
+/// The pills of `offer` for this payer, in the payer country's order (the methods' `rank`; a
+/// method the server ranks not follows in the order it was offered).
 #[must_use]
 pub fn pills(offer: &Offer, ctx: &PillContext) -> Vec<Pill> {
-    let mut out: Vec<Pill> = Vec::new();
+    // Each pill with its best rank, in the order its method was first offered.
+    let mut out: Vec<(Pill, u32)> = Vec::new();
     for (index, provider) in offer.providers.iter().enumerate() {
         for offered in &provider.methods {
             if !method_shown(offered.method, ctx) || showable(offered, ctx).is_empty() {
                 continue;
             }
-            match out.iter_mut().find(|p| p.method == offered.method) {
-                Some(pill) => {
+            let rank = offered.rank.unwrap_or(u32::MAX);
+            match out.iter_mut().find(|(p, _)| p.method == offered.method) {
+                Some((pill, best)) => {
                     pill.providers.push(index);
-                    if provider.default && !offer.providers[pill.chosen].default {
-                        pill.chosen = index;
-                    }
+                    *best = (*best).min(rank);
                 }
-                None => out.push(Pill {
-                    method: offered.method,
-                    providers: vec![index],
-                    chosen: index,
-                }),
+                None => out.push((
+                    Pill {
+                        method: offered.method,
+                        providers: vec![index],
+                        chosen: index,
+                    },
+                    rank,
+                )),
             }
         }
     }
-    out
+    // A stable sort: equal ranks keep the order they were offered in.
+    out.sort_by_key(|(_, rank)| *rank);
+    out.into_iter()
+        .map(|(mut pill, _)| {
+            pill.chosen = first_choice(offer, &pill);
+            pill
+        })
+        .collect()
 }
 
-/// The pill shown first: the direct debit, else the card, else the first (0 for none).
+/// The provider a pill starts with: the cheaper route (`preferred`), else the server's default
+/// provider, else the first.
+fn first_choice(offer: &Offer, pill: &Pill) -> usize {
+    let preferred = |i: usize| {
+        offer
+            .providers
+            .get(i)
+            .and_then(|p| p.method(pill.method))
+            .is_some_and(|m| m.preferred)
+    };
+    let default = |i: usize| offer.providers.get(i).is_some_and(|p| p.default);
+    pill.providers
+        .iter()
+        .copied()
+        .find(|&i| preferred(i))
+        .or_else(|| pill.providers.iter().copied().find(|&i| default(i)))
+        .or_else(|| pill.providers.first().copied())
+        .unwrap_or(pill.chosen)
+}
+
+/// The pill shown first: the first one (the payer country's most used method), cash by post
+/// aside (0 for none).
 #[must_use]
 pub fn default_pill(pills: &[Pill]) -> usize {
-    [Method::SepaDebit, Method::Card]
+    pills
         .iter()
-        .find_map(|m| pills.iter().position(|p| p.method == *m))
+        .position(|p| p.method != Method::Cash)
         .unwrap_or(0)
 }
 
