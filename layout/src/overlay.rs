@@ -514,6 +514,14 @@ impl ContentOverlay {
             && self.pending_structure.is_empty()
     }
 
+    /// Whether any entry lays out differently from what the DOM alone says:
+    /// an edited text, a pending structure, a node image (its intrinsic
+    /// size). Background frames only paint, so they do not count.
+    #[must_use]
+    pub fn shapes_layout(&self) -> bool {
+        !self.images.is_empty() || !self.text.is_empty() || !self.pending_structure.is_empty()
+    }
+
     /// Set a node's image, the whole of it new to the renderer.
     pub(crate) fn set_image(
         &mut self,
@@ -679,6 +687,21 @@ impl ContentOverlay {
         }
         self.text
             .retain(|&(d, _), dirty| d != dom_id || dirty.revision == 0 || dirty.revision > acked);
+    }
+
+    /// Whether a new generation of `dom_id` changes this overlay: the text
+    /// entries the app acked (up to `acked`) and a pending structural preview
+    /// retire when the app's re-render lands. Such a re-render has to be laid
+    /// out even when its DOM equals the one on screen, or the screen keeps
+    /// showing the overlay instead of the app's model.
+    #[must_use]
+    pub fn retires_with_a_new_generation(&self, dom_id: DomId, acked: u64) -> bool {
+        let acked_text = acked != 0
+            && self
+                .text
+                .iter()
+                .any(|(&(d, _), dirty)| d == dom_id && dirty.revision != 0 && dirty.revision <= acked);
+        acked_text || self.pending_structure.get(&dom_id).is_some_and(|p| !p.is_empty())
     }
 
     /// Drop every pending structural delta of `dom` — called when a new

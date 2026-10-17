@@ -720,6 +720,17 @@ pub fn regenerate_layout(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     );
+    // The layout callback ran, so this is the app's re-render: it retires the
+    // overlay text the app acked and ends a pending structural preview
+    // (`LayoutWindow::layout_new_generation`). With either, neither
+    // "layout unchanged" exit below may keep the retained layout, which still
+    // shows the overlay; the pass lays out as a new generation instead.
+    let overlay_retires = layout_window
+        .content_overlay
+        .retires_with_a_new_generation(
+            azul_core::dom::DomId::ROOT_ID,
+            layout_window.acked_text_revision,
+        );
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             !theme_rebuild
@@ -829,6 +840,7 @@ pub fn regenerate_layout(
             && !states_changed
             && !docks_changed
             && !theme_changed_precheck
+            && !overlay_retires
         {
             // Put the retained result back untouched.
             old_result.styled_dom = retained;
@@ -1458,7 +1470,7 @@ pub fn regenerate_layout(
                 }
             }
 
-            if !window_size_changed {
+            if !window_size_changed && !overlay_retires {
                 // Same rule as the pre-cascade exit above: the DOM is
                 // equivalent, the transferred datasets / VirtualView refanys
                 // are not necessarily — re-invoke every view in place.
@@ -1480,7 +1492,8 @@ pub fn regenerate_layout(
             }
 
             // R1 — THE EQUIVALENCE RESULT IS USED, NOT THROWN AWAY. The size
-            // changed but the DOM did not, so the freshly-produced StyledDom
+            // changed (or the overlay retires what the app acked) but the DOM
+            // did not, so the freshly-produced StyledDom
             // is DROPPED and the PREVIOUS one — the exact object solver3's
             // warm caches (shaping, intrinsic widths) were built against — is
             // re-laid-out at the new size below. Same-object identity makes
