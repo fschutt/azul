@@ -277,6 +277,25 @@ fn the_language_comes_from_the_locale() {
 }
 
 #[test]
+fn an_expired_session_a_node_names_is_trouble_that_passes_not_something_that_went_wrong() {
+    // A node refuses a session that ran out, or whose signing epoch ended, with x-azlin-error
+    // session_expired: the drive asks for fresh credentials and goes on. Should the user see it
+    // at all, it passes by itself - and no node is asked again with the same credentials.
+    let expired = azlin(403, "ExpiredToken", Some("session_expired"));
+    let user = UserError::from_drive_error(&expired).expect("a user's error");
+    assert_eq!(user.code.as_str(), "session_expired");
+    assert_eq!(user.class(), Class::Retry);
+    assert!(
+        !matches!(
+            user.behaviour(),
+            Behaviour::RetryWithBackoff | Behaviour::RetryAfterPause | Behaviour::Report
+        ),
+        "{:?}",
+        user.behaviour()
+    );
+}
+
+#[test]
 fn the_table_is_a_fluent_resource_in_english_and_german() {
     let en = fluent_source(Lang::En);
     let de = fluent_source(Lang::De);

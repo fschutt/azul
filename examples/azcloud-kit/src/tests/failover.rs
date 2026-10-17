@@ -402,6 +402,24 @@ fn an_answer_the_user_must_act_on_is_not_asked_again() {
 }
 
 #[test]
+fn an_expired_session_is_not_asked_again_at_another_node_or_after_a_pause() {
+    // Every node refuses credentials that ran out: the drive refreshes them and sends the call
+    // again (drive.rs), so the failover hands the refusal up at once.
+    let fake = Fake::new(|_, _| {
+        Ok(reply(
+            403,
+            &[("x-azlin-error", "session_expired")],
+            "<Error><Code>ExpiredToken</Code><Message>expired</Message></Error>",
+        ))
+    });
+    let (bucket, pauses) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_nodes(vec![node("n2", N2, true)]);
+    let _ = bucket.put_if("a.txt", b"x", None);
+    assert_eq!(fake.calls().len(), 1, "{:?}", hosts(&fake));
+    assert!(pauses.lock().unwrap().is_empty());
+}
+
+#[test]
 fn a_drive_that_moved_is_followed_to_the_endpoint_the_answer_names() {
     let s3 = FakeS3::new();
     s3.write("a.txt", b"alpha".to_vec());
