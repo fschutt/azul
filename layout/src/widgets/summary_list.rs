@@ -55,7 +55,8 @@ use azul_css::{
         basic::length::FloatValue,
         layout::{
             LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutFlexShrink, LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
+            LayoutFlexShrink, LayoutFlexWrap, LayoutHeight, LayoutMinHeight, LayoutMinWidth,
+            LayoutOverflow,
         },
         property::CssProperty,
         style::{StyleCursor, StyleUserSelect},
@@ -537,6 +538,21 @@ pub(crate) static SUMMARY_LIST_BASE: &[CssPropertyWithConditions] = &[
 pub(crate) static SUMMARY_LIST_STRIP_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The sort header: a strip whose direction goes to a line of its own when
+/// the column is narrower than its three parts, rather than cutting the
+/// caption or breaking a link over two lines.
+pub(crate) static SUMMARY_LIST_SORT_STRIP_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_wrap(LayoutFlexWrap::Wrap)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
@@ -1375,7 +1391,7 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
     };
     let sort = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SORT_CLASS))
-        .with_css_props(part(SUMMARY_LIST_STRIP_BASE, &look.sort))
+        .with_css_props(part(SUMMARY_LIST_SORT_STRIP_BASE, &look.sort))
         .with_children(DomVec::from_vec(alloc::vec![
             crate::widgets::widget_p_with_text(sort_label)
                 .with_css_props(part(TILE_LINE_BASE, &[])),
