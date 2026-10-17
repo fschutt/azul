@@ -34,9 +34,8 @@ import glob
 import os
 
 import azlin_e2e as e2e
-from azlin_e2e import Failure, modal_window
 # The one "click a standard dialog's button by its label" (the page has a "Delete" too).
-from azwriter_e2e import click_dialog_button
+from azlin_e2e import Failure, click_dialog_button, modal_window
 
 TAG = "azerp"
 TODAY = "2026-10-03"
@@ -70,10 +69,9 @@ def delete_asks_first(app, data_dir, key, out):
     if asked not in key:
         raise Failure("Delete asked about %r, not the new asset (%s)" % (asked, key))
     app.until("the question", lambda: app.has_id("__azerp_confirm-delete"))
-    question = modal_window(app)
-    question.frame(2)
+    modal_window(app).frame(2)
     removed = len(app.printed("AZERP_REMOVED"))
-    click_dialog_button(question, "Cancel")
+    click_dialog_button(app, "Cancel")
     app.until("the question gone after Cancel", lambda: not app.has_id("__azerp_confirm-delete"))
     app.frame(2)
     if len(app.printed("AZERP_REMOVED")) != removed or not os.path.exists(asset_file):
@@ -83,7 +81,8 @@ def delete_asks_first(app, data_dir, key, out):
     app.after("the delete question again", "AZERP_ASK_DELETE", r"\S+",
               lambda: app.click(selector="#__azerp_action-delete"))
     app.until("the question again", lambda: app.has_id("__azerp_confirm-delete"))
-    click_dialog_button(modal_window(app), "Delete")
+    modal_window(app).frame(2)
+    click_dialog_button(app, "Delete")
     app.until("the asset's file removed", lambda: key in app.printed("AZERP_REMOVED"))
     app.frame(2)
     if os.path.exists(asset_file):
