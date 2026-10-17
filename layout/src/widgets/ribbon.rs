@@ -4642,6 +4642,8 @@ fn leather_details(dom: &mut Dom) {
             inner: PercentageValue::const_new(100),
         })));
         append_style(&mut dom.root, extra);
+        quiet_ink(dom);
+        return;
     } else if dom.root.has_class("__azul-native-ribbon-row")
         && dom
             .children
@@ -4656,7 +4658,21 @@ fn leather_details(dom: &mut Dom) {
     }
 }
 
-// -- DOM assembly helpers --
+/// The label and the icon inside a disabled command on the leather: each
+/// carries an ink of its own, so each takes the quiet grey itself rather than
+/// inheriting the pill's.
+fn quiet_ink(dom: &mut Dom) {
+    use crate::widgets::themes::flora;
+    for child in &mut dom.children {
+        match child.root.get_node_type() {
+            NodeType::Text(_) => {}
+            NodeType::Icon(_) => append_style(&mut child.root, flora::quiet_icon()),
+            _ => append_style(&mut child.root, flora::quiet_words().to_vec()),
+        }
+        quiet_ink(child);
+    }
+}
+
 // -- DOM assembly helpers --
 
 /// The Australis curves a look hangs off the tab row's stones: flora's own
