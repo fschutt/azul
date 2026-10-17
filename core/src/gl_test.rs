@@ -1469,7 +1469,7 @@ mod gl_state_restore_tests {
     //! again. They read the bindings with the `*_BINDING` names; asking for
     //! `GL_TEXTURE_2D` is an error in a core profile and answers nothing.
 
-    use core::{cell::RefCell, ffi::c_void};
+    use core::cell::RefCell;
 
     use super::*;
 
