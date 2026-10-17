@@ -5894,7 +5894,7 @@ impl LayoutWindow {
         available: LogicalSize,
     ) -> LogicalSize {
         self.scratch_layout(styled_dom, available)
-            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache))
+            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache, styled_dom))
     }
 
     /// [`Self::measure_styled_dom_shrink_to_fit`] for an unstyled user DOM
@@ -5933,14 +5933,14 @@ impl LayoutWindow {
             .and_then(|t| t.warm.get(t.root))
             .and_then(|w| w.intrinsic_sizes.map(|i| i.max_content_width));
         let Some(w) = max_content else {
-            return Some(Self::scratch_extent(&first));
+            return Some(Self::scratch_extent(&first, styled_dom));
         };
         let w = w.ceil().max(1.0);
         if w + 0.5 >= bound.width {
-            return Some(Self::scratch_extent(&first));
+            return Some(Self::scratch_extent(&first, styled_dom));
         }
         let second = self.scratch_layout(styled_dom, LogicalSize::new(w, bound.height))?;
-        Some(Self::scratch_extent(&second))
+        Some(Self::scratch_extent(&second, styled_dom))
     }
 
     /// Style + lay `styled_dom` out against `available` on fresh scratch
@@ -6022,20 +6022,46 @@ impl LayoutWindow {
         Some(scratch_cache)
     }
 
-    /// Union of every node's absolute bounds = true content extent
-    /// (`root.used_size` alone can be clamped to the viewport).
-    fn scratch_extent(cache: &Solver3LayoutCache) -> LogicalSize {
+    /// The extent of what shows of `cache`'s layout of `styled_dom`: the union of
+    /// the boxes' absolute bounds (`root.used_size` alone can be clamped to the
+    /// viewport), where a box that scrolls or clips on an axis keeps its
+    /// content inside its own box on that axis. A list in a 260 px scroll box
+    /// needs 260 px, not the height of all its rows.
+    fn scratch_extent(cache: &Solver3LayoutCache, styled_dom: &StyledDom) -> LogicalSize {
+        use crate::solver3::getters::{get_overflow_x, get_overflow_y};
         let Some(tree) = cache.tree.as_ref() else {
             return LogicalSize::zero();
         };
+        let states = styled_dom.styled_nodes.as_container();
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            let Some(size) = node.used_size else { continue };
-            let pos = solver3::pos_get(&cache.calculated_positions, idx)
-                .unwrap_or(LogicalPosition::zero());
-            max_x = max_x.max(pos.x + size.width);
-            max_y = max_y.max(pos.y + size.height);
+        // (box, whether its right edge still reaches the extent, its bottom edge)
+        let mut stack = vec![(tree.root, true, true)];
+        while let Some((idx, reaches_x, reaches_y)) = stack.pop() {
+            let Some(node) = tree.nodes.get(idx) else { continue };
+            if let Some(size) = node.used_size {
+                let pos = solver3::pos_get(&cache.calculated_positions, idx)
+                    .unwrap_or(LogicalPosition::zero());
+                if reaches_x {
+                    max_x = max_x.max(pos.x + size.width);
+                }
+                if reaches_y {
+                    max_y = max_y.max(pos.y + size.height);
+                }
+            }
+            let (clips_x, clips_y) = node
+                .dom_node_id
+                .filter(|id| id.index() < states.len())
+                .map_or((false, false), |id| {
+                    let state = &states[id].styled_node_state;
+                    (
+                        get_overflow_x(styled_dom, id, state).is_clipped(),
+                        get_overflow_y(styled_dom, id, state).is_clipped(),
+                    )
+                });
+            for &child in tree.children(idx) {
+                stack.push((child, reaches_x && !clips_x, reaches_y && !clips_y));
+            }
         }
         LogicalSize::new(max_x, max_y)
     }
