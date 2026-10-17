@@ -696,6 +696,14 @@ const EMBED_UNTESTED_QR: EmbedPolicy = EmbedPolicy {
     breaks: &[Breaks::BankAppSwitch],
 };
 
+/// A provider whose pages may never be framed (dLocal's): the system browser only.
+#[cfg(feature = "fake-providers")]
+const EMBED_NEVER_FRAMED: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::SystemBrowser,
+    breaks: &[],
+};
+
 /// GoCardless says nothing either way about web views: the chain keeps what is tested.
 const EMBED_GOCARDLESS: EmbedPolicy = EmbedPolicy {
     webview: Webview::Discouraged,
@@ -950,6 +958,25 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
             settles: Settles::Instant,
         }],
         icon: "account_balance_wallet",
+        fake: true,
+    },
+    // dLocal's shape: its API takes the payer's name, email and national ID in the merchant's
+    // request (the app asks for them, the token server passes them on), and its pages may never
+    // be framed - the system browser only.
+    ProviderSpec {
+        id: "fake-dlocal",
+        kind: ProviderKind::Processor,
+        name: "Fake dLocal",
+        legal_name: "Fake dLocal (a local test provider)",
+        origins: &[FAKE_PAGES],
+        pages: FAKE_PAGES,
+        fields: None,
+        methods: &[
+            spec(Method::Pix, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Instant),
+            spec(Method::Oxxo, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
+            spec(Method::Boleto, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
+        ],
+        icon: "account_balance",
         fake: true,
     },
     // A merchant of record in Polar's shape: its embed / hosted page, the browser.
