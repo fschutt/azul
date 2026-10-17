@@ -1907,7 +1907,7 @@
     }
 
     #[test]
-    fn is_collapsible_whitespace_is_vacuously_true_for_an_empty_cluster() {
+    fn is_collapsible_whitespace_holds_for_white_space_and_never_for_a_cluster_without_text() {
         assert!(is_collapsible_whitespace(&cl(" ", 4.0)));
         assert!(is_collapsible_whitespace(&cl("\t", 8.0)));
         assert!(is_collapsible_whitespace(&cl("\u{1680}", 4.0)));
@@ -1922,11 +1922,12 @@
             "all() — mixed is false"
         );
         assert!(!is_collapsible_whitespace(&obj(1.0, 1.0, 0.0)));
-        // QUIRK: `chars().all(..)` on an empty string is vacuously TRUE, so a
-        // zero-text cluster is treated as strippable whitespace at line edges.
+        // A cluster whose text cannot be read lost its mapping to the text it
+        // was shaped from; its glyphs are text, never white space to strip at
+        // a line's edges (pdfocr engine issue 9 lost a whole paragraph so).
         assert!(
-            is_collapsible_whitespace(&cl("", 0.0)),
-            "an empty cluster counts as collapsible whitespace"
+            !is_collapsible_whitespace(&cl("", 8.0)),
+            "a cluster without text is not collapsible white space"
         );
     }
 
