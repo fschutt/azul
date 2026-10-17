@@ -90,6 +90,7 @@ pub struct GpuValueCache {
     /// Each sheen's eased strength now, 0 (none) to 1.
     pub sheen_current_opacity_values: HashMap<NodeId, f32>,
     /// Animation opacity keys (keyed by node ID).
+    pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
     pub anim_current_opacity_values: HashMap<NodeId, f32>,
     /// CSS opacity keys (keyed by node ID)
