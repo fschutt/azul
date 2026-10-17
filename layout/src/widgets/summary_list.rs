@@ -2270,6 +2270,37 @@ mod a_sort_header_fits_its_column_tests {
         ]
     }
 
+    /// A column narrower than the header's three parts (a wider UI face, a
+    /// longer translation, a narrow pane): the direction goes to a line of
+    /// its own, so the caption is not cut and no link breaks over two lines.
+    #[test]
+    fn a_sort_header_wider_than_its_column_puts_the_direction_on_a_line_of_its_own() {
+        let [caption, field, direction] = sort_parts(200.0);
+        let [roomy_caption, roomy_field, roomy_direction] = sort_parts(800.0);
+        assert!(
+            (caption.width - roomy_caption.width).abs() < 0.5,
+            "the caption is not cut: {} px in the column, {} px with room",
+            caption.width,
+            roomy_caption.width
+        );
+        assert!(
+            (field.width - roomy_field.width).abs() < 0.5,
+            "the field keeps its size: {field:?} vs {roomy_field:?}"
+        );
+        for (name, got, want) in [
+            ("caption", caption, roomy_caption),
+            ("field", field, roomy_field),
+            ("direction", direction, roomy_direction),
+        ] {
+            assert!(
+                (got.height - want.height).abs() < 0.5,
+                "the {name} stays on one line: {} px high in the column, {} px with room",
+                got.height,
+                want.height
+            );
+        }
+    }
+
     #[test]
     fn in_aznotes_list_column_a_flora_sort_header_keeps_its_caption_and_one_line_links() {
         let [caption, field, direction] = sort_parts(300.0);
