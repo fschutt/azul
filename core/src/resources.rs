@@ -2688,6 +2688,27 @@ impl fmt::Debug for RendererResources {
 }
 
 impl RendererResources {
+    /// `key` no longer shows `frame` (its slot shows another one now). Two
+    /// slots may show one frame - the render cache hands identical surfaces
+    /// one image - each under its own key: the frame stays resolvable through
+    /// another key that still shows it, and is forgotten only when none does
+    /// (never `DeleteImage`d here: the slot keys live on).
+    pub fn release_frame(&mut self, key: ImageKey, frame: ImageRefHash) {
+        let other = self
+            .image_key_map
+            .iter()
+            .find(|(k, shown)| **k != key && **shown == frame)
+            .map(|(k, _)| *k);
+        match (other, self.currently_registered_images.get_mut(&frame)) {
+            (Some(other), Some(resolved)) => resolved.key = other,
+            (Some(_), None) => {}
+            (None, _) => {
+                self.currently_registered_images.remove(&frame);
+                self.image_last_seen_epoch.remove(&frame);
+            }
+        }
+    }
+
     #[must_use]
     pub fn get_renderable_font_data(
         &self,

@@ -1510,7 +1510,13 @@ where
             continue;
         };
         let hash = image.get_hash();
-        if rr.currently_registered_images.contains_key(&hash) {
+        // Only this slot's own key counts: a frame another slot shows as well
+        // goes under this slot's key too, so it outlives the other's change.
+        let shown_here = rr
+            .image_slots
+            .get(&slot)
+            .is_some_and(|key| rr.image_key_map.get(key) == Some(&hash));
+        if shown_here {
             continue;
         }
         let (key, update) = match rr.image_slots.get(&slot) {
@@ -1564,12 +1570,12 @@ where
         } else {
             ImageDirtyRect::All
         };
-        if let Some(old) = rr.image_key_map.insert(key, hash) {
+        if let Some(old) = rr.image_key_map.get(&key).copied() {
             if old != hash {
-                rr.currently_registered_images.remove(&old);
-                rr.image_last_seen_epoch.remove(&old);
+                rr.release_frame(key, old);
             }
         }
+        rr.image_key_map.insert(key, hash);
         rr.currently_registered_images.insert(
             hash,
             ResolvedImage {
@@ -3220,12 +3226,11 @@ fn register_overlay_textures(
         match shown {
             Some(previous) => {
                 txn.update_image(wr_key, wr_descriptor, wr_data, &DirtyRect::All);
-                // The previous frame no longer resolves: the key shows this
-                // one, and the image GC must not delete the key for the old
-                // hash.
+                // The key shows this frame now: the previous one resolves only
+                // through another slot's key that still shows it, and the image
+                // GC must not delete this key for the old hash.
                 if previous != produced_hash {
-                    rr.currently_registered_images.remove(&previous);
-                    rr.image_last_seen_epoch.remove(&previous);
+                    rr.release_frame(image_key, previous);
                 }
             }
             None => {
