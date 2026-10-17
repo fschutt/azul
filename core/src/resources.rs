@@ -2699,16 +2699,13 @@ impl RendererResources {
             .iter()
             .find(|(k, shown)| **k != key && **shown == frame)
             .map(|(k, _)| *k);
-        match other {
-            Some(other) => {
-                if let Some(resolved) = self.currently_registered_images.get_mut(&frame) {
-                    resolved.key = other;
-                }
-            }
-            None => {
-                self.currently_registered_images.remove(&frame);
-                self.image_last_seen_epoch.remove(&frame);
-            }
+        let Some(other) = other else {
+            self.currently_registered_images.remove(&frame);
+            self.image_last_seen_epoch.remove(&frame);
+            return;
+        };
+        if let Some(resolved) = self.currently_registered_images.get_mut(&frame) {
+            resolved.key = other;
         }
     }
 

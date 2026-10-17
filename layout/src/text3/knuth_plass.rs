@@ -715,7 +715,6 @@ fn position_lines_from_breaks(
         }
 
         // Alignment & Positioning
-        let total_width = line_width;
 
         // For MaxContent, don't apply alignment (treat as left-aligned)
         let is_indefinite = matches!(
@@ -726,7 +725,7 @@ fn position_lines_from_breaks(
             0.0
         } else {
             available_width_f32
-                - (total_width
+                - (line_width
                     + extra_per_space
                         * line_items
                             .iter()

@@ -7062,14 +7062,13 @@ where
             );
             // The highlight takes the colour of the light the material is lit
             // by: the window's, which the sheen channel carries.
-            let light = match cache.sheen_light {
-                Some((color, intensity)) => MaterialLight {
+            let light = cache
+                .sheen_light
+                .map_or(MaterialLight::DEFAULT, |(color, intensity)| MaterialLight {
                     color,
                     intensity,
                     ..MaterialLight::DEFAULT
-                },
-                None => MaterialLight::DEFAULT,
-            };
+                });
             let Some(sprite) = materials::sheen_sprite(material, &params, &light) else {
                 return false;
             };
