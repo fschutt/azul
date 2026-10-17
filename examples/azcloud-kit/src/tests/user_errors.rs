@@ -277,6 +277,25 @@ fn the_language_comes_from_the_locale() {
 }
 
 #[test]
+fn a_drive_this_device_holds_no_key_for_is_the_tables_locked_drive_in_every_language() {
+    // An encrypted drive this device cannot open yet (no key here; after another device's
+    // rotation the wrap is gone): the user unlocks it with the recovery code or joins it from
+    // a device that has the key. The status says so in the window's language, not in the
+    // library's English with the drive's id.
+    let locked = DriveError::Locked {
+        drive: String::from("d_h6xbwdj6w6mw3cxxzib75s57mi"),
+    };
+    let user = UserError::from_drive_error(&locked).expect("a user's error");
+    assert_eq!(user.code.as_str(), "locked");
+    assert_eq!(user.class(), Class::ReAuth);
+    for (lang, word) in [(Lang::En, "recovery code"), (Lang::De, "Wiederherstellungscode")] {
+        let said = user.message(lang);
+        assert!(said.contains(word), "{lang:?}: {said}");
+        assert!(!said.contains("d_h6"), "{lang:?}: the drive's id is no word: {said}");
+    }
+}
+
+#[test]
 fn an_expired_session_a_node_names_is_trouble_that_passes_not_something_that_went_wrong() {
     // A node refuses a session that ran out, or whose signing epoch ended, with x-azlin-error
     // session_expired: the drive asks for fresh credentials and goes on. Should the user see it

@@ -153,7 +153,7 @@ fn a_second_device_gets_the_drive_key_through_its_join_code_once() {
     assert_eq!(b.recover_key(&recovery, &c_keys).unwrap(), key);
     assert!(matches!(
         b.open_encrypted(&MemoryKeyring::new(), &provider),
-        Err(CloudError::Drive(DriveError::Denied { .. }))
+        Err(CloudError::Drive(DriveError::Locked { .. }))
     ));
 }
 

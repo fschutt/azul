@@ -94,11 +94,24 @@ fn a_failed_pass_keeps_the_error_tables_code_and_a_good_pass_clears_it() {
             .expect("the errors table's code is kept for the app's status line");
         assert_eq!(problem.code, code);
     }
-    // A refusal the drive words itself (no key for an encrypted drive here yet) keeps its words.
+    // An encrypted drive this device holds no key for is the table's locked drive.
+    let store: Arc<dyn RemoteStore> = Arc::new(Refusing {
+        inner: bucket.clone(),
+        refusal: DriveError::Locked {
+            drive: String::from("d_1"),
+        },
+    });
+    let session = session_over(store, &folder, &state);
+    assert!(session.pass(&AtomicBool::new(false), &mut |_| {}).is_err());
+    assert_eq!(
+        session.states().last_problem.map(|p| p.code).as_deref(),
+        Some("locked")
+    );
+    // A refusal the drive words itself (a grant that takes no writes) keeps its words.
     let store: Arc<dyn RemoteStore> = Arc::new(Refusing {
         inner: bucket.clone(),
         refusal: DriveError::Denied {
-            message: String::from("this device has no key for this drive yet"),
+            message: String::from("this drive takes no writes"),
         },
     });
     let session = session_over(store, &folder, &state);

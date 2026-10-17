@@ -609,10 +609,11 @@ fn a_device_opens_an_encrypted_drive_with_its_own_key_and_the_providers_index() 
     assert_eq!(drive.drive_key_id(), drive_key.id());
     drive.put("letters/a.txt", b"hello").unwrap();
 
-    // A device without a key is refused, not handed an empty drive.
+    // A device without a key is refused as a drive locked here, not handed an empty drive: it
+    // unlocks with the recovery code or joins from a device that has the key.
     assert!(matches!(
         open_encrypted(bucket.clone(), &MemoryKeyring::new(), "d_1", &provider),
-        Err(DriveError::Denied { .. })
+        Err(DriveError::Locked { drive }) if drive == "d_1"
     ));
 
     // A second device, enrolled by an invite, reads what the first wrote.
