@@ -133,7 +133,6 @@ type XStringToKeysymFn = unsafe extern "C" fn(*const c_char) -> KeySym;
 type XSetErrorHandlerFn = unsafe extern "C" fn(Option<XErrorHandler>) -> Option<XErrorHandler>;
 type XSyncFn = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 type XPendingFn = unsafe extern "C" fn(*mut Display) -> c_int;
-type XConnectionNumberFn = unsafe extern "C" fn(*mut Display) -> c_int;
 type XNextEventFn = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 type XGetModifierMappingFn = unsafe extern "C" fn(*mut Display) -> *mut XModifierKeymap;
 type XFreeModifiermapFn = unsafe extern "C" fn(*mut XModifierKeymap) -> c_int;
@@ -151,7 +150,6 @@ struct Xlib {
     set_error_handler: XSetErrorHandlerFn,
     sync: XSyncFn,
     pending: XPendingFn,
-    connection_number: XConnectionNumberFn,
     next_event: XNextEventFn,
     get_modifier_mapping: XGetModifierMappingFn,
     free_modifiermap: XFreeModifiermapFn,
@@ -187,9 +185,6 @@ fn xlib() -> Option<&'static Xlib> {
                 .ok()?,
             sync: *lib.get::<XSyncFn>(b"XSync\0").ok()?,
             pending: *lib.get::<XPendingFn>(b"XPending\0").ok()?,
-            connection_number: *lib
-                .get::<XConnectionNumberFn>(b"XConnectionNumber\0")
-                .ok()?,
             next_event: *lib.get::<XNextEventFn>(b"XNextEvent\0").ok()?,
             get_modifier_mapping: *lib
                 .get::<XGetModifierMappingFn>(b"XGetModifierMapping\0")
