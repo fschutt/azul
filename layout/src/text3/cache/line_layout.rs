@@ -605,6 +605,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // distributed across line boxes "When an inline box exceeds the logical
             // width of a line box, it is split into several fragments, which are
             // partitioned across multiple line boxes."
+            let position_before_line = (cursor.next_item_index, cursor.partial_remainder.len());
             let (mut line_items, was_hyphenated) = break_one_line(
                 cursor,
                 &line_constraints,
@@ -616,9 +617,26 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 effective_overflow_wrap,
             );
             if line_items.is_empty() {
+                // An empty line ends the column only at the end of the content.
+                // With content left, the breaker took items and stripped them all
+                // as white space at the line's edges: such a line has no box, and
+                // the next line starts here. Ending the column there
+                // would drop the rest of the paragraph without a trace.
+                if cursor.is_done() {
+                    break;
+                }
+                if (cursor.next_item_index, cursor.partial_remainder.len())
+                    != position_before_line
+                {
+                    continue;
+                }
+                // Defensive: the breaker always consumes an item while content
+                // is left, so this never happens; it must not loop forever.
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(
-                        "  Break returned no items. Ending column.".to_string(),
+                    msgs.push(LayoutDebugMessage::warning(
+                        "  Break returned no items and consumed none with content left. \
+                         Ending column."
+                            .to_string(),
                     ));
                 }
                 break;
