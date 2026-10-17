@@ -800,6 +800,63 @@ fn whether_a_drive_is_encrypted_is_answered_while_its_first_call_decides_it() {
     assert_eq!(drive.is_encrypted(), Some(false), "decided by the first call");
 }
 
+/// The same question asked on the app's UI thread, before any call opened the drive, while the
+/// first call still opens it, and after. The drive's lock is held across network requests, so
+/// the UI thread never takes it (a debug build asserts that at the lock, contended or not): a
+/// question that took it would fail here every time, not only when it happens to race.
+#[test]
+fn the_ui_thread_asks_whether_a_drive_is_encrypted_without_taking_its_lock() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("a.txt", b"plain".to_vec());
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let bucket = Arc::new(HeldBucket {
+        inner: mem,
+        entered: Mutex::new(Some(entered_tx)),
+        release: Mutex::new(release_rx),
+    });
+    let drive = Arc::new(AutoEncrypted::new(
+        bucket,
+        "d_1",
+        Arc::new(MemoryKeyring::new()),
+        provider(),
+    ));
+    let (ask_tx, ask) = mpsc::channel::<()>();
+    let (answer_tx, answer) = mpsc::channel();
+    let ui = {
+        let drive = Arc::clone(&drive);
+        std::thread::spawn(move || {
+            crate::ui_thread::mark_ui_thread();
+            while ask.recv().is_ok() {
+                let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    drive.is_encrypted()
+                }))
+                .map_err(|_| "the UI thread took the drive's lock");
+                let _ = answer_tx.send(asked);
+            }
+        })
+    };
+    let ask_ui = || {
+        ask_tx.send(()).unwrap();
+        answer.recv_timeout(Duration::from_secs(5))
+    };
+    assert_eq!(ask_ui(), Ok(Ok(None)), "before any call");
+    let first = {
+        let drive = Arc::clone(&drive);
+        std::thread::spawn(move || drive.list(&ListRequest::folder("")).map(|_| ()))
+    };
+    entered
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the first call reached the bucket");
+    let meanwhile = ask_ui();
+    release.send(()).unwrap();
+    first.join().unwrap().unwrap();
+    assert_eq!(meanwhile, Ok(Ok(None)), "while the first call opens the drive");
+    assert_eq!(ask_ui(), Ok(Ok(Some(false))), "after it decided");
+    drop(ask_tx);
+    ui.join().unwrap();
+}
+
 #[test]
 fn reopening_takes_a_drive_encrypted_since() {
     let mem = Arc::new(MemBucket::new());
