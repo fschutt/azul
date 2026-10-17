@@ -304,3 +304,110 @@ fn a_fake_provider_from_a_local_token_server_keeps_its_loopback_pages() {
     let elsewhere = WebUrl::parse("http://10.0.0.2:8081/return/ok").unwrap();
     assert_eq!(fake.return_kind(&elsewhere), None);
 }
+
+#[test]
+fn a_countrys_offer_reads_each_methods_rank_price_and_payer_details() {
+    let offer = super::fixtures::live_offer(&super::fixtures::options_pl());
+    assert_eq!(offer.country.as_deref(), Some("PL"));
+    assert_eq!(offer.currency.as_deref(), Some("PLN"));
+    let stripe = offer.provider("stripe").expect("Stripe");
+    let blik = stripe.method(Method::Blik).expect("BLIK is one of Stripe's methods");
+    assert_eq!(blik.rank, Some(0));
+    assert_eq!(blik.expires_minutes, 2);
+    assert!(blik.preferred);
+    let charge = blik.charge.as_ref().expect("a price in zloty");
+    assert_eq!((charge.amount_cents, charge.currency.as_str()), (449, "PLN"));
+    assert!(blik.identity.is_none(), "BLIK asks nothing of the payer here");
+    assert_eq!(blik.presented_in, None);
+    let card = stripe.method(Method::Card).unwrap();
+    assert_eq!(card.rank, Some(2));
+    assert_eq!(card.identity.fields, vec![crate::identity::PayerField::Name]);
+    assert_eq!(card.identity.asked_by, crate::identity::AskedBy::Provider);
+    let p24 = stripe.method(Method::P24).unwrap();
+    assert_eq!(p24.surfaces, vec![SurfaceKind::SystemBrowser]);
+    assert_eq!(p24.settles, Settles::Days);
+    let price = offer.price.as_ref().unwrap();
+    assert_eq!((price.amount_cents, price.currency.as_str()), (449, "PLN"));
+}
+
+#[test]
+fn a_converted_method_says_the_currency_its_payer_sees() {
+    let offer = parse(json!({"offers": [{"provider": "stripe", "methods": [
+        {"method": "blik", "rank": 0, "amount_cents": 99, "currency": "EUR",
+         "presented_in": "pln"}]}]}));
+    let blik = offer.providers[0].method(Method::Blik).unwrap();
+    assert_eq!(blik.presented_in.as_deref(), Some("PLN"));
+    let odd = parse(json!({"offers": [{"provider": "stripe", "methods": [
+        {"method": "blik", "presented_in": "zloty", "amount_cents": -3, "currency": "EUR"}]}]}));
+    let blik = odd.providers[0].method(Method::Blik).unwrap();
+    assert_eq!(blik.presented_in, None, "not a currency code");
+    assert_eq!(blik.charge, None, "no amount");
+    assert_eq!(blik.rank, None);
+}
+
+#[test]
+fn a_method_whose_payer_details_the_app_cannot_ask_for_is_dropped_and_said() {
+    let offer = parse(json!({"offers": [{"provider": "stripe", "methods": [
+        {"method": "card"},
+        {"method": "boleto", "needs_identity": {"fields": ["name", "address"], "asked_by": "app"}}
+    ]}]}));
+    let stripe = &offer.providers[0];
+    assert!(stripe.method(Method::Card).is_some());
+    assert!(stripe.method(Method::Boleto).is_none(), "the app never asks for an address");
+    assert!(
+        offer.dropped.iter().any(|d| d.contains("boleto")),
+        "{:?}",
+        offer.dropped
+    );
+}
+
+#[test]
+fn the_sandboxs_loopback_pages_named_for_a_real_provider_are_never_kept() {
+    // The payment sandbox of the local stack answers for Stripe on this computer: a live app
+    // keeps none of its loopback pages - whoever answers, and from wherever.
+    for token_url in ["https://token.azlin.io", "http://127.0.0.1:8081"] {
+        let ctx = OfferContext::for_token_url(token_url);
+        let text = json!({"offers": [{
+            "provider": "stripe",
+            "origins": ["127.0.0.1", "localhost", "loopback"],
+            "fields_page": "http://127.0.0.1:8784/fields/stripe/v1",
+            "return": {"success": "http://127.0.0.1:8081/return/ok"},
+            "methods": [{"method": "card", "surfaces": ["fields", "page", "browser"]},
+                        {"method": "blik", "surfaces": ["page", "browser"]}]}]})
+        .to_string();
+        let offer = Offer::parse(&text, &ctx).unwrap();
+        let stripe = &offer.providers[0];
+        assert!(stripe.origins.is_empty(), "{token_url}: {:?}", stripe.origins);
+        assert_eq!(stripe.fields_page, None, "{token_url}");
+        let card = stripe.method(Method::Card).unwrap();
+        assert!(!card.surfaces.contains(&SurfaceKind::PopoverFields), "{token_url}");
+        let sandbox = WebUrl::parse("http://127.0.0.1:8784/stripe/c/pay/cs_test_1").unwrap();
+        assert!(!stripe.allows(&sandbox), "{token_url}");
+        let ok = WebUrl::parse("http://127.0.0.1:8081/return/ok").unwrap();
+        assert_eq!(stripe.return_kind(&ok), None, "{token_url}");
+        assert!(offer.dropped.iter().any(|d| d.contains("127.0.0.1")), "{:?}", offer.dropped);
+    }
+}
+
+#[cfg(feature = "fake-providers")]
+#[test]
+fn the_sandboxs_stripe_stand_in_offers_its_local_methods_on_loopback_pages() {
+    let local = OfferContext::for_token_url("http://127.0.0.1:8081");
+    let text = json!({"offers": [{
+        "provider": "fake-stripe", "origins": ["127.0.0.1"],
+        "fields_page": "http://127.0.0.1:8784/fields/fake-stripe/v1",
+        "methods": [{"method": "blik", "surfaces": ["page", "browser"], "rank": 0},
+                    {"method": "p24", "surfaces": ["browser"], "rank": 1},
+                    {"method": "card", "rank": 2}]}]})
+    .to_string();
+    let offer = Offer::parse(&text, &local).unwrap();
+    let fake = &offer.providers[0];
+    assert_eq!(fake.spec.id, "fake-stripe");
+    assert_eq!(
+        fake.method(Method::Blik).unwrap().surfaces,
+        vec![SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser]
+    );
+    assert_eq!(fake.method(Method::P24).unwrap().surfaces, vec![SurfaceKind::SystemBrowser]);
+    let page = WebUrl::parse("http://127.0.0.1:8784/stripe/c/pay/cs_test_1").unwrap();
+    assert!(fake.allows(&page), "the sandbox's own pages, any port of this computer");
+}

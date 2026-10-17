@@ -75,6 +75,10 @@ pub(crate) fn notice(notice: &Notice) -> String {
         Notice::NoBrowserSurface => t("azdrive-pay-notice-no-browser"),
         Notice::SurfaceRefused(reason) => why("azdrive-pay-notice-surface-refused", reason),
         Notice::WaitingForLetter => t("azdrive-pay-notice-waiting-for-letter"),
+        Notice::IdentityIncomplete(fields) => t_args(
+            "azdrive-pay-notice-identity-incomplete",
+            &[("fields", Arg::from(payer_fields(fields)))],
+        ),
     }
 }
 
@@ -129,4 +133,15 @@ pub(crate) fn tier_price(tier: &Tier, yearly: bool) -> Option<String> {
         key,
         &[("price", Arg::from(l10n::money(cents, &tier.currency)))],
     ))
+}
+
+/// The payer details a method asks for, joined as the window's language joins a list: `your
+/// name and email`, `deinen Namen und deine E-Mail-Adresse`.
+#[must_use]
+pub(crate) fn payer_fields(fields: &[azul_pay::PayerField]) -> String {
+    let words: Vec<String> = fields
+        .iter()
+        .map(|f| t(&format!("azdrive-pay-field-{}", f.as_str().replace('_', "-"))))
+        .collect();
+    l10n::and_list(words)
 }

@@ -857,7 +857,17 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         return;
     };
     let consent = d.consent;
-    let _ = pay(info, app, s, Event::Pay { choice, consent });
+    let payer = azul_pay::Payer::default();
+    let _ = pay(
+        info,
+        app,
+        s,
+        Event::Pay {
+            choice,
+            consent,
+            payer,
+        },
+    );
 }
 
 /// "Pay with cash by post": the cash checkout through azul-pay's machine, made of the registry's
@@ -880,7 +890,18 @@ fn pay_cash(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         d.consent = true;
     }
     let consent = d.consent;
-    let _ = pay(info, app, s, Event::Pay { choice, consent });
+    // Cash by post asks nothing about the payer.
+    let payer = azul_pay::Payer::default();
+    let _ = pay(
+        info,
+        app,
+        s,
+        Event::Pay {
+            choice,
+            consent,
+            payer,
+        },
+    );
 }
 
 /// The look the provider's fields should take: the app theme and the mode (`flora-dark`).

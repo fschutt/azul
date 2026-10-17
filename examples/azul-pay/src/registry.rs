@@ -36,7 +36,10 @@ pub const FIELDS_PREFIX: &str = "/fields/";
 
 const PAY_PAGES: Origin = Origin::Exact(Cow::Borrowed(PAY_HOST));
 
-/// How a payer pays.
+/// How a payer pays: the pill. The wire names are the payment methods registry's (azul-apps
+/// `azul-pay-methods`), so the token server and the app name a method the same way. The app knows
+/// the methods its providers can carry; a method it does not know is never shown (adding one is an
+/// app update, like adding a provider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Method {
     /// SEPA Direct Debit.
@@ -53,11 +56,189 @@ pub enum Method {
     /// Cash in an envelope with the printed slip (cash contract v1): the operator activates the
     /// checkout when the letter arrived.
     Cash,
+    GooglePay,
+    /// Stripe's saved-payment login.
+    Link,
+    AmazonPay,
+    Klarna,
+    /// ACH Direct Debit (the United States).
+    UsBankAccount,
+    /// Bacs Direct Debit (the United Kingdom).
+    BacsDebit,
+    /// Autogiro (Sweden).
+    Autogiro,
+    /// Betalingsservice (Denmark).
+    Betalingsservice,
+    /// BECS Direct Debit (Australia).
+    BecsDebit,
+    /// BECS Direct Debit (New Zealand).
+    BecsNzDebit,
+    /// Pre-authorized debit (Canada).
+    PadDebit,
+    /// iDEAL (the Netherlands): a login at the payer's bank.
+    Ideal,
+    Bancontact,
+    Eps,
+    /// Przelewy24 (Poland).
+    P24,
+    /// BLIK (Poland): a six-digit code from the banking app.
+    Blik,
+    Twint,
+    Swish,
+    MobilePay,
+    Vipps,
+    MbWay,
+    Multibanco,
+    Bizum,
+    Satispay,
+    RevolutPay,
+    /// Pay by Bank (the United Kingdom).
+    PayByBank,
+    Upi,
+    Pix,
+    Boleto,
+    Alipay,
+    WechatPay,
+    /// A Korean card through the Korean card networks' own page.
+    KrCard,
+    KakaoPay,
+    NaverPay,
+    Payco,
+    SamsungPay,
+    /// Konbini (Japan): paid in cash at a convenience store.
+    Konbini,
+    PayPay,
+    Oxxo,
+    PayNow,
+    PromptPay,
+    Fpx,
+    GrabPay,
+}
+
+/// What the payer does to pay with a method (the registry's `flow`): the popover's words and the
+/// pill's help follow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Flow {
+    /// Types card or account details into fields.
+    Fields,
+    /// Goes to another site (a bank, a wallet) and comes back.
+    Redirect,
+    /// Scans a QR code with a phone.
+    Qr,
+    /// Types a short code that an app on the phone shows.
+    Code,
+    /// Confirms a request the phone app receives.
+    Push,
+    /// Pays a reference later, in a shop or at a bank.
+    Voucher,
+    /// Gives a mandate for a direct debit.
+    Debit,
+    /// Sends a bank transfer.
+    Transfer,
+    /// Posts a printed slip with cash (Azlin's own).
+    Paper,
+}
+
+/// Where the payer finishes paying (the registry's `handoff`): what a pill says before it is
+/// picked - a phone app, a bank's website, a shop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Handoff {
+    /// In the payment page itself.
+    None,
+    /// A QR code scanned with a phone app.
+    PhoneQr,
+    /// A request confirmed in a phone app.
+    PhonePush,
+    /// A code read from the banking app.
+    BankApp,
+    /// A login at the payer's bank.
+    BankLogin,
+    /// A login at the wallet's provider (PayPal, Alipay).
+    ProviderLogin,
+    /// Cash paid in a shop with a reference.
+    StoreCash,
+    /// A transfer made from the payer's bank.
+    BankTransfer,
+    /// A letter with cash.
+    Post,
+}
+
+impl Handoff {
+    /// The wire name (`phone_qr`, `bank_login`, ...).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Handoff::None => "none",
+            Handoff::PhoneQr => "phone_qr",
+            Handoff::PhonePush => "phone_push",
+            Handoff::BankApp => "bank_app",
+            Handoff::BankLogin => "bank_login",
+            Handoff::ProviderLogin => "provider_login",
+            Handoff::StoreCash => "store_cash",
+            Handoff::BankTransfer => "bank_transfer",
+            Handoff::Post => "post",
+        }
+    }
+
+    /// The payer needs a phone app to finish.
+    #[must_use]
+    pub const fn needs_phone(self) -> bool {
+        matches!(self, Handoff::PhoneQr | Handoff::PhonePush | Handoff::BankApp)
+    }
+
+    /// The payer logs in somewhere else (a bank, a wallet): the page leaves for another site.
+    #[must_use]
+    pub const fn leaves(self) -> bool {
+        matches!(self, Handoff::BankLogin | Handoff::ProviderLogin)
+    }
+}
+
+impl Flow {
+    /// The wire name (`fields`, `redirect`, `qr`, ...).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Flow::Fields => "fields",
+            Flow::Redirect => "redirect",
+            Flow::Qr => "qr",
+            Flow::Code => "code",
+            Flow::Push => "push",
+            Flow::Voucher => "voucher",
+            Flow::Debit => "debit",
+            Flow::Transfer => "transfer",
+            Flow::Paper => "paper",
+        }
+    }
+}
+
+/// One row of the method table: what [`Method`]'s accessors read.
+struct MethodRow {
+    id: &'static str,
+    label: &'static str,
+    icon: &'static str,
+    flow: Flow,
+    handoff: Handoff,
+}
+
+const fn row(
+    id: &'static str,
+    label: &'static str,
+    icon: &'static str,
+    flow: Flow,
+    handoff: Handoff,
+) -> MethodRow {
+    MethodRow {
+        id,
+        label,
+        icon,
+        flow,
+        handoff,
+    }
 }
 
 impl Method {
     /// Every method, in the order the app lists them when nothing else orders them.
-    pub const ALL: [Method; 8] = [
+    pub const ALL: [Method; 51] = [
         Method::SepaDebit,
         Method::Card,
         Method::ApplePay,
@@ -66,21 +247,115 @@ impl Method {
         Method::BankTransfer,
         Method::Voucher,
         Method::Cash,
+        Method::GooglePay,
+        Method::Link,
+        Method::AmazonPay,
+        Method::Klarna,
+        Method::UsBankAccount,
+        Method::BacsDebit,
+        Method::Autogiro,
+        Method::Betalingsservice,
+        Method::BecsDebit,
+        Method::BecsNzDebit,
+        Method::PadDebit,
+        Method::Ideal,
+        Method::Bancontact,
+        Method::Eps,
+        Method::P24,
+        Method::Blik,
+        Method::Twint,
+        Method::Swish,
+        Method::MobilePay,
+        Method::Vipps,
+        Method::MbWay,
+        Method::Multibanco,
+        Method::Bizum,
+        Method::Satispay,
+        Method::RevolutPay,
+        Method::PayByBank,
+        Method::Upi,
+        Method::Pix,
+        Method::Boleto,
+        Method::Alipay,
+        Method::WechatPay,
+        Method::KrCard,
+        Method::KakaoPay,
+        Method::NaverPay,
+        Method::Payco,
+        Method::SamsungPay,
+        Method::Konbini,
+        Method::PayPay,
+        Method::Oxxo,
+        Method::PayNow,
+        Method::PromptPay,
+        Method::Fpx,
+        Method::GrabPay,
     ];
 
-    /// The wire name (`sepa_debit`, `card`, ...).
+    /// The table's row: the wire name, the English words, the icon, the flow and the handoff
+    /// (as the payment methods registry has them, read 2026-10-17).
+    const fn row(self) -> MethodRow {
+        use Flow as F;
+        use Handoff as H;
+        match self {
+            Method::SepaDebit => row("sepa_debit", "Direct debit", "account_balance", F::Debit, H::None),
+            Method::Card => row("card", "Card", "credit_card", F::Fields, H::None),
+            Method::ApplePay => row("apple_pay", "Apple Pay", "phone_iphone", F::Fields, H::None),
+            Method::PayPal => row("paypal", "PayPal", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Wero => row("wero", "Wero", "smartphone", F::Qr, H::PhoneQr),
+            Method::BankTransfer => row("bank_transfer", "Bank transfer", "receipt_long", F::Transfer, H::BankTransfer),
+            Method::Voucher => row("voucher", "Voucher", "redeem", F::Fields, H::None),
+            Method::Cash => row("cash", "Cash by post", "mail", F::Paper, H::Post),
+            Method::GooglePay => row("google_pay", "Google Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Link => row("link", "Link", "link", F::Redirect, H::ProviderLogin),
+            Method::AmazonPay => row("amazon_pay", "Amazon Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Klarna => row("klarna", "Klarna", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::UsBankAccount => row("us_bank_account", "ACH Direct Debit", "account_balance", F::Debit, H::BankLogin),
+            Method::BacsDebit => row("bacs_debit", "Bacs Direct Debit", "account_balance", F::Debit, H::None),
+            Method::Autogiro => row("autogiro", "Autogiro", "account_balance", F::Debit, H::None),
+            Method::Betalingsservice => row("betalingsservice", "Betalingsservice", "account_balance", F::Debit, H::None),
+            Method::BecsDebit => row("becs_debit", "BECS Direct Debit", "account_balance", F::Debit, H::None),
+            Method::BecsNzDebit => row("becs_nz_debit", "BECS Direct Debit (New Zealand)", "account_balance", F::Debit, H::None),
+            Method::PadDebit => row("pad_debit", "Pre-authorized debit", "account_balance", F::Debit, H::None),
+            Method::Ideal => row("ideal", "iDEAL", "account_balance", F::Redirect, H::BankLogin),
+            Method::Bancontact => row("bancontact", "Bancontact", "account_balance", F::Redirect, H::BankLogin),
+            Method::Eps => row("eps", "EPS", "account_balance", F::Redirect, H::BankLogin),
+            Method::P24 => row("p24", "Przelewy24", "account_balance", F::Redirect, H::BankLogin),
+            Method::Blik => row("blik", "BLIK", "dialpad", F::Code, H::BankApp),
+            Method::Twint => row("twint", "TWINT", "qr_code", F::Qr, H::PhoneQr),
+            Method::Swish => row("swish", "Swish", "qr_code", F::Qr, H::PhoneQr),
+            Method::MobilePay => row("mobilepay", "MobilePay", "smartphone", F::Push, H::PhonePush),
+            Method::Vipps => row("vipps", "Vipps", "smartphone", F::Push, H::PhonePush),
+            Method::MbWay => row("mb_way", "MB WAY", "smartphone", F::Push, H::PhonePush),
+            Method::Multibanco => row("multibanco", "Multibanco", "receipt_long", F::Voucher, H::StoreCash),
+            Method::Bizum => row("bizum", "Bizum", "smartphone", F::Push, H::PhonePush),
+            Method::Satispay => row("satispay", "Satispay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::RevolutPay => row("revolut_pay", "Revolut Pay", "qr_code", F::Qr, H::PhoneQr),
+            Method::PayByBank => row("pay_by_bank", "Pay by Bank", "account_balance", F::Redirect, H::BankLogin),
+            Method::Upi => row("upi", "UPI", "qr_code", F::Qr, H::PhoneQr),
+            Method::Pix => row("pix", "Pix", "qr_code", F::Qr, H::PhoneQr),
+            Method::Boleto => row("boleto", "Boleto", "receipt_long", F::Voucher, H::StoreCash),
+            Method::Alipay => row("alipay", "Alipay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::WechatPay => row("wechat_pay", "WeChat Pay", "qr_code", F::Qr, H::PhoneQr),
+            Method::KrCard => row("kr_card", "Korean card", "credit_card", F::Redirect, H::BankLogin),
+            Method::KakaoPay => row("kakao_pay", "Kakao Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::NaverPay => row("naver_pay", "Naver Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Payco => row("payco", "PAYCO", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::SamsungPay => row("samsung_pay", "Samsung Pay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Konbini => row("konbini", "Konbini", "storefront", F::Voucher, H::StoreCash),
+            Method::PayPay => row("paypay", "PayPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Oxxo => row("oxxo", "OXXO", "storefront", F::Voucher, H::StoreCash),
+            Method::PayNow => row("paynow", "PayNow", "qr_code", F::Qr, H::PhoneQr),
+            Method::PromptPay => row("promptpay", "PromptPay", "qr_code", F::Qr, H::PhoneQr),
+            Method::Fpx => row("fpx", "FPX", "account_balance", F::Redirect, H::BankLogin),
+            Method::GrabPay => row("grabpay", "GrabPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+        }
+    }
+
+    /// The wire name (`sepa_debit`, `card`, `blik`, ...).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "sepa_debit",
-            Method::Card => "card",
-            Method::ApplePay => "apple_pay",
-            Method::PayPal => "paypal",
-            Method::Wero => "wero",
-            Method::BankTransfer => "bank_transfer",
-            Method::Voucher => "voucher",
-            Method::Cash => "cash",
-        }
+        self.row().id
     }
 
     /// A wire name, in any case (`sepa`, the claim contract v1's name, is SEPA Direct Debit).
@@ -93,34 +368,35 @@ impl Method {
         Method::ALL.into_iter().find(|m| m.as_str() == text)
     }
 
-    /// The pill's words.
+    /// The pill's words in English (an app says them in its own language by the wire name).
     #[must_use]
     pub const fn label(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "Direct debit",
-            Method::Card => "Card",
-            Method::ApplePay => "Apple Pay",
-            Method::PayPal => "PayPal",
-            Method::Wero => "Wero",
-            Method::BankTransfer => "Bank transfer",
-            Method::Voucher => "Voucher",
-            Method::Cash => "Cash by post",
-        }
+        self.row().label
     }
 
     /// The pill's icon: a Material icon name the app ships (never loaded from the network).
     #[must_use]
     pub const fn icon(self) -> &'static str {
-        match self {
-            Method::SepaDebit => "account_balance",
-            Method::Card => "credit_card",
-            Method::ApplePay => "phone_iphone",
-            Method::PayPal => "account_balance_wallet",
-            Method::Wero => "smartphone",
-            Method::BankTransfer => "receipt_long",
-            Method::Voucher => "redeem",
-            Method::Cash => "mail",
-        }
+        self.row().icon
+    }
+
+    /// What the payer does.
+    #[must_use]
+    pub const fn flow(self) -> Flow {
+        self.row().flow
+    }
+
+    /// Where the payer finishes.
+    #[must_use]
+    pub const fn handoff(self) -> Handoff {
+        self.row().handoff
+    }
+
+    /// Paid without telling anyone who pays: cash by post and Azlin's vouchers. Every other
+    /// method passes through a bank, a card network or a wallet that knows the payer.
+    #[must_use]
+    pub const fn anonymous(self) -> bool {
+        matches!(self, Method::Cash | Method::Voucher)
     }
 }
 

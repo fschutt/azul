@@ -197,3 +197,95 @@ fn a_merchant_of_record_says_who_sells() {
         .unwrap();
     assert_eq!(card.provider(&shown).spec.kind.seller(), None, "Stripe processes, Azlin sells");
 }
+
+// ==== The server's choice: only its methods, in the payer country's order ====
+
+fn ids(offer: &Offer, ctx: &PillContext) -> Vec<String> {
+    pills(offer, ctx)
+        .iter()
+        .map(|p| format!("{}:{}", p.method.as_str(), p.provider(offer).spec.id))
+        .collect()
+}
+
+#[test]
+fn the_pills_come_in_the_payer_countrys_order_across_providers() {
+    let de = super::fixtures::live_offer(&super::fixtures::options_de());
+    assert_eq!(
+        ids(&de, &ctx("DE", 1)),
+        vec!["paypal:stripe", "sepa_debit:gocardless", "card:stripe", "wero:stripe"],
+        "the ranks' order, not the providers'; the server already chose for the country and \
+         the period"
+    );
+    let pl = super::fixtures::live_offer(&super::fixtures::options_pl());
+    let poland = PillContext {
+        currency: "PLN",
+        ..ctx("PL", 1)
+    };
+    assert_eq!(
+        ids(&pl, &poland),
+        vec!["blik:stripe", "p24:stripe", "card:stripe"]
+    );
+}
+
+#[test]
+fn the_first_pill_is_the_default() {
+    let pl = super::fixtures::live_offer(&super::fixtures::options_pl());
+    let shown = pills(&pl, &ctx("PL", 1));
+    assert_eq!(shown[default_pill(&shown)].method, Method::Blik);
+    let de = super::fixtures::live_offer(&super::fixtures::options_de());
+    let shown = pills(&de, &ctx("DE", 1));
+    assert_eq!(shown[default_pill(&shown)].method, Method::PayPal);
+    assert_eq!(default_pill(&[]), 0);
+}
+
+#[test]
+fn only_the_methods_the_server_returned_are_pills_whatever_the_country() {
+    // A payer in Switzerland: the server offers TWINT and the card - no direct debit although
+    // Switzerland is in the SEPA zone, no Wero.
+    let ch = offer(json!({"country": "CH", "currency": "CHF", "offers": [
+        {"provider": "stripe", "methods": [
+            {"method": "twint", "surfaces": ["page", "browser"], "rank": 0},
+            {"method": "card", "rank": 1}]}]}));
+    assert_eq!(
+        methods(&ch, &PillContext { currency: "CHF", ..ctx("CH", 1) }),
+        vec![Method::Twint, Method::Card]
+    );
+    // What the server returned for a payer shows, also where the app once had its own rules:
+    // a direct debit in dollars, PayPal for a single month, Wero outside its launch countries.
+    let us = offer(json!({"offers": [{"provider": "stripe", "methods": [
+        {"method": "card", "rank": 0}, {"method": "paypal", "rank": 1},
+        {"method": "wero", "rank": 2}]}]}));
+    let shown = methods(&us, &PillContext { currency: "USD", ..ctx("US", 1) });
+    assert_eq!(shown, vec![Method::Card, Method::PayPal, Method::Wero]);
+}
+
+#[test]
+fn a_method_two_providers_carry_starts_with_the_preferred_one() {
+    let de = super::fixtures::live_offer(&super::fixtures::options_de());
+    let shown = pills(&de, &ctx("DE", 1));
+    let sepa = shown.iter().find(|p| p.method == Method::SepaDebit).unwrap();
+    assert_eq!(sepa.providers.len(), 2);
+    assert_eq!(sepa.provider(&de).spec.id, "gocardless", "the cheaper route");
+    // The same offer with Stripe's route marked cheaper.
+    let mut value = super::fixtures::options_de();
+    value["offers"][0]["methods"][0]["preferred"] = json!(false);
+    value["offers"][1]["methods"][1]["preferred"] = json!(true);
+    let switched = offer(value);
+    let shown = pills(&switched, &ctx("DE", 1));
+    let sepa = shown.iter().find(|p| p.method == Method::SepaDebit).unwrap();
+    assert_eq!(sepa.provider(&switched).spec.id, "stripe");
+}
+
+#[test]
+fn a_voucher_is_never_a_pill_and_cash_never_for_a_recurring_plan() {
+    let both = offer(json!({"offers": [
+        {"provider": "cash", "methods": [{"method": "cash", "surfaces": ["paper"],
+                                          "settles": "post"}]},
+        {"provider": "stripe", "methods": [{"method": "voucher"}, {"method": "card"}]}]}));
+    let with_paper = [SurfaceKind::PopoverFields, SurfaceKind::WebviewPage,
+                      SurfaceKind::SystemBrowser, SurfaceKind::Paper];
+    let prepaid = PillContext { surfaces: &with_paper, ..ctx("DE", 12) };
+    assert_eq!(methods(&both, &prepaid), vec![Method::Cash, Method::Card]);
+    let monthly = PillContext { recurring: true, ..prepaid };
+    assert_eq!(methods(&both, &monthly), vec![Method::Card]);
+}

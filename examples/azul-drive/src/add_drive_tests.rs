@@ -353,6 +353,7 @@ fn the_dialog_is_busy_while_a_payment_runs_and_its_debug_text_holds_no_secret() 
         azul_pay::Event::Pay {
             choice: choice.clone(),
             consent: true,
+            payer: azul_pay::Payer::default(),
         },
     );
     assert_eq!(effects.len(), 1);

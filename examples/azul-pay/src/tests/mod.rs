@@ -3,6 +3,7 @@
 mod bridge;
 mod cash;
 mod fixtures;
+mod identity;
 mod machine;
 mod offer;
 mod pills;

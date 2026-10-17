@@ -66,6 +66,7 @@ pub fn method_shown(method: Method, ctx: &PillContext) -> bool {
         Method::Wero => euro && !ctx.recurring && WERO_COUNTRIES.contains(&country.as_str()),
         Method::Voucher => false,
         Method::Cash => !ctx.recurring,
+        _ => true,
     }
 }
 

@@ -42,6 +42,7 @@ use serde_json::Value;
 
 pub use crate::registry::Settles;
 use crate::{
+    identity::Identity,
     registry::{
         self, Method, MethodSpec, ProviderSpec, SurfaceKind, FIELDS_PREFIX, RETURN_CANCEL,
         RETURN_PENDING, RETURN_SUCCESS,
@@ -156,6 +157,15 @@ pub struct Legal {
     pub terms_url: Option<String>,
 }
 
+/// What a checkout charges for a method: an amount in minor units of a currency (cents, groszy,
+/// yen) - the price of the tier in the payer's currency, as the signed price ladder froze it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Charge {
+    pub amount_cents: u64,
+    /// The ISO 4217 code (`PLN`).
+    pub currency: String,
+}
+
 /// One method a provider offers, as the app may show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OfferedMethod {
@@ -167,6 +177,20 @@ pub struct OfferedMethod {
     pub recurring: bool,
     /// Its registry entry.
     pub spec: &'static MethodSpec,
+    /// Its place in the payer country's order of use (0 = the most used): the pills' order.
+    /// `None` from a server that sends no order (its list order stands).
+    pub rank: Option<u32>,
+    /// What the checkout charges with it; `None` when the server names no tier.
+    pub charge: Option<Charge>,
+    /// The currency the payer sees when the provider converts the charge (a euro price paid in
+    /// zloty); `None` when the charge is paid as it is.
+    pub presented_in: Option<String>,
+    /// How long its code, QR or voucher lives (0: not applicable).
+    pub expires_minutes: u32,
+    /// What it tells about the payer, and who asks ([`crate::identity`]).
+    pub identity: Identity,
+    /// The cheapest route of this method among the providers: the pill's default provider.
+    pub preferred: bool,
 }
 
 /// One provider of the offer, as the app may show it.
@@ -230,6 +254,10 @@ impl Returns {
 /// it refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
+    /// The payer's country the server answered for (ISO alpha-2), if it says.
+    pub country: Option<String>,
+    /// The payer's currency the server priced in (ISO 4217), if it says.
+    pub currency: Option<String>,
     /// In the server's order.
     pub providers: Vec<OfferedProvider>,
     pub price: Option<Price>,
@@ -255,6 +283,8 @@ impl Offer {
             .filter_map(|d| provider(d, ctx, &mut dropped))
             .collect();
         Ok(Offer {
+            country: None,
+            currency: None,
             providers,
             price: price(&value["price"]),
             legal: legal(&value["legal"]),
@@ -480,6 +510,12 @@ fn method(
         settles,
         recurring: m["recurring"].as_bool().unwrap_or(false),
         spec: method_spec,
+        rank: None,
+        charge: None,
+        presented_in: None,
+        expires_minutes: 0,
+        identity: Identity::default(),
+        preferred: false,
     })
 }
 

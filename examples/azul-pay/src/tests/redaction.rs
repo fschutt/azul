@@ -6,6 +6,7 @@ use super::fixtures::{
     answer, browser_surface, choice, complete_card, created, fields_surface, nav, run,
 };
 use crate::{
+    identity::Payer,
     machine::{step, Event, State},
     registry::Method,
 };
@@ -25,6 +26,7 @@ fn no_state_event_or_effect_of_a_card_payment_debugs_a_secret() {
         Event::Pay {
             choice: card.clone(),
             consent: true,
+            payer: Payer::default(),
         },
         created(&card, &answer("ck_card", Method::Card, fields_surface())),
         nav("https://pay.azlin.io/fields/stripe/v1#pk=pk_test_SECRETPK&cs=pi_1_secret_SECRETCS"),
@@ -57,6 +59,7 @@ fn no_state_or_effect_of_a_browser_payment_debugs_its_page() {
             Event::Pay {
                 choice: paypal.clone(),
                 consent: true,
+                payer: Payer::default(),
             },
             created(&paypal, &answer("ck_paypal", Method::PayPal, browser_surface())),
         ],

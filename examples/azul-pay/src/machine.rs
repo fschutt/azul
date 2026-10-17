@@ -37,6 +37,7 @@
 use std::fmt;
 
 use crate::{
+    identity::{Payer, PayerField},
     bridge::{command_url, parse_bridge, BridgeMessage, CardBrand, Outcome, PageCommand},
     offer::{ReturnKind, Returns, Settles},
     pills::Choice,
@@ -81,6 +82,8 @@ pub enum Notice {
     SurfaceRefused(String),
     /// A cash checkout's slip is printed: the drive comes when the letter arrived.
     WaitingForLetter,
+    /// The method needs these details of the payer, typed in the popover, before the order.
+    IdentityIncomplete(Vec<PayerField>),
 }
 
 impl Notice {
@@ -137,6 +140,14 @@ impl Notice {
                 "Waiting for your letter: postal cash takes a while, AzDrive checks once a day. \
                  Nothing else tells you - look here again in a few days.",
             ),
+            Notice::IdentityIncomplete(fields) => {
+                let names: Vec<&str> = fields.iter().map(|f| f.as_str()).collect();
+                format!(
+                    "This payment method needs your {} first. They are sent once with the \
+                     order and not kept.",
+                    names.join(", ")
+                )
+            }
         }
     }
 }
@@ -364,8 +375,14 @@ impl State {
 /// What happened.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Event {
-    /// The order button, with the pill's choice and whether the consent is ticked.
-    Pay { choice: Choice, consent: bool },
+    /// The order button, with the pill's choice, whether the consent is ticked, and what the
+    /// payer typed for a method the app asks details for (sent once with the checkout, never
+    /// kept in a state).
+    Pay {
+        choice: Choice,
+        consent: bool,
+        payer: Payer,
+    },
     /// `POST /v1/checkout` answered, checked.
     Created(Box<Created>),
     CreateFailed(String),
@@ -399,11 +416,16 @@ pub enum Event {
 impl fmt::Debug for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Event::Pay { choice, consent } => f
+            Event::Pay {
+                choice,
+                consent,
+                payer,
+            } => f
                 .debug_struct("Pay")
                 .field("provider", &choice.provider.spec.id)
                 .field("method", &choice.method.method)
                 .field("consent", consent)
+                .field("payer", payer)
                 .finish(),
             Event::Created(created) => f.debug_tuple("Created").field(created).finish(),
             Event::CreateFailed(why) => f.debug_tuple("CreateFailed").field(why).finish(),
@@ -437,11 +459,13 @@ impl fmt::Debug for Event {
 /// What the app does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
-    /// `POST /v1/checkout` for this provider, method and first surface.
+    /// `POST /v1/checkout` for this provider, method and first surface - with the payer's
+    /// details where the method asks the app for them (`payer`, sent once; `None` otherwise).
     CreateCheckout {
         provider: &'static str,
         method: Method,
         surface: SurfaceKind,
+        payer: Option<Payer>,
     },
     /// The popover shows `Surface` (the web view's `src`).
     ShowSurface(Surface),
@@ -532,17 +556,23 @@ pub fn step(state: State, event: Event) -> (State, Vec<Effect>) {
 
 fn choosing(event: Event) -> (State, Vec<Effect>) {
     match event {
-        Event::Pay { choice, consent } => {
+        Event::Pay {
+            choice,
+            consent,
+            payer,
+        } => {
             if !consent {
                 return (State::Choosing, vec![Effect::Notice(Notice::ConsentRequired)]);
             }
             let Some(&surface) = choice.method.surfaces.first() else {
                 return (State::Choosing, vec![Effect::Notice(Notice::NoSurface)]);
             };
+            let _ = payer;
             let effect = Effect::CreateCheckout {
                 provider: choice.provider.spec.id,
                 method: choice.method.method,
                 surface,
+                payer: None,
             };
             (State::Preparing { choice, surface }, vec![effect])
         }
