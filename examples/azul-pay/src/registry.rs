@@ -113,6 +113,65 @@ pub enum Method {
     PromptPay,
     Fpx,
     GrabPay,
+    /// Airtel Money (Kenya): confirmed in the phone's wallet.
+    AirtelMoney,
+    /// au PAY (Japan).
+    AuPay,
+    /// Capitec Pay (South Africa): confirmed in the banking app.
+    CapitecPay,
+    /// DANA (Indonesia).
+    Dana,
+    /// Efecty (Colombia): paid in cash at an Efecty point.
+    Efecty,
+    /// Fawry (Egypt): paid in cash at a Fawry point.
+    Fawry,
+    /// GCash (the Philippines).
+    Gcash,
+    /// Khipu (Chile): a transfer through the payer's bank.
+    Khipu,
+    /// Maya (the Philippines).
+    Maya,
+    MercadoPago,
+    /// MoMo (Vietnam).
+    Momo,
+    /// M-PESA (Kenya): confirmed on the phone.
+    Mpesa,
+    /// Nequi (Colombia): confirmed in the app.
+    Nequi,
+    /// Netbanking (India): a login at the payer's bank.
+    NetbankingIn,
+    /// A bank transfer in Nigeria.
+    NgBankTransfer,
+    /// OPay (Nigeria).
+    Opay,
+    /// OVO (Indonesia): confirmed in the app.
+    Ovo,
+    /// Ozow (South Africa): a login at the payer's bank.
+    Ozow,
+    /// PagoEfectivo (Peru): paid in cash or at a bank with a reference.
+    PagoEfectivo,
+    /// Pay-easy (Japan): paid at a bank or an ATM with a reference.
+    PayEasy,
+    /// PSE (Colombia): a login at the payer's bank.
+    Pse,
+    /// QRIS (Indonesia): a QR code scanned with any banking or wallet app.
+    Qris,
+    /// SPEI (Mexico): a bank transfer.
+    Spei,
+    /// Webpay (Chile).
+    Webpay,
+    /// Yape (Peru): confirmed in the app.
+    Yape,
+    /// ZaloPay (Vietnam).
+    ZaloPay,
+    /// AlipayHK (Hong Kong).
+    AlipayHk,
+    /// Merpay (Japan).
+    Merpay,
+    /// Paidy (Japan): pay later.
+    Paidy,
+    /// Touch 'n Go eWallet (Malaysia).
+    TouchNGo,
 }
 
 /// What the payer does to pay with a method (the registry's `flow`): the popover's words and the
@@ -238,7 +297,7 @@ const fn row(
 
 impl Method {
     /// Every method, in the order the app lists them when nothing else orders them.
-    pub const ALL: [Method; 51] = [
+    pub const ALL: [Method; 81] = [
         Method::SepaDebit,
         Method::Card,
         Method::ApplePay,
@@ -290,6 +349,36 @@ impl Method {
         Method::PromptPay,
         Method::Fpx,
         Method::GrabPay,
+        Method::AirtelMoney,
+        Method::AuPay,
+        Method::CapitecPay,
+        Method::Dana,
+        Method::Efecty,
+        Method::Fawry,
+        Method::Gcash,
+        Method::Khipu,
+        Method::Maya,
+        Method::MercadoPago,
+        Method::Momo,
+        Method::Mpesa,
+        Method::Nequi,
+        Method::NetbankingIn,
+        Method::NgBankTransfer,
+        Method::Opay,
+        Method::Ovo,
+        Method::Ozow,
+        Method::PagoEfectivo,
+        Method::PayEasy,
+        Method::Pse,
+        Method::Qris,
+        Method::Spei,
+        Method::Webpay,
+        Method::Yape,
+        Method::ZaloPay,
+        Method::AlipayHk,
+        Method::Merpay,
+        Method::Paidy,
+        Method::TouchNGo,
     ];
 
     /// The table's row: the wire name, the English words, the icon, the flow and the handoff
@@ -349,6 +438,36 @@ impl Method {
             Method::PromptPay => row("promptpay", "PromptPay", "qr_code", F::Qr, H::PhoneQr),
             Method::Fpx => row("fpx", "FPX", "account_balance", F::Redirect, H::BankLogin),
             Method::GrabPay => row("grabpay", "GrabPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::AirtelMoney => row("airtel_money", "Airtel Money", "smartphone", F::Push, H::PhonePush),
+            Method::AuPay => row("au_pay", "au PAY", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::CapitecPay => row("capitec_pay", "Capitec Pay", "smartphone", F::Push, H::PhonePush),
+            Method::Dana => row("dana", "DANA", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Efecty => row("efecty", "Efecty", "storefront", F::Voucher, H::StoreCash),
+            Method::Fawry => row("fawry", "Fawry", "storefront", F::Voucher, H::StoreCash),
+            Method::Gcash => row("gcash", "GCash", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Khipu => row("khipu", "Khipu", "account_balance", F::Redirect, H::BankLogin),
+            Method::Maya => row("maya", "Maya", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::MercadoPago => row("mercado_pago", "Mercado Pago", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Momo => row("momo", "MoMo", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Mpesa => row("mpesa", "M-PESA", "smartphone", F::Push, H::PhonePush),
+            Method::Nequi => row("nequi", "Nequi", "smartphone", F::Push, H::PhonePush),
+            Method::NetbankingIn => row("netbanking_in", "Netbanking", "account_balance", F::Redirect, H::BankLogin),
+            Method::NgBankTransfer => row("ng_bank_transfer", "Bank transfer", "receipt_long", F::Transfer, H::BankTransfer),
+            Method::Opay => row("opay", "OPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Ovo => row("ovo", "OVO", "smartphone", F::Push, H::PhonePush),
+            Method::Ozow => row("ozow", "Ozow", "account_balance", F::Redirect, H::BankLogin),
+            Method::PagoEfectivo => row("pagoefectivo", "PagoEfectivo", "storefront", F::Voucher, H::StoreCash),
+            Method::PayEasy => row("pay_easy", "Pay-easy", "receipt_long", F::Voucher, H::BankTransfer),
+            Method::Pse => row("pse", "PSE", "account_balance", F::Redirect, H::BankLogin),
+            Method::Qris => row("qris", "QRIS", "qr_code", F::Qr, H::PhoneQr),
+            Method::Spei => row("spei", "SPEI", "receipt_long", F::Transfer, H::BankTransfer),
+            Method::Webpay => row("webpay", "Webpay", "account_balance", F::Redirect, H::BankLogin),
+            Method::Yape => row("yape", "Yape", "smartphone", F::Push, H::PhonePush),
+            Method::ZaloPay => row("zalopay", "ZaloPay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::AlipayHk => row("alipay_hk", "AlipayHK", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Merpay => row("merpay", "Merpay", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::Paidy => row("paidy", "Paidy", "account_balance_wallet", F::Redirect, H::ProviderLogin),
+            Method::TouchNGo => row("touch_n_go", "Touch 'n Go eWallet", "account_balance_wallet", F::Redirect, H::ProviderLogin),
         }
     }
 
@@ -696,13 +815,20 @@ const EMBED_UNTESTED_QR: EmbedPolicy = EmbedPolicy {
     breaks: &[Breaks::BankAppSwitch],
 };
 
-/// A provider whose pages may never be framed (dLocal's): the system browser only.
-#[cfg(feature = "fake-providers")]
-const EMBED_NEVER_FRAMED: EmbedPolicy = EmbedPolicy {
+/// The system browser only, for a provider's own page outside our pages: dLocal's may never be
+/// framed, EBANX's Payment Page asks the payer for details we never see, KOMOJU's hosted page is
+/// untested in a web view.
+const EMBED_BROWSER_ONLY: EmbedPolicy = EmbedPolicy {
     webview: Webview::Forbidden,
     popups: Popups::SystemBrowser,
     breaks: &[],
 };
+
+/// One of a browser-only provider's methods: its page in the system browser, settled at once
+/// or in `settles`.
+const fn in_browser(method: Method, settles: Settles) -> MethodSpec {
+    spec(method, BROWSER, EMBED_BROWSER_ONLY, NO_LEAVE, settles)
+}
 
 /// GoCardless says nothing either way about web views: the chain keeps what is tested.
 const EMBED_GOCARDLESS: EmbedPolicy = EmbedPolicy {
@@ -877,6 +1003,120 @@ static PROVIDERS: &[ProviderSpec] = &[
         icon: "account_balance",
         fake: false,
     },
+    // dLocal (cross-border: Latin America, Africa, Asia): its API takes the payer's name, email
+    // and national ID in our request (the app asks for them), its pages may never be framed. The
+    // contracting entity is confirmed with the account.
+    ProviderSpec {
+        id: "dlocal",
+        kind: ProviderKind::Processor,
+        name: "dLocal",
+        legal_name: "dLocal",
+        origins: &[exact("pay.dlocal.com"), exact("sandbox.dlocal.com")],
+        pages: PAY_PAGES,
+        fields: None,
+        methods: &[
+            in_browser(Method::AirtelMoney, Settles::Instant),
+            in_browser(Method::AuPay, Settles::Instant),
+            in_browser(Method::Boleto, Settles::Days),
+            in_browser(Method::CapitecPay, Settles::Instant),
+            in_browser(Method::Dana, Settles::Instant),
+            in_browser(Method::Efecty, Settles::Days),
+            in_browser(Method::Fawry, Settles::Days),
+            in_browser(Method::Gcash, Settles::Instant),
+            in_browser(Method::GrabPay, Settles::Instant),
+            in_browser(Method::Khipu, Settles::Instant),
+            in_browser(Method::Konbini, Settles::Days),
+            in_browser(Method::Maya, Settles::Instant),
+            in_browser(Method::MercadoPago, Settles::Instant),
+            in_browser(Method::Momo, Settles::Instant),
+            in_browser(Method::Mpesa, Settles::Instant),
+            in_browser(Method::Nequi, Settles::Instant),
+            in_browser(Method::NetbankingIn, Settles::Instant),
+            in_browser(Method::NgBankTransfer, Settles::Days),
+            in_browser(Method::Opay, Settles::Instant),
+            in_browser(Method::Ovo, Settles::Instant),
+            in_browser(Method::Oxxo, Settles::Days),
+            in_browser(Method::Ozow, Settles::Instant),
+            in_browser(Method::PagoEfectivo, Settles::Days),
+            in_browser(Method::PayEasy, Settles::Days),
+            in_browser(Method::Pix, Settles::Instant),
+            in_browser(Method::Pse, Settles::Instant),
+            in_browser(Method::Qris, Settles::Instant),
+            in_browser(Method::Spei, Settles::Days),
+            in_browser(Method::Upi, Settles::Instant),
+            in_browser(Method::Webpay, Settles::Instant),
+            in_browser(Method::Yape, Settles::Instant),
+            in_browser(Method::ZaloPay, Settles::Instant),
+        ],
+        icon: "account_balance",
+        fake: false,
+    },
+    // EBANX (Latin America, Africa, India): its Payment Page asks the payer for the details the
+    // country wants (the app asks the name and email first), on one of EBANX's own hosts.
+    ProviderSpec {
+        id: "ebanx",
+        kind: ProviderKind::Processor,
+        name: "EBANX",
+        legal_name: "EBANX",
+        origins: &[suffix(".ebanxpay.com")],
+        pages: PAY_PAGES,
+        fields: None,
+        methods: &[
+            in_browser(Method::AirtelMoney, Settles::Instant),
+            in_browser(Method::Boleto, Settles::Days),
+            in_browser(Method::CapitecPay, Settles::Instant),
+            in_browser(Method::Efecty, Settles::Days),
+            in_browser(Method::MercadoPago, Settles::Instant),
+            in_browser(Method::Mpesa, Settles::Instant),
+            in_browser(Method::Nequi, Settles::Instant),
+            in_browser(Method::NgBankTransfer, Settles::Days),
+            in_browser(Method::Opay, Settles::Instant),
+            in_browser(Method::Oxxo, Settles::Days),
+            in_browser(Method::Ozow, Settles::Instant),
+            in_browser(Method::PagoEfectivo, Settles::Days),
+            in_browser(Method::Pix, Settles::Instant),
+            in_browser(Method::Pse, Settles::Instant),
+            in_browser(Method::Spei, Settles::Days),
+            in_browser(Method::Upi, Settles::Instant),
+            in_browser(Method::Webpay, Settles::Instant),
+            in_browser(Method::Yape, Settles::Instant),
+        ],
+        icon: "account_balance",
+        fake: false,
+    },
+    // KOMOJU (Japan's konbini and wallets, and Asia's): its hosted page needs nothing from us.
+    ProviderSpec {
+        id: "komoju",
+        kind: ProviderKind::Processor,
+        name: "KOMOJU",
+        legal_name: "KOMOJU (DEGICA)",
+        origins: &[exact("komoju.com")],
+        pages: PAY_PAGES,
+        fields: None,
+        methods: &[
+            in_browser(Method::AlipayHk, Settles::Instant),
+            in_browser(Method::AuPay, Settles::Instant),
+            in_browser(Method::BankTransfer, Settles::Days),
+            in_browser(Method::Blik, Settles::Instant),
+            in_browser(Method::Dana, Settles::Instant),
+            in_browser(Method::Fpx, Settles::Days),
+            in_browser(Method::Gcash, Settles::Instant),
+            in_browser(Method::KakaoPay, Settles::Instant),
+            in_browser(Method::Konbini, Settles::Days),
+            in_browser(Method::KrCard, Settles::Instant),
+            in_browser(Method::Merpay, Settles::Instant),
+            in_browser(Method::NaverPay, Settles::Instant),
+            in_browser(Method::Ovo, Settles::Instant),
+            in_browser(Method::P24, Settles::Days),
+            in_browser(Method::Paidy, Settles::Instant),
+            in_browser(Method::PayEasy, Settles::Days),
+            in_browser(Method::Payco, Settles::Instant),
+            in_browser(Method::PayPay, Settles::Instant),
+            in_browser(Method::TouchNGo, Settles::Instant),
+        ],
+        icon: "storefront",
+        fake: false,
+    },
     // Cash by post (cash contract v1): Azlin sells, the buyer prints a slip and posts it with
     // the cash; the operator activates the checkout when the letter arrived. No page anywhere:
     // no web view, no browser, no origins.
@@ -972,9 +1212,27 @@ static FAKE_PROVIDERS: &[ProviderSpec] = &[
         pages: FAKE_PAGES,
         fields: None,
         methods: &[
-            spec(Method::Pix, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Instant),
-            spec(Method::Oxxo, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
-            spec(Method::Boleto, BROWSER, EMBED_NEVER_FRAMED, NO_LEAVE, Settles::Days),
+            in_browser(Method::Pix, Settles::Instant),
+            in_browser(Method::Oxxo, Settles::Days),
+            in_browser(Method::Boleto, Settles::Days),
+        ],
+        icon: "account_balance",
+        fake: true,
+    },
+    // EBANX's shape: the Payment Page asks the payer for the country's details, on the
+    // sandbox's `/ebanx/checkout`; the system browser only.
+    ProviderSpec {
+        id: "fake-ebanx",
+        kind: ProviderKind::Processor,
+        name: "Fake EBANX",
+        legal_name: "Fake EBANX (a local test provider)",
+        origins: &[FAKE_PAGES],
+        pages: FAKE_PAGES,
+        fields: None,
+        methods: &[
+            in_browser(Method::Pix, Settles::Instant),
+            in_browser(Method::Oxxo, Settles::Days),
+            in_browser(Method::Boleto, Settles::Days),
         ],
         icon: "account_balance",
         fake: true,
