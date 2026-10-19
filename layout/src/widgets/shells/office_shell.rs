@@ -1038,6 +1038,38 @@ mod office_shell_tests {
             .collect()
     }
 
+    /// When a navigation pane fills a rail, one rule stands between it and the next pane: the
+    /// pane draws its edge and the rail none of its own. The two 1 px rules side by side read
+    /// as one 2 px rule (AzCalendar). A rail of anything else keeps its rule.
+    #[test]
+    fn a_rail_holding_a_navigation_pane_leaves_the_rule_to_the_pane() {
+        use crate::widgets::shells::navigation_pane::{ShellNavigationPane, NAV_CLASS};
+        let right_rule = |node: &Dom| {
+            checks::live_inline(node).iter().any(|(p, _)| {
+                matches!(p, CssProperty::BorderRightWidth(_) | CssProperty::BorderRightStyle(_))
+            })
+        };
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let build = |content: Dom| {
+                OfficeShell::create()
+                    .with_theme(theme)
+                    .with_pane(
+                        ShellPane::create(AzString::from("navigation"), content).with_width(252.0),
+                    )
+                    .with_pane(ShellPane::create(AzString::from("main"), Dom::create_div()))
+                    .dom()
+            };
+            let shell = build(ShellNavigationPane::create().dom());
+            let rail = tc::find(&shell, RAIL_CLASS).expect("a rail");
+            assert!(!right_rule(rail), "{theme:?}: the rail draws a rule beside the pane's");
+            let pane = tc::find(&shell, NAV_CLASS).expect("the navigation pane");
+            assert!(right_rule(pane), "{theme:?}: the pane draws its edge");
+            let plain = build(Dom::create_div());
+            let rail = tc::find(&plain, RAIL_CLASS).expect("a rail");
+            assert!(right_rule(rail), "{theme:?}: a rail of other content keeps its rule");
+        }
+    }
+
     #[test]
     fn the_slots_come_in_office_order_title_ribbon_body_status() {
         let dom = office_shell().with_theme(UiTheme::Flat).dom();
