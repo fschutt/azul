@@ -1608,6 +1608,18 @@ struct WakeState {
 /// Behaves identically to platform windows for layout, callbacks, and state
 /// management.  Instead of a GPU context it holds a [`CpuBackend`] for
 /// hit-testing and optional CPU rendering.
+/// The next headless window's [`HeadlessWindow::serial`]. It starts at 1 because an
+/// `owner_window_id` of 0 means "no owner".
+static NEXT_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Names `creator` (a [`HeadlessWindow::serial`]) as the owner of an owned window that
+/// names none yet.
+fn stamp_owner(options: &mut WindowCreateOptions, creator: u64) {
+    if options.owned && options.parent_window_id == 0 {
+        options.parent_window_id = creator;
+    }
+}
+
 pub struct HeadlessWindow {
     /// Common window state (layout, resources, etc.) — shared with all platforms.
     pub common: CommonWindowState,
@@ -1625,6 +1637,9 @@ pub struct HeadlessWindow {
     /// dialogs, an app's second window), pumped by this window's loop
     /// ([`Self::pump_children`]).
     pub children: Vec<HeadlessWindow>,
+    /// This window's id among the headless windows. Headless windows have no platform id,
+    /// so an owned window records this number as its owner (`owner_window_id`).
+    serial: u64,
     /// "Rebuild every window": a generation the root and its children share
     /// (`request_regeneration_all_windows` counts it up), and the generation this window has
     /// rebuilt for - the headless twin of the OS backends' registry walk.
@@ -1755,6 +1770,7 @@ impl HeadlessWindow {
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
             children: Vec::new(),
+            serial: NEXT_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             regenerate_all: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             regenerate_all_seen: 0,
             config,
@@ -2416,6 +2432,10 @@ impl HeadlessWindow {
     /// (one turn of each), dropping the closed ones.
     pub fn pump_children(&mut self) {
         while let Some(mut pending_create) = self.pending_window_creates.pop() {
+            // An owned window this window opened has it as its owner. The creates its
+            // children opened came up below with their owner already set.
+            stamp_owner(&mut pending_create, self.serial);
+            let owner = crate::desktop::shell2::common::owned_window::owner_of(&pending_create);
             // Every menu window is `azul-menu` (`desktop::menu::show_menu`):
             // one opened while another is open (a submenu, a second
             // drop-down) gets an id of its own - the first free of
@@ -2449,6 +2469,7 @@ impl HeadlessWindow {
                 self.font_registry.clone(),
             ) {
                 Ok(mut child) => {
+                    child.common.owner_window_id = owner;
                     child.regenerate_all = self.regenerate_all.clone();
                     child.regenerate_all_seen = self
                         .regenerate_all
@@ -2472,12 +2493,23 @@ impl HeadlessWindow {
         // shell hands them to a window that stays open (`common::thread_handover`).
         let mut inherited = Vec::new();
         let mut inherited_keyring_ops = 0_u32;
+        let mut closed = Vec::new();
+        // With the root closed, its first open child pumps what belongs to the process (the
+        // notifications, the global hotkeys), as the root did.
+        let mut heir_pending = !self.is_open();
         self.children.retain_mut(|child| {
-            child.pump_once(false);
-            opened_by_children.append(&mut child.pending_window_creates);
+            let as_root = heir_pending && child.can_be_heir();
+            heir_pending &= !as_root;
+            child.pump_once(as_root);
+            let child_serial = child.serial;
+            for mut create in child.pending_window_creates.drain(..) {
+                stamp_owner(&mut create, child_serial);
+                opened_by_children.push(create);
+            }
             let open = child.is_open();
             a_menu_closed |= !open && child.is_menu_window();
             if !open {
+                closed.push(child.serial);
                 if let Some(lw) = child.common.layout_window.as_mut() {
                     inherited.append(&mut lw.take_threads_for_heir());
                     inherited_keyring_ops += core::mem::take(&mut lw.keyring_manager.in_flight);
@@ -2523,6 +2555,55 @@ impl HeadlessWindow {
             self.wake();
         }
         self.pending_window_creates.extend(opened_by_children);
+        self.close_owned_by(&closed);
+    }
+
+    /// Asks every open child window owned by one of the windows `closed` to close, through its
+    /// own close guard (a window with unsaved work can still ask), as the desktop shells close
+    /// an owner's owned windows. A window that closes this way takes its own owned windows
+    /// with it on a later turn.
+    fn close_owned_by(&mut self, closed: &[u64]) {
+        if closed.is_empty() {
+            return;
+        }
+        let mut asked = false;
+        for child in &mut self.children {
+            if child.is_open() && closed.contains(&child.common.owner_window_id) {
+                PlatformWindow::request_close_by_app(child);
+                asked = true;
+            }
+        }
+        if asked {
+            self.wake();
+        }
+    }
+
+    /// The root window closed while other windows are open: the app goes on until its last
+    /// window closes, as on every desktop. Its menus close with it, and so do the windows it
+    /// owns (each through its close guard). Its threads and keyring work go on in the first
+    /// window that stays open, as a closing child's go on in the root. Returns whether a
+    /// window is left.
+    fn hand_over_from_closed_root(&mut self) -> bool {
+        let _ = self.dismiss_menu_windows();
+        self.close_owned_by(&[self.serial]);
+        let Some(heir) = self.children.iter_mut().find(|c| c.can_be_heir()) else {
+            return false;
+        };
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            let threads = lw.take_threads_for_heir();
+            let keyring_ops = core::mem::take(&mut lw.keyring_manager.in_flight);
+            let poll_was_needed = PlatformWindow::thread_poll_needed(heir);
+            if let Some(heir_lw) = heir.common.layout_window.as_mut() {
+                heir_lw.keyring_manager.mark_requests_dispatched(keyring_ops);
+                if heir_lw.adopt_handed_over_threads(threads) {
+                    PlatformWindow::sync_thread_poll_timer(heir, poll_was_needed);
+                }
+            }
+            if keyring_ops > 0 {
+                PlatformWindow::sync_capability_pump_timer(heir);
+            }
+        }
+        true
     }
 
     /// Is this window a window-based menu: a `WindowType::Menu` window with no
@@ -2536,6 +2617,15 @@ impl HeadlessWindow {
         let state = self.common.current_window_state();
         state.flags.window_type == azul_core::window::WindowType::Menu
             && crate::desktop::shell2::common::transient::mailbox_of(state).is_none()
+    }
+
+    /// Whether this window can take over the closed root's process-wide work: an open window
+    /// of the app's own, not a menu or a popup (a `Menu`-type window, which closes with the
+    /// window it hangs off).
+    fn can_be_heir(&self) -> bool {
+        self.is_open()
+            && self.common.current_window_state().flags.window_type
+                != azul_core::window::WindowType::Menu
     }
 
     /// Whether this window's loop must poll (it has timers or threads in flight): the
@@ -3572,34 +3662,53 @@ impl HeadlessWindow {
         let exit_request = &crate::desktop::shell2::common::process_exit::EXIT_REQUEST;
         exit_request.loop_takes_requests();
 
-        while self.is_open() {
+        // The app runs until its LAST window closes, as on every desktop: a window the
+        // root opened that it does not own (AzMail's compose window) outlives it.
+        let mut root_handed_over = false;
+        loop {
             if exit_request.requested().is_some() {
                 break;
             }
-            self.pump_once(true);
+            if self.is_open() {
+                self.pump_once(true);
+            }
 
             // ── Phase 3 + 4: spawn and pump the child windows ─────
             self.pump_children();
 
-            // A close this turn ends the loop here: the wait below may have no
-            // wake source left (a closed window's timers and threads are gone),
-            // and the process would stay up with no window.
+            // The root closed: its menus and owned windows close with it, its work goes
+            // on in a window that stays. With no window left the loop ends here: the
+            // wait below may have no wake source left, and the process would stay up
+            // with no window.
             if !self.is_open() {
-                break;
+                if !root_handed_over {
+                    root_handed_over = true;
+                    if !self.hand_over_from_closed_root() {
+                        break;
+                    }
+                    // The owned windows asked to close run their close protocol now.
+                    continue;
+                }
+                if self.children.is_empty() && self.pending_window_creates.is_empty() {
+                    break;
+                }
             }
+            let root_open = self.is_open();
 
             // ── Phase 5: Condvar-based wait ──────────────────────
-            let has_timers = self
-                .common
-                .layout_window
-                .as_ref()
-                .map_or(false, |lw| !lw.timers.is_empty());
+            let has_timers = root_open
+                && self
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map_or(false, |lw| !lw.timers.is_empty());
+            let root_threads = root_open && self.thread_poll_timer_running;
             // A registered global hotkey on the simulation: a press parked from
             // outside a callback (a test thread) has no way to signal the
             // condvar, so the wait below polls while one is registered.
             let has_hotkeys = crate::desktop::global_hotkey::needs_loop_polling();
             let has_wake_sources = has_timers
-                || self.thread_poll_timer_running
+                || root_threads
                 || has_hotkeys
                 || debug_enabled
                 || !self.children.is_empty();
@@ -3643,7 +3752,7 @@ impl HeadlessWindow {
                 // work the wake announced is serviced now.
                 guard.woken = false;
             } else if has_timers
-                || self.thread_poll_timer_running
+                || root_threads
                 || has_hotkeys
                 || self.children.iter().any(HeadlessWindow::wants_polling)
             {
@@ -3655,7 +3764,7 @@ impl HeadlessWindow {
                 // notifies the condvar. A child window with timers or threads
                 // (pumped by this loop) keeps the frame poll too.
                 let children_poll = self.children.iter().any(HeadlessWindow::wants_polling);
-                let wait = if self.thread_poll_timer_running || has_hotkeys || children_poll {
+                let wait = if root_threads || has_hotkeys || children_poll {
                     poll_interval
                 } else {
                     let get_time = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
@@ -14359,4 +14468,34 @@ mod child_window_tests {
         }
         assert!(child_ids(&root).is_empty(), "the owned window closed with its owner");
     }
+
+    /// The app runs until its last window closes: a window the root opened without owning it
+    /// (AzMail's compose window) stays when the root closes, and the root's owned windows and
+    /// menus close with it. Headless ended the app with its first window.
+    #[test]
+    fn a_window_the_root_does_not_own_outlives_it() {
+        let mut root = root();
+        root.queue_window_create(window(root_layout, "compose"));
+        let mut options = window(root_layout, "options");
+        options.owned = true;
+        root.queue_window_create(options);
+        let mut menu = window(root_layout, "azul-menu");
+        menu.window_state.flags.window_type = azul_core::window::WindowType::Menu;
+        root.queue_window_create(menu);
+        root.pump_children();
+        assert_eq!(child_ids(&root).len(), 3);
+
+        root.close();
+        assert!(root.hand_over_from_closed_root(), "the compose window is left");
+        for _ in 0..3 {
+            root.pump_children();
+        }
+        assert_eq!(child_ids(&root), vec!["compose".to_string()]);
+
+        root.children[0].close();
+        root.pump_children();
+        assert!(root.children.is_empty());
+        assert!(!root.hand_over_from_closed_root(), "no window is left");
+    }
 }
+
