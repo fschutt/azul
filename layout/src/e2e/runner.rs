@@ -4569,7 +4569,7 @@ fn apply_focus_restyle_in_dom(
                 .restyle_on_focus_visibility(gained, true),
         );
     }
-    let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
+    let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
 
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
         // Nothing the cascade calls a change, but the caret and the
@@ -4670,7 +4670,7 @@ fn apply_hover_restyle(
                 .restyle_on_state_change(None, Some(hover_change), None);
         // Before the empty check, as in the shell: a property in mid-fade is
         // invisible to the restyle's diff, and its reversal is still owed.
-        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }

@@ -133,7 +133,7 @@ fn button_node(lw: &LayoutWindow) -> NodeId {
 /// paint-only change.
 fn hover(lw: &mut LayoutWindow, node: NodeId) {
     let before = lw.node_states(DomId::ROOT_ID, [node]);
-    let _ = lw
+    let restyled = lw
         .layout_results
         .get_mut(&DomId::ROOT_ID)
         .expect("laid out")
@@ -146,14 +146,14 @@ fn hover(lw: &mut LayoutWindow, node: NodeId) {
             }),
             None,
         );
-    let _ = lw.seed_state_change_transitions(DomId::ROOT_ID, &before);
+    let _ = lw.seed_state_change_transitions(DomId::ROOT_ID, &before, &restyled.changed_nodes);
     lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
 }
 
 /// The primary button goes down on `node`, as the shell applies it.
 fn press(lw: &mut LayoutWindow, node: NodeId) {
     let before = lw.node_states(DomId::ROOT_ID, [node]);
-    let _ = lw
+    let restyled = lw
         .layout_results
         .get_mut(&DomId::ROOT_ID)
         .expect("laid out")
@@ -166,7 +166,7 @@ fn press(lw: &mut LayoutWindow, node: NodeId) {
                 activated: vec![node],
             }),
         );
-    let _ = lw.seed_state_change_transitions(DomId::ROOT_ID, &before);
+    let _ = lw.seed_state_change_transitions(DomId::ROOT_ID, &before, &restyled.changed_nodes);
     lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
 }
 

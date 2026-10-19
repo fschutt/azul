@@ -1221,3 +1221,5 @@ mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
 mod a_virtual_view_follows_its_windows_mode;
 #[path = "focus_within_reaches_the_host_of_a_virtual_view.rs"]
 mod focus_within_reaches_the_host_of_a_virtual_view;
+#[path = "a_descendant_restyled_by_its_ancestors_hover_fades.rs"]
+mod a_descendant_restyled_by_its_ancestors_hover_fades;

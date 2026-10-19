@@ -767,7 +767,7 @@ fn apply_focus_restyle_in_dom(
                 .restyle_on_focus_visibility(gained, true),
         );
     }
-    let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
+    let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
 
     log_debug!(
         super::debug_server::LogCategory::Input,
@@ -971,7 +971,7 @@ fn apply_active_restyle(
                 activated,
             }),
         );
-        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
 
         if restyle_result.changed_nodes.is_empty() {
             continue;
@@ -1033,7 +1033,7 @@ fn apply_hover_restyle(
         // Before the empty check: a property in mid-fade is invisible to the
         // restyle's diff (its override answers for both states), and its
         // reversal is still owed.
-        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }

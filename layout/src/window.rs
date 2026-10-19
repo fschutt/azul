@@ -9899,7 +9899,9 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         before: &[(NodeId, azul_core::styled_dom::StyledNodeState)],
+        restyled: &azul_core::events::RestyleNodes,
     ) -> bool {
+        let _ = restyled;
         use azul_css::{
             dynamic_selector::ResolveSystemColors,
             props::property::{CssProperty, CssPropertyType},
