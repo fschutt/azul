@@ -41,10 +41,6 @@ FAIL css/css-lists/content-property/marker-text-matches-square.html E-OL # @coun
 FAIL css/css-lists/implicit-and-explicit-list-item-counters.html E-OL # match implicit-and-explicit-list-item-counters-ref.html: maxdiff 23 pixels 3654
 FAIL css/css-lists/inline-block-list.html E-OL # needs `display: inline flow-root list-item` (does not parse; the test renders block list items); gate 2026-10-06: maxdiff 255 pixels 33924
 FAIL css/css-lists/inline-list.html E-OL # match inline-list-ref.html: maxdiff 255 pixels 34561
-FAIL css/css-lists/li-list-item-counter-001.html E-OL # match li-list-item-counter-001-ref.html: maxdiff 233 pixels 942
-FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-counter-002-ref.html: maxdiff 255 pixels 786
-FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
-FAIL css/css-lists/list-style-type-string-001a.html E-OL # needs list-style-type: <string> (test) and ::before generated content (reference); gate 2026-10-06: maxdiff 233 pixels 3563
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
 FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
 FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred only under a parent whose text-align is the initial value, and an author `text-align: inherit` to beat the UA centre; gate 2026-10-06: maxdiff 233 pixels 283

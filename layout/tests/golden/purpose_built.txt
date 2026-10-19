@@ -571,7 +571,7 @@ n31 p27 d22 Inline @40,192 760x16 ov=41.59375x16 bl=13 ic=19.203125/19.203125 re
 n32 p31 d22 Inline pseudo=Marker @40,192 -x- ic=0/0
 n33 p31 d23 Inline @40,192 -x- ic=19.203125/19.203125
 n34 p1 d24 Block { establishes_new_context: false } @0,224 800x16 ov=760x16 mt=16 mb=16 bl=13 ic=54.40625/96.8125 rel=0,208
-n35 p34 d25 Inline @40,224 760x16 ov=104.796875x16 bl=13 ic=54.40625/96.8125 rel=0,0
+n35 p34 d25 Inline @40,224 760x16 ov=108.796875x16 bl=13 ic=54.40625/96.8125 rel=0,0
 n36 p35 d25 Inline pseudo=Marker @40,224 -x- ic=0/0
 n37 p35 d26 Inline @40,224 -x- ic=54.40625/96.8125
 n38 p1 d27 Block { establishes_new_context: false } @0,256 800x68 ov=760x68 mt=16 mb=16 bl=59 ic=41.203125/66.8125 rel=0,240
@@ -645,9 +645,9 @@ n61 p59 d45 Inline @40,388 -x- ic=32/32
   dl44 HitTestArea 40,192.20313 19.203125x16
   dl45 HitTestArea 40,192 0x0
   dl46 HitTestArea 40,224 760x16
-  dl47 Text 24,224 792x16 glyphs=2 fs=16
-  dl48 Text 24,224 792x16 glyphs=13 fs=16
-  dl49 HitTestArea 48,224.20313 96.796875x16
+  dl47 Text 12,224 804x16 glyphs=2 fs=16
+  dl48 Text 12,224 804x16 glyphs=13 fs=16
+  dl49 HitTestArea 40,224.20313 96.796875x16
   dl50 HitTestArea 40,224 0x0
   dl51 HitTestArea 40,256 760x30
   dl52 Text 4.796875,256 811.2031x30 glyphs=3 fs=16
