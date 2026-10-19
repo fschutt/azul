@@ -1851,4 +1851,22 @@ mod tests {
         assert!(!st.tabs[1].session.signals.take_dirty());
         assert_eq!(st.streak, 0);
     }
+
+    /// A bell in a tab behind the shown one marks that tab until it is shown; the shown tab's
+    /// bell flashes its terminal. Both were dropped.
+    #[test]
+    fn a_bell_marks_a_tab_behind_until_it_is_shown_and_flashes_the_shown_one() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        assert_eq!(st.active, 1);
+        st.tabs[0].session.signals.bell.store(true, Ordering::Release);
+        st.tabs[1].session.signals.bell.store(true, Ordering::Release);
+        assert!(st.note_bells(), "the tab strip shows the mark");
+        assert!(st.tabs[0].rang && !st.tabs[1].rang);
+        assert!(st.bell_flash > 0, "the shown terminal flashes");
+        assert!(!st.note_bells(), "a bell is noted once");
+        st.select_tab(0);
+        assert!(!st.tabs[0].rang, "shown, the mark goes");
+    }
 }

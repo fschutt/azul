@@ -483,4 +483,21 @@ mod tests {
         l.send_event(Event::Exit);
         assert!(signals.exited.load(Ordering::Acquire));
     }
+
+    /// OSC 52: a program (vim, tmux, over ssh) may put text on the clipboard; it never reads
+    /// it - what the user copied elsewhere is not a program's to take.
+    #[test]
+    fn a_program_may_set_the_clipboard_but_never_read_it() {
+        use alacritty_terminal::term::ClipboardType;
+        let signals = Arc::new(Signals::default());
+        let l = Listener(signals.clone());
+        l.send_event(Event::ClipboardStore(ClipboardType::Clipboard, "token 42".to_string()));
+        assert_eq!(signals.take_clipboard().as_deref(), Some("token 42"));
+        assert_eq!(signals.take_clipboard(), None);
+        l.send_event(Event::ClipboardLoad(
+            ClipboardType::Clipboard,
+            Arc::new(|text: &str| format!("\u{1b}]52;c;{text}\u{7}")),
+        ));
+        assert_eq!(signals.take_clipboard(), None);
+    }
 }
