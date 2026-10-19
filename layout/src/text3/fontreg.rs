@@ -59,6 +59,9 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// same bytes under the same family again changes nothing.
 #[must_use]
 pub fn register_font(family: &str, bytes: &[u8]) -> bool {
+    // A web font (WOFF, WOFF2) is unpacked once into the plain font every reader takes.
+    let unpacked = sfnt_of(bytes);
+    let bytes = unpacked.as_deref().unwrap_or(bytes);
     let ranges = cmap_coverage(bytes);
     if ranges.is_empty() {
         return false;
@@ -159,9 +162,136 @@ impl crate::callbacks::CallbackInfo {
     }
 }
 
+/// `bytes` as a plain TrueType / OpenType font when they are a WOFF or a WOFF2 (a web font: its
+/// tables compressed): the tables unpacked and written out as an sfnt. `None` for anything else
+/// (a plain font is used as it is) and for a web font that does not unpack.
+#[must_use]
+pub fn sfnt_of(bytes: &[u8]) -> Option<Vec<u8>> {
+    use allsorts::{binary::read::ReadScope, font_data::FontData, tables::FontTableProvider};
+    let magic = bytes.get(..4)?;
+    if magic != b"wOFF" && magic != b"wOF2" {
+        return None;
+    }
+    let data = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+    let provider = data.table_provider(0).ok()?;
+    let mut tags = provider.table_tags()?;
+    tags.sort_unstable();
+    tags.dedup();
+    let mut tables = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let table = provider.table_data(tag).ok()??;
+        tables.push((tag, table.into_owned()));
+    }
+    if tables.is_empty() {
+        return None;
+    }
+    let cff = u32::from_be_bytes(*b"CFF ");
+    let version = if tables.iter().any(|(tag, _)| *tag == cff) {
+        u32::from_be_bytes(*b"OTTO")
+    } else {
+        0x0001_0000
+    };
+    Some(write_sfnt(version, &tables))
+}
+
+/// An sfnt of `tables` (sorted by tag): the offset table, the table records, each table on a
+/// four-byte boundary with its checksum.
+fn write_sfnt(version: u32, tables: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    let count = tables.len() as u16;
+    let entry_selector = 15 - count.max(1).leading_zeros() as u16;
+    let search_range = (1u16 << entry_selector) * 16;
+    let range_shift = count * 16 - search_range;
+    let mut out = Vec::new();
+    out.extend_from_slice(&version.to_be_bytes());
+    for field in [count, search_range, entry_selector, range_shift] {
+        out.extend_from_slice(&field.to_be_bytes());
+    }
+    let mut offset = 12 + 16 * tables.len();
+    let mut body = Vec::new();
+    for (tag, data) in tables {
+        let checksum = data
+            .chunks(4)
+            .map(|word| {
+                let mut padded = [0u8; 4];
+                padded[..word.len()].copy_from_slice(word);
+                u32::from_be_bytes(padded)
+            })
+            .fold(0u32, u32::wrapping_add);
+        for field in [*tag, checksum, offset as u32, data.len() as u32] {
+            out.extend_from_slice(&field.to_be_bytes());
+        }
+        body.extend_from_slice(data);
+        while body.len() % 4 != 0 {
+            body.push(0);
+        }
+        offset = 12 + 16 * tables.len() + body.len();
+    }
+    out.extend_from_slice(&body);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tables of a font, by tag.
+    fn tables_of(font: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        use allsorts::{binary::read::ReadScope, font_data::FontData, tables::FontTableProvider};
+        let data = ReadScope::new(font).read::<FontData<'_>>().unwrap();
+        let provider = data.table_provider(0).unwrap();
+        let mut tags = provider.table_tags().unwrap();
+        tags.sort_unstable();
+        tags.into_iter()
+            .map(|tag| (tag, provider.table_data(tag).unwrap().unwrap().into_owned()))
+            .collect()
+    }
+
+    /// `font` as a WOFF 1.0 with its tables stored as they are (allowed: a table whose
+    /// compressed length is its length is not compressed).
+    fn woff_of(font: &[u8]) -> Vec<u8> {
+        let tables = tables_of(font);
+        let directory = 44 + 20 * tables.len();
+        let (mut body, mut entries) = (Vec::new(), Vec::new());
+        for (tag, data) in &tables {
+            entries.push((*tag, (directory + body.len()) as u32, data.len() as u32));
+            body.extend_from_slice(data);
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+        }
+        let mut out = Vec::new();
+        out.extend_from_slice(b"wOFF");
+        out.extend_from_slice(&font[..4]);
+        out.extend_from_slice(&((directory + body.len()) as u32).to_be_bytes());
+        out.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        out.extend_from_slice(&(font.len() as u32).to_be_bytes());
+        out.extend_from_slice(&1u16.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        for _ in 0..5 {
+            out.extend_from_slice(&0u32.to_be_bytes());
+        }
+        for (tag, offset, len) in entries {
+            for field in [tag, offset, len, len, 0] {
+                out.extend_from_slice(&field.to_be_bytes());
+            }
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// A mail's web font comes as a WOFF or a WOFF2: it is unpacked into the plain font, table
+    /// for table, and registered as one; a plain font is taken as it is.
+    #[test]
+    fn a_web_font_is_unpacked_into_its_plain_font_and_registered() {
+        let font = crate::text3::ui_fonts::bundled_ui_fonts()[0].bytes.to_vec();
+        assert!(sfnt_of(&font).is_none(), "a plain font is used as it is");
+        let web = woff_of(&font);
+        let unpacked = sfnt_of(&web).expect("the WOFF unpacks");
+        assert_eq!(tables_of(&unpacked), tables_of(&font));
+        assert!(register_font("Azul Fontreg Web Face", &web));
+        assert!(sfnt_of(b"wOF2 not a font").is_none());
+    }
 
     #[test]
     fn bytes_that_are_no_font_change_nothing() {
