@@ -34,11 +34,12 @@ the stack from azul-apps' local/fullsim.sh):
         [--sandbox-url http://127.0.0.1:8784] [--debug-port 8800] [--logs <dir>]
         [--card 4242424242424242] [--upload-mb 5] [--window]
 
-`--window` runs the buyer's AzDrive in a real window: the popover's web view loads the sandbox's
-real page, which the sandbox serves with the test card typed in (`/_dev/fill`, nothing can type
-into a real web view), and the page itself confirms on Pay; the screenshots are the OS's captures
-(the page included). A real window keeps its keyring in the login keychain, so the run ends after
-the upload (the second computer is the headless run's) and it reads nothing of the keychain.
+`--window` runs the buyer's AzDrive in a real window (the second computer stays headless: its
+unlock is in the drive's context menu, a native menu on macOS that no script may drive): the
+popover's web view loads the sandbox's real page, which the sandbox serves with the test card typed in (`/_dev/fill`, nothing can type into a
+real web view), and the page itself confirms on Pay; the screenshots are the OS's captures (the
+page included). Each profile keeps its keyring in a file of the run (AZ_KEYRING_FILE, which a
+windowed run honours too), never in the system keyring.
 Every key_down has its key_up (the E2E key_up rule).
 """
 
@@ -366,13 +367,11 @@ def run(args, logs):
             "AZDRIVE_PAY_SURFACE", r".+") > surfaces and app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1])
         if not surface.startswith("fields 127.0.0.1:"):
             raise Failure("the card checkout opened %r, not the fields in the popover" % surface)
-        claim_code = None
-        if not args.window:
-            # (a real window's keyring is the login keychain: nothing of it is read here)
-            kept = pending_checkouts(keyring_file).get(checkout)
-            if not kept:
-                raise Failure("the checkout %s is not on the keyring's list" % checkout)
-            claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
+        kept = pending_checkouts(keyring_file).get(checkout)
+        if not kept:
+            raise Failure("the checkout %s is not on the keyring's list (%s): a window run needs a "
+                          "libazul whose keyring honours AZ_KEYRING_FILE" % (checkout, keyring_file))
+        claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
         result.update(checkout=checkout, claim_code=claim_code)
         log("2. Buy: checkout %s, its fields page in the popover (%s)" % (checkout, surface))
 
@@ -398,9 +397,8 @@ def run(args, logs):
         # 4. Encrypted as it arrived.
         recovery = new_drive_encrypted(app, drive_id)
         wait_closed(app)
-        if not args.window:
-            app.until("the checkout off the keyring's list",
-                      lambda: checkout not in pending_checkouts(keyring_file))
+        app.until("the checkout off the keyring's list",
+                  lambda: checkout not in pending_checkouts(keyring_file))
         app.until("its row in CLOUD", lambda: app.has(side_drive(drive_id)))
         tokens = app.until("the period tokens kept", lambda: app.printed(
             "AZDRIVE_PERIOD_TOKENS", r"%s %s \d+" % (re.escape(checkout), re.escape(drive_id))))
@@ -441,18 +439,14 @@ def run(args, logs):
     with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
 
-    if args.window:
-        # A real window keeps its keyring in the login keychain: a second profile on this
-        # computer would share it. The second computer is the headless run's.
-        log("PASS in a real window: bought, paid on the real page, encrypted, filled")
-        return True
-
     # 6. Another computer: the claim code, the recovery code, the files back.
     other_switches, other_env = other_profile(logs, "second", switches, env)
     other_home = other_switches[other_switches.index("--home") + 1]
     os.makedirs(os.path.join(other_home, "Documents"))
+    # The second computer runs headless in a window run too: its unlock is in the drive's
+    # context menu, which macOS shows as a native menu that no script may drive.
     second = start_app("azdrive-second", binary, other_switches, args.debug_port + 1, logs,
-                       args.timeout, other_env, args.window)
+                       args.timeout, other_env, False)
     try:
         picker = open_dialog(second, "the source list",
                              lambda: second.click(selector="#" + I("side-add-drive")))
@@ -480,7 +474,7 @@ def run(args, logs):
                      r"%s / \d+" % re.escape(drive_id), names,
                      lambda: second.click(selector="#" + I("side-fav-documents")),
                      r"home Documents/ \d+")
-        shot(second, os.path.join(out, "07-second-computer.png"), args.window)
+        shot(second, os.path.join(out, "07-second-computer.png"), False)
     finally:
         second.stop()
     downloaded = tree_digests(os.path.join(other_home, "Documents"))
