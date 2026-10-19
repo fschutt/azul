@@ -1,8 +1,7 @@
 use azul::{
     callbacks::CallbackType,
-    dom::{AccessibilityInfo, AccessibilityRole, MapMountCallback},
+    dom::{AccessibilityInfo, AccessibilityRole},
     http::{HttpClient, HttpClientConfig},
-    option::OptionRefAny,
     prelude::*,
     task::ThreadPool,
     widgets::{MapSetup, MapTheme, MapTileLayer, MapViewport, MapWidget},
@@ -63,13 +62,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let map = MapWidget::create(layer)
         .with_theme(MapTheme::System)
         .with_viewport(viewport)
-        .with_on_mount(
-            data.clone(),
-            MapMountCallback {
-                cb: on_map_mount,
-                callable: OptionRefAny::None,
-            },
-        )
+        .with_on_mount(data.clone(), on_map_mount)
         .dom()
         .with_css("width: 100%; height: 100%;");
 

@@ -3,7 +3,6 @@ use azul::{
     dialog::{
         ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult, MsgBox, MsgBoxIcon, YesNo,
     },
-    dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback},
     option::{OptionColorU, OptionFileTypeList, OptionString},
     prelude::*,
     widgets::*,
@@ -270,13 +269,7 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
         .collect();
 
     let mut name_combo = ribbon_style.styled_combo_box(font_names, "Calibri (Body)", 133);
-    name_combo.set_on_select(
-        data.clone(),
-        ComboBoxOnSelectCallback {
-            cb: on_font_select,
-            callable: OptionRefAny::None,
-        },
-    );
+    name_combo.set_on_select(data.clone(), on_font_select);
     let size_combo = ribbon_style.styled_combo_box(font_sizes, "11", 45);
 
     let mut bold = small("format_bold", "").with_toggled(state.bold);
@@ -390,13 +383,7 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
         cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
     ];
     let mut gallery = RibbonGallery::create(cells).with_selected(state.selected_style);
-    gallery.set_on_select(
-        data.clone(),
-        RibbonGalleryOnSelectCallback {
-            cb: on_style_select,
-            callable: OptionRefAny::None,
-        },
-    );
+    gallery.set_on_select(data.clone(), on_style_select);
 
     let styles = RibbonGroup::create("Styles")
         .with_item(RibbonItem::Gallery(gallery))
