@@ -1470,6 +1470,19 @@ def run(args, logs):
                   and "Search: gradient" in overview_texts() and "New tab" in overview_texts())
         app.until("the Ctrl digits", lambda: "\u23032" in overview_texts())
         app.screenshot(os.path.join(out, "23b-tab-overview.png"))
+        # The overview takes the keyboard as it opens, from the search box that had it: Down
+        # highlights the first tab and Return opens it, with no click on the overview first.
+        app.until("the overview has the keyboard",
+                  lambda: "tab-overview-list" in focused_selector(app))
+        app.key("down")
+        app.after("Down, Return: the highlighted first tab", "AZDRIVE_TABS", r"2 0",
+                  lambda: app.key("return"))
+        app.until("its place", lambda: app.last("AZDRIVE_PLACE") == "home Documents/")
+        app.after("Ctrl+2: the second tab again", "AZDRIVE_TABS", r"2 1",
+                  lambda: app.key("2", ctrl=True))
+        focus_search_box(app)
+        app.after("Ctrl+Shift+A: the overview again", "AZDRIVE_TAB_OVERVIEW", r"open",
+                  lambda: app.key("a", ctrl=True, shift=True))
         app.after("Escape closes the overview", "AZDRIVE_TAB_OVERVIEW", r"closed",
                   lambda: app.key("escape"))
         app.after("Ctrl+W closes the second tab", "AZDRIVE_TABS", r"1 0",
@@ -1481,7 +1494,8 @@ def run(args, logs):
             raise Failure("Ctrl+W closed the last tab: %s" % app.last("AZDRIVE_TABS"))
         log("23b. location tabs: Ctrl+T on Documents (empty selection, a note), Pictures and "
             "Large icons in the second, Ctrl+Tab back to Documents with notes.txt selected in "
-            "Details, Ctrl+2, the second tab's search run again, Ctrl+Shift+A the overview, "
+            "Details, Ctrl+2, the second tab's search run again, Ctrl+Shift+A the overview "
+            "(it took the keyboard from the search box: Down, Return opened the first tab), "
             "Ctrl+W closed the second, the last tab stayed")
 
         # 23c. Quick Look (Space) and the command palette (Cmd+K), over the window on a scrim.
