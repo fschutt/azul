@@ -1356,7 +1356,30 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
     if !s.notice.is_empty() {
         segments.push(StatusBarSegment::create(s.notice.as_str()));
     }
-    let (label, kind) = match &s.sync {
+    let (label, kind) = sync_line(&s.sync, s.accounts.is_empty(), || up_to_date(s));
+    // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
+    // buttons' whole range.
+    let zoom = StatusBarZoom::create(s.zoom, ZOOM_MIN, ZOOM_MAX)
+        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
+    StatusBar::create(segments)
+        .with_sync(StatusBarSync::create(label, kind).with_on_click(
+            action_ref(app, Action::SendReceive),
+            on_action as ButtonOnClickCallbackType,
+        ))
+        .with_zoom(zoom)
+        .dom()
+}
+
+/// The status bar's sync line: a running Send / Receive's step, else what the last one came
+/// to; `up_to_date` is Outlook 2010's "All folders are up to date." with the server.
+pub(crate) fn sync_line(
+    sync: &SyncState,
+    no_account: bool,
+    up_to_date: impl FnOnce() -> String,
+) -> (String, StatusBarSyncKind) {
+    match sync {
         SyncState::Running {
             status, percent, ..
         } => (
@@ -1371,25 +1394,12 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         ),
         // Without an account nothing is connected (Local Folders' Outbox went out: the
         // notice says how).
-        _ if s.accounts.is_empty() => (t("azmail-no-account"), StatusBarSyncKind::Offline),
+        _ if no_account => (t("azmail-no-account"), StatusBarSyncKind::Offline),
         // Outlook 2010: "All folders are up to date." beside "Connected to ...".
-        SyncState::Done(_) => (up_to_date(s), StatusBarSyncKind::Connected),
+        SyncState::Done(_) => (up_to_date(), StatusBarSyncKind::Connected),
         SyncState::Failed(text) => (t_label(text), StatusBarSyncKind::Error),
-        SyncState::Idle => (up_to_date(s), StatusBarSyncKind::Connected),
-    };
-    // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
-    // buttons' whole range.
-    let zoom = StatusBarZoom::create(s.zoom, ZOOM_MIN, ZOOM_MAX)
-        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
-        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
-        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
-    StatusBar::create(segments)
-        .with_sync(StatusBarSync::create(label, kind).with_on_click(
-            action_ref(app, Action::SendReceive),
-            on_action as ButtonOnClickCallbackType,
-        ))
-        .with_zoom(zoom)
-        .dom()
+        SyncState::Idle => (up_to_date(), StatusBarSyncKind::Connected),
+    }
 }
 
 /// The status bar's sync line while nothing runs: Outlook 2010's "All folders are up to date.",

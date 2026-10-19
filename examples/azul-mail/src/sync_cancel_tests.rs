@@ -1,5 +1,6 @@
-//! Cancel on Send / Receive: the window is free at once, and the stopped sync's late reports
-//! (it writes what it has, then says so) never touch the Send / Receive that runs after it.
+//! Cancel on Send / Receive: the window is free at once, the status bar says it stopped, and the
+//! stopped sync's late reports (it writes what it has, then says so) never touch the Send /
+//! Receive that runs after it.
 
 use azul::task::ThreadId;
 
@@ -34,4 +35,19 @@ fn a_stopped_syncs_last_report_does_not_touch_the_next_one() {
     let next = running(8);
     assert!(!next.runs_on(ThreadId { id: 7 }), "the stopped sync's late report");
     assert!(next.runs_on(ThreadId { id: 8 }));
+}
+
+#[test]
+fn a_stopped_send_receive_says_so_in_the_status_bar() {
+    crate::l10n::in_english();
+    let mut state = running(7);
+    state.cancel();
+    let (line, _) = crate::ui_main::sync_line(&state, false, || {
+        String::from("All folders are up to date.")
+    });
+    assert_eq!(
+        line,
+        azul_appkit::l10n::t("azmail-send-receive-stopped"),
+        "a stopped Send / Receive is no up-to-date one: the folders hold only what arrived"
+    );
 }
