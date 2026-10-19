@@ -159,6 +159,8 @@ mod fileops_batch_tests;
 #[cfg(test)]
 mod copy_path_tests;
 #[cfg(test)]
+mod grid_keys_tests;
+#[cfg(test)]
 mod tree_leaves_tests;
 #[cfg(test)]
 mod notices_tests;

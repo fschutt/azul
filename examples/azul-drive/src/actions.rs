@@ -1601,7 +1601,7 @@ fn in_icon_grid(info: &CallbackInfo) -> bool {
 }
 
 /// The keys the focused icon grid handles itself (the window's keyboard leaves them).
-fn grid_handles(command: Command) -> bool {
+pub(crate) fn grid_handles(command: Command) -> bool {
     matches!(
         command,
         Command::Move { .. }
