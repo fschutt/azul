@@ -368,3 +368,56 @@ fn a_world_shown_twice_left_alone_settles() {
         }
     }
 }
+
+/// Two different labels of one name and one layer can stand a few pixels
+/// apart: the tiles carry "Australia" once as the country and once as the
+/// continent, both in `place`. They share an identity, so either may be taken
+/// for the one shown last frame. Left alone, the view still settles: the
+/// country keeps its slot and its node, and the continent stays held back.
+#[test]
+fn two_labels_of_one_name_standing_together_settle_instead_of_taking_turns() {
+    let view = view_at(2.0, 0.0);
+    let country = TileLabel {
+        size: 13.0,
+        ..label("Australia", 100, "place")
+    };
+    let continent = TileLabel {
+        size: 14.0,
+        ..label("Australia", 300, "place")
+    };
+    // The continent's anchor is a pixel north of the country's, so it comes
+    // first wherever the placement walks the labels by their place.
+    let candidates = vec![
+        at(&view, world_near_centre(2.0, 0.0, 0.0), &country),
+        at(&view, world_near_centre(2.0, -3.0, -1.0), &continent),
+    ];
+    let mut placement = LabelPlacement::new();
+    let mut held: Option<u64> = None;
+    for frame_no in 0..120 {
+        let now = 10.0 + f64::from(frame_no) * 0.016;
+        let frame = placement.place(&candidates, &view, now);
+        assert_eq!(
+            shown(&frame, &candidates),
+            vec!["Australia".to_string()],
+            "frame {frame_no}: one of the two shows"
+        );
+        if now < 10.0 + LABEL_FADE_SECS * 2.0 {
+            continue;
+        }
+        assert!(
+            frame.settled_at <= now,
+            "frame {frame_no}: still fading until {} at {now} - the two take turns",
+            frame.settled_at
+        );
+        let id = frame
+            .placed
+            .iter()
+            .find(|p| p.from == PlacedFrom::Candidate(0))
+            .map(|p| p.id)
+            .expect("the country, which outranks the continent, is the one shown");
+        match held {
+            None => held = Some(id),
+            Some(first) => assert_eq!(id, first, "frame {frame_no}: the country's node changed"),
+        }
+    }
+}
