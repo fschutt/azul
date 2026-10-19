@@ -13,7 +13,10 @@
 //! drag ends as a release ends it, with what the drop did as its drop effect
 //! (`DragEnd`: copy, move, link or none).
 
-use azul_core::drag::{DragEffect, DropEffect};
+use azul_core::{
+    drag::{DragEffect, DropEffect},
+    events::MouseButton,
+};
 use objc2::{rc::Retained, runtime::ProtocolObject, AnyThread};
 use objc2_app_kit::{NSDragOperation, NSDraggingItem, NSEvent, NSImage, NSWorkspace};
 use objc2_foundation::{ns_string, NSArray, NSPoint, NSRect, NSSize, NSString};
@@ -22,9 +25,8 @@ use super::{
     events::{self, EventProcessResult},
     MacOSWindow,
 };
-use crate::desktop::shell2::common::{
-    clipboard::{clipboard_content_to_payload, drag_data_to_clipboard_content},
-    event::PlatformWindow,
+use crate::desktop::shell2::common::clipboard::{
+    clipboard_content_to_payload, drag_data_to_clipboard_content,
 };
 
 /// The side of a dragged item's image, points.
@@ -39,7 +41,7 @@ impl MacOSWindow {
             return;
         }
         let size = self.common.current_window_state().size.dimensions;
-        let location = unsafe { event.locationInWindow() };
+        let location = event.locationInWindow();
         let position = events::macos_to_azul_coords(location, size.height);
         let inside = position.x >= 0.0
             && position.y >= 0.0
@@ -166,10 +168,12 @@ impl MacOSWindow {
             drag.drop_effect = effect;
             drag.drop_accepted = effect != DropEffect::None;
         }
-        self.snapshot_window_state_baseline("macos.os_drag_ended");
-        self.common.mouse_state_mut().left_down = false;
-        let result = self.process_window_events(0);
-        self.convert_result_with_fanout(result)
+        // The release AppKit kept, where the pointer is now (outside the
+        // window, or back over it after a refused drop).
+        let location = self.window.mouseLocationOutsideOfEventStream();
+        let height = self.common.current_window_state().size.dimensions.height;
+        let position = events::macos_to_azul_coords(location, height);
+        self.release_button(position, MouseButton::Left, None)
     }
 }
 

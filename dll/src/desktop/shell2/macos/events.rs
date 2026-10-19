@@ -141,7 +141,7 @@ impl MacOSWindow {
     /// app-global changes (undo/redo, shared-state mutations from a second
     /// window) refreshed only the window that received the event; every other
     /// window kept rendering the stale DOM until its own next input.
-    pub(super) fn convert_result_with_fanout(
+    fn convert_result_with_fanout(
         &mut self,
         result: azul_core::events::ProcessEventResult,
     ) -> EventProcessResult {
@@ -248,7 +248,7 @@ impl MacOSWindow {
 
     /// The release pass of `button` at `position`; `event` is the OS's release, when there was
     /// one.
-    fn release_button(
+    pub(super) fn release_button(
         &mut self,
         position: LogicalPosition,
         button: MouseButton,
