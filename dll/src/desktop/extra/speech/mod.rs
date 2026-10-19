@@ -6,7 +6,7 @@
 //! | macOS / iOS | `AVSpeechSynthesizer` (AVFoundation, dlopen'd) | `SFSpeechRecognizer` on the microphone through `AVAudioEngine` (Speech, dlopen'd); the app's Info.plist must carry `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription`, else hearing answers `Unavailable` instead of the process being stopped by the OS |
 //! | Windows | SAPI 5 `ISpVoice` | WinRT `Windows.Media.SpeechRecognition.SpeechRecognizer` |
 //! | Linux | speech-dispatcher (`libspeechd.so.2`, dlopen'd) | not yet: `Unavailable` |
-//! | Android | not yet: `Unavailable` | not yet: `Unavailable` |
+//! | Android | `TextToSpeech` through the Java helper `AzulSpeech` | `SpeechRecognizer` through the same helper, on the main thread; the app declares `RECORD_AUDIO` (`AZ_ANDROID_PERMISSIONS`) and asks for it through the permission manager, else hearing answers `Denied` |
 //!
 //! Saying never blocks: the text is handed to the engine, which speaks it after what it is
 //! saying ([`Speech::speak`]) or instead of it ([`Speech::speak_now`], for a navigation prompt
@@ -19,6 +19,8 @@
 
 use azul_css::AzString;
 
+#[cfg(target_os = "android")]
+pub mod android;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub mod apple;
 mod headless;
@@ -30,6 +32,8 @@ pub mod windows;
 #[cfg(test)]
 mod tests;
 
+#[cfg(target_os = "android")]
+use self::android as platform;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use self::apple as platform;
 #[cfg(target_os = "linux")]
@@ -37,8 +41,9 @@ use self::linux as platform;
 #[cfg(target_os = "windows")]
 use self::windows as platform;
 
-/// The platforms without a speech backend yet (Android, the BSDs): nothing to say with.
+/// The platforms without a speech backend yet (the BSDs): nothing to say with.
 #[cfg(not(any(
+    target_os = "android",
     target_os = "ios",
     target_os = "macos",
     target_os = "linux",
@@ -295,6 +300,36 @@ pub fn sapi_text(text: &str, language: &str) -> (String, bool) {
         .replace('>', "&gt;")
         .replace('"', "&quot;");
     (format!("<lang langid=\"{id:X}\">{escaped}</lang>"), true)
+}
+
+/// What Android's recognizer answered, as the Java helper reports it (`AzulSpeech`'s
+/// `nativeOnHeard`): its status code (this enum's order: heard, nothing heard, denied,
+/// unavailable, failed), the text, why not, and how sure. Blank text is nothing heard, an
+/// unknown code a failure, the confidence kept to 0..1.
+#[must_use]
+pub(crate) fn heard_from_android(status: i32, text: &str, message: &str, confidence: f32) -> SpeechHeard {
+    let status = match status {
+        0 if text.trim().is_empty() => HeardStatus::NothingHeard,
+        0 => HeardStatus::Heard,
+        1 => HeardStatus::NothingHeard,
+        2 => HeardStatus::Denied,
+        3 => HeardStatus::Unavailable,
+        _ => HeardStatus::Failed,
+    };
+    if status == HeardStatus::Heard {
+        let confidence = if confidence.is_finite() {
+            confidence.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        return SpeechHeard::heard(text.trim(), confidence);
+    }
+    let message = if message.trim().is_empty() && status == HeardStatus::Failed {
+        "the speech recognizer failed"
+    } else {
+        message
+    };
+    SpeechHeard::none(status, message)
 }
 
 /// Says `text` on `backend`.

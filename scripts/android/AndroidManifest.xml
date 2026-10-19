@@ -43,6 +43,18 @@
     -->
 @EXTRA_PERMISSIONS@
 
+    <!-- Package visibility (Android 11+): the speech engines azul's Speech binds to
+         (AzulSpeech.java) - the text-to-speech service and the recognition service - are
+         visible to the app only when it says it looks for them. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:label="@LABEL@"
         android:hasCode="false">

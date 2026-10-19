@@ -121,6 +121,11 @@ const ASSETS: &[(&str, &str, bool)] = &[
         false,
     ),
     (
+        "scripts/android/AzulSpeech.java",
+        include_str!("../../../scripts/android/AzulSpeech.java"),
+        false,
+    ),
+    (
         "scripts/android/NativeTextBridge.java",
         include_str!("../../../scripts/android/NativeTextBridge.java"),
         false,
