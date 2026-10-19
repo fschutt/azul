@@ -365,6 +365,12 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         q_if_known!(control_background, b"controlBackgroundColor\0");
         q_if_known!(placeholder_text, b"placeholderTextColor\0");
         q_if_known!(text_selection_background, b"selectedTextBackgroundColor\0");
+        // The desktop's own error, caution and success colours (`system:danger`,
+        // `system:warning`, `system:success`), in the current appearance. AppKit
+        // publishes no text colour for a fill of them: those keep the theme's.
+        q_if_known!(danger, b"systemRedColor\0");
+        q_if_known!(warning, b"systemOrangeColor\0");
+        q_if_known!(success, b"systemGreenColor\0");
         // Sidebars are a vibrancy MATERIAL on macOS, not a colour AppKit
         // publishes: `sidebar_background` / `sidebar_selection` stay unset.
 
