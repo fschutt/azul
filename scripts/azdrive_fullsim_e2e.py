@@ -32,7 +32,14 @@ the stack from azul-apps' local/fullsim.sh):
 
     python3 scripts/azdrive_fullsim_e2e.py --bin <AzDrive> [--token-url http://127.0.0.1:8081]
         [--sandbox-url http://127.0.0.1:8784] [--debug-port 8800] [--logs <dir>]
-        [--card 4242424242424242] [--upload-mb 5] [--window]
+        [--card 4242424242424242] [--pay card|blik] [--upload-mb 5] [--window]
+
+`--pay blik` pays the way a payer in Poland does (`--country PL --locale pl_PL` by default then):
+the tiers in zloty, the BLIK pill first, Buy opens the sandbox's BLIK page in the popover; the
+payer types the code from the banking app (the page's form posted with the sandbox's test code),
+approves on the fake phone the page sends them to, and the page hands back to the token server's
+return page. With the card run (steps 1 - 3) this is azdrive_add_e2e's 16a, 7 and 16b against the
+local stack instead of the mock.
 
 `--window` runs the buyer's AzDrive in a real window (the second computer stays headless: its
 unlock is in the drive's context menu, a native menu on macOS that no script may drive): the
@@ -72,6 +79,17 @@ from azdrive_add_e2e import (add_id, drive_menu, hand_back, keyring_entries, nav
 # The cardholder typed in the popover; the sandbox's test cards (its page lists them).
 NAME = "Erika Example"
 CARD_3DS = "4000002500003155"
+# The sandbox's documented BLIK test code: any other code is refused and not kept.
+BLIK_CODE = "123456"
+# Per way to pay: the pill the stack offers for it, the surface Buy opens (`AZDRIVE_PAY_SURFACE`)
+# and the words of the popover's chip after the page's host.
+PAYS = {
+    "card": ("card:fake-stripe", r"fields 127\.0\.0\.1:\d+", "card fields by Fake Stripe"),
+    "blik": ("blik:fake-stripe", r"page 127\.0\.0\.1:\d+", "payment page of Fake Stripe"),
+}
+# The country and locale a way to pay is bought from unless the command line names them, and
+# the currency the tiers then show.
+PAY_FROM = {"card": ("DE", "de_DE", "EUR"), "blik": ("PL", "pl_PL", "PLN")}
 
 
 def log(line):
@@ -291,6 +309,30 @@ def play_fields_page(app, popover, view, sandbox, card, decline_first=None, out=
     return last4
 
 
+def play_blik_page(app, popover, view, sandbox, token_url):
+    """The sandbox's BLIK page, played (a headless run loads nothing in a web view): the payer
+    types the code from the banking app - the page's form posted with it, as the page sends it -
+    and approves on the fake phone the page sends them to; the sandbox's signed webhook approves
+    the checkout at the token server, and the page hands back to the token server's return
+    page."""
+    src = view.get("src", "")
+    if not src.startswith(sandbox + "/stripe/c/pay/"):
+        raise Failure("the popover shows %r, not the sandbox's BLIK page" % src[:80])
+    form = urllib.parse.urlencode({"code": BLIK_CODE}).encode("ascii")
+    # The page answers the code with a redirect to the phone (followed as a GET).
+    with urllib.request.urlopen(urllib.request.Request(src, data=form, method="POST"),
+                                timeout=10) as response:
+        phone = response.geturl()
+    if "/stripe/phone/" not in phone:
+        raise Failure("the BLIK code led to %r, not the fake phone" % phone)
+    form = urllib.parse.urlencode({"action": "authorize"}).encode("ascii")
+    with urllib.request.urlopen(urllib.request.Request(phone, data=form, method="POST"),
+                                timeout=10) as response:
+        if response.status != 200:
+            raise Failure("the fake phone answered the approval with %s" % response.status)
+    hand_back(app, popover, view, token_url + "/return/ok")
+
+
 def shot(win, path, window):
     """A screenshot of `win`: azul's own render of the window (a real window's web view is a
     native view that render leaves out; the OS's capture of it needs the Screen Recording
@@ -416,7 +458,8 @@ def run(args, logs):
     # the guess. The fakes' pages are http on this computer.
     env = {"AZ_KEYRING_FILE": keyring_file, "LC_ALL": "%s.UTF-8" % args.locale,
            "AZ_E2E_ALLOW_HTTP": "http://127.0.0.1:*,http://localhost:*"}
-    result = {"token_url": args.token_url, "sandbox_url": args.sandbox_url, "card": args.card,
+    result = {"token_url": args.token_url, "sandbox_url": args.sandbox_url, "pay": args.pay,
+              "card": args.card,
               "uploaded": uploaded, "big": big, "folder": folder}
     app = start_app("azdrive-buyer", binary, switches, args.debug_port, logs, args.timeout, env,
                     args.window)
@@ -435,17 +478,22 @@ def run(args, logs):
         pills = app.after("the pills", "AZDRIVE_PILLS", r".+", lambda: app.after(
             "the country declared", "AZDRIVE_COUNTRY", re.escape(args.country), declare))
         tiers = app.until("the tiers", lambda: app.printed("AZDRIVE_TIERS", r"\d+"))[-1]
-        if "card:fake-stripe" not in pills.split():
-            raise Failure("the pills are %r: no card through Fake Stripe (is AzDrive built with "
-                          "--features fake-providers, is the stack's sandbox on?)" % pills)
+        pill, surface_shape, chip_words = PAYS[args.pay]
+        if pill not in pills.split():
+            raise Failure("the pills are %r: no %s (is AzDrive built with --features "
+                          "fake-providers, is the stack's sandbox on?)" % (pills, pill))
+        if args.country == PAY_FROM[args.pay][0]:
+            currency = PAY_FROM[args.pay][2]
+            dialog.win.until("the prices in %s" % currency,
+                             lambda: dialog.shows("%s " % currency))
         shot(dialog.win, os.path.join(out, "02-tiers.png"), args.window)
         log("1. Buy storage asked for the country (the guess %s picked), %s tiers, pills %s"
             % (args.country, tiers, pills))
 
-        # 2. The smallest tier, the card, Buy.
+        # 2. The smallest tier, the way to pay, Buy.
         dialog.click("tier_0")
         dialog.type_into("name", "Full system", clear=len("Azlin Storage"))
-        dialog.click("pill_card")
+        dialog.click("pill_" + args.pay)
         dialog.click("consent")
         shot(dialog.win, os.path.join(out, "03-buy.png"), args.window)
         added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
@@ -462,30 +510,34 @@ def run(args, logs):
                              lambda: dialog.click("buy_button"))
         surface = app.until("the payment surface", lambda: app.count(
             "AZDRIVE_PAY_SURFACE", r".+") > surfaces and app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1])
-        if not surface.startswith("fields 127.0.0.1:"):
-            raise Failure("the card checkout opened %r, not the fields in the popover" % surface)
+        if not re.fullmatch(surface_shape, surface):
+            raise Failure("the %s checkout opened %r, not %s in the popover"
+                          % (args.pay, surface, surface_shape))
         kept = pending_checkouts(keyring_file).get(checkout)
         if not kept:
             raise Failure("the checkout %s is not on the keyring's list (%s): a window run needs a "
                           "libazul whose keyring honours AZ_KEYRING_FILE" % (checkout, keyring_file))
         claim_code = azlin_claim.claim_code(checkout, base64.b64decode(kept["claim_secret"]))
         result.update(checkout=checkout, claim_code=claim_code)
-        log("2. Buy: checkout %s, its fields page in the popover (%s)" % (checkout, surface))
+        log("2. Buy: checkout %s, its %s in the popover" % (checkout, surface))
 
         # 3. The page's part, the webhook, the drive.
         popover = popover_of(app, dialog)
         view = the_view(popover)
-        for text in ("card fields by Fake Stripe", "CARDHOLDER"):
+        for text in (chip_words,) + (("CARDHOLDER",) if args.pay == "card" else ()):
             popover.until("the popover's %r" % text, lambda: popover.shows(text))
-        # The chip reads "<host> - card fields by ...": the host and its words keep a gap.
+        # The chip reads "<host> - <words>": the host and its words keep a gap.
         host = popover.box("#__azdrive_pay_host")
-        words = popover.text_rect("- card fields by Fake Stripe")
+        words = popover.text_rect("- " + chip_words)
         if not words or words["x"] < host["x"] + host["width"] + 2:
             raise Failure("the chip runs its host into its words: the host ends at %.1f, the "
                           "words start at %s" % (host["x"] + host["width"],
                                                  words and round(words["x"], 1)))
         shot(popover, os.path.join(out, "04-popover.png"), args.window)
-        if args.window:
+        if args.pay == "blik":
+            play_blik_page(app, popover, view, args.sandbox_url, args.token_url)
+            last4 = None
+        elif args.window:
             last4 = real_page_pays(app, popover, args.sandbox_url, out)
             app.until("the popover closed", lambda: popover.window_id not in app.window_ids())
         else:
@@ -495,8 +547,10 @@ def run(args, logs):
             hand_back(app, popover, view, args.sandbox_url + "/_bridge/result?v=succeeded")
         drive_id = app.until("the drive of %s" % checkout, lambda: [
             d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in added])[0]
-        log("3. Paid with the card ending %s in the sandbox; the webhook approved %s; drive %s "
-            "arrived" % (last4, checkout, drive_id))
+        paid_with = ("the card ending %s" % last4) if last4 else ("BLIK (code %s, approved on "
+                                                                  "the fake phone)" % BLIK_CODE)
+        log("3. Paid with %s in the sandbox; the webhook approved %s; drive %s arrived"
+            % (paid_with, checkout, drive_id))
 
         # 4. Encrypted as it arrived.
         recovery = new_drive_encrypted(app, drive_id)
@@ -623,8 +677,13 @@ def main():
     parser.add_argument("--card", default="4242424242424242")
     parser.add_argument("--decline-first", nargs="?", const="4000000000000002",
                         help="try a card the sandbox declines first (default 4000 0000 0000 0002)")
-    parser.add_argument("--country", default="DE")
-    parser.add_argument("--locale", default="de_DE")
+    parser.add_argument("--pay", choices=sorted(PAYS), default="card",
+                        help="the way to pay: the card in the fields (default) or BLIK on its "
+                        "page (a payer in Poland)")
+    parser.add_argument("--country", help="the buyer's country (default: the way to pay's, DE "
+                        "for the card, PL for BLIK)")
+    parser.add_argument("--locale", help="the system locale, whose region is the guess "
+                        "(default: de_DE for the card, pl_PL for BLIK)")
     parser.add_argument("--upload-mb", type=int, default=5)
     parser.add_argument("--small-files", type=int, default=24)
     parser.add_argument("--window", action="store_true", help="real windows, not headless")
@@ -640,6 +699,11 @@ def main():
     parser.add_argument("--after-upload", help="a shell command run after the upload (a node "
                         "restart); AzDrive then lists the drive again and takes one more file")
     args = parser.parse_args()
+    country, locale, _ = PAY_FROM[args.pay]
+    args.country = args.country or country
+    args.locale = args.locale or locale
+    if args.pay != "card" and (args.window or args.decline_first):
+        parser.error("--window and --decline-first pay by card")
     if args.logs:
         if os.path.exists(args.logs):
             shutil.rmtree(args.logs)
