@@ -7263,6 +7263,79 @@ mod tests {
         })
     }
 
+    /// The nested DOM, node and laid-out width of the text `text` in a
+    /// VirtualView's content: the width its paragraph's inline layout has.
+    fn nested_text_width(
+        window: &HeadlessWindow,
+        text: &str,
+    ) -> Option<(azul_core::dom::DomId, azul_core::id::NodeId, f32)> {
+        use azul_core::{dom::NodeType, id::NodeId};
+        let lw = window.common.layout_window.as_ref()?;
+        for (dom_id, lr) in &lw.layout_results {
+            if dom_id.inner == 0 {
+                continue;
+            }
+            let nodes = lr.styled_dom.node_data.as_container();
+            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            for (i, nd) in nodes.internal.iter().enumerate() {
+                let NodeType::Text(t) = nd.get_node_type() else {
+                    continue;
+                };
+                if t.as_ref().as_str() != text {
+                    continue;
+                }
+                let node = NodeId::new(i);
+                let parent = hierarchy[node].parent_id()?;
+                let index = *lr.layout_tree.dom_to_layout.get(&parent)?.first()?;
+                let width = lr
+                    .layout_tree
+                    .get_inline_layout_for_node(index.index())?
+                    .bounds()
+                    .width;
+                return Some((*dom_id, node, width));
+            }
+        }
+        None
+    }
+
+    /// A text the app changes inside a VirtualView's content
+    /// (`change_node_text`) is laid out again on the relayout that follows,
+    /// though the view itself is kept and its callback does not run.
+    #[test]
+    fn a_text_change_inside_a_virtual_view_lays_the_view_out_again() {
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
+            content: RefAny::new(VvCounter { value: 0 }),
+        })));
+        let mut window = make_window_sized(&state, counter_view_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        let (dom, node, before) =
+            nested_text_width(&window, "value 0").expect("harness: the view shows its text");
+
+        let longer = "value 0 and then a much longer label";
+        let r = window.apply_user_change(&azul_layout::callbacks::CallbackChange::ChangeNodeText {
+            node_id: azul_core::dom::DomNodeId {
+                dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            },
+            text: longer.into(),
+        });
+        window.service_frame(r);
+
+        let (_, _, after) = nested_text_width(&window, longer)
+            .expect("the view's DOM holds the new text");
+        assert!(
+            after > before + 40.0,
+            "the view's paragraph still has its old width {after} (was {before}): the kept view \
+             was not laid out again"
+        );
+    }
+
     #[test]
     fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
         use std::sync::atomic::Ordering;

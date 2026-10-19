@@ -1119,6 +1119,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         last_anim_tick: _,
         // One id per culled live track, a subset of `live_tracks`; a bool.
         culled_tracks: _,
+        content_changed_doms: _,
         // The views' live tracks, bounded like `live_tracks`; a bool.
         view_tracks: _,
         view_tracks_hidden: _,
@@ -1687,6 +1688,11 @@ pub struct LayoutWindow {
     /// end of every pass (USER ruling 2026-09-30: "cull refreshes for
     /// animations if the changes aren't on-screen").
     pub culled_tracks: BTreeSet<NodeId>,
+    /// The child DOMs (a VirtualView's content) whose content changed since
+    /// they were laid out, by `set_node_text`. A view the relayout keeps
+    /// lays such a child out again (`follow_host_in_kept_view`); without it
+    /// the kept child showed the text it was laid out with.
+    pub content_changed_doms: BTreeSet<DomId>,
     /// The live `-azul-animation-in` tracks of the nodes of child DOMs (`VirtualView`
     /// content), by DOM. `live_tracks` holds the root's, whose identities the root's
     /// reconciliation, exits and culling share. A view's tracks start when its nodes
@@ -2621,6 +2627,7 @@ impl LayoutWindow {
             view_tracks_hidden: false,
             last_anim_tick: None,
             culled_tracks: BTreeSet::new(),
+            content_changed_doms: BTreeSet::new(),
             window_occluded: false,
             root_display_list_gpu_fingerprint: None,
             presented_frames: core::sync::atomic::AtomicU64::new(0),
@@ -3051,9 +3058,11 @@ impl LayoutWindow {
         }
 
         // Clear previous results for a full relayout - all but the kept
-        // views' children.
+        // views' children. A child rendered again starts from fresh content.
         self.layout_results
             .retain(|dom_id, _| kept_doms.contains(dom_id));
+        self.content_changed_doms
+            .retain(|dom_id| kept_doms.contains(dom_id));
 
         // CRITICAL: Reset the invocation flags of every view that was not
         // kept, so check_reinvoke() returns InitialRender for it. Without
@@ -11727,7 +11736,10 @@ impl LayoutWindow {
             .dynamic_context
             .as_deref()
             .is_none_or(|kept_context| kept_context.mode != mode);
-        if !host_moved && !mode_moved {
+        // A text the app changed in the child (`set_node_text`) since it was
+        // laid out.
+        let content_moved = self.content_changed_doms.contains(&child);
+        if !host_moved && !mode_moved && !content_moved {
             return;
         }
         let viewport = LogicalRect::new(LogicalPosition::zero(), kept.viewport.size);
@@ -11735,9 +11747,13 @@ impl LayoutWindow {
         let Some(kept) = self.layout_results.remove(&child) else {
             return;
         };
+        self.content_changed_doms.remove(&child);
         // Cold, as a host's restyle: the values the host hands down are no input the
         // layout cache checks, so a warm pass would keep boxes sized for the old ones.
-        self.child_layout_caches.remove(&child);
+        // A changed text alone stays warm: the reconcile finds it by its content.
+        if host_moved || mode_moved {
+            self.child_layout_caches.remove(&child);
+        }
         let mut styled_dom = kept.styled_dom;
         // The context first, the host's values under it: both re-run what
         // they invalidate (and the layout pass below finds the context in
@@ -23948,6 +23964,9 @@ impl LayoutWindow {
                         text.clone(),
                     )));
                 }
+            }
+            if dom_id != DomId::ROOT_ID {
+                self.content_changed_doms.insert(dom_id);
             }
         }
         if let Some(root) = typed_over {
