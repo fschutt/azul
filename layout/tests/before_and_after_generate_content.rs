@@ -396,3 +396,40 @@ fn a_nodes_own_with_css_after_decorates_that_node_alone() {
         "the owner's ::after is not every descendant's"
     );
 }
+
+/// `*` selects elements. A `::before` is styled by the rules that name it
+/// and inherits from its host; a text node only inherits. So an unscoped
+/// `* { .. }` sheet (a rice, say) leaves both alone, in the compact values
+/// the layout reads (`display`) and in the full cascade the paint reads
+/// (`background`), as in Chrome.
+#[test]
+fn an_unscoped_star_rule_styles_elements_and_not_their_generated_content_or_text() {
+    let styled = styled(
+        r#"<style>
+            * { display: block; background: #ff0000; }
+            .x::before { content: "a"; }
+        </style>
+        <div class="x">b</div>"#,
+    );
+    let host = with_class(&styled, "x");
+    let before = generated_node(&styled, host, true).expect("the rule makes the node");
+    let text = *children(&styled, host)
+        .iter()
+        .find(|c| styled.node_data.as_container()[**c].is_text_node())
+        .expect("the host's own text");
+    let red = |node: NodeId| {
+        let state = styled.styled_nodes.as_container()[node].styled_node_state;
+        azul_layout::solver3::getters::get_background_contents(&styled, node, &state)
+            .into_iter()
+            .any(|bg| matches!(bg, StyleBackgroundContent::Color(c) if c.r == 255 && c.g == 0))
+    };
+    assert!(red(host), "harness: the element takes the `*` rule");
+    assert_eq!(display(&styled, host), Some(LayoutDisplay::Block));
+    assert_eq!(
+        display(&styled, before),
+        Some(LayoutDisplay::Inline),
+        "a ::before keeps its own display"
+    );
+    assert!(!red(before), "a ::before is no element `*` selects");
+    assert!(!red(text), "a text node is no element `*` selects");
+}
