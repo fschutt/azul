@@ -1688,14 +1688,17 @@ mod tests {
             .next_back()
     }
 
-    /// Every text of `dom`, in document order.
+    /// Every text `dom` shows, in document order.
     fn texts_of(dom: &Dom) -> Vec<String> {
+        // An icon's empty text leaf is the slot its glyph is written into when it is styled,
+        // no text of the tile's.
         let mut out: Vec<String> = dom
             .root
             .node_type
             .get_text()
             .into_option()
             .map(|t| t.as_str().to_string())
+            .filter(|t| !t.is_empty())
             .into_iter()
             .collect();
         for child in dom.children.as_slice() {
