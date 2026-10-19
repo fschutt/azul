@@ -2774,4 +2774,64 @@ mod tests {
         assert!(changes.arrived.is_empty());
         assert!(ChatRecord::decode(&[KIND_CHAT, CHAT_VERSION + 1, b'{', b'}']).is_none());
     }
+
+    /// Two peers that meet say which records they hold (the newest, by id): each sends the other
+    /// what it lacks, newest first, and nothing the other already has - the history comes from
+    /// whoever is online.
+    #[test]
+    fn two_peers_that_meet_send_each_other_the_records_the_other_lacks() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, _, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        // Two messages Ben never got: neither through the Worker nor from a peer.
+        ada.room.send(&ada.me, "Second", w.now + 1).unwrap();
+        ada.room.send(&ada.me, "Third", w.now + 2).unwrap();
+        assert_eq!(ada.room.peer_records(&ada.me).len(), 2);
+        let ben_has = ben.room.have();
+        assert_eq!(ChatHave::decode(&ben_has.encode()), Some(ben_has.clone()));
+        assert_eq!(ben_has.encode()[..2], [KIND_CHAT_HAVE, CHAT_VERSION]);
+        let lacking = ada.room.missing_for(&ben_has);
+        let texts_of = |records: &[ChatRecord], room: &mut ChatRoom, me: &Identity| -> Vec<String> {
+            records
+                .iter()
+                .flat_map(|r| room.take_record(me, r.clone()).0.arrived)
+                .map(|m| m.text)
+                .collect()
+        };
+        assert_eq!(texts_of(&lacking, &mut ben.room, &ben.me), vec!["Third", "Second"]);
+        assert!(ada.room.missing_for(&ben.room.have()).is_empty(), "Ben holds everything now");
+        assert!(ben.room.missing_for(&ada.room.have()).is_empty(), "and Ada lacks nothing");
+        // Another room's list asks for nothing.
+        let mut elsewhere = ben.room.have();
+        elsewhere.room = String::from("another-room");
+        elsewhere.ids.clear();
+        assert!(ada.room.missing_for(&elsewhere).is_empty());
+    }
+
+    /// A peer that lists only its newest records (it holds more than a list carries) is sent
+    /// nothing older than the oldest it listed: those it may well hold.
+    #[test]
+    fn a_peers_partial_list_asks_only_for_what_is_newer_than_its_oldest() {
+        let mut w = FakeWorker::new();
+        let (mut ada, ben, _, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        ada.room.send(&ada.me, "Old", w.now + 10).unwrap();
+        ada.room.send(&ada.me, "New", w.now + 20).unwrap();
+        let _ = ada.room.peer_records(&ada.me);
+        let ts_of = |text: &str| ada.room.messages().iter().find(|m| m.text == text).unwrap().ts;
+        let (old, new) = (ts_of("Old"), ts_of("New"));
+        assert!(old < new);
+        let partial = ChatHave {
+            room: ben.room.room.clone(),
+            ids: Vec::new(),
+            since_ts: old + 1,
+        };
+        let sent = ada.room.missing_for(&partial);
+        assert_eq!(sent.len(), 1, "only what is newer than the list's oldest: {sent:?}");
+    }
 }
