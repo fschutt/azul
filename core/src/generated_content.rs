@@ -863,10 +863,7 @@ fn walk_counters(
         }
         // A list item steps the `list-item` counter unless its own
         // `counter-increment` names that counter (CSS Lists 3 s4.6).
-        let list_item = matches!(
-            display,
-            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineListItem)
-        );
+        let list_item = display.is_some_and(|d| d.is_list_item());
         if list_item && increment.is_none_or(|c| c.counter_name.as_str() != "list-item") {
             let step = if counters.counts_down("list-item") { -1 } else { 1 };
             counters.increment("list-item", step, i, parent);
@@ -954,10 +951,7 @@ pub fn list_item_numbers(styled_dom: &StyledDom) -> BTreeMap<NodeId, i32> {
     let mut numbers = BTreeMap::new();
     walk_counters(node_data, hierarchy, cache, &states, |i, id, node, _, counters| {
         let state = states.get(i).copied().unwrap_or_default();
-        if matches!(
-            display_of(cache, node, id, &state),
-            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineListItem)
-        ) {
+        if display_of(cache, node, id, &state).is_some_and(|d| d.is_list_item()) {
             numbers.insert(id, counters.value("list-item"));
         }
     });

@@ -215,6 +215,7 @@ const fn is_block_level(display: LayoutDisplay) -> bool {
         display,
         LayoutDisplay::Inline
             | LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::InlineFlex
             | LayoutDisplay::InlineGrid
             | LayoutDisplay::InlineTable

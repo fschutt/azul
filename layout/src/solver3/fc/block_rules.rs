@@ -144,7 +144,10 @@ pub(super) fn establishes_new_bfc<T: ParsedFontTrait>(
     if matches!(
         display,
         MultiValue::Exact(
-            LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption
+            LayoutDisplay::InlineBlock
+                | LayoutDisplay::InlineBlockListItem
+                | LayoutDisplay::TableCell
+                | LayoutDisplay::TableCaption
         )
     ) {
         return true;

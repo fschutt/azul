@@ -777,7 +777,8 @@ impl_enum_fmt!(
     InlineGrid,
     FlowRoot,
     Contents,
-    InlineListItem
+    InlineListItem,
+    InlineBlockListItem
 );
 
 impl_enum_fmt!(LayoutFloat, Left, Right, None);

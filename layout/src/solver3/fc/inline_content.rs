@@ -1270,6 +1270,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 )?;
             }
             LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::InlineFlex
             | LayoutDisplay::InlineGrid
             | LayoutDisplay::InlineTable => {

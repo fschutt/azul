@@ -2564,7 +2564,10 @@ impl LayoutTreeBuilder {
         // inject a ::marker pseudo-element as its first child +spec:display-property:a42905
         // - list-item generates ::marker pseudo-element with list-style content, principal box
         // outer=block inner=flow
-        if display_type == LayoutDisplay::ListItem {
+        if matches!(
+            display_type,
+            LayoutDisplay::ListItem | LayoutDisplay::InlineBlockListItem
+        ) {
             self.create_marker_pseudo_element(styled_dom, dom_id, node_idx);
         }
 
@@ -2641,6 +2644,7 @@ impl LayoutTreeBuilder {
             // container's inline runs, disagreed with the fresh one.
             LayoutDisplay::Block
             | LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::FlowRoot
             | LayoutDisplay::ListItem
             | LayoutDisplay::TableCell => {
@@ -4235,6 +4239,7 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Inline
             | LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::InlineTable
             | LayoutDisplay::InlineFlex
             | LayoutDisplay::InlineGrid
@@ -5184,6 +5189,7 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     if matches!(
         display,
         LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::TableCell
             | LayoutDisplay::TableCaption
             | LayoutDisplay::FlowRoot
@@ -5365,7 +5371,9 @@ fn determine_formatting_context_for_display(
                 }
             }
         }
-        LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
+        LayoutDisplay::InlineBlock | LayoutDisplay::InlineBlockListItem => {
+            FormattingContext::InlineBlock
+        }
         // +spec:display-property:723fe8 - CSS 2.2 §17.2 table model: display types map to
         // formatting contexts, table-column/column-group not rendered, anonymous table objects
         // generated +spec:table-layout:023714 - map display values to table formatting

@@ -955,6 +955,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 display,
                 LayoutDisplay::Inline
                     | LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineBlockListItem
                     | LayoutDisplay::InlineFlex
                     | LayoutDisplay::InlineGrid
                     | LayoutDisplay::InlineTable
@@ -2616,6 +2617,7 @@ pub fn calculate_used_size_for_node(
                         )
                     }
                     LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineBlockListItem
                     | LayoutDisplay::InlineGrid
                     | LayoutDisplay::InlineFlex => {
                         // +spec:width-calculation:c01de8 - inline-block auto width uses

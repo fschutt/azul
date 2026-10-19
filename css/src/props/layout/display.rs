@@ -61,6 +61,12 @@ pub enum LayoutDisplay {
     /// its `::marker`, a node the styled DOM generates for it. Appended last
     /// for ABI stability.
     InlineListItem,
+    /// `display: inline flow-root list-item` (CSS Display 3 s2.4): an
+    /// inline-block that is a list item. It sits in its line like an
+    /// inline-block, steps its list's `list-item` counter, and the block
+    /// inside it carries the `::marker` a block list item has. Appended last
+    /// for ABI stability.
+    InlineBlockListItem,
 }
 
 impl LayoutDisplay {
@@ -120,6 +126,7 @@ impl LayoutDisplay {
                 | Self::InlineTable
                 | Self::InlineGrid
                 | Self::InlineListItem
+                | Self::InlineBlockListItem
         )
     }
 
@@ -135,7 +142,22 @@ impl LayoutDisplay {
     pub const fn is_atomic_inline(&self) -> bool {
         matches!(
             self,
-            Self::InlineBlock | Self::InlineFlex | Self::InlineTable | Self::InlineGrid
+            Self::InlineBlock
+                | Self::InlineFlex
+                | Self::InlineTable
+                | Self::InlineGrid
+                | Self::InlineBlockListItem
+        )
+    }
+
+    /// Returns true for a list item (CSS Display 3 §2.4: `list-item` among
+    /// the keywords): a box that steps the `list-item` counter and carries a
+    /// marker.
+    #[must_use]
+    pub const fn is_list_item(&self) -> bool {
+        matches!(
+            self,
+            Self::ListItem | Self::InlineListItem | Self::InlineBlockListItem
         )
     }
 }
@@ -169,6 +191,7 @@ impl PrintAsCssValue for LayoutDisplay {
             Self::InlineGrid => "inline-grid",
             Self::Contents => "contents",
             Self::InlineListItem => "inline list-item",
+            Self::InlineBlockListItem => "inline flow-root list-item",
         })
     }
 }
@@ -279,7 +302,7 @@ pub fn parse_layout_display(input: &str) -> Result<LayoutDisplay, LayoutDisplayP
 /// (`block`, `inline`, `run-in`), an inner one (`flow`, `flow-root`, `table`,
 /// `flex`, `grid`) and `list-item`, in any order, each at most once. The
 /// missing outer one is `block`, the missing inner one `flow`. `None` for a
-/// combination no variant stands for (an inline `flow-root` list item).
+/// combination no variant stands for (a `table`, `flex` or `grid` list item).
 #[cfg(feature = "parser")]
 fn parse_multi_keyword_display(input: &str) -> Option<LayoutDisplay> {
     let mut outer: Option<&str> = None;
@@ -303,6 +326,7 @@ fn parse_multi_keyword_display(input: &str) -> Option<LayoutDisplay> {
     Some(match (outer.unwrap_or("block"), inner.unwrap_or("flow"), list_item) {
         ("run-in", "flow", false) => LayoutDisplay::RunIn,
         (_, "flow", true) if inline => LayoutDisplay::InlineListItem,
+        (_, "flow-root", true) if inline => LayoutDisplay::InlineBlockListItem,
         ("block", "flow", true) => LayoutDisplay::ListItem,
         ("block", "flow", false) => LayoutDisplay::Block,
         ("block", "flow-root", false) => LayoutDisplay::FlowRoot,
@@ -492,7 +516,7 @@ mod autotest_generated {
 
     /// Every `LayoutDisplay` variant. Kept honest by [`display_variant_index`],
     /// whose exhaustive match stops compiling when a variant is added.
-    const ALL_DISPLAY: [LayoutDisplay; 24] = [
+    const ALL_DISPLAY: [LayoutDisplay; 25] = [
         LayoutDisplay::None,
         LayoutDisplay::Block,
         LayoutDisplay::Inline,
@@ -517,6 +541,7 @@ mod autotest_generated {
         LayoutDisplay::InlineGrid,
         LayoutDisplay::Contents,
         LayoutDisplay::InlineListItem,
+        LayoutDisplay::InlineBlockListItem,
     ];
 
     const ALL_FLOAT: [LayoutFloat; 3] = [LayoutFloat::Left, LayoutFloat::Right, LayoutFloat::None];
@@ -550,6 +575,7 @@ mod autotest_generated {
             LayoutDisplay::InlineGrid => 21,
             LayoutDisplay::Contents => 22,
             LayoutDisplay::InlineListItem => 23,
+            LayoutDisplay::InlineBlockListItem => 24,
         }
     }
 
@@ -652,13 +678,14 @@ mod autotest_generated {
 
     #[test]
     fn is_inline_level_matches_an_exact_variant_set() {
-        const EXPECTED: [LayoutDisplay; 6] = [
+        const EXPECTED: [LayoutDisplay; 7] = [
             LayoutDisplay::Inline,
             LayoutDisplay::InlineBlock,
             LayoutDisplay::InlineFlex,
             LayoutDisplay::InlineTable,
             LayoutDisplay::InlineGrid,
             LayoutDisplay::InlineListItem,
+            LayoutDisplay::InlineBlockListItem,
         ];
         for d in ALL_DISPLAY {
             assert_eq!(
@@ -679,11 +706,12 @@ mod autotest_generated {
         // Atomic inline-level boxes = inline-level minus the (non-atomic) `Inline`
         // box. Every atomic-inline is inline-level; `Inline` is inline-level but
         // NOT atomic.
-        const EXPECTED: [LayoutDisplay; 4] = [
+        const EXPECTED: [LayoutDisplay; 5] = [
             LayoutDisplay::InlineBlock,
             LayoutDisplay::InlineFlex,
             LayoutDisplay::InlineTable,
             LayoutDisplay::InlineGrid,
+            LayoutDisplay::InlineBlockListItem,
         ];
         for d in ALL_DISPLAY {
             assert_eq!(

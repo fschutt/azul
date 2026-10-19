@@ -221,6 +221,7 @@ pub const fn layout_display_from_u8(v: u8) -> LayoutDisplay {
         21 => LayoutDisplay::InlineGrid,
         22 => LayoutDisplay::Contents,
         23 => LayoutDisplay::InlineListItem,
+        24 => LayoutDisplay::InlineBlockListItem,
         _ => LayoutDisplay::Block, // fallback + sentinel (31)
     }
 }
@@ -254,6 +255,7 @@ pub const fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
         LayoutDisplay::InlineGrid => 21,
         LayoutDisplay::Contents => 22,
         LayoutDisplay::InlineListItem => 23,
+        LayoutDisplay::InlineBlockListItem => 24,
     }
 }
 
@@ -2856,6 +2858,7 @@ mod tests {
             LayoutDisplay::InlineGrid,
             LayoutDisplay::Contents,
             LayoutDisplay::InlineListItem,
+            LayoutDisplay::InlineBlockListItem,
         ]
     );
 
@@ -3157,7 +3160,7 @@ mod tests {
 
         assert_fits(
             "display",
-            layout_display_to_u8(LayoutDisplay::InlineListItem),
+            layout_display_to_u8(LayoutDisplay::InlineBlockListItem),
             DISPLAY_MASK,
         );
         assert_fits(
@@ -3320,7 +3323,7 @@ mod autotest_generated {
     // Shared fixtures
     // =========================================================================
 
-    const ALL_DISPLAY: [LayoutDisplay; 24] = [
+    const ALL_DISPLAY: [LayoutDisplay; 25] = [
         LayoutDisplay::Block,
         LayoutDisplay::Inline,
         LayoutDisplay::InlineBlock,
@@ -3345,6 +3348,7 @@ mod autotest_generated {
         LayoutDisplay::InlineGrid,
         LayoutDisplay::Contents,
         LayoutDisplay::InlineListItem,
+        LayoutDisplay::InlineBlockListItem,
     ];
 
     const ALL_BORDER_STYLE: [BorderStyle; 10] = [

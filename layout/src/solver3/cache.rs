@@ -2808,7 +2808,10 @@ fn reconcile_node(
         use crate::solver3::getters::get_display_property;
         let display = get_display_property(styled_dom, Some(new_dom_id)).exact();
 
-        if matches!(display, Some(LayoutDisplay::ListItem)) {
+        if matches!(
+            display,
+            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineBlockListItem)
+        ) {
             // Create ::marker pseudo-element for this list-item
             new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
         }

@@ -3727,8 +3727,12 @@ pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
-        // An inline list item stays a list item (CSS Display 3 s2.7).
-        LayoutDisplay::InlineListItem => LayoutDisplay::ListItem,
+        // An inline list item stays a list item (CSS Display 3 s2.7); an
+        // inline-block one is a list item that, blockified as a float, an
+        // absolute box or a flex item, establishes its own context anyway.
+        LayoutDisplay::InlineListItem | LayoutDisplay::InlineBlockListItem => {
+            LayoutDisplay::ListItem
+        }
         // Per CSS Display 3 §2.7: inline-block blockifies to block
         // (for legacy reasons, loses its flow-root nature)
         LayoutDisplay::InlineBlock => LayoutDisplay::Block,
@@ -4032,6 +4036,7 @@ pub fn propagated_text_decoration(
             get_display_property(styled_dom, Some(id)),
             MultiValue::Exact(
                 LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineBlockListItem
                     | LayoutDisplay::InlineFlex
                     | LayoutDisplay::InlineGrid
                     | LayoutDisplay::InlineTable
@@ -4184,7 +4189,10 @@ pub fn get_style_properties_for_state(
     // For inline and inline-block elements, get background content and border info
     // Block elements have their backgrounds/borders painted by display_list.rs
     let (background_color, background_content, border) =
-        if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock) {
+        if matches!(
+            display,
+            LayoutDisplay::Inline | LayoutDisplay::InlineBlock | LayoutDisplay::InlineBlockListItem
+        ) {
             let bg = get_background_color(styled_dom, dom_id, node_state);
             let bg_color = if bg.a > 0 { Some(bg) } else { None };
 
@@ -5334,6 +5342,7 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
             get_display_property(styled_dom, Some(NodeId::new(i))).unwrap_or(LayoutDisplay::Inline),
             LayoutDisplay::Inline
                 | LayoutDisplay::InlineBlock
+                | LayoutDisplay::InlineBlockListItem
                 | LayoutDisplay::InlineFlex
                 | LayoutDisplay::InlineGrid
                 | LayoutDisplay::InlineTable
