@@ -1,6 +1,6 @@
 //! The address under a click in a terminal's row.
 
-use super::url_at;
+use super::{file_path, url_at};
 
 #[test]
 fn the_address_under_the_column_is_found_without_its_trailing_punctuation() {
@@ -27,4 +27,12 @@ fn only_web_mail_and_file_addresses_open() {
         url_at("https://en.wikipedia.org/wiki/Rust_(language)", 10).as_deref(),
         Some("https://en.wikipedia.org/wiki/Rust_(language)")
     );
+}
+
+#[test]
+fn a_file_address_names_its_path_on_this_machine() {
+    assert_eq!(file_path("file:///tmp/a%20b.txt").as_deref(), Some("/tmp/a b.txt"));
+    assert_eq!(file_path("file://localhost/etc/hosts").as_deref(), Some("/etc/hosts"));
+    assert_eq!(file_path("file://server/share/x"), None, "another machine's");
+    assert_eq!(file_path("https://example.org"), None);
 }

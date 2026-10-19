@@ -62,7 +62,7 @@ use std::{path::Path, sync::atomic::Ordering};
 
 use alacritty_terminal::{
     grid::{Dimensions, Scroll},
-    index::{Column, Point, Side},
+    index::{Column, Line, Point, Side},
     selection::{Selection, SelectionType},
     term::viewport_to_point,
 };
@@ -1092,6 +1092,47 @@ fn grid_point<T>(term: &alacritty_terminal::Term<T>, event: &TerminalViewEvent) 
     viewport_to_point(offset, Point::new(line, Column(column)))
 }
 
+/// The text of the grid's `line`, one char per cell (the cell after a wide character is a
+/// `'\0'`), so a char's index is its cell's column.
+fn row_text<T>(term: &alacritty_terminal::Term<T>, line: Line) -> String {
+    use alacritty_terminal::term::cell::Flags;
+    let grid = term.grid();
+    (0..term.columns())
+        .map(|column| {
+            let cell = &grid[Point::new(line, Column(column))];
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                '\0'
+            } else {
+                cell.c
+            }
+        })
+        .collect()
+}
+
+/// Opens an address a Cmd+click found: a web address in the browser, a file address's file
+/// where the system opens it, a mail address in the mail app.
+fn open_link(url: &str) -> Result<(), String> {
+    if let Some(path) = azul_termkit::links::file_path(url) {
+        return azul_appkit::files::open_external(&path);
+    }
+    if url.starts_with("file://") {
+        return Err(azul_appkit::l10n::t_args(
+            "azterm-link-not-here",
+            &[("url", azul_appkit::l10n::Arg::from(url))],
+        ));
+    }
+    if url.starts_with("mailto:") {
+        return match azul::url::Url::parse(url).into_result() {
+            Ok(address) if address.open() => Ok(()),
+            _ => Err(azul_appkit::l10n::t_args(
+                "azterm-link-not-opened",
+                &[("url", azul_appkit::l10n::Arg::from(url))],
+            )),
+        };
+    }
+    azul_appkit::files::open_external(url)
+}
+
 /// The view's actions: bytes to the program, the scroll, the selection,
 /// the copy.
 extern "C" fn on_terminal(
@@ -1130,6 +1171,21 @@ extern "C" fn on_terminal(
         Side::Left
     };
     match event.kind {
+        // Cmd+click (Ctrl+click elsewhere) on an address opens it; it selects nothing.
+        TerminalViewEventKind::SelectStart if info.get_key_modifiers().primary_down() => {
+            let point = grid_point(&*term, &event);
+            let row = row_text(&*term, point.line);
+            let url = azul_termkit::links::url_at(&row, point.column.0);
+            drop(term);
+            if let Some(url) = url {
+                println!("AZTERM_OPEN_LINK {url}");
+                if let Err(why) = open_link(&url) {
+                    st.notice = why;
+                    return Update::RefreshDom;
+                }
+            }
+            return Update::DoNothing;
+        }
         TerminalViewEventKind::SelectStart => {
             let kind = match event.selection_kind {
                 TerminalSelectionKind::Word => SelectionType::Semantic,
