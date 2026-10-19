@@ -1225,3 +1225,5 @@ mod focus_within_reaches_the_host_of_a_virtual_view;
 mod a_descendant_restyled_by_its_ancestors_hover_fades;
 #[path = "a_laid_out_tree_is_shared_with_the_layout_cache.rs"]
 mod a_laid_out_tree_is_shared_with_the_layout_cache;
+#[path = "closing_the_last_window_never_waits_for_its_workers.rs"]
+mod closing_the_last_window_never_waits_for_its_workers;

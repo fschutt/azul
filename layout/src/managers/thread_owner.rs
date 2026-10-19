@@ -409,6 +409,11 @@ pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
     threads.clear();
 }
 
+/// Waits, at the end of the process, for the workers of closed windows that
+/// are still stopping.
+#[cfg(all(feature = "std", feature = "text_layout"))]
+pub fn join_stopping_workers() {}
+
 #[cfg(test)]
 mod tests {
     use azul_core::{dom::NodeId, styled_dom::NodeHierarchyItemId};
