@@ -75,9 +75,10 @@ fn a_second_code_needs_a_device_that_holds_the_drive_key() {
     let bucket = MemBucket::new();
     let owner = MemoryKeyring::new();
     let (drive_key, _) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
+    // A device without the drive's key: the drive is locked on it.
     assert!(matches!(
         add_recovery_code(&bucket, &MemoryKeyring::new(), "d_1", cheap()),
-        Err(DriveError::Denied { .. })
+        Err(DriveError::Locked { drive }) if drive == "d_1"
     ));
     // A second device with the key may add one too; the other devices are counted without it.
     let second_device = MemoryKeyring::new();
