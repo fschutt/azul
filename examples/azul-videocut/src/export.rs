@@ -246,11 +246,18 @@ pub fn run_export(
     }
     let mut muxer = Mp4Muxer::create(w, h, fps as f32);
     let muxed = muxer.is_open();
+    // Which engine encodes, and whether on the machine's video hardware (VideoToolbox,
+    // MediaCodec and Vulkan Video are; a software fallback is not).
+    let engine = format!(
+        "{}{}",
+        VideoEncoder::backend_name().as_str(),
+        if encoder.is_hardware() { ", hardware" } else { ", software" }
+    );
     shared.set(|p| {
         p.how = if muxed {
-            format!("H.264 ({}) in MP4", VideoEncoder::backend_name().as_str())
+            format!("H.264 ({engine}) in MP4")
         } else {
-            format!("raw H.264 ({}), no MP4 muxer in this build", VideoEncoder::backend_name().as_str())
+            format!("raw H.264 ({engine}), no MP4 muxer in this build")
         };
     });
     let mut raw: Vec<u8> = Vec::new();
