@@ -739,4 +739,37 @@ mod tests {
         assert!(found.distance_m > 1_600.0, "around the corner: {} m", found.distance_m);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn the_caches_of_routing_values_not_used_for_a_month_are_removed() {
+        let root = std::env::temp_dir().join(format!("azmaps-route-caches-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let now = 2_000_000_000_u64;
+        let day = 86_400_u64;
+        let folder = |name: &str, used: Option<u64>| {
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir).expect("a folder");
+            std::fs::write(dir.join("tile.bin"), b"tile").expect("a tile");
+            if let Some(at) = used {
+                std::fs::write(dir.join(USED_STAMP), at.to_string()).expect("a stamp");
+            }
+            dir
+        };
+        let current = folder("00000000000000aa", Some(now - 90 * day));
+        let old = folder("00000000000000bb", Some(now - 31 * day));
+        let recent = folder("00000000000000cc", Some(now - 2 * day));
+        let not_a_cache = folder("notes", Some(now - 400 * day));
+        let removed = prune_unused_caches(&root, &current, now);
+        assert_eq!(removed, vec![old.clone()]);
+        assert!(!old.exists(), "a month unused: gone");
+        assert!(current.exists(), "the one in use stays, however old its stamp");
+        assert!(recent.exists(), "used two days ago: kept for a switch back");
+        assert!(not_a_cache.exists(), "only a routing cache's folder is removed");
+        mark_used(&current, now);
+        assert_eq!(
+            std::fs::read_to_string(current.join(USED_STAMP)).expect("the stamp"),
+            now.to_string()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
