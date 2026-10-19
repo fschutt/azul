@@ -3112,6 +3112,39 @@ mod tests {
         assert!(blocks[0].root.has_id("az-rich-text-0"), "a block is named by its index");
     }
 
+    /// Every text block takes its direction from its first strong letter,
+    /// as `dir=auto` does in a browser (`unicode-bidi: plaintext`): an Arabic
+    /// paragraph runs right to left beside a Latin one. A code block stays
+    /// left to right. AzNotes declared it for the editor's blocks itself.
+    #[test]
+    fn every_text_block_takes_its_direction_from_its_text() {
+        use azul_css::props::style::StyleUnicodeBidi;
+        let styled = StyledDom::create_from_dom(fixtures::sample().with_theme(UiTheme::Flat).dom());
+        let node_data = styled.node_data.as_container();
+        let mut text_blocks = 0;
+        for i in 0..node_data.len() {
+            let node = NodeId::new(i);
+            let nd = &node_data[node];
+            if !nd.has_class(rich_html::BLOCK_CLASS) {
+                continue;
+            }
+            let state = styled.styled_nodes.as_container()[node].styled_node_state;
+            let bidi = crate::solver3::getters::get_unicode_bidi_property(&styled, node, &state)
+                .exact();
+            match nd.get_node_type() {
+                NodeType::P | NodeType::Li | NodeType::H1 | NodeType::H2 => {
+                    text_blocks += 1;
+                    assert_eq!(bidi, Some(StyleUnicodeBidi::Plaintext), "{:?}", nd.get_node_type());
+                }
+                NodeType::Pre => {
+                    assert_ne!(bidi, Some(StyleUnicodeBidi::Plaintext), "code stays left to right");
+                }
+                _ => {}
+            }
+        }
+        assert!(text_blocks >= 6, "harness: the sample's text blocks ({text_blocks})");
+    }
+
     #[test]
     fn what_the_editor_renders_reads_back_as_the_same_blocks() {
         // The engine's structural edits clone the editor's own elements:
