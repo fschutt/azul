@@ -199,6 +199,17 @@ def body(args, logs, out):
         app.text_input("#__azmaps_travel-from", "48.2082, 16.3738")
         app.until("the start typed in",
                   lambda: app.printed("AZMAPS_TRAVEL", r"walk 48\.2082,16\.3738 -?\d.+"))
+        # Both ends are places now, the start typed as coordinates: the map frames the way
+        # between them, as it does when the start is picked from the suggestions - its centre
+        # lies between the two ends' latitudes (the sidebar shifts it west, not north or south).
+        travel = app.last("AZMAPS_TRAVEL").split()
+        dest = tuple(float(v) for v in travel[2].split(","))
+        start = (48.2082, 16.3738)
+
+        def frames_both():
+            v = view(app)
+            return bool(v) and min(start[0], dest[0]) < v[0] < max(start[0], dest[0])
+        app.until("the map frames the route typed as coordinates", frames_both)
         app.until("the distance", lambda: app.has_id("__azmaps_travel-distance"))
         # Both ends are places: the route worker answers, off the UI thread.
         app.until("the route worker's answer",
