@@ -911,7 +911,7 @@ pub(crate) fn ground_nodes(
     boxes: &[TileBox],
     tile_px: f32,
 ) -> Vec<Dom> {
-    use azul_core::dom::SvgNodeData;
+    use azul_core::dom::{AttributeNameValue, AttributeType, SvgNodeData};
     // Strokes are as wide on the screen at every zoom: in tile units they
     // shrink as the tile is drawn bigger.
     let units_per_px = 256.0 / tile_px.max(1.0);
@@ -922,9 +922,19 @@ pub(crate) fn ground_nodes(
             width_px * units_per_px,
             css_color(color)
         );
+        // SVG strokes start with butt caps and miter joins; a line on the map has round ones,
+        // so a turn stays smooth and a line of one point still shows as a dot.
+        let round = |name: &str| {
+            AttributeType::Custom(AttributeNameValue {
+                attr_name: name.into(),
+                value: "round".into(),
+            })
+        };
         Dom::create_div()
             .with_css(css.as_str())
             .with_svg_data(SvgNodeData::Path((**shape).clone()))
+            .with_attribute(round("stroke-linecap"))
+            .with_attribute(round("stroke-linejoin"))
     };
     let mut out = Vec::new();
     for (index, overlay) in overlays.iter().enumerate() {
