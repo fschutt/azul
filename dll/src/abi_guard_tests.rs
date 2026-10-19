@@ -33,6 +33,7 @@ fn the_mismatch_message_names_both_hashes_and_says_to_rebuild_the_app() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Miri cannot spawn the child process the abort happens in")]
 fn a_libazul_with_another_abi_hash_aborts_the_app_with_both_hashes() {
     let wrong = AZ_ABI_HASH ^ 0x5a5a;
     if std::env::var_os(CHILD_ENV).is_some() {
