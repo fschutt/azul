@@ -36,13 +36,37 @@ pub type SystemClipboardReader = extern "C" fn() -> OptionClipboardContent;
 /// nothing azul reads, or when no shell installed a reader.
 #[must_use]
 pub fn read_system_clipboard() -> Option<ClipboardContent> {
-    None
+    #[cfg(feature = "std")]
+    {
+        let reader = *SYSTEM_CLIPBOARD_READER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reader.and_then(|read| read().into_option())
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        None
+    }
 }
 
-/// Installs the shell's clipboard reader ([`read_system_clipboard`]).
+/// Installs the shell's clipboard reader ([`read_system_clipboard`]);
+/// `None` removes it.
 pub fn set_system_clipboard_reader(reader: Option<SystemClipboardReader>) {
-    let _ = reader;
+    #[cfg(feature = "std")]
+    {
+        *SYSTEM_CLIPBOARD_READER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = reader;
+    }
+    #[cfg(not(feature = "std"))]
+    drop(reader);
 }
+
+/// The shell's clipboard reader, process-wide: the clipboard is the
+/// desktop's, not a window's.
+#[cfg(feature = "std")]
+static SYSTEM_CLIPBOARD_READER: std::sync::Mutex<Option<SystemClipboardReader>> =
+    std::sync::Mutex::new(None);
 
 /// Manages clipboard content flow between system clipboard and application
 ///

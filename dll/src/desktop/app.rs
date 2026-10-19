@@ -579,6 +579,12 @@ impl App {
             return;
         }
 
+        // A callback reads the clipboard outside a paste through the shells'
+        // own transports.
+        azul_layout::managers::clipboard::set_system_clipboard_reader(Some(
+            crate::desktop::shell2::common::clipboard::read_clipboard_for_callbacks,
+        ));
+
         // Use shell2 for the actual run loop
         let err = crate::desktop::shell2::run(
             data,

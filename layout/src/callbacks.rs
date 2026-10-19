@@ -7298,6 +7298,16 @@ impl CallbackInfo {
         }
     }
 
+    /// What the system clipboard holds now, read outside a paste: a password
+    /// manager checking whether its copy is still there before it clears it,
+    /// a "Paste link" button. `None` when the clipboard holds nothing azul
+    /// reads (text, HTML, files, an image, a link), or on a platform without
+    /// one. Inside a paste, [`Self::get_clipboard_content`] is what is pasted.
+    #[must_use]
+    pub fn get_system_clipboard(&self) -> crate::managers::selection::OptionClipboardContent {
+        crate::managers::clipboard::read_system_clipboard().into()
+    }
+
     /// Override clipboard content for copy/cut operations
     ///
     /// This sets custom content that will be written to the system clipboard.

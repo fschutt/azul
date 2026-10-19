@@ -274,7 +274,46 @@ fn extra_items(content: &ClipboardContent, platform: Platform) -> Vec<rich_clipb
     if let Some(link) = content.link.as_ref() {
         add(RichItem::Link(rich_clipboard::Link::to_url(link.as_str())));
     }
+    if content.concealed {
+        for (native, bytes) in concealed_markers(platform) {
+            items.push(rich_clipboard::ClipboardItem::new(*native, bytes.to_vec()));
+        }
+    }
     items
+}
+
+/// The flavours that tell a platform's clipboard managers, history tools
+/// and cloud clipboards to leave a copy alone: the nspasteboard.org
+/// convention on macOS, the Windows clipboard history and monitor formats
+/// (a DWORD 0 where the format carries a value), KDE's password manager
+/// hint (Klipper, and the Wayland managers that follow it).
+fn concealed_markers(platform: Platform) -> &'static [(&'static str, &'static [u8])] {
+    match platform {
+        Platform::MacOs => &[("org.nspasteboard.ConcealedType", b"")],
+        Platform::Windows => &[
+            ("ExcludeClipboardContentFromMonitorProcessing", &[0, 0, 0, 0]),
+            ("CanIncludeInClipboardHistory", &[0, 0, 0, 0]),
+            ("CanUploadToCloudClipboard", &[0, 0, 0, 0]),
+        ],
+        Platform::Unix => &[("x-kde-passwordManagerHint", b"secret")],
+    }
+}
+
+/// Whether the source marked `payload` concealed ([`concealed_markers`]).
+fn is_concealed(payload: &ClipboardPayload) -> bool {
+    concealed_markers(payload.platform())
+        .iter()
+        .any(|(marker, _)| payload.items().iter().any(|i| i.native == *marker))
+}
+
+/// The clipboard as a callback reads it outside a paste
+/// (`CallbackInfo::get_system_clipboard`): installed as the engine's reader
+/// at startup.
+pub extern "C" fn read_clipboard_for_callbacks() -> azul_layout::managers::selection::OptionClipboardContent {
+    get_system_clipboard(0)
+        .as_ref()
+        .and_then(payload_to_clipboard_content)
+        .into()
 }
 
 /// The format of an encoded image, from its first bytes; PNG for anything
@@ -391,6 +430,7 @@ pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<Clipbo
     if text.is_none() && files.is_empty() && image.is_none() && link.is_none() {
         return None;
     }
+    let concealed = is_concealed(payload);
     let mut content = text.unwrap_or_default();
     // The markup NEXT to the runs: paragraphs, lists, quotes and links have
     // nowhere to go in the runs, and a rich editor's paste (or a mail app's
@@ -403,6 +443,7 @@ pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<Clipbo
         .into();
     content.image = image.map(azul_css::U8Vec::from).into();
     content.link = link.map(azul_css::AzString::from).into();
+    content.concealed = concealed;
     Some(content)
 }
 
