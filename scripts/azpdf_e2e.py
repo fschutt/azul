@@ -241,6 +241,34 @@ def body(args, logs, out):
         app.key("pagedown")
         app.frame(3)
 
+        # AF2: sign. Sign opens the pad (a modal: a window of its own), a drag draws a stroke,
+        # Use signature waits for a click on a page, the click places it there; its x removes it.
+        app.click(selector="#__azpdf_sign")
+        app.expect_line("AZPDF_SIGN_PAD", "open", "the signature pad")
+        popup = "azul-transient"
+        pad = app.value("get_node_layout", selector="#__azpdf_sign-pad", window_id=popup) or {}
+        rect = pad.get("rect") or {}
+        if not rect.get("width"):
+            raise Failure("the signature pad has no box in its window: %s" % pad)
+        x0, y0 = rect["x"] + 30.0, rect["y"] + rect["height"] * 0.7
+        app.must("mouse_move", x=x0, y=y0, window_id=popup)
+        app.must("mouse_down", x=x0, y=y0, window_id=popup)
+        for i in range(1, 9):
+            app.must("mouse_move", x=x0 + 30.0 * i, y=y0 - (12.0 if i % 2 else 0.0), window_id=popup)
+            app.frame(1)
+        app.must("mouse_up", x=x0 + 240.0, y=y0, window_id=popup)
+        app.frame(2)
+        app.click(selector="#__azpdf_sign-use", window=popup)
+        app.expect_line("AZPDF_SIGN_PAD", "placing", "the signature waits for a page")
+        app.click(selector="#__azpdf_page-3", every_dom=True)
+        app.until("the signature placed on page 3", lambda: app.printed("AZPDF_SIGNED", r"3 .+"))
+        app.until("the signature over page 3", lambda: app.has_id("__azpdf_signature-0", every_dom=True))
+        app.screenshot(os.path.join(out, "2-signed.png"))
+        if not app.has_id("__azpdf_export-filled"):
+            raise Failure("a signed document offers no signed copy to save")
+        app.click(selector="#__azpdf_signature-remove-0", every_dom=True)
+        app.until("the signature removed", lambda: app.printed("AZPDF_SIGNATURE_REMOVED", r"0"))
+
         # Zoom in: the page gets wider.
         before = app.rect("__azpdf_page-3", every_dom=True) or {}
         app.click(selector="#__azpdf_zoom-in")
