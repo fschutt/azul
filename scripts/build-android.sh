@@ -45,6 +45,26 @@ if [[ -z "${JAVA_HOME:-}" ]] && [[ -d /opt/homebrew/opt/openjdk@17 ]]; then
     export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 fi
 
+# The C and C++ in build scripts (blake3's SIMD, zstd, ...) compiles for the target with the
+# NDK's clang. The cc crate looks for `<target>-clang`, which the NDK names with the API
+# level, so it is named here (unless the caller named one).
+case "$(uname -s)" in
+    Darwin) NDK_HOST=darwin-x86_64 ;;
+    *)      NDK_HOST=linux-x86_64 ;;
+esac
+NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST/bin"
+case "$TARGET" in
+    armv7-linux-androideabi) CLANG_TARGET=armv7a-linux-androideabi ;;
+    *)                       CLANG_TARGET="$TARGET" ;;
+esac
+TARGET_ENV="${TARGET//-/_}"
+for tool in "CC:${CLANG_TARGET}24-clang" "CXX:${CLANG_TARGET}24-clang++" "AR:llvm-ar"; do
+    var="${tool%%:*}_${TARGET_ENV}"
+    if [[ -z "${!var:-}" ]]; then
+        export "$var=$NDKBIN/${tool#*:}"
+    fi
+done
+
 BT="$ANDROID_HOME/build-tools/34.0.0"
 PLATFORM="$ANDROID_HOME/platforms/android-34"
 
