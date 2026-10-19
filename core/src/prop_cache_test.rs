@@ -92,6 +92,7 @@ mod autotest_generated {
             prop_type: property.get_type(),
             property,
             ua_origin: false,
+            priority: azul_css::css::rule_priority::AUTHOR,
         }
     }
 

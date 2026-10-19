@@ -471,12 +471,20 @@ impl CssPropertyCache {
             if winner != Some(p.slot) || inline_declares(nd, ty, PseudoStateType::Normal, ctx) {
                 continue;
             }
+            // The variant is the resting rule's own value, at that rule's
+            // priority; a rule for the state of a lower priority loses to it
+            // and does not count as declaring the property.
+            let priority = self
+                .css_props
+                .build_get(p.node)
+                .and_then(|v| v.get(p.slot))
+                .map_or(0, |e| e.priority);
             for &(state, map) in differing {
-                let declared = self
-                    .css_props
-                    .build_get(p.node)
-                    .is_some_and(|v| v.iter().any(|e| e.state == state && e.prop_type == ty))
-                    || inline_declares(nd, ty, state, ctx);
+                let declared = self.css_props.build_get(p.node).is_some_and(|v| {
+                    v.iter().any(|e| {
+                        e.state == state && e.prop_type == ty && e.priority >= priority
+                    })
+                }) || inline_declares(nd, ty, state, ctx);
                 if declared {
                     continue;
                 }
@@ -488,6 +496,7 @@ impl CssPropertyCache {
                         prop_type: ty,
                         property,
                         ua_origin: false,
+                        priority,
                     },
                 );
             }

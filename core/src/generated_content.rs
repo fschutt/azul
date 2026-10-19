@@ -489,6 +489,7 @@ impl CssPropertyCache {
                             prop_type: CssPropertyType::Display,
                             property: display(LayoutDisplay::None),
                             ua_origin: false,
+                            priority: crate::prop_cache::ENGINE_PRIORITY,
                         },
                     );
                 }
@@ -534,9 +535,13 @@ impl CssPropertyCache {
                         continue;
                     }
                     if here {
-                        if last(state, CssPropertyType::Display).is_none() {
-                            add.push((state, resting_display.clone()));
-                        }
+                        // Its own display, or the one it would have had at
+                        // rest, at the engine's priority: the hidden resting
+                        // state must not outrank it.
+                        let shown = last(state, CssPropertyType::Display)
+                            .cloned()
+                            .unwrap_or_else(|| resting_display.clone());
+                        add.push((state, shown));
                     } else {
                         add.push((state, display(LayoutDisplay::None)));
                     }
@@ -551,6 +556,7 @@ impl CssPropertyCache {
                         prop_type: CssPropertyType::Display,
                         property,
                         ua_origin: false,
+                        priority: crate::prop_cache::ENGINE_PRIORITY,
                     },
                 );
             }

@@ -368,7 +368,21 @@ pub struct StatefulCssProperty {
     /// origin tag is what lets a re-application strip exactly its own
     /// previous entries first (and nothing else).
     pub ua_origin: bool,
+    /// The `rule_priority` of the rule that declared this value: a value for
+    /// one state beats one for a stronger state, or the resting value beats
+    /// a state's, only from a higher priority (a rice at `priority: app`
+    /// over the app's `:hover` rule); at equal priority the stronger state
+    /// wins. `rule_priority::PRESENTATIONAL` for a presentational hint,
+    /// [`ENGINE_PRIORITY`] for what the engine decides itself, and 0 for
+    /// what the node inherited and for a UA default, which are never
+    /// compared this way.
+    pub priority: u8,
 }
+
+/// The [`StatefulCssProperty::priority`] of what the engine decides itself
+/// (a generated node whose `content` makes nothing has no box): above every
+/// rule and the node's own style.
+pub const ENGINE_PRIORITY: u8 = u8::MAX;
 
 /// One bit per `CssPropertyType` (fewer than 256 variants): "this node has
 /// a Normal-state value of this type from a layer that beats the UA sheet".
@@ -1437,11 +1451,23 @@ impl CssPropertyCache {
         state: azul_css::dynamic_selector::PseudoStateType,
         prop_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
+        Self::find_entry_in_stateful(props, state, prop_type).map(|p| &p.property)
+    }
+
+    /// [`Self::find_in_stateful`], answering the whole entry (its cascade
+    /// [`StatefulCssProperty::order`] with it).
+    #[inline]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention
+    fn find_entry_in_stateful<'a>(
+        props: &'a [StatefulCssProperty],
+        state: azul_css::dynamic_selector::PseudoStateType,
+        prop_type: &CssPropertyType,
+    ) -> Option<&'a StatefulCssProperty> {
         let key = (state, *prop_type);
         props
             .binary_search_by_key(&key, |p| (p.state, p.prop_type))
             .ok()
-            .map(|idx| &props[idx].property)
+            .map(|idx| &props[idx])
     }
 
     /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
@@ -1490,6 +1516,50 @@ fn inline_is_overruled(
     overruled
         .iter()
         .any(|(s, t)| *t == ty && (*s == PseudoStateType::Normal || *s == state))
+}
+
+/// Drops from one node's stylesheet values (`css_props`, still in its build
+/// phase) what can never show:
+///
+/// - a value for a state whose rule has a lower priority than the node's
+///   resting value of the same property: priority ranks above the state (a
+///   rice at `priority: app` keeps its colour under the pointer), so the
+///   resting value wins in that state too. `::placeholder` is a
+///   pseudo-element the host's rules do not reach, so its values stay.
+/// - a presentational hint the `*` rules of the global bucket (`global`, the
+///   highest priority each sets a property at) outrank: a hint is the
+///   weakest author declaration (`<table bgcolor>` under `* { background }`).
+fn drop_outranked_values(
+    entries: &mut Vec<StatefulCssProperty>,
+    global: &[(CssPropertyType, u8)],
+) {
+    use azul_css::{css::rule_priority::PRESENTATIONAL, dynamic_selector::PseudoStateType};
+    let hint_outranked = |e: &StatefulCssProperty| {
+        e.state == PseudoStateType::Normal
+            && e.priority == PRESENTATIONAL
+            && global
+                .iter()
+                .any(|(ty, priority)| *ty == e.prop_type && *priority >= PRESENTATIONAL)
+    };
+    let stateful = entries.iter().any(|e| e.state != PseudoStateType::Normal);
+    if !stateful && (global.is_empty() || !entries.iter().any(hint_outranked)) {
+        return;
+    }
+    let mut resting: Vec<(CssPropertyType, u8)> = Vec::new();
+    for e in entries.iter().filter(|e| e.state == PseudoStateType::Normal) {
+        match resting.iter_mut().find(|(ty, _)| *ty == e.prop_type) {
+            Some(slot) => slot.1 = slot.1.max(e.priority),
+            None => resting.push((e.prop_type, e.priority)),
+        }
+    }
+    entries.retain(|e| match e.state {
+        PseudoStateType::Normal => !hint_outranked(e),
+        PseudoStateType::Placeholder => true,
+        _ => resting
+            .iter()
+            .find(|(ty, _)| *ty == e.prop_type)
+            .is_none_or(|(_, priority)| e.priority >= *priority),
+    });
 }
 
 /// Whether an unscoped `*` rule styles `node`. `*` selects elements, so it
@@ -1857,6 +1927,7 @@ impl CssPropertyCache {
                                 prop_type: prop.get_type(),
                                 property: prop,
                                 ua_origin: false,
+                                priority: azul_css::css::rule_priority::PRESENTATIONAL,
                             },
                         );
                     }
@@ -1876,6 +1947,8 @@ impl CssPropertyCache {
             })
         });
 
+        // The priority of each declaration of the global `*` bucket, by type.
+        let mut global_priorities: Vec<(CssPropertyType, u8)> = Vec::new();
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1883,35 +1956,45 @@ impl CssPropertyCache {
             // Global-only rules apply to ALL nodes — push directly into css_props
             // without per-node selector matching (avoids m×n for these rules).
             // Specific rules still go through matches_html_element per-node.
-            let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
-            let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
-
-            for rule in css.rules() {
+            // A rule that defines or reads a custom property resolves PER
+            // NODE (each node sees its own variables), so it cannot ride the
+            // one-value-for-every-node global bucket. Nor can a rule above
+            // the inline declarations (a `widgets` rice): the bucket is read
+            // below them.
+            let is_global_only = |rule: &CssRuleBlock| {
                 let selectors = rule.path.selectors.as_ref();
-                // A rule that defines or reads a custom property resolves PER
-                // NODE (each node sees its own variables), so it cannot ride
-                // the one-value-for-every-node global bucket.
-                // A rule above the inline declarations (a `widgets` rice) has
-                // to beat them and the author's rules node by node, which the
-                // global bucket - read below every matched rule - cannot.
-                let is_global_only = selectors.len() == 1
+                selectors.len() == 1
                     && matches!(selectors.first(), Some(CssPathSelector::Global))
                     && rule.priority <= azul_css::css::rule_priority::INLINE
                     && !rule
                         .declarations
                         .as_ref()
                         .iter()
-                        .any(CssDeclaration::uses_custom_properties);
-                if is_global_only {
+                        .any(CssDeclaration::uses_custom_properties)
+            };
+            // Every rule in cascade order (the theme rank on top of the
+            // context-free order); both lists below keep it, as they are
+            // applied in turn (last wins). The bucket is read below every
+            // rule matched node by node, so a `*` rule of a higher priority
+            // than one of those (a rice's at `priority: app` over the app's
+            // own rules) is matched node by node too, where its priority
+            // decides.
+            let mut all: Vec<&CssRuleBlock> = css.rules().collect();
+            Css::sort_rules_in_cascade_order(&mut all, rank);
+            let lowest_matched = all
+                .iter()
+                .filter(|rule| !is_global_only(rule))
+                .map(|rule| rule.priority)
+                .min();
+            let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
+            let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
+            for rule in all {
+                if is_global_only(rule) && lowest_matched.is_none_or(|p| rule.priority <= p) {
                     global_only_rules.push(rule);
                 } else {
                     specific_rules.push(rule);
                 }
             }
-            // The theme rank on top of the context-free order: both lists are
-            // applied in turn (last wins), so they must be in cascade order.
-            Css::sort_rules_in_cascade_order(&mut global_only_rules, rank);
-            Css::sort_rules_in_cascade_order(&mut specific_rules, rank);
 
             for rule in &global_only_rules {
                 if !rule_applies(&rule.conditions) {
@@ -1922,6 +2005,7 @@ impl CssPropertyCache {
                         // `Static` as-is; an `env()` declaration resolved
                         // against the same context that gates the rule.
                         if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
+                            global_priorities.push((s.get_type(), rule.priority));
                             self.global_css_props.push(s);
                         }
                     }
@@ -2054,6 +2138,7 @@ impl CssPropertyCache {
                                             prop_type: reference.default_value.get_type(),
                                             property: reference.default_value.clone(),
                                             ua_origin: false,
+                                            priority: rule_block.priority,
                                         },
                                     );
                                     var_stage.pending.push(PendingVar {
@@ -2072,6 +2157,7 @@ impl CssPropertyCache {
                                             prop_type: prop.get_type(),
                                             property: prop,
                                             ua_origin: false,
+                                            priority: rule_block.priority,
                                         },
                                     );
                                 }
@@ -2101,6 +2187,22 @@ impl CssPropertyCache {
             node_hierarchy.as_container().internal,
         );
 
+        // A value for a state whose rule has a lower priority than the
+        // node's resting value never shows, nor a presentational hint a `*`
+        // rule outranks. Dropped here, they stay out of the lookups and out
+        // of what the node's children inherit.
+        let mut global: Vec<(CssPropertyType, u8)> = Vec::new();
+        for (ty, priority) in &global_priorities {
+            match global.iter_mut().find(|(t, _)| t == ty) {
+                Some(slot) => slot.1 = slot.1.max(*priority),
+                None => global.push((*ty, *priority)),
+            }
+        }
+        for (index, entries) in self.css_props.build_iter_mut().enumerate() {
+            let star = node_data.internal.get(index).is_some_and(star_selects);
+            drop_outranked_values(entries, if star { &global } else { &[] });
+        }
+
         // What the ROOT inherits from OUTSIDE this DOM (`inherited_from_host`:
         // a VirtualView's host) enters the walk where a parent's values would,
         // as Normal-state entries of the root's `cascaded_props` - below the
@@ -2124,6 +2226,7 @@ impl CssPropertyCache {
                     prop_type: *prop_type,
                     property: clone_inheritable_property(&value.property),
                     ua_origin: false,
+                    priority: 0,
                 })
                 .collect();
             self.cascaded_props.build_mut(0).extend(from_host);
@@ -2318,6 +2421,7 @@ impl CssPropertyCache {
                                 prop_type: *prop_type,
                                 property: prop_value.clone(),
                                 ua_origin: false,
+                                priority: 0,
                             });
                         }
                     }
@@ -3436,11 +3540,16 @@ impl CssPropertyCache {
             }
         }
 
-        // Then the pseudo-state tiers, strongest first, and the Normal base
-        // layer last. Every tier looks in the same three places and the first
-        // hit wins: PRIORITY 1 the node's inline declarations for the state
-        // (highest priority per CSS spec), PRIORITY 2 its stylesheet rules for
-        // it, PRIORITY 3 what it inherited (cascaded) for it.
+        // The states the node is in, strongest first, and the Normal base
+        // layer last. Every state looks in the same places: PRIORITY 1 the
+        // node's inline declarations for it, PRIORITY 2 its stylesheet rules
+        // for it (and, at rest, the global `*` rules), PRIORITY 3 what it
+        // inherited for it. A declaration of a weaker state, or the resting
+        // one, wins over one already found only from a higher
+        // `rule_priority` (a rice at `priority: app` keeps its resting value
+        // under the pointer, and the node's own resting style beats an
+        // author's `:hover` rule); at equal priority the stronger state wins.
+        // What a state inherited counts only while nothing is declared yet.
         //
         // - `::placeholder` FIRST. It is a pseudo-ELEMENT: the flag is only
         //   ever set for the ONE resolve the engine does to style the prompt
@@ -3453,9 +3562,8 @@ impl CssPropertyCache {
         // - `:focus-visible` > `:focus` (a ring declared for seen focus wins
         //   over the plain focus face) > `:focus-within` (a frame's ring for
         //   the focus inside it; on a focused node `:focus` says more) >
-        //   `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
-        //   focus) > `:active` > `:dragging` > `:drag-over` (both above
-        //   `:hover`) > `:hover`.
+        //   `:seat-focus` (a non-primary seat's focus) > `:active` >
+        //   `:dragging` > `:drag-over` (both above `:hover`) > `:hover`.
         // - `:backdrop` (GTK: the window is not the active one). A WINDOW
         //   state: `StyledDom::sync_backdrop_state` raises the node flag,
         //   while the window is inactive, on exactly the nodes that declare
@@ -3465,7 +3573,6 @@ impl CssPropertyCache {
         //   rules and what it inherited sit the global `*` rules.
         let index = node_id.index();
         let tiers = [
-            (node_state.placeholder, PseudoStateType::Placeholder),
             (node_state.focus_visible, PseudoStateType::FocusVisible),
             (node_state.focused, PseudoStateType::Focus),
             (node_state.focus_within, PseudoStateType::FocusWithin),
@@ -3477,18 +3584,16 @@ impl CssPropertyCache {
             (node_state.backdrop, PseudoStateType::Backdrop),
             (true, PseudoStateType::Normal),
         ];
-        for (raised, state) in tiers {
-            if !raised {
-                continue;
-            }
+        let sheet = self.css_props.get_slice(index);
+        let inherited = self.cascaded_props.get_slice(index);
 
-            // PRIORITY 1: inline declarations.
-            let inline = if state == PseudoStateType::Backdrop {
+        // The node's own declaration for `state`.
+        let own = |state: PseudoStateType| -> Option<&'a CssProperty> {
+            if state == PseudoStateType::Backdrop {
                 // `:backdrop` reads the DECLARED static view, the last match
                 // winning (the titlebar's `background_inactive`) - not the
-                // resolved (`var()`), theme-ranked view every other tier
-                // reads. Kept as the tier was written when the tiers were
-                // folded into this loop.
+                // resolved (`var()`), theme-ranked view every other state
+                // reads.
                 node_data
                     .style
                     .iter_inline_properties()
@@ -3504,26 +3609,54 @@ impl CssPropertyCache {
                     |conds| matches_pseudo_state(conds, state),
                     rank,
                 )
-            };
-            if inline.is_some() {
-                return inline;
             }
+        };
 
-            // PRIORITY 2: stylesheet rules (`.x:hover { .. }`).
-            if let Some(p) =
-                Self::find_in_stateful(self.css_props.get_slice(index), state, css_property_type)
+        // The prompt's own values: its declarations, its rules, and what it
+        // inherited for `::placeholder`, before anything of the host.
+        if node_state.placeholder {
+            let placeholder = PseudoStateType::Placeholder;
+            if let Some(p) = own(placeholder)
+                .or_else(|| Self::find_in_stateful(sheet, placeholder, css_property_type))
+                .or_else(|| Self::find_in_stateful(inherited, placeholder, css_property_type))
             {
                 return Some(p);
             }
+        }
 
-            // PRIORITY 2b (Normal only): global `*` selector properties
-            // (specificity 0,0,0). These are collected once during restyle
-            // and apply to every element. Lower priority than per-node rules
-            // but higher than inheritance/UA. Collected in cascade order
-            // (priority, theme rank, source order), so the LAST of a property
-            // wins - as the compact builder, which applies them in turn, has
-            // it.
-            if state == PseudoStateType::Normal && star_selects(node_data) {
+        /// Takes `property` (declared at `priority`) over what `found`
+        /// holds only from a higher priority: the states come strongest
+        /// first.
+        fn offer<'p>(
+            found: &mut Option<(u8, &'p CssProperty)>,
+            priority: u8,
+            property: &'p CssProperty,
+        ) {
+            if found.is_none_or(|(best, _)| priority > best) {
+                *found = Some((priority, property));
+            }
+        }
+        let mut found: Option<(u8, &'a CssProperty)> = None;
+        for (raised, state) in tiers {
+            if !raised {
+                continue;
+            }
+            // PRIORITY 1: inline declarations.
+            if let Some(p) = own(state) {
+                offer(&mut found, azul_css::css::rule_priority::INLINE, p);
+            }
+            // PRIORITY 2: stylesheet rules (`.x:hover { .. }`).
+            if let Some(p) = Self::find_entry_in_stateful(sheet, state, css_property_type) {
+                offer(&mut found, p.priority, &p.property);
+            }
+            // PRIORITY 2b (Normal only): the global `*` rules (specificity
+            // 0,0,0), collected once during restyle for every element. They
+            // rank below every rule matched node by node (`restyle` keeps
+            // only those in the bucket) and above inheritance and the UA
+            // defaults. Collected in cascade order (priority, theme rank,
+            // source order), so the LAST of a property wins - as the compact
+            // builder, which applies them in turn, has it.
+            if state == PseudoStateType::Normal && found.is_none() && star_selects(node_data) {
                 if let Some(p) = self
                     .global_css_props
                     .iter()
@@ -3533,15 +3666,16 @@ impl CssPropertyCache {
                     return Some(p);
                 }
             }
-
-            // PRIORITY 3: cascaded / inherited properties.
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(index),
-                state,
-                css_property_type,
-            ) {
-                return Some(p);
+            // PRIORITY 3: cascaded / inherited properties, while nothing is
+            // declared.
+            if found.is_none() {
+                if let Some(p) = Self::find_in_stateful(inherited, state, css_property_type) {
+                    return Some(p);
+                }
             }
+        }
+        if let Some((_, p)) = found {
+            return Some(p);
         }
 
         // Check computed values cache for inherited properties
@@ -5395,6 +5529,7 @@ impl CssPropertyCache {
                         prop_type: *prop_type,
                         property: ua_prop.clone(),
                         ua_origin: true,
+                        priority: 0,
                     },
                 );
             }
