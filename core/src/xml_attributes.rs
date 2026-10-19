@@ -1038,6 +1038,10 @@ pub fn apply_presentational_hints(
         );
         let node = &mut node_data[i];
         let mut rules = hints.rules.into_library_owned_vec();
+        // hints are the weakest author declarations, so every stylesheet rule beats them
+        for rule in &mut rules {
+            rule.priority = azul_css::css::rule_priority::PRESENTATIONAL;
+        }
         rules.extend(core::mem::take(&mut node.style.rules).into_library_owned_vec());
         node.style.rules = rules.into();
     }
