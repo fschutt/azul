@@ -87,6 +87,8 @@ names! {
     MARK_ALL_NO = "mark-all-no";
     // ---- the reading pane ----
     READER = "reader";
+    /// The full text's button over an article.
+    FULL_TEXT = "full-text";
     // ---- add a feed ----
     ADD_FEED = "add-feed";
     ADD_URL = "add-url";

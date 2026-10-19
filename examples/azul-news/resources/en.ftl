@@ -118,6 +118,14 @@ aznews-pictures-not-loaded =
        *[other] { $count } pictures were not loaded: the sites they are on learn nothing of what you read.
     }
 aznews-load-pictures = Load pictures
+aznews-summary-only = The feed carries a summary of this article.
+aznews-show-full-text = Show the full text
+aznews-loading-full-text = Loading the full text from the article's page...
+aznews-full-text-shown = The full text, from the article's page.
+aznews-show-feed-text = Show the feed's text
+aznews-no-full-text = The article's page holds no text to show here.
+aznews-full-text-failed = The full text could not be loaded: { $why }
+aznews-try-again = Try again
 aznews-image = [image]
 aznews-image-alt = [image: { $alt }]
 

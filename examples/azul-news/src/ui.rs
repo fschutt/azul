@@ -41,7 +41,7 @@ use crate::{
     feed::Item,
     fetch::{self, Candidate, Fetched},
     ids,
-    jobs::{self, FindEvent, PictureEvent, RefreshEvent, RefreshJob},
+    jobs::{self, FindEvent, PageEvent, PictureEvent, RefreshEvent, RefreshJob},
     library::{ArticleRef, FeedMeta, Library, Sort, SortKey, View, DAY},
     links,
     opml::{self, Subscription},
@@ -441,6 +441,22 @@ pub fn import_rows(subs: Vec<Subscription>, library: &Library) -> Vec<ImportRow>
 
 /// What the right side shows.
 #[derive(Debug, Clone)]
+/// An article's full text (its web page's story), by article id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FullText {
+    /// The page is being fetched.
+    Loading,
+    /// The page (its HTML); its story is the full text.
+    Page { url: String, html: String },
+    /// The page holds no story to show (an index, a page of links, a wall).
+    NoStory,
+    /// The page could not be had: why.
+    Failed(String),
+}
+
+/// An article shorter than this (words) offers its full text: the feed carries a summary.
+pub const SUMMARY_WORDS: usize = 150;
+
 pub enum Reading {
     /// The article table and, under it, the selected article (or the empty state).
     Article,
@@ -504,6 +520,9 @@ pub struct NewsApp {
     pub nav_ratio: f32,
     /// The article table's share of the height above the reading pane.
     pub split_ratio: f32,
+    /// The full texts asked for, and the articles that show theirs (by article id).
+    pub full_text: BTreeMap<String, FullText>,
+    pub full_shown: BTreeSet<String>,
 }
 
 impl NewsApp {
@@ -549,6 +568,8 @@ impl NewsApp {
             refresh_timer: None,
             nav_ratio: 0.2,
             split_ratio: 0.38,
+            full_text: BTreeMap::new(),
+            full_shown: BTreeSet::new(),
         }
     }
 
@@ -634,13 +655,27 @@ impl NewsApp {
         }
     }
 
-    /// The reader view of an article with the current settings.
+    /// The reader view of an article with the current settings: its full text when it shows
+    /// that, else what the feed carries.
     fn article_view(&self, item: &Item) -> reader::Article {
         let css = reader::reader_css(
             self.settings.font_px,
             self.settings.measure_px,
             self.settings.sepia,
         );
+        if self.full_shown.contains(&item.id) {
+            if let Some(FullText::Page { url, html }) = self.full_text.get(&item.id) {
+                if let Some(full) = reader::full_article(
+                    html,
+                    url,
+                    self.pictures_on(item),
+                    self.settings.strip_tracking,
+                    &css,
+                ) {
+                    return full;
+                }
+            }
+        }
         reader::article(
             item.body(),
             &item.base,
@@ -781,8 +816,11 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
         };
         pane = pane.with_info_bar(notice);
     }
-    let body = Dom::create_div()
-        .with_css("overflow-x: auto;")
+    let mut body = Dom::create_div().with_css("overflow-x: auto;");
+    if let Some(bar) = full_text_bar(s, app, item, article.words) {
+        body = body.with_child(bar);
+    }
+    let body = body
         .with_child(Dom::create_from_parsed_xml(article.xml))
         .with_id(ids::READER);
     let pane = pane
@@ -797,6 +835,37 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
         )
         .dom();
     block("flex-grow: 1; min-height: 0px; overflow-y: auto;", pane)
+}
+
+/// The line over an article that offers its full text (a feed that carries a summary), says
+/// it is on its way, that it is shown (with the way back to the feed's text), or why there is
+/// none. `None` for an article that is all there, or has no page.
+fn full_text_bar(s: &NewsApp, app: &RefAny, item: &Item, words: usize) -> Option<Dom> {
+    let shown = s.full_shown.contains(&item.id);
+    if item.link.trim().is_empty() || (words >= SUMMARY_WORDS && !shown) {
+        return None;
+    }
+    let (line, action) = match s.full_text.get(&item.id) {
+        _ if shown => (t("aznews-full-text-shown"), Some("aznews-show-feed-text")),
+        None | Some(FullText::Page { .. }) => (t("aznews-summary-only"), Some("aznews-show-full-text")),
+        Some(FullText::Loading) => (t("aznews-loading-full-text"), None),
+        Some(FullText::NoStory) => (t("aznews-no-full-text"), None),
+        Some(FullText::Failed(why)) => (
+            t_args("aznews-full-text-failed", &[("why", Arg::from(why.as_str()))]),
+            Some("aznews-try-again"),
+        ),
+    };
+    let mut children = vec![block(
+        "flex-grow: 1; font-size: 12px; color: system:secondary-text;",
+        text(line),
+    )];
+    if let Some(action) = action {
+        children.push(button(action, ids::FULL_TEXT, app, on_full_text));
+    }
+    Some(flex_row(
+        "align-items: center; gap: 8px; padding: 6px 0px 10px 0px;",
+        children,
+    ))
 }
 
 /// The reading pane, the right column: the open article, or the empty state.
@@ -1917,6 +1986,66 @@ extern "C" fn on_picture_event(mut app: RefAny, mut msg: RefAny, mut info: Callb
                 eprintln!("[aznews] picture {url} not shown: {error}");
                 s.pictures_failed.insert(url);
             }
+        }
+    })
+}
+
+/// The full text's button: shows the full text (fetching the page the first time, or again
+/// after a failure), or goes back to the feed's text.
+extern "C" fn on_full_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let Some(r) = s.selected_ref() else {
+            return;
+        };
+        let id = s.library.feeds[r.feed].items[r.item].id.clone();
+        if s.full_shown.remove(&id) {
+            return;
+        }
+        match s.full_text.get(&id) {
+            Some(FullText::Page { .. }) => {
+                s.full_shown.insert(id);
+                ask_pictures(s, info, handle);
+            }
+            Some(FullText::Loading | FullText::NoStory) => {}
+            None | Some(FullText::Failed(_)) => {
+                let Some(url) = s.selected_link() else {
+                    return;
+                };
+                s.full_text.insert(id.clone(), FullText::Loading);
+                jobs::spawn_page(info, id, url, handle.clone(), on_page_event);
+            }
+        }
+    })
+}
+
+/// An article's web page came: its story is shown when it holds one.
+extern "C" fn on_page_event(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(event) = jobs::take::<PageEvent>(&mut msg) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, info, handle| {
+        let PageEvent { item, url, html } = event;
+        let state = match html {
+            Ok(html) => match reader::full_article(&html, &url, false, false, "") {
+                Some(story) => {
+                    println!("AZNEWS_FULL_TEXT {item} {}", story.words);
+                    s.full_shown.insert(item.clone());
+                    FullText::Page { url, html }
+                }
+                None => {
+                    println!("AZNEWS_FULL_TEXT {item} none");
+                    FullText::NoStory
+                }
+            },
+            Err(why) => {
+                eprintln!("[aznews] no full text for {item}: {why}");
+                FullText::Failed(why)
+            }
+        };
+        s.full_text.insert(item.clone(), state);
+        let open = s.selected.as_ref().is_some_and(|(_, id)| *id == item);
+        if open && s.full_shown.contains(&item) {
+            ask_pictures(s, info, handle);
         }
     })
 }

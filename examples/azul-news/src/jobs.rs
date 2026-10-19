@@ -7,7 +7,8 @@
 //!   [`crate::reader::Article::images`]) downloaded and decoded off the UI thread
 //!   ([`PictureEvent`]); the UI puts each into azul's image cache under its address, where the
 //!   article's `<img src>` finds it;
-//! - **find** (Add feed): [`crate::fetch::find_feeds`] ([`FindEvent`]).
+//! - **find** (Add feed): [`crate::fetch::find_feeds`] ([`FindEvent`]);
+//! - **page**: an article's web page, for its full text ([`PageEvent`]).
 //!
 //! Requests go through azul-storage's `AzulTransport` (azul's `HttpRequestConfig`); the
 //! User-Agent is [`crate::fetch::USER_AGENT`] (no personal data). A thread stops between two
@@ -67,6 +68,15 @@ pub struct PictureEvent {
     pub url: String,
     pub image: Option<RawImage>,
     pub error: String,
+}
+
+/// An article's web page, for its full text: its HTML, or why there is none to show.
+#[derive(Debug, Clone)]
+pub struct PageEvent {
+    /// The article's id.
+    pub item: String,
+    pub url: String,
+    pub html: Result<String, String>,
 }
 
 /// What "Find" found for the address the user typed (or why nothing, said in the window).
@@ -272,6 +282,73 @@ extern "C" fn picture_thread(
             return;
         }
     }
+}
+
+// ==== Page (full text) ====
+
+/// A page larger than this is no article's (16 MiB).
+pub const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
+
+struct PageInit {
+    request: Option<(String, String)>,
+    on_event: WriteBackCallbackType,
+}
+
+/// Fetches the web page `url` of the article `item` on a Thread; `on_event` gets one
+/// [`PageEvent`].
+pub fn spawn_page(
+    info: &mut CallbackInfo,
+    item: String,
+    url: String,
+    reply_to: RefAny,
+    on_event: WriteBackCallbackType,
+) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(PageInit {
+                request: Some((item, url)),
+                on_event,
+            }),
+            reply_to,
+            page_thread,
+        ),
+    );
+}
+
+/// The page at `url`, its text decoded by its charset; why not, else.
+fn page(transport: &dyn Transport, url: &str) -> Result<String, String> {
+    let call = HttpCall {
+        method: Method::Get,
+        url: url.to_string(),
+        headers: vec![(
+            "Accept".to_string(),
+            "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5".to_string(),
+        )],
+        body: Vec::new(),
+        content_type: String::new(),
+    };
+    let reply = transport.send(&call)?;
+    if !reply.is_success() {
+        return Err(format!("the site answered {}", reply.status));
+    }
+    if reply.body.len() > MAX_PAGE_BYTES {
+        return Err(format!("the page is larger than {} MiB", MAX_PAGE_BYTES / (1024 * 1024)));
+    }
+    let content_type = reply.header("content-type").unwrap_or("");
+    Ok(crate::xmltree::decode(&reply.body, content_type))
+}
+
+extern "C" fn page_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(((item, url), on_event)) = init.downcast_mut::<PageInit>().and_then(|mut i| {
+        let request = i.request.take()?;
+        Some((request, i.on_event))
+    }) else {
+        return;
+    };
+    let transport = AzulTransport::new(fetch::USER_AGENT).with_timeout(FEED_TIMEOUT_SECS);
+    let html = page(&transport, &url);
+    let _delivered = post(&mut sender, on_event, PageEvent { item, url, html });
 }
 
 // ==== Find ====

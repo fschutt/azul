@@ -335,14 +335,28 @@ pub fn article(
     css: &str,
 ) -> Article {
     let parsed = Xml::create_from_html(html);
+    article_of(&parsed.root, base, load_images, strip_tracking, false, css)
+}
+
+/// [`article`] of parsed `nodes`; `story_only` also drops the blocks that are no part of a
+/// story (menus, share buttons, comments: see [`not_story`]), for a web page's full text.
+fn article_of(
+    nodes: &[XmlNodeChild],
+    base: &str,
+    load_images: bool,
+    strip_tracking: bool,
+    story_only: bool,
+    css: &str,
+) -> Article {
     let mut cleaner = Cleaner {
         base,
         load_images,
         strip_tracking,
+        story_only,
         blocked: 0,
         words: 0,
     };
-    let content = cleaner.children(&parsed.root, 0);
+    let content = cleaner.children(nodes, 0);
     let head = element(
         "head",
         Vec::new(),
@@ -367,6 +381,184 @@ pub fn article(
         blocked: cleaner.blocked,
         words: cleaner.words,
     }
+}
+
+// ==== The full text ====
+//
+// A feed that carries only a summary: the story is on the article's web page, among the site's
+// menu, share buttons, other stories, comments and footer. The story is the block holding the
+// most paragraph text that is not link text (Readability's idea, kept small): its paragraphs
+// count fully, those one block further down by half, an `<article>` or `<main>` by half again.
+
+/// Elements that are never part of a story, with what is inside them.
+const NOT_STORY_ELEMENTS: &[&str] = &["nav", "header", "footer", "aside", "form", "menu", "dialog"];
+
+/// Words in a block's class or id that say it is no part of a story.
+const NOT_STORY_WORDS: &[&str] = &[
+    "comment",
+    "footer",
+    "nav",
+    "menu",
+    "sidebar",
+    "share",
+    "social",
+    "related",
+    "promo",
+    "advert",
+    "sponsor",
+    "newsletter",
+    "subscribe",
+    "breadcrumb",
+    "masthead",
+    "popup",
+    "cookie",
+];
+
+/// A paragraph shorter than this (characters of text that is not a link's) is no story text.
+const MIN_PARAGRAPH_CHARS: usize = 25;
+
+/// A story holds at least this much paragraph text (characters).
+const MIN_STORY_CHARS: usize = 200;
+
+/// Whether the element `name` (`e`) is no part of a story: a menu, a header or a footer, or a
+/// block whose class or id says so.
+fn not_story(name: &str, e: &XmlNode) -> bool {
+    if NOT_STORY_ELEMENTS.contains(&name) || HIDDEN.contains(&name) {
+        return true;
+    }
+    let marks = format!("{} {}", attribute_of(e, "class"), attribute_of(e, "id")).to_ascii_lowercase();
+    NOT_STORY_WORDS.iter().any(|w| marks.contains(w))
+}
+
+/// The characters of text under `nodes`, and how many of them are a link's.
+fn text_chars(nodes: &[XmlNodeChild], in_link: bool, depth: usize) -> (usize, usize) {
+    if depth > MAX_DEPTH {
+        return (0, 0);
+    }
+    let mut total = (0, 0);
+    for node in nodes {
+        match node {
+            XmlNodeChild::Text(text) => {
+                let n = collapse(text.as_str()).chars().count();
+                total.0 += n;
+                if in_link {
+                    total.1 += n;
+                }
+            }
+            XmlNodeChild::Element(e) => {
+                let name = e.node_type.inner.as_str().to_ascii_lowercase();
+                if HIDDEN.contains(&name.as_str()) {
+                    continue;
+                }
+                let (t, l) = text_chars(&e.children, in_link || name == "a", depth + 1);
+                total.0 += t;
+                total.1 += l;
+            }
+        }
+    }
+    total
+}
+
+/// The story text of a paragraph-like element: its text that is not a link's, when that is a
+/// paragraph's worth; else 0.
+fn paragraph_chars(e: &XmlNode) -> usize {
+    let (total, linked) = text_chars(&e.children, false, 0);
+    let own = total.saturating_sub(linked);
+    if own >= MIN_PARAGRAPH_CHARS {
+        own
+    } else {
+        0
+    }
+}
+
+fn is_paragraph(name: &str) -> bool {
+    matches!(name, "p" | "pre" | "blockquote")
+}
+
+/// The paragraph text a block holds, scored: its own paragraphs fully, a child block's by
+/// half; an `<article>` or `<main>` counts half again. With the raw paragraph characters.
+fn story_score(name: &str, e: &XmlNode) -> (usize, usize) {
+    let mut raw = 0;
+    let mut score = 0;
+    for child in e.children.as_ref() {
+        let XmlNodeChild::Element(c) = child else {
+            continue;
+        };
+        let child_name = c.node_type.inner.as_str().to_ascii_lowercase();
+        if not_story(&child_name, c) {
+            continue;
+        }
+        if is_paragraph(&child_name) {
+            let n = paragraph_chars(c);
+            raw += n;
+            score += n * 2;
+        } else {
+            for grandchild in c.children.as_ref() {
+                if let XmlNodeChild::Element(g) = grandchild {
+                    let g_name = g.node_type.inner.as_str().to_ascii_lowercase();
+                    if is_paragraph(&g_name) && !not_story(&g_name, g) {
+                        score += paragraph_chars(g);
+                    }
+                }
+            }
+        }
+    }
+    if matches!(name, "article" | "main") || attribute_of(e, "role").eq_ignore_ascii_case("main") {
+        score += score / 2;
+    }
+    (score, raw)
+}
+
+/// The block holding a page's story (see the section's head), or `None` when no block holds a
+/// story's worth of paragraphs (an index page, a page of links).
+fn main_content(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
+    fn walk<'a>(nodes: &'a [XmlNodeChild], depth: usize, best: &mut Option<(usize, &'a XmlNode)>) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+        for node in nodes {
+            let XmlNodeChild::Element(e) = node else {
+                continue;
+            };
+            let name = e.node_type.inner.as_str().to_ascii_lowercase();
+            if not_story(&name, e) {
+                continue;
+            }
+            let (score, raw) = story_score(&name, e);
+            if raw >= MIN_STORY_CHARS && best.map_or(true, |(b, _)| score > b) {
+                *best = Some((score, e));
+            }
+            walk(e.children.as_ref(), depth + 1, best);
+        }
+    }
+    let mut best = None;
+    walk(nodes, 0, &mut best);
+    best.map(|(_, e)| e)
+}
+
+/// The reader view of a web page's story (its full text): [`article`] of the block that holds
+/// it, without what is no part of a story; `None` when the page holds no story.
+#[must_use]
+pub fn full_article(
+    page: &str,
+    base: &str,
+    load_images: bool,
+    strip_tracking: bool,
+    css: &str,
+) -> Option<Article> {
+    if page.trim().is_empty() {
+        return None;
+    }
+    let parsed = Xml::create_from_html(page);
+    let story = main_content(parsed.root.as_ref())?;
+    Some(article_of(
+        story.children.as_ref(),
+        base,
+        load_images,
+        strip_tracking,
+        true,
+        css,
+    ))
 }
 
 /// The web pictures of a document, each once (`Xml::scan_external_resources`).
@@ -474,6 +666,8 @@ struct Cleaner<'a> {
     base: &'a str,
     load_images: bool,
     strip_tracking: bool,
+    /// Drops what is no part of a story too (a web page's full text).
+    story_only: bool,
     blocked: usize,
     words: usize,
 }
@@ -499,7 +693,7 @@ impl Cleaner<'_> {
     fn element(&mut self, e: &XmlNode, depth: usize) -> Vec<XmlNodeChild> {
         let name = e.node_type.inner.as_str().to_ascii_lowercase();
         let name = name.as_str();
-        if DROPPED.contains(&name) {
+        if DROPPED.contains(&name) || (self.story_only && not_story(name, e)) {
             return Vec::new();
         }
         match name {
