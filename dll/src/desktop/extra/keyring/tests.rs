@@ -132,3 +132,27 @@ fn a_keyring_file_keeps_the_headless_keyring_for_the_next_run_and_the_other_proc
     assert_eq!(answer_with(&get("b"), &file), KeyringResult::Error);
     let _ = std::fs::remove_file(&path);
 }
+
+/// A run that names a keyring file keeps its keyring there, windowed or headless: two real
+/// windows of one app on a test stack (two AzDrive profiles, say) would otherwise share the
+/// system keyring's entries - and with them each other's unfinished checkouts. Without a file a
+/// windowed run uses the system keyring and a headless one the in-memory stand-in; a blank name
+/// is no file.
+#[test]
+fn a_keyring_file_is_the_keyring_of_a_windowed_run_too() {
+    let file = std::ffi::OsString::from("/tmp/a-test-stack-keyring.json");
+    assert_eq!(
+        super::backend_for(false, Some(file.clone())),
+        Backend::File(PathBuf::from(&file))
+    );
+    assert_eq!(
+        super::backend_for(true, Some(file.clone())),
+        Backend::File(PathBuf::from(&file))
+    );
+    assert_eq!(super::backend_for(false, None), Backend::Platform);
+    assert_eq!(super::backend_for(true, None), Backend::Memory);
+    assert_eq!(
+        super::backend_for(false, Some(std::ffi::OsString::new())),
+        Backend::Platform
+    );
+}
