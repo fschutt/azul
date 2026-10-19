@@ -126,19 +126,6 @@ pub fn default_total() -> u64 {
     COMPONENTS.iter().filter(|c| c.3).map(|c| c.1 * MB).sum()
 }
 
-/// The license AzSetup shows (paragraphs `\n\n` apart).
-pub const LICENSE: &str = "AZOFFICE LICENSE AGREEMENT\n\n\
-Permission is hereby granted, free of charge, to any person obtaining a copy of this \
-software and associated documentation files (the \"Software\"), to deal in the Software \
-without restriction, including without limitation the rights to use, copy, modify, merge, \
-publish, distribute, sublicense, and/or sell copies of the Software.\n\n\
-The above copyright notice and this permission notice shall be included in all copies or \
-substantial portions of the Software.\n\n\
-THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, \
-INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR \
-PURPOSE AND NONINFRINGEMENT.\n\n\
-This is a demonstration: AzSetup installs nothing.";
-
 // ---------------------------------------------------------------------------
 // The simulated copying
 // ---------------------------------------------------------------------------

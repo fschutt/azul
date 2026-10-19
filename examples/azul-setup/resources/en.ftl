@@ -119,3 +119,47 @@ azsetup-set-gpu = Hardware acceleration
 azsetup-set-gpu-help = Draw with the graphics card.
 azsetup-set-telemetry = Send usage statistics
 azsetup-set-telemetry-help = AzOffice sends nothing; this is a demonstration.
+
+## The words of azul's wizard pages and settings dialog (their own are English)
+azsetup-license-intro = Please read the following license agreement.
+azsetup-license-accept = I accept the terms of the license agreement
+azsetup-license-reason = Accept the license agreement to continue.
+azsetup-license-text =
+    AZOFFICE LICENSE AGREEMENT
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.
+
+    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+    This is a demonstration: AzSetup installs nothing.
+azsetup-destination-field = Destination folder
+azsetup-browse = Browse...
+azsetup-destination-picker = Choose the destination folder
+azsetup-space-required = Space required:
+azsetup-space-available = Space available:
+azsetup-destination-empty = Choose a folder to install into.
+azsetup-destination-short = There is not enough free space on the drive.
+azsetup-components-reason = Choose at least one component.
+azsetup-options-intro = Select the additional tasks Setup should perform.
+azsetup-show-details = Show details
+azsetup-hide-details = Hide details
+azsetup-restore-defaults = Restore defaults
+azsetup-ok = OK
+azsetup-apply = Apply
+azsetup-requires-restart = Requires restart
+azsetup-restart-notice = Restart to apply some changes.
+azsetup-no-match = No settings match the search.
+azsetup-search-settings = Search settings
+azsetup-folder-picker = Choose a folder
+azsetup-color-picker = Pick a colour
+azsetup-no-shortcut = None
+azsetup-shortcut-prompt = Press a shortcut...
+azsetup-modified = Modified
+azsetup-apply-held = There are no changes to apply.
+azsetup-unit-minutes = min
+azsetup-unit-points = pt
+azsetup-keywords-language = locale translation
+azsetup-keywords-font-size = zoom text
+azsetup-keywords-mode = dark light night

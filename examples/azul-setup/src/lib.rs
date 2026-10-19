@@ -66,7 +66,7 @@ use azul_appkit::{
 
 use azul_appkit::l10n::{t_args, t_label, Arg};
 
-use crate::model::{Copier, Frame, Logged, Screen, Step, COMPONENTS, LICENSE, MB, SCREENS, STEPS};
+use crate::model::{Copier, Frame, Logged, Screen, Step, COMPONENTS, MB, SCREENS, STEPS};
 
 /// What azul-appkit's switches know about AzSetup (`--screen` names a
 /// wizard step, the settings or the About box).
@@ -145,6 +145,15 @@ fn log_line(line: &Logged) -> AzString {
     AzString::from(t_args(key, &[("path", Arg::from(path.as_str()))]))
 }
 
+/// The Interface language choice's selection: the language AzOffice speaks now.
+fn language_index() -> usize {
+    match azul_appkit::l10n::locale().split('-').next() {
+        Some("de") => 1,
+        Some("fr") => 2,
+        _ => 0,
+    }
+}
+
 /// A key of the resources, said in the window's language.
 fn w(key: &str) -> AzString {
     azul_appkit::l10n::label(key)
@@ -188,6 +197,8 @@ fn said_components(page: &WizardComponentsPage) -> WizardComponentsPage {
         .collect();
     said.components = WizardComponentVec::from_vec(rows);
     said.intro = w(page.intro.as_str());
+    said.total_label = w("azsetup-space-required");
+    said.reason = w("azsetup-components-reason");
     said
 }
 
@@ -215,17 +226,46 @@ fn said_choice(choice: &ShellSettingChoice) -> ShellSettingChoice {
 }
 
 fn said_value(value: &ShellSettingValue) -> ShellSettingValue {
+    let said_number = |n: &ShellSettingNumber| {
+        let mut said = n.clone();
+        said.unit = w(n.unit.as_str());
+        said
+    };
     match value {
         ShellSettingValue::Choice(choice) => ShellSettingValue::Choice(said_choice(choice)),
         ShellSettingValue::Radio(choice) => ShellSettingValue::Radio(said_choice(choice)),
+        ShellSettingValue::Number(n) => ShellSettingValue::Number(said_number(n)),
+        ShellSettingValue::Slider(n) => ShellSettingValue::Slider(said_number(n)),
         other => other.clone(),
     }
 }
 
 /// The AzOffice settings as the window says them: the categories, every setting's label,
-/// section, help and choices (the dialog in the state keeps keys).
+/// section, help, keywords, choices and units, and the dialog's own buttons, fields and hints
+/// (the dialog in the state keeps keys).
 fn said_settings(dialog: &ShellSettingsDialog) -> ShellSettingsDialog {
-    let mut said = dialog.clone();
+    let mut said = dialog
+        .clone()
+        .with_labels(
+            w("azsetup-restore-defaults"),
+            w("azsetup-ok"),
+            w("azsetup-cancel"),
+            w("azsetup-apply"),
+        )
+        .with_texts(
+            w("azsetup-requires-restart"),
+            w("azsetup-restart-notice"),
+            w("azsetup-no-match"),
+        )
+        .with_field_texts(
+            w("azsetup-search-settings"),
+            w("azsetup-browse"),
+            w("azsetup-folder-picker"),
+            w("azsetup-color-picker"),
+            w("azsetup-no-shortcut"),
+            w("azsetup-shortcut-prompt"),
+        )
+        .with_hint_texts(w("azsetup-modified"), w("azsetup-apply-held"));
     said.categories = said_strings(&dialog.categories);
     let settings: Vec<ShellSetting> = dialog
         .settings
@@ -236,6 +276,7 @@ fn said_settings(dialog: &ShellSettingsDialog) -> ShellSettingsDialog {
             row.label = w(setting.label.as_str());
             row.help = w(setting.help.as_str());
             row.section = w(setting.section.as_str());
+            row.keywords = w(setting.keywords.as_str());
             row.value = said_value(&setting.value);
             row.default_value = said_value(&setting.default_value);
             row.applied = said_value(&setting.applied);
@@ -287,7 +328,7 @@ fn components_page() -> WizardComponentsPage {
 }
 
 fn options_page() -> WizardOptionsPage {
-    WizardOptionsPage::create(WizardOptionVec::from_vec(vec![
+    let page = WizardOptionsPage::create(WizardOptionVec::from_vec(vec![
         WizardOption::create(s("azsetup-option-shortcut"), true),
         WizardOption::create(s("azsetup-option-path"), false)
             .with_description(s("azsetup-option-path-text")),
@@ -295,7 +336,8 @@ fn options_page() -> WizardOptionsPage {
         WizardOption::create(s("azsetup-option-everyone"), false)
             .with_group(1)
             .with_description(s("azsetup-option-everyone-text")),
-    ]))
+    ]));
+    page.with_intro(s("azsetup-options-intro"))
 }
 
 fn finish_page() -> WizardFinishPage {
@@ -485,7 +527,7 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
             0,
             s("azsetup-group-files"),
             ShellSettingValue::Number(
-                ShellSettingNumber::create(10.0, 1.0, 120.0).with_unit(s("min")),
+                ShellSettingNumber::create(10.0, 1.0, 120.0).with_unit(s("azsetup-unit-minutes")),
             ),
         ),
         ShellSetting::create(
@@ -494,12 +536,12 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
             0,
             s("azsetup-group-language"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
-                strs(&["English", "Deutsch", "Francais"]),
-                0,
+                strs(&["English", "Deutsch", "Fran\u{e7}ais"]),
+                language_index(),
             )),
         )
         .with_requires_restart(true)
-        .with_keywords(s("locale translation")),
+        .with_keywords(s("azsetup-keywords-language")),
         ShellSetting::create(
             s("editing.author"),
             s("azsetup-set-author"),
@@ -514,10 +556,10 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
             1,
             s("azsetup-group-text"),
             ShellSettingValue::Number(
-                ShellSettingNumber::create(11.0, 6.0, 72.0).with_unit(s("pt")),
+                ShellSettingNumber::create(11.0, 6.0, 72.0).with_unit(s("azsetup-unit-points")),
             ),
         )
-        .with_keywords(s("zoom text")),
+        .with_keywords(s("azsetup-keywords-font-size")),
         ShellSetting::create(
             s("editing.palette"),
             s("azsetup-set-palette"),
@@ -556,7 +598,7 @@ fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSe
                 2,
             )),
         )
-        .with_keywords(s("dark light night")),
+        .with_keywords(s("azsetup-keywords-mode")),
         ShellSetting::create(
             s("appearance.accent"),
             s("azsetup-set-accent"),
@@ -625,7 +667,9 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
             s(""),
         ),
         Step::License => {
-            let p = WizardLicensePage::create(s(LICENSE))
+            let p = WizardLicensePage::create(w("azsetup-license-text"))
+                .with_intro(w("azsetup-license-intro"))
+                .with_labels(w("azsetup-license-accept"), w("azsetup-license-reason"))
                 .with_accepted(s_.accepted)
                 .with_on_event(app.clone(), on_page);
             let reason = p.blocked_reason();
@@ -634,6 +678,14 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
         Step::Destination => {
             let mut p = WizardDestinationPage::create(s(&s_.path), s_.components.total_bytes())
                 .with_intro(w("azsetup-destination-intro"))
+                .with_labels(
+                    w("azsetup-destination-field"),
+                    w("azsetup-browse"),
+                    w("azsetup-destination-picker"),
+                    w("azsetup-space-required"),
+                    w("azsetup-space-available"),
+                )
+                .with_reasons(w("azsetup-destination-empty"), w("azsetup-destination-short"))
                 .with_on_event(app.clone(), on_page);
             if let Some(free) = s_.available {
                 p = p.with_available(free);
@@ -682,6 +734,7 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
                 .with_current_item(s(&s_.copier.current))
                 .with_log(StringVec::from_vec(s_.copier.log.iter().map(log_line).collect()))
                 .with_show_log(s_.show_log)
+                .with_details_labels(w("azsetup-show-details"), w("azsetup-hide-details"))
                 .with_on_event(app.clone(), on_page);
             (p.dom(), if done { s("") } else { w("azsetup-copying") })
         }

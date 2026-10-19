@@ -119,3 +119,47 @@ azsetup-set-gpu = Hardwarebeschleunigung
 azsetup-set-gpu-help = Mit der Grafikkarte zeichnen.
 azsetup-set-telemetry = Nutzungsstatistiken senden
 azsetup-set-telemetry-help = AzOffice sendet nichts; dies ist eine Vorführung.
+
+## The words of azul's wizard pages and settings dialog (their own are English)
+azsetup-license-intro = Bitte lies den folgenden Lizenzvertrag.
+azsetup-license-accept = Ich akzeptiere die Bedingungen des Lizenzvertrags
+azsetup-license-reason = Akzeptiere den Lizenzvertrag, um fortzufahren.
+azsetup-license-text =
+    AZOFFICE-LIZENZVERTRAG
+
+    Hiermit wird unentgeltlich jeder Person, die eine Kopie der Software und der zugehörigen Dokumentationen (die „Software“) erhält, die Erlaubnis erteilt, sie uneingeschränkt zu nutzen, inklusive und ohne Ausnahme mit dem Recht, sie zu verwenden, zu kopieren, zu verändern, zusammenzufügen, zu veröffentlichen, zu verbreiten, zu unterlizenzieren und/oder zu verkaufen.
+
+    Der obige Urheberrechtsvermerk und dieser Erlaubnisvermerk sind in allen Kopien oder Teilkopien der Software beizulegen.
+
+    DIE SOFTWARE WIRD OHNE JEDE AUSDRÜCKLICHE ODER IMPLIZIERTE GARANTIE BEREITGESTELLT, EINSCHLIESSLICH DER GARANTIE ZUR BENUTZUNG FÜR DEN VORGESEHENEN ODER EINEN BESTIMMTEN ZWECK SOWIE JEGLICHER RECHTSVERLETZUNG, JEDOCH NICHT DARAUF BESCHRÄNKT.
+
+    Dies ist eine Vorführung: AzSetup installiert nichts.
+azsetup-destination-field = Zielordner
+azsetup-browse = Durchsuchen …
+azsetup-destination-picker = Zielordner wählen
+azsetup-space-required = Benötigter Speicherplatz:
+azsetup-space-available = Verfügbarer Speicherplatz:
+azsetup-destination-empty = Wähle einen Ordner für die Installation.
+azsetup-destination-short = Auf dem Laufwerk ist nicht genug Platz frei.
+azsetup-components-reason = Wähle mindestens eine Komponente.
+azsetup-options-intro = Wähle die zusätzlichen Aufgaben, die Setup ausführen soll.
+azsetup-show-details = Details anzeigen
+azsetup-hide-details = Details ausblenden
+azsetup-restore-defaults = Standardwerte wiederherstellen
+azsetup-ok = OK
+azsetup-apply = Übernehmen
+azsetup-requires-restart = Neustart nötig
+azsetup-restart-notice = Starte neu, damit einige Änderungen wirken.
+azsetup-no-match = Keine Einstellung passt zur Suche.
+azsetup-search-settings = Einstellungen durchsuchen
+azsetup-folder-picker = Ordner wählen
+azsetup-color-picker = Farbe wählen
+azsetup-no-shortcut = Keine
+azsetup-shortcut-prompt = Drücke eine Tastenkombination …
+azsetup-modified = Geändert
+azsetup-apply-held = Es gibt keine Änderungen zum Übernehmen.
+azsetup-unit-minutes = Min.
+azsetup-unit-points = Pt.
+azsetup-keywords-language = Gebietsschema Übersetzung Sprache
+azsetup-keywords-font-size = Zoom Text Schrift
+azsetup-keywords-mode = dunkel hell Nacht
