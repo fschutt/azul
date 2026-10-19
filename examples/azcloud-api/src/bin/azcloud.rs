@@ -755,28 +755,7 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     };
     #[cfg(feature = "encryption")]
     if let Some(encrypted) = encrypted_files(settings, net, args)? {
-        let mut reader = match encrypted.open_reader(&key) {
-            Ok(reader) => reader,
-            Err(azul_storage::DriveError::NotFound { .. }) => {
-                return Err(anyhow!("the drive has no {key}"))
-            }
-            Err(e) => return Err(e.into()),
-        };
-        // Into a hidden file next to it, renamed when the whole file is there (its BLAKE3
-        // checked by the reader at the end).
-        let partial = file.with_file_name(format!(
-            ".{}.azcloud-part",
-            file.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        ));
-        let mut out =
-            std::fs::File::create(&partial).with_context(|| format!("{}", partial.display()))?;
-        let bytes = std::io::copy(&mut reader, &mut out)
-            .with_context(|| format!("{key} into {}", partial.display()))?;
-        out.sync_all()?;
-        drop(out);
-        std::fs::rename(&partial, &file).with_context(|| format!("{}", file.display()))?;
+        let bytes = save_encrypted(&encrypted, &key, &file)?;
         let blake3 = hash_file(&file).with_context(|| format!("{}", file.display()))?;
         let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3,
                            "file": file.display().to_string(), "transport": "https",
@@ -1146,6 +1125,38 @@ fn index_provider(state: &StateDir, device: &str) -> Box<dyn azcloud_kit::encryp
             .with_cache_root(Some(state.path().join("drive-index")))
             .with_packing(true),
     )
+}
+
+/// Decrypts the encrypted drive's `key` into `file`, a segment at a time, through a hidden file
+/// next to it that is renamed when the whole file is there (its BLAKE3 checked by the reader
+/// at the end). The bytes written.
+#[cfg(feature = "encryption")]
+fn save_encrypted<D: azul_storage::Drive>(
+    drive: &azul_storage::encrypted::EncryptedDrive<D>,
+    key: &str,
+    file: &Path,
+) -> Result<u64> {
+    let mut reader = match drive.open_reader(key) {
+        Ok(reader) => reader,
+        Err(azul_storage::DriveError::NotFound { .. }) => {
+            return Err(anyhow!("the drive has no {key}"))
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let partial = file.with_file_name(format!(
+        ".{}.azcloud-part",
+        file.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ));
+    let mut out =
+        std::fs::File::create(&partial).with_context(|| format!("{}", partial.display()))?;
+    let bytes = std::io::copy(&mut reader, &mut out)
+        .with_context(|| format!("{key} into {}", partial.display()))?;
+    out.sync_all()?;
+    drop(out);
+    std::fs::rename(&partial, file).with_context(|| format!("{}", file.display()))?;
+    Ok(bytes)
 }
 
 /// An encrypted drive's files through the encryption and the drive index (HTTPS); `None` for a
@@ -1698,6 +1709,44 @@ mod tests {
         let packing = provider.packing("d_1").expect("small files are packed");
         let journal = packing.journal.expect("a journal beside the drive index");
         assert!(journal.starts_with(dir.join("drive-index")), "{journal:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `azcloud down` of an encrypted drive's file gives back its bytes: a small one (in a
+    /// pack) as well as a big one (in segments of its own object).
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn down_saves_a_packed_file_and_a_segmented_one_of_an_encrypted_drive() {
+        use azul_storage::{
+            crypto::DriveKey,
+            encrypted::{EncryptedDrive, Expect, MemoryIndex},
+            local::LocalDrive,
+            packing::PackOptions,
+        };
+        let dir = std::env::temp_dir().join(format!("azcloud-down-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bucket")).unwrap();
+        let drive = EncryptedDrive::new(
+            LocalDrive::new(dir.join("bucket")),
+            DriveKey::generate().unwrap(),
+            Arc::new(MemoryIndex::new()),
+        )
+        .with_packing(PackOptions::default());
+        let small: Vec<u8> = (0..64 * 1024).map(|i| (i % 251) as u8).collect();
+        let big: Vec<u8> = (0..3 * 1024 * 1024).map(|i| (i % 241) as u8).collect();
+        drive.write("e2e/small.bin", &small, Expect::Any).unwrap();
+        drive.write("e2e/big.bin", &big, Expect::Any).unwrap();
+        for (key, bytes) in [("e2e/small.bin", &small), ("e2e/big.bin", &big)] {
+            let file = dir.join(key.replace('/', "-"));
+            let written = save_encrypted(&drive, key, &file)
+                .unwrap_or_else(|e| panic!("azcloud down {key}: {e:#}"));
+            assert_eq!(written, bytes.len() as u64, "{key}");
+            assert!(std::fs::read(&file).unwrap() == *bytes, "{key}: other bytes");
+        }
+        assert!(
+            save_encrypted(&drive, "e2e/none.bin", &dir.join("none")).is_err(),
+            "a file the drive does not have"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
