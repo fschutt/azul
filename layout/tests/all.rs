@@ -1217,5 +1217,23 @@ mod paged_payload;
 mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;
 #[path = "a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph.rs"]
 mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
-#[path = "a_flex_gap_in_em_is_that_many_font_sizes.rs"]
-mod a_flex_gap_in_em_is_that_many_font_sizes;
+#[path = "a_virtual_view_follows_its_windows_mode.rs"]
+mod a_virtual_view_follows_its_windows_mode;
+#[path = "focus_within_reaches_the_host_of_a_virtual_view.rs"]
+mod focus_within_reaches_the_host_of_a_virtual_view;
+#[path = "a_descendant_restyled_by_its_ancestors_hover_fades.rs"]
+mod a_descendant_restyled_by_its_ancestors_hover_fades;
+#[path = "a_laid_out_tree_is_shared_with_the_layout_cache.rs"]
+mod a_laid_out_tree_is_shared_with_the_layout_cache;
+#[path = "closing_the_last_window_never_waits_for_its_workers.rs"]
+mod closing_the_last_window_never_waits_for_its_workers;
+#[path = "a_css_wide_keyword_resolves_on_every_property.rs"]
+mod a_css_wide_keyword_resolves_on_every_property;
+#[path = "a_state_rule_wins_only_where_the_cascade_ranks_it.rs"]
+mod a_state_rule_wins_only_where_the_cascade_ranks_it;
+#[path = "an_appended_dom_keeps_its_stylesheet.rs"]
+mod an_appended_dom_keeps_its_stylesheet;
+#[path = "an_inline_flow_root_list_item_is_an_inline_block_with_a_marker.rs"]
+mod an_inline_flow_root_list_item_is_an_inline_block_with_a_marker;
+#[path = "a_rebuild_compares_a_changed_container_alone_by_its_own_types.rs"]
+mod a_rebuild_compares_a_changed_container_alone_by_its_own_types;

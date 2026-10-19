@@ -16183,6 +16183,7 @@ impl LayoutWindow {
             animate_moves: true,
             move_modes,
             compared,
+            compared_properties: 0,
         }
     }
 
@@ -32507,6 +32508,8 @@ pub struct PendingReconciliation {
     /// is that widget's nodes; the whole page here means every click pays
     /// for a full property diff. Read by tests.
     pub compared: usize,
+    /// How many property types those nodes compared, summed. Read by tests.
+    pub compared_properties: usize,
 }
 
 /// Whether `AZ_VV_TRACE` asks for a line per `VirtualView` render, read once.
