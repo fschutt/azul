@@ -141,6 +141,15 @@ pub struct PeerRecord {
     /// The device that signed the announcement, and its signature (CRYPTO.md section 10).
     pub device: Option<String>,
     pub sig: Option<String>,
+    /// A device that keeps only the room's chat between calls (its view is open): connected to
+    /// for the chat, never one of the call.
+    pub chat_only: bool,
+}
+
+/// The participants of a call and the chat-only devices of `listed`, in their order.
+#[must_use]
+pub fn split_chat_only(listed: Vec<PeerRecord>) -> (Vec<PeerRecord>, Vec<PeerRecord>) {
+    listed.into_iter().partition(|p| !p.chat_only)
 }
 
 /// How the peers list changed between two polls.

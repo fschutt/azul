@@ -192,9 +192,11 @@ Decided, built one at a time after an integration build, because each step needs
       at when a device holds more), and each sends the other what it lacks, newest first, at most
       100, so a device catches up from whoever is online. A room keeps the sealed records of the
       newest 500 messages it opened to hand on: it cannot seal another device's message itself.
-   6. Chat rooms between calls: the room view announces a chat-only ticket on the rendezvous (as
-      a call does) and connects to the members online; with nobody online, a message waits in the
-      sender's outbox (see above).
+   6. *(built)* Chat rooms between calls: the room view announces a chat-only ticket on the
+      rendezvous (as a call does, `"chat_only": true`) and connects to the members online - a
+      call's participants too, which connect to a chat-only viewer for the chat alone and never
+      count it as one of the call. These connections carry only chat records and history lists;
+      with nobody online, a message waits in the sender's outbox (`chat_link.rs`).
    7. *(built in the client)* The wire version moves (`azmeet/5`; a device registers with
       `"wire": 5`), messages are ordered by `(time, id)`, and once every client speaks it the
       service drops its message endpoints and table: a room then says `chat: "peers"` and a

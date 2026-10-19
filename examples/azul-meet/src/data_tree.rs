@@ -350,7 +350,7 @@ pub(crate) fn refresh_ticket(s: &mut MeetState) {
 /// the peers list; on the start screen, ask a meeting server that did not answer again now and
 /// then.
 pub(crate) extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let (job, direct_changed) = match data.downcast_mut::<MeetState>() {
+    let (job, chat_jobs, direct_changed) = match data.downcast_mut::<MeetState>() {
         Some(mut guard) => {
             let s = &mut *guard;
             // A direct call nobody took, a connection that never said hello.
@@ -359,11 +359,16 @@ pub(crate) extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo
             let ts = call_signer_ts(s);
             let signer = s.identity.as_ref().zip(ts);
             let job = s.room.as_mut().and_then(|room| room.next_job(signer));
-            (job.or_else(|| server_retry(s)), direct_changed)
+            // A room view's chat between calls: its presence on the room's rendezvous.
+            let chat_jobs = chat_link::next_jobs(s);
+            (job.or_else(|| server_retry(s)), chat_jobs, direct_changed)
         }
-        None => (None, false),
+        None => (None, Vec::new(), false),
     };
     if let Some(job) = job {
+        spawn_http(&mut info.callback_info, data.clone(), job);
+    }
+    for job in chat_jobs {
         spawn_http(&mut info.callback_info, data.clone(), job);
     }
     if direct_changed {

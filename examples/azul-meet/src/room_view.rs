@@ -29,6 +29,8 @@ pub(crate) fn open_room_view(s: &mut MeetState, id: &str, join: bool) {
     s.notice.clear();
     println!("AZMEET_OPEN {id}");
     remember_room(s, id);
+    // Between calls the room's chat travels over the members online.
+    chat_link::open(s, id);
 }
 
 /// A room of the start screen's list: its view.
@@ -48,6 +50,7 @@ pub(crate) extern "C" fn on_room_back(mut data: RefAny, _info: CallbackInfo) -> 
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         s.open_room = None;
         s.room_copied = false;
+        chat_link::close(&mut s);
     }
     Update::RefreshDom
 }
@@ -62,6 +65,8 @@ pub(crate) extern "C" fn on_room_leave(mut data: RefAny, _info: CallbackInfo) ->
     let Some(id) = s.open_room.clone() else {
         return Update::DoNothing;
     };
+    // Its announcement goes while the device is still a member to sign the leave.
+    chat_link::close(s);
     if let Some(chat) = s.chats.get_mut(&id) {
         chat.leave();
         println!("AZMEET_LEAVING_ROOM {id}");
@@ -309,6 +314,10 @@ pub(crate) fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.record = None;
     s.unsaved.record = false;
     s.speaker = speaker::ActiveSpeaker::new();
+    // The room's chat-only viewers connected for the call's room go with the call.
+    if let Some(id) = call_room_id(s) {
+        chat_link::forget_room(s, &id);
+    }
     s.link_status = String::from("not in a meeting");
     s.notice = t("azmeet-left-meeting");
     let ts = call_signer_ts(s).unwrap_or_else(wall_ms);

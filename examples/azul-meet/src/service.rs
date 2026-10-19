@@ -373,6 +373,11 @@ pub(crate) fn peers_from(json: &Json) -> Vec<PeerRecord> {
                 name: json_text(&p, "name").unwrap_or_default(),
                 device: json_text(&p, "device"),
                 sig: json_text(&p, "sig"),
+                chat_only: p
+                    .get_key("chat_only")
+                    .into_option()
+                    .and_then(|v| v.as_bool().into_option())
+                    .unwrap_or(false),
             })
         })
         .collect()
@@ -778,7 +783,11 @@ pub(crate) extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: Ref
     match answer {
         Ok((200, Some(json))) => {
             let me = room.node_id.clone();
+            let room_id = room.room_id.clone();
             let listed = verified_peers(s.chats.get(&room.room_id), peers_from(&json), &me);
+            // A viewer of the room between calls is listed chat-only: no participant of the call,
+            // but connected to for the room's chat (`chat_link`).
+            let (listed, chat_only) = rooms::split_chat_only(listed);
             let diff = rooms::diff_peers(&room.peers, &listed, &room.node_id);
             for p in &diff.joined {
                 eprintln!(
@@ -791,9 +800,15 @@ pub(crate) extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: Ref
             for p in &diff.left {
                 eprintln!("[azmeet] {}: {} left", s.name, p.name);
             }
-            let connected: BTreeSet<String> = s.remotes.iter().map(|r| r.node_id.clone()).collect();
+            let connected: BTreeSet<String> = s
+                .remotes
+                .iter()
+                .map(|r| r.node_id.clone())
+                .chain(s.chat_conns.iter().map(|c| c.node_id.clone()))
+                .collect();
+            let dialable: Vec<PeerRecord> = listed.iter().chain(&chat_only).cloned().collect();
             let plan =
-                rooms::plan_dials(&room.node_id, &listed, &connected, &room.dialed, room.polls);
+                rooms::plan_dials(&room.node_id, &dialable, &connected, &room.dialed, room.polls);
             if let Some(endpoint) = s.endpoint.as_ref() {
                 for p in &plan {
                     eprintln!(
@@ -819,6 +834,7 @@ pub(crate) extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: Ref
                 s.notice.clear();
                 changed = true;
             }
+            chat_link::on_call_peers(s, &room_id, &chat_only);
             changed |= settle_pending(s);
             if changed {
                 Update::RefreshDom

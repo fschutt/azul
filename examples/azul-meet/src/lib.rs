@@ -182,6 +182,7 @@ mod args;
 mod audio;
 mod chat;
 mod chatroom;
+mod chat_link;
 mod crypto;
 mod direct;
 mod direct_call;
@@ -820,6 +821,19 @@ struct MeetState {
     index: roomlist::RoomIndex,
     /// The room the room view shows; `None` outside it.
     open_room: Option<String>,
+    /// The open room view's presence on its room's rendezvous, for its chat between calls
+    /// (`chat_link.rs`); how many links were opened (an answer for an earlier one is ignored).
+    chat_link: Option<chat_link::ChatLink>,
+    chat_links_opened: u32,
+    /// The connections that carry one room's chat and nothing else (a room view's, a viewer of
+    /// the call's room), and the ones waiting for their device's announcement to be read.
+    chat_conns: Vec<chat_link::ChatConn>,
+    chat_pending: Vec<(u64, String)>,
+    /// The devices that may connect for a room's chat: their endpoint ids, with the room.
+    chat_known: BTreeMap<String, String>,
+    /// Rooms whose chat-only announcement leaves their rendezvous with the next tick, each with
+    /// the time its leave is signed at.
+    chat_leaving: Vec<(String, u64)>,
     /// Direct calls: the screen, the call being made or coming in, the people in one, the recent
     /// calls (`direct.rs`, `direct_call.rs`).
     direct: direct::DirectState,
@@ -965,6 +979,12 @@ impl MeetState {
             chats: BTreeMap::new(),
             index: roomlist::RoomIndex::default(),
             open_room: None,
+            chat_link: None,
+            chat_links_opened: 0,
+            chat_conns: Vec::new(),
+            chat_pending: Vec::new(),
+            chat_known: BTreeMap::new(),
+            chat_leaving: Vec::new(),
             direct: direct::DirectState::default(),
             peer_chat: Vec::new(),
             room_copied: false,
@@ -1779,6 +1799,10 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             if let Some(changed) = direct_call::on_connected(s, event.peer, &node_id) {
                 return changed;
             }
+            // A connection for a room's chat (a room view's, a viewer of the call's room).
+            if let Some(changed) = chat_link::on_connected(s, event.peer, &node_id) {
+                return changed;
+            }
             if !accepts_peers(s) {
                 // Not in a meeting (after Leave): a peer that still dials is refused.
                 if let Some(endpoint) = s.endpoint.as_ref() {
@@ -1812,6 +1836,9 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             accept_peer(s, event.peer, node_id)
         }
         IrohEventKind::PeerDisconnected => {
+            if chat_link::on_disconnected(s, event.peer) {
+                return false;
+            }
             s.pending.retain(|p| p.handle != event.peer);
             let direct_changed = direct_call::on_disconnected(s, event.peer);
             let Some(pos) = s.remotes.iter().position(|r| r.handle == event.peer) else {

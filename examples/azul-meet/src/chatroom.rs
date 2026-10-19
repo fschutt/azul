@@ -816,6 +816,11 @@ impl ChatRoom {
         self.seen.insert(id.clone());
         self.messages.push(message.clone());
         self.trim_listed();
+        // Waiting for a peer to be online: the oldest go past MAX_WAITING (the service has them
+        // while it carries messages; a peer that comes online gets the rest).
+        if self.peer_out.len() >= MAX_WAITING {
+            self.peer_out.pop_front();
+        }
         self.peer_out.push_back(Outgoing {
             id: id.clone(),
             text: text.clone(),
