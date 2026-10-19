@@ -1010,15 +1010,17 @@ fn chip_dom(chip: &Chip) -> Dom {
                 .with_css("font-size: 16px; margin-right: 8px; flex-shrink: 0;"),
         )
         .with_child(column(vec![
+            // Each span is a flex item, which drops a leading space (as in any browser): the
+            // gap between the host and its words is the row's.
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; flex-wrap: wrap;")
+                .with_css("display: flex; flex-direction: row; flex-wrap: wrap; column-gap: 0.3em;")
                 .with_child(
                     Dom::create_span_with_text(AzString::from(chip.host.as_str()))
                         .with_id(ids::PAY_HOST)
                         .with_css("font-weight: bold;"),
                 )
                 .with_child(Dom::create_span_with_text(AzString::from(format!(
-                    " - {}",
+                    "- {}",
                     pay_words::chip_page(chip.page, chip.provider)
                 )))),
             Dom::create_span_with_text(AzString::from(second))
