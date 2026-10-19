@@ -1147,6 +1147,28 @@ pub fn regenerate_layout(
             .filter_map(|n| nodes.get(*n).map(|nd| (n, nd)))
             .map(|(n, nd)| format!("#{} {}", n.index(), describe(nd)))
             .collect();
+        // Whether the restyle diff could skip unchanged subtrees: it compares
+        // every matched node property by property while the two trees'
+        // dynamic contexts or global declarations differ.
+        let (same_context, same_globals) = layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .map_or((false, false), |old| {
+                let (a, b) = (
+                    &old.styled_dom.css_property_cache.ptr,
+                    &styled_dom.css_property_cache.ptr,
+                );
+                (
+                    a.dynamic_context == b.dynamic_context,
+                    a.global_css_props == b.global_css_props,
+                )
+            });
+        eprintln!(
+            "[reconcile] {} compared, {} restyled, same context {same_context}, same globals \
+             {same_globals}",
+            pending.compared,
+            pending.restyled.len()
+        );
         eprintln!(
             "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
             pending.old_node_data.len(),
