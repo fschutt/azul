@@ -9901,23 +9901,46 @@ impl LayoutWindow {
         before: &[(NodeId, azul_core::styled_dom::StyledNodeState)],
         restyled: &azul_core::events::RestyleNodes,
     ) -> bool {
-        let _ = restyled;
         use azul_css::{
             dynamic_selector::ResolveSystemColors,
             props::property::{CssProperty, CssPropertyType},
         };
 
-        if dom_id != DomId::ROOT_ID || before.is_empty() {
+        if dom_id != DomId::ROOT_ID || (before.is_empty() && restyled.is_empty()) {
             return false;
         }
         let Some(result) = self.layout_results.get_mut(&dom_id) else {
             return false;
         };
+        // The nodes that may fade: those whose own state changed (`before`),
+        // those the restyle changed without a state of their own - a rule
+        // anchored on an ancestor's or a sibling's state (`.btn:hover .ink`)
+        // moved their value - and those with a fade in flight, which the
+        // restyle cannot see changing (their override answers for both
+        // sides) but which reverse when the cascade under them moved.
+        let mut candidates: Vec<(NodeId, azul_core::styled_dom::StyledNodeState)> =
+            before.to_vec();
+        {
+            let states = result.styled_dom.styled_nodes.as_container();
+            let in_flight = self
+                .css_transitions
+                .iter()
+                .filter(|t| !t.keeps_target)
+                .map(|t| t.node);
+            for node in restyled.keys().copied().chain(in_flight) {
+                if candidates.iter().any(|(n, _)| *n == node) {
+                    continue;
+                }
+                if let Some(state) = states.get(node) {
+                    candidates.push((node, state.styled_node_state));
+                }
+            }
+        }
         let mut seeded: Vec<CssTransition> = Vec::new();
         // In-flight transitions whose node already shows the new state's
         // value: they end here, their override goes.
         let mut settled: Vec<(NodeId, CssPropertyType)> = Vec::new();
-        for &(node, old_state) in before {
+        for (node, old_state) in candidates {
             let Some(new_state) = result
                 .styled_dom
                 .styled_nodes
@@ -9927,9 +9950,25 @@ impl LayoutWindow {
             else {
                 continue;
             };
-            if new_state == old_state {
+            let moved_by_restyle = restyled.contains_key(&node);
+            let fading = self
+                .css_transitions
+                .iter()
+                .any(|t| t.node == node && !t.keeps_target);
+            if new_state == old_state && !moved_by_restyle && !fading {
                 continue;
             }
+            // What the restyle says the property was before it, where it
+            // reports one: the cascade itself may have changed, so reading
+            // it under the old state would read the new cascade.
+            let previous = |ty: CssPropertyType| -> Option<CssProperty> {
+                restyled.get(&node).and_then(|changes| {
+                    changes
+                        .iter()
+                        .find(|c| c.previous_prop.get_type() == ty)
+                        .map(|c| c.previous_prop.clone())
+                })
+            };
             let anims = {
                 let cache = &result.styled_dom.css_property_cache.ptr;
                 let node_data = result.styled_dom.node_data.as_container();
@@ -9990,6 +10029,7 @@ impl LayoutWindow {
                         let to = read(&new_state).resolve_system_colors(sys_ctx);
                         let from = shown
                             .clone()
+                            .or_else(|| previous(*ty))
                             .unwrap_or_else(|| read(&old_state))
                             .resolve_system_colors(sys_ctx);
                         (from, to)
