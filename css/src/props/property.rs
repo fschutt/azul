@@ -3443,7 +3443,10 @@ pub fn parse_css_property(
         // list-style-type: none means StyleListStyleType::None (no marker);
         // as the CSS-wide `None` it read back as "no value" and the item got
         // the initial disc
-        CssPropertyType::ListStyleType
+        CssPropertyType::ListStyleType |
+        // quotes: none writes no marks; read back as "no value" it took the
+        // initial `auto`, the marks of the language
+        CssPropertyType::Quotes
     );
 
     Ok(match value {
