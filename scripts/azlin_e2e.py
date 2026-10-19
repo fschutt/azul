@@ -36,7 +36,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # The backend an app starts on: headless by default. `--window` (or `--window gpu`) starts the
 # platform's real window drawn by azul's CPU renderer (or the GPU), for the proof runs that have
-# to show what a user sees; screenshots are then the OS's capture of the window.
+# to show what a user sees; screenshots are then the OS's capture of the window. A real window
+# takes the screen and the focus: it is for a short proof (open, act, shoot, close), never for a
+# long walk, which runs headless.
 BACKEND = "headless"
 
 
@@ -797,7 +799,11 @@ class App:
         # showed the grid's cell borders strewn over the empty rows.
         self.settle()
         # A real window is shot as the OS composited it (what the user sees, web views
-        # included); headless, azul's own render is the picture.
+        # included); headless, azul's own render is the picture. While the display sleeps the
+        # app's own capture of its window comes back blank: the OS's `screencapture` still has
+        # the window's backing store (the display is never woken for a picture).
+        if BACKEND != "headless" and display_asleep() and self.os_screenshot(path):
+            return
         op = "take_screenshot" if BACKEND == "headless" else "take_native_screenshot"
         value = self.value(op)
         data = value.get("data") if isinstance(value, dict) else value
@@ -806,6 +812,57 @@ class App:
         with open(path, "wb") as f:
             f.write(base64.b64decode(data.split("base64,", 1)[1]))
         self.log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+
+
+    def os_screenshot(self, path):
+        """The OS's picture of this app's window (macOS `screencapture -l`): the on-screen
+        window of the app's process as large as the debug server says the window is. False
+        where that cannot be done (another OS, no Quartz module, no such window)."""
+        number = os_window_number(self.process.pid, self.value("get_state"))
+        if number is None:
+            return False
+        done = subprocess.run(["screencapture", "-x", "-o", "-l", str(number), path],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if done.returncode != 0 or not os.path.exists(path):
+            return False
+        self.log("screenshot %s (%d bytes, screencapture: the display sleeps)"
+                 % (path, os.path.getsize(path)))
+        return True
+
+
+def display_asleep():
+    """Whether the main display sleeps (macOS; False elsewhere or without Quartz)."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        import Quartz
+    except ImportError:
+        return False
+    return bool(Quartz.CGDisplayIsAsleep(Quartz.CGMainDisplayID()))
+
+
+def os_window_number(pid, state):
+    """The window server's number of the window of process `pid` whose size is the
+    `get_state` answer's logical size (an app may have several windows), else its only one."""
+    try:
+        import Quartz
+    except ImportError:
+        return None
+    size = None
+    for d in [state] + list(dicts(state)):
+        if isinstance(d, dict) and "logical_width" in d:
+            size = (float(d["logical_width"]), float(d["logical_height"]))
+            break
+    info = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly,
+                                             Quartz.kCGNullWindowID) or []
+    mine = [w for w in info
+            if int(w.get("kCGWindowOwnerPID", 0)) == pid and int(w.get("kCGWindowLayer", 1)) == 0]
+    if size:
+        for w in mine:
+            b = w.get("kCGWindowBounds") or {}
+            if abs(float(b.get("Width", 0)) - size[0]) < 2 and abs(float(b.get("Height", 0)) - size[1]) < 40:
+                return int(w["kCGWindowNumber"])
+    return int(mine[0]["kCGWindowNumber"]) if len(mine) == 1 else None
 
 
 class InWindow(App):
