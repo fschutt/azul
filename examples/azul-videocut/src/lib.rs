@@ -22,7 +22,8 @@
 //! The sound (see `levels`): a file with audio (a sound file, or an MP4 with a
 //! sound track) goes on the audio tracks; a worker reads each such file once
 //! with `AudioFileDecoder` into its levels per channel, and the meters show
-//! the level of the clips under the playhead.
+//! the level of the clips under the playhead. Playing at normal speed, the clips' sound is
+//! mixed and played (see `sound`), and the meters move in place with every frame shown.
 //!
 //! The project is files on a Drive (`store`): `videocut/<uuid>/project.json`
 //! and `media/`, `exports/`, saved after every edit by a job.
@@ -46,6 +47,7 @@ mod l10n_tests;
 pub mod model;
 pub mod render;
 pub mod sample;
+pub mod sound;
 pub mod store;
 
 use std::{
@@ -86,7 +88,8 @@ use azul::{
         AboutDialog, ButtonType, Dialog, DialogState, NumberInputState, ProgressDialog, Segmented,
         SegmentedState, Slider, SliderState, StandardDialogEvent, StandardDialogEventKind,
         StatusBar, StatusBarSegment, Timeline, TimelineClip, TimelineClipTint, TimelineEdge,
-        TimelineEvent, TimelineEventKind, TimelineTrack, TimelineTrackKind, Titlebar,
+        LevelMeter, LevelMeterOrientation, LevelMeterThrottle, TimelineEvent, TimelineEventKind,
+        TimelineTrack, TimelineTrackKind, Titlebar,
     },
 };
 use azul_appkit::{
@@ -124,6 +127,12 @@ const PLAY_AHEAD: usize = 6;
 /// The markers of the nodes updated in place.
 /// (Defined once, with the app's `__azvideocut_` prefix.)
 const PROGRAM_IMAGE: AzString = AzString::from_const_str("__azvideocut_program-image");
+/// The meters (azul's `LevelMeter`) and the peak under them, moved in place while playing.
+const METER_LEFT: AzString = AzString::from_const_str("__azvideocut_meter-left");
+const METER_RIGHT: AzString = AzString::from_const_str("__azvideocut_meter-right");
+const METER_PEAK: AzString = AzString::from_const_str("__azvideocut_meter-peak");
+/// How often a meter may move while playing: every frame of a 30 fps sequence.
+const METER_INTERVAL_MS: u64 = 30;
 const PROGRAM_TC: AzString = AzString::from_const_str("__azvideocut_program-tc");
 const SOURCE_IMAGE: AzString = AzString::from_const_str("__azvideocut_source-image");
 /// The export choices.
@@ -190,6 +199,8 @@ struct PlaybackShared {
     frames: Mutex<VecDeque<(Frame, Canvas)>>,
     room: Condvar,
     stop: AtomicBool,
+    /// What the sound thread handed to the output.
+    sound: sound::SoundReport,
 }
 
 /// Playback in progress.
@@ -205,6 +216,8 @@ struct Playback {
     shown: Frame,
     /// When the playhead and timecode were last moved on screen.
     last_ui: StdInstant,
+    /// The meters' throttles (left, right): they move with the frames shown, in place.
+    meters: [LevelMeterThrottle; 2],
 }
 
 /// The export dialog and a running export.
@@ -566,38 +579,8 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
             Outcome::Imported { items, errors }
         }
         Job::Levels { media } => {
-            let mut decoder = match &media.source {
-                MediaSource::Path { path } => AudioFileDecoder::open(AzString::from(path.as_str())),
-                MediaSource::Stored { key } => {
-                    let extension = key.rsplit_once('.').map_or("", |(_, ext)| ext).to_string();
-                    match files.bytes(&media, drive.as_ref()) {
-                        Ok(bytes) => AudioFileDecoder::create(
-                            U8Vec::from_vec(bytes.to_vec()),
-                            AzString::from(extension),
-                        ),
-                        Err(e) => {
-                            return Outcome::Levels {
-                                media: media.id,
-                                result: Err(e),
-                            }
-                        }
-                    }
-                }
-                MediaSource::Generated { .. } => {
-                    return Outcome::Levels {
-                        media: media.id,
-                        result: Err(String::from("a generated item has no sound")),
-                    }
-                }
-            };
-            let result = if decoder.is_open() {
-                Ok(levels::envelope_from(&mut decoder))
-            } else {
-                Err(decoder
-                    .error_message()
-                    .into_option()
-                    .map_or_else(|| String::from("no sound"), |why| why.as_str().to_string()))
-            };
+            let result = sound::open_decoder(&media, drive.as_ref(), &files)
+                .map(|mut decoder| levels::envelope_from(&mut decoder));
             Outcome::Levels {
                 media: media.id,
                 result,
@@ -1095,6 +1078,43 @@ extern "C" fn playback_thread(mut init: RefAny, _sender: ThreadSender, mut recei
     }
 }
 
+/// What the sound job works with.
+struct SoundInit {
+    project: Project,
+    start: Frame,
+    shared: Arc<PlaybackShared>,
+    drive: Arc<dyn Drive>,
+    files: Arc<MediaFiles>,
+}
+
+/// Plays the sequence's sound from the playhead until the stop (see `sound`), then says what
+/// it handed to the output (`SOUND <samples> <peak>`).
+extern "C" fn sound_thread(mut init: RefAny, _sender: ThreadSender, mut receiver: ThreadReceiver) {
+    let Some((project, start, shared, drive, files)) = init.downcast_ref::<SoundInit>().map(|i| {
+        (
+            i.project.clone(),
+            i.start,
+            i.shared.clone(),
+            i.drive.clone(),
+            i.files.clone(),
+        )
+    }) else {
+        return;
+    };
+    let mut stopped = || {
+        shared.stop.load(Ordering::Relaxed)
+            || matches!(receiver.recv().into_option(), Some(ThreadSendMsg::TerminateThread))
+    };
+    if let Err(why) = sound::play(&project, start, &drive, &files, &shared.sound, &mut stopped) {
+        eprintln!("[azvideocut] playing without sound: {why}");
+    }
+    announce(&format!(
+        "SOUND {} {:.3}",
+        shared.sound.samples.load(Ordering::Relaxed),
+        shared.sound.peak()
+    ));
+}
+
 /// The monitor's frame interval in milliseconds (its highest refresh rate;
 /// 60 Hz when it says none).
 fn monitor_interval_ms(info: &CallbackInfo) -> u64 {
@@ -1126,6 +1146,23 @@ fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut,
     }
     let shared = Arc::new(PlaybackShared::default());
     let (width, height) = app.monitor_size();
+    // Only playing forward at normal speed sounds (a shuttle would need time stretching).
+    if speed == 1 {
+        info.add_thread(
+            ThreadId::unique(),
+            Thread::create(
+                RefAny::new(SoundInit {
+                    project: project.clone(),
+                    start: app.playhead,
+                    shared: shared.clone(),
+                    drive: app.drive.clone(),
+                    files: app.files.clone(),
+                }),
+                app_ref.clone(),
+                sound_thread,
+            ),
+        );
+    }
     let thread = ThreadId::unique();
     info.add_thread(
         thread,
@@ -1161,6 +1198,7 @@ fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut,
         speed,
         shown: app.playhead,
         last_ui: StdInstant::now(),
+        meters: [LevelMeterThrottle::create(METER_INTERVAL_MS); 2],
     });
     app.status = t_args("azvideocut-playing-at", &[("speed", Arg::from(speed))]);
 }
@@ -1215,6 +1253,7 @@ extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Ti
         app.playhead = f;
         app.program_frame = Some((f, picture));
         announce(&format!("FRAME {f}"));
+        follow_meters(&mut info.callback_info, app, f);
     }
     if finished {
         stop_playback(app);
@@ -1226,6 +1265,49 @@ extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Ti
         TimerCallbackReturn::continue_and_refresh_dom()
     } else {
         TimerCallbackReturn::continue_unchanged()
+    }
+}
+
+/// Moves the meters in place to the reading at `frame` (the frame just shown), each when its
+/// throttle lets it, and the peak under them with them: the window is rebuilt only a few times
+/// a second while playing, and the meters followed those rebuilds.
+fn follow_meters(info: &mut CallbackInfo, app: &mut VideoCut, frame: Frame) {
+    let reading = app
+        .project
+        .as_ref()
+        .map_or([0.0; 2], |p| levels::reading(p, frame, &app.levels));
+    let Some(pb) = app.playback.as_mut() else {
+        return;
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let now_ms = pb.started.elapsed().as_millis() as u64 + 1;
+    let mut moved = false;
+    for (channel, marker) in [METER_LEFT, METER_RIGHT].into_iter().enumerate() {
+        let percent = (levels::fill(reading[channel]) * 100.0).round();
+        let Some(level) = pb.meters[channel].next(percent, now_ms).into_option() else {
+            continue;
+        };
+        if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+            LevelMeter::update_level(*info, node, level);
+            moved = true;
+        }
+    }
+    if !moved {
+        return;
+    }
+    let peak = peak_text(reading);
+    if let Some(node) = info.get_node_id_by_marker(METER_PEAK).into_option() {
+        info.change_node_text(node, AzString::from(peak.as_str()));
+    }
+    let db = levels::peak_db(reading[0].max(reading[1])).map_or_else(|| String::from("-inf"), |db| db.to_string());
+    announce(&format!("METER {frame} {db}"));
+}
+
+/// The meters' number: the louder channel's peak in dB.
+fn peak_text(level: [f32; 2]) -> String {
+    match levels::peak_db(level[0].max(level[1])) {
+        Some(db) => t_args("azvideocut-peak-db", &[("db", Arg::from(db))]),
+        None => t("azvideocut-inf-db"),
     }
 }
 
@@ -1269,8 +1351,7 @@ const METERS_CSS: &str = "display: flex; flex-direction: column; align-items: ce
      padding: 6px 4px; background-color: system:window-background;";
 const METER_ROW_CSS: &str = "display: flex; flex-direction: row; flex-grow: 1; min-height: 40px; \
      margin: 6px 0px;";
-const METER_CSS: &str = "position: relative; overflow: hidden; width: 8px; margin: 0px 3px; \
-     background-color: system:control-background; border-radius: 2px;";
+const METER_CSS: &str = "width: 8px; margin: 0px 3px;";
 const TOOLBAR_CSS: &str = "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; \
      padding: 4px 8px; background-color: system:window-background; @theme(flora) { \
      background-color: #E9E7E2; border-bottom: 1px solid system:separator; @media \
@@ -1872,28 +1953,20 @@ fn timeline_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
 
 /// The audio meters: the left and right level of the clips under the playhead (on the
 /// unmuted audio tracks), each a bar on a 60 dB scale - green, then yellow from -18 dB, red
-/// from -6 dB - and the louder channel's peak in dB under them. While playing they follow
-/// the playhead with the window's refreshes.
+/// from -6 dB - and the louder channel's peak in dB under them. While playing they move in
+/// place with every frame shown ([`follow_meters`]).
 fn meters(app: &VideoCut) -> Dom {
     let level = app
         .project
         .as_ref()
         .map_or([0.0; 2], |p| levels::reading(p, app.playhead, &app.levels));
-    let bar = |level: f32| {
-        let colour = match levels::peak_db(level) {
-            Some(db) if db >= -6 => "system:danger",
-            Some(db) if db >= -18 => "system:warning",
-            _ => "system:success",
-        };
-        Dom::create_div().with_css(METER_CSS).with_child(Dom::create_div().with_css(format!(
-            "position: absolute; left: 0px; right: 0px; bottom: 0px; height: {:.1}%; \
-             background-color: {colour};",
-            levels::fill(level) * 100.0
-        )))
-    };
-    let peak = match levels::peak_db(level[0].max(level[1])) {
-        Some(db) => t_args("azvideocut-peak-db", &[("db", Arg::from(db))]),
-        None => t("azvideocut-inf-db"),
+    let bar = |level: f32, marker: AzString, name: &str| {
+        LevelMeter::create((levels::fill(level) * 100.0).round())
+            .with_orientation(LevelMeterOrientation::Vertical)
+            .with_accessibility_name(AzString::from(name))
+            .dom()
+            .with_marker(OptionString::Some(marker))
+            .with_css(METER_CSS)
     };
     Dom::create_div()
         .with_css(METERS_CSS)
@@ -1901,10 +1974,17 @@ fn meters(app: &VideoCut) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(METER_ROW_CSS)
-                .with_child(bar(level[0]))
-                .with_child(bar(level[1])),
+                .with_child(bar(level[0], METER_LEFT, &t("azvideocut-meter-left")))
+                .with_child(bar(level[1], METER_RIGHT, &t("azvideocut-meter-right"))),
         )
-        .with_child(Dom::create_p_with_text(AzString::from(peak)).with_css(NOTE_CSS))
+        .with_child(
+            Dom::create_p().with_css(NOTE_CSS).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(
+                    peak_text(level),
+                ))
+                .with_marker(OptionString::Some(METER_PEAK)),
+            ),
+        )
 }
 
 /// The status bar: the last message, the tool, the snapping, the format.
