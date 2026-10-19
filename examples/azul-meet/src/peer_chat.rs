@@ -94,3 +94,30 @@ pub(crate) fn on_have(s: &MeetState, endpoint: &IrohEndpoint, conn: u64, have: &
 pub(crate) fn take_changes(s: &mut MeetState) -> Vec<(String, Changes)> {
     std::mem::take(&mut s.peer_chat)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{room_of_conn, targets_of};
+
+    /// A record goes to every connection of its room - the call's participants when it is the
+    /// call's room, and the room's chat connections - but the one it came from.
+    #[test]
+    fn a_record_goes_to_every_connection_of_its_room_but_the_one_it_came_from() {
+        let conns = [(7, "room-a"), (8, "room-b"), (9, "room-a")];
+        assert_eq!(targets_of(Some("room-a"), &[1, 2], &conns, "room-a", Some(2)), vec![1, 7, 9]);
+        assert_eq!(targets_of(Some("room-a"), &[1, 2], &conns, "room-b", None), vec![8]);
+        // Nobody online for a room: nothing to send to, its messages wait.
+        assert!(targets_of(None, &[], &conns, "room-c", None).is_empty());
+    }
+
+    /// A connection carries the chat of the room it was made for, nothing else: a record or a
+    /// list from it for another room is not taken.
+    #[test]
+    fn a_connection_carries_only_the_chat_of_the_room_it_was_made_for() {
+        let conns = [(7, "room-a"), (8, "room-b")];
+        assert_eq!(room_of_conn(Some("room-a"), &[1], &conns, 1), Some("room-a"));
+        assert_eq!(room_of_conn(Some("room-a"), &[1], &conns, 8), Some("room-b"));
+        assert_eq!(room_of_conn(None, &[1], &conns, 1), None, "a call's peer outside a call");
+        assert_eq!(room_of_conn(Some("room-a"), &[1], &conns, 5), None, "a stranger");
+    }
+}

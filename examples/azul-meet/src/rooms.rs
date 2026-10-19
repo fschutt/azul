@@ -490,7 +490,20 @@ mod tests {
             name: name.to_string(),
             device: None,
             sig: None,
+            chat_only: false,
         }
+    }
+
+    /// A device that keeps only a room's chat between calls announces itself chat-only: a call's
+    /// participants connect to it for the chat and never count it as one of the call.
+    #[test]
+    fn a_chat_only_announcement_is_no_participant_of_the_call() {
+        let mut viewer = peer("bb", "tb", "Ben");
+        viewer.chat_only = true;
+        let listed = vec![peer("aa", "ta", "Ada"), viewer.clone()];
+        let (call, chat) = split_chat_only(listed);
+        assert_eq!(call.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["Ada"]);
+        assert_eq!(chat, vec![viewer]);
     }
 
     /// The room a link names.
