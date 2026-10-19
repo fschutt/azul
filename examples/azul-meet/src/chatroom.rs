@@ -1749,6 +1749,9 @@ mod tests {
         seq: u64,
         /// Answer the next request with 401 stale_request and the server's time.
         stale_once: bool,
+        /// The service after the switch to chat over the peers: it keeps no messages, a room
+        /// says `chat: "peers"`, a message posted to it is gone (410).
+        dropped_messages: bool,
     }
 
     #[derive(Debug, Default)]
@@ -1761,6 +1764,8 @@ mod tests {
         keys: Vec<KeyRow>,
         envelopes: Vec<(u64, String, String, String)>,
         messages: Vec<MsgRow>,
+        /// The wire version each device said it speaks when it registered.
+        wires: BTreeMap<String, u64>,
     }
 
     #[derive(Debug, Clone)]
@@ -1886,6 +1891,9 @@ mod tests {
             let Some(r) = self.rooms.get_mut(room) else {
                 return answer(404, json!({ "error": "not_found" }));
             };
+            if let Some(wire) = body["wire"].as_u64() {
+                r.wires.insert(device.to_string(), wire);
+            }
             let row = Row {
                 dh: text(body, "dh").unwrap(),
                 sealed_name: text(body, "sealed_name"),
@@ -2038,6 +2046,9 @@ mod tests {
         }
 
         fn post_message(&mut self, room: &str, caller: &str, body: &Value) -> (u16, String) {
+            if self.dropped_messages {
+                return answer(410, json!({ "error": "messages_moved_to_peers" }));
+            }
             let seq = self.next_seq();
             let Some(r) = self.room_mut(room) else {
                 return answer(404, json!({ "error": "not_found" }));
@@ -2103,6 +2114,9 @@ mod tests {
                 "now": self.now,
                 "members_rev": r.members_rev,
             });
+            if self.dropped_messages {
+                out["room"]["chat"] = json!("peers");
+            }
             if known != Some(r.members_rev) {
                 out["members"] = r
                     .members
@@ -2139,6 +2153,7 @@ mod tests {
             let messages: Vec<Value> = r
                 .messages
                 .iter()
+                .filter(|_| !self.dropped_messages)
                 .filter(|m| m.seq > after)
                 .map(|m| {
                     json!({
@@ -2928,5 +2943,90 @@ mod tests {
         };
         let sent = ada.room.missing_for(&partial);
         assert_eq!(sent.len(), 1, "only what is newer than the list's oldest: {sent:?}");
+    }
+
+    /// A device says which wire version it speaks when it registers: the service sees when every
+    /// client speaks the one whose chat travels over the peers alone.
+    #[test]
+    fn a_device_registers_with_its_wire_version() {
+        let mut w = FakeWorker::new();
+        let (ada, ben, id, _) = ada_and_ben(&mut w);
+        assert_eq!(w.rooms[&id].wires.get(ada.me.device()), Some(&WIRE_VERSION));
+        assert_eq!(w.rooms[&id].wires.get(ben.me.device()), Some(&WIRE_VERSION));
+        assert_eq!(WIRE_VERSION, 5);
+    }
+
+    /// Once the service no longer carries messages a room says so (`chat: "peers"`), and a
+    /// message posted to it is gone (410): a device posts no message there any more, and what
+    /// it writes reaches the peers alone, never shown as still on its way.
+    #[test]
+    fn a_service_that_no_longer_carries_messages_leaves_the_chat_to_the_peers() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, id, _) = ada_and_ben(&mut w);
+        assert!(!ada.room.peers_only());
+        w.dropped_messages = true;
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        assert!(ada.room.peers_only() && ben.room.peers_only());
+        ada.room.send(&ada.me, "Through the peers", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        assert!(w.rooms[&id].messages.is_empty(), "the service keeps no message");
+        settle(&mut ben, &mut w);
+        let records = ada.room.peer_records(&ada.me);
+        assert_eq!(records.len(), 1, "sealed for the peers once the key is there");
+        let own = ada.room.messages().last().unwrap().clone();
+        assert!(!ada.room.is_sending(&own), "handed to the peers: not on its way any more");
+        let (changes, _) = ben.room.take_record(&ben.me, records[0].clone());
+        assert_eq!(texts(&changes), vec![pair("Ada", "Through the peers")]);
+        let theirs = ben.room.messages().last().unwrap().clone();
+        assert!(!ben.room.is_sending(&theirs), "a peer's message is never Ben's to send");
+    }
+
+    /// A room the service stops carrying after a message was posted but before it heard so from
+    /// a sync: the refused post (410) is the same news.
+    #[test]
+    fn a_post_refused_as_gone_moves_the_chat_to_the_peers() {
+        let mut w = FakeWorker::new();
+        let (mut ada, _ben, _, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        w.dropped_messages = true;
+        ada.room.send(&ada.me, "Second", w.now).unwrap();
+        let mut posted = false;
+        for _ in 0..40 {
+            w.now += 50;
+            let Some(call) = ada.room.next_call(&ada.me, w.now, 60_000) else {
+                continue;
+            };
+            posted |= matches!(call.what, CallKind::PostMessage(_));
+            let (status, body) = w.handle(&ada.me, &call);
+            let _ = ada.room.on_answer(&ada.me, &call.what, Some(status), &body, w.now);
+            if ada.room.peers_only() {
+                break;
+            }
+        }
+        assert!(posted && ada.room.peers_only(), "the 410 says the chat is the peers' now");
+        assert!(ada.room.next_call(&ada.me, w.now + 50, 60_000).map_or(true, |c| !matches!(c.what, CallKind::PostMessage(_))));
+    }
+
+    /// The chat is listed by when each message was written (its id between equal times), not by
+    /// when it arrived: the order every device agrees on without the service's numbers.
+    #[test]
+    fn messages_are_listed_by_the_time_they_were_written_whichever_way_they_came() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, _, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        // Ada writes first, but her message reaches Ben after his own later one.
+        ada.room.send(&ada.me, "Earlier", w.now).unwrap();
+        w.now += 5_000;
+        ben.room.send(&ben.me, "Later", w.now).unwrap();
+        settle(&mut ben, &mut w);
+        let record = ada.room.peer_records(&ada.me).remove(0);
+        let _ = ben.room.take_record(&ben.me, record);
+        let listed: Vec<&str> = ben.room.messages().iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(listed, vec!["First", "Earlier", "Later"]);
     }
 }
