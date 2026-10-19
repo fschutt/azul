@@ -274,6 +274,10 @@ pub(crate) struct OpenMessage {
     pub(crate) pictures_thread: Option<ThreadId>,
     /// What this mail's web pictures have downloaded so far.
     pub(crate) budget: pictures::Budget,
+    /// Its remote style sheets downloaded so far, by their place in the mail's list.
+    pub(crate) sheets: Vec<(usize, String)>,
+    /// The addresses of the web fonts asked for (a sheet that arrives later may declare more).
+    pub(crate) fonts_asked: Vec<String>,
 }
 
 pub(crate) enum SyncState {
@@ -666,6 +670,7 @@ impl MailApp {
         let options = html::PictureOptions {
             web: false,
             inline: pictures::content_ids(&inline),
+            sheets: Vec::new(),
         };
         let sanitized = view
             .as_ref()
@@ -682,6 +687,8 @@ impl MailApp {
             fetching,
             pictures_thread: None,
             budget: pictures::Budget::default(),
+            sheets: Vec::new(),
+            fonts_asked: Vec::new(),
         });
         if was_read {
             return None;

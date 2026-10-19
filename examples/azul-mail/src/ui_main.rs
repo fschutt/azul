@@ -2090,12 +2090,16 @@ fn load_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
         &html::PictureOptions {
             web: true,
             inline: pictures::content_ids(&open.inline),
+            sheets: Vec::new(),
         },
     );
     let urls = pictures::fetch_list(&sanitized);
     let fonts = pictures::font_list(&sanitized);
+    let sheets = pictures::sheet_list(&sanitized);
     open.sanitized = Some(sanitized);
-    if urls.is_empty() && fonts.is_empty() {
+    open.sheets.clear();
+    open.fonts_asked = fonts.iter().map(|(_, url)| url.clone()).collect();
+    if urls.is_empty() && fonts.is_empty() && sheets.is_empty() {
         return;
     }
     println!("AZMAIL_PICTURES_FETCH {}", urls.len());
@@ -2108,6 +2112,7 @@ fn load_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
         uid: open.entry.uid,
         urls,
         fonts,
+        sheets,
     };
     info.add_thread(
         thread,
@@ -2165,6 +2170,18 @@ struct DownloadJob {
     urls: Vec<String>,
     /// The mail's web fonts: each `(registered name, address)` (`pictures::font_list`).
     fonts: Vec<(String, String)>,
+    /// Its remote style sheets (`pictures::sheet_list`).
+    sheets: Vec<String>,
+}
+
+/// One remote style sheet on its way: the message, its place in the mail's list, its address.
+#[derive(Clone)]
+struct SheetRef {
+    app: RefAny,
+    folder: String,
+    uid: u32,
+    index: usize,
+    url: String,
 }
 
 /// One web font on its way: the message it belongs to, the name it is registered under, its
@@ -2223,6 +2240,27 @@ extern "C" fn download_thread(mut init: RefAny, _sender: ThreadSender, mut recei
                 url: url.clone(),
             }),
             on_font_bytes as ResumeCallbackType,
+        );
+    }
+    // Then the style sheets: the mail is laid out again with each.
+    let sheets = HttpRequestConfig::create()
+        .with_timeout(pictures::PICTURE_TIMEOUT_SECS)
+        .with_max_size(pictures::MAX_SHEET_BYTES as u64)
+        .with_user_agent("AzMail");
+    for (index, url) in job.sheets.iter().enumerate() {
+        if stopped(&mut receiver) {
+            return;
+        }
+        let _request = sheets.download_bytes(
+            url.as_str(),
+            RefAny::new(SheetRef {
+                app: job.app.clone(),
+                folder: job.folder.clone(),
+                uid: job.uid,
+                index,
+                url: url.clone(),
+            }),
+            on_sheet_bytes as ResumeCallbackType,
         );
     }
     let config = HttpRequestConfig::create()
@@ -2287,6 +2325,76 @@ extern "C" fn on_font_bytes(mut data: RefAny, mut info: CallbackInfo, result: Re
             eprintln!("[azmail] font {} is no font", font.url);
             Update::DoNothing
         }
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// A remote style sheet arrived (on the UI thread): counted against the mail's budget, and the
+/// mail is sanitized again with every sheet so far, in the mail's order - made safe and scoped
+/// as its own `<style>` is. The fonts a sheet declares are fetched then too.
+extern "C" fn on_sheet_bytes(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(sheet) = data.downcast_ref::<SheetRef>().map(|r| SheetRef::clone(&r)) else {
+        return Update::DoNothing;
+    };
+    let Some(answer) = HttpBytesResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let bytes = match answer.result {
+        azul::error::ResultU8VecHttpError::Ok(bytes) => bytes.as_slice().to_vec(),
+        azul::error::ResultU8VecHttpError::Err(e) => {
+            eprintln!("[azmail] style sheet {} not downloaded: {e:?}", sheet.url);
+            return Update::DoNothing;
+        }
+    };
+    let mut app = sheet.app.clone();
+    with_app(&mut app, |s, app| {
+        let Some(open) = s
+            .open
+            .as_mut()
+            .filter(|o| o.folder == sheet.folder && o.entry.uid == sheet.uid)
+        else {
+            return Update::DoNothing;
+        };
+        let Some(part) = open.view.as_ref().and_then(|v| v.html.clone()) else {
+            return Update::DoNothing;
+        };
+        if !open.budget.take(bytes.len()) {
+            eprintln!("[azmail] style sheet {} left out ({} bytes)", sheet.url, bytes.len());
+            return Update::DoNothing;
+        }
+        open.sheets.retain(|(i, _)| *i != sheet.index);
+        open.sheets.push((sheet.index, String::from_utf8_lossy(&bytes).into_owned()));
+        open.sheets.sort_by_key(|(i, _)| *i);
+        let sanitized = html::sanitize_mail(
+            &part,
+            &html::PictureOptions {
+                web: true,
+                inline: pictures::content_ids(&open.inline),
+                sheets: open.sheets.iter().map(|(_, css)| css.clone()).collect(),
+            },
+        );
+        println!("AZMAIL_SHEET_APPLIED {}", sheet.url);
+        let new_fonts: Vec<(String, String)> = pictures::font_list(&sanitized)
+            .into_iter()
+            .filter(|(_, url)| !open.fonts_asked.contains(url))
+            .collect();
+        open.sanitized = Some(sanitized);
+        if !new_fonts.is_empty() {
+            open.fonts_asked.extend(new_fonts.iter().map(|(_, url)| url.clone()));
+            let job = DownloadJob {
+                app: app.clone(),
+                folder: open.folder.clone(),
+                uid: open.entry.uid,
+                urls: Vec::new(),
+                fonts: new_fonts,
+                sheets: Vec::new(),
+            };
+            info.add_thread(
+                ThreadId::unique(),
+                Thread::create(RefAny::new(job), app.clone(), download_thread),
+            );
+        }
+        Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
 }

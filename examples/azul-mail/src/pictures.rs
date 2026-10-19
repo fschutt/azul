@@ -30,6 +30,28 @@ pub fn fetch_list(sanitized: &Sanitized) -> Vec<String> {
         .collect()
 }
 
+/// At most this many remote style sheets are fetched for one mail.
+pub const MAX_SHEETS: usize = 4;
+/// A remote style sheet larger than this is not downloaded.
+pub const MAX_SHEET_BYTES: usize = 512 * 1024;
+
+/// What "download pictures" fetches of `sanitized`'s remote style sheets (`<link
+/// rel="stylesheet">`, `@import`): http and https only, at most [`MAX_SHEETS`], in the order the
+/// mail names them.
+pub fn sheet_list(sanitized: &Sanitized) -> Vec<String> {
+    sanitized
+        .remote
+        .stylesheets
+        .iter()
+        .filter(|url| {
+            let lower = url.to_ascii_lowercase();
+            lower.starts_with("https://") || lower.starts_with("http://")
+        })
+        .take(MAX_SHEETS)
+        .cloned()
+        .collect()
+}
+
 /// A web font larger than this is not downloaded.
 pub const MAX_FONT_BYTES: usize = 3 * 1024 * 1024;
 
@@ -156,6 +178,7 @@ mod tests {
             &PictureOptions {
                 web: false,
                 inline: content_ids(&parts),
+                sheets: Vec::new(),
             },
         );
         assert_eq!(

@@ -192,6 +192,9 @@ pub struct PictureOptions {
     /// The Content-IDs of the mail's own picture parts (`crate::message::inline_pictures`):
     /// a `cid:` picture naming one of them is always shown.
     pub inline: Vec<String>,
+    /// The mail's remote style sheets as downloaded (with its pictures), in the order it names
+    /// them: made safe and scoped as its own `<style>` is, ahead of it.
+    pub sheets: Vec<String>,
 }
 
 /// See the module documentation.
@@ -209,6 +212,7 @@ pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
         &PictureOptions {
             web: pictures,
             inline: Vec::new(),
+            sheets: Vec::new(),
         },
     )
 }
@@ -225,6 +229,10 @@ pub fn sanitize_mail(html: &str, options: &PictureOptions) -> Sanitized {
     };
     let document = Xml::create_from_html(html);
     let remote = remote_content(&document);
+    // The linked sheets come first in a document, before its own rules.
+    for css in &options.sheets {
+        s.style_sheet(css);
+    }
     s.children(&document.root);
     Sanitized {
         remote,
@@ -1894,6 +1902,7 @@ mod tests {
         let options = PictureOptions {
             web: false,
             inline: vec![String::from("logo@example")],
+            sheets: Vec::new(),
         };
         let s = sanitize_mail(html, &options);
         assert_eq!(s.inline_images, vec![String::from("logo@example")]);
@@ -1937,5 +1946,31 @@ mod tests {
         let none = sanitize("<style>@font-face { font-family: Own; src: url(file:///x.ttf) } \
                              @font-face { font-family: \"a{b\"; src: url(https://x.example/f.ttf) }</style>");
         assert!(none.web_fonts.is_empty(), "{:?}", none.web_fonts);
+    }
+
+    /// A mail's remote style sheet, downloaded with its pictures, is made safe and scoped as its
+    /// own `<style>` is, ahead of it (its own rules still win); a font the sheet declares is the
+    /// mail's too.
+    #[test]
+    fn a_downloaded_style_sheet_is_scoped_ahead_of_the_mails_own_rules() {
+        let html = "<html><head><link rel=\"stylesheet\" href=\"https://cdn.example/m.css\">\
+                    <style>.x { color: blue }</style></head><body><p class=\"x\">a</p></body></html>";
+        let options = PictureOptions {
+            web: true,
+            inline: Vec::new(),
+            sheets: vec![String::from(
+                "@font-face { font-family: Sheet; src: url(https://cdn.example/s.woff) } \
+                 .x { color: red; font-family: Sheet } @import url(https://cdn.example/n.css); \
+                 .y { position: fixed }",
+            )],
+        };
+        let s = sanitize_mail(html, &options);
+        let red = s.xhtml.find("color: red").expect("the sheet's rule is kept");
+        let blue = s.xhtml.find("color: blue").expect("the mail's own rule is kept");
+        assert!(red < blue, "the sheet comes first: {}", s.xhtml);
+        assert!(s.xhtml.contains(&format!(".{}x", s.class_prefix)), "scoped: {}", s.xhtml);
+        assert!(!s.xhtml.contains("position: fixed") && !s.xhtml.contains("n.css"), "{}", s.xhtml);
+        assert_eq!(s.web_fonts.iter().map(|f| f.url.as_str()).collect::<Vec<_>>(), vec!["https://cdn.example/s.woff"]);
+        assert!(s.xhtml.contains(&format!("font-family: {}Sheet", s.class_prefix)), "{}", s.xhtml);
     }
 }
