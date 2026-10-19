@@ -373,46 +373,78 @@ pub fn detach_if_overdue(
     true
 }
 
-/// Stop EVERY worker in `threads` - the last window is going away, and the process
-/// with it. A window that closes while another stays open hands its threads over
-/// instead ([`ThreadOwnerManager::hand_over`]) and waits for nothing.
+/// Stop EVERY worker in `threads` - the last window is going away. A window
+/// that closes while another stays open hands its threads over instead
+/// ([`ThreadOwnerManager::hand_over`]).
 ///
-/// All of them are told `TerminateThread` first and then polled TOGETHER
-/// against one shared [`ORPHAN_GRACE`] (a worker still running after it is
-/// detached, [`poll_orphan`]); then the map is emptied, and each `Thread`
-/// destructor finds its worker finished (or its handle gone) and returns at
-/// once. A window closes in the time its SLOWEST worker takes to stop, at
-/// most one grace period - dropping the map entry by entry made each worker
-/// wait for the previous one, the sum of them all, N x 2 s for workers stuck
-/// in a device read.
+/// Every worker is told `TerminateThread`, its join handle is taken over by
+/// [`STOPPING`], and the `Thread`s go at once - their destructors find no
+/// handle to wait for, and the app's write-back data they hold is dropped
+/// here, on the UI thread. Nothing waits: a tray app goes on running after
+/// its last window, and a worker stuck in a device read froze it for the
+/// whole grace. The process waits for them at its end instead
+/// ([`join_stopping_workers`]).
 #[cfg(all(feature = "std", feature = "text_layout"))]
 pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
     if threads.is_empty() {
         return;
     }
+    let told = Orphaned::now();
+    let mut handles = Vec::new();
     for thread in threads.values() {
         let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
-    }
-    let told = Orphaned::now();
-    let mut running: Vec<&crate::thread::Thread> = threads.values().collect();
-    loop {
-        let now = wall_clock();
-        running.retain(|thread| !poll_orphan(told, thread, now));
-        // No clock, no grace period to wait out (and no thread was ever
-        // started there, see `wall_clock`).
-        if running.is_empty() || now.is_none() {
-            break;
+        if let Ok(mut inner) = thread.ptr.lock() {
+            if let Some(handle) = inner.thread_handle.take() {
+                handles.push(handle);
+            }
         }
-        std::thread::sleep(core::time::Duration::from_millis(2));
     }
-    drop(running);
     threads.clear();
+    let mut stopping = STOPPING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // The ones that have stopped meanwhile need no waiting at the end.
+    stopping.retain(|(handle, _)| !handle.is_finished());
+    stopping.extend(handles.into_iter().map(|handle| (handle, told)));
 }
 
-/// Waits, at the end of the process, for the workers of closed windows that
-/// are still stopping.
+/// The workers of closed windows that are still stopping: each one's join
+/// handle and when it was told to stop. Filled by [`stop_all`], waited for
+/// by [`join_stopping_workers`].
 #[cfg(all(feature = "std", feature = "text_layout"))]
-pub fn join_stopping_workers() {}
+static STOPPING: std::sync::Mutex<Vec<(std::thread::JoinHandle<()>, Orphaned)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Waits, at the end of the process, for the workers of closed windows that
+/// are still stopping - each up to [`ORPHAN_GRACE`] after it was told, then
+/// it is left (detached: it ends with the process) - so a closing app lets
+/// them finish what they write, as a window's close used to. The shells call
+/// it when `App::run` returns.
+#[cfg(all(feature = "std", feature = "text_layout"))]
+pub fn join_stopping_workers() {
+    let stopping = core::mem::take(
+        &mut *STOPPING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    for (handle, told) in stopping {
+        loop {
+            if handle.is_finished() {
+                let _ = handle.join();
+                break;
+            }
+            if told.is_overdue(wall_clock()) || wall_clock().is_none() {
+                eprintln!(
+                    "[azul][thread] a worker did not stop within {} ms of TerminateThread; the \
+                     process ends without it",
+                    ORPHAN_GRACE.as_millis()
+                );
+                break;
+            }
+            std::thread::sleep(core::time::Duration::from_millis(2));
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

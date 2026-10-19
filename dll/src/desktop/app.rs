@@ -593,6 +593,11 @@ impl App {
             self.ptr.app_icon.clone(),
         );
 
+        // The last window's workers were told to stop when it closed, without
+        // the window waiting for them; the process gives them their grace now,
+        // before it ends.
+        azul_layout::managers::thread_owner::join_stopping_workers();
+
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
         // harness) exits before the first flush tick and reports nothing.
