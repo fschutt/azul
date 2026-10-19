@@ -173,3 +173,45 @@ fn an_image_swapped_in_place_survives_a_cached_relayout() {
         "the relayout served the PRE-PATCH list: the node shows the image the app replaced"
     );
 }
+
+/// The window's list is often its own copy of the cached one: a pass swaps a
+/// `VirtualView`'s placeholder for its content and writes a text tween's
+/// frame into the window's list only (`Arc::make_mut`, so the cached list
+/// stays the baseline the next cache hit starts from). An image swapped
+/// then belongs in both, or the next cache hit serves the frame before it
+/// until an input changes.
+#[test]
+fn an_image_swapped_while_the_window_shows_its_own_copy_survives_a_cached_relayout() {
+    let declared = solid(10);
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lay_out(&mut lw, &declared);
+    // What a placeholder swap does to the window's list.
+    let window_list = &mut lw
+        .layout_results
+        .get_mut(&DomId::ROOT_ID)
+        .expect("laid out")
+        .display_list;
+    let _ = Arc::make_mut(window_list);
+    let cached = cached_list(&lw).expect("a cached list");
+    assert!(
+        !Arc::ptr_eq(&cached, &lw.layout_results[&DomId::ROOT_ID].display_list),
+        "premise: the window shows its own copy"
+    );
+
+    let swapped = solid(200);
+    let node = image_node(&lw);
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: DomId::ROOT_ID,
+        node_id: node,
+        image: swapped.clone(),
+        dirty_rect: None,
+    });
+    assert_eq!(painted(&lw), Some(swapped.get_hash().inner), "premise: patched in");
+
+    relayout_from_cache(&mut lw);
+    assert_eq!(
+        painted(&lw),
+        Some(swapped.get_hash().inner),
+        "the cache hit served the baseline the swap never reached: the old frame"
+    );
+}
