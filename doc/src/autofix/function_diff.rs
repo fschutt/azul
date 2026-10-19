@@ -3141,5 +3141,56 @@ mod tests {
         assert_eq!(added(source, "f").fn_body.as_deref(), Some("object.f(text.as_str(), context)"));
         assert_eq!(added(source, "g").fn_body.as_deref(), Some("object.g(data.as_slice(), metadata)"));
     }
+
+    /// A class exported through `azul_dll::unified` (the path that exists on every target: on
+    /// wasm the desktop module does not) is called through it. A fn_body calling the desktop
+    /// definition directly did not compile for wasm32; it is rewritten to the façade path, the
+    /// rest of the entry kept. A body already through the façade, and a class outside it, are
+    /// left as they are.
+    #[test]
+    fn a_fn_body_calling_around_the_unified_facade_is_pointed_at_it() {
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "audio": {"classes": {
+                    "AudioDecoder": {
+                        "external": "azul_dll::unified::audio::AudioDecoder",
+                        "constructors": {"create": {
+                            "fn_args": [{"config": "AudioCodecConfig"}],
+                            "returns": {"type": "AudioDecoder"},
+                            "fn_body": "azul_dll::desktop::extra::audio::codec::AudioDecoder::create(config)"
+                        }},
+                        "functions": {"backend_name": {
+                            "returns": {"type": "String"},
+                            "fn_body": "azul_dll::unified::audio::AudioDecoder::backend_name().into()"
+                        }}
+                    }
+                }},
+                "dom": {"classes": {"NodeId": {
+                    "external": "azul_core::id::node_id::NodeId",
+                    "constructors": {"create": {
+                        "fn_args": [{"value": "usize"}],
+                        "fn_body": "azul_core::id::NodeId::new(value)"
+                    }}
+                }}}
+            }}
+        }))
+        .expect("test api parses");
+        let fixes = fn_bodies_bypassing_the_unified_facade(&api);
+        assert_eq!(fixes.len(), 1, "{fixes:?}");
+        let fix = &fixes[0];
+        assert_eq!(
+            (fix.module.as_str(), fix.class.as_str(), fix.api_name.as_str(), fix.is_constructor),
+            ("audio", "AudioDecoder", "create", true)
+        );
+        assert_eq!(
+            fix.fixed.fn_body.as_deref(),
+            Some("azul_dll::unified::audio::AudioDecoder::create(config)")
+        );
+        assert_eq!(
+            fix.fixed.returns.as_ref().map(|r| r.r#type.as_str()),
+            Some("AudioDecoder"),
+            "the rest of the entry is kept"
+        );
+    }
 }
 
