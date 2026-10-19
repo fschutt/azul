@@ -1492,6 +1492,15 @@ fn inline_is_overruled(
         .any(|(s, t)| *t == ty && (*s == PseudoStateType::Normal || *s == state))
 }
 
+/// Whether an unscoped `*` rule styles `node`. `*` selects elements, so it
+/// styles neither a text node, which only inherits, nor generated content,
+/// which the rules naming its pseudo-element style and which inherits from
+/// its host.
+#[must_use]
+pub(crate) const fn star_selects(node: &NodeData) -> bool {
+    !node.is_text_node() && !node.is_generated_content()
+}
+
 /// Returns true if `prop`'s value cannot be fully represented in the compact
 /// cache and therefore needs to survive `prune_compact_normal_props` so the
 /// slow `css_props` walk can still find it at layout time.
@@ -3266,7 +3275,7 @@ impl CssPropertyCache {
             || self.inline_properties(node_data, index).any(|(p, _)| p.get_type() == ty)
             || self.css_props.get_slice(index).iter().any(|p| p.prop_type == ty)
             || self.cascaded_props.get_slice(index).iter().any(|p| p.prop_type == ty)
-            || self.global_css_props.iter().any(|p| p.get_type() == ty)
+            || (star_selects(node_data) && self.global_css_props.iter().any(|p| p.get_type() == ty))
     }
 
     /// [`Self::get_property`], answering a type the node declares nowhere
@@ -3509,12 +3518,12 @@ impl CssPropertyCache {
 
             // PRIORITY 2b (Normal only): global `*` selector properties
             // (specificity 0,0,0). These are collected once during restyle
-            // and apply to all nodes. Lower priority than per-node rules but
-            // higher than inheritance/UA. Collected in cascade order
+            // and apply to every element. Lower priority than per-node rules
+            // but higher than inheritance/UA. Collected in cascade order
             // (priority, theme rank, source order), so the LAST of a property
             // wins - as the compact builder, which applies them in turn, has
             // it.
-            if state == PseudoStateType::Normal {
+            if state == PseudoStateType::Normal && star_selects(node_data) {
                 if let Some(p) = self
                     .global_css_props
                     .iter()
@@ -5581,7 +5590,7 @@ impl CssPropertyCache {
                 prop_type_bit_set(&mut global_bits, p.get_type());
             }
             for (node_idx, node) in node_data.iter().enumerate() {
-                if !node.is_text_node() {
+                if star_selects(node) {
                     prop_set[node_idx][0] |= global_bits[0];
                     prop_set[node_idx][1] |= global_bits[1];
                 }
@@ -5710,6 +5719,19 @@ impl CssPropertyCache {
         }
         for p in &self.global_css_props {
             note(p);
+        }
+        self.inline_properties(&node_data[index], index)
+            .for_each(|(p, _)| note(p));
+        self.css_props
+            .get_slice(index)
+            .iter()
+            .for_each(|p| note(&p.property));
+        self.cascaded_props
+            .get_slice(index)
+            .iter()
+            .for_each(|p| note(&p.property));
+        if star_selects(&node_data[index]) {
+            self.global_css_props.iter().for_each(&mut note);
         }
         declared
             .into_iter()
@@ -6367,7 +6389,7 @@ impl CssPropertyCache {
             .collect();
 
         // `*` matches elements only (as in the compact builder).
-        if !node_data.is_text_node() {
+        if star_selects(node_data) {
             let resting = StyledNodeState::default();
             let mut global_types: Vec<CssPropertyType> = self
                 .global_css_props

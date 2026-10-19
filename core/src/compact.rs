@@ -910,8 +910,9 @@ impl CssPropertyCache {
             // Per CSS spec, `*` matches all ELEMENTS. Text nodes are not elements —
             // they must only inherit from their parent. Without this check, `* { color: #666 }`
             // would overwrite the inherited `color: red` on a Text child of `<p>`,
-            // even though `<p>` correctly got red from `p { color: red }`.
-            if !nd.is_text_node() {
+            // even though `<p>` correctly got red from `p { color: red }`. Nor is a
+            // `::before`: the rules naming it style it, and it inherits from its host.
+            if crate::prop_cache::star_selects(nd) {
                 for prop in &self.global_css_props {
                     // (flag already accumulated in the has_global pre-pass)
                     let Some(prop) = compact_value(
