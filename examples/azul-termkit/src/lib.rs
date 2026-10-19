@@ -12,6 +12,8 @@
 //!   events applied (the bytes to the program, the scroll, the selection, the
 //!   copy), when a flood of output is drawn, the re-render of the view alone.
 
+/// The addresses in a row of a terminal's text (a Cmd+click opens one).
+pub mod links;
 pub mod pane;
 /// Recorded sessions and the sample shell (`seq N`, `yes | head -n N`): what
 /// `--sample` runs instead of a real shell, for screenshots and E2E runs.
