@@ -3368,6 +3368,18 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo build --release -p azul-dll --features build-dll,debug-server,alloc-stats
 
+      # The Python extension below is a second build of the whole tree in a folder of its own.
+      # The release build's intermediate files are not needed past here (only its library is):
+      # they go before it, and the step logs the disk around that.
+      - name: Free the release build's intermediate files
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          df -h .
+          du -sh target/release 2>/dev/null || true
+          rm -rf target/release/deps target/release/build target/release/incremental target/release/.fingerprint
+          df -h .
+
       # Same Python as the e2e leg's `Set up Python` (the extension is built
       # against this interpreter; the image default moves between image releases).
       - name: Set up Python 3.12 (for the e2e python extension)
