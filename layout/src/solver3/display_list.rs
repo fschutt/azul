@@ -2063,6 +2063,135 @@ impl DisplayList {
     }
 }
 
+/// How an SVG shape's outline is stroked besides its colour and width (SVG 2
+/// s13.5): the caps, the joins and the dash pattern, in the shape's user
+/// space. Each from the shape's own attribute, else from the nearest `<g>` or
+/// `<svg>` above it that sets one (they inherit); else the initial value:
+/// `butt` caps, `miter` joins with a limit of 4, a solid line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrokeOutline {
+    /// The shape at both ends of an open subpath and of every dash.
+    pub cap: azul_core::svg::SvgLineCap,
+    /// The shape at each corner.
+    pub join: azul_core::svg::SvgLineJoin,
+    /// How long a miter may grow, in stroke widths, before it is cut.
+    pub miter_limit: f32,
+    /// `(dash, gap)` lengths; empty for a solid line.
+    pub dashes: Vec<(f32, f32)>,
+    /// How far into the pattern the line starts.
+    pub dash_offset: f32,
+}
+
+impl Default for StrokeOutline {
+    fn default() -> Self {
+        Self {
+            cap: azul_core::svg::SvgLineCap::Butt,
+            join: azul_core::svg::SvgLineJoin::Miter,
+            miter_limit: 4.0,
+            dashes: Vec::new(),
+            dash_offset: 0.0,
+        }
+    }
+}
+
+impl StrokeOutline {
+    /// The outline of the SVG shape `node` (its kept presentation
+    /// attributes, inherited through its groups).
+    #[must_use]
+    pub fn of(styled_dom: &azul_core::styled_dom::StyledDom, node: NodeId) -> Self {
+        use azul_core::svg::{SvgLineCap, SvgLineJoin};
+        let lookup = |name: &str| super::svg::inherited_svg_attribute(styled_dom, node, name);
+        let number = |name: &str| {
+            lookup(name)
+                .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+                .filter(|v| v.is_finite())
+        };
+        let cap = match lookup("stroke-linecap").as_deref().map(str::trim) {
+            Some("round") => SvgLineCap::Round,
+            Some("square") => SvgLineCap::Square,
+            _ => SvgLineCap::Butt,
+        };
+        let join = match lookup("stroke-linejoin").as_deref().map(str::trim) {
+            Some("round") => SvgLineJoin::Round,
+            Some("bevel") => SvgLineJoin::Bevel,
+            Some("miter-clip") => SvgLineJoin::MiterClip,
+            // `miter`, and `arcs`, which falls back to it.
+            _ => SvgLineJoin::Miter,
+        };
+        Self {
+            cap,
+            join,
+            miter_limit: number("stroke-miterlimit").filter(|m| *m >= 1.0).unwrap_or(4.0),
+            dashes: parse_dash_array(lookup("stroke-dasharray").as_deref()),
+            dash_offset: number("stroke-dashoffset").unwrap_or(0.0),
+        }
+    }
+
+    /// The outline with its lengths scaled by `scale` (a user space mapped
+    /// into its parent's).
+    #[must_use]
+    pub fn scaled(self, scale: f32) -> Self {
+        Self {
+            dashes: self
+                .dashes
+                .iter()
+                .map(|(dash, gap)| (dash * scale, gap * scale))
+                .collect(),
+            dash_offset: self.dash_offset * scale,
+            ..self
+        }
+    }
+
+    /// A hash of the outline, for the stroke mask memo.
+    #[must_use]
+    pub fn memo_hash(&self) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.cap.hash(&mut h);
+        self.join.hash(&mut h);
+        self.miter_limit.to_bits().hash(&mut h);
+        for (dash, gap) in &self.dashes {
+            dash.to_bits().hash(&mut h);
+            gap.to_bits().hash(&mut h);
+        }
+        self.dash_offset.to_bits().hash(&mut h);
+        h.finish()
+    }
+}
+
+/// `stroke-dasharray` as `(dash, gap)` pairs (SVG 2 s13.5.6): lengths
+/// separated by commas and / or spaces, an odd list repeated to make it even.
+/// Empty - a solid line - for `none`, a negative or unreadable entry, or a
+/// pattern whose lengths sum to (almost) zero; at most 16 pairs, as many as
+/// the dasher holds.
+fn parse_dash_array(value: Option<&str>) -> Vec<(f32, f32)> {
+    let Some(value) = value.map(str::trim) else {
+        return Vec::new();
+    };
+    if value.is_empty() || value == "none" {
+        return Vec::new();
+    }
+    let mut lengths = Vec::new();
+    for part in value.split(|c: char| c == ',' || c.is_whitespace()) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        match part.trim_end_matches("px").parse::<f32>() {
+            Ok(v) if v.is_finite() && v >= 0.0 => lengths.push(v),
+            _ => return Vec::new(),
+        }
+    }
+    if lengths.len() % 2 == 1 {
+        lengths.extend_from_within(..);
+    }
+    let period: f32 = lengths.iter().sum();
+    if period < 1e-3 || lengths.len() > 32 {
+        return Vec::new();
+    }
+    lengths.chunks_exact(2).map(|p| (p[0], p[1])).collect()
+}
+
 /// A command in the display list. Can be either a drawing primitive or a
 /// state-management instruction for the renderer's graphics context.
 #[derive(Debug, Clone)]
@@ -2284,6 +2413,8 @@ pub enum DisplayListItem {
         color: ColorU,
         /// The stroke width, in the same user space as the geometry.
         width: f32,
+        /// The caps, joins and dash pattern, in that user space too.
+        outline: StrokeOutline,
         /// The stroke, pre-rasterised as an R8 coverage mask over `bounds`.
         ///
         /// For the GPU backend, which has no vector rasteriser: it paints
@@ -6383,14 +6514,15 @@ where
         let Some((path, color, width)) = self.svg_stroke_for(dom_id, &border_info) else {
             return;
         };
+        let outline = StrokeOutline::of(self.ctx.styled_dom, dom_id);
         // Its user space mapped into its `<svg>`'s: the path and the width.
         let user = self.svg_user_transform(dom_id);
-        let (path, width) = if user.is_identity() {
-            (path, width)
+        let (path, width, outline) = if user.is_identity() {
+            (path, width, outline)
         } else {
             #[allow(clippy::cast_possible_truncation)] // a stroke width in user units
-            let scaled = width * user.length_scale() as f32;
-            (path.transformed(&user), scaled)
+            let scale = user.length_scale() as f32;
+            (path.transformed(&user), width * scale, outline.scaled(scale))
         };
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return;
@@ -6403,7 +6535,8 @@ where
             &paint_rect,
             view_box,
             width,
-            || rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width),
+            outline.memo_hash(),
+            || rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width, &outline),
         );
         #[cfg(not(feature = "cpurender"))]
         let mask = None;
@@ -6413,6 +6546,7 @@ where
             view_box,
             color,
             width,
+            outline,
             mask,
         });
     }
@@ -6535,6 +6669,7 @@ where
                     &paint_rect,
                     view_box,
                     0.0,
+                    0,
                     || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box, even_odd),
                 )
                 .is_some_and(|mask_image| {
@@ -11074,6 +11209,7 @@ fn clip_and_offset_display_item(
             view_box,
             color,
             width,
+            outline,
             mask,
         } => {
             let b = bounds.into_inner();
@@ -11086,6 +11222,7 @@ fn clip_and_offset_display_item(
                 view_box: *view_box,
                 color: *color,
                 width: *width,
+                outline: outline.clone(),
                 mask: mask.clone(),
             })
         }
@@ -12599,6 +12736,7 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             view_box,
             color,
             width,
+            outline,
             mask,
         } => DisplayListItem::StrokedPath {
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
@@ -12606,6 +12744,7 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             view_box: *view_box,
             color: *color,
             width: *width,
+            outline: outline.clone(),
             mask: mask.clone(),
         },
         DisplayListItem::Rect {
@@ -13456,6 +13595,9 @@ mod svg_mask_memo {
         rect: [u32; 4],
         view_box: Option<[u32; 4]>,
         width: u32,
+        /// The stroke's caps, joins and dashes (`StrokeOutline::memo_hash`);
+        /// 0 for a clip.
+        outline: u64,
     }
 
     thread_local! {
@@ -13508,6 +13650,7 @@ mod svg_mask_memo {
         paint_rect: &LogicalRect,
         view_box: Option<(f32, f32, f32, f32)>,
         width: f32,
+        outline: u64,
         rasterise: impl FnOnce() -> Option<ImageRef>,
     ) -> Option<ImageRef> {
         // A clip WITHOUT a viewBox is drawn in window coordinates (the paint
@@ -13531,6 +13674,7 @@ mod svg_mask_memo {
             ],
             view_box: view_box.map(|(x, y, w, h)| [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()]),
             width: width.to_bits(),
+            outline,
         };
         if let Some(hit) = MEMO.with(|memo| memo.borrow_mut().get(&key)) {
             return Some(hit);
@@ -13564,9 +13708,10 @@ fn rasterize_svg_stroke_to_r8(
     paint_rect: &LogicalRect,
     view_box: Option<(f32, f32, f32, f32)>,
     width: f32,
+    outline: &StrokeOutline,
 ) -> Option<ImageRef> {
     use agg_rust::{
-        basics::FillingRule, color::Rgba8, conv_stroke::ConvStroke, pixfmt_rgba::PixfmtRgba32,
+        basics::FillingRule, color::Rgba8, pixfmt_rgba::PixfmtRgba32,
         rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
         renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
         scanline_u::ScanlineU8,
@@ -13587,13 +13732,12 @@ fn rasterize_svg_stroke_to_r8(
     let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
 
     let scale = f64::from(f32::midpoint(sx, sy));
-    // Flattened before stroking, for the same reason the fill is: the stroker
-    // walks VERTICES, and a raw curve command has none to offset.
-    let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut geometry);
-    let mut stroke = ConvStroke::new(&mut flattened);
-    stroke.set_width((f64::from(width) * scale).max(1.0));
-    stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
-    stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
+    let mut stroke = crate::cpurender::pixmap::svg_stroke_outline(
+        &mut geometry,
+        outline,
+        (f64::from(width) * scale).max(1.0),
+        scale,
+    );
 
     let mut rgba_buf = vec![0u8; (w * h * 4) as usize];
     {

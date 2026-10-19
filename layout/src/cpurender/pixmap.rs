@@ -1217,6 +1217,95 @@ pub fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
+/// The outline of a stroked SVG path as AGG walks it: the geometry flattened,
+/// dashed when the stroke has a pattern, then stroked with its caps and
+/// joins. One builder for the CPU renderer and the GPU mask, which must draw
+/// the same stroke.
+pub enum SvgStrokeOutline<'a> {
+    /// A solid stroke.
+    Solid(agg_rust::conv_stroke::ConvStroke<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>),
+    /// A dashed one.
+    Dashed(
+        agg_rust::conv_stroke::ConvStroke<
+            agg_rust::conv_dash::ConvDash<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>,
+        >,
+    ),
+}
+
+impl agg_rust::basics::VertexSource for SvgStrokeOutline<'_> {
+    fn rewind(&mut self, path_id: u32) {
+        match self {
+            Self::Solid(stroke) => stroke.rewind(path_id),
+            Self::Dashed(stroke) => stroke.rewind(path_id),
+        }
+    }
+
+    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
+        match self {
+            Self::Solid(stroke) => stroke.vertex(x, y),
+            Self::Dashed(stroke) => stroke.vertex(x, y),
+        }
+    }
+}
+
+/// The stroke of `geometry` (device pixels): `width` device pixels wide,
+/// with `outline`'s caps, joins and dashes, whose lengths are user units of
+/// `scale` device pixels each.
+pub fn svg_stroke_outline<'a>(
+    geometry: &'a mut PathStorage,
+    outline: &crate::solver3::display_list::StrokeOutline,
+    width: f64,
+    scale: f64,
+) -> SvgStrokeOutline<'a> {
+    use agg_rust::math_stroke::{LineCap, LineJoin};
+    use azul_core::svg::{SvgLineCap, SvgLineJoin};
+
+    fn configure<VS: agg_rust::basics::VertexSource>(
+        stroke: &mut agg_rust::conv_stroke::ConvStroke<VS>,
+        outline: &crate::solver3::display_list::StrokeOutline,
+        width: f64,
+    ) {
+        stroke.set_width(width);
+        stroke.set_line_cap(match outline.cap {
+            SvgLineCap::Butt => LineCap::Butt,
+            SvgLineCap::Square => LineCap::Square,
+            SvgLineCap::Round => LineCap::Round,
+        });
+        stroke.set_line_join(match outline.join {
+            // SVG's `miter`: a bevel once the miter outgrows its limit - AGG's
+            // "revert". `miter-clip` cuts the miter off at the limit instead.
+            SvgLineJoin::Miter => LineJoin::MiterRevert,
+            SvgLineJoin::MiterClip => LineJoin::Miter,
+            SvgLineJoin::Round => LineJoin::Round,
+            SvgLineJoin::Bevel => LineJoin::Bevel,
+        });
+        stroke.set_miter_limit(f64::from(outline.miter_limit));
+    }
+
+    // Flattened before stroking: `PathStorage` holds curves as COMMANDS, and
+    // the dasher and the stroker walk vertices.
+    let flattened = agg_rust::conv_curve::ConvCurve::new(geometry);
+    if outline.dashes.is_empty() {
+        let mut stroke = agg_rust::conv_stroke::ConvStroke::new(flattened);
+        configure(&mut stroke, outline, width);
+        return SvgStrokeOutline::Solid(stroke);
+    }
+    let mut dashed = agg_rust::conv_dash::ConvDash::new(flattened);
+    let period: f64 = outline
+        .dashes
+        .iter()
+        .map(|(dash, gap)| f64::from(dash + gap) * scale)
+        .sum();
+    for (dash, gap) in &outline.dashes {
+        dashed.add_dash(f64::from(*dash) * scale, f64::from(*gap) * scale);
+    }
+    // The dasher walks the offset dash by dash: folded into one period.
+    dashed.dash_start((f64::from(outline.dash_offset) * scale).rem_euclid(period));
+    let mut stroke = agg_rust::conv_stroke::ConvStroke::new(dashed);
+    configure(&mut stroke, outline, width);
+    SvgStrokeOutline::Dashed(stroke)
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::similar_names)] // clip-box coordinate names (clip_x0/y0/x1/y1)
 /// Build an agg path from SVG geometry, mapping every coordinate on the way.

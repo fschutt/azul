@@ -2470,6 +2470,7 @@ pub fn render_single_item(
             view_box,
             color,
             width,
+            outline,
             // The pre-rasterised mask is the GPU backend's half of this item;
             // the CPU one strokes the real outline, which has no resolution
             // ceiling.
@@ -2481,8 +2482,7 @@ pub fn render_single_item(
                 &scroll_rect(bounds.inner()),
                 path,
                 *view_box,
-                *color,
-                *width,
+                (*color, *width, outline),
                 clip,
                 dpi_factor,
             );
@@ -3507,13 +3507,10 @@ fn render_stroked_path(
     bounds: &LogicalRect,
     path: &azul_core::svg::SvgMultiPolygon,
     view_box: Option<(f32, f32, f32, f32)>,
-    color: ColorU,
-    width: f32,
+    (color, width, outline): (ColorU, f32, &crate::solver3::display_list::StrokeOutline),
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) {
-    use agg_rust::conv_stroke::ConvStroke;
-
     if color.a == 0 || !width.is_finite() || width <= 0.0 {
         return;
     }
@@ -3528,15 +3525,7 @@ fn render_stroked_path(
     // for a non-uniform viewBox mapping.
     let scale = f64::from(f32::midpoint(sx, sy));
     let device_width = (f64::from(width) * scale).max(1.0);
-
-    // Flattened before stroking: `PathStorage` holds curve3/curve4 as
-    // COMMANDS, and the stroker walks vertices - a raw curve command has none
-    // to offset, so the outline would follow the chords instead of the curve.
-    let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut geometry);
-    let mut stroke = ConvStroke::new(&mut flattened);
-    stroke.set_width(device_width);
-    stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
-    stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
+    let mut stroke = super::pixmap::svg_stroke_outline(&mut geometry, outline, device_width, scale);
 
     let agg_color = Rgba8::new(
         u32::from(color.r),

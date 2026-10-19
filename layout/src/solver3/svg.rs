@@ -37,6 +37,30 @@ pub fn svg_ancestor(styled_dom: &StyledDom, node: NodeId) -> Option<NodeId> {
     None
 }
 
+/// The SVG presentation attribute `name` of `node`: its own, else that of the
+/// nearest group above it within its `<svg>`, the `<svg>` included - how SVG
+/// inherits `stroke-dasharray`, `stroke-linecap` and the like.
+#[must_use]
+pub fn inherited_svg_attribute(styled_dom: &StyledDom, node: NodeId, name: &str) -> Option<String> {
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let top = svg_ancestor(styled_dom, node);
+    let mut cursor = Some(node);
+    while let Some(id) = cursor {
+        if let Some(value) = node_data
+            .get(id)
+            .and_then(|nd| nd.get_attribute(name))
+        {
+            return Some(value.as_str().to_string());
+        }
+        if top.is_none_or(|svg| svg == id) {
+            break;
+        }
+        cursor = hierarchy.get(id).and_then(NodeHierarchyItem::parent_id);
+    }
+    None
+}
+
 /// The viewBox `(min_x, min_y, width, height)` of the `<svg>` `svg`.
 #[must_use]
 pub fn view_box_of(styled_dom: &StyledDom, svg: NodeId) -> Option<(f32, f32, f32, f32)> {
