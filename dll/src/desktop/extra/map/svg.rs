@@ -511,6 +511,18 @@ fn in_tile(x: f64, y: f64) -> bool {
 /// `mapcss` is the layer's `MapTileLayer::style_css` (empty = built-in
 /// palette). It drives per-MVT-layer fill / stroke / stroke-width.
 pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &str) -> String {
+    features_to_svg_in(features, tile, mapcss, "")
+}
+
+/// [`features_to_svg`] with the labels in `language` (a BCP 47 tag, `de-DE`)
+/// where a feature names itself in it.
+pub fn features_to_svg_in(
+    features: &[geojson::Feature],
+    tile: MapTileId,
+    mapcss: &str,
+    language: &str,
+) -> String {
+    let _ = language;
     let style_sheet = MapCss::parse(mapcss);
     let mut out = String::with_capacity(features.len().saturating_mul(96) + 256);
     out.push_str(
@@ -1112,6 +1124,44 @@ mod tests {
         assert!(svg.contains("font-size=\"15.0\""), "a city's built-in size: {svg}");
         assert!(svg.contains("data-kind=\"place\""), "{svg}");
         assert!(!svg.contains("transform="), "a point label is upright: {svg}");
+    }
+
+    /// OpenStreetMap writes a name in several languages as one value, the
+    /// alternatives separated by `;` (South America is "América do
+    /// Sul;América del Sur"): the map shows one of them, not the list.
+    #[test]
+    fn a_name_with_alternatives_shows_one_of_them() {
+        let svg = features_to_svg(
+            &[named_point(
+                "place",
+                Some("continent"),
+                "América do Sul;América del Sur",
+                -122.4194,
+                37.7749,
+            )],
+            SF_TILE,
+            "",
+        );
+        assert!(svg.contains(">América do Sul</text>"), "{svg}");
+        assert!(!svg.contains(';'), "no list of names on the map: {svg}");
+    }
+
+    /// A feature that names itself in the user's language (`name:de`) is
+    /// labelled in it.
+    #[test]
+    fn a_name_in_the_users_language_is_the_label() {
+        let mut feature =
+            named_point("place", Some("continent"), "South America", -122.4194, 37.7749);
+        if let Some(props) = feature.properties.as_mut() {
+            props.insert(
+                "name:de".to_string(),
+                serde_json::Value::String("Südamerika".to_string()),
+            );
+        }
+        let svg = features_to_svg_in(&[feature.clone()], SF_TILE, "", "de-DE");
+        assert!(svg.contains(">Südamerika</text>"), "{svg}");
+        let svg = features_to_svg_in(&[feature], SF_TILE, "", "fr-FR");
+        assert!(svg.contains(">South America</text>"), "no French name: the name: {svg}");
     }
 
     #[test]
