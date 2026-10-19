@@ -4049,7 +4049,6 @@ pub mod parser {
                 "",
                 "   ",
                 "\t\n",
-                "auto",
                 "!!!",
                 "\u{1F600}",
                 "CONTAIN",
@@ -4062,6 +4061,11 @@ pub mod parser {
             }
             let huge = "a".repeat(100_000);
             assert!(parse_style_background_size(&huge).is_err());
+            // `auto` is no garbage: it is the initial value.
+            assert_eq!(
+                parse_style_background_size("auto").unwrap(),
+                StyleBackgroundSize::Auto
+            );
         }
 
         #[test]
