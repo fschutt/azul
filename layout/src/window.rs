@@ -2200,6 +2200,22 @@ pub struct LayoutWindow {
     pub icu_localizer: IcuLocalizerHandle,
 }
 
+/// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
+/// the nodes `:focus` moves between, and the nodes `:focus-within` follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DomFocusChange {
+    /// The node of this DOM that lost the focus.
+    pub lost: Option<NodeId>,
+    /// The node of this DOM that gained the focus.
+    pub gained: Option<NodeId>,
+    /// Where `:focus-within` leaves from: `lost`, or the host of the
+    /// `VirtualView` whose content held the focus.
+    pub lost_within: Option<NodeId>,
+    /// Where `:focus-within` goes to: `gained`, or the host of the view
+    /// whose content holds the focus now.
+    pub gained_within: Option<NodeId>,
+}
+
 /// A window that goes away stops the background workers it still has TOGETHER
 /// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
 /// first and they are waited for on one shared grace period. Dropping the
@@ -6796,6 +6812,29 @@ impl LayoutWindow {
             ctx.system_colors = palette;
         }
         ctx
+    }
+
+    /// A focus move from `old` to `new`, DOM by DOM: node indices mean
+    /// something only inside their own DOM, so each DOM the move touches is
+    /// restyled with its own nodes.
+    #[must_use]
+    pub fn focus_change_per_dom(
+        &self,
+        old: Option<DomNodeId>,
+        new: Option<DomNodeId>,
+    ) -> BTreeMap<DomId, DomFocusChange> {
+        let mut per_dom: BTreeMap<DomId, DomFocusChange> = BTreeMap::new();
+        if let Some((dom, node)) = old.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+            let entry = per_dom.entry(dom).or_default();
+            entry.lost = Some(node);
+            entry.lost_within = Some(node);
+        }
+        if let Some((dom, node)) = new.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+            let entry = per_dom.entry(dom).or_default();
+            entry.gained = Some(node);
+            entry.gained_within = Some(node);
+        }
+        per_dom
     }
 
     /// The light / dark this window shows when its own mode is `window`

@@ -2914,6 +2914,20 @@ impl StyledDom {
         result
     }
 
+    /// A focus change of this DOM where `:focus-within` follows other nodes
+    /// than `:focus`: `within` is `(lost, gained)` for `:focus-within` - the
+    /// host of a `VirtualView` whose content held or holds the focus, in the
+    /// DOM that hosts the view (`LayoutWindow::focus_change_per_dom`).
+    #[must_use]
+    pub fn restyle_on_focus_change(
+        &mut self,
+        focus: FocusChange,
+        within: (Option<NodeId>, Option<NodeId>),
+    ) -> RestyleResult {
+        let _ = within;
+        self.restyle_on_state_change(Some(focus), None, None)
+    }
+
     /// Overrides CSS properties for a single node from user code (typically a
     /// callback). Writes into `CssPropertyCache::user_overridden_properties`,
     /// which `get_property_slow` / `get_property_fast` / `get_computed_value`
