@@ -10586,23 +10586,23 @@
                         ],
                         "struct_fields": [
                             {
-                                "timeout_secs": {
-                                    "type": "u64"
-                                },
-                                "max_response_size": {
-                                    "type": "u64"
-                                },
                                 "user_agent": {
                                     "type": "String"
                                 },
                                 "headers": {
                                     "type": "HttpHeaderVec"
                                 },
-                                "disable_tls_cert_verification": {
-                                    "type": "bool"
-                                },
                                 "client": {
                                     "type": "OptionHttpClient"
+                                },
+                                "timeout_secs": {
+                                    "type": "u64"
+                                },
+                                "max_response_size": {
+                                    "type": "u64"
+                                },
+                                "disable_tls_cert_verification": {
+                                    "type": "bool"
                                 },
                                 "follow_redirects": {
                                     "type": "bool"

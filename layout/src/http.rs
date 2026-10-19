@@ -187,25 +187,26 @@ impl_vec_mut!(HttpHeader, HttpHeaderVec);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct HttpRequestConfig {
-    /// Request timeout in seconds (default: 30)
-    pub timeout_secs: u64,
-    /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
-    pub max_response_size: u64,
+    // pointer-sized fields first and the two bools last, so the C layout has no padding holes
     /// User-Agent header value
     pub user_agent: AzString,
     /// Additional headers
     pub headers: HttpHeaderVec,
-    /// Disable TLS certificate verification (default: false).
-    /// WARNING: This makes HTTPS connections vulnerable to MITM attacks.
-    /// Use only for testing or when connecting to servers with self-signed
-    /// or cross-signed certificates not in the Mozilla root store.
-    pub disable_tls_cert_verification: bool,
     /// Connection pool to send the request through (default: none).
     ///
     /// `None` opens a fresh connection for this request and closes it after.
     /// `Some` reuses the client's idle connections, and TLS verification then
     /// follows the client's `HttpClientConfig`, not the field above.
     pub client: OptionHttpClient,
+    /// Request timeout in seconds (default: 30)
+    pub timeout_secs: u64,
+    /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
+    pub max_response_size: u64,
+    /// Disable TLS certificate verification (default: false).
+    /// WARNING: This makes HTTPS connections vulnerable to MITM attacks.
+    /// Use only for testing or when connecting to servers with self-signed
+    /// or cross-signed certificates not in the Mozilla root store.
+    pub disable_tls_cert_verification: bool,
     /// Follow redirects (default: true, up to 10). `false` answers the
     /// redirect itself - its 3xx status and `Location` header - so a feed
     /// reader can tell a 301 (update the subscription) from a 302.
