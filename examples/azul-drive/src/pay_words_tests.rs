@@ -121,6 +121,23 @@ fn buy_storage_says_its_prices_and_payments_in_the_windows_language() {
     set_locale("en-US");
 }
 
+/// Every method the app knows has its pill words in English and in German (built from the wire
+/// name, so the source scan of l10n_tests cannot see them).
+#[test]
+fn every_method_has_its_words_in_english_and_german() {
+    let ftl = |lang: &str| {
+        std::fs::read_to_string(format!("{}/resources/{lang}.ftl", env!("CARGO_MANIFEST_DIR")))
+            .expect("the ftl file")
+    };
+    for lang in ["en", "de"] {
+        let text = ftl(lang);
+        for method in Method::ALL {
+            let key = format!("azdrive-pay-method-{} =", method.as_str().replace('_', "-"));
+            assert!(text.contains(&key), "{lang}: no {key}");
+        }
+    }
+}
+
 // ==== The pills in the payer's country: where the payer finishes, what a method tells ====
 
 /// The choice of `method` in a live offer of Stripe's whose method is described by `extra`.

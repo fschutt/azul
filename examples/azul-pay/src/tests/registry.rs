@@ -224,7 +224,7 @@ fn the_fake_providers_live_on_this_computer_only() {
 #[test]
 fn every_method_says_what_the_payer_does_and_where_they_finish() {
     use crate::registry::{Flow, Handoff};
-    assert_eq!(Method::ALL.len(), 51);
+    assert_eq!(Method::ALL.len(), 81);
     for method in Method::ALL {
         assert!(
             method
@@ -247,6 +247,79 @@ fn every_method_says_what_the_payer_does_and_where_they_finish() {
     assert!(!Method::Card.anonymous() && !Method::Blik.anonymous());
     assert_eq!(Method::parse("BLIK"), Some(Method::Blik));
     assert_eq!(Method::parse("mb_way"), Some(Method::MbWay));
+    // dLocal's, EBANX's and KOMOJU's own: a transfer, a push to a phone, a QR code, cash in a shop,
+    // a wallet's or a bank's login
+    assert_eq!((Method::Spei.flow(), Method::Spei.handoff()), (Flow::Transfer, Handoff::BankTransfer));
+    assert_eq!((Method::Mpesa.flow(), Method::Mpesa.handoff()), (Flow::Push, Handoff::PhonePush));
+    assert_eq!((Method::Qris.flow(), Method::Qris.handoff()), (Flow::Qr, Handoff::PhoneQr));
+    assert_eq!((Method::Efecty.flow(), Method::Efecty.handoff()), (Flow::Voucher, Handoff::StoreCash));
+    assert_eq!((Method::PayEasy.flow(), Method::PayEasy.handoff()), (Flow::Voucher, Handoff::BankTransfer));
+    assert!(Method::MercadoPago.handoff().leaves() && Method::Pse.handoff().leaves());
+    assert_eq!(Method::parse("touch_n_go"), Some(Method::TouchNGo));
+    assert_eq!(Method::parse("netbanking_in"), Some(Method::NetbankingIn));
+}
+
+// ==== dLocal, EBANX and KOMOJU ====
+
+/// The methods each one's routes carry (azul-apps' payment methods registry, read 2026-10-19).
+const DLOCAL_METHODS: [&str; 32] = [
+    "airtel_money", "au_pay", "boleto", "capitec_pay", "dana", "efecty", "fawry", "gcash", "grabpay",
+    "khipu", "konbini", "maya", "mercado_pago", "momo", "mpesa", "nequi", "netbanking_in",
+    "ng_bank_transfer", "opay", "ovo", "oxxo", "ozow", "pagoefectivo", "pay_easy", "pix", "pse",
+    "qris", "spei", "upi", "webpay", "yape", "zalopay",
+];
+const EBANX_METHODS: [&str; 18] = [
+    "airtel_money", "boleto", "capitec_pay", "efecty", "mercado_pago", "mpesa", "nequi",
+    "ng_bank_transfer", "opay", "oxxo", "ozow", "pagoefectivo", "pix", "pse", "spei", "upi", "webpay",
+    "yape",
+];
+const KOMOJU_METHODS: [&str; 19] = [
+    "alipay_hk", "au_pay", "bank_transfer", "blik", "dana", "fpx", "gcash", "kakao_pay", "konbini",
+    "kr_card", "merpay", "naver_pay", "ovo", "p24", "paidy", "pay_easy", "payco", "paypay",
+    "touch_n_go",
+];
+
+/// dLocal's pages may never be framed, EBANX's Payment Page asks the payer for details we never
+/// see and KOMOJU's hosted page is untested in a web view: all three go to the system browser,
+/// and each carries exactly the methods of its routes - a method the app does not know would be
+/// dropped from the token server's offer with a log line.
+#[test]
+fn dlocal_ebanx_and_komoju_carry_every_method_of_their_routes_in_the_system_browser() {
+    for (id, methods, host) in [
+        ("dlocal", &DLOCAL_METHODS[..], "pay.dlocal.com"),
+        ("ebanx", &EBANX_METHODS[..], "sandbox.ebanxpay.com"),
+        ("komoju", &KOMOJU_METHODS[..], "komoju.com"),
+    ] {
+        let spec = registry::provider(id).unwrap_or_else(|| panic!("no {id}"));
+        assert!(!spec.fake, "{id}");
+        assert_eq!(spec.fields, None, "{id}: no fields page of ours");
+        for name in methods {
+            let method = Method::parse(name).unwrap_or_else(|| panic!("{id}: the app knows no {name}"));
+            let m = spec.method(method).unwrap_or_else(|| panic!("{id} lacks {name}"));
+            assert_eq!(m.chain, [SurfaceKind::SystemBrowser].as_slice(), "{id} {name}");
+            assert_eq!(m.embed.webview, Webview::Forbidden, "{id} {name}");
+        }
+        assert_eq!(spec.methods.len(), methods.len(), "{id}: its routes' methods, no other");
+        let page = WebUrl::parse(&format!("https://{host}/checkout")).unwrap();
+        assert!(spec.owns(&page), "{id}: {host}");
+    }
+    let page = |u: &str| WebUrl::parse(u).unwrap();
+    assert!(registry::provider("dlocal").unwrap().owns(&page("https://sandbox.dlocal.com/collect/x")));
+    assert!(registry::provider("ebanx").unwrap().owns(&page("https://checkout.ebanxpay.com/x")));
+    assert!(!registry::provider("ebanx").unwrap().owns(&page("https://ebanxpay.com.example.org/x")));
+}
+
+#[cfg(feature = "fake-providers")]
+#[test]
+fn the_dlocal_and_ebanx_stand_ins_take_pix_boleto_and_oxxo_in_the_browser_on_this_computer() {
+    for id in ["fake-dlocal", "fake-ebanx"] {
+        let spec = registry::provider(id).unwrap_or_else(|| panic!("no {id}"));
+        assert!(spec.fake && spec.origins.iter().all(Origin::is_loopback), "{id}");
+        for method in [Method::Pix, Method::Boleto, Method::Oxxo] {
+            let m = spec.method(method).unwrap_or_else(|| panic!("{id} lacks {method:?}"));
+            assert_eq!(m.chain, [SurfaceKind::SystemBrowser].as_slice(), "{id} {method:?}");
+        }
+    }
 }
 
 #[test]
