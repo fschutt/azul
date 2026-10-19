@@ -199,3 +199,20 @@ pub fn window_clear_color(
     };
     ColorU { a: 255, ..color }
 }
+
+#[cfg(test)]
+mod window_id_tests {
+    use super::free_window_id;
+
+    /// The debug server reaches a window by its id: a window opened under an id an open window
+    /// has already (every popup is `azul-transient`, every menu `azul-menu`) takes the first
+    /// free `-2`, `-3`, ..., and a free id stays as it is.
+    #[test]
+    fn a_window_under_a_taken_id_takes_the_first_free_number() {
+        let open = ["azul-window", "azul-transient", "azul-transient-2"];
+        let taken = |id: &str| open.contains(&id);
+        assert_eq!(free_window_id("azul-transient", taken), "azul-transient-3");
+        assert_eq!(free_window_id("azul-menu", taken), "azul-menu");
+        assert_eq!(free_window_id("azul-window", |id| id == "azul-window"), "azul-window-2");
+    }
+}
