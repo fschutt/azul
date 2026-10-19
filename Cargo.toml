@@ -224,6 +224,12 @@ opt-level = 1
 debug = false
 codegen-units = 256
 
+# The generated binding sits in azul-dll itself: that crate is compiled without optimization for
+# the test artifact (on the 3-core macOS runner -O1 of it did not finish within the hour), the
+# engine crates it calls keep -O1.
+[profile.pyext-e2e.package.azul-dll]
+opt-level = 0
+
 # CI / distribution profile: maximum optimization, slow to build.
 #   cargo build --profile prod-release -p azul-dll --features build-dll
 [profile.prod-release]
