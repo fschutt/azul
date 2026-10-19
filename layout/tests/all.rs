@@ -1247,3 +1247,5 @@ mod the_quotes_property_picks_the_quotation_marks;
 mod a_string_list_style_type_is_the_marker;
 #[path = "a_node_inserted_at_runtime_gets_its_generated_content.rs"]
 mod a_node_inserted_at_runtime_gets_its_generated_content;
+#[path = "a_marker_rule_styles_the_list_items_marker.rs"]
+mod a_marker_rule_styles_the_list_items_marker;
