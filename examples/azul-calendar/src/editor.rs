@@ -1006,4 +1006,17 @@ mod tests {
         assert_eq!((f.repeat, f.custom.as_ref()), (Repeat::Never, None));
         assert_eq!(rule_text(&f), None);
     }
+
+    /// The attendees are tokens; what is still typed in the field (no separator, no Enter yet)
+    /// is invited too when the event is saved, checked like the rest.
+    #[test]
+    fn an_attendee_still_typed_is_invited_with_the_tokens() {
+        let mut f = form();
+        f.attendees = String::from("ada@example.org");
+        f.attendees_typed = String::from(" ben@example.org ");
+        let e = f.event(None).unwrap();
+        assert_eq!(e.attendees, vec!["ada@example.org".to_string(), "ben@example.org".to_string()]);
+        f.attendees_typed = String::from("not an address");
+        assert!(f.event(None).is_err(), "what is typed is checked like the rest");
+    }
 }
