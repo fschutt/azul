@@ -311,6 +311,14 @@ impl VideoDecoder {
     }
     pub fn set_output_format(&self, _format: azul_core::resources::RawImageFormat) {}
     pub fn set_output_size(&self, _width: u32, _height: u32) {}
+    /// No decode engine on wasm: no frame waits.
+    pub fn next_frame(&self) -> OptionVideoFrame {
+        OptionVideoFrame::None
+    }
+    /// No decode engine on wasm: nothing is held back.
+    pub fn flush(&self) -> OptionVideoFrame {
+        OptionVideoFrame::None
+    }
     pub fn recv_frame(&mut self) -> OptionVideoFrame {
         OptionVideoFrame::None
     }
@@ -447,7 +455,7 @@ impl Mp4Demuxer {
     pub fn is_open(&self) -> bool {
         false
     }
-    pub fn error(&self) -> AzString {
+    pub fn open_error(&self) -> AzString {
         AzString::from_const_str("MP4 demux has no wasm backend")
     }
     pub fn width(&self) -> u32 {
@@ -526,7 +534,7 @@ impl Mp4Muxer {
     pub fn finish(&mut self) -> U8Vec {
         U8Vec::from_vec(Vec::new())
     }
-    pub fn error(&self) -> AzString {
+    pub fn last_error(&self) -> AzString {
         AzString::from_const_str("MP4 mux has no wasm backend")
     }
     pub fn close(&mut self) {}

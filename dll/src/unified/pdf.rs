@@ -93,6 +93,10 @@ impl Pdf {
     ) -> azul_core::resources::OptionRawImage {
         azul_core::resources::OptionRawImage::None
     }
+    /// No PDF backend on wasm: no page.
+    pub fn to_svg_pages(&self, _bytes: &[u8]) -> azul_css::StringVec {
+        azul_css::StringVec::from_vec(Vec::new())
+    }
     /// No PDF backend on wasm: returns an empty byte vec.
     pub fn from_styled_dom_with_resources(
         &self,
@@ -184,6 +188,29 @@ impl ParsedPdf {
     }
     pub fn page_to_svg(&self, _index: usize) -> azul_css::OptionString {
         azul_css::OptionString::None
+    }
+    /// No PDF backend on wasm: no page.
+    pub fn page_to_svg_with(
+        &self,
+        _index: usize,
+        _options: azul_core::pdf_form::PdfPageSvgOptions,
+    ) -> azul_css::OptionString {
+        azul_css::OptionString::None
+    }
+    /// No PDF backend on wasm: no form.
+    pub fn form_fields(&self) -> azul_core::pdf_form::PdfFormFieldVec {
+        azul_core::pdf_form::PdfFormFieldVec::from_vec(Vec::new())
+    }
+    /// No PDF backend on wasm: the form is not filled.
+    pub fn fill_form(
+        &self,
+        _values: azul_core::pdf_form::PdfFieldValueVec,
+        _stamps: azul_core::pdf_form::PdfStampVec,
+        _flatten: bool,
+    ) -> azul_layout::callbacks::ResultU8VecString {
+        azul_layout::callbacks::ResultU8VecString::from(Err(azul_css::AzString::from(
+            "PDF forms have no wasm backend",
+        )))
     }
     pub fn page_text(&self, _index: usize) -> azul_css::StringVec {
         Vec::<String>::new().into()

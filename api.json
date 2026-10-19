@@ -197181,7 +197181,7 @@
                                         "bytes": "U8VecRef"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::pdf::parsed::ParsedPdf::create_from_bytes(bytes.as_slice())"
+                                "fn_body": "azul_dll::unified::pdf::ParsedPdf::create_from_bytes(bytes.as_slice())"
                             }
                         },
                         "functions": {
@@ -200222,7 +200222,7 @@
                                         "config": "AudioConfig"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::codec::AudioDecoder::create(config)"
+                                "fn_body": "azul_dll::unified::audio::AudioDecoder::create(config)"
                             }
                         },
                         "functions": {
@@ -200305,7 +200305,7 @@
                                         "bitrate_kbps": "u32"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::codec::AudioEncoder::create(config, bitrate_kbps)"
+                                "fn_body": "azul_dll::unified::audio::AudioEncoder::create(config, bitrate_kbps)"
                             }
                         },
                         "functions": {
@@ -200317,7 +200317,7 @@
                                 "returns": {
                                     "type": "String"
                                 },
-                                "fn_body": "azul_dll::desktop::extra::audio::codec::AudioEncoder::backend_name().into()"
+                                "fn_body": "azul_dll::unified::audio::AudioEncoder::backend_name().into()"
                             },
                             "close": {
                                 "doc": [
@@ -200414,7 +200414,7 @@
                                         "tail_ms": "u32"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::echo::EchoCanceller::create(sample_rate, tail_ms)"
+                                "fn_body": "azul_dll::unified::audio::EchoCanceller::create(sample_rate, tail_ms)"
                             }
                         },
                         "functions": {
@@ -200551,7 +200551,7 @@
                                         "extension": "String"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::decode::AudioFileDecoder::create(bytes, extension)"
+                                "fn_body": "azul_dll::unified::audio::AudioFileDecoder::create(bytes, extension)"
                             },
                             "open": {
                                 "doc": [
@@ -200563,7 +200563,7 @@
                                         "path": "String"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::decode::AudioFileDecoder::open(path)"
+                                "fn_body": "azul_dll::unified::audio::AudioFileDecoder::open(path)"
                             }
                         },
                         "functions": {
@@ -200576,7 +200576,7 @@
                                 "returns": {
                                     "type": "String"
                                 },
-                                "fn_body": "azul_dll::desktop::extra::audio::decode::AudioFileDecoder::backend_name().into()"
+                                "fn_body": "azul_dll::unified::audio::AudioFileDecoder::backend_name().into()"
                             },
                             "close": {
                                 "doc": [
@@ -200791,7 +200791,7 @@
                                     "else it has no output (`AudioPlayerState::has_output` false, `error_message` says why)."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_dll::desktop::extra::audio::player::AudioPlayer::create()"
+                                "fn_body": "azul_dll::unified::audio::AudioPlayer::create()"
                             }
                         },
                         "functions": {
@@ -201908,7 +201908,7 @@
                                         "fps": "f32"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer::create(width, height, fps)"
+                                "fn_body": "azul_dll::unified::video_codec::Mp4Muxer::create(width, height, fps)"
                             }
                         },
                         "functions": {
@@ -202034,7 +202034,7 @@
                                         "bytes": "U8Vec"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer::create(bytes)"
+                                "fn_body": "azul_dll::unified::video_codec::Mp4Demuxer::create(bytes)"
                             }
                         },
                         "functions": {
