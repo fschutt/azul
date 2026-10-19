@@ -119,3 +119,29 @@ fn an_inline_list_item_counts_for_generated_content() {
         "list-style-type: none writes no marker"
     );
 }
+
+/// A marker's numbers are tabular (CSS Lists 3's UA sheet: `::marker {
+/// font-variant-numeric: tabular-nums }`), so the numbers of a list line up:
+/// the inline marker node resolves it, whatever its item says.
+#[test]
+fn an_inline_list_items_marker_has_tabular_numbers() {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    let styled = styled(
+        r#"<style>li { display: inline list-item; font-variant-numeric: oldstyle-nums; }</style>
+        <ol><li>a</li></ol>"#,
+    );
+    let li = all_of(&styled, |t| matches!(t, NodeType::Li))[0];
+    let marker = first_child(&styled, li).expect("the marker");
+    let state = styled.styled_nodes.as_container()[marker].styled_node_state;
+    let numeric = styled.css_property_cache.ptr.get_property(
+        &styled.node_data.as_container()[marker],
+        &marker,
+        &state,
+        &CssPropertyType::FontVariantNumeric,
+    );
+    let Some(CssProperty::FontVariantNumeric(v)) = numeric else {
+        panic!("the marker resolves font-variant-numeric, got {numeric:?}");
+    };
+    let v = v.get_property().copied().expect("a value");
+    assert!(v.tabular_nums && !v.oldstyle_nums, "{v:?}");
+}

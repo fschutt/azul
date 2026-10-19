@@ -415,6 +415,11 @@ pub(super) fn generate_list_marker_text(
     }
 }
 
+/// The style a list item's marker is shaped in.
+fn marker_style(item: Arc<StyleProperties>) -> Arc<StyleProperties> {
+    item
+}
+
 /// Generates marker text segments for a list item marker.
 ///
 /// Simply returns a single `StyledRun` with the marker text using the `base_style`.
@@ -457,3 +462,32 @@ pub(super) fn generate_list_marker_segments(
         source_node_id: None,
     }]
 }
+
+#[cfg(all(test, feature = "text_layout"))]
+mod marker_style_tests {
+    use alloc::sync::Arc;
+
+    use super::marker_style;
+    use crate::text3::cache::{FontVariantNumeric, StyleProperties};
+
+    /// A block list item's marker is shaped with tabular numbers (CSS Lists
+    /// 3's UA `::marker { font-variant-numeric: tabular-nums }`), whatever
+    /// numbers the item's own text asks for, so the numbers of a list line
+    /// up; the rest of its style is the item's.
+    #[test]
+    fn a_markers_numbers_are_tabular() {
+        let item = Arc::new(StyleProperties {
+            font_size_px: 21.0,
+            font_variant_numeric: FontVariantNumeric {
+                oldstyle_nums: true,
+                ..FontVariantNumeric::NORMAL
+            },
+            ..StyleProperties::default()
+        });
+        let marker = marker_style(item.clone());
+        assert!(marker.font_variant_numeric.tabular_nums);
+        assert!(!marker.font_variant_numeric.oldstyle_nums);
+        assert!((marker.font_size_px - 21.0).abs() < f32::EPSILON);
+    }
+}
+
