@@ -4551,13 +4551,23 @@ pub fn parse_combined_css_property(
             // A layer may name its box (`<image> padding-box`): the shorthand
             // then sets `background-origin` and `background-clip` as well, one
             // box per layer.
-            let (background_content, boxes) = parse_style_background_layers(value)?;
+            let layers = parse_style_background_layers(value)?;
             let mut props = vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(
-                background_content,
+                layers.contents,
             ))];
-            if let Some((origins, clips)) = boxes {
+            if let Some((origins, clips)) = layers.boxes {
                 props.push(CssProperty::BackgroundOrigin(CssPropertyValue::Exact(origins)));
                 props.push(CssProperty::BackgroundClip(CssPropertyValue::Exact(clips)));
+            }
+            // So does a layer that names its position, size or repeat.
+            if let Some(positions) = layers.positions {
+                props.push(CssProperty::BackgroundPosition(CssPropertyValue::Exact(positions)));
+            }
+            if let Some(sizes) = layers.sizes {
+                props.push(CssProperty::BackgroundSize(CssPropertyValue::Exact(sizes)));
+            }
+            if let Some(repeats) = layers.repeats {
+                props.push(CssProperty::BackgroundRepeat(CssPropertyValue::Exact(repeats)));
             }
             Ok(props)
         }

@@ -2329,38 +2329,6 @@ pub mod parser {
         }
     }
 
-    /// One layer of the `background` shorthand without its `<visual-box>`
-    /// keywords, and the boxes it names as `(origin, clip)`: the shorthand
-    /// writes them before or after the image, one keyword setting the
-    /// layer's origin AND its clip, of two the first the origin and the
-    /// second the clip (CSS Backgrounds 3 s3.10). `None` when the layer names
-    /// no box.
-    #[allow(clippy::type_complexity)] // the layer and its two optional boxes
-    fn strip_visual_boxes(
-        layer: &str,
-    ) -> Result<(&str, Option<(StyleBackgroundClip, StyleBackgroundClip)>), CssBackgroundParseError<'_>>
-    {
-        let mut rest = layer.trim();
-        let mut boxes = Vec::new();
-        while let Some(first) = split_string_respect_whitespace(rest).first().copied() {
-            let Some(b) = visual_box(first) else { break };
-            boxes.push(b);
-            rest = rest[first.len()..].trim_start();
-        }
-        // After the image: written later, so they come after the leading ones.
-        let mut trailing = Vec::new();
-        while let Some(last) = split_string_respect_whitespace(rest).last().copied() {
-            let Some(b) = visual_box(last) else { break };
-            trailing.push(b);
-            rest = rest[..rest.len() - last.len()].trim_end();
-        }
-        boxes.extend(trailing.into_iter().rev());
-        if boxes.len() > 2 {
-            return Err(CssBackgroundParseError::Error(layer));
-        }
-        Ok((rest, boxes.first().copied().zip(boxes.last().copied())))
-    }
-
     /// Parses the `background` shorthand's layer list into its layers and, when
     /// any layer names a box, the `background-origin` and `background-clip`
     /// lists that go with them.
@@ -2380,44 +2348,202 @@ pub mod parser {
     pub fn parse_style_background_layers(
         input: &str,
     ) -> Result<BackgroundLayers, CssBackgroundParseError<'_>> {
+        // Every list in CSS order (the top layer first), one entry per
+        // painted layer: a final layer with an image and a colour paints
+        // two, the colour under the image, both with that layer's values.
         let mut layers = Vec::new();
         let mut clips = Vec::new();
         let mut origins = Vec::new();
-        let mut names_a_box = false;
+        let mut positions = Vec::new();
+        let mut sizes = Vec::new();
+        let mut repeats = Vec::new();
+        let (mut names_a_box, mut names_position, mut names_size, mut names_repeat) =
+            (false, false, false, false);
         for layer in split_string_respect_comma(input) {
-            let (image, boxes) = strip_visual_boxes(layer)?;
-            // A layer that is only a box paints no image (`none`).
-            let content = if image.is_empty() && boxes.is_some() {
-                StyleBackgroundContent::Color(ColorU::TRANSPARENT)
+            if layer.trim().is_empty() {
+                return Err(CssBackgroundParseError::Error(layer));
+            }
+            let parts = layer_parts(layer).ok_or(CssBackgroundParseError::Error(layer))?;
+            // One box is the origin and the clip, of two the first is the
+            // origin and the second the clip.
+            let boxes = parts.boxes.first().copied().zip(parts.boxes.last().copied());
+            let position = if parts.position.is_empty() {
+                StyleBackgroundPosition::default()
             } else {
-                parse_style_background_content(image)?
+                parse_style_background_position(&parts.position.join(" "))
+                    .map_err(|_| CssBackgroundParseError::Error(layer))?
+            };
+            let size = if parts.size.is_empty() {
+                StyleBackgroundSize::default()
+            } else {
+                parse_style_background_size(&parts.size.join(" "))
+                    .map_err(|_| CssBackgroundParseError::Error(layer))?
+            };
+            let repeat = match parts.repeat {
+                Some(word) => parse_style_background_repeat(word)
+                    .map_err(|_| CssBackgroundParseError::Error(layer))?,
+                None => StyleBackgroundRepeat::default(),
             };
             names_a_box |= boxes.is_some();
-            layers.push(content);
-            clips.push(boxes.map(|(_, clip)| clip).unwrap_or_default());
-            origins.push(
-                boxes.map_or_else(StyleBackgroundOrigin::default, |(origin, _)| origin.into()),
-            );
+            names_position |= !parts.position.is_empty();
+            names_size |= !parts.size.is_empty();
+            names_repeat |= parts.repeat.is_some();
+            // A layer that names no image paints none (`none`).
+            let contents = match parts.images.as_slice() {
+                [] => vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)],
+                [one] => vec![parse_style_background_content(one)?],
+                [first, second] => {
+                    let (a, b) = (
+                        parse_style_background_content(first)?,
+                        parse_style_background_content(second)?,
+                    );
+                    let is_colour = |c: &StyleBackgroundContent| {
+                        matches!(
+                            c,
+                            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+                        )
+                    };
+                    // An image and a colour, in either order: the colour
+                    // paints under the image.
+                    match (is_colour(&a), is_colour(&b)) {
+                        (false, true) => vec![a, b],
+                        (true, false) => vec![b, a],
+                        _ => return Err(CssBackgroundParseError::Error(layer)),
+                    }
+                }
+                _ => return Err(CssBackgroundParseError::Error(layer)),
+            };
+            for content in contents {
+                layers.push(content);
+                clips.push(boxes.map(|(_, clip)| clip).unwrap_or_default());
+                origins.push(
+                    boxes.map_or_else(StyleBackgroundOrigin::default, |(origin, _)| origin.into()),
+                );
+                positions.push(position);
+                sizes.push(size);
+                repeats.push(repeat);
+            }
         }
+        // Paint order: the bottom layer first.
         layers.reverse();
         clips.reverse();
         origins.reverse();
-        let boxes = names_a_box.then(|| {
-            (
-                StyleBackgroundOriginVec::from_vec(origins),
-                StyleBackgroundClipVec::from_vec(clips),
-            )
-        });
-        Ok((layers.into(), boxes))
+        positions.reverse();
+        sizes.reverse();
+        repeats.reverse();
+        Ok(BackgroundLayers {
+            contents: layers.into(),
+            boxes: names_a_box.then(|| {
+                (
+                    StyleBackgroundOriginVec::from_vec(origins),
+                    StyleBackgroundClipVec::from_vec(clips),
+                )
+            }),
+            positions: names_position.then(|| StyleBackgroundPositionVec::from_vec(positions)),
+            sizes: names_size.then(|| StyleBackgroundSizeVec::from_vec(sizes)),
+            repeats: names_repeat.then(|| StyleBackgroundRepeatVec::from_vec(repeats)),
+        })
     }
 
-    /// What the `background` shorthand sets: its layers, and their
-    /// `background-origin` and `background-clip` lists when a layer names
-    /// its box ([`parse_style_background_layers`]).
-    pub type BackgroundLayers = (
-        StyleBackgroundContentVec,
-        Option<(StyleBackgroundOriginVec, StyleBackgroundClipVec)>,
-    );
+    /// The words of one `background` layer sorted into what they set (CSS
+    /// Backgrounds 3 s3.10): `<bg-image> || <bg-position> [ / <bg-size> ]? ||
+    /// <repeat-style> || <attachment> || <visual-box> || <visual-box>`, and
+    /// in the final layer a `<color>`, in any order. `None` when the words
+    /// do not make a layer (a size without a position, a second repeat, a
+    /// third box).
+    fn layer_parts(layer: &str) -> Option<LayerParts<'_>> {
+        let is_position = |w: &str| {
+            matches!(w, "left" | "right" | "top" | "bottom" | "center")
+                || parse_pixel_value(w).is_ok()
+        };
+        let is_size =
+            |w: &str| matches!(w, "auto" | "cover" | "contain") || parse_pixel_value(w).is_ok();
+        let mut parts = LayerParts::default();
+        let words = words_and_slashes(layer);
+        let mut i = 0;
+        while i < words.len() {
+            let word = words[i];
+            i += 1;
+            if word == "/" {
+                // `/ <bg-size>` comes right after the position.
+                if parts.position.is_empty() || !parts.size.is_empty() {
+                    return None;
+                }
+                while i < words.len() && parts.size.len() < 2 && is_size(words[i]) {
+                    parts.size.push(words[i]);
+                    i += 1;
+                }
+                if parts.size.is_empty() {
+                    return None;
+                }
+            } else if matches!(word, "repeat" | "repeat-x" | "repeat-y" | "no-repeat") {
+                if parts.repeat.replace(word).is_some() {
+                    return None;
+                }
+            } else if let Some(b) = visual_box(word) {
+                if parts.boxes.len() == 2 {
+                    return None;
+                }
+                parts.boxes.push(b);
+            } else if matches!(word, "scroll" | "fixed" | "local") {
+                // `background-attachment`: azul has no fixed backgrounds.
+            } else if is_position(word) && parts.size.is_empty() && parts.position.len() < 2 {
+                parts.position.push(word);
+            } else {
+                parts.images.push(word);
+            }
+        }
+        Some(parts)
+    }
+
+    /// The words of a layer, split at whitespace and at a `/` outside
+    /// parentheses (`center/cover`), each `/` a word of its own.
+    fn words_and_slashes(layer: &str) -> Vec<&str> {
+        let mut out = Vec::new();
+        for word in split_string_respect_whitespace(layer) {
+            if word.contains('(') {
+                out.push(word);
+                continue;
+            }
+            let mut rest = word;
+            while let Some(at) = rest.find('/') {
+                if at > 0 {
+                    out.push(&rest[..at]);
+                }
+                out.push("/");
+                rest = &rest[at + 1..];
+            }
+            if !rest.is_empty() {
+                out.push(rest);
+            }
+        }
+        out
+    }
+
+    /// One `background` layer's words by what they set ([`layer_parts`]).
+    #[derive(Default)]
+    struct LayerParts<'a> {
+        /// The image, and in the final layer the colour.
+        images: Vec<&'a str>,
+        position: Vec<&'a str>,
+        size: Vec<&'a str>,
+        repeat: Option<&'a str>,
+        /// The `<visual-box>` keywords, in order.
+        boxes: Vec<StyleBackgroundClip>,
+    }
+
+    /// What the `background` shorthand sets ([`parse_style_background_layers`]):
+    /// its layers, and the per-layer lists the layers name - each list only
+    /// when a layer names it, a layer that does not taking the initial value.
+    /// Every list is in paint order, like the layers.
+    pub struct BackgroundLayers {
+        pub contents: StyleBackgroundContentVec,
+        /// `background-origin` and `background-clip`.
+        pub boxes: Option<(StyleBackgroundOriginVec, StyleBackgroundClipVec)>,
+        pub positions: Option<StyleBackgroundPositionVec>,
+        pub sizes: Option<StyleBackgroundSizeVec>,
+        pub repeats: Option<StyleBackgroundRepeatVec>,
+    }
 
     // -- Gradient Parsing Logic --
 
@@ -5277,21 +5403,22 @@ mod tests {
         let clips_of = |input: &str| {
             parse_style_background_layers(input)
                 .unwrap()
-                .1
+                .boxes
                 .map(|(_, clips)| clips.as_slice().to_vec())
         };
         let origins_of = |input: &str| {
             parse_style_background_layers(input)
                 .unwrap()
-                .1
+                .boxes
                 .map(|(origins, _)| origins.as_slice().to_vec())
         };
         // flora.css's metal edge: a face on the padding box over a gradient
         // on the border box. Paint order: the border-box gradient first.
-        let (layers, _) = parse_style_background_layers(
+        let layers = parse_style_background_layers(
             "linear-gradient(red, red) padding-box, linear-gradient(blue, blue) border-box",
         )
-        .unwrap();
+        .unwrap()
+        .contents;
         assert_eq!(layers.len(), 2);
         assert!(layers
             .as_slice()
@@ -5309,9 +5436,9 @@ mod tests {
             origins_of("url(a.png) content-box, red"),
             Some(vec![StyleBackgroundOrigin::PaddingBox, StyleBackgroundOrigin::ContentBox])
         );
-        let (layers, boxes) = parse_style_background_layers("url(a.png), red").unwrap();
-        assert_eq!(layers.len(), 2);
-        assert!(boxes.is_none());
+        let parsed = parse_style_background_layers("url(a.png), red").unwrap();
+        assert_eq!(parsed.contents.len(), 2);
+        assert!(parsed.boxes.is_none());
 
         // Before the image too; one box is the origin and the clip, of two the
         // first is the origin and the second the clip.
@@ -5322,13 +5449,63 @@ mod tests {
             origins_of("url(a.png) border-box content-box"),
             Some(vec![StyleBackgroundOrigin::BorderBox])
         );
-        let (layers, _) = parse_style_background_layers("padding-box").unwrap();
+        let layers = parse_style_background_layers("padding-box").unwrap().contents;
         assert_eq!(layers.as_slice(), &[StyleBackgroundContent::Color(ColorU::TRANSPARENT)]);
         assert_eq!(clips_of("padding-box"), Some(vec![PaddingBox]));
 
         // Three boxes, or a layer that is not an image, is no background.
         assert!(parse_style_background_layers("red padding-box border-box content-box").is_err());
         assert!(parse_style_background_layers("red,, blue padding-box").is_err());
+    }
+
+    #[test]
+    fn a_background_layer_names_its_position_size_and_repeat() {
+        let parsed = parse_style_background_layers("url(a.png) no-repeat center / cover").unwrap();
+        assert_eq!(parsed.contents.len(), 1);
+        assert_eq!(
+            parsed.repeats.unwrap().as_slice(),
+            &[StyleBackgroundRepeat::NoRepeat]
+        );
+        assert_eq!(parsed.sizes.unwrap().as_slice(), &[StyleBackgroundSize::Cover]);
+        assert_eq!(
+            parsed.positions.unwrap().as_slice(),
+            &[StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            }]
+        );
+        // `center/cover` without spaces, and a box between the words.
+        let tight = parse_style_background_layers("url(a.png) center/cover padding-box repeat-x")
+            .unwrap();
+        assert_eq!(tight.sizes.unwrap().as_slice(), &[StyleBackgroundSize::Cover]);
+        assert_eq!(
+            tight.boxes.unwrap().1.as_slice(),
+            &[StyleBackgroundClip::PaddingBox]
+        );
+
+        // A layer that names none of them sets none of the lists.
+        let plain = parse_style_background_layers("url(a.png)").unwrap();
+        assert!(plain.positions.is_none() && plain.sizes.is_none() && plain.repeats.is_none());
+
+        // A size needs a position before it; one repeat per layer.
+        assert!(parse_style_background_layers("url(a.png) / cover").is_err());
+        assert!(parse_style_background_layers("url(a.png) no-repeat repeat").is_err());
+    }
+
+    #[test]
+    fn the_final_layer_holds_an_image_and_a_colour_under_it() {
+        let parsed = parse_style_background_layers("url(a.png) no-repeat #ff0000").unwrap();
+        // Paint order: the colour first, then the image, both not repeating.
+        assert_eq!(parsed.contents.len(), 2);
+        assert!(matches!(parsed.contents.as_slice()[0], StyleBackgroundContent::Color(_)));
+        assert!(matches!(parsed.contents.as_slice()[1], StyleBackgroundContent::Image(_)));
+        assert_eq!(
+            parsed.repeats.unwrap().as_slice(),
+            &[StyleBackgroundRepeat::NoRepeat, StyleBackgroundRepeat::NoRepeat]
+        );
+        // The colour may come first too; two images in one layer are no layer.
+        assert_eq!(parse_style_background_layers("red url(a.png)").unwrap().contents.len(), 2);
+        assert!(parse_style_background_layers("url(a.png) url(b.png)").is_err());
     }
 
     #[test]
