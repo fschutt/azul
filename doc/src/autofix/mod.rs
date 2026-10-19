@@ -262,6 +262,26 @@ pub fn autofix_api(
         }
     }
 
+    // fn_bodies of classes exported through the unified façade that call the class at its
+    // definition instead: they do not compile where the definition does not exist (wasm32).
+    let bypasses = function_diff::fn_bodies_bypassing_the_unified_facade(api_data);
+    if !bypasses.is_empty() {
+        println!(
+            "\n{} {} api.json function(s) call their class around the unified façade (patches written):",
+            "!".yellow(),
+            bypasses.len()
+        );
+        for b in &bypasses {
+            println!(
+                "  {}.{}.{} {}",
+                b.module.dimmed(),
+                b.class.white(),
+                b.api_name.yellow(),
+                format!("-> {}", b.fixed.fn_body.as_deref().unwrap_or_default()).dimmed()
+            );
+        }
+    }
+
     // Report results
     println!("\n{}", "Analysis Results:".white().bold());
     println!(
@@ -861,6 +881,28 @@ pub fn autofix_api(
         );
         let patch_path = patches_dir.join(format!(
             "{:04}_remove_fns_{}.patch.json",
+            patch_count, class
+        ));
+        fs::write(&patch_path, serde_json::to_string_pretty(&patch)?)?;
+        patch_count += 1;
+    }
+
+    // The entries of those functions with their bodies through the façade, merged into their
+    // classes, one patch per class.
+    let mut bypasses_by_class: std::collections::BTreeMap<
+        (&str, &str),
+        Vec<(String, crate::api::FunctionData, bool)>,
+    > = std::collections::BTreeMap::new();
+    for b in &bypasses {
+        bypasses_by_class
+            .entry((b.module.as_str(), b.class.as_str()))
+            .or_default()
+            .push((b.api_name.clone(), b.fixed.clone(), b.is_constructor));
+    }
+    for ((module, class), entries) in bypasses_by_class {
+        let patch = function_diff::generate_add_entries_patch(class, entries, module, &version);
+        let patch_path = patches_dir.join(format!(
+            "{:04}_facade_fns_{}.patch.json",
             patch_count, class
         ));
         fs::write(&patch_path, serde_json::to_string_pretty(&patch)?)?;

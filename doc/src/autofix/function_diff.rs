@@ -312,6 +312,102 @@ pub struct GoneApiFunction {
     pub is_constructor: bool,
 }
 
+/// The path of the façade that exists on every target: a class exported through it is called
+/// through it (on wasm the desktop module it re-exports does not exist).
+const UNIFIED_FACADE: &str = "azul_dll::unified::";
+
+/// An api.json function of a class exported through the unified façade whose fn_body calls the
+/// class at another path (its definition), and the entry calling it through the façade.
+#[derive(Debug, Clone)]
+pub struct FacadeBypass {
+    /// The api.json module of the class
+    pub module: String,
+    /// The api.json class
+    pub class: String,
+    /// The api.json name of the function
+    pub api_name: String,
+    /// In `constructors` (else in `functions`)
+    pub is_constructor: bool,
+    /// The entry with its fn_body calling through the façade
+    pub fixed: FunctionData,
+}
+
+/// The fn_bodies of classes exported through [`UNIFIED_FACADE`] that call the class at another
+/// path of the same crate and type name: a `<path>::Type::` in the body that is not the
+/// class's own api.json path.
+pub fn fn_bodies_bypassing_the_unified_facade(api_data: &ApiData) -> Vec<FacadeBypass> {
+    let Some(version) = api_data.get_latest_version_str() else {
+        return Vec::new();
+    };
+    let Some(version_data) = api_data.get_version(version) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (module_name, module) in &version_data.api {
+        for (class_name, class) in &module.classes {
+            let Some(external) = class
+                .external
+                .as_deref()
+                .filter(|e| e.starts_with(UNIFIED_FACADE))
+            else {
+                continue;
+            };
+            let entries = class
+                .constructors
+                .iter()
+                .flat_map(|c| c.iter().map(|e| (e, true)))
+                .chain(
+                    class
+                        .functions
+                        .iter()
+                        .flat_map(|f| f.iter().map(|e| (e, false))),
+                );
+            for ((api_name, f), is_constructor) in entries {
+                let Some(body) = f.fn_body.as_deref() else {
+                    continue;
+                };
+                let fixed_body = through_the_facade(body, external);
+                if fixed_body != body {
+                    let mut fixed = f.clone();
+                    fixed.fn_body = Some(fixed_body);
+                    out.push(FacadeBypass {
+                        module: module_name.clone(),
+                        class: class_name.clone(),
+                        api_name: api_name.clone(),
+                        is_constructor,
+                        fixed,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `body` with every call of the type `external` names at another path of its crate written
+/// through `external` (`azul_dll::desktop::extra::audio::codec::AudioDecoder::create(c)` ->
+/// `azul_dll::unified::audio::AudioDecoder::create(c)`).
+fn through_the_facade(body: &str, external: &str) -> String {
+    let leaf = external.rsplit("::").next().unwrap_or(external);
+    let root = external.split("::").next().unwrap_or(external);
+    let needle = format!("::{leaf}::");
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(at) = rest.find(&needle) {
+        // The path ending at the type: the identifiers and `::` before it.
+        let start = rest[..at]
+            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
+            .map_or(0, |i| i + 1);
+        let path = &rest[start..at + needle.len() - 2];
+        let replace = path != external && path.split("::").next() == Some(root);
+        out.push_str(&rest[..start]);
+        out.push_str(if replace { external } else { path });
+        rest = &rest[at + needle.len() - 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Methods a type has without an impl block the index can see: derive
 /// output and std (blanket) trait methods.
 const DERIVED_OR_BLANKET_METHODS: &[&str] = &[
