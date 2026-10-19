@@ -53,4 +53,10 @@ e aztasks 300 python3 scripts/aztasks_e2e.py --bin $B/AzTasks --out $L/aztasks-s
 e azterm 240 python3 scripts/azterm_e2e.py --bin $B/AzTerm --out $L/azterm-shots
 e azvideocut 300 python3 scripts/azvideocut_e2e.py --bin $B/AzVideoCut --out $L/azvideocut-shots
 e azdrive_pick 300 python3 scripts/azdrive_pick_e2e.py --bin $B/AzDrive
+# AzDrive's sync under hostile conditions (headless): every scenario but the 100,000 small files and the 50 GB file,
+# then the big file at 4 GB (killed mid-upload, resumed). Needs the azcloud CLI (examples/azcloud-api).
+AZCLOUD=examples/azcloud-api/target/release/azcloud
+CHAOS_LIGHT=special-files,names,server-errors,flap-upload,kill-every-step,offline-conflict,delete-vs-edit,rename-storm,changed-during,long-names,clock-skew,quota,revoked,sleep,disk-full,dns,slow-dns,iroh-lane,encrypted-bulk,rotation,ransomware
+e azdrive_chaos 5400 python3 scripts/azdrive_chaos_e2e.py --bin $B/AzDrive --azcloud $AZCLOUD --only $CHAOS_LIGHT
+e azdrive_chaos_big 2400 python3 scripts/azdrive_chaos_e2e.py --bin $B/AzDrive --azcloud $AZCLOUD --only fifty-gb --big-gb 4
 echo DONE >> $L/summary.txt

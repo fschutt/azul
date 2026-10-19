@@ -1966,7 +1966,8 @@ jobs:
           CHROME: chrome
           AZUL_APP: target/release/AzMail
           AZUL_LIB_DIR: target/azul-lib
-        run: python3 scripts/refci/mail_boxes.py --out target/refci/mail
+        # Unbuffered: each mail's line reaches the log as it is done, also when the job ends early.
+        run: python3 -u scripts/refci/mail_boxes.py --out target/refci/mail
 
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
