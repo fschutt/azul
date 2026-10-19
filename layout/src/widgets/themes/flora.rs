@@ -9862,7 +9862,17 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     field_row.extend(decl::border_bottom(1));
     field_row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
-    let mut field_label = vec![px(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    // A settings row's label column: 240 px, but never more than two fifths of the row, so a
+    // narrow window (an installer's 640 px) leaves its controls the room they need; a label
+    // wraps, a control does not.
+    let mut field_label = vec![
+        px(CssProperty::const_width(LayoutWidth::Px(
+            azul_css::props::basic::pixel::PixelValue::percent(40.0),
+        ))),
+        px(CssProperty::const_max_width(
+            azul_css::props::layout::LayoutMaxWidth::const_px(240),
+        )),
+    ];
     field_label.extend(decl::margin(0, 16, 0, 0));
 
     let mut help = soft(12);
