@@ -2214,6 +2214,9 @@ pub(crate) struct TerminalShared {
     /// output ([`wheel_base`]); none after any other scroll, and in a
     /// rebuilt view.
     pub asked: Option<f64>,
+    /// The last double-click: the line of the word it selected, and when (a press on that
+    /// line soon after selects the whole line, [`is_third_click`]).
+    pub word_click: Option<(u32, azul_core::task::Instant)>,
 }
 
 impl TerminalShared {
@@ -2232,7 +2235,31 @@ impl TerminalShared {
             swallow_text: false,
             wheel_travel: 0.0,
             asked: None,
+            word_click: None,
         }
+    }
+}
+
+/// How soon after a double-click a press is its third click (ms): the platforms' usual.
+pub const TRIPLE_CLICK_MS: u64 = 500;
+
+/// Whether a press on `line` is the third click of the double-click `last` (its word's line,
+/// and how long ago in nanoseconds): on that line, within [`TRIPLE_CLICK_MS`].
+#[must_use]
+pub fn is_third_click(last: Option<(u32, u128)>, line: u32) -> bool {
+    last.is_some_and(|(at, elapsed)| at == line && elapsed <= u128::from(TRIPLE_CLICK_MS) * 1_000_000)
+}
+
+/// The double-click this press may be the third click of: its line and how long ago (ns).
+fn last_word_click(data: &mut RefAny, now: &azul_core::task::Instant) -> Option<(u32, u128)> {
+    let s = data.downcast_ref::<TerminalShared>()?;
+    let (line, at) = s.word_click.clone()?;
+    Some((line, now.duration_since(&at).as_nanos()))
+}
+
+fn set_word_click(data: &mut RefAny, click: Option<(u32, azul_core::task::Instant)>) {
+    if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
+        s.word_click = click;
     }
 }
 
@@ -3094,6 +3121,7 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
     }
     let (point, right_half) = s.cell(x, y);
     if s.screen.modes.mouse != TerminalMouseMode::Off && !modifiers.shift {
+        set_word_click(&mut data, None);
         set_drag(
             &mut data,
             Drag::Report {
@@ -3108,6 +3136,17 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
             modifiers,
         );
         return send(&s, info, bytes);
+    }
+    // The third click of a double-click on this line: the whole line, kept whole on the
+    // release (as the double-click's word is).
+    let now = info.get_current_time();
+    let third = is_third_click(last_word_click(&mut data, &now), point.line);
+    set_word_click(&mut data, None);
+    if third && !modifiers.alt {
+        set_drag(&mut data, Drag::None);
+        let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
+        e.selection_kind = TerminalSelectionKind::Line;
+        return fire_and_render(&s, info, e);
     }
     set_drag(
         &mut data,
@@ -3237,6 +3276,7 @@ extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> 
     // The selection is whole: the release that follows must not clear it.
     set_drag(&mut data, Drag::None);
     let (point, right_half) = s.cell(x, y);
+    set_word_click(&mut data, Some((point.line, info.get_current_time())));
     let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
     e.selection_kind = TerminalSelectionKind::Word;
     fire_and_render(&s, info, e)
