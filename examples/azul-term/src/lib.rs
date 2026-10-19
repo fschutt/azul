@@ -1196,8 +1196,18 @@ extern "C" fn on_terminal(
         // Cmd+click (Ctrl+click elsewhere) on an address opens it; it selects nothing.
         TerminalViewEventKind::SelectStart if info.get_key_modifiers().primary_down() => {
             let point = grid_point(&*term, &event);
-            let row = row_text(&*term, point.line);
-            let url = azul_termkit::links::url_at(&row, point.column.0);
+            // A program's own link (OSC 8: `ls --hyperlink`, a compiler's file:line) first,
+            // else an address written in the text.
+            let url = term.grid()[point]
+                .hyperlink()
+                .map(|link| link.uri().to_string())
+                .filter(|uri| {
+                    azul_termkit::links::url_at(uri, 0).as_deref() == Some(uri.as_str())
+                })
+                .or_else(|| {
+                    let row = row_text(&*term, point.line);
+                    azul_termkit::links::url_at(&row, point.column.0)
+                });
             drop(term);
             if let Some(url) = url {
                 println!("AZTERM_OPEN_LINK {url}");
