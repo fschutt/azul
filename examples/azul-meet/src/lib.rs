@@ -265,9 +265,9 @@ use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};
 use self::{call_audio::*, call_video::*, connection::*, controls::*, data_tree::*, device_identity::*, forwarding::*, room_view::*, service::*};
 
-/// The protocol name: peers of an older wire format (`azmeet/3`, whose chat travelled over the
-/// iroh connections unsigned) cannot connect.
-const ALPN: &str = "azmeet/4";
+/// The protocol name, the chat's wire version (`chatroom::WIRE_VERSION`): peers of an older
+/// wire format cannot connect (a peer of `azmeet/4` does not know the chat's history lists).
+const ALPN: &str = "azmeet/5";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
 /// The audio track: 20 ms Opus or PCM packets, three to a frame (`audio.rs`).
@@ -1466,7 +1466,7 @@ fn chat_lines(s: &MeetState, chat: Option<&chatroom::ChatRoom>) -> Vec<ui::ChatL
                 name: if m.mine { s.name.clone() } else { member_name(&m.name) },
                 text: m.text.clone(),
                 mine: m.mine,
-                sending: m.seq.is_none(),
+                sending: c.is_sending(m),
             })
             .collect()
     })

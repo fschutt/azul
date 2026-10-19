@@ -285,6 +285,12 @@ const UNNUMBERED: u64 = 0;
 pub const KIND_CHAT: u8 = 8;
 /// Version byte of a chat record between peers.
 pub const CHAT_VERSION: u8 = 1;
+/// The wire version this build speaks (the iroh ALPN `azmeet/5` too), told to the service when
+/// a device registers: once every client speaks it the service stops carrying messages, and the
+/// chat travels over the peers alone, listed by when each message was written.
+pub const WIRE_VERSION: u64 = 5;
+/// What a room's `chat` says when the service no longer carries its messages.
+const CHAT_OVER_PEERS: &str = "peers";
 /// Kind byte of the list of records a peer holds (`ChatHave`), sent when two peers meet.
 pub const KIND_CHAT_HAVE: u8 = 9;
 /// The most sealed records a room keeps to hand on (the newest).
@@ -368,6 +374,9 @@ pub struct WireRoom {
     pub starts_at: Option<String>,
     #[serde(default)]
     pub ends_at: Option<String>,
+    /// `"peers"` once the service no longer carries the room's messages.
+    #[serde(default)]
+    pub chat: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -487,6 +496,9 @@ pub struct ChatRoom {
     /// Messages written before this device could read them (no copy of their key for it).
     before_join: u32,
     outbox: VecDeque<Outgoing>,
+    /// Whether the service no longer carries this room's messages: the peers alone do (nothing
+    /// goes into the outbox any more).
+    peers_only: bool,
     /// Messages written here not handed to the peers yet: sealed for them as soon as a key for
     /// the current members is held ([`ChatRoom::peer_records`]).
     peer_out: VecDeque<Outgoing>,
@@ -553,6 +565,7 @@ impl ChatRoom {
             unreadable: 0,
             before_join: 0,
             outbox: VecDeque::new(),
+            peers_only: false,
             peer_out: VecDeque::new(),
             read_ts: 0,
             admit_queue: VecDeque::new(),
@@ -570,6 +583,20 @@ impl ChatRoom {
     }
 
     // ---- what the window reads ----
+
+    /// Whether the service no longer carries this room's messages: they travel over the peers.
+    #[must_use]
+    pub fn peers_only(&self) -> bool {
+        self.peers_only
+    }
+
+    /// Whether `message` is this device's and still on its way: to the service while it carries
+    /// messages, else to the peers (sealed for them once a key for the members is held).
+    #[must_use]
+    pub fn is_sending(&self, message: &RoomMessage) -> bool {
+        let queue = if self.peers_only { &self.peer_out } else { &self.outbox };
+        message.mine && queue.iter().any(|o| o.id == message.id)
+    }
 
     /// The room's link: with its invite secret in the fragment when this device holds it.
     #[must_use]
@@ -794,7 +821,9 @@ impl ChatRoom {
             text: text.clone(),
             ts,
         });
-        self.outbox.push_back(Outgoing { id, text, ts });
+        if !self.peers_only {
+            self.outbox.push_back(Outgoing { id, text, ts });
+        }
         Some(message)
     }
 
@@ -1008,6 +1037,7 @@ impl ChatRoom {
             "ts": ts,
             "sig": sig,
             "proof": proof,
+            "wire": WIRE_VERSION,
         });
         self.last_record_ts = ts;
         Some(Call::signed(
@@ -1202,6 +1232,8 @@ impl ChatRoom {
                     changes.problem = Some(Text::key("azmeet-message-too-long"));
                     changes.shown = true;
                 }
+                // The service carries no messages any more: the peers do.
+                410 => self.chat_over_peers(&mut changes),
                 403 => {
                     self.state = Membership::Joining;
                     self.failed(now_ms, &mut changes, refused(status, &error.error));
@@ -1324,6 +1356,9 @@ impl ChatRoom {
         self.last_sync = Some(now_ms);
         if !self.take_room(&answer.room, changes) {
             return;
+        }
+        if answer.room.chat.as_deref() == Some(CHAT_OVER_PEERS) {
+            self.chat_over_peers(changes);
         }
         if let Some(records) = answer.members {
             self.take_members(me, records, answer.left.unwrap_or_default(), changes);
@@ -1696,20 +1731,31 @@ impl ChatRoom {
         changes.shown = true;
     }
 
+    /// Lists `message` by when it was written (its id between equal times): the order every
+    /// device agrees on, whichever way a message came and whether the service numbered it.
     fn insert_listed(&mut self, message: RoomMessage) {
-        let seq = message.seq.unwrap_or(u64::MAX);
         let at = self
             .messages
             .iter()
-            .position(|m| m.seq.map_or(true, |s| s > seq))
+            .position(|m| (m.ts, &m.id) > (message.ts, &message.id))
             .unwrap_or(self.messages.len());
         self.messages.insert(at, message);
         self.trim_listed();
     }
 
-    /// In the Worker's order, this device's own on their way last.
+    /// The chat moves to the peers alone: nothing waits for the service any more (what was
+    /// written is still handed to the peers).
+    fn chat_over_peers(&mut self, changes: &mut Changes) {
+        if !self.peers_only {
+            self.peers_only = true;
+            self.outbox.clear();
+            changes.shown = true;
+        }
+    }
+
+    /// By when each message was written (see [`Self::insert_listed`]).
     fn reorder(&mut self) {
-        self.messages.sort_by_key(|m| m.seq.unwrap_or(u64::MAX));
+        self.messages.sort_by(|a, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)));
     }
 
     fn trim_listed(&mut self) {
@@ -2767,6 +2813,7 @@ mod tests {
             kind: None,
             starts_at: None,
             ends_at: None,
+            chat: None,
         };
         assert!(!cleo.room.take_room(&elsewhere, &mut changes));
         assert_eq!(cleo.room.state, Membership::Closed);

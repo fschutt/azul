@@ -187,14 +187,20 @@ Decided, built one at a time after an integration build, because each step needs
       listed at once, unnumbered, after the numbered ones, counted unread until the chat is read;
       the service's copy (same id) numbers it later and is not listed twice. Ordering by `(time,
       id)` replaces the service's numbers when the service stops carrying messages (step 7).
-   5. History: on connecting, two peers exchange the ids of the newest records they hold for
-      each shared room, and each sends the other what it lacks (capped), so a device catches up
-      from whoever is online.
+   5. *(built)* History: on connecting, two peers exchange the ids of the newest records they
+      hold for each shared room (kind `9`, `ChatHave`: the newest 200 ids, and the time they start
+      at when a device holds more), and each sends the other what it lacks, newest first, at most
+      100, so a device catches up from whoever is online. A room keeps the sealed records of the
+      newest 500 messages it opened to hand on: it cannot seal another device's message itself.
    6. Chat rooms between calls: the room view announces a chat-only ticket on the rendezvous (as
       a call does) and connects to the members online; with nobody online, a message waits in the
       sender's outbox (see above).
-   7. The wire version moves (`azmeet/5`), messages are ordered by `(time, id)`, and once every
-      client speaks it the service drops its message endpoints and table.
+   7. *(built in the client)* The wire version moves (`azmeet/5`; a device registers with
+      `"wire": 5`), messages are ordered by `(time, id)`, and once every client speaks it the
+      service drops its message endpoints and table: a room then says `chat: "peers"` and a
+      message posted to it is gone (410), and a device posts none any more - its messages reach
+      the peers alone. The service side (recording each device's wire version, the switch) is the
+      meet Worker's.
 2. **Recording, transcript, summary** (see "Recording and transcripts").
 
 ## Open
