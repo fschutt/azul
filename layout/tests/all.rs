@@ -1249,3 +1249,5 @@ mod a_string_list_style_type_is_the_marker;
 mod a_node_inserted_at_runtime_gets_its_generated_content;
 #[path = "a_marker_rule_styles_the_list_items_marker.rs"]
 mod a_marker_rule_styles_the_list_items_marker;
+#[path = "background_origin_places_the_image_in_its_box.rs"]
+mod background_origin_places_the_image_in_its_box;
