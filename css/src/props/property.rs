@@ -5562,6 +5562,7 @@ impl CssProperty {
     /// The CSS-wide keyword (`initial`, `inherit`, `unset`, `revert`) this declaration's value
     /// is, if it is one.
     #[allow(clippy::too_many_lines)] // one arm per property
+    #[allow(clippy::match_same_arms)] // one arm per property in variant order, as `get_type` has
     #[must_use]
     pub const fn css_wide_keyword(&self) -> Option<crate::css::CssWideKeyword> {
         match self {
