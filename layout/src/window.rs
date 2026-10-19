@@ -10290,28 +10290,34 @@ impl LayoutWindow {
     /// backend still holds (the CPU compositor keeps the frame it last drew,
     /// to diff the next one against) is copied on write, as it must stay as
     /// drawn. ROOT only: the cache is the root DOM's.
+    ///
+    /// The window's list may be its own copy of the cached one: a pass writes
+    /// a `VirtualView`'s content and a text tween's frame into the window's
+    /// list alone, so the cached list stays the baseline the next cache hit
+    /// starts from. The content change then goes into that baseline too, or
+    /// the next cache hit serves the frame before it. `patch` is a change by
+    /// node, the same on both lists.
     fn patch_display_list<R>(
         &mut self,
         dom_id: DomId,
-        patch: impl FnOnce(&mut DisplayList) -> R,
+        patch: impl Fn(&mut DisplayList) -> R,
     ) -> Option<R> {
         let lr = self.layout_results.get_mut(&dom_id)?;
         let cached = if dom_id == DomId::ROOT_ID {
-            self.layout_cache
-                .cached_display_list
-                .as_mut()
-                .filter(|cached| Arc::ptr_eq(&cached.5, &lr.display_list))
+            self.layout_cache.cached_display_list.as_mut()
         } else {
             None
         };
-        let released = cached.map(|cached| {
-            drop(core::mem::take(&mut cached.5));
-            cached
-        });
-        let result = patch(Arc::make_mut(&mut lr.display_list));
-        if let Some(cached) = released {
-            cached.5 = lr.display_list.clone();
+        let Some(cached) = cached else {
+            return Some(patch(Arc::make_mut(&mut lr.display_list)));
+        };
+        if !Arc::ptr_eq(&cached.5, &lr.display_list) {
+            let _ = patch(Arc::make_mut(&mut cached.5));
+            return Some(patch(Arc::make_mut(&mut lr.display_list)));
         }
+        drop(core::mem::take(&mut cached.5));
+        let result = patch(Arc::make_mut(&mut lr.display_list));
+        cached.5 = lr.display_list.clone();
         Some(result)
     }
 
