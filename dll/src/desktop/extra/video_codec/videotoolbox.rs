@@ -228,6 +228,8 @@ vt_symbols!(
     (CMBlockBufferGetDataPointer, b"CMBlockBufferGetDataPointer",
         unsafe extern "C" fn(*mut c_void, usize, *mut usize, *mut usize, *mut *mut u8)
             -> OSStatus),
+    (CMBlockBufferCopyDataBytes, b"CMBlockBufferCopyDataBytes",
+        unsafe extern "C" fn(*mut c_void, usize, usize, *mut c_void) -> OSStatus),
     (CMSampleBufferCreateReady, b"CMSampleBufferCreateReady",
         unsafe extern "C" fn(*const c_void, *mut c_void, *const c_void, isize, isize,
             *const CMSampleTimingInfo, isize, *const usize, *mut *mut c_void) -> OSStatus),
@@ -409,6 +411,7 @@ impl VtLib {
                 CMBlockBufferCreateWithMemoryBlock: f!(cm, b"CMBlockBufferCreateWithMemoryBlock\0"),
                 CMBlockBufferReplaceDataBytes: f!(cm, b"CMBlockBufferReplaceDataBytes\0"),
                 CMBlockBufferGetDataPointer: f!(cm, b"CMBlockBufferGetDataPointer\0"),
+                CMBlockBufferCopyDataBytes: f!(cm, b"CMBlockBufferCopyDataBytes\0"),
                 CMSampleBufferCreateReady: f!(cm, b"CMSampleBufferCreateReady\0"),
                 CMSampleBufferGetDataBuffer: f!(cm, b"CMSampleBufferGetDataBuffer\0"),
                 CMSampleBufferGetFormatDescription: f!(cm, b"CMSampleBufferGetFormatDescription\0"),
@@ -569,6 +572,9 @@ use super::container::{annexb_nals, append_avcc_as_annexb};
 /// Chunks produced by the VT output callback (Annex-B, ready for the wire).
 struct EncShared {
     chunks: Mutex<VecDeque<Vec<u8>>>,
+    /// The last status a frame came back with that was not a frame (0: none): what a session
+    /// that gives nothing back says about it.
+    failure: std::sync::atomic::AtomicI32,
 }
 
 /// VTCompressionOutputCallback: convert each AVCC sample to Annex-B (SPS/PPS
@@ -580,14 +586,20 @@ extern "C" fn enc_output(
     _flags: u32,
     sample: *mut c_void,
 ) {
-    if status != 0 || sample.is_null() || refcon.is_null() {
+    if refcon.is_null() {
+        return;
+    }
+    let shared = unsafe { &*(refcon as *const EncShared) };
+    if status != 0 || sample.is_null() {
+        shared
+            .failure
+            .store(if status != 0 { status } else { -1 }, std::sync::atomic::Ordering::Relaxed);
         return;
     }
     let lib = match VtLib::get() {
         Some(l) => l,
         None => return,
     };
-    let shared = unsafe { &*(refcon as *const EncShared) };
     unsafe {
         // Keyframe = attachments[0][NotSync] absent or false.
         let mut keyframe = true;
@@ -639,9 +651,23 @@ extern "C" fn enc_output(
         if (lib.CMBlockBufferGetDataPointer)(bb, 0, &mut at_off, &mut total, &mut data) != 0
             || data.is_null()
         {
+            shared.failure.store(-2, std::sync::atomic::Ordering::Relaxed);
             return;
         }
-        let bytes = std::slice::from_raw_parts(data, total);
+        // The pointer covers the first contiguous piece only (`at_off` bytes); a buffer made
+        // of several pieces is copied out whole.
+        let copied;
+        let bytes = if at_off >= total {
+            std::slice::from_raw_parts(data, total)
+        } else {
+            let mut whole = vec![0u8; total];
+            if (lib.CMBlockBufferCopyDataBytes)(bb, 0, total, whole.as_mut_ptr().cast()) != 0 {
+                shared.failure.store(-3, std::sync::atomic::Ordering::Relaxed);
+                return;
+            }
+            copied = whole;
+            copied.as_slice()
+        };
         append_avcc_as_annexb(bytes, &mut chunk);
         if !chunk.is_empty() {
             if let Ok(mut q) = shared.chunks.lock() {
@@ -649,6 +675,17 @@ extern "C" fn enc_output(
             }
         }
     }
+}
+
+/// How a session asks for the hardware encoder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hardware {
+    /// Only the hardware encoder.
+    Required,
+    /// The hardware encoder where VideoToolbox has one.
+    Preferred,
+    /// The software encoder.
+    Off,
 }
 
 /// What a VideoToolbox encoder session actually got (logged at open, and the
@@ -787,8 +824,10 @@ impl VtEncoder {
     /// Open a realtime H.264 VTCompressionSession, strongest settings first:
     /// hardware REQUIRED with low-latency rate control, hardware required
     /// alone, then whatever the OS picks (on every Mac VideoToolbox knows,
-    /// that is hardware too). `None` if VideoToolbox is unavailable or no
-    /// session opens (the caller keeps the stub). The session starts out for
+    /// that is hardware too), then the software encoder - each kind only if
+    /// a session of it gave a probe frame back on this machine. `None` if
+    /// VideoToolbox is unavailable or no session encodes here (the caller
+    /// keeps the stub). The session starts out for
     /// Rec.709 video-range NV12 (a camera's HD format); the first frame in
     /// another format gets a session made for it (`encode`).
     pub(super) fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
@@ -808,8 +847,22 @@ impl VtEncoder {
         let can_low_latency =
             !lib.kVTVideoEncoderSpecification_EnableLowLatencyRateControl.is_null();
         let source = session_source(source);
-        for (require_hw, low_latency) in [(true, true), (true, false), (false, false)] {
-            if (require_hw && !can_require) || (low_latency && !can_low_latency) {
+        let kinds = [
+            (Hardware::Required, true),
+            (Hardware::Required, false),
+            (Hardware::Preferred, false),
+            (Hardware::Off, false),
+        ];
+        for (hardware, low_latency) in kinds {
+            if (hardware == Hardware::Required && !can_require)
+                || (low_latency && !can_low_latency)
+            {
+                continue;
+            }
+            // VideoToolbox may make a session that gives no frame back (a virtual Mac takes the
+            // hardware session and returns nothing): only a kind of session that encoded a
+            // probe frame on this machine is opened.
+            if !Self::encodes_here(lib, hardware, low_latency) {
                 continue;
             }
             let opened = Self::open_with(
@@ -817,7 +870,7 @@ impl VtEncoder {
                 (width, height),
                 bitrate_kbps,
                 source,
-                require_hw,
+                hardware,
                 low_latency,
             );
             if let Some(enc) = opened {
@@ -827,27 +880,92 @@ impl VtEncoder {
         None
     }
 
+    /// Whether a session of this kind gives frames back on this machine: one probe frame
+    /// through a small session of its own, once per process.
+    fn encodes_here(lib: &'static VtLib, hardware: Hardware, low_latency: bool) -> bool {
+        static PROBED: Mutex<Vec<((Hardware, bool), bool)>> = Mutex::new(Vec::new());
+        let key = (hardware, low_latency);
+        if let Some(&(_, encodes)) = PROBED
+            .lock()
+            .ok()
+            .and_then(|probed| probed.iter().find(|(k, _)| *k == key).copied())
+            .as_ref()
+        {
+            return encodes;
+        }
+        let encodes = Self::probe(lib, hardware, low_latency);
+        if let Ok(mut probed) = PROBED.lock() {
+            probed.push((key, encodes));
+        }
+        encodes
+    }
+
+    /// One black frame through a 128 x 128 session of this kind: whether it came back.
+    fn probe(lib: &'static VtLib, hardware: Hardware, low_latency: bool) -> bool {
+        const SIDE: u32 = 128;
+        let Some(mut session) = Self::open_with(
+            lib,
+            (SIDE, SIDE),
+            400,
+            RawImageFormat::BGRA8,
+            hardware,
+            low_latency,
+        ) else {
+            return false;
+        };
+        let black = VideoFrame::with_format(
+            SIDE,
+            SIDE,
+            U8Vec::from_vec(vec![0u8; (SIDE * SIDE * 4) as usize]),
+            RawImageFormat::BGRA8,
+        );
+        let encoded = !session.encode_at(&black, true, 0).is_empty();
+        if !encoded {
+            crate::plog_warn!(
+                "[video] a VideoToolbox session ({:?} hardware, low-latency: {}) gave no frame \
+                 back (status {}): not used",
+                hardware,
+                low_latency,
+                session.failure()
+            );
+        }
+        encoded
+    }
+
+    /// The last status a frame came back with that was not a frame (0: none).
+    pub(super) fn failure(&self) -> i32 {
+        self.shared
+            .failure
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn open_with(
         lib: &'static VtLib,
         (width, height): (u32, u32),
         bitrate_kbps: u32,
         source: RawImageFormat,
-        require_hw: bool,
+        hardware: Hardware,
         low_latency: bool,
     ) -> Option<VtEncoder> {
         let shared = Arc::new(EncShared {
             chunks: Mutex::new(VecDeque::new()),
+            failure: std::sync::atomic::AtomicI32::new(0),
         });
         unsafe {
-            // Encoder specification: hardware (required where asked), and
+            // Encoder specification: hardware (required, preferred or not at all), and
             // low-latency rate control where asked.
             let spec = cf_dict(lib);
             if !spec.is_null() {
                 let hw = lib.kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder;
                 if !hw.is_null() {
-                    (lib.CFDictionarySetValue)(spec, hw, lib.kCFBooleanTrue);
+                    let enable = if hardware == Hardware::Off {
+                        lib.kCFBooleanFalse
+                    } else {
+                        lib.kCFBooleanTrue
+                    };
+                    (lib.CFDictionarySetValue)(spec, hw, enable);
                 }
-                if require_hw {
+                if hardware == Hardware::Required {
                     (lib.CFDictionarySetValue)(
                         spec,
                         lib.kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
@@ -891,11 +1009,11 @@ impl VtEncoder {
             }
             if st != 0 || session.is_null() {
                 crate::plog_warn!(
-                    "[video] VTCompressionSessionCreate ({}x{}, hardware required: {}, \
+                    "[video] VTCompressionSessionCreate ({}x{}, {:?} hardware, \
                      low-latency: {}) failed: {}",
                     width,
                     height,
-                    require_hw,
+                    hardware,
                     low_latency,
                     st
                 );
@@ -965,18 +1083,22 @@ impl VtEncoder {
 
             // What did it get? The hardware query is refused (-12900) while
             // low-latency rate control is on; hardware REQUIRED answers it.
-            let mut hardware = if require_hw { Some(true) } else { None };
+            let mut runs_in_hardware = match hardware {
+                Hardware::Required => Some(true),
+                Hardware::Preferred => None,
+                Hardware::Off => Some(false),
+            };
             let query = lib.kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder;
             if !query.is_null() {
                 let mut value: CFTypeRef = core::ptr::null();
                 let st = (lib.VTSessionCopyProperty)(session, query, core::ptr::null(), &mut value);
                 if st == 0 && !value.is_null() {
-                    hardware = Some((lib.CFBooleanGetValue)(value) != 0);
+                    runs_in_hardware = Some((lib.CFBooleanGetValue)(value) != 0);
                     (lib.CFRelease)(value);
                 }
             }
             let settings = EncoderSettings {
-                hardware,
+                hardware: runs_in_hardware,
                 low_latency,
                 realtime: true,
                 frame_reordering: false,
