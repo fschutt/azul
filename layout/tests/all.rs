@@ -1237,3 +1237,7 @@ mod an_appended_dom_keeps_its_stylesheet;
 mod an_inline_flow_root_list_item_is_an_inline_block_with_a_marker;
 #[path = "a_rebuild_compares_a_changed_container_alone_by_its_own_types.rs"]
 mod a_rebuild_compares_a_changed_container_alone_by_its_own_types;
+#[path = "a_flex_gap_in_em_is_that_many_font_sizes.rs"]
+mod a_flex_gap_in_em_is_that_many_font_sizes;
+#[path = "one_counter_property_names_several_counters.rs"]
+mod one_counter_property_names_several_counters;
