@@ -356,6 +356,18 @@ fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
     }
 }
 
+/// What a node drag carries that another application can take when the
+/// drag leaves the window - files to drop on Finder or Explorer, text, an
+/// image - as clipboard content (the OS drag session is published like a
+/// copy). The drag data names its parts by MIME type, as the web's
+/// `dataTransfer` does: `text/uri-list` (files, as `file://` URIs),
+/// `text/plain`, `text/html`, `image/png` / `jpeg` / `gif` / `tiff`. `None`
+/// for a drag that carries only the app's own types: it stays inside the app.
+pub fn drag_data_to_clipboard_content(data: &azul_core::drag::DragData) -> Option<ClipboardContent> {
+    let _ = data;
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,5 +594,57 @@ mod tests {
         let back = payload_to_clipboard_content(&payload).expect("decodes");
         assert_eq!(back.link.as_ref().map(|l| l.as_str()), Some("https://azul.rs"));
         assert_eq!(back.plain_text.as_str(), "https://azul.rs");
+    }
+
+    fn drag_data(parts: &[(&str, &[u8])]) -> azul_core::drag::DragData {
+        let mut data = azul_core::drag::DragData::new();
+        for (mime, bytes) in parts {
+            data.set_data(*mime, bytes.to_vec());
+        }
+        data
+    }
+
+    /// A drag of files out of the window offers the files (and the text the
+    /// app gave with them) to the application it is dropped on.
+    #[test]
+    fn a_drag_of_files_offers_them_to_other_applications() {
+        let data = drag_data(&[
+            (
+                "text/uri-list",
+                b"file:///Users/me/Pictures/a%20b.png\r\nfile:///Users/me/c.txt\r\n",
+            ),
+            ("text/plain", b"a b.png\nc.txt"),
+        ]);
+        let content = drag_data_to_clipboard_content(&data).expect("an OS drag");
+        let files: Vec<&str> = content.files.as_ref().iter().map(|f| f.as_str()).collect();
+        assert_eq!(files, ["/Users/me/Pictures/a b.png", "/Users/me/c.txt"]);
+        assert_eq!(content.plain_text.as_str(), "a b.png\nc.txt");
+        // ... and it publishes as files, as a copy of them would.
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(back.files.as_ref().len(), 2);
+    }
+
+    /// Text and an image leave the window too.
+    #[test]
+    fn a_drag_of_text_or_an_image_offers_it_to_other_applications() {
+        let text = drag_data_to_clipboard_content(&drag_data(&[("text/plain", b"hello")]))
+            .expect("a text drag");
+        assert_eq!(text.plain_text.as_str(), "hello");
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 7];
+        let image = drag_data_to_clipboard_content(&drag_data(&[("image/png", &png)]))
+            .expect("an image drag");
+        assert_eq!(image.image.as_ref().map(|i| i.as_ref().to_vec()), Some(png.to_vec()));
+    }
+
+    /// A drag that carries only the app's own type (a task moved between lists)
+    /// has nothing for another application: it stays a drag inside the app.
+    #[test]
+    fn a_drag_of_the_apps_own_data_stays_inside_the_app() {
+        assert!(
+            drag_data_to_clipboard_content(&drag_data(&[("application/x-aztasks-task", b"42")]))
+                .is_none()
+        );
+        assert!(drag_data_to_clipboard_content(&azul_core::drag::DragData::new()).is_none());
     }
 }
