@@ -13,6 +13,9 @@
        (C) and a click on the first clip (6 -> 7 clips);
     5. ripple-deletes: the select tool (V), a click on the first clip, Shift+Delete (the
        sequence gets shorter, the clip count drops by one), Ctrl+Z (undone);
+    5b. scrubs: a drag along the ruler moves the playhead forward with the pointer, the
+       program monitor catches up with where it stops, and the timeline drawn in place equals
+       a full redraw (no 1-px playhead line left behind);
     6. exports the first second: Ctrl+E, "First second", "Export now", waits for
        `AZVIDEOCUT_EXPORTED <key> <bytes> <mp4|y4m|h264>` and checks the file under the data
        root (an MP4 starts with an `ftyp` box);
@@ -291,6 +294,61 @@ def playhead(app, do, what):
     return frame
 
 
+def scrub(app, args, out):
+    _, ruler = app.rect(".__azul-native-timeline-ruler")
+    _, lanes = app.rect(".__azul-native-timeline-lanes")
+    x0 = float(ruler["x"]) + 40.0
+    x1 = float(ruler["x"]) + float(ruler["width"]) * 0.6
+    y = float(ruler["y"]) + float(ruler["height"]) / 2.0
+    before = len(app.printed("PLAYHEAD", r"-?\d+"))
+    app.must("mouse_move", x=x0, y=y)
+    app.frame(1)
+    app.must("mouse_down", x=x0, y=y)
+    app.frame(1)
+    steps = 12
+    for i in range(1, steps + 1):
+        app.must("mouse_move", x=x0 + (x1 - x0) * i / steps, y=y)
+        app.frame(1)
+    app.must("mouse_up", x=x1, y=y)
+    app.frame(2)
+    heads = [int(h) for h in app.printed("PLAYHEAD", r"-?\d+")[before:]]
+    if len(heads) < steps // 2:
+        raise Failure("a %d-step drag along the ruler moved the playhead %d times: %s"
+                      % (steps, len(heads), heads))
+    if heads != sorted(heads):
+        raise Failure("the playhead went back while dragging forward: %s" % heads)
+    last = heads[-1]
+    app.until("the program monitor at the scrub's end (frame %d)" % last,
+              lambda: str(last) in app.printed("FRAME", r"\d+"))
+    app.frame(3)
+    shown = os.path.join(out, "scrubbed.png")
+    app.screenshot(shown)
+    # A full redraw: a new window size draws every pixel, the old size again too.
+    app.must("resize", width=args.width + 1, height=args.height)
+    app.frame(3)
+    app.must("resize", width=args.width, height=args.height)
+    app.frame(3)
+    full = os.path.join(out, "scrubbed-full.png")
+    app.screenshot(full)
+    w0, h0, a = azlin_e2e.read_png(shown)
+    w1, h1, b = azlin_e2e.read_png(full)
+    if (w0, h0) != (w1, h1):
+        raise Failure("the screenshots are %dx%d and %dx%d" % (w0, h0, w1, h1))
+    scale = w0 / float(args.width)
+    left = int(float(ruler["x"]) * scale)
+    right = min(w0, int((float(ruler["x"]) + float(ruler["width"])) * scale))
+    top = int(float(ruler["y"]) * scale)
+    bottom = min(h0, int((float(lanes["y"]) + float(lanes["height"])) * scale))
+    stale = [(x, yy) for yy in range(top, bottom) for x in range(left, right)
+             if max(abs(p - q) for p, q in zip(a[yy][x][:3], b[yy][x][:3])) > 24]
+    if stale:
+        columns = sorted({x for x, _ in stale})
+        raise Failure("after the scrub %d timeline pixels differ from a full redraw (columns %s): "
+                      "the drawing in place left something behind" % (len(stale), columns[:16]))
+    log("scrubbed to frame %d in %d moves; the program monitor caught up; the timeline drawn "
+        "in place equals a full redraw" % (last, len(heads)))
+
+
 def run(args, logs, out, data_root):
     binary = find_binary(args.bin)
     deadline = time.time() + args.timeout
@@ -382,6 +440,12 @@ def run(args, logs, out, data_root):
         at = playhead(app, lambda: app.key("right"), "Right")
         if at != 1:
             raise Failure("Right moved the playhead to %d" % at)
+
+        # 5b. Scrubbing: a drag along the ruler moves the playhead with the pointer, the
+        # program monitor catches up with where it stops, and the frame drawn in place
+        # (incrementally) is the frame a full redraw draws - no 1-px playhead line is left
+        # behind where the pointer went.
+        scrub(app, args, out)
 
         # 6. Export the first second.
         app.key("e", primary=True)
