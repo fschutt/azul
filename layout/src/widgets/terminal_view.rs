@@ -2217,6 +2217,9 @@ pub(crate) struct TerminalShared {
     /// The last double-click: the line of the word it selected, and when (a press on that
     /// line soon after selects the whole line, [`is_third_click`]).
     pub word_click: Option<(u32, azul_core::task::Instant)>,
+    /// The last triple-click's line and when: a double-click the engine reports for the second
+    /// and third clicks must not turn the line back into a word.
+    pub line_click: Option<(u32, azul_core::task::Instant)>,
 }
 
 impl TerminalShared {
@@ -2236,6 +2239,7 @@ impl TerminalShared {
             wheel_travel: 0.0,
             asked: None,
             word_click: None,
+            line_click: None,
         }
     }
 }
@@ -2261,6 +2265,19 @@ fn set_word_click(data: &mut RefAny, click: Option<(u32, azul_core::task::Instan
     if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
         s.word_click = click;
     }
+}
+
+fn set_line_click(data: &mut RefAny, click: Option<(u32, azul_core::task::Instant)>) {
+    if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
+        s.line_click = click;
+    }
+}
+
+/// The triple-click this double-click may belong to: its line and how long ago (ns).
+fn last_line_click(data: &mut RefAny, now: &azul_core::task::Instant) -> Option<(u32, u128)> {
+    let s = data.downcast_ref::<TerminalShared>()?;
+    let (line, at) = s.line_click.clone()?;
+    Some((line, now.duration_since(&at).as_nanos()))
 }
 
 /// The system monospace face.
@@ -3144,6 +3161,7 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
     set_word_click(&mut data, None);
     if third && !modifiers.alt {
         set_drag(&mut data, Drag::None);
+        set_line_click(&mut data, Some((point.line, now.clone())));
         let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
         e.selection_kind = TerminalSelectionKind::Line;
         return fire_and_render(&s, info, e);
@@ -3276,7 +3294,12 @@ extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> 
     // The selection is whole: the release that follows must not clear it.
     set_drag(&mut data, Drag::None);
     let (point, right_half) = s.cell(x, y);
-    set_word_click(&mut data, Some((point.line, info.get_current_time())));
+    let now = info.get_current_time();
+    // The second and third clicks of a triple-click: the line stays the selection.
+    if is_third_click(last_line_click(&mut data, &now), point.line) {
+        return Update::DoNothing;
+    }
+    set_word_click(&mut data, Some((point.line, now)));
     let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
     e.selection_kind = TerminalSelectionKind::Word;
     fire_and_render(&s, info, e)
