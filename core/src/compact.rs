@@ -2180,6 +2180,11 @@ fn apply_css_property_to_compact(
                 cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER;
             }
         }
+        CssProperty::CounterSet(v) => {
+            if v.get_property().is_some() {
+                cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER;
+            }
+        }
         // Both break-before/after wrap PageBreakValue and set the has-break bit.
         CssProperty::BreakBefore(v) | CssProperty::BreakAfter(v) => {
             if v.get_property().is_some() {

@@ -211,6 +211,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::Content(v) => prop_value(v, "Content", "ContentValue", "Content", Some("content")),
         P::CounterReset(v) => prop_value(v, "CounterReset", "CounterResetValue", "CounterReset", Some("counter_reset")),
         P::CounterIncrement(v) => prop_value(v, "CounterIncrement", "CounterIncrementValue", "CounterIncrement", Some("counter_increment")),
+        P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
@@ -630,11 +631,18 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("CoreMenuCallback", "dom"),
     ("CoreRenderImageCallback", "dom"),
     ("CoreRenderImageCallbackType", "callbacks"),
+    ("CounterEntry", "css"),
+    ("CounterEntryVec", "vec"),
+    ("CounterEntryVecDestructor", "vec"),
+    ("CounterEntryVecDestructorType", "vec"),
+    ("CounterEntryVecSlice", "css"),
     ("CounterFormat", "pdf"),
     ("CounterIncrement", "css"),
     ("CounterIncrementValue", "css"),
     ("CounterReset", "css"),
     ("CounterResetValue", "css"),
+    ("CounterSet", "css"),
+    ("CounterSetValue", "css"),
     ("Css", "css"),
     ("CssAngleValueParseErrorOwned", "css"),
     ("CssAppRegionParseErrorOwned", "xml"),
@@ -1812,6 +1820,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionCoreCallbackData", "option"),
     ("OptionCoreImageCallback", "option"),
     ("OptionCoreMenuCallback", "option"),
+    ("OptionCounterEntry", "option"),
     ("OptionCss", "option"),
     ("OptionCssDeclaration", "option"),
     ("OptionCssMockEnvironment", "option"),
@@ -3847,6 +3856,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariantNumeric", "StyleFontVariantNumericValue", ""),
     ("FontVariantCaps", "StyleFontVariantCapsValue", ""),
     ("FontFeatureSettings", "StyleFontFeatureSettingsValue", ""),
+    ("CounterSet", "CounterSetValue", "counter_set"),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4066,6 +4076,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariantNumeric",
     "FontVariantCaps",
     "FontFeatureSettings",
+    "CounterSet",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -4465,10 +4476,10 @@ impl Lower for crate::props::style::content::Content {
     }
 }
 
-impl Lower for crate::props::style::content::CounterIncrement {
+impl Lower for crate::props::style::content::CounterEntry {
     fn lower(&self) -> Expr {
         Expr::strukt(
-            "CounterIncrement",
+            "CounterEntry",
             vec![
                 ("counter_name", self.counter_name.lower()),
                 ("value", self.value.lower()),
@@ -4477,15 +4488,27 @@ impl Lower for crate::props::style::content::CounterIncrement {
     }
 }
 
+impl Lower for crate::props::style::content::CounterEntryVec {
+    fn lower(&self) -> Expr {
+        Expr::vec("CounterEntryVec", "CounterEntry", self.as_slice().iter().map(Lower::lower).collect())
+    }
+}
+
+impl Lower for crate::props::style::content::CounterIncrement {
+    fn lower(&self) -> Expr {
+        Expr::strukt("CounterIncrement", vec![("counters", self.counters.lower())])
+    }
+}
+
 impl Lower for crate::props::style::content::CounterReset {
     fn lower(&self) -> Expr {
-        Expr::strukt(
-            "CounterReset",
-            vec![
-                ("counter_name", self.counter_name.lower()),
-                ("value", self.value.lower()),
-            ],
-        )
+        Expr::strukt("CounterReset", vec![("counters", self.counters.lower())])
+    }
+}
+
+impl Lower for crate::props::style::content::CounterSet {
+    fn lower(&self) -> Expr {
+        Expr::strukt("CounterSet", vec![("counters", self.counters.lower())])
     }
 }
 

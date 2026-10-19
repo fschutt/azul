@@ -1519,7 +1519,7 @@ pub struct CompactNodePropsCold {
     ///        OR of all -azul-scrollbar-* / scrollbar-color / scrollbar-width props.
     ///        When clear, `get_scrollbar_style` can skip 8 cascade walks and use
     ///        the UA-default result.
-    /// bit 1: `has_counter`      (counter-reset OR counter-increment)
+    /// bit 1: `has_counter`      (counter-reset, counter-increment OR counter-set)
     /// bit 2: `has_break`        (break-before OR break-after)
     /// bit 3: `has_text_orientation`
     /// bit 4: `has_text_shadow`

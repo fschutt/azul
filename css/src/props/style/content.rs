@@ -1,8 +1,9 @@
 //! CSS properties for generated content (`content`, `counter-reset`,
-//! `counter-increment`, `string-set`).
+//! `counter-increment`, `counter-set`, `string-set`).
 //!
-//! Defines [`Content`], [`CounterReset`], [`CounterIncrement`], and
-//! [`StringSet`], which are registered as [`CssProperty`] variants.
+//! Defines [`Content`], [`CounterReset`], [`CounterIncrement`],
+//! [`CounterSet`] (each a list of [`CounterEntry`]) and [`StringSet`], which
+//! are registered as [`CssProperty`] variants.
 
 use alloc::string::{String, ToString};
 
@@ -36,105 +37,157 @@ impl PrintAsCssValue for Content {
     }
 }
 
-/// CSS `counter-reset` property: resets a named counter to a given value.
+/// One counter of a `counter-reset`, `counter-increment` or `counter-set`
+/// list: its name and the value it is reset to, stepped by or set to.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CounterEntry {
+    pub counter_name: AzString,
+    pub value: i32,
+}
+
+impl CounterEntry {
+    #[must_use]
+    pub const fn new(counter_name: AzString, value: i32) -> Self {
+        Self {
+            counter_name,
+            value,
+        }
+    }
+}
+
+impl_option!(
+    CounterEntry,
+    OptionCounterEntry,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    CounterEntry,
+    CounterEntryVec,
+    CounterEntryVecDestructor,
+    CounterEntryVecDestructorType,
+    CounterEntryVecSlice,
+    OptionCounterEntry
+);
+impl_vec_debug!(CounterEntry, CounterEntryVec);
+impl_vec_partialord!(CounterEntry, CounterEntryVec);
+impl_vec_ord!(CounterEntry, CounterEntryVec);
+impl_vec_clone!(CounterEntry, CounterEntryVec, CounterEntryVecDestructor);
+impl_vec_partialeq!(CounterEntry, CounterEntryVec);
+impl_vec_eq!(CounterEntry, CounterEntryVec);
+impl_vec_hash!(CounterEntry, CounterEntryVec);
+
+/// `none` for no counters, else every counter with its value, in order.
+impl PrintAsCssValue for CounterEntryVec {
+    fn print_as_css_value(&self) -> String {
+        if self.is_empty() {
+            return "none".to_string();
+        }
+        self.iter()
+            .map(|c| alloc::format!("{} {}", c.counter_name.as_str(), c.value))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// The counters the `list-item` constants name.
+const LIST_ITEM_AT_ZERO: &[CounterEntry] =
+    &[CounterEntry::new(AzString::from_const_str("list-item"), 0)];
+const LIST_ITEM_BY_ONE: &[CounterEntry] =
+    &[CounterEntry::new(AzString::from_const_str("list-item"), 1)];
+
+/// CSS `counter-reset` (CSS Lists 3 s4.2): the counters an element makes,
+/// each with its start value. Empty is `none`. A counter named twice takes
+/// its last value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CounterReset {
-    pub counter_name: AzString,
-    pub value: i32,
+    pub counters: CounterEntryVec,
 }
 
-impl CounterReset {
-    #[must_use]
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
-        Self {
-            counter_name,
-            value,
-        }
-    }
-
-    #[must_use]
-    pub const fn none() -> Self {
-        Self {
-            counter_name: AzString::from_const_str("none"),
-            value: 0,
-        }
-    }
-
-    #[must_use]
-    pub const fn list_item() -> Self {
-        Self {
-            counter_name: AzString::from_const_str("list-item"),
-            value: 0,
-        }
-    }
-}
-
-impl Default for CounterReset {
-    fn default() -> Self {
-        Self::none()
-    }
-}
-
-impl PrintAsCssValue for CounterReset {
-    fn print_as_css_value(&self) -> String {
-        if self.counter_name.as_str() == "none" {
-            "none".to_string()
-        } else {
-            alloc::format!("{} {}", self.counter_name.as_str(), self.value)
-        }
-    }
-}
-
-/// CSS `counter-increment` property: increments a named counter by a given value.
+/// CSS `counter-increment` (CSS Lists 3 s4.3): the counters an element
+/// steps, each by its value. Empty is `none`. A counter named twice steps
+/// once per name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CounterIncrement {
-    pub counter_name: AzString,
-    pub value: i32,
+    pub counters: CounterEntryVec,
 }
 
-impl CounterIncrement {
-    #[must_use]
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
-        Self {
-            counter_name,
-            value,
-        }
-    }
-
-    #[must_use]
-    pub const fn none() -> Self {
-        Self {
-            counter_name: AzString::from_const_str("none"),
-            value: 0,
-        }
-    }
-
-    #[must_use]
-    pub const fn list_item() -> Self {
-        Self {
-            counter_name: AzString::from_const_str("list-item"),
-            value: 1,
-        }
-    }
+/// CSS `counter-set` (CSS Lists 3 s4.3): the counters an element gives a
+/// value, after its resets and increments, without making new ones. Empty is
+/// `none`. A counter named twice takes its last value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CounterSet {
+    pub counters: CounterEntryVec,
 }
 
-impl Default for CounterIncrement {
-    fn default() -> Self {
-        Self::none()
-    }
+macro_rules! impl_counter_list {
+    ($name:ident, $list_item:expr) => {
+        impl $name {
+            /// One counter with its value.
+            #[must_use]
+            pub fn new(counter_name: AzString, value: i32) -> Self {
+                Self {
+                    counters: CounterEntryVec::from_vec(alloc::vec![CounterEntry::new(
+                        counter_name,
+                        value
+                    )]),
+                }
+            }
+
+            #[must_use]
+            pub const fn from_counters(counters: CounterEntryVec) -> Self {
+                Self { counters }
+            }
+
+            /// `none`: no counters.
+            #[must_use]
+            pub const fn none() -> Self {
+                Self {
+                    counters: CounterEntryVec::new(),
+                }
+            }
+
+            /// The `list-item` counter alone, as the UA style sheet names it.
+            #[must_use]
+            pub const fn list_item() -> Self {
+                Self {
+                    counters: CounterEntryVec::from_const_slice($list_item),
+                }
+            }
+
+            #[must_use]
+            pub const fn is_none(&self) -> bool {
+                self.counters.is_empty()
+            }
+
+            /// Whether the list names the counter `name`.
+            #[must_use]
+            pub fn names(&self, name: &str) -> bool {
+                self.counters.iter().any(|c| c.counter_name.as_str() == name)
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::none()
+            }
+        }
+
+        impl PrintAsCssValue for $name {
+            fn print_as_css_value(&self) -> String {
+                self.counters.print_as_css_value()
+            }
+        }
+    };
 }
 
-impl PrintAsCssValue for CounterIncrement {
-    fn print_as_css_value(&self) -> String {
-        if self.counter_name.as_str() == "none" {
-            "none".to_string()
-        } else {
-            alloc::format!("{} {}", self.counter_name.as_str(), self.value)
-        }
-    }
-}
+impl_counter_list!(CounterReset, LIST_ITEM_AT_ZERO);
+impl_counter_list!(CounterIncrement, LIST_ITEM_BY_ONE);
+impl_counter_list!(CounterSet, LIST_ITEM_AT_ZERO);
 
 /// CSS `string-set` property value, stored as a raw string.
 ///
@@ -168,23 +221,58 @@ impl crate::codegen::format::FormatAsRustCode for Content {
 }
 
 #[cfg(feature = "codegen")]
-impl crate::codegen::format::FormatAsRustCode for CounterReset {
+impl crate::codegen::format::FormatAsRustCode for CounterEntry {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         alloc::format!(
-            "CounterReset {{ counter_name: AzString::from_const_str({:?}), value: {} }}",
+            "CounterEntry {{ counter_name: AzString::from_const_str({:?}), value: {} }}",
             self.counter_name.as_str(),
             self.value
         )
     }
 }
 
+// The entries are emitted once as a const slice (see `VecContents`), which
+// the vec then borrows, as every vec of a compiled style sheet does.
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for CounterEntryVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        use crate::hash::GetHash;
+        if self.is_empty() {
+            return "CounterEntryVec::from_const_slice(&[])".to_string();
+        }
+        alloc::format!(
+            "CounterEntryVec::from_const_slice(COUNTER_ENTRY_{}_ITEMS)",
+            self.get_hash()
+        )
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for CounterReset {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        alloc::format!(
+            "CounterReset {{ counters: {} }}",
+            self.counters.format_as_rust_code(tabs)
+        )
+    }
+}
+
 #[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for CounterIncrement {
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
         alloc::format!(
-            "CounterIncrement {{ counter_name: AzString::from_const_str({:?}), value: {} }}",
-            self.counter_name.as_str(),
-            self.value
+            "CounterIncrement {{ counters: {} }}",
+            self.counters.format_as_rust_code(tabs)
+        )
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for CounterSet {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        alloc::format!(
+            "CounterSet {{ counters: {} }}",
+            self.counters.format_as_rust_code(tabs)
         )
     }
 }
@@ -214,43 +302,69 @@ pub mod parser {
         })
     }
 
-    fn parse_counter_name_value(input: &str, default_value: i32) -> Result<(AzString, i32), ()> {
+    /// `none | [ <counter-name> <integer>? ]+` (CSS Lists 3 s4.2), every
+    /// counter without a value taking `default_value`: the counters in order,
+    /// none for `none`. A name is an identifier other than `none` that does
+    /// not start with a digit, so a number where a name belongs, a value out
+    /// of the integer range and an empty list are errors.
+    fn parse_counter_list(input: &str, default_value: i32) -> Result<CounterEntryVec, ()> {
         let trimmed = input.trim();
-
-        if trimmed == "none" {
-            return Ok((AzString::from_const_str("none"), 0));
+        if trimmed.eq_ignore_ascii_case("none") {
+            return Ok(CounterEntryVec::new());
         }
-
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-
-        if parts.is_empty() {
+        let mut counters = Vec::new();
+        let mut words = trimmed.split_whitespace().peekable();
+        while let Some(name) = words.next() {
+            if !is_counter_name(name) {
+                return Err(());
+            }
+            let value = match words.peek() {
+                Some(word) if looks_like_integer(word) => {
+                    let value = word.parse::<i32>().map_err(|_| ())?;
+                    words.next();
+                    value
+                }
+                _ => default_value,
+            };
+            counters.push(CounterEntry::new(name.into(), value));
+        }
+        if counters.is_empty() {
             return Err(());
         }
+        Ok(CounterEntryVec::from_vec(counters))
+    }
 
-        let counter_name = parts[0].into();
-        let value = if parts.len() > 1 {
-            parts[1].parse::<i32>().map_err(|_| ())?
-        } else {
-            default_value
-        };
+    /// A word that is meant as a number: a digit, or a sign and a digit.
+    fn looks_like_integer(word: &str) -> bool {
+        let digits = word.strip_prefix(['+', '-']).unwrap_or(word);
+        digits.starts_with(|c: char| c.is_ascii_digit())
+    }
 
-        Ok((counter_name, value))
+    /// A `<custom-ident>` that may name a counter: not `none` (in any case)
+    /// and not a number.
+    fn is_counter_name(word: &str) -> bool {
+        !word.eq_ignore_ascii_case("none") && !looks_like_integer(word) && word != "+" && word != "-"
     }
 
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `counter-reset` value.
     pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
-        let (counter_name, value) = parse_counter_name_value(input, 0)?;
-        Ok(CounterReset::new(counter_name, value))
+        parse_counter_list(input, 0).map(CounterReset::from_counters)
     }
 
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `counter-increment` value.
     pub fn parse_counter_increment(input: &str) -> Result<CounterIncrement, ()> {
-        let (counter_name, value) = parse_counter_name_value(input, 1)?;
-        Ok(CounterIncrement::new(counter_name, value))
+        parse_counter_list(input, 1).map(CounterIncrement::from_counters)
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `counter-set` value.
+    pub fn parse_counter_set(input: &str) -> Result<CounterSet, ()> {
+        parse_counter_list(input, 0).map(CounterSet::from_counters)
     }
 
     /// # Errors
@@ -267,6 +381,14 @@ pub mod parser {
 pub use parser::*;
 
 #[cfg(all(test, feature = "parser"))]
+fn names_and_values(counters: &CounterEntryVec) -> Vec<(&str, i32)> {
+    counters
+        .iter()
+        .map(|c| (c.counter_name.as_str(), c.value))
+        .collect()
+}
+
+#[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;
 
@@ -274,26 +396,19 @@ mod tests {
     fn test_simple_content_parser() {
         assert_eq!(parse_content("'Hello'").unwrap().inner.as_str(), "'Hello'");
 
-        // Test counter-reset parsing
+        // counter-reset, counter-increment and counter-set take a list.
         let reset = parse_counter_reset("page 1").unwrap();
-        assert_eq!(reset.counter_name.as_str(), "page");
-        assert_eq!(reset.value, 1);
+        assert_eq!(reset, CounterReset::new("page".into(), 1));
+        assert_eq!(parse_counter_reset("list-item 0").unwrap(), CounterReset::list_item());
+        assert!(parse_counter_reset("none").unwrap().is_none());
 
-        let reset = parse_counter_reset("list-item 0").unwrap();
-        assert_eq!(reset.counter_name.as_str(), "list-item");
-        assert_eq!(reset.value, 0);
-
-        let reset = parse_counter_reset("none").unwrap();
-        assert_eq!(reset.counter_name.as_str(), "none");
-
-        // Test counter-increment parsing
         let inc = parse_counter_increment("section").unwrap();
-        assert_eq!(inc.counter_name.as_str(), "section");
-        assert_eq!(inc.value, 1); // Default value
-
+        assert_eq!(inc, CounterIncrement::new("section".into(), 1));
         let inc = parse_counter_increment("list-item 2").unwrap();
-        assert_eq!(inc.counter_name.as_str(), "list-item");
-        assert_eq!(inc.value, 2);
+        assert_eq!(inc, CounterIncrement::new("list-item".into(), 2));
+
+        let set = parse_counter_set("a 3 b").unwrap();
+        assert_eq!(names_and_values(&set.counters), [("a", 3), ("b", 0)]);
 
         assert_eq!(
             parse_string_set("chapter-title content()")
@@ -353,20 +468,20 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // Constructors: CounterReset::{new,none,list_item}
-    //               CounterIncrement::{new,none,list_item}
+    // Constructors: CounterReset / CounterIncrement / CounterSet ::{new,none,list_item}
     // ---------------------------------------------------------------
 
     #[test]
     fn counter_constructors_preserve_fields_at_i32_extremes() {
         for value in [i32::MIN, i32::MIN + 1, -1, 0, 1, i32::MAX - 1, i32::MAX] {
             let r = CounterReset::new(AzString::from_const_str("c"), value);
-            assert_eq!(r.counter_name.as_str(), "c");
-            assert_eq!(r.value, value);
+            assert_eq!(names_and_values(&r.counters), [("c", value)]);
 
             let i = CounterIncrement::new(AzString::from_const_str("c"), value);
-            assert_eq!(i.counter_name.as_str(), "c");
-            assert_eq!(i.value, value);
+            assert_eq!(names_and_values(&i.counters), [("c", value)]);
+
+            let s = CounterSet::new(AzString::from_const_str("c"), value);
+            assert_eq!(names_and_values(&s.counters), [("c", value)]);
         }
     }
 
@@ -379,36 +494,30 @@ mod autotest_generated {
 
         for name in names {
             let r = CounterReset::new(name.into(), i32::MIN);
-            assert_eq!(r.counter_name.as_str(), name);
-            assert_eq!(r.counter_name.as_str().len(), name.len());
-            assert_eq!(r.value, i32::MIN);
+            assert_eq!(names_and_values(&r.counters), [(name, i32::MIN)]);
 
             let i = CounterIncrement::new(name.into(), i32::MAX);
-            assert_eq!(i.counter_name.as_str(), name);
-            assert_eq!(i.counter_name.as_str().len(), name.len());
-            assert_eq!(i.value, i32::MAX);
+            assert_eq!(names_and_values(&i.counters), [(name, i32::MAX)]);
         }
     }
 
     #[test]
     fn counter_none_and_list_item_constants() {
-        assert_eq!(CounterReset::none().counter_name.as_str(), "none");
-        assert_eq!(CounterReset::none().value, 0);
+        assert!(CounterReset::none().is_none());
         assert_eq!(CounterReset::default(), CounterReset::none());
-
-        assert_eq!(CounterIncrement::none().counter_name.as_str(), "none");
-        assert_eq!(CounterIncrement::none().value, 0);
+        assert!(CounterIncrement::none().is_none());
         assert_eq!(CounterIncrement::default(), CounterIncrement::none());
+        assert!(CounterSet::none().is_none());
+        assert_eq!(CounterSet::default(), CounterSet::none());
 
         // Per CSS, `counter-reset: list-item` starts at 0 while
         // `counter-increment: list-item` steps by 1 -- the asymmetry is intended.
-        assert_eq!(CounterReset::list_item().counter_name.as_str(), "list-item");
-        assert_eq!(CounterReset::list_item().value, 0);
+        assert_eq!(names_and_values(&CounterReset::list_item().counters), [("list-item", 0)]);
         assert_eq!(
-            CounterIncrement::list_item().counter_name.as_str(),
-            "list-item"
+            names_and_values(&CounterIncrement::list_item().counters),
+            [("list-item", 1)]
         );
-        assert_eq!(CounterIncrement::list_item().value, 1);
+        assert!(CounterReset::list_item().names("list-item"));
     }
 
     #[test]
@@ -556,10 +665,16 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // parse_counter_reset / parse_counter_increment
-    // (these fully exercise the private `parse_counter_name_value`:
-    //  default_value = 0 for reset, 1 for increment)
+    // parse_counter_reset / parse_counter_increment / parse_counter_set
+    // (these fully exercise the private `parse_counter_list`:
+    //  default_value = 0 for reset and set, 1 for increment)
     // ---------------------------------------------------------------
+
+    fn single(counters: &CounterEntryVec) -> (&str, i32) {
+        assert_eq!(counters.len(), 1, "one counter expected in {counters:?}");
+        let c = &counters.as_slice()[0];
+        (c.counter_name.as_str(), c.value)
+    }
 
     #[test]
     fn counter_empty_and_whitespace_only_input_is_rejected() {
@@ -572,65 +687,55 @@ mod autotest_generated {
                 parse_counter_increment(input).is_err(),
                 "counter-increment accepted whitespace-only {input:?}"
             );
+            assert!(
+                parse_counter_set(input).is_err(),
+                "counter-set accepted whitespace-only {input:?}"
+            );
         }
     }
 
     #[test]
     fn counter_missing_value_uses_per_property_default() {
-        let r = parse_counter_reset("section").unwrap();
-        assert_eq!(r.counter_name.as_str(), "section");
-        assert_eq!(r.value, 0);
-
-        let i = parse_counter_increment("section").unwrap();
-        assert_eq!(i.counter_name.as_str(), "section");
-        assert_eq!(i.value, 1);
+        assert_eq!(single(&parse_counter_reset("section").unwrap().counters), ("section", 0));
+        assert_eq!(
+            single(&parse_counter_increment("section").unwrap().counters),
+            ("section", 1)
+        );
+        assert_eq!(single(&parse_counter_set("section").unwrap().counters), ("section", 0));
     }
 
     #[test]
-    fn counter_none_keyword_is_case_sensitive() {
-        // CSS keywords are ASCII case-insensitive, but only lowercase `none`
-        // hits the keyword branch. `NONE` is treated as a *counter name*.
-        let r = parse_counter_reset("NONE").unwrap();
-        assert_eq!(r.counter_name.as_str(), "NONE");
-        assert_eq!(r.value, 0);
-
-        let i = parse_counter_increment("None").unwrap();
-        assert_eq!(i.counter_name.as_str(), "None");
-        assert_eq!(i.value, 1, "uppercase `None` took the counter-name branch");
-
-        // The lowercase keyword branch ignores the property default entirely.
-        assert_eq!(parse_counter_increment("none").unwrap().value, 0);
-        assert_eq!(parse_counter_increment("  none  ").unwrap().value, 0);
+    fn counter_none_keyword_is_ascii_case_insensitive() {
+        // CSS keywords are ASCII case-insensitive: every spelling of `none`
+        // is the keyword, an empty list.
+        for none in ["none", "NONE", "None", "  none  "] {
+            assert!(parse_counter_reset(none).unwrap().is_none(), "{none:?}");
+            assert!(parse_counter_increment(none).unwrap().is_none(), "{none:?}");
+            assert!(parse_counter_set(none).unwrap().is_none(), "{none:?}");
+        }
     }
 
     #[test]
-    fn counter_none_with_value_keeps_value_but_prints_as_bare_none() {
-        // "none 5" misses the keyword fast-path (it is not *exactly* "none"),
-        // so it parses as a counter literally named "none" with value 5 --
-        // but PrintAsCssValue then drops the 5, so print->parse is lossy.
-        let r = parse_counter_reset("none 5").unwrap();
-        assert_eq!(r.counter_name.as_str(), "none");
-        assert_eq!(r.value, 5);
-        assert_eq!(r.print_as_css_value(), "none");
-
-        let reparsed = parse_counter_reset(&r.print_as_css_value()).unwrap();
-        assert_eq!(reparsed.value, 0);
-        assert_ne!(reparsed, r, "value 5 silently vanished across a round-trip");
+    fn counter_none_inside_a_list_is_not_a_counter_name() {
+        // `none` is excluded from <counter-name>, so a list naming it is
+        // invalid and the declaration is dropped.
+        for bad in ["none 5", "a none", "a 1 NONE 2"] {
+            assert!(parse_counter_reset(bad).is_err(), "{bad:?}");
+            assert!(parse_counter_increment(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
     fn counter_value_at_i32_boundaries_parses_exactly() {
-        assert_eq!(parse_counter_reset("c 2147483647").unwrap().value, i32::MAX);
+        let value = |input: &str| single(&parse_counter_reset(input).unwrap().counters).1;
+        assert_eq!(value("c 2147483647"), i32::MAX);
+        assert_eq!(value("c -2147483648"), i32::MIN);
+        assert_eq!(value("c 0"), 0);
+        assert_eq!(value("c -0"), 0);
+        assert_eq!(value("c +7"), 7);
+        assert_eq!(value("c 007"), 7);
         assert_eq!(
-            parse_counter_reset("c -2147483648").unwrap().value,
-            i32::MIN
-        );
-        assert_eq!(parse_counter_reset("c 0").unwrap().value, 0);
-        assert_eq!(parse_counter_reset("c -0").unwrap().value, 0);
-        assert_eq!(parse_counter_reset("c +7").unwrap().value, 7);
-        assert_eq!(parse_counter_reset("c 007").unwrap().value, 7);
-        assert_eq!(
-            parse_counter_increment("c -2147483648").unwrap().value,
+            single(&parse_counter_increment("c -2147483648").unwrap().counters).1,
             i32::MIN
         );
     }
@@ -649,28 +754,16 @@ mod autotest_generated {
                 "overflowing value silently accepted: {over:?}"
             );
             assert!(parse_counter_increment(over).is_err());
+            assert!(parse_counter_set(over).is_err());
         }
     }
 
     #[test]
-    fn counter_non_integer_values_are_rejected() {
+    fn counter_number_like_values_that_are_not_integers_are_rejected() {
+        // A word that starts like a number stands where the value goes; one
+        // that is not an integer makes the whole list invalid.
         for bad in [
-            "c 1.0",
-            "c 1.5",
-            "c 1e3",
-            "c NaN",
-            "c nan",
-            "c inf",
-            "c -inf",
-            "c 0x10",
-            "c 1_000",
-            "c 1,",
-            "c one",
-            "c -",
-            "c +",
-            "c ٣",  // Arabic-Indic digit three
-            "c １", // fullwidth digit one
-            "c 1\u{200b}",
+            "c 1.0", "c 1.5", "c 1e3", "c 0x10", "c 1_000", "c 1,", "c -", "c +", "c 1\u{200b}",
         ] {
             assert!(
                 parse_counter_reset(bad).is_err(),
@@ -684,16 +777,46 @@ mod autotest_generated {
     }
 
     #[test]
-    fn counter_extra_tokens_after_the_first_pair_are_silently_dropped() {
-        // CSS allows a *list* of counters; this parser keeps only the first
-        // name/value pair and discards the rest without erroring.
-        let r = parse_counter_reset("a 1 b 2 c 3").unwrap();
-        assert_eq!(r.counter_name.as_str(), "a");
-        assert_eq!(r.value, 1);
+    fn counter_a_word_after_a_name_is_the_next_counter() {
+        // `c one` is two counters, each with the default value; so is a word
+        // in another script's digits, which is no CSS integer.
+        let names = |input: &str| {
+            names_and_values(&parse_counter_increment(input).unwrap().counters)
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("c one"), [("c".to_string(), 1), ("one".to_string(), 1)]);
+        assert_eq!(names("c NaN"), [("c".to_string(), 1), ("NaN".to_string(), 1)]);
+        assert_eq!(names("c ٣"), [("c".to_string(), 1), ("٣".to_string(), 1)]);
+    }
 
-        // ...the parse errors instead of falling back to a default when the
-        // second token is not an integer.
-        parse_counter_increment("a b").unwrap_err();
+    #[test]
+    fn counter_a_number_where_a_name_belongs_is_rejected() {
+        for bad in ["5", "-3", "+1", "a 1 2", "1a"] {
+            assert!(parse_counter_reset(bad).is_err(), "{bad:?}");
+            assert!(parse_counter_increment(bad).is_err(), "{bad:?}");
+            assert!(parse_counter_set(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn counter_every_name_value_pair_of_a_list_is_kept_in_order() {
+        let r = parse_counter_reset("a 1 b 2 c 3").unwrap();
+        assert_eq!(names_and_values(&r.counters), [("a", 1), ("b", 2), ("c", 3)]);
+
+        // A name without a value takes the property's default, wherever it
+        // stands in the list.
+        let i = parse_counter_increment("a b 5 c").unwrap();
+        assert_eq!(names_and_values(&i.counters), [("a", 1), ("b", 5), ("c", 1)]);
+
+        // A repeated name is kept as written; the counting decides what it
+        // means (the last value for a reset or set, every step for an
+        // increment).
+        let twice = parse_counter_increment("list-item 3 list-item -1").unwrap();
+        assert_eq!(names_and_values(&twice.counters), [("list-item", 3), ("list-item", -1)]);
+        assert!(twice.names("list-item"));
+        assert!(!twice.names("other"));
     }
 
     #[test]
@@ -705,25 +828,21 @@ mod autotest_generated {
             "\u{2003}page 42", // em-space
         ] {
             let r = parse_counter_reset(input).unwrap();
-            assert_eq!(r.counter_name.as_str(), "page", "for {input:?}");
-            assert_eq!(r.value, 42, "for {input:?}");
+            assert_eq!(single(&r.counters), ("page", 42), "for {input:?}");
         }
     }
 
     #[test]
     fn counter_unicode_names_are_preserved() {
         let r = parse_counter_reset("\u{7ae0}\u{8282} 3").unwrap();
-        assert_eq!(r.counter_name.as_str(), "\u{7ae0}\u{8282}");
-        assert_eq!(r.value, 3);
+        assert_eq!(single(&r.counters), ("\u{7ae0}\u{8282}", 3));
 
         let i = parse_counter_increment("\u{1F600}").unwrap();
-        assert_eq!(i.counter_name.as_str(), "\u{1F600}");
-        assert_eq!(i.value, 1);
+        assert_eq!(single(&i.counters), ("\u{1F600}", 1));
 
         // A zero-width space is not whitespace: it becomes a counter name.
         let z = parse_counter_reset("\u{200b}").unwrap();
-        assert_eq!(z.counter_name.as_str(), "\u{200b}");
-        assert_eq!(z.value, 0);
+        assert_eq!(single(&z.counters), ("\u{200b}", 0));
     }
 
     #[test]
@@ -731,6 +850,7 @@ mod autotest_generated {
         for input in hostile_corpus() {
             let _ = parse_counter_reset(&input);
             let _ = parse_counter_increment(&input);
+            let _ = parse_counter_set(&input);
         }
     }
 
@@ -738,11 +858,11 @@ mod autotest_generated {
     fn counter_extremely_long_input_does_not_hang() {
         let long_name = "n".repeat(1_000_000);
         let r = parse_counter_reset(&long_name).unwrap();
-        assert_eq!(r.counter_name.as_str().len(), 1_000_000);
-        assert_eq!(r.value, 0);
+        assert_eq!(single(&r.counters).0.len(), 1_000_000);
+        assert_eq!(single(&r.counters).1, 0);
 
         let with_value = alloc::format!("{long_name} 5");
-        assert_eq!(parse_counter_increment(&with_value).unwrap().value, 5);
+        assert_eq!(single(&parse_counter_increment(&with_value).unwrap().counters).1, 5);
 
         // A million digits must be rejected, not truncated or wrapped.
         let long_number = alloc::format!("c {}", "9".repeat(1_000_000));
@@ -750,18 +870,21 @@ mod autotest_generated {
 
         // Whitespace-only input of the same size is still just an error.
         assert!(parse_counter_reset(&" ".repeat(1_000_000)).is_err());
+
+        // A long list stays linear.
+        let many = "c 1 ".repeat(100_000);
+        assert_eq!(parse_counter_increment(&many).unwrap().counters.len(), 100_000);
     }
 
     #[test]
     fn counter_deeply_nested_input_does_not_stack_overflow() {
         let nested = alloc::format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
         let r = parse_counter_reset(&nested).unwrap();
-        assert_eq!(r.counter_name.as_str().len(), 20_000);
-        assert_eq!(r.value, 0);
+        assert_eq!(single(&r.counters).0.len(), 20_000);
 
         let nested_with_value = alloc::format!("{nested} 1");
         assert_eq!(
-            parse_counter_increment(&nested_with_value).unwrap().value,
+            single(&parse_counter_increment(&nested_with_value).unwrap().counters).1,
             1
         );
     }
@@ -785,7 +908,14 @@ mod autotest_generated {
 
             let i = CounterIncrement::new(name.into(), value);
             assert_eq!(parse_counter_increment(&i.print_as_css_value()).unwrap(), i);
+
+            let s = CounterSet::new(name.into(), value);
+            assert_eq!(parse_counter_set(&s.print_as_css_value()).unwrap(), s);
         }
+
+        let list = parse_counter_reset("a 1 b -2 a 3").unwrap();
+        assert_eq!(list.print_as_css_value(), "a 1 b -2 a 3");
+        assert_eq!(parse_counter_reset(&list.print_as_css_value()).unwrap(), list);
 
         // `none`/`list_item` constants also survive a full round-trip.
         let n = CounterReset::none();
@@ -804,31 +934,18 @@ mod autotest_generated {
             "list-item 0"
         );
         assert_eq!(CounterIncrement::none().print_as_css_value(), "none");
+        assert_eq!(CounterSet::none().print_as_css_value(), "none");
     }
 
     #[test]
-    fn counter_print_of_empty_name_reparses_into_a_different_counter() {
-        // An empty name prints as " 5"; re-parsing reads "5" as the *name*
-        // and falls back to the default value -- a silent identity change.
-        let r = CounterReset::new(AzString::from_const_str(""), 5);
-        assert_eq!(r.print_as_css_value(), " 5");
-
-        let reparsed = parse_counter_reset(&r.print_as_css_value()).unwrap();
-        assert_eq!(reparsed.counter_name.as_str(), "5");
-        assert_eq!(reparsed.value, 0);
-        assert_ne!(reparsed, r);
-    }
-
-    #[test]
-    fn counter_print_of_name_containing_space_fails_to_reparse() {
-        // "a b" + " 5" prints as "a b 5"; the second token "b" is not an i32,
-        // so the printed form is no longer parseable at all.
+    fn counter_print_of_name_containing_space_does_not_reparse_into_itself() {
+        // A name the parser can never make ("a b") prints as "a b 5", which
+        // reads back as two counters.
         let r = CounterReset::new("a b".into(), 5);
         assert_eq!(r.print_as_css_value(), "a b 5");
-        assert!(parse_counter_reset(&r.print_as_css_value()).is_err());
-
-        let i = CounterIncrement::new("a b".into(), 5);
-        assert!(parse_counter_increment(&i.print_as_css_value()).is_err());
+        let reparsed = parse_counter_reset(&r.print_as_css_value()).unwrap();
+        assert_eq!(names_and_values(&reparsed.counters), [("a", 0), ("b", 5)]);
+        assert_ne!(reparsed, r);
     }
 
     // ---------------------------------------------------------------
@@ -850,6 +967,13 @@ mod autotest_generated {
         assert_eq!(owned, a1);
         assert_eq!(hash_of(&owned), hash_of(&a1));
         assert_ne!(a1, a2);
+
+        // The constant list equals the parsed one.
+        assert_eq!(CounterReset::list_item(), parse_counter_reset("list-item").unwrap());
+        assert_eq!(
+            hash_of(&CounterReset::list_item()),
+            hash_of(&parse_counter_reset("list-item").unwrap())
+        );
 
         assert_eq!(
             hash_of(&Content { inner: "x".into() }),
@@ -876,16 +1000,25 @@ mod autotest_generated {
             r#"StringSet { inner: String::from("\"q\"") }"#
         );
 
-        let r = CounterReset::new("a\"b".into(), i32::MIN);
+        let entry = CounterEntry::new("a\"b".into(), i32::MIN);
         assert_eq!(
-            r.format_as_rust_code(0),
-            r#"CounterReset { counter_name: AzString::from_const_str("a\"b"), value: -2147483648 }"#
+            entry.format_as_rust_code(0),
+            r#"CounterEntry { counter_name: AzString::from_const_str("a\"b"), value: -2147483648 }"#
         );
 
-        let i = CounterIncrement::new("".into(), i32::MAX);
+        // A list borrows its entries from the const slice the compiled sheet
+        // declares for it; `none` borrows nothing.
+        let r = CounterReset::new("a".into(), 1);
         assert_eq!(
-            i.format_as_rust_code(0),
-            r#"CounterIncrement { counter_name: AzString::from_const_str(""), value: 2147483647 }"#
+            r.format_as_rust_code(0),
+            alloc::format!(
+                "CounterReset {{ counters: CounterEntryVec::from_const_slice(COUNTER_ENTRY_{}_ITEMS) }}",
+                crate::hash::GetHash::get_hash(&r.counters)
+            )
+        );
+        assert_eq!(
+            CounterIncrement::none().format_as_rust_code(0),
+            "CounterIncrement { counters: CounterEntryVec::from_const_slice(&[]) }"
         );
     }
 

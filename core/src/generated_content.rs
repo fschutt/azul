@@ -16,8 +16,8 @@
 //! node's `content` (a marker's from its list item's `list-style-type`):
 //! strings, `attr()`, `counter()` / `counters()` and quotes.
 //! The counters count there, in document order: `counter-reset`,
-//! `counter-increment` and the `list-item` counter every list item steps, with
-//! HTML's `<ol start reversed>` and `<li value>`.
+//! `counter-increment`, `counter-set` and the `list-item` counter every list
+//! item steps, with HTML's `<ol start reversed>` and `<li value>`.
 
 use alloc::{
     collections::BTreeMap,
@@ -767,7 +767,8 @@ fn display_of(
 
 /// Walks the document in order, counting its counters (CSS Lists 3 s4), and
 /// hands every element to `visit` with the counters in scope once it has
-/// reset, incremented and set its own: `(index, id, node, parent, counters)`.
+/// reset, incremented and set its own (`counter-reset`, `counter-increment`
+/// and `counter-set`, each a list): `(index, id, node, parent, counters)`.
 /// An element with `display: none` makes no box, so it and its subtree count
 /// nothing and are not visited.
 #[allow(clippy::too_many_lines)] // one walk: scopes, resets, increments, the visit
@@ -832,15 +833,16 @@ fn walk_counters(
             cache
                 .get_counter_reset(node, &id, &state)
                 .and_then(CssPropertyValue::get_property)
-                .filter(|r| r.counter_name.as_str() != "none")
         } else {
             None
         };
-        if let Some(r) = reset {
-            counters.reset(r.counter_name.as_str(), r.value, i, parent);
+        // A counter the list names twice is made once with its last value:
+        // a reset replaces the counter the same element made.
+        for c in reset.iter().flat_map(|r| r.counters.iter()) {
+            counters.reset(c.counter_name.as_str(), c.value, i, parent);
         }
         if let Some(initial) = reversed_list_start(node_data, hierarchy, i) {
-            let own = reset.is_some_and(|r| r.counter_name.as_str() == "list-item");
+            let own = reset.is_some_and(|r| r.names("list-item"));
             if !own {
                 counters.reset("list-item", initial, i, parent);
             }
@@ -854,22 +856,36 @@ fn walk_counters(
             cache
                 .get_counter_increment(node, &id, &state)
                 .and_then(CssPropertyValue::get_property)
-                .filter(|c| c.counter_name.as_str() != "none")
         } else {
             None
         };
-        if let Some(c) = increment {
+        // A counter the list names twice steps once per name.
+        for c in increment.iter().flat_map(|c| c.counters.iter()) {
             counters.increment(c.counter_name.as_str(), c.value, i, parent);
         }
         // A list item steps the `list-item` counter unless its own
         // `counter-increment` names that counter (CSS Lists 3 s4.6).
         let list_item = display.is_some_and(|d| d.is_list_item());
-        if list_item && increment.is_none_or(|c| c.counter_name.as_str() != "list-item") {
+        if list_item && increment.is_none_or(|c| !c.names("list-item")) {
             let step = if counters.counts_down("list-item") { -1 } else { 1 };
             counters.increment("list-item", step, i, parent);
         }
+        // `counter-set` comes last (CSS Lists 3 s4.3). HTML's `<li value>`
+        // sets the item's number first, so an author's `counter-set` of
+        // `list-item` still has the last word, as a declaration beats the
+        // attribute's hint.
         if let Some(value) = list_item_value(node) {
             counters.set("list-item", value, i, parent);
+        }
+        let set = if may_count {
+            cache
+                .get_counter_set(node, &id, &state)
+                .and_then(CssPropertyValue::get_property)
+        } else {
+            None
+        };
+        for c in set.iter().flat_map(|s| s.counters.iter()) {
+            counters.set(c.counter_name.as_str(), c.value, i, parent);
         }
 
         visit(i, id, node, parent, &counters);

@@ -111,7 +111,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 203] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 204] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -230,6 +230,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 203] = [
     (CssPropertyType::FontVariantNumeric, "font-variant-numeric"),
     (CssPropertyType::FontVariantCaps, "font-variant-caps"),
     (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
+    (CssPropertyType::CounterSet, "counter-set"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -565,6 +566,7 @@ pub type StyleBackgroundClipVecValue = CssPropertyValue<StyleBackgroundClipVec>;
 pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
 pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
 pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
+pub type CounterSetValue = CssPropertyValue<CounterSet>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -895,6 +897,7 @@ pub enum CssProperty {
     FontVariantNumeric(StyleFontVariantNumericValue),
     FontVariantCaps(StyleFontVariantCapsValue),
     FontFeatureSettings(StyleFontFeatureSettingsValue),
+    CounterSet(CounterSetValue),
 }
 
 impl_option!(
@@ -1164,6 +1167,7 @@ pub enum CssPropertyType {
     FontVariantNumeric,
     FontVariantCaps,
     FontFeatureSettings,
+    CounterSet,
 }
 
 impl CssPropertyType {
@@ -1369,6 +1373,7 @@ impl CssPropertyType {
         Self::FontVariantNumeric,
         Self::FontVariantCaps,
         Self::FontFeatureSettings,
+        Self::CounterSet,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1617,6 +1622,7 @@ impl CssPropertyType {
             Self::FontVariantNumeric => "font-variant-numeric",
             Self::FontVariantCaps => "font-variant-caps",
             Self::FontFeatureSettings => "font-feature-settings",
+            Self::CounterSet => "counter-set",
         }
     }
 
@@ -3783,6 +3789,11 @@ pub fn parse_css_property(
                     .map_err(|()| CssParsingError::Counter)?
                     .into(),
             ),
+            CssPropertyType::CounterSet => CssProperty::CounterSet(
+                parse_counter_set(value)
+                    .map_err(|()| CssParsingError::Counter)?
+                    .into(),
+            ),
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
                     .map_err(CssParsingError::ListStyleType)?
@@ -5124,6 +5135,7 @@ impl_from_css_prop!(StyleBackgroundClipVec, CssProperty::BackgroundClip);
 impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
 impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
 impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
+impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5347,6 +5359,7 @@ impl CssProperty {
             Self::FontVariantNumeric(v) => v.get_css_value_fmt(),
             Self::FontVariantCaps(v) => v.get_css_value_fmt(),
             Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
+            Self::CounterSet(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5904,6 +5917,7 @@ impl CssProperty {
             Self::FontVariantNumeric(v) => v.css_wide_keyword(),
             Self::FontVariantCaps(v) => v.css_wide_keyword(),
             Self::FontFeatureSettings(v) => v.css_wide_keyword(),
+            Self::CounterSet(v) => v.css_wide_keyword(),
             Self::TableLayout(v) => v.css_wide_keyword(),
             Self::BorderCollapse(v) => v.css_wide_keyword(),
             Self::BorderSpacing(v) => v.css_wide_keyword(),
@@ -6112,6 +6126,7 @@ impl CssProperty {
             Self::FontVariantNumeric(_) => CssPropertyType::FontVariantNumeric,
             Self::FontVariantCaps(_) => CssPropertyType::FontVariantCaps,
             Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
+            Self::CounterSet(_) => CssPropertyType::CounterSet,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6596,6 +6611,10 @@ impl CssProperty {
     #[must_use]
     pub const fn counter_increment(input: CounterIncrement) -> Self {
         Self::CounterIncrement(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn counter_set(input: CounterSet) -> Self {
+        Self::CounterSet(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn list_style_type(input: StyleListStyleType) -> Self {
@@ -7881,6 +7900,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_counter_set(&self) -> Option<&CounterSetValue> {
+        match self {
+            Self::CounterSet(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
@@ -8069,7 +8095,7 @@ impl CssProperty {
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
-            Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings,
+            Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8260,6 +8286,7 @@ impl CssProperty {
             FontVariantNumeric(c) => c.is_initial(),
             FontVariantCaps(c) => c.is_initial(),
             FontFeatureSettings(c) => c.is_initial(),
+            CounterSet(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8675,6 +8702,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_counter_increment(input: CounterIncrement) -> Self {
         Self::CounterIncrement(CounterIncrementValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_counter_set(input: CounterSet) -> Self {
+        Self::CounterSet(CounterSetValue::Exact(input))
     }
     #[must_use]
     pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
@@ -9499,6 +9530,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontFeatureSettings(p) => format!(
             "CssProperty::FontFeatureSettings({})",
             print_css_property_value(p, tabs, "StyleFontFeatureSettings")
+        ),
+        CssProperty::CounterSet(p) => format!(
+            "CssProperty::CounterSet({})",
+            print_css_property_value(p, tabs, "CounterSet")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

@@ -52,6 +52,7 @@ pub struct VecContents {
     pub style_background_sizes: BTreeMap<u64, StyleBackgroundSizeVec>,
     pub style_background_repeats: BTreeMap<u64, StyleBackgroundRepeatVec>,
     pub style_background_clips: BTreeMap<u64, StyleBackgroundClipVec>,
+    pub counter_entries: BTreeMap<u64, CounterEntryVec>,
     pub style_background_contents: BTreeMap<u64, StyleBackgroundContentVec>,
     pub style_background_positions: BTreeMap<u64, StyleBackgroundPositionVec>,
     pub style_transforms: BTreeMap<u64, StyleTransformVec>,
@@ -130,6 +131,20 @@ impl VecContents {
             let _ = write!(
                 result,
                 "\r\n    const STYLE_BACKGROUND_CLIP_{key}_ITEMS: &[StyleBackgroundClip] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
+            );
+        }
+
+        for (key, item) in &self.counter_entries {
+            let val = item
+                .iter()
+                .map(|entry| entry.format_as_rust_code(tabs + 1))
+                .collect::<Vec<_>>()
+                .join(&format!(",\r\n{t}"));
+
+            let _ = write!(
+                result,
+                "\r\n    const COUNTER_ENTRY_{key}_ITEMS: &[CounterEntry] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
         }
@@ -250,6 +265,16 @@ impl VecContents {
             }
             CssProperty::BackgroundClip(CssPropertyValue::Exact(v)) => {
                 self.style_background_clips.insert(v.get_hash(), v.clone());
+            }
+            // An empty list (`none`) borrows `&[]` and declares nothing.
+            CssProperty::CounterReset(CssPropertyValue::Exact(v)) if !v.is_none() => {
+                self.counter_entries.insert(v.counters.get_hash(), v.counters.clone());
+            }
+            CssProperty::CounterIncrement(CssPropertyValue::Exact(v)) if !v.is_none() => {
+                self.counter_entries.insert(v.counters.get_hash(), v.counters.clone());
+            }
+            CssProperty::CounterSet(CssPropertyValue::Exact(v)) if !v.is_none() => {
+                self.counter_entries.insert(v.counters.get_hash(), v.counters.clone());
             }
             CssProperty::BackgroundSize(CssPropertyValue::Exact(v)) => {
                 self.style_background_sizes.insert(v.get_hash(), v.clone());

@@ -66,7 +66,8 @@ use azul_css::{
             BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
             CaretColorValue, CaretWidthValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
             ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
-            ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CssProperty,
+            ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CounterSetValue,
+            CssProperty,
             CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
@@ -4510,6 +4511,8 @@ impl CssPropertyCache {
         CounterIncrement,
         as_counter_increment
     );
+
+    impl_get_prop!(get_counter_set, CounterSetValue, CounterSet, as_counter_set);
 
     impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);
     impl_get_prop!(
