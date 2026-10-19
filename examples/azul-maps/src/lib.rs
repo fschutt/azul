@@ -586,6 +586,13 @@ impl MapState {
         if query.is_empty() || self.travel.place(end).is_some() {
             self.suggestions = None;
             self.announce_travel();
+            // Typed coordinates are a place like a picked one: with both ends
+            // places the map frames the way between them.
+            if self.travel.place(end).is_some() {
+                if let (Some(a), Some(b)) = self.travel_ends() {
+                    self.frame_travel(a, b);
+                }
+            }
             return (None, true);
         }
         let near = (self.viewport.centre_lat_deg, self.viewport.centre_lon_deg);
@@ -627,18 +634,27 @@ impl MapState {
         self.typed = None;
         self.pick_first = None;
         self.announce_travel();
-        let (lat, lon, zoom) = match self.travel_ends() {
-            (Some(a), Some(b)) => {
-                let inset = if self.sidebar_open { SIDEBAR_INSET } else { 0.0 };
-                fit_view(a, b, self.size.get(), inset)
-            }
-            _ => (place.lat, place.lon, PICKED_PLACE_ZOOM),
-        };
+        match self.travel_ends() {
+            (Some(a), Some(b)) => self.frame_travel(a, b),
+            _ => self.show_at(place.lat, place.lon, PICKED_PLACE_ZOOM),
+        }
+        true
+    }
+
+    /// Frames the way from `a` to `b` in the part of the window the sidebar
+    /// leaves free.
+    fn frame_travel(&mut self, a: (f64, f64), b: (f64, f64)) {
+        let inset = if self.sidebar_open { SIDEBAR_INSET } else { 0.0 };
+        let (lat, lon, zoom) = fit_view(a, b, self.size.get(), inset);
+        self.show_at(lat, lon, zoom);
+    }
+
+    /// Centres the map on `lat`, `lon` at `zoom`, within the layer's zooms.
+    fn show_at(&mut self, lat: f64, lon: f64, zoom: f32) {
         let min = MIN_ZOOM.max(self.layer.min_zoom as f32);
         let max = MAX_ZOOM.min(self.layer.max_zoom as f32);
         self.viewport.zoom = zoom.clamp(min, max);
         self.centre_on(lat, lon);
-        true
     }
 
     /// The travel panel changed: announced for scripts.
