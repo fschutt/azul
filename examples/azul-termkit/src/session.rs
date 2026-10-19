@@ -45,6 +45,8 @@ pub struct Signals {
     pub title: Mutex<Option<String>>,
     /// The bell rang.
     pub bell: AtomicBool,
+    /// What a program put on the clipboard (OSC 52), not yet handed to the system's.
+    pub clipboard: Mutex<Option<String>>,
     /// The program ended.
     pub exited: AtomicBool,
     /// Where a program's answers go (set once the event loop exists).
@@ -65,6 +67,11 @@ impl Signals {
     /// Whether the bell rang since the last call.
     pub fn take_bell(&self) -> bool {
         self.bell.swap(false, Ordering::AcqRel)
+    }
+
+    /// The text a program put on the clipboard since the last call (the last one wins).
+    pub fn take_clipboard(&self) -> Option<String> {
+        self.clipboard.lock().ok().and_then(|mut c| c.take())
     }
 }
 
@@ -101,7 +108,17 @@ impl EventListener for Listener {
                     let _ = sender.send(Msg::Input(text.into_bytes().into()));
                 }
             }
-            // OSC 52 (the clipboard), colour and size queries: not answered.
+            // OSC 52's store: a program copies (vim, tmux over ssh); the window hands it to
+            // the system's clipboard.
+            Event::ClipboardStore(_, text) => {
+                if let Ok(mut c) = s.clipboard.lock() {
+                    *c = Some(text);
+                }
+                s.dirty.store(true, Ordering::Release);
+            }
+            // OSC 52's load is never answered: what the user copied elsewhere is not a
+            // program's to read (the engine's config allows only the store, see `new_term`).
+            // Colour and size queries: not answered either.
             _ => {}
         }
     }
@@ -175,6 +192,8 @@ fn window_size(size: GridSize) -> WindowSize {
 fn new_term(size: GridSize, scrollback: usize, signals: &Arc<Signals>) -> Term<Listener> {
     let config = Config {
         scrolling_history: scrollback,
+        // OSC 52: a program may copy, never paste (read the clipboard).
+        osc52: alacritty_terminal::term::Osc52::OnlyCopy,
         ..Config::default()
     };
     Term::new(config, &size, Listener(signals.clone()))

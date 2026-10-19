@@ -173,6 +173,8 @@ pub struct Tab {
     pub title: String,
     pub exited: bool,
     pub view: ViewScroll,
+    /// The bell rang while the tab was behind the shown one: its tab says so until it is shown.
+    pub rang: bool,
 }
 
 /// What a window chord does (Cmd+key on macOS, Ctrl+Shift+key elsewhere),
@@ -300,6 +302,8 @@ pub struct AppState {
     pub asking: Option<CloseQuestion>,
     /// The user said the window may close with its programs: the next close request passes.
     pub close_confirmed: bool,
+    /// The shown terminal flashes for this many more ticks (its bell rang).
+    pub bell_flash: u8,
 }
 
 /// What closing would cut off, shown as a question before it happens.
@@ -328,7 +332,28 @@ impl AppState {
             follow_reported: None,
             asking: None,
             close_confirmed: false,
+            bell_flash: 0,
         }
+    }
+
+    /// The bells that rang since the last call: the shown tab's flashes its terminal, one
+    /// behind it marks its tab. Whether the window must be built again for it.
+    pub fn note_bells(&mut self) -> bool {
+        let active = self.active;
+        let mut rebuild = false;
+        for (i, tab) in self.tabs.iter_mut().enumerate() {
+            if !tab.session.signals.take_bell() {
+                continue;
+            }
+            println!("AZTERM_BELL {i}");
+            if i == active {
+                self.bell_flash = BELL_FLASH_TICKS;
+            } else if !tab.rang {
+                tab.rang = true;
+            }
+            rebuild = true;
+        }
+        rebuild
     }
 
     /// Opens a tab: the user's shell, or (sample) the next recording.
@@ -345,6 +370,7 @@ impl AppState {
                 title: title.to_string(),
                 exited: false,
                 view: ViewScroll::default(),
+                rang: false,
             })
         } else {
             let cwd = home_dir();
@@ -358,6 +384,7 @@ impl AppState {
                     ),
                     exited: false,
                     view: ViewScroll::default(),
+                    rang: false,
                 }),
                 Err(e) => {
                     self.notice = azul_appkit::l10n::t_args(
@@ -540,8 +567,10 @@ impl AppState {
     fn touch_active(&mut self) {
         self.streak = 0;
         self.reveal_ticks = REVEAL_TICKS;
-        if let Some(tab) = self.tabs.get(self.active) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.session.signals.dirty.store(true, Ordering::Release);
+            // Shown, its bell is seen.
+            tab.rang = false;
         }
     }
 
@@ -681,6 +710,13 @@ const TAB_TITLE_CSS: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; \
      white-space: nowrap; text-overflow: ellipsis; text-align: center; padding: 0px 4px;";
 /// A tab's chord ("⌘2").
 const TAB_NUMBER_CSS: &str = "flex-shrink: 0; color: system:tertiary-text; font-size: 11px;";
+/// A tab whose bell rang while it was behind: the bell, before its chord.
+const TAB_BELL_CSS: &str = "flex-shrink: 0; font-size: 13px; color: system:accent; padding: 0px 2px;";
+/// The shown terminal's visual bell: a light wash over it for a few ticks.
+const BELL_FLASH_CSS: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
+     background: rgba(128, 128, 128, 0.18);";
+/// How many output ticks (16 ms) the visual bell lasts.
+const BELL_FLASH_TICKS: u8 = 9;
 /// The "+" after the tabs - beside their scroller, so it stays in reach
 /// however many there are.
 const NEW_TAB_CSS: &str = "width: 28px; flex-shrink: 0; display: flex; align-items: center; \
@@ -728,6 +764,13 @@ fn tab_dom(app: &RefAny, index: usize, tab: &Tab, active: bool) -> Dom {
         )
         .with_child(close)
         .with_child(title);
+    if tab.rang {
+        dom.add_child(
+            Dom::create_icon(AzString::from("notifications"))
+                .with_css(TAB_BELL_CSS)
+                .with_accessibility_name(AzString::from(azul_appkit::l10n::t("azterm-bell-rang"))),
+        );
+    }
     if let Some(label) = number_label(index) {
         dom.add_child(Dom::create_div_with_text(AzString::from(label)).with_css(TAB_NUMBER_CSS));
     }
@@ -795,7 +838,12 @@ fn pane(app: &RefAny, st: &AppState) -> Dom {
         .with_accessibility_name(AzString::from(tab.title.as_str()))
         .with_id(ids::TERMINAL)
         .dom();
-    pane.with_child(view)
+    let pane = pane.with_child(view);
+    if st.bell_flash > 0 {
+        pane.with_child(Dom::create_div().with_css(BELL_FLASH_CSS))
+    } else {
+        pane
+    }
 }
 
 /// The menu bar: what is not on the strip of tabs.
@@ -1224,11 +1272,27 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
                 rebuild = true;
             }
         }
-        let _ = signals.take_bell();
+        // OSC 52: what the program copied goes to the system's clipboard.
+        if let Some(text) = signals.take_clipboard() {
+            println!("AZTERM_OSC52 {}", text.chars().count());
+            info.callback_info.set_clipboard_content(ClipboardContent {
+                plain_text: AzString::from(text.as_str()),
+                styled_runs: StyledTextRunVec::create(),
+                html: OptionString::None,
+            });
+        }
         if !tab.exited && signals.exited.load(Ordering::Acquire) {
             tab.exited = true;
             ended.push(i);
             println!("AZTERM_EXITED {i}");
+        }
+    }
+    // The bells: the shown terminal flashes, a tab behind is marked.
+    rebuild |= st.note_bells();
+    if st.bell_flash > 0 {
+        st.bell_flash -= 1;
+        if st.bell_flash == 0 {
+            rebuild = true;
         }
     }
     // A shell that ended closes its tab; the last one closes the window.

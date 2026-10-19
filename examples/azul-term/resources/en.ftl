@@ -16,6 +16,7 @@ azterm-shortcut-text-size = Larger / smaller text
 azterm-shortcut-scroll = Scroll the scrollback
 azterm-shell-failed = The shell could not be started: { $why }
 azterm-close-tab = Close { $title }
+azterm-bell-rang = The bell rang in this tab
 azterm-dismiss = Dismiss
 azterm-no-tab = No tab is open
 azterm-menu-shell = Shell
