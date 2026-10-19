@@ -7,7 +7,7 @@ use core::fmt;
 
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
-    impl_vec_partialeq, AzString, U8Vec,
+    impl_vec_partialeq, AzString, StringVec, U8Vec,
 };
 
 // ============================================================================
@@ -206,6 +206,10 @@ pub struct HttpRequestConfig {
     /// `Some` reuses the client's idle connections, and TLS verification then
     /// follows the client's `HttpClientConfig`, not the field above.
     pub client: OptionHttpClient,
+    /// Follow redirects (default: true, up to 10). `false` answers the
+    /// redirect itself - its 3xx status and `Location` header - so a feed
+    /// reader can tell a 301 (update the subscription) from a 302.
+    pub follow_redirects: bool,
 }
 
 impl Default for HttpRequestConfig {
@@ -217,6 +221,7 @@ impl Default for HttpRequestConfig {
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
             client: OptionHttpClient::None,
+            follow_redirects: true,
         }
     }
 }
@@ -435,6 +440,7 @@ fn mocked_http(url: &str) -> Option<ResultHttpResponseHttpError> {
                 content_length,
                 headers: HttpHeaderVec::from_const_slice(&[]),
                 final_url: AzString::from(url),
+                redirect_history: StringVec::from_const_slice(&[]),
             }))
         }
         Answer::Mocked(MockHttp::Error(message)) => {
@@ -904,6 +910,11 @@ pub struct HttpResponse {
     /// redirects ended (a feed or a page that moved). Resolve relative links
     /// in the body against this, not against the requested URL.
     pub final_url: AzString,
+    /// Every URL the request passed through, in order: the requested URL
+    /// first and `final_url` last - one entry when the server answered at
+    /// once. Which hop was a 301 the server says in the hop's own answer;
+    /// ask with `follow_redirects: false` to see one.
+    pub redirect_history: StringVec,
 }
 
 impl HttpResponse {
@@ -1427,6 +1438,23 @@ pub enum HttpMethod {
     Put,
     Patch,
     Delete,
+    /// What a server supports for a resource (`Allow`, WebDAV's `DAV`).
+    Options,
+    /// WebDAV: the properties of a resource or a collection's members (an
+    /// XML body names which; `Depth` says how deep).
+    Propfind,
+    /// WebDAV: set or remove properties (an XML body).
+    Proppatch,
+    /// WebDAV: create a collection (a folder).
+    Mkcol,
+    /// WebDAV: copy a resource to the `Destination` header's URL.
+    Copy,
+    /// WebDAV: move a resource to the `Destination` header's URL.
+    Move,
+    /// WebDAV: lock a resource (an XML body describes the lock).
+    Lock,
+    /// WebDAV: release a lock (`Lock-Token` header).
+    Unlock,
 }
 
 impl HttpMethod {
@@ -1440,6 +1468,14 @@ impl HttpMethod {
             Self::Put => "PUT",
             Self::Patch => "PATCH",
             Self::Delete => "DELETE",
+            Self::Options => "OPTIONS",
+            Self::Propfind => "PROPFIND",
+            Self::Proppatch => "PROPPATCH",
+            Self::Mkcol => "MKCOL",
+            Self::Copy => "COPY",
+            Self::Move => "MOVE",
+            Self::Lock => "LOCK",
+            Self::Unlock => "UNLOCK",
         }
     }
 
@@ -1450,7 +1486,10 @@ impl HttpMethod {
     /// build a `WithoutBody` one terminated by `call()`.
     #[must_use]
     pub const fn takes_body(self) -> bool {
-        matches!(self, Self::Post | Self::Put | Self::Patch)
+        matches!(
+            self,
+            Self::Post | Self::Put | Self::Patch | Self::Propfind | Self::Proppatch | Self::Lock
+        )
     }
 }
 
@@ -1560,6 +1599,7 @@ fn decode_response(
         content_length,
         headers: HttpHeaderVec::from_vec(headers),
         final_url,
+        redirect_history: StringVec::from_const_slice(&[]),
     })
 }
 
@@ -1833,6 +1873,7 @@ mod tests {
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
             final_url: AzString::from(String::new()),
+            redirect_history: StringVec::from_const_slice(&[]),
         };
         assert!(response.is_success());
         assert!(!response.is_redirect());
@@ -1878,6 +1919,7 @@ mod autotest_generated {
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
             final_url: AzString::from("http://example.com/"),
+            redirect_history: StringVec::from_const_slice(&[]),
         }
     }
 
@@ -1889,6 +1931,7 @@ mod autotest_generated {
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
             final_url: AzString::from("http://example.com/"),
+            redirect_history: StringVec::from_const_slice(&[]),
         }
     }
 
@@ -3170,6 +3213,161 @@ mod delete_body_tests {
             body,
             b"{\"key\":1}".to_vec(),
             "the DELETE arrived without its body"
+        );
+    }
+}
+
+/// WebDAV verbs and redirects, against a server on this machine that records
+/// what it was sent.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod webdav_and_redirect_tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+    };
+
+    use super::*;
+
+    /// A server that answers every request with `reply` and reports each
+    /// request's line and body.
+    fn server(reply: &'static [u8]) -> (String, mpsc::Receiver<(String, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        let (seen, saw) = mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut length = 0usize;
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; length];
+                let _ = reader.read_exact(&mut body);
+                let _ = seen.send((request_line.trim_end().to_string(), body));
+                let _ = stream.write_all(reply);
+            }
+        });
+        (base, saw)
+    }
+
+    const MULTISTATUS: &[u8] = b"HTTP/1.1 207 Multi-Status\r\nContent-Type: application/xml\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+
+    #[test]
+    fn a_webdav_propfind_reaches_the_server_with_its_verb_and_body() {
+        let (base, saw) = server(MULTISTATUS);
+        let body = br#"<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>"#;
+        let config = HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_header("Depth", "1");
+        let response = http_request_with_config(
+            HttpMethod::Propfind,
+            &format!("{base}/drive/"),
+            Some(body),
+            "application/xml",
+            &config,
+        )
+        .expect("PROPFIND");
+        assert_eq!(response.status_code, 207);
+        let (line, sent) = saw.recv().expect("the server saw the request");
+        assert_eq!(line, "PROPFIND /drive/ HTTP/1.1");
+        assert_eq!(sent, body.to_vec());
+    }
+
+    #[test]
+    fn a_mkcol_and_a_move_reach_the_server_with_their_verbs() {
+        let (base, saw) = server(
+            b"HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let config = HttpRequestConfig::default().with_timeout(5);
+        let made = http_request_with_config(HttpMethod::Mkcol, &format!("{base}/new/"), None, "", &config)
+            .expect("MKCOL");
+        assert_eq!(made.status_code, 201);
+        assert_eq!(saw.recv().expect("seen").0, "MKCOL /new/ HTTP/1.1");
+        let config = config.with_header("Destination", format!("{base}/b.txt"));
+        let moved = http_request_with_config(HttpMethod::Move, &format!("{base}/a.txt"), None, "", &config)
+            .expect("MOVE");
+        assert_eq!(moved.status_code, 201);
+        assert_eq!(saw.recv().expect("seen").0, "MOVE /a.txt HTTP/1.1");
+    }
+
+    /// A feed that moved: with `follow_redirects: false` the answer is the
+    /// redirect itself, so the reader sees the 301 and where it points.
+    #[test]
+    fn a_request_that_does_not_follow_redirects_gets_the_redirect_itself() {
+        let (base, _saw) = server(
+            b"HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let mut config = HttpRequestConfig::default().with_timeout(5);
+        config.follow_redirects = false;
+        let response = http_get_with_config(&format!("{base}/old"), &config).expect("GET");
+        assert_eq!(response.status_code, 301);
+        assert!(response
+            .headers
+            .as_ref()
+            .iter()
+            .any(|h| h.name.as_str().eq_ignore_ascii_case("location") && h.value.as_str() == "/new"));
+        assert_eq!(response.final_url.as_str(), format!("{base}/old"));
+    }
+
+    /// A followed redirect names every URL it passed, the requested one first.
+    #[test]
+    fn a_followed_redirect_names_every_url_it_passed() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                let reply: &[u8] = if request_line.starts_with("GET /old ") {
+                    b"HTTP/1.1 301 Moved Permanently\r\nLocation: /mid\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else if request_line.starts_with("GET /mid ") {
+                    b"HTTP/1.1 302 Found\r\nLocation: /new\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else {
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                };
+                let _ = stream.write_all(reply);
+            }
+        });
+        let response = http_get_with_config(
+            &format!("{base}/old"),
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("GET");
+        assert_eq!(response.status_code, 200);
+        let history: Vec<&str> = response
+            .redirect_history
+            .as_ref()
+            .iter()
+            .map(|u| u.as_str())
+            .collect();
+        assert_eq!(
+            history,
+            [format!("{base}/old"), format!("{base}/mid"), format!("{base}/new")]
         );
     }
 }
