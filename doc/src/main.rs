@@ -999,8 +999,12 @@ fn main() -> anyhow::Result<()> {
                     (parts[parts.len() - 2], parts[parts.len() - 1])
                 };
 
-                // Find the type in source
-                let type_def = match index.resolve(type_name, None) {
+                // Find the type in source: api.json names some types without the
+                // Az prefix their Rust definition carries (String is AzString)
+                let type_def = match index
+                    .resolve(type_name, None)
+                    .or_else(|| index.resolve(&format!("Az{type_name}"), None))
+                {
                     Some(t) => t,
                     None => {
                         eprintln!("Error: Type '{}' not found in source code", type_name);
