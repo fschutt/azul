@@ -304,8 +304,8 @@ public func styleTable() -> [CssPropertyWithConditions] {
 public func styleContent() -> [CssPropertyWithConditions] {
     return [
         CssPropertyWithConditions.simple(CssProperty.content(Content(inner: "\"Hello\""))),
-        CssPropertyWithConditions.simple(CssProperty.counterReset(CounterReset(counterName: "section", value: 1))),
-        CssPropertyWithConditions.simple(CssProperty.counterIncrement(CounterIncrement(counterName: "section", value: 1))),
+        CssPropertyWithConditions.simple(CssProperty.counterReset(CounterReset(counters: [CounterEntry(counterName: "section", value: 1)]))),
+        CssPropertyWithConditions.simple(CssProperty.counterIncrement(CounterIncrement(counters: [CounterEntry(counterName: "section", value: 1)]))),
         CssPropertyWithConditions.simple(CssProperty.listStyleType(StyleListStyleType.upperRoman)),
         CssPropertyWithConditions.simple(CssProperty.listStylePosition(StyleListStylePosition.inside)),
         CssPropertyWithConditions.simple(CssProperty.stringSet(StringSet(inner: "title \"Chapter\""))),

@@ -266,14 +266,18 @@ End Function
 
 ' CSS: .content
 Function StyleContent() As AzCssPropertyWithConditionsVec
-    Dim t1(0 To 5) As AzCssPropertyWithConditions
-    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_content(Type<AzContent>(CssStr("""Hello"""))))
-    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(Type<AzCounterReset>(CssStr("section"), 1)))
-    t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(Type<AzCounterIncrement>(CssStr("section"), 1)))
-    t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_UpperRoman))
-    t1(4) = AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside))
-    t1(5) = AzCssPropertyWithConditions_simple(AzCssProperty_stringSet(Type<AzStringSet>(CssStr("title ""Chapter"""))))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 6)
+    Dim t1(0 To 0) As AzCounterEntry
+    Dim t2(0 To 0) As AzCounterEntry
+    Dim t3(0 To 5) As AzCssPropertyWithConditions
+    t1(0) = Type<AzCounterEntry>(CssStr("section"), 1)
+    t2(0) = Type<AzCounterEntry>(CssStr("section"), 1)
+    t3(0) = AzCssPropertyWithConditions_simple(AzCssProperty_content(Type<AzContent>(CssStr("""Hello"""))))
+    t3(1) = AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(Type<AzCounterReset>(AzCounterEntryVec_copyFromPtr(@t1(0), 1))))
+    t3(2) = AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(Type<AzCounterIncrement>(AzCounterEntryVec_copyFromPtr(@t2(0), 1))))
+    t3(3) = AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_upperRoman()))
+    t3(4) = AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside))
+    t3(5) = AzCssPropertyWithConditions_simple(AzCssProperty_stringSet(Type<AzStringSet>(CssStr("title ""Chapter"""))))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t3(0), 6)
 End Function
 
 ' CSS: .anim

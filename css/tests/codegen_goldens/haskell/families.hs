@@ -257,8 +257,8 @@ styleTable = sequence
 
 -- CSS: .content
 -- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
--- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
--- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a CounterEntryVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a CounterEntryVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 styleContent :: IO [CssPropertyWithConditions]
 styleContent = sequence

@@ -335,9 +335,9 @@ end
 function M.style_content()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[6]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(ffi.new('AzContent', { inner = azul._az_string("\"Hello\"") }))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(ffi.new('AzCounterReset', { counter_name = azul._az_string("section"), value = 1 }))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(ffi.new('AzCounterIncrement', { counter_name = azul._az_string("section"), value = 1 }))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_UpperRoman)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(ffi.new('AzCounterReset', { counters = C.AzCounterEntryVec_copyFromPtr(ffi.new('AzCounterEntry[1]', { ffi.new('AzCounterEntry', { counter_name = azul._az_string("section"), value = 1 }) }), 1) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(ffi.new('AzCounterIncrement', { counters = C.AzCounterEntryVec_copyFromPtr(ffi.new('AzCounterEntry[1]', { ffi.new('AzCounterEntry', { counter_name = azul._az_string("section"), value = 1 }) }), 1) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(C.AzStyleListStylePosition_Inside)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(ffi.new('AzStringSet', { inner = azul._az_string("title \"Chapter\"") }))),
     }), 6)

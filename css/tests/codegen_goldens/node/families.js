@@ -315,9 +315,9 @@ function styleTable() {
 function styleContent() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_content({ inner: azul._azString("\"Hello\"") })),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterReset({ counter_name: azul._azString("section"), value: 1 })),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterIncrement({ counter_name: azul._azString("section"), value: 1 })),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_listStyleType(azul.StyleListStyleType.UpperRoman)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterReset({ counters: lib.AzCounterEntryVec_copyFromPtr([{ counter_name: azul._azString("section"), value: 1 }], 1) })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterIncrement({ counters: lib.AzCounterEntryVec_copyFromPtr([{ counter_name: azul._azString("section"), value: 1 }], 1) })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_listStyleType(lib.AzStyleListStyleType_upperRoman())),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_listStylePosition(azul.StyleListStylePosition.Inside)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_stringSet({ inner: azul._azString("title \"Chapter\"") })),
     ], 6));

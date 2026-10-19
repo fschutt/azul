@@ -347,9 +347,9 @@ namespace AzulStyles
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_content(new AzContent { inner = AzulCodegen.Str("\"Hello\"") })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_counterReset(new AzCounterReset { counter_name = AzulCodegen.Str("section"), value = 1 })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_counterIncrement(new AzCounterIncrement { counter_name = AzulCodegen.Str("section"), value = 1 })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_listStyleType(StyleListStyleType.UpperRoman)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_counterReset(new AzCounterReset { counters = AzulCodegen.Vec<AzCounterEntry, AzCounterEntryVec>(NativeMethods.AzCounterEntryVec_copyFromPtr, new AzCounterEntry { counter_name = AzulCodegen.Str("section"), value = 1 }) })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_counterIncrement(new AzCounterIncrement { counters = AzulCodegen.Vec<AzCounterEntry, AzCounterEntryVec>(NativeMethods.AzCounterEntryVec_copyFromPtr, new AzCounterEntry { counter_name = AzulCodegen.Str("section"), value = 1 }) })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_listStyleType(NativeMethods.AzStyleListStyleType_upperRoman())),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_listStylePosition(StyleListStylePosition.Inside)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_stringSet(new AzStringSet { inner = AzulCodegen.Str("title \"Chapter\"") }))
             );

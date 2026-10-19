@@ -411,17 +411,25 @@ END;
 PROC style content = AZCSSPROPERTYWITHCONDITIONSVEC:
 BEGIN
    AZCONTENT t1;
-   AZSTRINGSET t2;
-   [6] AZCSSPROPERTYWITHCONDITIONS t3;
+   [1] AZCOUNTERENTRY t2;
+   AZCOUNTERRESET t3;
+   [1] AZCOUNTERENTRY t4;
+   AZCOUNTERINCREMENT t5;
+   AZSTRINGSET t6;
+   [6] AZCSSPROPERTYWITHCONDITIONS t7;
    inner OF t1 := css str ("""Hello""");
-   inner OF t2 := css str ("title ""Chapter""");
-   t3[1] := az css property with conditions simple (az css property content (t1));
-   t3[2] := az css property with conditions simple (az css property counter reset (AZCOUNTERRESET (css str ("section"), 1)));
-   t3[3] := az css property with conditions simple (az css property counter increment (AZCOUNTERINCREMENT (css str ("section"), 1)));
-   t3[4] := az css property with conditions simple (az css property list style type (style list style type upper roman));
-   t3[5] := az css property with conditions simple (az css property list style position (style list style position inside));
-   t3[6] := az css property with conditions simple (az css property string set (t2));
-   az css property with conditions vec copy from ptr (t3[1], LENG 6)
+   t2[1] := AZCOUNTERENTRY (css str ("section"), 1);
+   counters OF t3 := az counter entry vec copy from ptr (t2[1], LENG 1);
+   t4[1] := AZCOUNTERENTRY (css str ("section"), 1);
+   counters OF t5 := az counter entry vec copy from ptr (t4[1], LENG 1);
+   inner OF t6 := css str ("title ""Chapter""");
+   t7[1] := az css property with conditions simple (az css property content (t1));
+   t7[2] := az css property with conditions simple (az css property counter reset (t3));
+   t7[3] := az css property with conditions simple (az css property counter increment (t5));
+   t7[4] := az css property with conditions simple (az css property list style type (az style list style type upper roman));
+   t7[5] := az css property with conditions simple (az css property list style position (style list style position inside));
+   t7[6] := az css property with conditions simple (az css property string set (t6));
+   az css property with conditions vec copy from ptr (t7[1], LENG 6)
 END;
 
 # CSS: .anim #

@@ -39630,6 +39630,9 @@
                                 },
                                 "Quotes": {
                                     "type": "StyleQuotesValue"
+                                },
+                                "BackgroundOrigin": {
+                                    "type": "StyleBackgroundOriginVecValue"
                                 }
                             }
                         ],
@@ -41534,6 +41537,22 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::const_quotes(input)"
+                            },
+                            "background_origin": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleBackgroundOriginVec"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::background_origin(input)"
+                            },
+                            "const_background_origin": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleBackgroundOriginVec"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::const_background_origin(input)"
                             }
                         },
                         "functions": {
@@ -49894,48 +49913,28 @@
                             "Clone",
                             "PartialOrd",
                             "Ord",
-                            "Copy",
                             "Default"
                         ],
                         "enum_fields": [
                             {
-                                "None": {}
-                            },
-                            {
-                                "Disc": {}
-                            },
-                            {
-                                "Circle": {}
-                            },
-                            {
-                                "Square": {}
-                            },
-                            {
-                                "Decimal": {}
-                            },
-                            {
-                                "DecimalLeadingZero": {}
-                            },
-                            {
-                                "LowerRoman": {}
-                            },
-                            {
-                                "UpperRoman": {}
-                            },
-                            {
-                                "LowerGreek": {}
-                            },
-                            {
-                                "UpperGreek": {}
-                            },
-                            {
-                                "LowerAlpha": {}
-                            },
-                            {
-                                "UpperAlpha": {}
+                                "None": {},
+                                "Disc": {},
+                                "Circle": {},
+                                "Square": {},
+                                "Decimal": {},
+                                "DecimalLeadingZero": {},
+                                "LowerRoman": {},
+                                "UpperRoman": {},
+                                "LowerGreek": {},
+                                "UpperGreek": {},
+                                "LowerAlpha": {},
+                                "UpperAlpha": {},
+                                "String": {
+                                    "type": "String"
+                                }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "ClipPath": {
                         "doc": [
@@ -51991,7 +51990,8 @@
                                 "FontVariantCaps": {},
                                 "FontFeatureSettings": {},
                                 "CounterSet": {},
-                                "Quotes": {}
+                                "Quotes": {},
+                                "BackgroundOrigin": {}
                             }
                         ],
                         "repr": "C"
@@ -60459,6 +60459,67 @@
                             {
                                 "ptr": {
                                     "type": "CounterEntry",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleBackgroundOrigin": {
+                        "external": "azul_css::props::style::background::StyleBackgroundOrigin",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "BorderBox": {},
+                                "PaddingBox": {},
+                                "ContentBox": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleBackgroundOriginVecValue": {
+                        "external": "azul_css::props::property::StyleBackgroundOriginVecValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleBackgroundOriginVec"
+                            ]
+                        }
+                    },
+                    "StyleBackgroundOriginVecSlice": {
+                        "external": "azul_css::props::style::background::StyleBackgroundOriginVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundOrigin",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -176589,6 +176650,223 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "StyleBackgroundOriginVec": {
+                        "external": "azul_css::props::style::background::StyleBackgroundOriginVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundOrigin",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StyleBackgroundOriginVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StyleBackgroundOriginVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundOriginVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_origin_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_origin_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "style_background_origin_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundOriginVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StyleBackgroundOrigin"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StyleBackgroundOriginVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StyleBackgroundOrigin"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStyleBackgroundOrigin"
+                                },
+                                "fn_body": "style_background_origin_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StyleBackgroundOriginVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVecSlice"
+                                },
+                                "fn_body": "style_background_origin_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundOriginVecSlice"
+                                },
+                                "fn_body": "style_background_origin_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyleBackgroundOriginVecDestructor": {
+                        "external": "azul_css::props::style::background::StyleBackgroundOriginVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StyleBackgroundOriginVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleBackgroundOriginVecDestructorType": {
+                        "external": "azul_css::props::style::background::StyleBackgroundOriginVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "StyleBackgroundOriginVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -187736,6 +188014,35 @@
                                     "type": "CounterEntry",
                                     "doc": [
                                         "Some value of type CounterEntry"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStyleBackgroundOrigin": {
+                        "external": "azul_css::props::style::background::OptionStyleBackgroundOrigin",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StyleBackgroundOrigin",
+                                    "doc": [
+                                        "Some value of type StyleBackgroundOrigin"
                                     ]
                                 }
                             }

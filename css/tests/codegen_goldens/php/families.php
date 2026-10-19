@@ -449,9 +449,9 @@ function style_content()
         'AzCssPropertyWithConditions',
         [
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_content(azul_struct('AzContent', ['inner' => azul_str('"Hello"')]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterReset(azul_struct('AzCounterReset', ['counter_name' => azul_str('section'), 'value' => 1]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterIncrement(azul_struct('AzCounterIncrement', ['counter_name' => azul_str('section'), 'value' => 1]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStyleType($L->AzStyleListStyleType_UpperRoman)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterReset(azul_struct('AzCounterReset', ['counters' => azul_vec('AzCounterEntryVec_copyFromPtr', 'AzCounterEntry', [azul_struct('AzCounterEntry', ['counter_name' => azul_str('section'), 'value' => 1])])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterIncrement(azul_struct('AzCounterIncrement', ['counters' => azul_vec('AzCounterEntryVec_copyFromPtr', 'AzCounterEntry', [azul_struct('AzCounterEntry', ['counter_name' => azul_str('section'), 'value' => 1])])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStyleType($L->AzStyleListStyleType_upperRoman())),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStylePosition($L->AzStyleListStylePosition_Inside)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_stringSet(azul_struct('AzStringSet', ['inner' => azul_str('title "Chapter"')]))),
         ]

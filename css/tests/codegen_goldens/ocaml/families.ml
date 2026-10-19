@@ -352,9 +352,9 @@ let style_table () =
 let style_content () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
     (azCssPropertyWithConditions_simple (azCssProperty_content (az_struct az_content [ (fun v -> Ctypes.setf v az_content_field_inner (azul_az_string "\"Hello\"")) ])));
-    (azCssPropertyWithConditions_simple (azCssProperty_counterReset (az_struct az_counter_reset [ (fun v -> Ctypes.setf v az_counter_reset_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_reset_field_value 1l) ])));
-    (azCssPropertyWithConditions_simple (azCssProperty_counterIncrement (az_struct az_counter_increment [ (fun v -> Ctypes.setf v az_counter_increment_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_increment_field_value 1l) ])));
-    (azCssPropertyWithConditions_simple (azCssProperty_listStyleType (StyleListStyleType.to_int StyleListStyleType.UpperRoman)));
+    (azCssPropertyWithConditions_simple (azCssProperty_counterReset (az_struct az_counter_reset [ (fun v -> Ctypes.setf v az_counter_reset_field_counters (azCounterEntryVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_counter_entry [(az_struct az_counter_entry [ (fun v -> Ctypes.setf v az_counter_entry_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_entry_field_value 1l) ])])) (Unsigned.Size_t.of_int 1))) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_counterIncrement (az_struct az_counter_increment [ (fun v -> Ctypes.setf v az_counter_increment_field_counters (azCounterEntryVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_counter_entry [(az_struct az_counter_entry [ (fun v -> Ctypes.setf v az_counter_entry_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_entry_field_value 1l) ])])) (Unsigned.Size_t.of_int 1))) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_listStyleType (azStyleListStyleType_upperRoman ())));
     (azCssPropertyWithConditions_simple (azCssProperty_listStylePosition (StyleListStylePosition.to_int StyleListStylePosition.Inside)));
     (azCssPropertyWithConditions_simple (azCssProperty_stringSet (az_struct az_string_set [ (fun v -> Ctypes.setf v az_string_set_field_inner (azul_az_string "title \"Chapter\"")) ])))
   ])) (Unsigned.Size_t.of_int 6))

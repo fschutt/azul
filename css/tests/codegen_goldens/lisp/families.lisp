@@ -330,9 +330,9 @@
     'azul-internal::az-css-property-with-conditions
     (list
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-content (list 'azul-internal::inner (css-str "\"Hello\""))))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-counter-reset (list 'azul-internal::counter-name (css-str "section") 'azul-internal::value 1)))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-counter-increment (list 'azul-internal::counter-name (css-str "section") 'azul-internal::value 1)))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-list-style-type :upper-roman))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-counter-reset (list 'azul-internal::counters (css-vec #'azul-internal::%az-counter-entry-vec-copy-from-ptr 'azul-internal::az-counter-entry (list (list 'azul-internal::counter-name (css-str "section") 'azul-internal::value 1))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-counter-increment (list 'azul-internal::counters (css-vec #'azul-internal::%az-counter-entry-vec-copy-from-ptr 'azul-internal::az-counter-entry (list (list 'azul-internal::counter-name (css-str "section") 'azul-internal::value 1))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-list-style-type (azul-internal::%az-style-list-style-type-upper-roman)))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-list-style-position :inside))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-string-set (list 'azul-internal::inner (css-str "title \"Chapter\""))))
     )

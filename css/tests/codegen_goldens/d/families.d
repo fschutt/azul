@@ -317,9 +317,9 @@ CssPropertyWithConditions[] styleContent()
 {
     return [
         CssPropertyWithConditions.simple(CssProperty.content(Content("\"Hello\""))),
-        CssPropertyWithConditions.simple(CssProperty.counterReset(CounterReset("section", 1))),
-        CssPropertyWithConditions.simple(CssProperty.counterIncrement(CounterIncrement("section", 1))),
-        CssPropertyWithConditions.simple(CssProperty.listStyleType(StyleListStyleType.upperRoman)),
+        CssPropertyWithConditions.simple(CssProperty.counterReset(CounterReset([CounterEntry("section", 1)]))),
+        CssPropertyWithConditions.simple(CssProperty.counterIncrement(CounterIncrement([CounterEntry("section", 1)]))),
+        CssPropertyWithConditions.simple(CssProperty.listStyleType(StyleListStyleType.upperRoman())),
         CssPropertyWithConditions.simple(CssProperty.listStylePosition(StyleListStylePosition.inside)),
         CssPropertyWithConditions.simple(CssProperty.stringSet(StringSet("title \"Chapter\""))),
     ];

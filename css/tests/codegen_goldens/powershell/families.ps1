@@ -345,9 +345,9 @@ function Get-StyleTable {
 function Get-StyleContent {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_content([Azul.AzContent]@{ inner = (New-CssString '"Hello"') })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_counterReset([Azul.AzCounterReset]@{ counter_name = (New-CssString 'section'); value = 1 })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_counterIncrement([Azul.AzCounterIncrement]@{ counter_name = (New-CssString 'section'); value = 1 })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_listStyleType([Azul.StyleListStyleType]::UpperRoman)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_counterReset([Azul.AzCounterReset]@{ counters = (New-CssVec 'AzCounterEntryVec_copyFromPtr' ([Azul.AzCounterEntry]) @([Azul.AzCounterEntry]@{ counter_name = (New-CssString 'section'); value = 1 })) })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_counterIncrement([Azul.AzCounterIncrement]@{ counters = (New-CssVec 'AzCounterEntryVec_copyFromPtr' ([Azul.AzCounterEntry]) @([Azul.AzCounterEntry]@{ counter_name = (New-CssString 'section'); value = 1 })) })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_listStyleType([Azul.NativeMethods]::AzStyleListStyleType_upperRoman())),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_listStylePosition([Azul.StyleListStylePosition]::Inside)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_stringSet([Azul.AzStringSet]@{ inner = (New-CssString 'title "Chapter"') }))
     ))

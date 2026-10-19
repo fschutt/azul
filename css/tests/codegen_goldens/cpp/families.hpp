@@ -355,9 +355,9 @@ inline AzCssPropertyWithConditionsVec style_content() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
             AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"Hello\""), 0, 7) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(AzCounterReset{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("section"), 0, 7), 1 })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("section"), 0, 7), 1 })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_UpperRoman)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(AzCounterReset{ AzCounterEntryVec_copyFromPtr(std::vector<AzCounterEntry>{ AzCounterEntry{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("section"), 0, 7), 1 } }.data(), 1) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement{ AzCounterEntryVec_copyFromPtr(std::vector<AzCounterEntry>{ AzCounterEntry{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("section"), 0, 7), 1 } }.data(), 1) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_upperRoman())),
             AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside)),
             AzCssPropertyWithConditions_simple(AzCssProperty_stringSet(AzStringSet{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("title \"Chapter\""), 0, 15) })),
         }.data(),

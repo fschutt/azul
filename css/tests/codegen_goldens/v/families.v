@@ -290,14 +290,18 @@ fn style_table() azul.AzCssPropertyWithConditionsVec {
 
 // CSS: .content
 fn style_content() azul.AzCssPropertyWithConditionsVec {
-	mut t1 := [6]azul.AzCssPropertyWithConditions{}
-	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(azul.AzContent{ inner: azul.az_str('"Hello"') }))
-	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(azul.AzCounterReset{ counter_name: azul.az_str('section'), value: 1 }))
-	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(azul.AzCounterIncrement{ counter_name: azul.az_str('section'), value: 1 }))
-	t1[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(azul.AzStyleListStyleType.UpperRoman))
-	t1[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(azul.AzStyleListStylePosition.Inside))
-	t1[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(azul.AzStringSet{ inner: azul.az_str('title "Chapter"') }))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 6)
+	mut t1 := [1]azul.AzCounterEntry{}
+	mut t2 := [1]azul.AzCounterEntry{}
+	mut t3 := [6]azul.AzCssPropertyWithConditions{}
+	t1[0] = azul.AzCounterEntry{ counter_name: azul.az_str('section'), value: 1 }
+	t2[0] = azul.AzCounterEntry{ counter_name: azul.az_str('section'), value: 1 }
+	t3[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(azul.AzContent{ inner: azul.az_str('"Hello"') }))
+	t3[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(azul.AzCounterReset{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t1[0] }, 1) }))
+	t3[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(azul.AzCounterIncrement{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t2[0] }, 1) }))
+	t3[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman()))
+	t3[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(azul.AzStyleListStylePosition.Inside))
+	t3[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(azul.AzStringSet{ inner: azul.az_str('title "Chapter"') }))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 6)
 }
 
 // CSS: .anim

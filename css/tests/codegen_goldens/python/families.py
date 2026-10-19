@@ -250,9 +250,9 @@ def style_table():
 def style_content():
     return [
         CssPropertyWithConditions.simple(CssProperty.content(_with(Content.default(), inner="\"Hello\""))),
-        CssPropertyWithConditions.simple(CssProperty.counter_reset(_with(CounterReset.default(), counter_name="section", value=1))),
-        CssPropertyWithConditions.simple(CssProperty.counter_increment(_with(CounterIncrement.default(), counter_name="section", value=1))),
-        CssPropertyWithConditions.simple(CssProperty.list_style_type(StyleListStyleType.UpperRoman)),
+        CssPropertyWithConditions.simple(CssProperty.counter_reset(_with(CounterReset.default(), counters=CounterEntryVec.from_item(_with(CounterEntry.default(), counter_name="section", value=1))))),
+        CssPropertyWithConditions.simple(CssProperty.counter_increment(_with(CounterIncrement.default(), counters=CounterEntryVec.from_item(_with(CounterEntry.default(), counter_name="section", value=1))))),
+        CssPropertyWithConditions.simple(CssProperty.list_style_type(StyleListStyleType.UpperRoman())),
         CssPropertyWithConditions.simple(CssProperty.list_style_position(StyleListStylePosition.Inside)),
         CssPropertyWithConditions.simple(CssProperty.string_set(_with(StringSet.default(), inner="title \"Chapter\""))),
     ]

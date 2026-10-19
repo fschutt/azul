@@ -291,14 +291,18 @@ contains
   ! CSS: .content
   function style_content() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
-    type(AzCssPropertyWithConditions), target :: t1(6)
-    t1(1) = az_css_property_with_conditions_simple(az_css_property_content(AzContent(inner=azul_string('"Hello"'))))
-    t1(2) = az_css_property_with_conditions_simple(az_css_property_counter_reset(AzCounterReset(counter_name=azul_string('section'), value_=1_c_int32_t)))
-    t1(3) = az_css_property_with_conditions_simple(az_css_property_counter_increment(AzCounterIncrement(counter_name=azul_string('section'), value_=1_c_int32_t)))
-    t1(4) = az_css_property_with_conditions_simple(az_css_property_list_style_type(StyleListStyleType_UpperRoman))
-    t1(5) = az_css_property_with_conditions_simple(az_css_property_list_style_position(StyleListStylePosition_Inside))
-    t1(6) = az_css_property_with_conditions_simple(az_css_property_string_set(AzStringSet(inner=azul_string('title "Chapter"'))))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 6_c_size_t)
+    type(AzCounterEntry), target :: t1(1)
+    type(AzCounterEntry), target :: t2(1)
+    type(AzCssPropertyWithConditions), target :: t3(6)
+    t1(1) = AzCounterEntry(counter_name=azul_string('section'), value_=1_c_int32_t)
+    t2(1) = AzCounterEntry(counter_name=azul_string('section'), value_=1_c_int32_t)
+    t3(1) = az_css_property_with_conditions_simple(az_css_property_content(AzContent(inner=azul_string('"Hello"'))))
+    t3(2) = az_css_property_with_conditions_simple(az_css_property_counter_reset(AzCounterReset(counters=az_counter_entry_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t))))
+    t3(3) = az_css_property_with_conditions_simple(az_css_property_counter_increment(AzCounterIncrement(counters=az_counter_entry_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t))))
+    t3(4) = az_css_property_with_conditions_simple(az_css_property_list_style_type(az_style_list_style_type_upper_roman()))
+    t3(5) = az_css_property_with_conditions_simple(az_css_property_list_style_position(StyleListStylePosition_Inside))
+    t3(6) = az_css_property_with_conditions_simple(az_css_property_string_set(AzStringSet(inner=azul_string('title "Chapter"'))))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 6_c_size_t)
   end function style_content
 
   ! CSS: .anim

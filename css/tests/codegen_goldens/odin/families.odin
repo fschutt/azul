@@ -319,9 +319,9 @@ style_table :: proc() -> azul.AzCssPropertyWithConditionsVec {
 style_content :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_content(azul.AzContent{inner = css_str("\"Hello\"")})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterReset(azul.AzCounterReset{counter_name = css_str("section"), value = 1})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterIncrement(azul.AzCounterIncrement{counter_name = css_str("section"), value = 1})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStyleType(azul.AzStyleListStyleType.UpperRoman)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterReset(azul.AzCounterReset{counters = azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{counter_name = css_str("section"), value = 1}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterIncrement(azul.AzCounterIncrement{counters = azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{counter_name = css_str("section"), value = 1}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStyleType(azul.AzStyleListStyleType_upperRoman())),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStylePosition(azul.AzStyleListStylePosition.Inside)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_stringSet(azul.AzStringSet{inner = css_str("title \"Chapter\"")})),
 	}[0], 6)

@@ -330,9 +330,9 @@ fun styleContent(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_content(AzContent.ByValue().apply { inner = azStr("\"Hello\"") })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterReset(AzCounterReset.ByValue().apply { counter_name = azStr("section"); value = 1 })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterIncrement(AzCounterIncrement.ByValue().apply { counter_name = azStr("section"); value = 1 })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStyleType(StyleListStyleType.UpperRoman.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterReset(AzCounterReset.ByValue().apply { counters = azVec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzCounterEntry.ByValue().apply { counter_name = azStr("section"); value = 1 }) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterIncrement(AzCounterIncrement.ByValue().apply { counters = azVec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzCounterEntry.ByValue().apply { counter_name = azStr("section"); value = 1 }) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStyleType(AzulNativeCss.AzStyleListStyleType_upperRoman())),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStylePosition(StyleListStylePosition.Inside.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_stringSet(AzStringSet.ByValue().apply { inner = azStr("title \"Chapter\"") }))
     )

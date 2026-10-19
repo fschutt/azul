@@ -294,9 +294,9 @@ module AzulStyles
   def self.style_content : Array(Azul::CssPropertyWithConditions)
     [
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.content(Azul::Content.__own(LibAzul::AzContent.new(inner: Azul::Native.az_string("\"Hello\""))))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.counter_reset(Azul::CounterReset.__own(LibAzul::AzCounterReset.new(counter_name: Azul::Native.az_string("section"), value: 1_i32)))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.counter_increment(Azul::CounterIncrement.__own(LibAzul::AzCounterIncrement.new(counter_name: Azul::Native.az_string("section"), value: 1_i32)))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.list_style_type(Azul::StyleListStyleType::UpperRoman)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.counter_reset(Azul::CounterReset.__own(LibAzul::AzCounterReset.new(counters: Azul::Conv.in_CounterEntryVec([Azul::CounterEntry.__own(LibAzul::AzCounterEntry.new(counter_name: Azul::Native.az_string("section"), value: 1_i32))] of Azul::CounterEntry))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.counter_increment(Azul::CounterIncrement.__own(LibAzul::AzCounterIncrement.new(counters: Azul::Conv.in_CounterEntryVec([Azul::CounterEntry.__own(LibAzul::AzCounterEntry.new(counter_name: Azul::Native.az_string("section"), value: 1_i32))] of Azul::CounterEntry))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.list_style_type(Azul::StyleListStyleType.upper_roman)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.list_style_position(Azul::StyleListStylePosition::Inside)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.string_set(Azul::StringSet.__own(LibAzul::AzStringSet.new(inner: Azul::Native.az_string("title \"Chapter\""))))),
     ] of Azul::CssPropertyWithConditions

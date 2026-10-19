@@ -336,9 +336,9 @@ public final class AzulStyles {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_content(AzulCodegen.with(new AzContent.ByValue(), content -> { content.inner = AzulCodegen.str("\"Hello\""); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterReset(AzulCodegen.with(new AzCounterReset.ByValue(), counterReset -> { counterReset.counter_name = AzulCodegen.str("section"); counterReset.value = 1; }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterIncrement(AzulCodegen.with(new AzCounterIncrement.ByValue(), counterIncrement -> { counterIncrement.counter_name = AzulCodegen.str("section"); counterIncrement.value = 1; }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStyleType(StyleListStyleType.UpperRoman.value)),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterReset(AzulCodegen.with(new AzCounterReset.ByValue(), counterReset -> { counterReset.counters = AzulCodegen.vec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzulCodegen.with(new AzCounterEntry.ByValue(), counterEntry -> { counterEntry.counter_name = AzulCodegen.str("section"); counterEntry.value = 1; })); }))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterIncrement(AzulCodegen.with(new AzCounterIncrement.ByValue(), counterIncrement -> { counterIncrement.counters = AzulCodegen.vec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzulCodegen.with(new AzCounterEntry.ByValue(), counterEntry -> { counterEntry.counter_name = AzulCodegen.str("section"); counterEntry.value = 1; })); }))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStyleType(AzulNativeCss.AzStyleListStyleType_upperRoman())),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStylePosition(StyleListStylePosition.Inside.value)),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_stringSet(AzulCodegen.with(new AzStringSet.ByValue(), stringSet -> { stringSet.inner = AzulCodegen.str("title \"Chapter\""); })))
         );

@@ -306,9 +306,9 @@ func StyleTable() azul.AzCssPropertyWithConditionsVec {
 func StyleContent() azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_content(azul.AzContent{Inner: azul.Str("\"Hello\"").Raw()})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterReset(azul.AzCounterReset{CounterName: azul.Str("section").Raw(), Value: 1})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterIncrement(azul.AzCounterIncrement{CounterName: azul.Str("section").Raw(), Value: 1})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStyleType(azul.StyleListStyleType_UpperRoman)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterReset(azul.AzCounterReset{Counters: azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{CounterName: azul.Str("section").Raw(), Value: 1}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterIncrement(azul.AzCounterIncrement{Counters: azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{CounterName: azul.Str("section").Raw(), Value: 1}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStyleType(azul.AzStyleListStyleType_UpperRoman())),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStylePosition(azul.StyleListStylePosition_Inside)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_stringSet(azul.AzStringSet{Inner: azul.Str("title \"Chapter\"").Raw()})),
 	}[0], 6)

@@ -296,9 +296,9 @@ AzulStyles class >> styleTable [
 AzulStyles class >> styleContent [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyContent: (AzContent new inner: (self str: '"Hello"'); yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCounterReset: (AzCounterReset new counter_name: (self str: 'section'); value: 1; yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCounterIncrement: (AzCounterIncrement new counter_name: (self str: 'section'); value: 1; yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyListStyleType: (AzStyleListStyleType UpperRoman))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCounterReset: (AzCounterReset new counters: (self vec: [ :p :n | AzulNative azCounterEntryVecCopyFromPtr: p len: n ] of: AzCounterEntry items: { (AzCounterEntry new counter_name: (self str: 'section'); value: 1; yourself) }); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCounterIncrement: (AzCounterIncrement new counters: (self vec: [ :p :n | AzulNative azCounterEntryVecCopyFromPtr: p len: n ] of: AzCounterEntry items: { (AzCounterEntry new counter_name: (self str: 'section'); value: 1; yourself) }); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyListStyleType: (AzulNative azStyleListStyleTypeUpperRoman))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyListStylePosition: (AzStyleListStylePosition Inside))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyStringSet: (AzStringSet new inner: (self str: 'title "Chapter"'); yourself)))
     }

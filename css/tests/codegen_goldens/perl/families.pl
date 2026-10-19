@@ -265,9 +265,9 @@ sub style_table {
 sub style_content {
     return [
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_content(Azul::AzContent->new(inner => ${ css_str("\"Hello\"") }))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_counterReset(Azul::AzCounterReset->new(counter_name => ${ css_str("section") }, value => 1))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_counterIncrement(Azul::AzCounterIncrement->new(counter_name => ${ css_str("section") }, value => 1))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_listStyleType(Azul::AzStyleListStyleType::UpperRoman())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_counterReset(Azul::AzCounterReset->new(counters => ${ Azul::FFI::AzCounterEntryVec_fromItem(Azul::AzCounterEntry->new(counter_name => ${ css_str("section") }, value => 1)) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_counterIncrement(Azul::AzCounterIncrement->new(counters => ${ Azul::FFI::AzCounterEntryVec_fromItem(Azul::AzCounterEntry->new(counter_name => ${ css_str("section") }, value => 1)) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_listStyleType(Azul::FFI::AzStyleListStyleType_upperRoman())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_listStylePosition(Azul::AzStyleListStylePosition::Inside())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_stringSet(Azul::AzStringSet->new(inner => ${ css_str("title \"Chapter\"") }))),
     ];

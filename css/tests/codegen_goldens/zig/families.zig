@@ -314,9 +314,9 @@ pub fn styleTable() C.AzCssPropertyWithConditionsVec {
 pub fn styleContent() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(C.AzContent{ .inner = C.AzString_copyFromBytes("\"Hello\"", 0, 7) })),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(C.AzCounterReset{ .counter_name = C.AzString_copyFromBytes("section", 0, 7), .value = 1 })),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(C.AzCounterIncrement{ .counter_name = C.AzString_copyFromBytes("section", 0, 7), .value = 1 })),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_UpperRoman)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(C.AzCounterReset{ .counters = C.AzCounterEntryVec_copyFromPtr(&[_]C.AzCounterEntry{ C.AzCounterEntry{ .counter_name = C.AzString_copyFromBytes("section", 0, 7), .value = 1 } }, 1) })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(C.AzCounterIncrement{ .counters = C.AzCounterEntryVec_copyFromPtr(&[_]C.AzCounterEntry{ C.AzCounterEntry{ .counter_name = C.AzString_copyFromBytes("section", 0, 7), .value = 1 } }, 1) })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(C.AzStyleListStylePosition_Inside)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(C.AzStringSet{ .inner = C.AzString_copyFromBytes("title \"Chapter\"", 0, 15) })),
     }, 6);

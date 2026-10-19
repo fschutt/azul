@@ -392,9 +392,9 @@
     _AzCssPropertyWithConditions
     (list
       (css-property-with-conditions-simple (css-property-content (make-AzContent (string->azul-string "\"Hello\""))))
-      (css-property-with-conditions-simple (css-property-counter-reset (make-AzCounterReset (string->azul-string "section") 1)))
-      (css-property-with-conditions-simple (css-property-counter-increment (make-AzCounterIncrement (string->azul-string "section") 1)))
-      (css-property-with-conditions-simple (css-property-list-style-type AzStyleListStyleType_UpperRoman))
+      (css-property-with-conditions-simple (css-property-counter-reset (make-AzCounterReset (css-vec counter-entry-vec-copy-from-ptr _AzCounterEntry (list (make-AzCounterEntry (string->azul-string "section") 1))))))
+      (css-property-with-conditions-simple (css-property-counter-increment (make-AzCounterIncrement (css-vec counter-entry-vec-copy-from-ptr _AzCounterEntry (list (make-AzCounterEntry (string->azul-string "section") 1))))))
+      (css-property-with-conditions-simple (css-property-list-style-type (style-list-style-type-upper-roman)))
       (css-property-with-conditions-simple (css-property-list-style-position AzStyleListStylePosition_Inside))
       (css-property-with-conditions-simple (css-property-string-set (make-AzStringSet (string->azul-string "title \"Chapter\""))))
     )

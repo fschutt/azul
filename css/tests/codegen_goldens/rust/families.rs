@@ -318,8 +318,8 @@ pub fn style_table() -> CssPropertyWithConditionsVec {
 pub fn style_content() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
         CssPropertyWithConditions::simple(CssProperty::content(Content { inner: azul::str::String::from("\"Hello\"") })),
-        CssPropertyWithConditions::simple(CssProperty::counter_reset(CounterReset { counter_name: azul::str::String::from("section"), value: 1 })),
-        CssPropertyWithConditions::simple(CssProperty::counter_increment(CounterIncrement { counter_name: azul::str::String::from("section"), value: 1 })),
+        CssPropertyWithConditions::simple(CssProperty::counter_reset(CounterReset { counters: CounterEntryVec::from(vec![CounterEntry { counter_name: azul::str::String::from("section"), value: 1 }]) })),
+        CssPropertyWithConditions::simple(CssProperty::counter_increment(CounterIncrement { counters: CounterEntryVec::from(vec![CounterEntry { counter_name: azul::str::String::from("section"), value: 1 }]) })),
         CssPropertyWithConditions::simple(CssProperty::list_style_type(StyleListStyleType::UpperRoman)),
         CssPropertyWithConditions::simple(CssProperty::list_style_position(StyleListStylePosition::Inside)),
         CssPropertyWithConditions::simple(CssProperty::string_set(StringSet { inner: azul::str::String::from("title \"Chapter\"") })),

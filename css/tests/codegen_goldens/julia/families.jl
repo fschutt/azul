@@ -371,9 +371,9 @@ function style_content()
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_content(Azul.AzContent(Azul.az_string("\"Hello\"")))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_counterReset(Azul.AzCounterReset(Azul.az_string("section"), 1))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_counterIncrement(Azul.AzCounterIncrement(Azul.az_string("section"), 1))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_listStyleType(Azul.AzStyleListStyleType_UpperRoman)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_counterReset(Azul.AzCounterReset(az_vec(Azul.AzCounterEntryVec_copyFromPtr, Azul.AzCounterEntry, Azul.AzCounterEntry(Azul.az_string("section"), 1))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_counterIncrement(Azul.AzCounterIncrement(az_vec(Azul.AzCounterEntryVec_copyFromPtr, Azul.AzCounterEntry, Azul.AzCounterEntry(Azul.az_string("section"), 1))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_listStyleType(Azul.AzStyleListStyleType_upperRoman())),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_listStylePosition(Azul.AzStyleListStylePosition_Inside)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_stringSet(Azul.AzStringSet(Azul.az_string("title \"Chapter\""))))
     )

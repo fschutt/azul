@@ -397,9 +397,9 @@ module AzulStyles
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
       N.az_css_property_with_conditions_simple(N.az_css_property_content(AzulCodegen.struct(N::AzContent, inner: Azul._az_string("\"Hello\"")))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_counter_reset(AzulCodegen.struct(N::AzCounterReset, counter_name: Azul._az_string("section"), value: 1))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_counter_increment(AzulCodegen.struct(N::AzCounterIncrement, counter_name: Azul._az_string("section"), value: 1))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_list_style_type(N::AzStyleListStyleType::UpperRoman)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_counter_reset(AzulCodegen.struct(N::AzCounterReset, counters: AzulCodegen.vec(:az_counter_entry_vec_copy_from_ptr, N::AzCounterEntry, AzulCodegen.struct(N::AzCounterEntry, counter_name: Azul._az_string("section"), value: 1))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_counter_increment(AzulCodegen.struct(N::AzCounterIncrement, counters: AzulCodegen.vec(:az_counter_entry_vec_copy_from_ptr, N::AzCounterEntry, AzulCodegen.struct(N::AzCounterEntry, counter_name: Azul._az_string("section"), value: 1))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_list_style_type(N.az_style_list_style_type_upper_roman())),
       N.az_css_property_with_conditions_simple(N.az_css_property_list_style_position(N::AzStyleListStylePosition::Inside)),
       N.az_css_property_with_conditions_simple(N.az_css_property_string_set(AzulCodegen.struct(N::AzStringSet, inner: Azul._az_string("title \"Chapter\""))))
     )

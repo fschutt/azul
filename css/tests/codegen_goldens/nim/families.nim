@@ -311,9 +311,9 @@ proc styleTable*(): AzCssPropertyWithConditionsVec =
 proc styleContent*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent(inner: azStr("\"Hello\"")))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(AzCounterReset(counter_name: azStr("section"), value: 1'i32))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement(counter_name: azStr("section"), value: 1'i32))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType.UpperRoman)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(AzCounterReset(counters: azVec(AzCounterEntryVec_copyFromPtr, [AzCounterEntry(counter_name: azStr("section"), value: 1'i32)])))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement(counters: azVec(AzCounterEntryVec_copyFromPtr, [AzCounterEntry(counter_name: azStr("section"), value: 1'i32)])))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_upperRoman())),
     AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition.Inside)),
     AzCssPropertyWithConditions_simple(AzCssProperty_stringSet(AzStringSet(inner: azStr("title \"Chapter\"")))),
   ])

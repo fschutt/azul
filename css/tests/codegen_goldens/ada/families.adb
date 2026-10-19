@@ -327,15 +327,19 @@ package body Styles is
 
    --  CSS: .content
    function Style_Content return Az_CssPropertyWithConditionsVec is
-      t1 : aliased array (0 .. 5) of Az_CssPropertyWithConditions;
+      t1 : aliased array (0 .. 0) of Az_CounterEntry;
+      t2 : aliased array (0 .. 0) of Az_CounterEntry;
+      t3 : aliased array (0 .. 5) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""Hello"""))));
-      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Reset (Az_CounterReset'(Counter_Name => To_Az_String ("section"), Value => 1)));
-      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Increment (Az_CounterIncrement'(Counter_Name => To_Az_String ("section"), Value => 1)));
-      t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Type (Az_StyleListStyleType'(UpperRoman)));
-      t1 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Position (Az_StyleListStylePosition'(Inside)));
-      t1 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_String_Set (Az_StringSet'(Inner => To_Az_String ("title ""Chapter"""))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 6);
+      t1 (0) := Az_CounterEntry'(Counter_Name => To_Az_String ("section"), Value => 1);
+      t2 (0) := Az_CounterEntry'(Counter_Name => To_Az_String ("section"), Value => 1);
+      t3 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""Hello"""))));
+      t3 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Reset (Az_CounterReset'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t1 (0)'Address, 1))));
+      t3 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Increment (Az_CounterIncrement'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t2 (0)'Address, 1))));
+      t3 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Type (Az_StyleListStyleType_Upper_Roman));
+      t3 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Position (Az_StyleListStylePosition'(Inside)));
+      t3 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_String_Set (Az_StringSet'(Inner => To_Az_String ("title ""Chapter"""))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t3 (0)'Address, 6);
    end Style_Content;
 
    --  CSS: .anim
