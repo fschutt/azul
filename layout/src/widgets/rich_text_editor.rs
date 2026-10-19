@@ -1235,9 +1235,12 @@ fn block_dom_as(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock, continued:
     } else {
         format!("text-align: {};", block.align.css())
     };
+    // A text block takes its direction from its first strong letter, as
+    // `dir=auto` does: an Arabic paragraph runs right to left beside a Latin
+    // one. Not inherited, so each block says it.
     let base = format!(
-        "margin: 0px; padding: 0px; white-space: pre-wrap; font-size: {px}px; \
-         line-height: {line}px; min-height: {line}px; {align}"
+        "margin: 0px; padding: 0px; white-space: pre-wrap; unicode-bidi: plaintext; \
+         font-size: {px}px; line-height: {line}px; min-height: {line}px; {align}"
     );
     let indent_px = |indent: u8| quote_left + (26.0 + 24.0 * f32::from(indent)) * em;
     let mut classes: Vec<String> = vec![rich_html::BLOCK_CLASS.to_string()];
@@ -1260,9 +1263,9 @@ fn block_dom_as(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock, continued:
             };
             let size = (px * scale).round();
             with_runs(node, ctx, block).with_css(&format!(
-                "margin: 0px; padding: 0px; white-space: pre-wrap; font-size: {size}px; \
-                 line-height: {}px; font-weight: bold; margin-top: 10px; margin-bottom: 6px; \
-                 margin-left: {quote_left}px; {quote_css} {align}",
+                "margin: 0px; padding: 0px; white-space: pre-wrap; unicode-bidi: plaintext; \
+                 font-size: {size}px; line-height: {}px; font-weight: bold; margin-top: 10px; \
+                 margin-bottom: 6px; margin-left: {quote_left}px; {quote_css} {align}",
                 (size * 1.3).round()
             ))
         }
