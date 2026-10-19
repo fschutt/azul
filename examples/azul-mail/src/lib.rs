@@ -85,6 +85,8 @@ mod l10n;
 mod l10n_tests;
 #[cfg(test)]
 mod sync_cancel_tests;
+#[cfg(test)]
+mod compose_address_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
