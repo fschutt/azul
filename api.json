@@ -20559,6 +20559,23 @@
                                     "type": "OptionClipboardContent"
                                 },
                                 "fn_body": "object.get_system_clipboard()"
+                            },
+                            "get_session_change": {
+                                "doc": [
+                                    "What the system last did to the user's session - the payload of a",
+                                    "`SessionChange` event (`ApplicationEventFilter::SessionChange`): the",
+                                    "screen locked or unlocked, the machine is about to sleep or woke.",
+                                    "`None` before the first."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSessionChange"
+                                },
+                                "fn_body": "object.get_session_change()"
                             }
                         },
                         "repr": "C"
@@ -38455,6 +38472,28 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "SessionChange": {
+                        "external": "azul_core::events::SessionChange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Locked": {},
+                                "Unlocked": {},
+                                "WillSleep": {},
+                                "Woke": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -39585,6 +39624,12 @@
                                 },
                                 "FontFeatureSettings": {
                                     "type": "StyleFontFeatureSettingsValue"
+                                },
+                                "CounterSet": {
+                                    "type": "CounterSetValue"
+                                },
+                                "Quotes": {
+                                    "type": "StyleQuotesValue"
                                 }
                             }
                         ],
@@ -41457,6 +41502,38 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::const_background_clip(input)"
+                            },
+                            "counter_set": {
+                                "fn_args": [
+                                    {
+                                        "input": "CounterSet"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::counter_set(input)"
+                            },
+                            "const_counter_set": {
+                                "fn_args": [
+                                    {
+                                        "input": "CounterSet"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::const_counter_set(input)"
+                            },
+                            "quotes": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleQuotes"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::quotes(input)"
+                            },
+                            "const_quotes": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleQuotes"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::const_quotes(input)"
                             }
                         },
                         "functions": {
@@ -48131,9 +48208,6 @@
                     },
                     "CounterReset": {
                         "external": "azul_css::props::style::content::CounterReset",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Hash",
@@ -48145,13 +48219,8 @@
                         ],
                         "struct_fields": [
                             {
-                                "counter_name": {
-                                    "type": "String"
-                                }
-                            },
-                            {
-                                "value": {
-                                    "type": "i32"
+                                "counters": {
+                                    "type": "CounterEntryVec"
                                 }
                             }
                         ],
@@ -48964,9 +49033,6 @@
                     },
                     "CounterIncrement": {
                         "external": "azul_css::props::style::content::CounterIncrement",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialEq",
                             "PartialOrd",
@@ -48978,13 +49044,8 @@
                         ],
                         "struct_fields": [
                             {
-                                "counter_name": {
-                                    "type": "String"
-                                }
-                            },
-                            {
-                                "value": {
-                                    "type": "i32"
+                                "counters": {
+                                    "type": "CounterEntryVec"
                                 }
                             }
                         ],
@@ -50665,7 +50726,8 @@
                                 "MonitorConnected": {},
                                 "MonitorDisconnected": {},
                                 "MediaControl": {},
-                                "SystemAudioChange": {}
+                                "SystemAudioChange": {},
+                                "SessionChange": {}
                             }
                         ],
                         "repr": "C"
@@ -51927,7 +51989,9 @@
                                 "BackgroundClip": {},
                                 "FontVariantNumeric": {},
                                 "FontVariantCaps": {},
-                                "FontFeatureSettings": {}
+                                "FontFeatureSettings": {},
+                                "CounterSet": {},
+                                "Quotes": {}
                             }
                         ],
                         "repr": "C"
@@ -60297,6 +60361,118 @@
                                 "StyleFontVariantCaps"
                             ]
                         }
+                    },
+                    "CounterEntry": {
+                        "external": "azul_css::props::style::content::CounterEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "counter_name": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "i32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CounterSet": {
+                        "external": "azul_css::props::style::content::CounterSet",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "counters": {
+                                    "type": "CounterEntryVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CounterSetValue": {
+                        "external": "azul_css::props::property::CounterSetValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "CounterSet"
+                            ]
+                        }
+                    },
+                    "StyleQuotes": {
+                        "external": "azul_css::props::style::content::StyleQuotes",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleQuotesValue": {
+                        "external": "azul_css::props::property::StyleQuotesValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleQuotes"
+                            ]
+                        }
+                    },
+                    "CounterEntryVecSlice": {
+                        "external": "azul_css::props::style::content::CounterEntryVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "CounterEntry",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -63162,6 +63338,34 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_constrained()"
+                            },
+                            "set_text_units": {
+                                "doc": [
+                                    "Replace the value with `text`. A password's characters are a secret",
+                                    "(`U32Vec::set_secret`): the old buffer, this one and every clone of",
+                                    "it are zeroed when they are freed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "text": "U32Vec"
+                                    }
+                                ],
+                                "fn_body": "object.set_text_units(text)"
+                            },
+                            "zeroize": {
+                                "doc": [
+                                    "Zero the value now and empty it (a password once it has been used):",
+                                    "the field's own buffer, not the copies a callback made of it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.zeroize()"
                             }
                         },
                         "repr": "C"
@@ -72076,6 +72280,9 @@
                                 },
                                 "auto_dismiss_ms": {
                                     "type": "u32"
+                                },
+                                "action": {
+                                    "type": "OptionToastAction"
                                 }
                             }
                         ],
@@ -72303,6 +72510,50 @@
                                     "type": "Toast"
                                 },
                                 "fn_body": "object.with_auto_dismiss(ms)"
+                            },
+                            "set_action": {
+                                "doc": [
+                                    "Offer `label` (\"Undo\") beside the message: a click runs `on_action`",
+                                    "with `data` and the toast's state, then closes the toast."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_action": "ToastOnDismissCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_action(label, data, on_action)"
+                            },
+                            "with_action": {
+                                "doc": [
+                                    "[`Self::set_action`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_action": "ToastOnDismissCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Toast"
+                                },
+                                "fn_body": "object.with_action(label, data, on_action)"
                             }
                         },
                         "repr": "C"
@@ -114277,6 +114528,26 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ToastAction": {
+                        "external": "azul_layout::widgets::toast::ToastAction",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "on_action": {
+                                    "type": "ToastOnDismiss"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -133187,6 +133458,47 @@
                                     }
                                 ],
                                 "fn_body": "object.set_localizable(localizable)"
+                            },
+                            "is_secret": {
+                                "doc": [
+                                    "Whether this string holds a secret ([`Self::set_secret`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_secret()"
+                            },
+                            "set_secret": {
+                                "doc": [
+                                    "Mark this string as a secret (a password, a keyring secret): its",
+                                    "buffer, and the buffer of every clone of it, is zeroed before it is",
+                                    "freed. A copy made another way (`as_str().to_string()`) is not."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "secret": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_secret(secret)"
+                            },
+                            "zeroize": {
+                                "doc": [
+                                    "Zero this string's bytes now and empty it ([`U8Vec::zeroize`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.zeroize()"
                             }
                         },
                         "repr": "C"
@@ -136852,6 +137164,48 @@
                                     "type": "U32VecSlice"
                                 },
                                 "fn_body": "u32_vec.as_c_slice_range(start, end)"
+                            },
+                            "is_secret": {
+                                "doc": [
+                                    "Whether this buffer holds a secret ([`Self::set_secret`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_secret()"
+                            },
+                            "set_secret": {
+                                "doc": [
+                                    "Mark this buffer as a secret: it is zeroed before it is freed,",
+                                    "and so is every clone of it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "secret": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_secret(secret)"
+                            },
+                            "zeroize": {
+                                "doc": [
+                                    "Zero every element this vec owns now and empty it; the buffer",
+                                    "stays allocated, zeroed. A buffer it does not own (a static, a",
+                                    "host language's) cannot be written: it is only let go."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.zeroize()"
                             }
                         },
                         "repr": "C"
@@ -138736,6 +139090,48 @@
                                     "type": "U8VecSlice"
                                 },
                                 "fn_body": "u8_vec.as_c_slice_range(start, end)"
+                            },
+                            "is_secret": {
+                                "doc": [
+                                    "Whether this buffer holds a secret ([`Self::set_secret`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_secret()"
+                            },
+                            "set_secret": {
+                                "doc": [
+                                    "Mark this buffer as a secret: it is zeroed before it is freed,",
+                                    "and so is every clone of it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "secret": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_secret(secret)"
+                            },
+                            "zeroize": {
+                                "doc": [
+                                    "Zero every element this vec owns now and empty it; the buffer",
+                                    "stays allocated, zeroed. A buffer it does not own (a static, a",
+                                    "host language's) cannot be written: it is only let go."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.zeroize()"
                             }
                         },
                         "repr": "C"
@@ -175976,6 +176372,223 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "CounterEntryVec": {
+                        "external": "azul_css::props::style::content::CounterEntryVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "CounterEntry",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "CounterEntryVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `CounterEntryVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "CounterEntryVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `CounterEntryVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CounterEntryVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "counter_entry_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "counter_entry_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "counter_entry_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `CounterEntryVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "CounterEntry"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CounterEntryVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `CounterEntryVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const CounterEntry"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CounterEntryVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionCounterEntry"
+                                },
+                                "fn_body": "counter_entry_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `CounterEntryVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CounterEntryVecSlice"
+                                },
+                                "fn_body": "counter_entry_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CounterEntryVecSlice"
+                                },
+                                "fn_body": "counter_entry_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "CounterEntryVecDestructor": {
+                        "external": "azul_css::props::style::content::CounterEntryVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "CounterEntryVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CounterEntryVecDestructorType": {
+                        "external": "azul_css::props::style::content::CounterEntryVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "CounterEntryVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -187058,6 +187671,71 @@
                                     "type": "Toast",
                                     "doc": [
                                         "Some value of type Toast"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSessionChange": {
+                        "external": "azul_core::events::OptionSessionChange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SessionChange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionToastAction": {
+                        "external": "azul_layout::widgets::toast::OptionToastAction",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ToastAction"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionCounterEntry": {
+                        "external": "azul_css::props::style::content::OptionCounterEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "CounterEntry",
+                                    "doc": [
+                                        "Some value of type CounterEntry"
                                     ]
                                 }
                             }
@@ -213088,6 +213766,30 @@
                                     "type": "String"
                                 },
                                 "empty_label": {
+                                    "type": "String"
+                                },
+                                "search_placeholder": {
+                                    "type": "String"
+                                },
+                                "browse_label": {
+                                    "type": "String"
+                                },
+                                "browse_title": {
+                                    "type": "String"
+                                },
+                                "color_title": {
+                                    "type": "String"
+                                },
+                                "no_shortcut_label": {
+                                    "type": "String"
+                                },
+                                "shortcut_prompt": {
+                                    "type": "String"
+                                },
+                                "modified_label": {
+                                    "type": "String"
+                                },
+                                "apply_held_reason": {
                                     "type": "String"
                                 },
                                 "on_event": {
