@@ -8792,10 +8792,7 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         refresh,
         refresh_apart: true,
         refresh_icon,
-        search: vec![
-            C::simple(CssProperty::const_width(LayoutWidth::const_px(220))),
-            decl::position(LayoutPosition::Relative),
-        ],
+        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         // The field's corners, and room for the magnifier at its start.
         search_field: {
             let mut v = decl::radius(ADDRESS_FIELD_RADIUS).to_vec();

@@ -392,17 +392,25 @@ pub(crate) static ADDRESS_BAR_EDIT_BASE: &[Cond] = &[
 ];
 
 /// The search box keeps its width.
-pub(crate) static ADDRESS_BAR_SEARCH_BASE: &[Cond] = &[display_flex(), grow(0), no_shrink()];
+pub(crate) static ADDRESS_BAR_SEARCH_BASE: &[Cond] = &[
+    display_flex(),
+    grow(0),
+    no_shrink(),
+    // The containing block of the hint (and of a theme's magnifier) laid over the field: without
+    // it they are placed against the window.
+    crate::widgets::themes::decl::position(azul_css::props::layout::LayoutPosition::Relative),
+];
 
 /// The search shortcut hint lies over the field's end, on its midline, one
 /// line that is never selected; over it the pointer stays the text cursor
-/// (a click on it focuses the field).
+/// (a click on it focuses the field). Its `display` is the search box's
+/// own sheet (see `build`): a declaration of its own would outrank the
+/// rule that hides it while the box has the focus.
 pub(crate) static ADDRESS_BAR_SEARCH_HINT_BASE: &[Cond] = &[
     crate::widgets::themes::decl::position(azul_css::props::layout::LayoutPosition::Absolute),
     simple(CssProperty::const_top(azul_css::props::layout::LayoutTop::const_px(0))),
     simple(CssProperty::const_bottom(azul_css::props::layout::LayoutInsetBottom::const_px(0))),
     simple(CssProperty::const_right(azul_css::props::layout::LayoutRight::const_px(6))),
-    display_flex(),
     simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     nowrap(),
     simple(CssProperty::const_cursor(StyleCursor::Text)),
@@ -1246,7 +1254,8 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
                 ),
         );
         search_box = search_box.with_css(&format!(
-            ".__azul-native-address-bar-search:focus-within .{SEARCH_HINT_CLASS} {{ display: none; }}"
+            ".__azul-native-address-bar-search .{SEARCH_HINT_CLASS} {{ display: flex; }} \
+             .__azul-native-address-bar-search:focus-within .{SEARCH_HINT_CLASS} {{ display: none; }}"
         ));
     }
 
