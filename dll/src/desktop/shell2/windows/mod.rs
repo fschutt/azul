@@ -2316,6 +2316,9 @@ impl Win32Window {
     /// the COM callbacks can resolve `Win32Window` from the HWND.
     pub fn register_drag_drop(&self) {
         dnd::register_drag_drop(self.hwnd);
+        // The screen's lock and unlock reach this window too
+        // (`WM_WTSSESSION_CHANGE`, `extra::session`).
+        crate::desktop::extra::session::windows::register_window(self.hwnd as isize);
     }
 
     /// Update ime_position in window state from focused text cursor
@@ -6590,6 +6593,19 @@ unsafe extern "system" fn window_proc(
         // (`windows::dnd`), which delivers hover (`DragEnter`/`DragOver`),
         // leave (`DragLeave`) AND drop (`Drop`). OLE supersedes `WM_DROPFILES`;
         // keeping both would double-fire the drop.
+        // The machine about to sleep or awake, the screen locked or
+        // unlocked: the session's change, for every window
+        // (`extra::session`). A power broadcast is answered TRUE.
+        crate::desktop::extra::session::windows::WM_POWERBROADCAST
+        | crate::desktop::extra::session::windows::WM_WTSSESSION_CHANGE => {
+            crate::desktop::extra::session::windows::handle(msg, wparam as usize);
+            if msg == crate::desktop::extra::session::windows::WM_POWERBROADCAST {
+                1
+            } else {
+                0
+            }
+        }
+
         WM_DISPLAYCHANGE => {
             // Monitor topology changed (monitor added/removed/resolution changed)
             // Refresh the cached monitor list, and turn the before/after count

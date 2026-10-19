@@ -719,6 +719,30 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 /// Input in the window: the idle lock starts over.
+/// The screen locked or the machine is about to sleep: the vault locks with it, as a
+/// password manager's does. An unlock or a wake leaves it locked.
+pub extern "C" fn on_session_change(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul::events::SessionChange;
+    let locking = matches!(
+        info.get_session_change().into_option(),
+        Some(SessionChange::Locked | SessionChange::WillSleep)
+    );
+    if !locking {
+        return Update::DoNothing;
+    }
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<KeysApp>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    if s.session.is_none() {
+        return Update::DoNothing;
+    }
+    println!("AZKEYS_SESSION_LOCK");
+    lock(s, &mut info, &app);
+    Update::RefreshDom
+}
+
 pub extern "C" fn on_activity(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<KeysApp>() {
         s.touch(now());

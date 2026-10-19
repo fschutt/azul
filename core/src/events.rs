@@ -665,6 +665,30 @@ pub struct MediaControlEventData {
     pub volume: f32,
 }
 
+/// What the system did to the user's session: the screen locked or
+/// unlocked, the machine is about to sleep or woke from it. Delivered as a
+/// `SessionChange` event at the root and readable through
+/// `CallbackInfo::get_session_change`. A password manager locks its vault on
+/// `Locked` and `WillSleep`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SessionChange {
+    /// The screen locked (or the session was switched away from).
+    Locked,
+    /// The screen unlocked (the session is the user's again).
+    Unlocked,
+    /// The machine is about to sleep.
+    WillSleep,
+    /// The machine woke from sleep.
+    Woke,
+}
+
+azul_css::impl_option!(
+    SessionChange,
+    OptionSessionChange,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+
 /// Data carried by a `SystemAudioChange` event (9h-i-a-i-d-i): what the
 /// system did with the audio the app took over. Also readable through
 /// `CallbackInfo::get_system_audio_change`.
@@ -1157,6 +1181,10 @@ pub enum EventType {
     WebViewTitleChanged,
     /// A `<webview>`'s page could not be loaded, or there is no web view.
     WebViewLoadFailed,
+    /// The screen locked or unlocked, or the machine is about to sleep or
+    /// woke ([`SessionChange`]). Application-level, at the root; read which
+    /// with `CallbackInfo::get_session_change`. APPENDED at the end.
+    SessionChange,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -2360,13 +2388,14 @@ const fn matches_application_filter(
 ) -> bool {
     use ApplicationEventFilter::{
         DeviceConnected, DeviceDisconnected, MediaControl, MonitorConnected, MonitorDisconnected,
-        SystemAudioChange,
+        SessionChange, SystemAudioChange,
     };
 
     matches!(
         (filter, &event.event_type),
         (MediaControl, EventType::MediaControl)
             | (SystemAudioChange, EventType::SystemAudioChange)
+            | (SessionChange, EventType::SessionChange)
             | (DeviceConnected, EventType::DeviceConnected)
             | (DeviceDisconnected, EventType::DeviceDisconnected)
             | (MonitorConnected, EventType::MonitorConnected)
@@ -3708,6 +3737,9 @@ pub enum ApplicationEventFilter {
     MediaControl,
     /// The system changed the app's hold on the audio (9h-i-a-i-d-i).
     SystemAudioChange,
+    /// The screen locked or unlocked, or the machine is about to sleep or
+    /// woke (`CallbackInfo::get_session_change`). APPENDED at the end.
+    SessionChange,
 }
 
 /// Events reported by something OUTSIDE the input pipeline (11c).
@@ -4216,6 +4248,7 @@ static ALL_APPLICATION: &[ApplicationEventFilter] = &[
     ApplicationEventFilter::MonitorDisconnected,
     ApplicationEventFilter::MediaControl,
     ApplicationEventFilter::SystemAudioChange,
+    ApplicationEventFilter::SessionChange,
 ];
 
 /// Which listeners an event should reach.

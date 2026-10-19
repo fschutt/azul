@@ -215,6 +215,11 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             jobs::on_biometric_result,
         )
         .with_callback(
+            EventFilter::Application(azul::css::ApplicationEventFilter::SessionChange),
+            app.clone(),
+            jobs::on_session_change,
+        )
+        .with_callback(
             EventFilter::Window(WindowEventFilter::CloseRequested),
             app,
             jobs::on_close_requested,

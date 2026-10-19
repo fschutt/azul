@@ -2238,7 +2238,8 @@ mod autotest_generated {
             EventType::WebViewNavigationRequested => EventType::WebViewLoadFinished,
             EventType::WebViewLoadFinished => EventType::WebViewTitleChanged,
             EventType::WebViewTitleChanged => EventType::WebViewLoadFailed,
-            EventType::WebViewLoadFailed => return None,
+            EventType::WebViewLoadFailed => EventType::SessionChange,
+            EventType::SessionChange => return None,
         })
     }
 
@@ -2407,6 +2408,7 @@ mod autotest_generated {
             (EventType::WebViewLoadFinished, EventData::None),
             (EventType::WebViewTitleChanged, EventData::None),
             (EventType::WebViewLoadFailed, EventData::None),
+            (EventType::SessionChange, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
@@ -5032,6 +5034,7 @@ fn every_component_and_application_filter_is_reachable_from_planning() {
         (A::MonitorDisconnected, EventType::MonitorDisconnected),
         (A::MediaControl, EventType::MediaControl),
         (A::SystemAudioChange, EventType::SystemAudioChange),
+        (A::SessionChange, EventType::SessionChange),
     ];
     for (filter, event_type) in application {
         let planned = event_type_to_filters(*event_type, &EventData::None);

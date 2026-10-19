@@ -11667,6 +11667,14 @@ pub trait PlatformWindow {
                     lw.media_session_manager.push_request(request);
                 }
             }
+            // SESSION CHANGES (the screen locked, the machine sleeps), from
+            // the platform's observers: each window reads the process's log
+            // for itself and the change is a `SessionChange` event at its
+            // root on this pass.
+            crate::desktop::extra::session::ensure_started();
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.device_event_manager.read_session_log();
+            }
             // SYSTEM AUDIO CHANGES (9h-i-a-i-d-i) ride the same drain: an iOS
             // interruption or an Android focus change becomes a
             // `SystemAudioChange` event on this pass.
@@ -12077,6 +12085,7 @@ pub trait PlatformWindow {
             let _ = w.text_edit_manager.take_pending_composition();
             let _ = w.text_edit_manager.take_pending_seat_compositions();
             let _ = w.device_event_manager.take_pending();
+            let _ = w.device_event_manager.take_pending_session();
             let _ = w.device_event_manager.take_raw_motion();
             let _ = w.gamepad_manager.take_pending_hotplug();
             w.gesture_drag_manager.clear_pen_event_pending();

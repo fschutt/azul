@@ -6116,6 +6116,18 @@ impl CallbackInfo {
             .is_system_audio_active()
     }
 
+    /// What the system last did to the user's session - the payload of a
+    /// `SessionChange` event (`ApplicationEventFilter::SessionChange`): the
+    /// screen locked or unlocked, the machine is about to sleep or woke.
+    /// `None` before the first.
+    #[must_use]
+    pub fn get_session_change(&self) -> azul_core::events::OptionSessionChange {
+        self.get_layout_window()
+            .device_event_manager
+            .last_session()
+            .into()
+    }
+
     #[must_use]
     pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
         self.get_layout_window()

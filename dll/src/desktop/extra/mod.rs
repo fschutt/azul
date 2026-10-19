@@ -73,6 +73,9 @@ pub mod screencap;
 ///   the network ([`sensors::network`]), each a synchronous query
 ///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
+/// The user's session: the screen locked or unlocked, the machine about to
+/// sleep or awake (`SessionChange` events), from the platform's observers.
+pub mod session;
 /// Speech on the platform's engines: text said aloud (AVSpeechSynthesizer, SAPI,
 /// speech-dispatcher) and what the user says heard (SFSpeechRecognizer, WinRT); logged, not
 /// spoken, in a headless run. See `speech/mod.rs`.
