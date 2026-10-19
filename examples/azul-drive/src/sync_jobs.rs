@@ -1277,7 +1277,53 @@ fn refresh_if_showing(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
 }
 
 /// A sync job's answer.
-pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outcome: SyncOutcome) {
+/// What the window shows of drive `drive_id`'s sync and around it: its status line, whether a
+/// pass runs, its files' states, the notices and the dialogs. A poll's pass that leaves all of it
+/// as it was asks for no new DOM; every pass used to rebuild the window (once a second under a
+/// one-second poll).
+#[derive(PartialEq)]
+struct Shown {
+    said: String,
+    running: bool,
+    states: Arc<SyncStates>,
+    notices: u64,
+    message: bool,
+    popups: u64,
+    popup: bool,
+}
+
+impl Shown {
+    fn of(s: &DriveState, drive_id: &str) -> Self {
+        let sync = s.sync_view.drives.get(drive_id);
+        Self {
+            said: sync.map(|d| d.said.clone()).unwrap_or_default(),
+            running: sync.is_some_and(|d| d.running.is_some()),
+            states: s.sync_view.store.states(drive_id),
+            notices: s.toasts.last_id,
+            message: s.message.is_some(),
+            popups: s.popups_opened,
+            popup: s.popup.is_some(),
+        }
+    }
+}
+
+/// Takes a sync job's outcome; whether the window shows something new (a finished pass that
+/// changed nothing shown does not).
+pub(crate) fn on_outcome(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    outcome: SyncOutcome,
+) -> bool {
+    let passed = match &outcome {
+        SyncOutcome::Passed { drive_id, .. } => Some((drive_id.clone(), Shown::of(s, drive_id))),
+        _ => None,
+    };
+    take_outcome(info, app, s, outcome);
+    passed.is_none_or(|(drive_id, before)| Shown::of(s, &drive_id) != before)
+}
+
+fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outcome: SyncOutcome) {
     match outcome {
         SyncOutcome::Progress { drive_id, progress } => {
             s.sync_view

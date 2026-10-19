@@ -2631,6 +2631,9 @@ pub(crate) extern "C" fn on_job_done(
     // An Azlin drive may have switched sessions during the job (refreshed, or read another
     // window's from the keyring): the slot's secret follows.
     take_rotated(s);
+    // Whether the window shows something new: every outcome but a sync pass that changed
+    // nothing shown.
+    let mut refresh = true;
     match outcome {
         Outcome::Scanned {
             serial,
@@ -3030,7 +3033,9 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
-        Outcome::Sync(outcome) => sync_jobs::on_outcome(&mut info, &handle, s, outcome),
+        Outcome::Sync(outcome) => {
+            refresh = sync_jobs::on_outcome(&mut info, &handle, s, outcome);
+        }
         Outcome::DriveRestored {
             drive_id,
             as_of,
@@ -3043,10 +3048,15 @@ pub(crate) extern "C" fn on_job_done(
             result,
         } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
     }
+    let popups = s.popups_opened;
     #[cfg(feature = "encryption")]
     encryption::show_pending_sheet(s);
     closing::after_job(&mut info, s);
-    Update::RefreshDom
+    if refresh || s.popups_opened != popups {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 // ==== Layout ====
