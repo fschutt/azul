@@ -8034,6 +8034,41 @@ mod autotest_generated {
         }
     }
 
+    /// A turned (heading-up) map draws its tiles out to the view's corners:
+    /// the view clips them, and the turned canvas does not cut them to its
+    /// own unturned box first, which left the corners bare (MAPS22).
+    #[test]
+    fn a_turned_map_is_cut_at_the_view_and_not_at_its_canvas() {
+        use azul_css::props::layout::overflow::LayoutOverflow;
+        let mut cache = cache_at(48.2, 16.37, 12.0);
+        cache.viewport.bearing_deg = 45.0;
+        let dataset = RefAny::new(cache);
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
+        let OptionDom::Some(root) = &ret.dom else {
+            panic!("a finite box renders");
+        };
+        let clips = |node: &Dom| {
+            node.css
+                .as_ref()
+                .iter()
+                .flat_map(|sheet| sheet.iter_inline_properties())
+                .any(|(p, _)| match p {
+                    CssProperty::OverflowX(v) | CssProperty::OverflowY(v) => {
+                        v.get_property().is_some_and(|o| *o == LayoutOverflow::Hidden)
+                    }
+                    _ => false,
+                })
+        };
+        assert!(clips(root), "harness: the view clips what lies outside it");
+        let grid = root.children.as_ref().first().expect("the tile canvas");
+        assert!(
+            !clips(grid),
+            "the turned canvas cut its tiles to its own unturned box: bare corners"
+        );
+    }
+
     #[test]
     fn render_with_a_wrong_typed_dataset_emits_no_dom() {
         let dataset = RefAny::new(0u32);
