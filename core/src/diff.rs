@@ -220,13 +220,14 @@ fn non_static_declarations(
 fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut H) {
     use azul_css::css::CssDeclaration;
     for rule in style.rules.as_ref() {
-        let conditions = rule.conditions.as_slice().len();
+        // The conditions are part of the style: the same declaration for
+        // `:hover` and for `:focus` is another style.
+        rule.conditions.as_slice().hash(h);
         for d in rule.declarations.as_ref() {
             match d {
                 CssDeclaration::Static(p) => p.hash(h),
                 other => other.hash(h),
             }
-            conditions.hash(h);
         }
     }
 }
@@ -2746,12 +2747,10 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
                 for decl in rule.declarations.as_ref() {
                     decl.hash(&mut h);
                 }
-                // DynamicSelector carries f32 media thresholds and derives no
-                // Hash — the Debug repr is the stable identity here (rare
-                // path: only @-rule-conditioned blocks have any).
-                for cond in rule.conditions.as_ref() {
-                    alloc::format!("{cond:?}").hash(&mut h);
-                }
+                // `DynamicSelector` hashes its f32 thresholds by their bits;
+                // formatting each condition as text cost an allocation per
+                // condition, per rule, per node, per pass.
+                rule.conditions.as_slice().hash(&mut h);
                 rule.priority.hash(&mut h);
             }
         }
