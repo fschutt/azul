@@ -1217,5 +1217,5 @@ mod paged_payload;
 mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;
 #[path = "a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph.rs"]
 mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
-#[path = "a_css_wide_keyword_resolves_on_every_property.rs"]
-mod a_css_wide_keyword_resolves_on_every_property;
+#[path = "a_virtual_view_follows_its_windows_mode.rs"]
+mod a_virtual_view_follows_its_windows_mode;

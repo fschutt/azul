@@ -7671,6 +7671,55 @@ mod autotest_generated {
         assert!(changes.is_empty());
     }
 
+    /// The sweep fetches for the view the render drew, in the look the render
+    /// took from the window's mode. The desktop's mode is another answer when
+    /// the app pins its own: an app pinned dark on a light desktop keeps its
+    /// dark tiles, and the sweep never queues the light ones.
+    #[test]
+    fn the_fetch_sweep_keeps_the_look_of_the_mode_the_window_shows() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        cache.fetch_callback = Some(ThreadCallback::new(noop_worker));
+        let dark = cache.layer.theme.look(MapColorScheme::Dark);
+        assert_ne!(
+            dark,
+            cache.layer.theme.look(MapColorScheme::Light),
+            "harness: the layer looks different in light and in dark"
+        );
+        // What the render recorded: the window shows dark.
+        cache.cascade_scheme = Some(MapColorScheme::Dark);
+        cache.set_active_look(dark);
+        let tile = MapTileId { z: 4, x: 3, y: 8 };
+        cache.insert_tile(tile, TileEntry::Pending);
+        let mut dataset = RefAny::new(cache);
+
+        // The app pins dark; the desktop (the system style) is light.
+        let _ = with_prepared_callback_info_at(
+            OptionLogicalPosition::None,
+            |window| {
+                window.mode = azul_core::window::OptionDarkLightMode::Some(DarkLightMode::Dark);
+            },
+            |info| {
+                let mut info = info;
+                spawn_pending_tile_fetches(&mut dataset.clone(), &mut info);
+            },
+        );
+
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        assert_eq!(
+            cache.cascade_scheme,
+            Some(MapColorScheme::Dark),
+            "the sweep took the desktop's light for the window's dark"
+        );
+        assert_eq!(cache.active_look, dark);
+        assert!(
+            matches!(
+                cache.tiles.get(&TileStyleKey { tile, look: dark }),
+                Some(TileEntry::Fetching)
+            ),
+            "the queued tile is fetched in the dark look the window shows"
+        );
+    }
+
     #[test]
     fn tile_writeback_marks_ready_on_an_empty_error_and_failed_otherwise() {
         let tile = MapTileId { z: 4, x: 1, y: 2 };
