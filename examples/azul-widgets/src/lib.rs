@@ -25,6 +25,7 @@ mod dialogs;
 mod mail;
 mod notifications;
 mod tab_looks;
+mod materials;
 mod video;
 
 #[derive(Clone)]
@@ -87,6 +88,8 @@ struct Showcase {
     blocks: blocks::BlocksDemo,
     /// The "Tab looks" section's selections (see `tab_looks.rs`).
     tab_looks: tab_looks::TabLooksDemo,
+    /// The "Materials" section's switch (see `materials.rs`).
+    materials: materials::MaterialsDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -963,6 +966,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
     let tab_looks = tab_looks::tab_looks_section(&data, &s.tab_looks, theme);
+    let materials = materials::materials_section(&data, &s.materials, theme);
     // `get_mode` DECLARES that this DOM depends on the light / dark the
     // window shows (the "System (dark)" note): a mode switch re-runs this
     // `layout()` rather than only re-styling the page.
@@ -1160,6 +1164,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(files)
                 .with_child(tabs)
                 .with_child(tab_looks)
+                .with_child(materials)
                 .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
@@ -1487,6 +1492,7 @@ pub fn start() {
         dialogs: dialogs::DialogsDemo::create(),
         blocks: blocks::BlocksDemo::create(),
         tab_looks: tab_looks::TabLooksDemo::default(),
+        materials: materials::MaterialsDemo::default(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
