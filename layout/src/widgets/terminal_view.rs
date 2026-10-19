@@ -4613,3 +4613,18 @@ mod view_tests {
         assert_eq!(s.selected_text().as_str(), "本a");
     }
 }
+
+#[cfg(test)]
+mod triple_click_tests {
+    //! A third click on the line a double-click selected a word of: the whole line.
+    use super::*;
+
+    #[test]
+    fn a_third_click_soon_after_a_double_click_on_its_line_selects_the_line() {
+        let ms = |n: u128| n * 1_000_000;
+        assert!(is_third_click(Some((3, ms(200))), 3), "soon, on the word's line");
+        assert!(!is_third_click(Some((3, ms(200))), 4), "another line: a new selection");
+        assert!(!is_third_click(Some((3, ms(TRIPLE_CLICK_MS as u128 + 1))), 3), "too late");
+        assert!(!is_third_click(None, 3), "no double-click before it");
+    }
+}
