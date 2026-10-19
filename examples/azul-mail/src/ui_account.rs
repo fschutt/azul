@@ -681,7 +681,12 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             secret_placeholder,
             ids::ACCT_SECRET,
         ))
-        .with_child(note("azmail-acct-app-password-note"));
+        // A token runs out: a grant the provider's tool gives is renewed before each sign-in.
+        .with_child(note(if f.xoauth2 {
+            "azmail-acct-oauth-grant-note"
+        } else {
+            "azmail-acct-app-password-note"
+        }));
     if !editor.drawn.note.is_empty() {
         // The provider's note in the window's language (azul-mail-core's English without it).
         let shown = match account::provider_for(&f.email) {

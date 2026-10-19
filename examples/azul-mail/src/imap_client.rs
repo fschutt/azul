@@ -121,7 +121,8 @@ impl ImapSource {
             }
             AuthMethod::Xoauth2 => client.authenticate(
                 "XOAUTH2",
-                &Sasl(auth::xoauth2_response(user, secret.expose())),
+                // A grant's access token (renewed before the sync), or a pasted token.
+                &Sasl(auth::xoauth2_response(user, &crate::oauth::access_token(secret.expose()))),
             ),
             AuthMethod::Login => client.login(user, secret.expose()),
         }

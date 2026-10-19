@@ -33,6 +33,7 @@ pub mod folders;
 pub mod mail_drive;
 pub mod message;
 pub mod mutf7;
+pub mod oauth;
 pub mod send;
 pub mod store;
 pub mod submit;

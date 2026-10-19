@@ -204,7 +204,12 @@ fn sign_in(
         AuthMethod::Login => Mechanism::Login,
         AuthMethod::Xoauth2 => Mechanism::Xoauth2,
     };
-    let credentials = Credentials::new(target.username.clone(), target.secret.expose().to_string());
+    // An OAuth account's secret is a grant: its access token signs in (renewed before the send).
+    let password = match mechanism {
+        Mechanism::Xoauth2 => crate::oauth::access_token(target.secret.expose()),
+        _ => target.secret.expose().to_string(),
+    };
+    let credentials = Credentials::new(target.username.clone(), password);
     let refusal = match connection.auth(&[mechanism], &credentials) {
         Ok(_) => return Ok(()),
         // XOAUTH2's refusal starts with an error report sent as a challenge (Google's way);

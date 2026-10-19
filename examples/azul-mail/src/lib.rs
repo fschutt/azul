@@ -66,7 +66,8 @@
 // The mail logic without azul types lives in azul-mail-core, so a headless process (the Azlin
 // Bridge) runs the same code; it keeps its module names here (`azmail::send`, `crate::folders`).
 pub use azmail_core::{
-    account, args, auth, azlin, dkim, folders, mail_drive, message, mutf7, send, store, submit,
+    account, args, auth, azlin, dkim, folders, mail_drive, message, mutf7, oauth, send, store,
+    submit,
 };
 
 pub mod azlin_sync;
@@ -1174,8 +1175,14 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
         };
         (run_azlin_sync(&job, &mut sender, &mut receiver), results)
     } else {
-        let outcome = run_sync(&job, &mut sender, &mut receiver);
-        (outcome, retry_outboxes(&job))
+        // An OAuth account's access token that runs out is renewed before the sign-in.
+        match renew_oauth(&job, &mut sender) {
+            Ok(job) => {
+                let outcome = run_sync(&job, &mut sender, &mut receiver);
+                (outcome, retry_outboxes(&job))
+            }
+            Err(why) => (Err(SyncError::Auth(why)), Vec::new()),
+        }
     };
     let outbox = outbox_counts(&results);
     post(
@@ -1184,6 +1191,42 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
         &job.account.id,
         SyncEvent::Finished(outcome, outbox),
     );
+}
+
+/// An OAuth account whose access token runs out (`oauth::Grant::needs_refresh`): a new one from
+/// its provider, renewed under the account's keyring lock (another AzMail's newer one is taken
+/// instead) and handed to the window - the keyring has it already. Every other account, and a
+/// pasted token, as it is.
+fn renew_oauth(job: &SyncInit, sender: &mut ThreadSender) -> Result<SyncInit, String> {
+    if job.account.auth != account::AuthKind::Xoauth2 {
+        return Ok(job.clone());
+    }
+    let Some(grant) = oauth::Grant::parse(job.secret.expose()) else {
+        return Ok(job.clone());
+    };
+    let now = now_unix();
+    if !grant.needs_refresh(now) {
+        return Ok(job.clone());
+    }
+    let transport = AzulTransport::new(USER_AGENT);
+    let key = account::secret_keyring_key(&job.account);
+    let (fresh, adopted) = oauth::refresh_shared(&transport, &job.keyring, &key, &grant, now)?;
+    let secret = Secret::new(fresh.to_secret());
+    post(
+        sender,
+        job.thread,
+        &job.account.id,
+        SyncEvent::Session {
+            secret: secret.clone(),
+            unsaved: None,
+        },
+    );
+    if !adopted {
+        println!("AZMAIL_OAUTH_RENEWED {}", job.account.id);
+    }
+    let mut renewed = job.clone();
+    renewed.secret = secret;
+    Ok(renewed)
 }
 
 /// An Azlin account's ban, as its token server says it now (asked with the newest drive token,

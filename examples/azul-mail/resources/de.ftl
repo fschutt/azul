@@ -288,6 +288,7 @@ azmail-acct-name-example = Beispiel: Ada Lovelace
 azmail-acct-address = E-Mail-Adresse:
 azmail-acct-address-example = Beispiel: ada@example.org
 azmail-acct-app-password-note = Gmail und iCloud brauchen ein App-Kennwort, nicht dein normales Kennwort.
+azmail-acct-oauth-grant-note = Ein Zugriffstoken läuft nach etwa einer Stunde ab. Damit AzMail es erneuert, füge stattdessen die Berechtigung ein, die das Werkzeug deines Anbieters ausgibt, als JSON mit "access_token", "refresh_token", "expires_at", "token_url" und "client_id".
 azmail-provider-gmail = Gmail braucht ein App-Kennwort, nicht dein Google-Kennwort: Schalte die Bestätigung in zwei Schritten ein und erstelle dann eines unter myaccount.google.com/apppasswords.
 azmail-provider-outlook = Outlook.com und Microsoft 365 nehmen bei den meisten Konten keine Kennwörter über IMAP mehr an: Setze das Häkchen bei „OAuth-Zugriffstoken“ und füge ein Zugriffstoken ein.
 azmail-provider-icloud = iCloud braucht ein app-spezifisches Kennwort: Erstelle eines unter account.apple.com bei „Anmeldung und Sicherheit“, „App-spezifische Passwörter“.

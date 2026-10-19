@@ -288,6 +288,7 @@ azmail-acct-name-example = Example: Ada Lovelace
 azmail-acct-address = E-mail Address:
 azmail-acct-address-example = Example: ada@example.org
 azmail-acct-app-password-note = Gmail and iCloud need an app password, not your normal password.
+azmail-acct-oauth-grant-note = An access token runs out after an hour or so. To have AzMail renew it, paste the grant your provider's tool gives instead, as JSON with "access_token", "refresh_token", "expires_at", "token_url" and "client_id".
 azmail-provider-gmail = Gmail needs an app password, not your Google password: turn on 2-Step Verification, then create one at myaccount.google.com/apppasswords.
 azmail-provider-outlook = Outlook.com and Microsoft 365 no longer accept passwords over IMAP for most accounts: tick "OAuth access token" and paste an access token.
 azmail-provider-icloud = iCloud needs an app-specific password: create one at account.apple.com under Sign-In and Security, App-Specific Passwords.
