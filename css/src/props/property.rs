@@ -111,7 +111,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 204] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 205] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -231,6 +231,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 204] = [
     (CssPropertyType::FontVariantCaps, "font-variant-caps"),
     (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
     (CssPropertyType::CounterSet, "counter-set"),
+    (CssPropertyType::Quotes, "quotes"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -567,6 +568,7 @@ pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric
 pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
 pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
 pub type CounterSetValue = CssPropertyValue<CounterSet>;
+pub type StyleQuotesValue = CssPropertyValue<StyleQuotes>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -898,6 +900,7 @@ pub enum CssProperty {
     FontVariantCaps(StyleFontVariantCapsValue),
     FontFeatureSettings(StyleFontFeatureSettingsValue),
     CounterSet(CounterSetValue),
+    Quotes(StyleQuotesValue),
 }
 
 impl_option!(
@@ -1168,6 +1171,7 @@ pub enum CssPropertyType {
     FontVariantCaps,
     FontFeatureSettings,
     CounterSet,
+    Quotes,
 }
 
 impl CssPropertyType {
@@ -1374,6 +1378,7 @@ impl CssPropertyType {
         Self::FontVariantCaps,
         Self::FontFeatureSettings,
         Self::CounterSet,
+        Self::Quotes,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1623,6 +1628,7 @@ impl CssPropertyType {
             Self::FontVariantCaps => "font-variant-caps",
             Self::FontFeatureSettings => "font-feature-settings",
             Self::CounterSet => "counter-set",
+            Self::Quotes => "quotes",
         }
     }
 
@@ -1638,7 +1644,7 @@ impl CssPropertyType {
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
-            OverflowWrap, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
+            OverflowWrap, Quotes, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
             Visibility, WhiteSpace, Widows, WordBreak, WordSpacing, WritingMode,
         };
@@ -1646,6 +1652,9 @@ impl CssPropertyType {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
             FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
+
+            // Generated content: the marks of open-quote and close-quote
+            Quotes |
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
@@ -3794,6 +3803,11 @@ pub fn parse_css_property(
                     .map_err(|()| CssParsingError::Counter)?
                     .into(),
             ),
+            CssPropertyType::Quotes => CssProperty::Quotes(
+                parse_style_quotes(value)
+                    .map_err(|()| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
                     .map_err(CssParsingError::ListStyleType)?
@@ -5136,6 +5150,7 @@ impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
 impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
 impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
 impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
+impl_from_css_prop!(StyleQuotes, CssProperty::Quotes);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5360,6 +5375,7 @@ impl CssProperty {
             Self::FontVariantCaps(v) => v.get_css_value_fmt(),
             Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
             Self::CounterSet(v) => v.get_css_value_fmt(),
+            Self::Quotes(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5918,6 +5934,7 @@ impl CssProperty {
             Self::FontVariantCaps(v) => v.css_wide_keyword(),
             Self::FontFeatureSettings(v) => v.css_wide_keyword(),
             Self::CounterSet(v) => v.css_wide_keyword(),
+            Self::Quotes(v) => v.css_wide_keyword(),
             Self::TableLayout(v) => v.css_wide_keyword(),
             Self::BorderCollapse(v) => v.css_wide_keyword(),
             Self::BorderSpacing(v) => v.css_wide_keyword(),
@@ -6127,6 +6144,7 @@ impl CssProperty {
             Self::FontVariantCaps(_) => CssPropertyType::FontVariantCaps,
             Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
             Self::CounterSet(_) => CssPropertyType::CounterSet,
+            Self::Quotes(_) => CssPropertyType::Quotes,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6615,6 +6633,10 @@ impl CssProperty {
     #[must_use]
     pub const fn counter_set(input: CounterSet) -> Self {
         Self::CounterSet(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn quotes(input: StyleQuotes) -> Self {
+        Self::Quotes(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn list_style_type(input: StyleListStyleType) -> Self {
@@ -7907,6 +7929,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_quotes(&self) -> Option<&StyleQuotesValue> {
+        match self {
+            Self::Quotes(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
@@ -8096,6 +8125,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
+            Quotes,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8287,6 +8317,7 @@ impl CssProperty {
             FontVariantCaps(c) => c.is_initial(),
             FontFeatureSettings(c) => c.is_initial(),
             CounterSet(c) => c.is_initial(),
+            Quotes(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8706,6 +8737,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_counter_set(input: CounterSet) -> Self {
         Self::CounterSet(CounterSetValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_quotes(input: StyleQuotes) -> Self {
+        Self::Quotes(StyleQuotesValue::Exact(input))
     }
     #[must_use]
     pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
@@ -9534,6 +9569,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::CounterSet(p) => format!(
             "CssProperty::CounterSet({})",
             print_css_property_value(p, tabs, "CounterSet")
+        ),
+        CssProperty::Quotes(p) => format!(
+            "CssProperty::Quotes({})",
+            print_css_property_value(p, tabs, "StyleQuotes")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

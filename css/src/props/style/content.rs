@@ -189,6 +189,48 @@ impl_counter_list!(CounterReset, LIST_ITEM_AT_ZERO);
 impl_counter_list!(CounterIncrement, LIST_ITEM_BY_ONE);
 impl_counter_list!(CounterSet, LIST_ITEM_AT_ZERO);
 
+/// CSS `quotes` (CSS Generated Content 3 s3.1): the marks `open-quote` and
+/// `close-quote` write, stored as its CSS text. `auto` (the initial value)
+/// takes the marks of the element's language, `none` writes none, and a list
+/// of strings gives one opening and closing pair per nesting level, the last
+/// pair standing for the deeper ones.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleQuotes {
+    pub inner: AzString,
+}
+
+impl StyleQuotes {
+    #[must_use]
+    pub const fn auto() -> Self {
+        Self {
+            inner: AzString::from_const_str("auto"),
+        }
+    }
+
+    #[must_use]
+    pub fn is_auto(&self) -> bool {
+        self.inner.as_str().eq_ignore_ascii_case("auto")
+    }
+
+    #[must_use]
+    pub fn is_none(&self) -> bool {
+        self.inner.as_str().eq_ignore_ascii_case("none")
+    }
+}
+
+impl Default for StyleQuotes {
+    fn default() -> Self {
+        Self::auto()
+    }
+}
+
+impl PrintAsCssValue for StyleQuotes {
+    fn print_as_css_value(&self) -> String {
+        self.inner.as_str().to_string()
+    }
+}
+
 /// CSS `string-set` property value, stored as a raw string.
 ///
 /// **Note:** Currently parsed and stored but not yet consumed by the layout engine.
@@ -273,6 +315,16 @@ impl crate::codegen::format::FormatAsRustCode for CounterSet {
         alloc::format!(
             "CounterSet {{ counters: {} }}",
             self.counters.format_as_rust_code(tabs)
+        )
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for StyleQuotes {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        alloc::format!(
+            "StyleQuotes {{ inner: AzString::from_const_str({:?}) }}",
+            self.inner.as_str()
         )
     }
 }
@@ -367,6 +419,53 @@ pub mod parser {
         parse_counter_list(input, 0).map(CounterSet::from_counters)
     }
 
+    /// How many CSS strings `input` is, `None` when anything else stands in
+    /// it or a string does not close. A backslash escapes the character
+    /// after it.
+    fn count_css_strings(input: &str) -> Option<usize> {
+        let mut chars = input.chars();
+        let mut count = 0;
+        while let Some(c) = chars.next() {
+            if c.is_whitespace() {
+                continue;
+            }
+            if c != '"' && c != '\'' {
+                return None;
+            }
+            loop {
+                match chars.next()? {
+                    '\\' => {
+                        chars.next()?;
+                    }
+                    q if q == c => break,
+                    _ => {}
+                }
+            }
+            count += 1;
+        }
+        Some(count)
+    }
+
+    /// `auto | none | [<string> <string>]+`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `quotes` value.
+    pub fn parse_style_quotes(input: &str) -> Result<StyleQuotes, ()> {
+        let trimmed = input.trim();
+        if trimmed.eq_ignore_ascii_case("auto") || trimmed.eq_ignore_ascii_case("none") {
+            return Ok(StyleQuotes {
+                inner: trimmed.to_ascii_lowercase().into(),
+            });
+        }
+        match count_css_strings(trimmed) {
+            Some(n) if n >= 2 && n % 2 == 0 => Ok(StyleQuotes {
+                inner: trimmed.into(),
+            }),
+            _ => Err(()),
+        }
+    }
+
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `string-set` value.
@@ -406,6 +505,20 @@ mod tests {
         assert_eq!(inc, CounterIncrement::new("section".into(), 1));
         let inc = parse_counter_increment("list-item 2").unwrap();
         assert_eq!(inc, CounterIncrement::new("list-item".into(), 2));
+
+        assert!(parse_style_quotes("auto").unwrap().is_auto());
+        assert!(parse_style_quotes(" NONE ").unwrap().is_none());
+        assert_eq!(
+            parse_style_quotes(r#""«" "»" '‹' '›'"#).unwrap().inner.as_str(),
+            r#""«" "»" '‹' '›'"#
+        );
+        assert_eq!(
+            parse_style_quotes(r#""\"" "\"""#).unwrap().inner.as_str(),
+            r#""\"" "\"""#
+        );
+        for bad in [r#""«""#, r#""«" "»" "‹""#, r#""«" x"#, r#""unclosed"#, "", "normal"] {
+            assert!(parse_style_quotes(bad).is_err(), "{bad:?}");
+        }
 
         let set = parse_counter_set("a 3 b").unwrap();
         assert_eq!(names_and_values(&set.counters), [("a", 3), ("b", 0)]);

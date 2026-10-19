@@ -937,7 +937,13 @@ fn generated_texts(
                     .get_content(node, &id, &states.get(i).copied().unwrap_or_default())
                     .and_then(CssPropertyValue::get_property)
                     .map_or_else(String::new, |content| {
-                        content_text(content.inner.as_str(), host, counters, &mut quote_depth)
+                        let value = content.inner.as_str();
+                        let quotes = if value.contains("quote") {
+                            quote_marks(node_data, hierarchy, cache, states, i)
+                        } else {
+                            Vec::new()
+                        };
+                        content_text(value, host, counters, &quotes, &mut quote_depth)
                     });
                 out.push((text_node.index(), text));
             }
@@ -1025,14 +1031,99 @@ impl StyledDom {
     }
 }
 
+/// The marks `open-quote` and `close-quote` write at node `i`, one pair per
+/// nesting level: the strings of its `quotes`, none for `none`, and for
+/// `auto` those of its language.
+fn quote_marks(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    cache: &CssPropertyCache,
+    states: &[StyledNodeState],
+    i: usize,
+) -> Vec<(String, String)> {
+    let state = states.get(i).copied().unwrap_or_default();
+    let quotes = cache
+        .get_quotes(&node_data[i], &NodeId::new(i), &state)
+        .and_then(CssPropertyValue::get_property)
+        .cloned()
+        .unwrap_or_default();
+    if quotes.is_none() {
+        return Vec::new();
+    }
+    if quotes.is_auto() {
+        return owned_pairs(language_quotes(&language_of(node_data, hierarchy, i)));
+    }
+    let chars: Vec<char> = quotes.inner.as_str().chars().collect();
+    let mut strings = Vec::new();
+    let mut k = 0;
+    while k < chars.len() {
+        if chars[k] == '"' || chars[k] == '\'' {
+            let (text, next) = read_string(&chars, k);
+            strings.push(text);
+            k = next;
+        } else {
+            k += 1;
+        }
+    }
+    strings
+        .chunks_exact(2)
+        .map(|pair| (pair[0].clone(), pair[1].clone()))
+        .collect()
+}
+
+fn owned_pairs(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(open, close)| ((*open).to_string(), (*close).to_string()))
+        .collect()
+}
+
+/// The primary language subtag of the nearest `lang` attribute at or above
+/// node `i`, lowercase; empty when none is set.
+fn language_of(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem], mut i: usize) -> String {
+    loop {
+        if let Some(lang) = node_data.get(i).and_then(|n| n.get_attribute("lang")) {
+            return lang
+                .as_str()
+                .split(['-', '_'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+        }
+        match hierarchy.get(i).and_then(NodeHierarchyItem::parent_id) {
+            Some(parent) => i = parent.index(),
+            None => return String::new(),
+        }
+    }
+}
+
+/// The quotation marks of a language, outer pair first (the HTML rendering
+/// section's table); English ones for a language it does not list.
+fn language_quotes(lang: &str) -> &'static [(&'static str, &'static str)] {
+    match lang {
+        "de" => &[("\u{201e}", "\u{201c}"), ("\u{201a}", "\u{2018}")],
+        "fr" => &[("\u{ab}\u{a0}", "\u{a0}\u{bb}"), ("\u{ab}\u{a0}", "\u{a0}\u{bb}")],
+        "es" | "it" | "pt" => &[("\u{ab}", "\u{bb}"), ("\u{201c}", "\u{201d}")],
+        "ru" => &[("\u{ab}", "\u{bb}"), ("\u{201e}", "\u{201c}")],
+        "pl" => &[("\u{201e}", "\u{201d}"), ("\u{ab}", "\u{bb}")],
+        "sv" | "fi" => &[("\u{201d}", "\u{201d}"), ("\u{2019}", "\u{2019}")],
+        "ja" => &[("\u{300c}", "\u{300d}"), ("\u{300e}", "\u{300f}")],
+        _ => &[("\u{201c}", "\u{201d}"), ("\u{2018}", "\u{2019}")],
+    }
+}
+
 /// The text `content` makes for a generated node: its strings, the
-/// attributes of `host`, its counters and its quotes, in order. `none` and
-/// `normal` make nothing; images (`url()`) are not text, and what follows a
-/// `/` (the alternative text, for assistive technology) is not shown.
+/// attributes of `host`, its counters and its quotes (`quotes`: one mark
+/// pair per nesting level, the last standing for deeper levels), in order.
+/// `none` and `normal` make nothing; images (`url()`) are not text, and what
+/// follows a `/` (the alternative text, for assistive technology) is not
+/// shown.
 fn content_text(
     value: &str,
     host: Option<&NodeData>,
     counters: &Counters,
+    quotes: &[(String, String)],
     quote_depth: &mut usize,
 ) -> String {
     let mut out = String::new();
@@ -1070,12 +1161,18 @@ fn content_text(
         }
         match name.as_str() {
             "open-quote" => {
-                out.push(if *quote_depth == 0 { '\u{201c}' } else { '\u{2018}' });
+                if let Some((open, _)) = quotes.get(*quote_depth).or_else(|| quotes.last()) {
+                    out.push_str(open);
+                }
                 *quote_depth += 1;
             }
-            "close-quote" => {
-                *quote_depth = quote_depth.saturating_sub(1);
-                out.push(if *quote_depth == 0 { '\u{201d}' } else { '\u{2019}' });
+            // A close-quote with no quotation open writes nothing (CSS 2.2
+            // s12.3.2).
+            "close-quote" if *quote_depth > 0 => {
+                *quote_depth -= 1;
+                if let Some((_, close)) = quotes.get(*quote_depth).or_else(|| quotes.last()) {
+                    out.push_str(close);
+                }
             }
             "no-open-quote" => *quote_depth += 1,
             "no-close-quote" => *quote_depth = quote_depth.saturating_sub(1),
@@ -1235,8 +1332,12 @@ fn read_arguments(chars: &[char], start: usize) -> (Vec<String>, usize) {
 mod tests {
     use super::*;
 
+    fn english() -> Vec<(String, String)> {
+        owned_pairs(language_quotes("en"))
+    }
+
     fn text(value: &str) -> String {
-        content_text(value, None, &Counters::default(), &mut 0)
+        content_text(value, None, &Counters::default(), &english(), &mut 0)
     }
 
     #[test]
@@ -1260,15 +1361,39 @@ mod tests {
     fn quotes_nest() {
         let mut depth = 0;
         let counters = Counters::default();
-        let open = content_text("open-quote", None, &counters, &mut depth);
-        let inner = content_text("open-quote", None, &counters, &mut depth);
-        let close_inner = content_text("close-quote", None, &counters, &mut depth);
-        let close = content_text("close-quote", None, &counters, &mut depth);
+        let open = content_text("open-quote", None, &counters, &english(), &mut depth);
+        let inner = content_text("open-quote", None, &counters, &english(), &mut depth);
+        let close_inner = content_text("close-quote", None, &counters, &english(), &mut depth);
+        let close = content_text("close-quote", None, &counters, &english(), &mut depth);
         assert_eq!(
             (open.as_str(), inner.as_str(), close_inner.as_str(), close.as_str()),
             ("\u{201c}", "\u{2018}", "\u{2019}", "\u{201d}")
         );
         assert_eq!(depth, 0);
+    }
+
+    #[test]
+    fn a_close_quote_without_an_open_one_writes_nothing() {
+        let mut depth = 0;
+        let counters = Counters::default();
+        assert_eq!(content_text("close-quote", None, &counters, &english(), &mut depth), "");
+        assert_eq!(depth, 0);
+    }
+
+    #[test]
+    fn a_level_deeper_than_the_pairs_repeats_the_last_pair() {
+        let mut depth = 0;
+        let counters = Counters::default();
+        let pairs = owned_pairs(&[("<", ">")]);
+        let marks = content_text("open-quote open-quote", None, &counters, &pairs, &mut depth);
+        assert_eq!(marks, "<<");
+        assert_eq!(depth, 2);
+    }
+
+    #[test]
+    fn a_language_without_marks_of_its_own_quotes_in_english() {
+        assert_eq!(language_quotes("de")[0], ("\u{201e}", "\u{201c}"));
+        assert_eq!(language_quotes("xx"), language_quotes("en"));
     }
 
     #[test]
@@ -1278,15 +1403,15 @@ mod tests {
         counters.reset("item", 2, 1, Some(0));
         let mut depth = 0;
         assert_eq!(
-            content_text(r#"counters(item, ".")"#, None, &counters, &mut depth),
+            content_text(r#"counters(item, ".")"#, None, &counters, &english(), &mut depth),
             "1.2"
         );
         assert_eq!(
-            content_text("counter(item, upper-roman)", None, &counters, &mut depth),
+            content_text("counter(item, upper-roman)", None, &counters, &english(), &mut depth),
             "II"
         );
         assert_eq!(
-            content_text("counter(missing)", None, &counters, &mut depth),
+            content_text("counter(missing)", None, &counters, &english(), &mut depth),
             "0",
             "a counter no element made is 0"
         );

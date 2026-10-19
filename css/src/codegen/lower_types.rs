@@ -212,6 +212,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::CounterReset(v) => prop_value(v, "CounterReset", "CounterResetValue", "CounterReset", Some("counter_reset")),
         P::CounterIncrement(v) => prop_value(v, "CounterIncrement", "CounterIncrementValue", "CounterIncrement", Some("counter_increment")),
         P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
+        P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
@@ -2932,6 +2933,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleOverflowWrapValue", "css"),
     ("StylePerspectiveOrigin", "css"),
     ("StylePerspectiveOriginValue", "css"),
+    ("StyleQuotes", "css"),
+    ("StyleQuotesValue", "css"),
     ("StyleScrollbarColor", "css"),
     ("StyleScrollbarColorParseErrorOwned", "css"),
     ("StyleScrollbarColorValue", "css"),
@@ -3857,6 +3860,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariantCaps", "StyleFontVariantCapsValue", ""),
     ("FontFeatureSettings", "StyleFontFeatureSettingsValue", ""),
     ("CounterSet", "CounterSetValue", "counter_set"),
+    ("Quotes", "StyleQuotesValue", "quotes"),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4077,6 +4081,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariantCaps",
     "FontFeatureSettings",
     "CounterSet",
+    "Quotes",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -4503,6 +4508,12 @@ impl Lower for crate::props::style::content::CounterIncrement {
 impl Lower for crate::props::style::content::CounterReset {
     fn lower(&self) -> Expr {
         Expr::strukt("CounterReset", vec![("counters", self.counters.lower())])
+    }
+}
+
+impl Lower for crate::props::style::content::StyleQuotes {
+    fn lower(&self) -> Expr {
+        Expr::strukt("StyleQuotes", vec![("inner", self.inner.lower())])
     }
 }
 
