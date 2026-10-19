@@ -5183,7 +5183,7 @@ impl Dom {
     #[inline]
     #[must_use]
     pub fn create_icon_view<S: Into<AzString>>(icon_name: S) -> Self {
-        crate::icon::icon_view(icon_name)
+        crate::icon::icon_view(icon_name, AzString::from_const_str(""))
     }
 
     /// [`Self::create_icon_view`] whose icon is styled with `css` (a
@@ -5195,8 +5195,7 @@ impl Dom {
         icon_name: S,
         css: C,
     ) -> Self {
-        let _ = css.into();
-        crate::icon::icon_view(icon_name)
+        crate::icon::icon_view(icon_name, css)
     }
 
     #[inline]

@@ -1546,6 +1546,10 @@ pub struct IconViewState {
     /// An icon spec, i.e. a comma-separated fallback chain exactly as
     /// `Dom::create_icon` takes ("system:titlebar-close,close").
     pub spec: AzString,
+    /// The icon's own style, a declaration list as `Dom::with_css` takes it
+    /// (`Dom::create_icon_view_with_css`); empty for none. It stays when the
+    /// spec is swapped.
+    pub css: AzString,
 }
 
 /// The body of [`Dom::create_icon_view`], which is where this is documented.
@@ -1553,8 +1557,11 @@ pub struct IconViewState {
 /// Not public itself: the constructor is the API, and two spellings of one
 /// thing is how they drift.
 #[must_use]
-pub(crate) fn icon_view(spec: impl Into<AzString>) -> Dom {
-    let dataset = RefAny::new(IconViewState { spec: spec.into() });
+pub(crate) fn icon_view(spec: impl Into<AzString>, css: impl Into<AzString>) -> Dom {
+    let dataset = RefAny::new(IconViewState {
+        spec: spec.into(),
+        css: css.into(),
+    });
     Dom::create_virtual_view(
         dataset.clone(),
         crate::callbacks::VirtualViewCallback::create(render_icon_view),
@@ -1584,12 +1591,16 @@ extern "C" fn render_icon_view(
 ) -> crate::callbacks::VirtualViewReturn {
     use crate::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
-    let spec = match data.downcast_ref::<IconViewState>() {
+    let (spec, css) = match data.downcast_ref::<IconViewState>() {
         // Foreign payload: render nothing rather than lie about bounds.
         None => return crate::callbacks::VirtualViewReturn::default(),
-        Some(state) => state.spec.clone(),
+        Some(state) => (state.spec.clone(), state.css.clone()),
     };
-    let dom = Dom::create_icon(spec);
+    let dom = if css.as_str().trim().is_empty() {
+        Dom::create_icon(spec)
+    } else {
+        Dom::create_icon(spec).with_css(css.as_str())
+    };
 
     // How big the icon actually is. `measure_dom` styles through the window,
     // which resolves the icon first - so this measures the ARTWORK, not the
