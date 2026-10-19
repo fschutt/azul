@@ -55,6 +55,8 @@ step azcalendar 600 python3 scripts/azcalendar_e2e.py --bin $B/AzCalendar --out 
 step azmeet_cpu 600 python3 scripts/azmeet_cpu.py --bin $B/AzMeet --seconds 15
 # RUNTIME23 6 (AzPdf resize).
 step azpdf_resize 300 python3 scripts/azpdf_resize_e2e.py --bin $B/AzPdf
+# AP-09: AF4's re-check (page 3 and a wheel turn) is in AzPdf's main E2E.
+step azpdf 400 python3 scripts/azpdf_e2e.py --bin $B/AzPdf --out $OUT/azpdf-shots
 # MEETMAPS23: a simulated drive rebuilds nothing between position updates.
 step azmaps_simulate 400 python3 scripts/azmaps_nav_e2e.py --bin $B/AzMaps --only simulate
 # CSS23 and LAYOUT23 scenarios in a real app binary: headless, then brief cpu and gpu windows
