@@ -801,14 +801,14 @@ mod autotest_generated {
         assert_eq!(s.dims.row_gap, 80);
         assert_eq!(s.dims.column_gap, 80);
 
-        // An `em` gap cannot be resolved without a font context — it must be left
-        // untouched (so the slow path can handle it), not silently encoded as 2px.
+        // An `em` gap cannot be resolved without a font context: it is marked with the
+        // sentinel so the layout asks the cascade, never encoded as 2px or as no gap.
         let mut em = Sink::new();
         em.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::em(2.0),
         })));
-        assert_eq!(em.dims.row_gap, 0);
-        assert_eq!(em.dims.column_gap, 0);
+        assert_eq!(em.dims.row_gap, I16_SENTINEL);
+        assert_eq!(em.dims.column_gap, I16_SENTINEL);
     }
 
     // -------------------------------------------------------------------------
