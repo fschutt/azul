@@ -87,8 +87,8 @@ use azul::{
     widgets::{
         AboutDialog, InfoBar, MessageBox, MessageBoxKind, Modal, ModalState, StandardDialogEvent,
         StandardDialogEventKind, TabsInTitlebar,
-        TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
-        TerminalViewEventKind,
+        TerminalCursorShape, TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView,
+        TerminalViewEvent, TerminalViewEventKind,
     },
     window::WindowEventFilter,
 };
@@ -304,6 +304,19 @@ pub struct AppState {
     pub close_confirmed: bool,
     /// The shown terminal flashes for this many more ticks (its bell rang).
     pub bell_flash: u8,
+    /// Output ticks since the last input or output in the shown tab: a blinking cursor's
+    /// phase ([`cursor_shown`]).
+    pub blink_ticks: u32,
+}
+
+/// Half a blink period of a blinking cursor, in output ticks (16 ms): about 530 ms.
+pub const BLINK_TICKS: u32 = 33;
+
+/// Whether the cursor is drawn `ticks` output ticks after the last activity: a steady one
+/// always, a blinking one (the program asked for it) shown and hidden in turns.
+#[must_use]
+pub const fn cursor_shown(blinking: bool, ticks: u32) -> bool {
+    !blinking || (ticks / BLINK_TICKS) % 2 == 0
 }
 
 /// What closing would cut off, shown as a question before it happens.
@@ -333,6 +346,7 @@ impl AppState {
             asking: None,
             close_confirmed: false,
             bell_flash: 0,
+            blink_ticks: 0,
         }
     }
 
@@ -546,6 +560,8 @@ impl AppState {
         let was_streaming = tab.session.streaming();
         tab.session.write(bytes);
         tab.view.follow();
+        // Typing shows a blinking cursor at once.
+        self.blink_ticks = 0;
         if !was_streaming && tab.session.streaming() {
             println!("AZTERM_STREAM {index}");
         }
@@ -567,6 +583,7 @@ impl AppState {
     fn touch_active(&mut self) {
         self.streak = 0;
         self.reveal_ticks = REVEAL_TICKS;
+        self.blink_ticks = 0;
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.session.signals.dirty.store(true, Ordering::Release);
             // Shown, its bell is seen.
@@ -1061,6 +1078,7 @@ extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> Termi
     };
     let alt = st.alt_sends_escape;
     st.since_render = 0;
+    let blink_ticks = st.blink_ticks;
     let Some(tab) = st.active_tab_mut() else {
         return TerminalScreen::empty();
     };
@@ -1070,6 +1088,10 @@ extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> Termi
     let term = tab.session.term.lock();
     let offset = term.grid().display_offset();
     let mut screen = vt::screen(&*term, alt);
+    // A blinking cursor in its hidden half.
+    if !cursor_shown(term.cursor_style().blinking, blink_ticks) {
+        screen.cursor.shape = TerminalCursorShape::Hidden;
+    }
     drop(term);
     tab.view.note(offset);
     screen.scroll_fraction = if offset > 0 { tab.view.fraction } else { 0.0 };
@@ -1376,12 +1398,20 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     st.report_follow(following);
     st.streak = if output { st.streak.saturating_add(1) } else { 0 };
     st.since_render = st.since_render.saturating_add(1);
-    let render = output
+    // A blinking cursor: output shows it at once, its phase changes draw the view.
+    let blinking = st
+        .tabs
+        .get(st.active)
+        .is_some_and(|tab| tab.session.term.lock().cursor_style().blinking);
+    st.blink_ticks = if output { 0 } else { st.blink_ticks.saturating_add(1) };
+    let blink_turn = blinking && st.blink_ticks > 0 && st.blink_ticks % BLINK_TICKS == 0;
+    let render = (output
         && if following {
             renders_now(st.streak)
         } else {
             renders_scrolled_up(st.since_render)
-        };
+        })
+        || blink_turn;
     if render {
         if let Some(tab) = st.tabs.get(st.active) {
             let _ = tab.session.signals.take_dirty();
