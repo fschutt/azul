@@ -4541,8 +4541,9 @@ pub fn parse_combined_css_property(
             )])
         }
         BackgroundImage => {
-            let background_content = parse_style_background_content(value)?;
-            let vec: StyleBackgroundContentVec = vec![background_content].into();
+            // One image per layer, as `background-clip` and the other
+            // per-layer lists count them.
+            let vec = parse_style_background_content_multiple(value)?;
             Ok(vec![CssProperty::BackgroundContent(
                 CssPropertyValue::Exact(vec),
             )])

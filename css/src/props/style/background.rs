@@ -2060,6 +2060,11 @@ pub mod parser {
     pub fn parse_style_background_content(
         input: &str,
     ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'_>> {
+        // `none`: a layer with no image, which paints nothing (`background:
+        // none` resets a background; it used to fail and leave it standing).
+        if input.trim().eq_ignore_ascii_case("none") {
+            return Ok(StyleBackgroundContent::Color(ColorU::TRANSPARENT));
+        }
         match parse_parentheses(
             input,
             &[
@@ -5490,6 +5495,21 @@ mod tests {
         // A size needs a position before it; one repeat per layer.
         assert!(parse_style_background_layers("url(a.png) / cover").is_err());
         assert!(parse_style_background_layers("url(a.png) no-repeat repeat").is_err());
+    }
+
+    #[test]
+    fn none_is_a_layer_that_paints_nothing() {
+        let transparent = StyleBackgroundContent::Color(ColorU::TRANSPARENT);
+        assert_eq!(parse_style_background_content(" none ").unwrap(), transparent);
+        assert_eq!(
+            parse_style_background_layers("none").unwrap().contents.as_slice(),
+            &[transparent.clone()]
+        );
+        // `background-image: none, url(a.png)`: two layers, the bottom one none.
+        let layers = parse_style_background_content_multiple("none, url(a.png)").unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(matches!(layers.as_slice()[0], StyleBackgroundContent::Image(_)));
+        assert_eq!(layers.as_slice()[1], transparent);
     }
 
     #[test]
