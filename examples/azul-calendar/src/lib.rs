@@ -43,7 +43,9 @@
 //! panes shown (`settings.rs`).
 //!
 //! Environment:
-//! - `AZCAL_DATA`: the data folder (default: `AzCalendar` in the user's data folder).
+//! - `AZCAL_DATA`: the data folder (default: `calendar` in the Azlin apps' data root,
+//!   `AZLIN_DATA`, else `Azlin` in the user's data folder; the `AzCalendar` folder of before
+//!   moves there once).
 //! - `AZMEET_WORKER`: the meeting server when none is saved, as for AzMeet (default: the shared
 //!   config's `endpoints.meet`, else AzMeet's built-in one, set at build time with
 //!   `AZMEET_DEFAULT_WORKER`).
@@ -1340,10 +1342,40 @@ pub fn start() {
             std::process::exit(2);
         }
     };
-    let data_dir = match &args.data {
+    // The calendar's folder: `--data`, else `AZCAL_DATA`, else `calendar` in the data root
+    // every Azlin app shares. The folder it kept before (beside that root) moves there once.
+    let azlin_root = azul_appkit::data::data_root(
+        None,
+        std::env::var(azul_appkit::data::DATA_VAR).ok().as_deref(),
+        user_data_dir(),
+    );
+    let setting = std::env::var(DATA_VAR).ok();
+    let mut data_dir = match &args.data {
         Some(dir) => dir.clone(),
-        None => event::data_dir(std::env::var(DATA_VAR).ok().as_deref(), user_data_dir()),
+        None => event::data_dir(setting.as_deref(), &azlin_root),
     };
+    let named = args.data.is_some() || setting.as_deref().is_some_and(|v| !v.trim().is_empty());
+    if !named {
+        if let Some(old) = event::legacy_data_dir(user_data_dir()) {
+            match event::move_legacy_data_dir(&old, &data_dir) {
+                Ok(true) => eprintln!(
+                    "[azcalendar] moved the calendar from {} to {}",
+                    old.display(),
+                    data_dir.display()
+                ),
+                Ok(false) => {}
+                // The calendar is read where it is rather than shown empty.
+                Err(e) => {
+                    eprintln!(
+                        "[azcalendar] the calendar stays in {}: it could not move to {} ({e})",
+                        old.display(),
+                        data_dir.display()
+                    );
+                    data_dir = old;
+                }
+            }
+        }
+    }
     // The tasks are the store every Azlin app shares: with the calendar's files when a data
     // folder was named, else in AzTasks' root (DEDUP_EDITORS B12).
     let named_dir = args.data.clone().or_else(|| {

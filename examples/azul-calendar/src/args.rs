@@ -121,7 +121,7 @@ OPTIONS:
     --mode <MODE>       light | dark (else the system's)
     --sample            put sample events into an empty calendar
     --date <DATE>       open on this day (YYYY-MM-DD)
-    --data <DIR>        the data folder (else AZCAL_DATA, else the user's data folder)
+    --data <DIR>        the data folder (else AZCAL_DATA, else calendar in the Azlin data root)
     --worker <URL>      the meeting server for this run (else the saved one, AZMEET_WORKER,
                         endpoints.meet of the shared Azlin config, the built-in one)
     --language <LANG>   system | en | de (else Options', else the system's)

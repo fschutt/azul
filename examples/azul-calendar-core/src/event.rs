@@ -73,7 +73,7 @@
 //! higher `version` was written by a newer AzCalendar and is left alone, never guessed at; fields
 //! this version does not know are ignored.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use azul_pim::mail_address::is_email;
 use azul_storage::Drive;
@@ -97,7 +97,8 @@ pub const PLAIN_VERSION: u64 = 2;
 pub const OLDEST_VERSION: u64 = 1;
 /// The folder, and the object-key prefix, of the event files.
 pub const EVENTS_DIR: &str = "events";
-/// The folder in the user's data folder when `AZCAL_DATA` is not set.
+/// The folder in the user's data folder AzCalendar kept its data in before it moved into the
+/// Azlin root ([`legacy_data_dir`]).
 pub const APP_DIR: &str = "AzCalendar";
 
 const DATE_FORMAT: &str = "%Y-%m-%d";
@@ -591,13 +592,42 @@ pub fn id_of_file_name(name: &str) -> Option<&str> {
     is_event_id(id).then_some(id)
 }
 
-/// The data folder: `setting` (`AZCAL_DATA`), else `AzCalendar` in the user's data folder, else
-/// `AzCalendar` in the current folder.
-pub fn data_dir(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
+/// The calendar's folder in the Azlin apps' data root.
+pub const APP_FOLDER: &str = "calendar";
+
+/// The data folder: `setting` (`AZCAL_DATA`), else [`APP_FOLDER`] in `azlin_root`, the data
+/// root every Azlin app shares (`AZLIN_DATA`, else `Azlin` in the user's data folder).
+pub fn data_dir(setting: Option<&str>, azlin_root: &Path) -> PathBuf {
     match setting.map(str::trim).filter(|s| !s.is_empty()) {
         Some(dir) => PathBuf::from(dir),
-        None => user_data.unwrap_or_default().join(APP_DIR),
+        None => azlin_root.join(APP_FOLDER),
     }
+}
+
+/// Where AzCalendar kept its data before it moved into the Azlin root: [`APP_DIR`] in the
+/// user's data folder.
+#[must_use]
+pub fn legacy_data_dir(user_data: Option<PathBuf>) -> Option<PathBuf> {
+    user_data
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map(|dir| dir.join(APP_DIR))
+}
+
+/// Moves the folder AzCalendar kept before (`old`) to its place in the Azlin root (`new`),
+/// everything in it, once: when `old` is there and `new` is not. Whether it moved.
+///
+/// # Errors
+///
+/// The move failed (`old` is then where it was).
+pub fn move_legacy_data_dir(old: &Path, new: &Path) -> std::io::Result<bool> {
+    if !old.is_dir() || new.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(old, new)?;
+    Ok(true)
 }
 
 /// A file in the events folder that is named like an event but was not read.
