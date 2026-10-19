@@ -98,7 +98,10 @@ mod ui_options;
 #[cfg(test)]
 use azmail_core::testutil;
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use account::{Account, Secret};
 use args::Screen;
@@ -196,6 +199,8 @@ pub(crate) struct MailApp {
     pub(crate) flags: LocalFlags,
     /// `entries` searched, scoped and sorted: what the list shows.
     pub(crate) view: Vec<IndexEntry>,
+    /// While the Outbox is shown: each mail's state by its path.
+    pub(crate) outbox_waiting: BTreeMap<String, send::OutboxEntry>,
     /// The list's rows (group headers and messages) over `view`.
     pub(crate) rows: Vec<ListRow>,
     /// The first row rendered (the list is virtualised).
@@ -397,6 +402,7 @@ impl MailApp {
             entries: Vec::new(),
             flags: LocalFlags::create(),
             view: Vec::new(),
+            outbox_waiting: BTreeMap::new(),
             rows: Vec::new(),
             first_row: 0,
             selection: ListSelection::create(),
@@ -493,12 +499,21 @@ impl MailApp {
         self.store()
     }
 
-    /// The current mailbox's Outbox as list entries.
-    fn outbox_list(&self) -> Vec<IndexEntry> {
-        self.current
+    /// The current mailbox's Outbox as list entries, with each mail's state by its path (what
+    /// its row says: `listing::outbox_line`).
+    fn outbox_list(&self) -> (Vec<IndexEntry>, BTreeMap<String, send::OutboxEntry>) {
+        let waiting = self
+            .current
             .and_then(|i| self.mailbox_id(i))
-            .map(|id| send::outbox_index(&send::outbox_entries(&self.root, &id)))
-            .unwrap_or_default()
+            .map(|id| send::outbox_entries(&self.root, &id))
+            .unwrap_or_default();
+        let index = send::outbox_index(&waiting);
+        let states = index
+            .iter()
+            .zip(&waiting)
+            .map(|(row, entry)| (row.path.clone(), entry.clone()))
+            .collect();
+        (index, states)
     }
 
     /// Reads every mailbox's folders and their unread counts (from the index and flag files):
@@ -549,8 +564,13 @@ impl MailApp {
     /// the list.
     pub(crate) fn reload_messages(&mut self) {
         let outbox = self.folder.as_deref() == Some(listing::OUTBOX_KEY);
+        self.outbox_waiting.clear();
         let (entries, flags) = match (self.store(), self.folder.as_ref()) {
-            (Some(_), Some(_)) if outbox => (self.outbox_list(), LocalFlags::create()),
+            (Some(_), Some(_)) if outbox => {
+                let (index, states) = self.outbox_list();
+                self.outbox_waiting = states;
+                (index, LocalFlags::create())
+            }
             (Some(store), Some(folder)) => (read_index(&store, folder), read_flags(&store, folder)),
             _ => (Vec::new(), LocalFlags::create()),
         };

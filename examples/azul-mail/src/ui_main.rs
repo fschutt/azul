@@ -1750,9 +1750,19 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
                     _ if read => "drafts",
                     _ => "mail",
                 };
+                // The Outbox says why a mail waits and when it goes, not when it was written.
+                let date = match s.outbox_waiting.get(&entry.path).filter(|_| outbox) {
+                    Some(waiting) => listing::outbox_line(
+                        waiting,
+                        chrono::Utc::now().timestamp(),
+                        today,
+                        &chrono::Local,
+                    ),
+                    None => listing::list_date(&entry.date, today, &chrono::Local),
+                };
                 Some(
                     SummaryRow::create(u64::from(*uid), who, subject)
-                        .with_date(listing::list_date(&entry.date, today, &chrono::Local))
+                        .with_date(date)
                         .with_icon(icon)
                         .with_unread(!read)
                         .with_flagged(s.flags.is_flagged(entry))

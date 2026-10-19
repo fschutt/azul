@@ -477,6 +477,15 @@ azmail-compose-attachments = { $count ->
  }
 azmail-compose-link-first = Type the link's address first.
 azmail-compose-not-an-address = { $entry } is no e-mail address.
+azmail-outbox-next-try = Next try { $when } ({ $attempts ->
+        [one] 1 try
+       *[other] { $attempts } tries
+    })
+azmail-outbox-failed = Not sent ({ $attempts ->
+        [one] 1 try
+       *[other] { $attempts } tries
+    })
+azmail-outbox-next-sync = Goes with the next Send / Receive
 azmail-compose-account-gone = The account is gone.
 azmail-compose-draft-not-saved = The draft could not be saved: { $why }
 azmail-compose-in-outbox = In the Outbox: { $subject }

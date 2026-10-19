@@ -385,6 +385,41 @@ pub fn favorites(folders: &[FolderInfo]) -> Vec<FolderNode> {
         .collect()
 }
 
+/// What the Outbox's row says of a mail in it instead of its date: why it waits and when it
+/// goes - "Next try 14:05 (2 tries)" while some recipients are pending (`now` past the next
+/// try: it goes with the next Send / Receive), "Not sent (3 tries)" once nobody got it.
+pub fn outbox_line<Tz: TimeZone>(
+    entry: &crate::send::OutboxEntry,
+    now: i64,
+    today: NaiveDate,
+    tz: &Tz,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    use azul_appkit::l10n::{t, t_args, Arg};
+    match entry.state {
+        crate::send::OutboxState::Failed => {
+            t_args("azmail-outbox-failed", &[("attempts", Arg::from(entry.attempts))])
+        }
+        crate::send::OutboxState::Queued if entry.next_attempt <= now => t("azmail-outbox-next-sync"),
+        crate::send::OutboxState::Queued => t_args(
+            "azmail-outbox-next-try",
+            &[
+                (
+                    "when",
+                    Arg::from(list_date(
+                        &crate::message::rfc3339_utc(entry.next_attempt),
+                        today,
+                        tz,
+                    )),
+                ),
+                ("attempts", Arg::from(entry.attempts)),
+            ],
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Weekday;
@@ -683,5 +718,28 @@ mod tests {
         // No synced folder can take the Outbox's key.
         assert_ne!(crate::folders::safe_segment(OUTBOX_KEY), OUTBOX_KEY);
         assert_eq!(Role::of_key(OUTBOX_KEY), Role::Other);
+    }
+
+    /// The Outbox says of each mail why it waits and when it goes, not when it was written.
+    #[test]
+    fn an_outbox_mail_says_why_it_waits_and_when_it_goes() {
+        crate::l10n::in_english();
+        let today = day(2026, 10, 19);
+        let noon = chrono::Utc.with_ymd_and_hms(2026, 10, 19, 12, 0, 0).unwrap().timestamp();
+        let mut entry: crate::send::OutboxEntry = serde_json::from_value(serde_json::json!({
+            "format": "azmail-outbox", "version": 1, "id": "a", "message_id": "m@x",
+            "from": "ada@example.org", "subject": "Hi", "created": noon - 600, "attempts": 2,
+            "last_attempt": noon - 60, "next_attempt": noon + 3600, "state": "queued",
+            "recipients": []
+        }))
+        .unwrap();
+        let line = outbox_line(&entry, noon, today, &chrono::Utc);
+        assert!(line.contains("13:00") && line.contains('2'), "{line}");
+        assert_eq!(
+            outbox_line(&entry, noon + 3600, today, &chrono::Utc),
+            azul_appkit::l10n::t("azmail-outbox-next-sync")
+        );
+        entry.state = crate::send::OutboxState::Failed;
+        assert!(outbox_line(&entry, noon, today, &chrono::Utc).contains('2'));
     }
 }
