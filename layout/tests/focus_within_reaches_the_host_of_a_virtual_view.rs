@@ -29,7 +29,7 @@ struct ViewData;
 /// The view's content: a field that can take the focus.
 extern "C" fn render_view(_: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let dom = Dom::create_div()
-        .with_class("field")
+        .with_class("field".into())
         .with_tab_index(azul_core::dom::TabIndex::Auto)
         .with_css("width: 100px; height: 20px;");
     let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
@@ -43,7 +43,7 @@ const CSS: &str = "
 
 fn page() -> StyledDom {
     let mut dom = Dom::create_body().with_child(
-        Dom::create_div().with_class("frame").with_child(
+        Dom::create_div().with_class("frame".into()).with_child(
             Dom::create_virtual_view(RefAny::new(ViewData), VirtualViewCallback::create(render_view))
                 .with_css("width: 200px; height: 40px;"),
         ),

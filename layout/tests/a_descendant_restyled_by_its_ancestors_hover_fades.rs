@@ -31,8 +31,8 @@ fn window() -> LayoutWindow {
     lw.current_window_state = ws.clone();
     let mut dom = Dom::create_body().with_child(
         Dom::create_div()
-            .with_class("btn")
-            .with_child(Dom::create_div().with_class("ink")),
+            .with_class("btn".into())
+            .with_child(Dom::create_div().with_class("ink".into())),
     );
     lw.layout_and_generate_display_list(
         StyledDom::create(&mut dom, azul_css::parser2::new_from_str(CSS).0),
