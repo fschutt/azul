@@ -1,9 +1,9 @@
-//! The keyring's headless / E2E stand-in (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): one map for
-//! the process - what a callback's request and a worker thread's blocking call both reach - or,
-//! when `AZ_KEYRING_FILE` names a file, that file (JSON: entry name to secret), read, changed and
-//! written in place under its own OS lock for every op, so the keyring outlives the run (a test
-//! that restarts an app) and the processes of one test share it. Plaintext: a test's keyring
-//! only - a headless run never touches the real one.
+//! The keyring's stand-in: in a headless / E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) one map
+//! for the process - what a callback's request and a worker thread's blocking call both reach -
+//! and, in any run where `AZ_KEYRING_FILE` names a file (a test stack's windows too), that file
+//! (JSON: entry name to secret), read, changed and written in place under its own OS lock for
+//! every op, so the keyring outlives the run (a test that restarts an app) and the processes of
+//! one test share it. Plaintext: a test's keyring only - such a run never touches the real one.
 
 use std::{
     collections::BTreeMap,

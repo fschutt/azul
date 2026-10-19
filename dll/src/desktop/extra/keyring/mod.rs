@@ -32,6 +32,10 @@
 //! REAL host secret store: both ways reach the stand-in of `memory.rs` - one
 //! map for the process, or the file `AZ_KEYRING_FILE` names (which keeps it
 //! for the next run of a test and shares it between the test's processes).
+//! A windowed run that names such a file keeps its keyring there too: an app
+//! on a test stack, in a real window, then shares no entry with the same app
+//! of the user's own (the system keyring's entries are the app's, not the
+//! stack's). The file holds the secrets in plain text: test stacks only.
 
 use std::path::PathBuf;
 
@@ -51,8 +55,8 @@ pub mod windows;
 #[cfg(test)]
 mod tests;
 
-/// The variable naming the file that keeps a headless / E2E run's keyring
-/// stand-in (ignored by every other run).
+/// The variable naming the file that keeps a run's keyring instead of the
+/// system's (a test stack's runs, windowed or headless).
 pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
 
 /// Where a run's keyring ops go.
@@ -66,19 +70,23 @@ pub(crate) enum Backend {
     File(PathBuf),
 }
 
-/// The keyring of this run: the stand-in in a headless / E2E run (the
-/// dispatcher is keyed on `target_os`, so a headless test on a dev Mac would
-/// otherwise write to the real login Keychain under "com.azul.keyring"),
-/// else the platform's.
+/// The keyring of this run ([`backend_for`] of its environment).
 fn backend_of_run() -> Backend {
     let headless = std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
         || std::env::var("AZ_E2E_TEST").is_ok();
-    if !headless {
-        return Backend::Platform;
-    }
-    match std::env::var_os(KEYRING_FILE_VAR).filter(|path| !path.is_empty()) {
+    backend_for(headless, std::env::var_os(KEYRING_FILE_VAR))
+}
+
+/// The keyring of a run: the file it names (`file`, a blank name is none),
+/// windowed or headless; else the in-memory stand-in in a `headless` / E2E
+/// run (the dispatcher is keyed on `target_os`, so a headless test on a dev
+/// Mac would otherwise write to the real login Keychain under
+/// "com.azul.keyring"); else the platform's.
+pub(crate) fn backend_for(headless: bool, file: Option<std::ffi::OsString>) -> Backend {
+    match file.filter(|path| !path.is_empty()) {
         Some(path) => Backend::File(PathBuf::from(path)),
-        None => Backend::Memory,
+        None if headless => Backend::Memory,
+        None => Backend::Platform,
     }
 }
 
