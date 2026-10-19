@@ -2800,6 +2800,20 @@ impl StyledDom {
         hover_changes: Option<HoverChange>,
         active_changes: Option<ActiveChange>,
     ) -> RestyleResult {
+        let within = focus_changes.map(|f| (f.lost_focus, f.gained_focus));
+        self.restyle_states(focus_changes, within, hover_changes, active_changes)
+    }
+
+    /// [`Self::restyle_on_state_change`] with `:focus-within` following
+    /// `within` (`(lost, gained)`), which for a focus inside a hosted
+    /// `VirtualView` is the view's host rather than a node of this DOM.
+    fn restyle_states(
+        &mut self,
+        focus_changes: Option<FocusChange>,
+        within: Option<(Option<NodeId>, Option<NodeId>)>,
+        hover_changes: Option<HoverChange>,
+        active_changes: Option<ActiveChange>,
+    ) -> RestyleResult {
         // Start with GPU-only assumption; refined below as changes are analyzed.
         let mut result = RestyleResult {
             gpu_only_changes: true,
@@ -2861,10 +2875,12 @@ impl StyledDom {
                 let changes = self.restyle_nodes_focus(&[new], true);
                 process_changes(changes);
             }
-            // `:focus-within` follows the focus up the tree: the chain the
-            // focus left drops it, the chain it entered takes it, and the
-            // ancestors both share keep it without a restyle.
-            let (dropped, taken) = self.focus_within_change(focus.lost_focus, focus.gained_focus);
+        }
+        // `:focus-within` follows the focus up the tree: the chain the focus
+        // left drops it, the chain it entered takes it, and the ancestors
+        // both share keep it without a restyle.
+        if let Some((lost, gained)) = within {
+            let (dropped, taken) = self.focus_within_change(lost, gained);
             if !dropped.is_empty() {
                 let changes = self.restyle_nodes_focus_within(&dropped, false);
                 process_changes(changes);
@@ -2924,8 +2940,7 @@ impl StyledDom {
         focus: FocusChange,
         within: (Option<NodeId>, Option<NodeId>),
     ) -> RestyleResult {
-        let _ = within;
-        self.restyle_on_state_change(Some(focus), None, None)
+        self.restyle_states(Some(focus), Some(within), None, None)
     }
 
     /// Overrides CSS properties for a single node from user code (typically a

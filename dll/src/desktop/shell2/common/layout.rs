@@ -1947,6 +1947,16 @@ fn apply_runtime_states_before_layout(
                 // ancestors too; raise it along the chain again.
                 styled_dom.raise_focus_within(node_id);
             }
+        } else if let Some(anchor) = layout_window
+            .focus_change_per_dom(None, Some(*focused_node))
+            .get(&dom_id)
+            .and_then(|change| change.gained_within)
+        {
+            // The focus is inside a `VirtualView`'s content: the rebuilt page
+            // holds it within the view's host and every node above it.
+            if anchor.index() < styled_dom.node_data.len() {
+                styled_dom.raise_focus_within(anchor);
+            }
         }
     }
 

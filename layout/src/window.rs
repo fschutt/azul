@@ -6816,7 +6816,10 @@ impl LayoutWindow {
 
     /// A focus move from `old` to `new`, DOM by DOM: node indices mean
     /// something only inside their own DOM, so each DOM the move touches is
-    /// restyled with its own nodes.
+    /// restyled with its own nodes. A focus inside a `VirtualView`'s content
+    /// is a focus within the view's host too, and within the host of the
+    /// view around that, up to the window's root: `:focus-within` follows
+    /// the host in every DOM above the focused one.
     #[must_use]
     pub fn focus_change_per_dom(
         &self,
@@ -6825,16 +6828,46 @@ impl LayoutWindow {
     ) -> BTreeMap<DomId, DomFocusChange> {
         let mut per_dom: BTreeMap<DomId, DomFocusChange> = BTreeMap::new();
         if let Some((dom, node)) = old.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
-            let entry = per_dom.entry(dom).or_default();
-            entry.lost = Some(node);
-            entry.lost_within = Some(node);
+            per_dom.entry(dom).or_default().lost = Some(node);
+            for (dom, anchor) in self.focus_within_anchors(dom, node) {
+                per_dom.entry(dom).or_default().lost_within = Some(anchor);
+            }
         }
         if let Some((dom, node)) = new.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
-            let entry = per_dom.entry(dom).or_default();
-            entry.gained = Some(node);
-            entry.gained_within = Some(node);
+            per_dom.entry(dom).or_default().gained = Some(node);
+            for (dom, anchor) in self.focus_within_anchors(dom, node) {
+                per_dom.entry(dom).or_default().gained_within = Some(anchor);
+            }
         }
+        // A DOM where `:focus-within` stays on the same node and `:focus`
+        // does not move has nothing to restyle.
+        per_dom.retain(|_, c| {
+            c.lost.is_some() || c.gained.is_some() || c.lost_within != c.gained_within
+        });
         per_dom
+    }
+
+    /// The node `:focus-within` starts from in each DOM, for a focus on
+    /// `node` of `dom`: `node` itself, then the host of every `VirtualView`
+    /// around it, in the DOM that hosts it.
+    fn focus_within_anchors(&self, dom: DomId, node: NodeId) -> Vec<(DomId, NodeId)> {
+        let mut anchors = vec![(dom, node)];
+        let mut current = dom;
+        // Views nest a few levels at most; the bound keeps a corrupt map
+        // (a view hosting its own host) from looping.
+        while anchors.len() < 64 {
+            let Some((host_dom, host_node)) =
+                self.virtual_view_manager.host_of_nested_dom(current)
+            else {
+                break;
+            };
+            if host_dom == current {
+                break;
+            }
+            anchors.push((host_dom, host_node));
+            current = host_dom;
+        }
+        anchors
     }
 
     /// The light / dark this window shows when its own mode is `window`

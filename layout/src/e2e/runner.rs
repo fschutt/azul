@@ -4488,12 +4488,12 @@ fn apply_seat_focus_restyle(
             .iter()
             .all(|s| *s == 0)
     });
-    let per_dom = focus_change_per_dom(old_focus, new_focus);
+    let per_dom = layout_window.focus_change_per_dom(old_focus, new_focus);
     if per_dom.is_empty() {
         return ProcessEventResult::DoNothing;
     }
     let mut result = ProcessEventResult::DoNothing;
-    for (dom_id, (lost, gained)) in per_dom {
+    for (dom_id, crate::window::DomFocusChange { lost, gained, .. }) in per_dom {
         let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
             result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             continue;
@@ -4519,23 +4519,6 @@ fn apply_seat_focus_restyle(
     result
 }
 
-/// A focus change split by DOM, the port of the dll's `focus_change_per_dom`:
-/// node indices mean something only inside their own DOM, so each DOM the
-/// change touches is restyled with its own `(lost, gained)` pair.
-fn focus_change_per_dom(
-    old_focus: Option<DomNodeId>,
-    new_focus: Option<DomNodeId>,
-) -> BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> {
-    let mut per_dom: BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> = BTreeMap::new();
-    if let Some((dom, node)) = old_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
-        per_dom.entry(dom).or_default().0 = Some(node);
-    }
-    if let Some((dom, node)) = new_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
-        per_dom.entry(dom).or_default().1 = Some(node);
-    }
-    per_dom
-}
-
 /// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
 /// `:focus` / `:focus-within` state change to the styled DOM and classify how
 /// much work the resulting property deltas need.
@@ -4548,8 +4531,8 @@ fn apply_focus_restyle(
     new_focus: Option<DomNodeId>,
 ) -> ProcessEventResult {
     let mut result = ProcessEventResult::DoNothing;
-    for (dom_id, (lost, gained)) in focus_change_per_dom(old_focus, new_focus) {
-        result = result.max(apply_focus_restyle_in_dom(layout_window, dom_id, lost, gained));
+    for (dom_id, change) in layout_window.focus_change_per_dom(old_focus, new_focus) {
+        result = result.max(apply_focus_restyle_in_dom(layout_window, dom_id, change));
     }
     result
 }
@@ -4558,10 +4541,11 @@ fn apply_focus_restyle(
 fn apply_focus_restyle_in_dom(
     layout_window: &mut LayoutWindow,
     dom_id: DomId,
-    old_focus: Option<NodeId>,
-    new_focus: Option<NodeId>,
+    change: crate::window::DomFocusChange,
 ) -> ProcessEventResult {
     use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
+
+    let (old_focus, new_focus) = (change.lost, change.gained);
 
     // The states before the flip: a declared `animation` fades from them.
     let before = layout_window.node_states(dom_id, old_focus.into_iter().chain(new_focus));
@@ -4571,13 +4555,12 @@ fn apply_focus_restyle_in_dom(
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
 
-    let mut restyle_result = layout_result.styled_dom.restyle_on_state_change(
-        Some(FocusChange {
+    let mut restyle_result = layout_result.styled_dom.restyle_on_focus_change(
+        FocusChange {
             lost_focus: old_focus,
             gained_focus: new_focus,
-        }),
-        None, // hover
-        None, // active
+        },
+        (change.lost_within, change.gained_within),
     );
     if let (Some(gained), true) = (new_focus, visible) {
         restyle_result.merge(
