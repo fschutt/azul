@@ -960,6 +960,15 @@ fn format_style_background_size(c: &StyleBackgroundSize) -> String {
             format_pixel_value(&size.width),
             format_pixel_value(&size.height)
         ),
+        StyleBackgroundSize::Auto => String::from("StyleBackgroundSize::Auto"),
+        StyleBackgroundSize::AutoHeight(width) => format!(
+            "StyleBackgroundSize::AutoHeight({})",
+            format_pixel_value(width)
+        ),
+        StyleBackgroundSize::AutoWidth(height) => format!(
+            "StyleBackgroundSize::AutoWidth({})",
+            format_pixel_value(height)
+        ),
     }
 }
 

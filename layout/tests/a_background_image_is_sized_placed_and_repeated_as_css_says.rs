@@ -250,3 +250,43 @@ fn the_cpu_draws_a_placed_image_where_the_display_list_puts_it() {
     assert_eq!(px(5, 5), [255, 255, 255], "left of it, the page");
     assert_eq!(px(55, 35), [255, 255, 255], "below it, the page");
 }
+
+/// One `background-size` value is the width; the height is `auto` and keeps
+/// the image's proportions (CSS Backgrounds 3 s3.9, as Chrome draws it).
+#[test]
+fn one_size_value_is_the_width_and_the_height_keeps_the_images_proportions() {
+    let (_, dl) = laid_out(
+        "width: 100px; height: 100px; background: url(wide); background-size: 50%; \
+         background-repeat: no-repeat;",
+    );
+    let found = images(&dl);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        close(found[0], (0.0, 0.0, 50.0, 25.0)),
+        "half the box wide, the 2:1 image's height from that: {found:?}"
+    );
+}
+
+/// `auto` on one axis follows the other through the image's proportions;
+/// `auto` alone is the image's own size.
+#[test]
+fn an_auto_size_follows_the_image_from_the_other_axis() {
+    let (_, dl) = laid_out(
+        "width: 100px; height: 100px; background: url(wide); background-size: auto 40px; \
+         background-repeat: no-repeat;",
+    );
+    let found = images(&dl);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        close(found[0], (0.0, 0.0, 80.0, 40.0)),
+        "40px tall, twice as wide: {found:?}"
+    );
+    let (_, dl) = laid_out(
+        "width: 100px; height: 100px; background: url(wide); background-size: auto; \
+         background-repeat: no-repeat;",
+    );
+    let found = images(&dl);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(close(found[0], (0.0, 0.0, 20.0, 10.0)), "its own size: {found:?}");
+}
+

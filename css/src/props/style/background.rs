@@ -1324,15 +1324,26 @@ impl PrintAsCssValue for BackgroundPositionVertical {
 #[allow(variant_size_differences)]
 // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
 // disparity accepted
-/// The `background-size` property: `contain`, `cover`, or an exact size.
+/// The `background-size` property: `contain`, `cover`, a width and a height,
+/// or `auto` on one axis or both - where `auto` follows the image's own
+/// proportions from the other axis, or is its own size (CSS Backgrounds 3
+/// s3.9).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum StyleBackgroundSize {
     ExactSize(PixelValueSize),
-    #[default]
     Contain,
     Cover,
+    /// `auto` (`auto auto`), the initial value: the image's own size, the
+    /// positioning area's for an image without one (a gradient).
+    #[default]
+    Auto,
+    /// `<width>` or `<width> auto`: the height follows the image's
+    /// proportions (the area's height for an image without them).
+    AutoHeight(PixelValue),
+    /// `auto <height>`: the width follows the image's proportions.
+    AutoWidth(PixelValue),
 }
 
 impl_option!(
@@ -1373,9 +1384,13 @@ impl_vec_hash!(StyleBackgroundSize, StyleBackgroundSizeVec);
 
 impl StyleBackgroundSize {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        if let Self::ExactSize(size) = self {
-            size.width.scale_for_dpi(scale_factor);
-            size.height.scale_for_dpi(scale_factor);
+        match self {
+            Self::ExactSize(size) => {
+                size.width.scale_for_dpi(scale_factor);
+                size.height.scale_for_dpi(scale_factor);
+            }
+            Self::AutoHeight(v) | Self::AutoWidth(v) => v.scale_for_dpi(scale_factor),
+            Self::Contain | Self::Cover | Self::Auto => {}
         }
     }
 }
@@ -1392,6 +1407,9 @@ impl PrintAsCssValue for StyleBackgroundSize {
                     size.height.print_as_css_value()
                 )
             }
+            Self::Auto => "auto".to_string(),
+            Self::AutoHeight(width) => format!("{} auto", width.print_as_css_value()),
+            Self::AutoWidth(height) => format!("auto {}", height.print_as_css_value()),
         }
     }
 }
@@ -4037,27 +4055,19 @@ pub mod parser {
                 parse_style_background_size("cover").unwrap(),
                 StyleBackgroundSize::Cover
             );
-            // A single value applies to both axes.
+            // A single value is the width; the height is `auto` (CSS
+            // Backgrounds 3 s3.9), as Chrome reads it.
             assert_eq!(
                 parse_style_background_size("50%").unwrap(),
-                StyleBackgroundSize::ExactSize(PixelValueSize {
-                    width: PixelValue::percent(50.0),
-                    height: PixelValue::percent(50.0),
-                })
+                StyleBackgroundSize::AutoHeight(PixelValue::percent(50.0))
             );
         }
 
         #[test]
-        fn autotest_background_size_silently_ignores_extra_components() {
-            // BUG-ish, pinned: unlike background-position (TooManyComponents), a third
-            // component is dropped on the floor instead of being rejected.
-            assert_eq!(
-                parse_style_background_size("10px 20px 30px").unwrap(),
-                StyleBackgroundSize::ExactSize(PixelValueSize {
-                    width: PixelValue::px(10.0),
-                    height: PixelValue::px(20.0),
-                })
-            );
+        fn autotest_background_size_rejects_a_third_component() {
+            // `<bg-size>` is one or two values: a third makes the declaration
+            // invalid, and the browser drops it.
+            assert!(parse_style_background_size("10px 20px 30px").is_err());
         }
 
         #[test]
@@ -4065,19 +4075,13 @@ pub mod parser {
             // Bare numbers parse as px, so "NaN" is accepted and flushed to 0px.
             assert_eq!(
                 parse_style_background_size("NaN").unwrap(),
-                StyleBackgroundSize::ExactSize(PixelValueSize {
-                    width: PixelValue::px(0.0),
-                    height: PixelValue::px(0.0),
-                })
+                StyleBackgroundSize::AutoHeight(PixelValue::px(0.0))
             );
             assert_eq!(
                 parse_style_background_size("inf").unwrap(),
-                StyleBackgroundSize::ExactSize(PixelValueSize {
-                    width: PixelValue::px(f32::INFINITY),
-                    height: PixelValue::px(f32::INFINITY),
-                })
+                StyleBackgroundSize::AutoHeight(PixelValue::px(f32::INFINITY))
             );
-            for input in ["0", "-0", "1e40px", "-1e40px", "1e-45px"] {
+            for input in ["0 0", "-0 -0", "1e40px 1e40px", "-1e40px -1e40px", "1e-45px 1e-45px"] {
                 let StyleBackgroundSize::ExactSize(s) = parse_style_background_size(input).unwrap()
                 else {
                     panic!("expected an exact size for {input:?}");
@@ -4106,7 +4110,10 @@ pub mod parser {
             assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Cover);
             assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Contain);
 
-            assert!(parse_style_background_size_multiple("cover, auto").is_err());
+            assert_eq!(
+                parse_style_background_size_multiple("cover, auto").unwrap().as_slice(),
+                [StyleBackgroundSize::Auto, StyleBackgroundSize::Cover]
+            );
             assert!(parse_style_background_size_multiple("   ").is_err());
 
             let many = "cover,".repeat(2_000) + "contain";
@@ -5217,10 +5224,7 @@ mod tests {
         );
         assert_eq!(
             parse_style_background_size("50%").unwrap(),
-            StyleBackgroundSize::ExactSize(PixelValueSize {
-                width: PixelValue::percent(50.0),
-                height: PixelValue::percent(50.0)
-            })
+            StyleBackgroundSize::AutoHeight(PixelValue::percent(50.0))
         );
         assert_eq!(
             parse_style_background_size("100px 20em").unwrap(),
@@ -5229,7 +5233,22 @@ mod tests {
                 height: PixelValue::em(20.0)
             })
         );
-        assert!(parse_style_background_size("auto").is_err());
+        assert_eq!(
+            parse_style_background_size("auto").unwrap(),
+            StyleBackgroundSize::Auto
+        );
+        assert_eq!(
+            parse_style_background_size("auto auto").unwrap(),
+            StyleBackgroundSize::Auto
+        );
+        assert_eq!(
+            parse_style_background_size("20px auto").unwrap(),
+            StyleBackgroundSize::AutoHeight(PixelValue::px(20.0))
+        );
+        assert_eq!(
+            parse_style_background_size("auto 40%").unwrap(),
+            StyleBackgroundSize::AutoWidth(PixelValue::percent(40.0))
+        );
     }
 
     #[test]
