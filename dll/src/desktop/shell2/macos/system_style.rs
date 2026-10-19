@@ -992,3 +992,19 @@ fn rediscovered_style_for(theme: azul_core::window::DarkLightMode, known_languag
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }
+
+#[cfg(test)]
+mod semantic_colour_tests {
+    /// AppKit's semantic reds, oranges and greens are the desktop's error,
+    /// caution and success colours (`system:danger`, `system:warning`,
+    /// `system:success`), in the current appearance; the style took none of
+    /// them, so the keywords answered azul's neutral defaults on a Mac.
+    #[test]
+    fn the_mac_names_its_danger_warning_and_success_colours() {
+        let style = super::discover(&[]);
+        assert!(style.colors.danger.is_some(), "systemRedColor");
+        assert!(style.colors.warning.is_some(), "systemOrangeColor");
+        assert!(style.colors.success.is_some(), "systemGreenColor");
+    }
+}
+
