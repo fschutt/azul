@@ -89,6 +89,13 @@ names! {
     READER = "reader";
     /// The full text's button over an article.
     FULL_TEXT = "full-text";
+    /// The podcast episode bar over the reading pane and its parts.
+    EPISODE_BAR = "episode-bar";
+    EPISODE_TOGGLE = "episode-toggle";
+    EPISODE_STOP = "episode-stop";
+    EPISODE_SEEK = "episode-seek";
+    EPISODE_ELAPSED = "episode-elapsed";
+    EPISODE_TOTAL = "episode-total";
     // ---- add a feed ----
     ADD_FEED = "add-feed";
     ADD_URL = "add-url";

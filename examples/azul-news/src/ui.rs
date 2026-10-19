@@ -48,8 +48,10 @@ use crate::{
     reader, sample, store,
 };
 use azul::{
+    audio::{AudioPlayer, AudioPlayerState},
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ReadingPaneOnEventCallbackType,
+        SeekBarOnSeekCallbackType,
         SegmentedOnChangeCallbackType, ShellOnPaneResizeCallbackType,
         SplitPaneOnResizeCallbackType, SwitchOnToggleCallbackType,
         TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
@@ -68,7 +70,8 @@ use azul::{
     vec::{StringVec, StyledTextRunVec},
     widgets::{
         ButtonType, CheckBox, CheckBoxState, InfoBar, OnTextInputReturn, ReadingPane,
-        ReadingPaneEvent, ReadingPaneEventKind, Segmented, SegmentedState, SplitDirection,
+        ReadingPaneEvent, ReadingPaneEventKind, SeekBar, SeekBarState, Segmented,
+        SegmentedState, SplitDirection,
         SplitPane, SplitPaneState, Switch, SwitchState, TextInputState, TextInputValid,
     },
 };
@@ -454,6 +457,20 @@ pub enum FullText {
     Failed(String),
 }
 
+/// The podcast episode playing (or paused): what the bar over the reading pane shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Episode {
+    /// The sound file's address (the key of its remembered position).
+    pub url: String,
+    pub title: String,
+    pub feed: String,
+    /// The player's id of it (`AudioPlayerState::track`).
+    pub track: u64,
+}
+
+/// How often the episode bar follows the player (ms).
+const EPISODE_TICK_MS: u64 = 250;
+
 /// An article shorter than this (words) offers its full text: the feed carries a summary.
 pub const SUMMARY_WORDS: usize = 150;
 
@@ -523,6 +540,16 @@ pub struct NewsApp {
     /// The full texts asked for, and the articles that show theirs (by article id).
     pub full_text: BTreeMap<String, FullText>,
     pub full_shown: BTreeSet<String>,
+    /// The podcast player (made with the first episode), what it plays, what it last said, the
+    /// timer that follows it, and where each episode was left (by its address).
+    pub player: Option<AudioPlayer>,
+    pub episode: Option<Episode>,
+    pub episode_state: AudioPlayerState,
+    pub episode_timer: Option<TimerId>,
+    pub positions: BTreeMap<String, f64>,
+    /// The episode bar's times as last shown (moved in place only when they change).
+    pub episode_elapsed: String,
+    pub episode_total: String,
 }
 
 impl NewsApp {
@@ -570,6 +597,13 @@ impl NewsApp {
             split_ratio: 0.38,
             full_text: BTreeMap::new(),
             full_shown: BTreeSet::new(),
+            player: None,
+            episode: None,
+            episode_state: AudioPlayerState::default(),
+            episode_timer: None,
+            positions: BTreeMap::new(),
+            episode_elapsed: String::new(),
+            episode_total: String::new(),
         }
     }
 
@@ -804,6 +838,22 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
     if !item.link.is_empty() {
         pane = pane.with_field(t("aznews-link"), item.link.as_str());
     }
+    // A podcast's episode and the other files the item carries: chips; a sound file plays in
+    // the episode bar, another file opens where the system opens it.
+    if !item.enclosures.is_empty() {
+        let names: Vec<AzString> = item
+            .enclosures
+            .iter()
+            .map(|e| {
+                if e.is_sound() {
+                    AzString::from(t_args("aznews-play-episode", &[("name", Arg::from(e.name()))]))
+                } else {
+                    AzString::from(e.name())
+                }
+            })
+            .collect();
+        pane = pane.with_attachments(StringVec::from_vec(names));
+    }
     if article.blocked > 0 {
         let blocked = [("count", Arg::from(article.blocked))];
         let notice = match s.settings.pictures {
@@ -830,6 +880,10 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
             on_reading_event as ReadingPaneOnEventCallbackType,
         )
         .with_on_link(
+            app.clone(),
+            on_reading_event as ReadingPaneOnEventCallbackType,
+        )
+        .with_on_attachment(
             app.clone(),
             on_reading_event as ReadingPaneOnEventCallbackType,
         )
@@ -874,7 +928,80 @@ fn reading_view(s: &NewsApp, app: &RefAny) -> Dom {
         Some(r) => article_view(s, app, r),
         None => empty_reading(app),
     };
-    column(FILL, vec![content])
+    let mut children = Vec::new();
+    if let Some(bar) = episode_bar(s, app) {
+        children.push(bar);
+    }
+    children.push(content);
+    column(FILL, children)
+}
+
+/// A text the episode bar moves in place (`marker` finds its text node).
+fn live_text(content: &str, marker: AzString, css: &str) -> Dom {
+    Dom::create_div().with_css(css).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper(content)
+            .with_marker(OptionString::Some(marker)),
+    )
+}
+
+/// The podcast episode playing or paused, over the reading pane (it stays while other
+/// articles are read): play / pause, the title and the show, the time heard, the seek bar,
+/// the length, and stop.
+fn episode_bar(s: &NewsApp, app: &RefAny) -> Option<Dom> {
+    let episode = s.episode.as_ref()?;
+    let state = &s.episode_state;
+    let toggle = if state.playing {
+        "aznews-pause"
+    } else {
+        "aznews-play"
+    };
+    let time_css = "font-size: 12px; color: system:secondary-text; white-space: nowrap; \
+                    font-variant-numeric: tabular-nums;";
+    let heading = column(
+        "min-width: 0px; max-width: 40%; flex-shrink: 1;",
+        vec![
+            block(
+                "font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; \
+                 text-overflow: ellipsis;",
+                text(episode.title.as_str()),
+            ),
+            block(
+                "font-size: 12px; color: system:secondary-text; white-space: nowrap; \
+                 overflow: hidden; text-overflow: ellipsis;",
+                text(episode.feed.as_str()),
+            ),
+        ],
+    );
+    let seek = SeekBar::create(state.position_s, state.duration_s)
+        .with_show_times(false)
+        .with_accessibility_name(t("aznews-episode-position"))
+        .with_on_seek(app.clone(), on_episode_seek as SeekBarOnSeekCallbackType)
+        .dom()
+        .with_marker(OptionString::Some(ids::EPISODE_SEEK))
+        .with_css("flex-grow: 1; min-width: 80px;");
+    Some(
+        flex_row(
+            "align-items: center; gap: 8px; padding: 6px 10px; \
+             border-bottom: 1px solid system:separator;",
+            vec![
+                button(toggle, ids::EPISODE_TOGGLE, app, on_episode_toggle),
+                heading,
+                live_text(
+                    SeekBar::media_time(state.position_s).as_str(),
+                    ids::EPISODE_ELAPSED,
+                    time_css,
+                ),
+                seek,
+                live_text(
+                    SeekBar::media_time(state.duration_s).as_str(),
+                    ids::EPISODE_TOTAL,
+                    time_css,
+                ),
+                button("aznews-stop-episode", ids::EPISODE_STOP, app, on_episode_stop),
+            ],
+        )
+        .with_id(ids::EPISODE_BAR),
+    )
 }
 
 /// A form's section title.
@@ -2050,6 +2177,167 @@ extern "C" fn on_page_event(mut app: RefAny, mut msg: RefAny, mut info: Callback
     })
 }
 
+// ==== Podcasts ====
+
+/// Plays the episode at `url` (from where it was left), in the bar over the reading pane.
+fn play_episode(
+    s: &mut NewsApp,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    url: String,
+    title: String,
+    feed: String,
+) {
+    if s.episode.as_ref().is_some_and(|e| e.url == url) {
+        // The episode playing: its chip plays it on (after a pause).
+        if let Some(p) = s.player.as_ref() {
+            p.play();
+        }
+        return;
+    }
+    remember_position(s);
+    let from = s.positions.get(&url).copied().unwrap_or(0.0);
+    let player = s.player.get_or_insert_with(AudioPlayer::create);
+    let track = player.preload_url(AzString::from(url.as_str()), from);
+    player.play();
+    println!("AZNEWS_EPISODE {url} {from:.1}");
+    s.episode_state = AudioPlayerState::default();
+    s.episode_state.position_s = from;
+    s.episode = Some(Episode {
+        url,
+        title,
+        feed,
+        track,
+    });
+    if s.episode_timer.is_none() {
+        let timer = Timer::create(app.clone(), on_episode_tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(EPISODE_TICK_MS)));
+        let id = TimerId::unique();
+        info.add_timer(id, timer);
+        s.episode_timer = Some(id);
+    }
+}
+
+/// Where the episode playing was left, kept for its next play (a finished one starts over).
+fn remember_position(s: &mut NewsApp) {
+    let Some(episode) = s.episode.as_ref() else {
+        return;
+    };
+    let state = &s.episode_state;
+    if state.finished {
+        s.positions.remove(&episode.url);
+    } else if state.track == episode.track && state.position_s > 0.0 {
+        s.positions.insert(episode.url.clone(), state.position_s);
+    }
+}
+
+extern "C" fn on_episode_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(p) = s.player.as_ref() {
+            if s.episode_state.finished {
+                p.seek(0.0);
+                p.play();
+            } else {
+                p.toggle();
+            }
+        }
+    })
+}
+
+extern "C" fn on_episode_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        remember_position(s);
+        if let Some(p) = s.player.as_ref() {
+            p.stop();
+        }
+        s.episode = None;
+        // The timer sees no episode at its next tick and ends.
+    })
+}
+
+extern "C" fn on_episode_seek(mut data: RefAny, _info: CallbackInfo, state: SeekBarState) -> Update {
+    let Some(s) = data.downcast_mut::<NewsApp>() else {
+        return Update::DoNothing;
+    };
+    if !state.dragging {
+        if let Some(p) = s.player.as_ref() {
+            p.seek(state.position_s);
+        }
+    }
+    Update::DoNothing
+}
+
+/// Every [`EPISODE_TICK_MS`]: the bar follows the player in place (the seek bar, the times);
+/// the window is rebuilt when it starts, pauses, ends or fails.
+extern "C" fn on_episode_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(mut guard) = data.downcast_mut::<NewsApp>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let s = &mut *guard;
+    let (Some(episode), Some(player)) = (s.episode.clone(), s.player.as_ref()) else {
+        s.episode_timer = None;
+        return TimerCallbackReturn::terminate_and_refresh_dom();
+    };
+    let state = player.get_state();
+    if state.failed_track != 0 && state.failed_track == episode.track {
+        let why = player
+            .error_message()
+            .into_option()
+            .map_or_else(String::new, |w| w.as_str().to_string());
+        eprintln!("[aznews] the episode {} does not play: {why}", episode.url);
+        s.notice = t_args("aznews-episode-failed", &[("why", Arg::from(why))]);
+        s.episode = None;
+        s.episode_timer = None;
+        return TimerCallbackReturn::terminate_and_refresh_dom();
+    }
+    if state.track != episode.track {
+        // The player has not taken the episode yet.
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    let before = s.episode_state;
+    s.episode_state = state;
+    let changed = state.playing != before.playing
+        || state.finished != before.finished
+        || state.track != before.track
+        || (state.duration_s > 0.0) != (before.duration_s > 0.0);
+    if changed {
+        let word = if state.finished {
+            "finished"
+        } else if state.playing {
+            "playing"
+        } else {
+            "paused"
+        };
+        println!("AZNEWS_EPISODE_STATE {word} {:.1}", state.position_s);
+    }
+    if state.playing || state.finished {
+        remember_position(s);
+    }
+    let cb = &mut info.callback_info;
+    if let Some(seek) = cb.get_node_id_by_marker(ids::EPISODE_SEEK).into_option() {
+        SeekBar::update_position(*cb, seek, state.position_s);
+    }
+    let elapsed = SeekBar::media_time(state.position_s).as_str().to_string();
+    if elapsed != s.episode_elapsed {
+        if let Some(node) = cb.get_node_id_by_marker(ids::EPISODE_ELAPSED).into_option() {
+            cb.change_node_text(node, AzString::from(elapsed.as_str()));
+        }
+        s.episode_elapsed = elapsed;
+    }
+    let total = SeekBar::media_time(state.duration_s).as_str().to_string();
+    if total != s.episode_total {
+        if let Some(node) = cb.get_node_id_by_marker(ids::EPISODE_TOTAL).into_option() {
+            cb.change_node_text(node, AzString::from(total.as_str()));
+        }
+        s.episode_total = total;
+    }
+    if changed {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
+}
+
 extern "C" fn on_find_event(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(event) = jobs::take::<FindEvent>(&mut msg) else {
         return Update::DoNothing;
@@ -2242,7 +2530,24 @@ extern "C" fn on_reading_event(
                 s.reading = Reading::Feed(feed);
             }
         }
-        ReadingPaneEventKind::People | ReadingPaneEventKind::Attachment => {}
+        ReadingPaneEventKind::Attachment => {
+            let Some(r) = s.selected_ref() else {
+                return;
+            };
+            let feed = &s.library.feeds[r.feed];
+            let item = &feed.items[r.item];
+            let Some(file) = item.enclosures.get(event.index).cloned() else {
+                return;
+            };
+            if file.is_sound() {
+                let title = title_of(item);
+                let feed_name = feed.name().to_string();
+                play_episode(s, info, handle, file.url, title, feed_name);
+            } else if let Err(e) = azul_appkit::files::open_external(&file.url) {
+                s.notice = e;
+            }
+        }
+        ReadingPaneEventKind::People => {}
     })
 }
 

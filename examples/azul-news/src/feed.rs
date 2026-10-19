@@ -68,6 +68,54 @@ pub struct Enclosure {
     pub length: u64,
 }
 
+/// The endings of sound files, for an enclosure whose feed names no type.
+const SOUND_ENDINGS: &[&str] = &["mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac"];
+
+impl Enclosure {
+    /// Whether it is a sound file (a podcast's episode): the type the feed gives, else the
+    /// file's ending.
+    #[must_use]
+    pub fn is_sound(&self) -> bool {
+        let mime = self.mime.trim().to_ascii_lowercase();
+        if !mime.is_empty() {
+            return mime.starts_with("audio/");
+        }
+        let path = self.url.split(['?', '#']).next().unwrap_or("");
+        path.rsplit_once('.').is_some_and(|(_, ext)| {
+            !ext.contains('/') && SOUND_ENDINGS.contains(&ext.to_ascii_lowercase().as_str())
+        })
+    }
+
+    /// Its file's name (its address's last part, `%XX` decoded), else the host's.
+    #[must_use]
+    pub fn name(&self) -> String {
+        let path = self.url.split(['?', '#']).next().unwrap_or("");
+        let rest = path.split_once("://").map_or(path, |(_, r)| r);
+        let last = rest.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+        percent_decoded(last)
+    }
+}
+
+/// `text` with its `%XX` escapes decoded (an invalid one kept as it is).
+fn percent_decoded(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(b) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// One article.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -100,6 +148,12 @@ pub struct Item {
 }
 
 impl Item {
+    /// A podcast item's episode: its first sound file.
+    #[must_use]
+    pub fn episode(&self) -> Option<&Enclosure> {
+        self.enclosures.iter().find(|e| e.is_sound())
+    }
+
     /// The date it is listed under: published, else updated, else first seen.
     #[must_use]
     pub fn date(&self) -> i64 {

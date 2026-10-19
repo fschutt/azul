@@ -126,6 +126,12 @@ aznews-show-feed-text = Show the feed's text
 aznews-no-full-text = The article's page holds no text to show here.
 aznews-full-text-failed = The full text could not be loaded: { $why }
 aznews-try-again = Try again
+aznews-play-episode = Play { $name }
+aznews-play = Play
+aznews-pause = Pause
+aznews-stop-episode = Stop
+aznews-episode-position = Position in the episode
+aznews-episode-failed = The episode does not play: { $why }
 aznews-image = [image]
 aznews-image-alt = [image: { $alt }]
 
