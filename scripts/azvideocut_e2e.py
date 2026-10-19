@@ -19,6 +19,8 @@
     6b. imports a stereo WAV (the file dialog mocked): its levels are read (AZVIDEOCUT_LEVELS,
        100 slices of 20 ms), Open in source and Overwrite (.) put it on A1, and at its second 1
        the meters show -6 dB;
+    6c. plays from the tone's start for 1.5 s: the meters move with the frames shown (at 10 or
+       more frames), and the tone goes to the output (a synthetic sink) at its peak of 0.5;
     7. switches to flora and dark and takes a screenshot;
     8. two razor cuts right after each other (frames 25 and 75), then the window's close at
        once: the close waits for the saves, the app ends, and project.json holds the clips of
@@ -295,6 +297,8 @@ def run(args, logs, out, data_root):
     env.update({
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
+        # The sound goes to a sink that counts what it gets and plays nothing (6c).
+        "AZ_SYNTHETIC_DEVICES": "audio_sink",
     })
     app = App(binary, args.debug_port, env, logs, deadline, data_root)
     try:
@@ -423,6 +427,30 @@ def run(args, logs, out, data_root):
             t.replace("\u2068", "").replace("\u2069", "").strip() == "-6 dB" for t in app.texts()))
         app.screenshot(os.path.join(out, "meters.png"))
         log("the tone's levels read (%d slices), on A1 the meters show -6 dB at its second 1" % slices)
+
+        # 6c. Playing: the meters move with the frames shown, not with the window's 4 Hz
+        # rebuilds (each in-place move prints `METER <frame> <dB>`), and the tone is heard: the
+        # sound goes to the output (a synthetic sink headless) and its stop prints `SOUND
+        # <samples> <peak>` - at least half a second of samples, the left channel's 0.5 peak.
+        playhead(app, lambda: app.key("home"), "Home")
+        before = len(app.printed("METER", r"-?\d+ \S+"))
+        sound = app.next_line("SOUND", r"\d+ [\d.]+", "the sound's report at the stop")
+        app.key("space")
+        time.sleep(1.5)
+        app.key("space")
+        line = sound()
+        samples, peak = int(line.split(" ")[0]), float(line.split(" ")[1])
+        if samples < 24000:
+            raise Failure("1.5 s of playing handed %d samples to the output, not 72000" % samples)
+        if not 0.45 <= peak <= 0.55:
+            raise Failure("the tone played at a peak of %.3f, not its 0.5" % peak)
+        moves = app.printed("METER", r"-?\d+ \S+")[before:]
+        frames = {int(m.split(" ")[0]) for m in moves}
+        if len(frames) < 10:
+            raise Failure("in 1.5 s of playing the meters moved at %d frames (%s): they follow "
+                          "the window's rebuilds, not the frames" % (len(frames), moves[:12]))
+        log("playing: the meters moved at %d frames, the output got %d samples at peak %.2f"
+            % (len(frames), samples, peak))
 
         # 7. Flora and dark.
         app.must("set_theme", theme="flora")
