@@ -114,6 +114,8 @@ names! {
     NAV_INSTRUCTION_TEXT = "nav-instruction-text";
     NAV_SUMMARY_TEXT = "nav-summary-text";
     NAV_INDICATOR_TEXT = "nav-indicator-text";
+    /// The banner's maneuver arrow, swapped in place for the next maneuver.
+    NAV_ICON = "nav-icon";
 }
 
 /// An id made at run time: `__azmaps_<stem>-<n>` (`place-0` the first

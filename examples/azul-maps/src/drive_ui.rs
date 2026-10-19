@@ -678,9 +678,11 @@ pub(crate) struct Shown {
     pub summary: String,
     /// The fix indicator's line.
     pub indicator: String,
+    /// The next maneuver's arrow, an icon of the icon set, swapped in place.
+    pub icon: &'static str,
 }
 
-/// What the banner and the bar look like, apart from their texts.
+/// What the banner and the bar look like, apart from their texts and the arrow.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Look {
     /// Whether the window was dark at the build: a tick has no other way to know it, and a
@@ -696,10 +698,6 @@ pub(crate) struct Look {
     pub offline: bool,
     /// The fix indicator's dot colour; `None` without an indicator.
     pub indicator: Option<(u8, u8, u8)>,
-    /// The next maneuver's arrow, an icon of the icon set. An icon node is drawn at the
-    /// banner's size, which an icon that can be swapped in place is not, so a new maneuver
-    /// rebuilds the window: once per maneuver, not once per position.
-    pub icon: &'static str,
 }
 
 /// The banner and the bar at the moment `now_ts` (Unix seconds, for the arrival time); `None`
@@ -747,12 +745,12 @@ pub(crate) fn shown(s: &MapState, dark_window: bool, now_ts: i64) -> Option<Show
             distance: !distance.is_empty(),
             offline: nav.offline,
             indicator: indicator.as_ref().map(|(colour, _)| *colour),
-            icon,
         },
         distance,
         instruction,
         summary,
         indicator: indicator.map(|(_, line)| line).unwrap_or_default(),
+        icon,
     })
 }
 
@@ -795,10 +793,13 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
         .with_accessibility_name(label("azmaps-nav-banner"))
         .with_child(
             Dom::create_div()
-                .with_css(if car { BANNER_ICON_CAR } else { BANNER_ICON })
                 // The maneuver as the icon set's glyph: a span in an icon font family shows
-                // the icon's name as text ("turn_right").
-                .with_child(Dom::create_icon(look.icon)),
+                // the icon's name as text ("turn_right"). In a view, at the banner's size, so
+                // the next maneuver swaps it in place.
+                .with_child(
+                    Dom::create_icon_view_with_css(shown.icon, if car { BANNER_ICON_CAR } else { BANNER_ICON })
+                        .with_marker(OptionString::Some(ids::NAV_ICON)),
+                ),
         )
         .with_child(words);
 
@@ -894,6 +895,12 @@ fn show_in_place(app: &RefAny, info: &mut CallbackInfo) -> bool {
             return false;
         };
         info.change_node_text(node, AzString::from(new.as_str()));
+    }
+    if now.icon != before.icon {
+        let Some(node) = info.get_node_id_by_marker(ids::NAV_ICON).into_option() else {
+            return false;
+        };
+        let _swapped = info.set_icon(node, AzString::from(now.icon));
     }
     if let Some(s) = state.downcast_ref::<MapState>() {
         *s.drive.banner_shown.borrow_mut() = Some(now);
