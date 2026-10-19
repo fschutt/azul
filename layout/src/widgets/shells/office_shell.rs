@@ -739,6 +739,28 @@ extern "C" fn on_split_resize(mut data: RefAny, info: CallbackInfo, state: Split
 // The build
 // ---------------------------------------------------------------------------
 
+/// Whether `content` draws its own right edge where it fills a rail: a navigation pane, open
+/// or folded (its root's skin has the hairline).
+fn draws_its_right_edge(content: &Dom) -> bool {
+    use crate::widgets::shells::navigation_pane::NAV_CLASS;
+    content
+        .root
+        .get_ids_and_classes()
+        .as_ref()
+        .iter()
+        .any(|c| matches!(c, IdOrClass::Class(name) if name.as_str() == NAV_CLASS))
+}
+
+/// Whether `property` is part of a right border (its width, style or colour).
+const fn is_right_border(property: &CssProperty) -> bool {
+    matches!(
+        property,
+        CssProperty::BorderRightWidth(_)
+            | CssProperty::BorderRightStyle(_)
+            | CssProperty::BorderRightColor(_)
+    )
+}
+
 /// A pane's node: its element, id, label, base and skin, a keyboard stop.
 /// A rail's box is its base and skin, then the width the app asked for.
 fn pane_node(pane: ShellPane, look: &ShellLook) -> Dom {
@@ -746,6 +768,11 @@ fn pane_node(pane: ShellPane, look: &ShellLook) -> Dom {
         let mut classes = id_and_class(&pane.id, PANE_CLASS).into_library_owned_vec();
         classes.push(IdOrClass::Class(AzString::from_const_str(RAIL_CLASS)));
         let mut skin: Vec<CssPropertyWithConditions> = look.shell_rail.clone();
+        // A navigation pane draws its own right edge: the rail's beside it would make two 1 px
+        // rules read as one of 2 px. The rail around other content keeps its rule.
+        if draws_its_right_edge(&pane.content) {
+            skin.retain(|p| !is_right_border(&p.property));
+        }
         #[allow(clippy::cast_possible_truncation)]
         skin.push(CssPropertyWithConditions::simple(CssProperty::const_width(
             LayoutWidth::Px(PixelValue::const_px(pane.width as isize)),
