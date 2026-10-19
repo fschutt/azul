@@ -11,7 +11,10 @@ data root are never read or written):
 
   config     `azcloud config` names the token server's source (the environment here) and lists
              the built-in defaults still in use - the hard-coding report
-  signup     a drive at the token server; `refresh` (POST /v1/drives/{id}/credentials) works
+  signup     a drive at the token server, encrypted as every signup's is: a file up and down
+             through the encryption, sync and share refused with words (the command line does
+             not take an encrypted drive through them); then a `--plaintext` drive for the
+             checks below, and `refresh` (POST /v1/drives/{id}/credentials) works
   files      a 1 MiB and a 50 MiB file up and down, compared by SHA-256 (and azcloud's BLAKE3)
   sync       a folder synced twice: the second run uploads nothing and writes no index; then an
              edit, an addition, a delete; machine B joins (invite / join) and gets the same tree
@@ -346,7 +349,24 @@ def main():
                                                               len(ctx["defaults"]))
 
     def signup_step():
-        s = a.az("signup", "--name", "azcloud e2e", "--tier", "100GB")
+        # A signup makes an encrypted drive ("we always encrypt"): up, down and ls go through
+        # the encryption, sync and share are not built for an encrypted drive in the command
+        # line and must say so instead of storing plaintext or handing out ciphertext. The
+        # checks after this one run on a plaintext drive (`signup --plaintext`), the only kind
+        # the command line syncs and shares.
+        enc = a.az("signup", "--name", "azcloud e2e encrypted", "--tier", "100GB")
+        expect(enc["drive"].startswith("d_"), "drive id %r" % enc["drive"])
+        up_down(a, 64 * 1024, "e2e/encrypted.bin")
+        work = os.path.join(a.work, "encrypted-src")
+        os.makedirs(work, exist_ok=True)
+        write_file(os.path.join(work, "one.txt"), b"one\n")
+        for what, cmd in (("share", ["share", "e2e/encrypted.bin", "--expires", "600"]),
+                          ("sync", ["sync", work, "--prefix", "e2e/s/"])):
+            refused = a.az(*cmd, check=False)
+            words = str(refused.get("error") or "")
+            expect(refused["_exit"] != 0 and "does not go through the encryption" in words,
+                   "%s of an encrypted drive: exit %d, %r" % (what, refused["_exit"], words))
+        s = a.az("signup", "--plaintext", "--name", "azcloud e2e", "--tier", "100GB")
         ctx["drive"] = s["drive"]
         expect(s["drive"].startswith("d_"), "drive id %r" % s["drive"])
         st = a.az("status")
@@ -356,8 +376,10 @@ def main():
         expect(r["drive"] == s["drive"], "refresh answered for another drive")
         info = a.az("info")
         expect(info.get("id") == s["drive"], "info: %s" % info)
-        return "drive %s, bucket %s, %d nodes; refresh ok (was %s, now %s); info %s" % (
-            s["drive"], s["bucket"], s["nodes"], before, r["expires_at"], info.get("tier"))
+        return ("encrypted drive %s: up/down through the encryption, sync and share refused; "
+                "plaintext drive %s, bucket %s, %d nodes; refresh ok (was %s, now %s); info %s" % (
+                    enc["drive"], s["drive"], s["bucket"], s["nodes"], before, r["expires_at"],
+                    info.get("tier")))
 
     def up_down(machine, size, key, *flags):
         src = os.path.join(machine.work, key.replace("/", "_"))
