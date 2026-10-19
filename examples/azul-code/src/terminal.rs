@@ -344,6 +344,10 @@ extern "C" fn on_terminal(mut data: RefAny, mut info: CallbackInfo, event: Termi
             plain_text: AzString::from(text.as_str()),
             styled_runs: StyledTextRunVec::create(),
             html: OptionString::None,
+            files: azul::vec::StringVec::create(),
+            image: azul::option::OptionU8Vec::None,
+            link: azul::option::OptionString::None,
+            concealed: false,
         });
     }
     Update::DoNothing

@@ -921,27 +921,52 @@ extern "C" fn on_copy_code(mut data: RefAny, mut info: CallbackInfo) -> Update {
             plain_text: AzString::from(sheet.code.as_str()),
             styled_runs: azul::vec::StyledTextRunVec::create(),
             html: azul::option::OptionString::None,
+            files: azul::vec::StringVec::create(),
+            image: azul::option::OptionU8Vec::None,
+            link: azul::option::OptionString::None,
+            // A recovery code is a secret: clipboard managers and history leave it alone.
+            concealed: true,
         });
         sheet.copied = true;
         println!("AZDRIVE_CODE_COPIED {}", sheet.drive_id);
-        // The code leaves the clipboard again (a password manager's habit; azul cannot read the
-        // clipboard back, so whatever is on it then is cleared).
+        // The code leaves the clipboard again (a password manager's habit), unless something
+        // else was copied meanwhile: the timer keeps the code to tell.
         let get_time = info.get_system_time_fn();
         info.add_timer(
             TimerId::unique(),
-            Timer::create(app.clone(), on_clear_copied_code, get_time).with_delay(
-                Duration::System(SystemTimeDiff::from_millis(CLEAR_COPIED_CODE_MS)),
-            ),
+            Timer::create(
+                RefAny::new(CopiedCode(sheet.code.clone())),
+                on_clear_copied_code,
+                get_time,
+            )
+            .with_delay(Duration::System(SystemTimeDiff::from_millis(CLEAR_COPIED_CODE_MS))),
         );
+        let _ = app;
     })
 }
 
-extern "C" fn on_clear_copied_code(_data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+/// The recovery code the clear timer takes off the clipboard again.
+struct CopiedCode(String);
+
+extern "C" fn on_clear_copied_code(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut callback_info = info.callback_info;
+    let ours = data.downcast_ref::<CopiedCode>().is_some_and(|copied| {
+        callback_info
+            .get_system_clipboard()
+            .into_option()
+            .is_none_or(|content| content.plain_text.as_str() == copied.0.as_str())
+    });
+    if !ours {
+        return TimerCallbackReturn::terminate_unchanged();
+    }
     callback_info.set_clipboard_content(azul::dom::ClipboardContent {
         plain_text: AzString::from(""),
         styled_runs: azul::vec::StyledTextRunVec::create(),
         html: azul::option::OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
     println!("AZDRIVE_CODE_CLIPBOARD_CLEARED");
     TimerCallbackReturn::terminate_unchanged()

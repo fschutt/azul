@@ -2000,6 +2000,10 @@ fn copy_path(info: &mut CallbackInfo, s: &mut DriveState) {
         plain_text: AzString::from(text),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
     println!("AZDRIVE_DONE copied-path {lines}");
     s.info(Phrase::new("azdrive-copied-paths").arg("count", lines));
@@ -3151,6 +3155,10 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
         plain_text: AzString::from(links.join("\n")),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
     println!("AZDRIVE_DONE link {files}");
     // A folder has no download link (S3 signs one object per link), so its address went along.

@@ -629,6 +629,10 @@ extern "C" fn on_copy_command(mut data: RefAny, mut info: CallbackInfo) -> Updat
         plain_text: s(&command),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
     m.wizard.copied = true;
     println!("AZINSTALLMGR_COPIED {command}");

@@ -3,9 +3,8 @@
 //! ("password of CodeHost") - never the value - so the status bar can count down and a later
 //! copy can restart the countdown.
 //!
-//! azul cannot read the clipboard outside a paste, so the guard cannot tell whether another
-//! program put something there since; when the countdown ends it clears the clipboard (a value
-//! copied elsewhere meanwhile is cleared too - the plan's known gap).
+//! When the countdown ends the clipboard is cleared only while it still holds the secret
+//! (`jobs::clipboard_still_ours` reads it back): a value copied elsewhere meanwhile stays.
 
 use std::fmt;
 

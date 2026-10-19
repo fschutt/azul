@@ -1586,6 +1586,10 @@ fn copy_to_clipboard(info: &mut CallbackInfo, text: &str) {
         plain_text: AzString::from(text),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
 }
 

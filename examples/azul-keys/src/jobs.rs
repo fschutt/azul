@@ -348,7 +348,9 @@ fn finish_lock(s: &mut KeysApp, info: &mut CallbackInfo) {
         session.wipe();
     }
     if s.clipboard.remaining(now()).is_some() {
-        set_clipboard(info, "");
+        if clipboard_still_ours(s, info) {
+            set_clipboard(info, "");
+        }
         s.clipboard.cleared();
     }
     s.lock_pending = false;
@@ -359,13 +361,26 @@ fn finish_lock(s: &mut KeysApp, info: &mut CallbackInfo) {
 
 // ==== The clipboard ====
 
-/// Puts `text` on the clipboard ("" clears it).
+/// Puts `text` on the clipboard ("" clears it). A secret goes on concealed: the platform's
+/// clipboard managers and history leave it alone.
 pub fn set_clipboard(info: &mut CallbackInfo, text: &str) {
     info.set_clipboard_content(ClipboardContent {
         plain_text: AzString::from(text),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: !text.is_empty(),
     });
+}
+
+/// Whether the clipboard still holds what the guard copied, so clearing it wipes our secret and
+/// not something the user copied since. A clipboard that cannot be read is cleared, as before.
+fn clipboard_still_ours(s: &KeysApp, info: &CallbackInfo) -> bool {
+    info.get_system_clipboard()
+        .into_option()
+        .is_none_or(|content| s.clipboard.holds(content.plain_text.as_str()))
 }
 
 /// Copies a secret of the selected item (`field` as [`Session::copy_text`] names it) and starts
@@ -438,7 +453,9 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
     let at = now();
     let mut refresh = false;
     if s.clipboard.due(at) {
-        set_clipboard(&mut info.callback_info, "");
+        if clipboard_still_ours(s, &info.callback_info) {
+            set_clipboard(&mut info.callback_info, "");
+        }
         s.clipboard.cleared();
         s.notice = t("azkeys-clipboard-cleared");
         println!("AZKEYS_CLIPBOARD_CLEARED");

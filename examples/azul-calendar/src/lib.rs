@@ -1262,6 +1262,10 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
                 plain_text: AzString::from(meet.link.as_str()),
                 styled_runs: StyledTextRunVec::create(),
                 html: azul::option::OptionString::None,
+                files: azul::vec::StringVec::create(),
+                image: azul::option::OptionU8Vec::None,
+                link: azul::option::OptionString::None,
+                concealed: false,
             });
             eprintln!("[azcalendar] AzMeet not started ({e}); link copied");
             s.notice = azul_appkit::l10n::t_args(

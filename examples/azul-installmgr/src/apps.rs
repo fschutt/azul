@@ -457,6 +457,10 @@ extern "C" fn on_copy_update_command(mut data: RefAny, mut info: CallbackInfo) -
         plain_text: s(&command),
         styled_runs: StyledTextRunVec::create(),
         html: OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
     });
     m.notice = t_args("azinstallmgr-copied-command", &[("command", Arg::from(command.as_str()))]);
     println!("AZINSTALLMGR_COPIED {command}");

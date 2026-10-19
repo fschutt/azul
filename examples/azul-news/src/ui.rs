@@ -2085,6 +2085,10 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
             plain_text: AzString::from(link.as_str()),
             styled_runs: StyledTextRunVec::create(),
             html: OptionString::None,
+            files: azul::vec::StringVec::create(),
+            image: azul::option::OptionU8Vec::None,
+            link: azul::option::OptionString::None,
+            concealed: false,
         });
         println!("AZNEWS_COPIED {link}");
         s.notice = t("aznews-link-copied");
