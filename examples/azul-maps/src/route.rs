@@ -197,6 +197,20 @@ pub fn routing_source_keeping(template: &str, cache_root: &Path, keep_days: Opti
     let template = template.trim();
     let cache = cache_root.join(format!("{:016x}", fnv(template)));
     if template.starts_with("http://") || template.starts_with("https://") {
+        // This value's cache is in use; another value's not used for a month goes. On a
+        // thread of its own: removing a cache of many tiles may take a moment.
+        let (root, current) = (cache_root.to_path_buf(), cache.clone());
+        let _ = std::thread::Builder::new()
+            .name("azmaps-routing-cache".into())
+            .spawn(move || {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                mark_used(&current, now);
+                for gone in prune_unused_caches(&root, &current, now) {
+                    eprintln!("[azmaps] removed the unused routing cache {}", gone.display());
+                }
+            });
         let http = HttpTiles::new(template, user_agent());
         // The cache keeps a copy of the manifest once one was downloaded: its keep times hold
         // from the start, without asking the network.
@@ -228,6 +242,64 @@ fn keep_policy(manifest: Option<&Manifest>, keep_days: Option<&str>) -> KeepPoli
         }
         None => policy,
     }
+}
+
+/// The file in a routing cache's folder that says when it was last used (seconds since 1970).
+pub const USED_STAMP: &str = ".used";
+
+/// Another routing value's cache unused this long is removed when a value is opened.
+const UNUSED_CACHE_SECS: u64 = 30 * 86_400;
+
+/// Notes that the routing cache `cache` is used at `now`.
+pub fn mark_used(cache: &Path, now: u64) {
+    if std::fs::create_dir_all(cache).is_ok() {
+        let _ = std::fs::write(cache.join(USED_STAMP), now.to_string());
+    }
+}
+
+/// Whether `name` is a routing cache's folder name ([`routing_source`]'s 16 hex digits).
+fn is_cache_name(name: &str) -> bool {
+    name.len() == 16 && name.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// When the routing cache `dir` was last used: its stamp, else when the folder last changed.
+fn last_used(dir: &Path) -> Option<u64> {
+    if let Some(at) = std::fs::read_to_string(dir.join(USED_STAMP))
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+    {
+        return Some(at);
+    }
+    std::fs::metadata(dir)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
+
+/// Removes the routing caches under `root` other than `current` that were not used for
+/// [`UNUSED_CACHE_SECS`] at `now` (a value switched away from kept up to its 256 MB for
+/// good). Only a routing cache's folder is touched. Returns the removed folders, sorted.
+pub fn prune_unused_caches(root: &Path, current: &Path, now: u64) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == current || !path.is_dir() {
+            continue;
+        }
+        if !entry.file_name().to_str().is_some_and(is_cache_name) {
+            continue;
+        }
+        let used = last_used(&path).unwrap_or(now);
+        if now.saturating_sub(used) >= UNUSED_CACHE_SECS && std::fs::remove_dir_all(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed.sort();
+    removed
 }
 
 /// A stable 64-bit hash of `text` (FNV-1a): the cache folder of a tile source.
@@ -582,7 +654,8 @@ mod tests {
 
     #[test]
     fn a_folder_or_a_url_names_where_the_routing_tiles_come_from() {
-        let cache = std::env::temp_dir();
+        // A folder of its own: opening a URL's source tidies the caches beside its own.
+        let cache = std::env::temp_dir().join(format!("azmaps-route-sources-{}", std::process::id()));
         assert!(matches!(*routing_source("/srv/routing", &cache), RoutingTiles::Folder(_)));
         assert!(matches!(*routing_source("file:///srv/routing", &cache), RoutingTiles::Folder(_)));
         assert!(matches!(
