@@ -1841,6 +1841,64 @@ pub(crate) fn whole_text(old: &str, seen: &str, from: usize, to: Option<usize>) 
     whole
 }
 
+/// A paste of several blocks into a page, with the text the page does not
+/// show put back around it. The parts the engine hands over are what the
+/// page showed: only the tail of its first block when the page starts inside
+/// that block, only the head of its last when the next page starts inside
+/// it. The head before the page and the tail after it go back around the
+/// pasted parts, with their formats, before the model replaces blocks
+/// `start..end`.
+fn with_cut_ends(
+    doc: &crate::widgets::rich_text::doc::RichTextDoc,
+    start: usize,
+    end: usize,
+    place: Option<PagePlace>,
+    mut pasted: Vec<crate::widgets::rich_text::doc::PastedBlock>,
+) -> Vec<crate::widgets::rich_text::doc::PastedBlock> {
+    use crate::widgets::rich_text::doc::{floor_char_boundary, normalize_runs, slice_runs};
+    let Some(place) = place else {
+        return pasted;
+    };
+    if start == place.first && place.start_byte > 0 {
+        if let (Some(block), Some(first)) = (doc.block(start), pasted.first_mut()) {
+            let text = block.flat();
+            let head = floor_char_boundary(&text, place.start_byte);
+            let mut runs = slice_runs(block.runs.as_ref(), 0, head);
+            runs.append(&mut first.runs);
+            normalize_runs(&mut runs);
+            first.runs = runs;
+        }
+    }
+    if let Some((_, cut)) = place.cut.filter(|(block, _)| end > start && *block == end - 1) {
+        if let (Some(block), Some(last)) = (doc.block(end - 1), pasted.last_mut()) {
+            let text = block.flat();
+            let tail = floor_char_boundary(&text, cut);
+            last.runs
+                .extend(slice_runs(block.runs.as_ref(), tail, text.len()));
+            normalize_runs(&mut last.runs);
+        }
+    }
+    pasted
+}
+
+/// The text of a block after Backspace (`forward` false) or Delete at
+/// `byte`, and the byte the caret lands on: the one character before (or
+/// after) `byte` goes. `None` at the text's start (or end).
+fn delete_char_at(text: &str, byte: usize, forward: bool) -> Option<(String, usize)> {
+    let at = crate::widgets::rich_text::doc::floor_char_boundary(text, byte.min(text.len()));
+    let (from, to) = if forward {
+        let next = text[at..].chars().next()?;
+        (at, at + next.len_utf8())
+    } else {
+        let previous = text[..at].chars().next_back()?;
+        (at - previous.len_utf8(), at)
+    };
+    let mut out = String::with_capacity(text.len());
+    out.push_str(&text[..from]);
+    out.push_str(&text[to..]);
+    Some((out, from))
+}
+
 /// The DOM id of the editing host of the page from `start` to `stop`
 /// ([`RichTextEditor::page_doms_at`]): `<host id>-page-<first block>`,
 /// `@<byte>` when it starts inside that block, `~<block>@<byte>` when its
@@ -2257,7 +2315,13 @@ impl RichTextEditorState {
                     self.doc.replace_blocks(start, end, &joined)
                 } else {
                     // A paste of several blocks.
-                    let pasted = rich_html::blocks_from_doms(parts);
+                    let pasted = with_cut_ends(
+                        &self.doc,
+                        start,
+                        end,
+                        place,
+                        rich_html::blocks_from_doms(parts),
+                    );
                     !pasted.is_empty() && self.doc.replace_with(start, end, pasted)
                 }
             }
@@ -2851,6 +2915,47 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
 
+    // Backspace at the start of a page's tail part and Delete at the end of a
+    // page's head part take a character of the same block that lies on the
+    // other page, which the engine cannot reach from this page's host: the
+    // editor takes it from the model, and the caret stays at the cut.
+    if collapsed && matches!(key, VirtualKeyCode::Back | VirtualKeyCode::Delete) {
+        let forward = key == VirtualKeyCode::Delete;
+        let (from, to) = info.get_document_caret().into_option().map_or((0, None), |p| {
+            part_bounds(&info, editor.state.host_id.as_str(), p.node, block)
+        });
+        let at_cut = if forward {
+            to == Some(byte)
+        } else {
+            from > 0 && byte == from
+        };
+        if at_cut {
+            info.prevent_default();
+            let _ = editor.state.sync_text(&mut info, false);
+            let text = editor
+                .state
+                .doc
+                .block(block)
+                .map(RichBlock::flat)
+                .unwrap_or_default();
+            let Some((new_text, caret)) = delete_char_at(&text, byte, forward) else {
+                return Update::DoNothing;
+            };
+            let before = editor.state.doc.clone();
+            if !editor.state.doc.sync_block_text(block, &new_text, None) {
+                return Update::DoNothing;
+            }
+            editor.state.history.record(&before, RichEditGroup::None);
+            editor.state.revision += 1;
+            editor.state.typing = OptionRichTypingStyle::None;
+            editor.state.caret_block = block;
+            editor.state.caret_byte = caret;
+            let mut update = Update::RefreshDom;
+            update.max_self(editor.notify(info));
+            return update;
+        }
+    }
+
     let action = match key {
         VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter if !shift && collapsed => {
             if kind.is_code() {
@@ -3321,6 +3426,54 @@ mod tests {
                 text
             })
             .collect()
+    }
+
+    /// Backspace at the start of a page's tail part takes the character
+    /// before the cut, which is on the page before; Delete at the end of a
+    /// head part takes the one after it. Neither reaches past the text.
+    #[test]
+    fn a_delete_at_a_page_cut_takes_the_character_across_it() {
+        assert_eq!(delete_char_at("alpha beta", 6, false), Some(("alphabeta".to_string(), 5)));
+        assert_eq!(delete_char_at("alpha beta", 6, true), Some(("alpha eta".to_string(), 6)));
+        assert_eq!(delete_char_at("aé b", 3, false), Some(("a b".to_string(), 1)), "a whole character");
+        assert_eq!(delete_char_at("ab", 0, false), None);
+        assert_eq!(delete_char_at("ab", 2, true), None);
+    }
+
+    /// A paste of several blocks into a page that starts inside its first
+    /// block and ends inside its last keeps the head on the page before and
+    /// the tail on the page after.
+    #[test]
+    fn a_paste_into_a_cut_block_keeps_the_text_on_the_other_pages() {
+        use crate::widgets::rich_text::doc::{flatten, PastedBlock, RichRun};
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("Title"),
+            RichBlock::paragraph("alpha beta gamma"),
+            RichBlock::paragraph("one two three"),
+        ]);
+        // The page shows block 1 from byte 6 ("beta gamma") and block 2 up
+        // to byte 4 ("one "); the paste replaced "gamma" .. "one" with two
+        // blocks, the page's view of them: "beta X" and "Y ".
+        let place = PagePlace {
+            first: 1,
+            start_byte: 6,
+            cut: Some((2, 4)),
+        };
+        let pasted = vec![
+            PastedBlock {
+                kind: None,
+                quote_depth: 0,
+                runs: vec![RichRun::plain("beta X")],
+            },
+            PastedBlock {
+                kind: None,
+                quote_depth: 0,
+                runs: vec![RichRun::plain("Y ")],
+            },
+        ];
+        let kept = with_cut_ends(&doc, 1, 3, Some(place), pasted);
+        assert_eq!(flatten(&kept[0].runs), "alpha beta X");
+        assert_eq!(flatten(&kept[1].runs), "Y two three");
     }
 
     /// A page can start inside a block (a paragraph longer than what is
