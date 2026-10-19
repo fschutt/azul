@@ -215,7 +215,93 @@ impl core::fmt::Display for AzString {
     }
 }
 
+/// The flag of a vec (`flags`) that marks a SECRET: its buffer, and the
+/// buffer of every clone of it, is zeroed before it is freed (a password, a
+/// keyring secret). Bit 0 is a string's translation key (`AzString::tr`).
+pub const VEC_FLAG_SECRET: u8 = 1 << 1;
+
+/// Zeroes `len` bytes at `ptr` with volatile writes, which the optimizer
+/// keeps although nothing reads the bytes again.
+///
+/// # Safety
+/// `ptr` must be valid for writing `len` bytes.
+pub unsafe fn zero_bytes(ptr: *mut u8, len: usize) {
+    for i in 0..len {
+        unsafe { core::ptr::write_volatile(ptr.add(i), 0) };
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+}
+
+/// The secret flag and the wipe of the vecs of plain numbers a secret can
+/// live in (a string's bytes, a text field's characters).
+macro_rules! impl_secret_vec {
+    ($element:ty, $vec:ident, $destructor:ident) => {
+        impl $vec {
+            /// Whether this buffer holds a secret ([`Self::set_secret`]).
+            #[inline]
+            #[must_use]
+            pub const fn is_secret(&self) -> bool {
+                self.flags & VEC_FLAG_SECRET != 0
+            }
+
+            /// Mark this buffer as a secret: it is zeroed before it is freed,
+            /// and so is every clone of it.
+            #[inline]
+            pub const fn set_secret(&mut self, secret: bool) {
+                if secret {
+                    self.flags |= VEC_FLAG_SECRET;
+                } else {
+                    self.flags &= !VEC_FLAG_SECRET;
+                }
+            }
+
+            /// Zero every element this vec owns now and empty it; the buffer
+            /// stays allocated, zeroed. A buffer it does not own (a static, a
+            /// host language's) cannot be written: it is only let go.
+            pub fn zeroize(&mut self) {
+                if matches!(self.destructor, $destructor::DefaultRust)
+                    && !self.ptr.is_null()
+                    && self.cap != 0
+                {
+                    // SAFETY: an owned buffer of `cap` elements.
+                    unsafe {
+                        zero_bytes(
+                            self.ptr.cast_mut().cast::<u8>(),
+                            self.cap * core::mem::size_of::<$element>(),
+                        );
+                    }
+                    self.len = 0;
+                } else {
+                    let secret = self.is_secret();
+                    *self = Self::new();
+                    self.set_secret(secret);
+                }
+            }
+        }
+    };
+}
+
 impl AzString {
+    /// Whether this string holds a secret ([`Self::set_secret`]).
+    #[inline]
+    #[must_use]
+    pub const fn is_secret(&self) -> bool {
+        self.vec.is_secret()
+    }
+
+    /// Mark this string as a secret (a password, a keyring secret): its
+    /// buffer, and the buffer of every clone of it, is zeroed before it is
+    /// freed. A copy made another way (`as_str().to_string()`) is not.
+    #[inline]
+    pub const fn set_secret(&mut self, secret: bool) {
+        self.vec.set_secret(secret);
+    }
+
+    /// Zero this string's bytes now and empty it ([`U8Vec::zeroize`]).
+    pub fn zeroize(&mut self) {
+        self.vec.zeroize();
+    }
+
     #[inline]
     #[must_use]
     pub const fn from_const_str(s: &'static str) -> Self {
@@ -564,6 +650,7 @@ impl_vec_clone!(u8, U8Vec, U8VecDestructor);
 impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
+impl_secret_vec!(u8, U8Vec, U8VecDestructor);
 
 impl U8Vec {
     /// Copies bytes from a pointer into a new Vec.
@@ -650,6 +737,7 @@ impl_vec_clone!(u32, U32Vec, U32VecDestructor);
 impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
+impl_secret_vec!(u32, U32Vec, U32VecDestructor);
 
 // Vec<u64>: item ids (a list selection's keys, `widgets::list_selection`).
 impl_vec!(
@@ -2386,5 +2474,57 @@ mod localizable_flag_tests {
     fn a_cloned_plain_string_stays_plain() {
         let plain = AzString::from("welcome-greeting");
         assert!(!plain.clone().is_localizable());
+    }
+}
+
+/// A secret (`AzString::set_secret`, `U8Vec::set_secret`) is zeroed before
+/// its buffer is freed, it stays a secret through its clones, and `zeroize`
+/// wipes it at once: KEYS9's keyring secrets and password fields.
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn a_secret_stays_a_secret_through_its_clones() {
+        let mut secret = AzString::from(alloc::string::String::from("hunter2"));
+        assert!(!secret.is_secret());
+        secret.set_secret(true);
+        assert!(secret.is_secret());
+        let copy = secret.clone();
+        assert!(copy.is_secret(), "a clone is zeroed when freed, too");
+        assert_eq!(copy.as_str(), "hunter2");
+        let plain = AzString::from(alloc::string::String::from("hello"));
+        assert!(!plain.is_secret());
+    }
+
+    #[test]
+    fn zeroize_wipes_the_bytes_and_empties_the_string() {
+        let mut secret = AzString::from(alloc::string::String::from("correct horse"));
+        let ptr = secret.as_str().as_ptr();
+        let len = secret.as_str().len();
+        secret.zeroize();
+        assert_eq!(secret.as_str(), "", "emptied");
+        // The buffer stays allocated (zeroed) until the string is dropped.
+        let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert!(bytes.iter().all(|b| *b == 0), "{bytes:?}");
+    }
+
+    #[test]
+    fn zeroize_lets_go_of_a_buffer_it_cannot_write() {
+        let mut fixed = AzString::from_const_str("static text");
+        fixed.set_secret(true);
+        fixed.zeroize();
+        assert_eq!(fixed.as_str(), "");
+        assert!(fixed.is_secret(), "still marked");
+        assert_eq!(AzString::from_const_str("static text").as_str(), "static text");
+    }
+
+    #[test]
+    fn a_char_buffer_can_be_a_secret_too() {
+        let mut chars: U32Vec = alloc::vec![104u32, 105].into();
+        chars.set_secret(true);
+        assert!(chars.clone().is_secret());
+        chars.zeroize();
+        assert!(chars.as_ref().is_empty());
     }
 }

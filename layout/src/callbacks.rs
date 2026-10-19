@@ -5847,7 +5847,12 @@ impl CallbackInfo {
     /// later `keyring_get` of this key triggers the OS biometric prompt.
     /// Returns immediately; the outcome arrives via `get_keyring_result()`
     /// on a later frame.
+    ///
+    /// The secret is marked as one (`AzString::set_secret`): the request, the
+    /// backend's copy of it and every clone are zeroed when they are freed.
     pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
+        let mut secret = secret;
+        secret.set_secret(true);
         crate::managers::keyring::push_keyring_request(azul_core::keyring::KeyringRequest::Store {
             key,
             secret,

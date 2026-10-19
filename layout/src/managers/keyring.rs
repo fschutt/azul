@@ -61,7 +61,15 @@ impl KeyringManager {
     /// Apply the outcome the backend delivered. Returns `true` if it
     /// differs from the previous one (so the window can be marked dirty to
     /// re-render the revealed / stored state).
+    ///
+    /// A retrieved secret is marked as one (`AzString::set_secret`): the
+    /// result kept here, and every copy a callback reads, is zeroed when it
+    /// is freed - the one before it as soon as this replaces it.
     pub fn set_last_result(&mut self, result: KeyringResult) -> bool {
+        let mut result = result;
+        if let KeyringResult::Retrieved(secret) = &mut result {
+            secret.set_secret(true);
+        }
         let changed = self.last_result.as_ref() != Some(&result);
         self.last_result = Some(result);
         // MWA-A1b: every completion fires an event and retires one
@@ -977,3 +985,28 @@ mod autotest_generated {
         assert!(drain_keyring_results().is_empty());
     }
 }
+
+/// A secret the keyring hands back is marked as one, so the manager's copy
+/// and every copy a callback reads are zeroed when freed (KEYS9).
+#[cfg(test)]
+mod secret_tests {
+    use azul_css::AzString;
+
+    use super::{KeyringManager, KeyringResult};
+
+    #[test]
+    fn a_retrieved_secret_is_marked_secret() {
+        let mut mgr = KeyringManager::new();
+        let _ = mgr.set_last_result(KeyringResult::Retrieved(AzString::from(
+            alloc::string::String::from("s3cret"),
+        )));
+        let Some(KeyringResult::Retrieved(secret)) = mgr.last_result() else {
+            panic!("a retrieved result");
+        };
+        assert!(secret.is_secret());
+        assert_eq!(secret.as_str(), "s3cret");
+        let read = mgr.last_result().cloned();
+        assert!(matches!(read, Some(KeyringResult::Retrieved(s)) if s.is_secret()));
+    }
+}
+

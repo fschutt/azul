@@ -785,6 +785,23 @@ impl Default for TextInputState {
 }
 
 impl TextInputState {
+    /// Replace the value with `text`. A password's characters are a secret
+    /// (`U32Vec::set_secret`): the old buffer, this one and every clone of
+    /// it are zeroed when they are freed.
+    pub fn set_text_units(&mut self, text: U32Vec) {
+        let mut text = text;
+        text.set_secret(self.kind == TextInputKind::Password);
+        self.text = text;
+    }
+
+    /// Zero the value now and empty it (a password once it has been used):
+    /// the field's own buffer, not the copies a callback made of it.
+    pub fn zeroize(&mut self) {
+        self.text.zeroize();
+        self.cursor_pos = 0;
+        self.selection = None.into();
+    }
+
     #[must_use]
     pub fn get_text(&self) -> String {
         self.text
@@ -1010,6 +1027,11 @@ impl TextInput {
     /// Switch this field to another `<input type>`.
     pub const fn set_kind(&mut self, kind: TextInputKind) {
         self.text_input_state.inner.kind = kind;
+        // A password's characters are a secret, also those set before.
+        self.text_input_state
+            .inner
+            .text
+            .set_secret(matches!(kind, TextInputKind::Password));
     }
 
     /// [`Self::set_kind`] for the builder chain.
@@ -1054,12 +1076,13 @@ impl TextInput {
     // owned AzString passed by value per the azul FFI / api.json setter convention.
     #[allow(clippy::needless_pass_by_value)]
     pub fn set_text(&mut self, text: AzString) {
-        self.text_input_state.inner.text = text
-            .as_str()
-            .chars()
-            .map(|c| c as u32)
-            .collect::<Vec<_>>()
-            .into();
+        self.text_input_state.inner.set_text_units(
+            text.as_str()
+                .chars()
+                .map(|c| c as u32)
+                .collect::<Vec<_>>()
+                .into(),
+        );
     }
 
     /// Pick the widget theme. Unset (`None`), the widget follows the app
@@ -1497,7 +1520,7 @@ fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomN
     let Some(text) = crate::widgets::text_mirror::engine_text(info, node) else {
         return;
     };
-    state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    state.set_text_units(text.chars().map(|c| c as u32).collect::<Vec<_>>().into());
 }
 
 /// The engine's selection, in the widget's public shape.
@@ -1541,7 +1564,7 @@ fn mirror_insertion(
 ) {
     let (next, cursor) =
         crate::widgets::text_mirror::insertion(&state.get_text(), inserted, caret, selected);
-    state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    state.set_text_units(next.chars().map(|c| c as u32).collect::<Vec<_>>().into());
     state.cursor_pos = cursor;
 }
 
@@ -1785,7 +1808,7 @@ pub(crate) fn restore_text_input(
     let changed = wrapper.inner.get_text() != value;
     let looks_before = looks_of(&wrapper.inner);
     if changed {
-        wrapper.inner.text = to_units(value);
+        wrapper.inner.set_text_units(to_units(value));
         wrapper.inner.cursor_pos = value.len();
         wrapper.inner.selection = None.into();
         wrapper.inner.validity = validity_of(&wrapper.inner);
@@ -1915,7 +1938,7 @@ fn masked_notification(
     let next = masked_deletion(&wrapper.inner.get_text(), masked_after, caret)?;
 
     let cursor = grapheme_byte_offset(&next, caret.min(masked_after));
-    wrapper.inner.text = to_units(&next);
+    wrapper.inner.set_text_units(to_units(&next));
     wrapper.inner.cursor_pos = cursor;
     wrapper.inner.selection = None.into();
     wrapper.inner.validity = validity_of(&wrapper.inner);
@@ -5540,3 +5563,36 @@ mod placeholder_ink_tests {
         );
     }
 }
+
+/// A password field's characters are a secret (`U32Vec::set_secret`): its
+/// buffer and every clone of it are zeroed when freed, and `zeroize` wipes
+/// the field at once (KEYS9). A plain field's are not.
+#[cfg(test)]
+mod password_secret_tests {
+    use azul_css::AzString;
+
+    use super::{TextInput, TextInputKind};
+
+    #[test]
+    fn a_password_fields_characters_are_a_secret() {
+        let password = TextInput::create_password().with_text(AzString::from_const_str("pw"));
+        assert!(password.text_input_state.inner.text.is_secret());
+        assert!(password.text_input_state.inner.clone().text.is_secret());
+        let plain = TextInput::create().with_text(AzString::from_const_str("pw"));
+        assert!(!plain.text_input_state.inner.text.is_secret());
+        // A field made a password after its text was set.
+        let later = TextInput::create()
+            .with_text(AzString::from_const_str("pw"))
+            .with_kind(TextInputKind::Password);
+        assert!(later.text_input_state.inner.text.is_secret());
+    }
+
+    #[test]
+    fn zeroize_empties_a_password_field() {
+        let mut password = TextInput::create_password().with_text(AzString::from_const_str("pw"));
+        password.text_input_state.inner.zeroize();
+        assert!(password.text_input_state.inner.text.as_ref().is_empty());
+        assert_eq!(password.text_input_state.inner.cursor_pos, 0);
+    }
+}
+

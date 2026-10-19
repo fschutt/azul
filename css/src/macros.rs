@@ -331,13 +331,25 @@ macro_rules! impl_vec {
                         // Skip when there is nothing to free. (Empty Vecs have
                         // cap == 0; valid non-empty Vecs are unaffected.)
                         if !self.ptr.is_null() && self.cap != 0 {
-                            drop(unsafe {
+                            let mut owned = unsafe {
                                 alloc::vec::Vec::from_raw_parts(
                                     self.ptr.cast_mut(),
                                     self.len,
                                     self.cap,
                                 )
-                            });
+                            };
+                            if self.flags & $crate::corety::VEC_FLAG_SECRET != 0 {
+                                // A secret's buffer is wiped before it goes back
+                                // to the allocator: its elements dropped first,
+                                // then every byte zeroed.
+                                owned.clear();
+                                let bytes =
+                                    owned.capacity() * core::mem::size_of::<$struct_type>();
+                                unsafe {
+                                    $crate::corety::zero_bytes(owned.as_mut_ptr().cast::<u8>(), bytes);
+                                }
+                            }
+                            drop(owned);
                         }
                         self.destructor = $destructor_name::AlreadyDestroyed;
                     }
