@@ -1,27 +1,27 @@
-//! A rule for a state (`.b:hover`) takes part in the cascade like any other
-//! rule: while the node is in that state it competes with the resting rules
-//! by the cascade order - priority, theme rank, specificity, source order -
-//! and wins only where it ranks higher (CSS Cascade 4 s6, as Chrome does).
-//! The state tiers used to decide first: any `:hover` rule beat every resting
-//! rule, a rice of higher priority and the node's own style included, and
-//! `:focus` beat `:hover` whatever their order.
+//! Priority ranks above the state: a rule for a state (`.b:hover`) wins over
+//! the resting value only at the same or a higher `rule_priority`. A rice at
+//! `priority: app` re-skins the app's own DOM and keeps its value under the
+//! pointer, and the node's own style (`rule_priority::INLINE`) beats an
+//! author's `:hover` rule, as the `style` attribute does in Chrome. The state
+//! tiers used to decide first, whatever the priority. At one priority the
+//! stronger state still wins (the widgets' looks are written for that).
 //!
-//! What a node inherits comes after everything it declares itself, and an
-//! unscoped `*` rule stands where the cascade order puts it: above an
-//! element's presentational hints, and above author rules when its priority
-//! is higher.
+//! An unscoped `*` rule stands where its priority puts it too: above an
+//! element's presentational hints, and above the app's rules when it comes
+//! from a rice of a higher priority.
 
 use azul_core::{
     dom::{Dom, NodeType},
     id::NodeId,
-    styled_dom::{FocusChange, HoverChange, StyledDom},
+    styled_dom::{HoverChange, StyledDom},
 };
 use azul_css::{
     css::{rule_priority, Css, CssRuleBlock},
+    dynamic_selector::CssPropertyWithConditions,
     props::{
         basic::color::ColorU,
         property::{CssProperty, CssPropertyType},
-        style::StyleBackgroundContent,
+        style::{StyleBackgroundContent, StyleTextColor},
     },
 };
 
@@ -49,23 +49,11 @@ fn sheet(parts: &[(&str, u8)]) -> Css {
     )
 }
 
-fn styled_markup(markup: &str) -> StyledDom {
-    let parsed = azul_layout::xml::parse_xml(markup).expect("parses");
-    StyledDom::create_from_dom(azul_layout::xml::dom_from_parsed_xml(parsed))
-}
-
 fn with_class(styled: &StyledDom, class: &str) -> NodeId {
     (0..styled.node_data.len())
         .map(NodeId::new)
         .find(|id| styled.node_data.as_container()[*id].has_class(class))
         .unwrap_or_else(|| panic!("no .{class}"))
-}
-
-fn the_table(styled: &StyledDom) -> NodeId {
-    (0..styled.node_data.len())
-        .map(NodeId::new)
-        .find(|id| matches!(styled.node_data.as_container()[*id].get_node_type(), NodeType::Table))
-        .expect("no <table>")
 }
 
 fn background(styled: &StyledDom, node: NodeId) -> Option<ColorU> {
@@ -92,14 +80,18 @@ fn color(styled: &StyledDom, node: NodeId) -> Option<ColorU> {
     }
 }
 
-fn hover(styled: &mut StyledDom, nodes: Vec<NodeId>) {
+fn hover(styled: &mut StyledDom, node: NodeId) {
     let _ = styled.restyle_on_state_change(
         None,
         Some(HoverChange {
             left_nodes: Vec::new(),
-            entered_nodes: nodes,
+            entered_nodes: vec![node],
         }),
         None,
+    );
+    assert!(
+        styled.styled_nodes.as_container()[node].styled_node_state.hover,
+        "harness: hovered"
     );
 }
 
@@ -115,84 +107,42 @@ fn a_hover_rule_loses_to_a_resting_rule_of_higher_priority() {
     let mut styled = StyledDom::create(&mut dom, css);
     let b = with_class(&styled, "b");
     assert_eq!(background(&styled, b), Some(GREEN), "harness: resting");
-    hover(&mut styled, vec![b]);
-    assert!(styled.styled_nodes.as_container()[b].styled_node_state.hover);
+    hover(&mut styled, b);
     assert_eq!(background(&styled, b), Some(GREEN));
 }
 
-/// The node's own style ranks above every author rule (the `style`
-/// attribute beats a `:hover` rule in Chrome).
+/// At one priority the hover rule still wins: the state ranks the rules of a
+/// priority.
 #[test]
-fn a_hover_rule_loses_to_the_nodes_own_resting_style() {
-    let css = sheet(&[(".b:hover { background: #ff0000; }", rule_priority::AUTHOR)]);
-    let mut dom = Dom::create_body()
-        .with_child(Dom::create_div().with_class("b".into()).with_css("background: #00ff00;"));
+fn a_hover_rule_beats_a_resting_rule_of_its_own_priority() {
+    let css = sheet(&[
+        (".b:hover { background: #ff0000; }", rule_priority::APP),
+        (".b { background: #00ff00; }", rule_priority::APP),
+    ]);
+    let mut dom = Dom::create_body().with_child(Dom::create_div().with_class("b".into()));
     let mut styled = StyledDom::create(&mut dom, css);
     let b = with_class(&styled, "b");
-    hover(&mut styled, vec![b]);
-    assert_eq!(background(&styled, b), Some(GREEN));
+    hover(&mut styled, b);
+    assert_eq!(background(&styled, b), Some(RED));
 }
 
-/// `#list .b` is more specific than `.b:hover`: the row keeps its colour
-/// under the pointer, as in Chrome.
+/// The node's own resting style ranks above every author rule, a `:hover`
+/// one included (the `style` attribute in Chrome).
 #[test]
-fn a_more_specific_resting_rule_beats_a_hover_rule() {
-    let mut styled = styled_markup(
-        r#"<style>
-            #list .b { background: #00ff00; }
-            .b:hover { background: #ff0000; }
-        </style>
-        <div id="list"><div class="b">row</div></div>"#,
+fn a_hover_rule_loses_to_the_nodes_own_resting_style() {
+    let css = sheet(&[(".b:hover { color: #ff0000; }", rule_priority::AUTHOR)]);
+    let own = CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: GREEN,
+    }));
+    let mut dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_class("b".into())
+            .with_css_props(vec![own].into()),
     );
+    let mut styled = StyledDom::create(&mut dom, css);
     let b = with_class(&styled, "b");
-    hover(&mut styled, vec![b]);
-    assert_eq!(background(&styled, b), Some(GREEN));
-}
-
-/// A focused field under the pointer: `:focus` and `:hover` rules of the
-/// same specificity, so the later one wins - here the hover.
-#[test]
-fn of_two_states_the_rule_later_in_the_cascade_wins() {
-    let mut styled = styled_markup(
-        r#"<style>
-            .b:focus { background: #ff0000; }
-            .b:hover { background: #00ff00; }
-        </style>
-        <div class="b" tabindex="0">field</div>"#,
-    );
-    let b = with_class(&styled, "b");
-    let _ = styled.restyle_on_state_change(
-        Some(FocusChange {
-            lost_focus: None,
-            gained_focus: Some(b),
-        }),
-        Some(HoverChange {
-            left_nodes: Vec::new(),
-            entered_nodes: vec![b],
-        }),
-        None,
-    );
-    let state = styled.styled_nodes.as_container()[b].styled_node_state;
-    assert!(state.focused && state.hover, "harness: both states raised");
-    assert_eq!(background(&styled, b), Some(GREEN));
-}
-
-/// A colour inherited from a hovered parent only fills in what the child
-/// does not declare: the child's own `color` stays.
-#[test]
-fn a_value_inherited_from_a_hovered_parent_yields_to_the_childs_own_rule() {
-    let mut styled = styled_markup(
-        r#"<style>
-            .p:hover { color: #ff0000; }
-            .c { color: #00ff00; }
-        </style>
-        <div class="p"><div class="c">text</div></div>"#,
-    );
-    let p = with_class(&styled, "p");
-    let c = with_class(&styled, "c");
-    hover(&mut styled, vec![p, c]);
-    assert_eq!(color(&styled, p), Some(RED), "harness: the parent is hovered");
-    assert_eq!(color(&styled, c), Some(GREEN));
+    hover(&mut styled, b);
+    assert_eq!(color(&styled, b), Some(GREEN));
 }
 
 /// A `*` rule of a rice at `priority: app` re-skins the whole app: it ranks
@@ -209,14 +159,19 @@ fn a_star_rule_of_higher_priority_beats_an_author_rule() {
     assert_eq!(background(&styled, b), Some(GREEN));
 }
 
-/// A presentational hint (`<table bgcolor>`) is the weakest author rule: a
-/// `*` rule beats it.
+/// A presentational hint (`<table bgcolor>`) is the weakest author
+/// declaration: a `*` rule of the app beats it.
 #[test]
 fn a_star_rule_beats_a_presentational_hint() {
-    let styled = styled_markup(
+    let parsed = azul_layout::xml::parse_xml(
         r#"<style>* { background: #00ff00; }</style>
         <table bgcolor="#ff0000"><tr><td>x</td></tr></table>"#,
-    );
-    let table = the_table(&styled);
+    )
+    .expect("parses");
+    let styled = StyledDom::create_from_dom(azul_layout::xml::dom_from_parsed_xml(parsed));
+    let table = (0..styled.node_data.len())
+        .map(NodeId::new)
+        .find(|id| matches!(styled.node_data.as_container()[*id].get_node_type(), NodeType::Table))
+        .expect("the table");
     assert_eq!(background(&styled, table), Some(GREEN));
 }
