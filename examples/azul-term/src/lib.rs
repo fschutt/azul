@@ -1989,4 +1989,15 @@ mod tests {
         st.select_tab(0);
         assert!(!st.tabs[0].rang, "shown, the mark goes");
     }
+
+    /// A blinking cursor (the program asked for one: DECSCUSR 1, 3, 5) is drawn and hidden in
+    /// turns about every half second, from the last input or output on; a steady one always.
+    #[test]
+    fn a_blinking_cursor_shows_and_hides_in_turns_from_the_last_activity() {
+        assert!(cursor_shown(false, 0) && cursor_shown(false, BLINK_TICKS));
+        assert!(cursor_shown(true, 0), "right after typing it shows");
+        assert!(cursor_shown(true, BLINK_TICKS - 1));
+        assert!(!cursor_shown(true, BLINK_TICKS));
+        assert!(cursor_shown(true, 2 * BLINK_TICKS));
+    }
 }
