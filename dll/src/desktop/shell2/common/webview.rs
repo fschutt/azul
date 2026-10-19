@@ -290,17 +290,7 @@ pub fn pump<W: PlatformWindow + ?Sized>(window: &mut W) -> ProcessEventResult {
         });
         result = result.max(window.content_change_result(tier));
     }
-    if matches!(
-        result,
-        ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows
-            | ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain
-    ) {
-        window
-            .get_common_mut()
-            .request_regeneration(RelayoutReason::RefreshDom);
-    }
+    request_rebuilds(window, result);
     result
 }
 
@@ -313,18 +303,34 @@ pub fn deliver_now<W: PlatformWindow + ?Sized>(
     report: &WebViewReport,
 ) -> ProcessEventResult {
     let result = deliver(window, report);
-    if matches!(
+    request_rebuilds(window, result);
+    result
+}
+
+/// The rebuilds the web views' callbacks asked for: this window's, and every other window's
+/// when a callback answered `RefreshDomAllWindows` or this window is a popup. A popup lays out
+/// the subtree its owner's layout put in its mailbox (`common::transient`), so rebuilding it
+/// alone lays out the old content again - the rule the event pass applies to a popup's clicks
+/// and keys.
+fn request_rebuilds<W: PlatformWindow + ?Sized>(window: &mut W, result: ProcessEventResult) {
+    if !matches!(
         result,
         ProcessEventResult::ShouldRegenerateDomCurrentWindow
             | ProcessEventResult::ShouldRegenerateDomAllWindows
             | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::UpdateHitTesterAndProcessAgain
     ) {
-        window
-            .get_common_mut()
-            .request_regeneration(RelayoutReason::RefreshDom);
+        return;
     }
-    result
+    window
+        .get_common_mut()
+        .request_regeneration(RelayoutReason::RefreshDom);
+    let rebuilt = result >= ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+    if result == ProcessEventResult::ShouldRegenerateDomAllWindows
+        || (rebuilt && super::transient::mailbox_of(window.get_current_window_state()).is_some())
+    {
+        window.request_regeneration_all_windows();
+    }
 }
 
 /// Dispatch one report at its view's node and answer it.
@@ -342,8 +348,14 @@ fn deliver<W: PlatformWindow + ?Sized>(
     if let Some(event) = event {
         let (r, update, any_prevented, _) = window.dispatch_events_propagated(&[event]);
         result = r;
-        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        match update {
+            Update::RefreshDomAllWindows => {
+                result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+            }
+            Update::RefreshDom => {
+                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            }
+            _ => {}
         }
         prevented = any_prevented;
     }
