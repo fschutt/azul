@@ -25,7 +25,24 @@
 //!
 //! 3. **Cut Flow**: Same as Copy + delete selection
 
-use crate::managers::selection::ClipboardContent;
+use crate::managers::selection::{ClipboardContent, OptionClipboardContent};
+
+/// Reads the system clipboard: installed by the shell at startup
+/// ([`set_system_clipboard_reader`]); the engine itself cannot reach the OS.
+pub type SystemClipboardReader = extern "C" fn() -> OptionClipboardContent;
+
+/// What the system clipboard holds now, outside a paste (a password manager
+/// clearing its own copy, a "Paste link" button): `None` when it holds
+/// nothing azul reads, or when no shell installed a reader.
+#[must_use]
+pub fn read_system_clipboard() -> Option<ClipboardContent> {
+    None
+}
+
+/// Installs the shell's clipboard reader ([`read_system_clipboard`]).
+pub fn set_system_clipboard_reader(reader: Option<SystemClipboardReader>) {
+    let _ = reader;
+}
 
 /// Manages clipboard content flow between system clipboard and application
 ///
@@ -811,5 +828,27 @@ mod autotest_generated {
             !m.has_copy_content(),
             "the copy slot must not leak into the next clipboard operation"
         );
+    }
+
+    extern "C" fn holds_a_link() -> OptionClipboardContent {
+        OptionClipboardContent::Some(ClipboardContent {
+            plain_text: AzString::from("https://azul.rs"),
+            ..Default::default()
+        })
+    }
+
+    /// A callback reads the clipboard without a paste through the reader the
+    /// shell installs: a password manager checks whether its copy is still
+    /// there before it clears it.
+    #[test]
+    fn the_system_clipboard_is_read_through_the_reader_the_shell_installs() {
+        set_system_clipboard_reader(Some(holds_a_link));
+        let read = read_system_clipboard();
+        set_system_clipboard_reader(None);
+        assert_eq!(
+            read.map(|c| c.plain_text.as_str().to_string()),
+            Some("https://azul.rs".to_string())
+        );
+        assert!(read_system_clipboard().is_none(), "no reader, nothing read");
     }
 }

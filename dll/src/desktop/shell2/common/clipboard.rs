@@ -854,4 +854,33 @@ mod tests {
         );
         assert!(drag_data_to_clipboard_content(&azul_core::drag::DragData::new()).is_none());
     }
+
+    /// A secret copied by a password manager is marked for the platform's
+    /// clipboard managers to leave alone, and a paste of it says so.
+    #[test]
+    fn a_concealed_copy_tells_clipboard_managers_to_leave_it_alone() {
+        let content = ClipboardContent {
+            plain_text: "hunter2".into(),
+            concealed: true,
+            ..Default::default()
+        };
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let natives: Vec<&str> = payload.items().iter().map(|i| i.native.as_str()).collect();
+        let marker = match Platform::native() {
+            Platform::MacOs => "org.nspasteboard.ConcealedType",
+            Platform::Windows => "ExcludeClipboardContentFromMonitorProcessing",
+            Platform::Unix => "x-kde-passwordManagerHint",
+        };
+        assert!(natives.contains(&marker), "{natives:?}");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert!(back.concealed);
+        assert_eq!(back.plain_text.as_str(), "hunter2");
+
+        let plain = clipboard_content_to_payload(&ClipboardContent {
+            plain_text: "hello".into(),
+            ..Default::default()
+        })
+        .expect("encodes");
+        assert!(!payload_to_clipboard_content(&plain).expect("decodes").concealed);
+    }
 }

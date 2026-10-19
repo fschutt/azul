@@ -92,6 +92,13 @@ pub struct ClipboardContent {
     pub image: OptionU8Vec,
     /// A link: a copied URL, a browser's address. `None` when there is none.
     pub link: OptionString,
+    /// A secret - a password, a one-time code: a copy marks it so clipboard
+    /// managers, history tools and cloud clipboards leave it alone
+    /// (`org.nspasteboard.ConcealedType` on macOS,
+    /// `ExcludeClipboardContentFromMonitorProcessing` on Windows,
+    /// `x-kde-passwordManagerHint` on Linux), and a paste says the source
+    /// marked it so.
+    pub concealed: bool,
 }
 
 impl_option!(
