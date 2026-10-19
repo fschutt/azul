@@ -1367,4 +1367,35 @@ mod tests {
         assert_eq!(feed.items[0].author, "Rosa Wolf");
         assert_eq!(feed.items[1].author, "desk@example.org");
     }
+
+    fn enclosure(url: &str, mime: &str) -> Enclosure {
+        Enclosure {
+            url: url.to_string(),
+            mime: mime.to_string(),
+            length: 0,
+        }
+    }
+
+    #[test]
+    fn a_podcast_items_episode_is_its_first_sound_file() {
+        let mut item = Item::default();
+        assert!(item.episode().is_none());
+        item.enclosures = vec![
+            enclosure("https://cdn.example/cover.jpg", "image/jpeg"),
+            enclosure("https://cdn.example/ep12.mp3?x=1", "audio/mpeg"),
+            enclosure("https://cdn.example/ep12.ogg", "audio/ogg"),
+        ];
+        assert_eq!(item.episode().map(|e| e.url.as_str()), Some("https://cdn.example/ep12.mp3?x=1"));
+        // A feed that says no type: the file's ending.
+        assert!(enclosure("https://cdn.example/show/ep3.m4a", "").is_sound());
+        assert!(enclosure("https://cdn.example/ep3.OPUS#t=1", "").is_sound());
+        assert!(!enclosure("https://cdn.example/notes.pdf", "").is_sound());
+        assert!(!enclosure("https://cdn.example/clip.mp4", "video/mp4").is_sound());
+    }
+
+    #[test]
+    fn an_enclosures_name_is_its_files_name() {
+        assert_eq!(enclosure("https://cdn.example/show/ep12%20final.mp3?x=1", "").name(), "ep12 final.mp3");
+        assert_eq!(enclosure("https://cdn.example/", "audio/mpeg").name(), "cdn.example");
+    }
 }
