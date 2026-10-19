@@ -1983,6 +1983,14 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
     }
 }
 
+/// The key a macOS keycode names in the user's keyboard layout, given the
+/// character that layout prints on the key without modifiers.
+#[must_use]
+pub fn macos_keycode_in_layout(keycode: u16, layout_char: Option<char>) -> Option<VirtualKeyCode> {
+    let _ = layout_char;
+    macos_keycode_to_virtual_key(keycode)
+}
+
 /// The Win32 `VK_*` codes [`win32_vkey_to_virtual_key`] matches on.
 ///
 /// Transcribed from `winuser.h` because that table is compiled on every
@@ -15657,6 +15665,46 @@ mod tests {
             macos_keycode_to_virtual_key(0x37)
         );
         assert_eq!(None, macos_keycode_to_virtual_key(0xFF));
+    }
+
+    /// A shortcut names what the key prints, not where it sits: Cmd+Z is the
+    /// key that prints "z". AZERTY prints z where a US keyboard has w (0x0D)
+    /// and w where it has z (0x06), QWERTZ trades z and y (0x10 and 0x06).
+    /// Read by position, Cmd+Z on a French keyboard closed the window
+    /// (Cmd+W), and on a German one it redid instead of undoing (Cmd+Y).
+    #[test]
+    fn on_a_french_or_german_keyboard_the_key_that_prints_z_is_z() {
+        assert_eq!(macos_keycode_in_layout(0x0D, Some('z')), Some(VirtualKeyCode::Z));
+        assert_eq!(macos_keycode_in_layout(0x06, Some('w')), Some(VirtualKeyCode::W));
+        assert_eq!(macos_keycode_in_layout(0x0C, Some('a')), Some(VirtualKeyCode::A));
+        assert_eq!(macos_keycode_in_layout(0x10, Some('z')), Some(VirtualKeyCode::Z));
+        assert_eq!(macos_keycode_in_layout(0x06, Some('y')), Some(VirtualKeyCode::Y));
+        // AZERTY's m sits where US has the semicolon, its comma where US has m.
+        assert_eq!(macos_keycode_in_layout(0x29, Some('m')), Some(VirtualKeyCode::M));
+        assert_eq!(macos_keycode_in_layout(0x2E, Some(',')), Some(VirtualKeyCode::Comma));
+    }
+
+    /// Where the layout prints no plain ASCII letter, digit or sign on a key,
+    /// the key keeps its place: AZERTY's top row prints & é " ' without
+    /// Shift and still is the digit row (as Windows reports it), and QWERTZ's
+    /// ö stays the key right of L.
+    #[test]
+    fn a_key_whose_layout_prints_no_ascii_sign_keeps_its_place() {
+        assert_eq!(macos_keycode_in_layout(0x12, Some('&')), Some(VirtualKeyCode::Key1));
+        assert_eq!(macos_keycode_in_layout(0x13, Some('é')), Some(VirtualKeyCode::Key2));
+        assert_eq!(macos_keycode_in_layout(0x29, Some('ö')), Some(VirtualKeyCode::Semicolon));
+        assert_eq!(macos_keycode_in_layout(0x00, None), Some(VirtualKeyCode::A));
+    }
+
+    /// Return, Tab, the arrows and the modifiers mean their place, whatever a
+    /// layout says about them.
+    #[test]
+    fn a_key_that_prints_no_character_never_follows_the_layout() {
+        assert_eq!(macos_keycode_in_layout(0x24, Some('z')), Some(VirtualKeyCode::Return));
+        assert_eq!(macos_keycode_in_layout(0x30, Some('q')), Some(VirtualKeyCode::Tab));
+        assert_eq!(macos_keycode_in_layout(0x37, Some('a')), Some(VirtualKeyCode::LWin));
+        assert_eq!(macos_keycode_in_layout(0x7B, Some('w')), Some(VirtualKeyCode::Left));
+        assert_eq!(macos_keycode_in_layout(0xFF, Some('z')), None);
     }
 
     /// The navigation cluster emits Private-Use-Area characters that the
