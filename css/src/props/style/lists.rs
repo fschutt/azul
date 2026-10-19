@@ -6,6 +6,7 @@ use core::fmt;
 #[cfg(feature = "codegen")]
 use crate::codegen::format::FormatAsRustCode;
 use crate::{
+    css::{BoxOrStatic, BoxOrStaticString},
     corety::AzString, props::formatter::PrintAsCssValue,
 };
 
@@ -18,7 +19,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
-#[allow(variant_size_differences)] // the size only matters inside `CssProperty`, which other string-holding properties already make this large
+#[allow(variant_size_differences)] // the string is already behind a pointer; any payload outweighs the keywords
 pub enum StyleListStyleType {
     None,
     #[default]
@@ -33,7 +34,8 @@ pub enum StyleListStyleType {
     UpperGreek,
     LowerAlpha,
     UpperAlpha,
-    String(AzString),
+    /// Behind a pointer, so the other variants' one byte is not padded to a whole string.
+    String(BoxOrStaticString),
 }
 
 impl PrintAsCssValue for StyleListStyleType {
@@ -71,7 +73,7 @@ impl FormatAsRustCode for StyleListStyleType {
         };
         if let Self::String(text) = self {
             return format!(
-                "StyleListStyleType::String(AzString::from_const_str({:?}))",
+                "StyleListStyleType::String(BoxOrStatic::heap(AzString::from_const_str({:?})))",
                 text.as_str()
             );
         }
@@ -422,7 +424,7 @@ pub fn parse_style_list_style_type(
         "lower-alpha" | "lower-latin" => Ok(StyleListStyleType::LowerAlpha),
         "upper-alpha" | "upper-latin" => Ok(StyleListStyleType::UpperAlpha),
         _ => parse_css_string(input)
-            .map(|text| StyleListStyleType::String(text.into()))
+            .map(|text| StyleListStyleType::String(BoxOrStatic::heap(text.into())))
             .ok_or(StyleListStyleTypeParseError::InvalidValue(input)),
     }
 }
@@ -1032,19 +1034,19 @@ mod string_marker_tests {
     fn a_css_string_is_a_marker_of_its_own() {
         assert_eq!(
             parse_style_list_style_type(r#""→ ""#).unwrap(),
-            StyleListStyleType::String("→ ".into())
+            StyleListStyleType::String(BoxOrStatic::heap("→ ".into()))
         );
         assert_eq!(
             parse_style_list_style_type(r"'\2605  '").unwrap(),
-            StyleListStyleType::String("\u{2605} ".into())
+            StyleListStyleType::String(BoxOrStatic::heap("\u{2605} ".into()))
         );
-        assert_eq!(format_counter(7, StyleListStyleType::String("- ".into())), "- ");
+        assert_eq!(format_counter(7, StyleListStyleType::String(BoxOrStatic::heap("- ".into()))), "- ");
     }
 
     #[test]
     fn a_string_marker_prints_and_reparses_as_itself() {
         for text in ["→ ", "say \"hi\"", "back\\slash", "two\nlines", ""] {
-            let ty = StyleListStyleType::String(text.into());
+            let ty = StyleListStyleType::String(BoxOrStatic::heap(text.into()));
             let printed = ty.print_as_css_value();
             assert_eq!(parse_style_list_style_type(&printed).unwrap(), ty, "{printed:?}");
         }

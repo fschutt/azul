@@ -49058,7 +49058,7 @@
                                 "LowerAlpha": {},
                                 "UpperAlpha": {},
                                 "String": {
-                                    "type": "String"
+                                    "type": "BoxOrStaticString"
                                 }
                             }
                         ],
