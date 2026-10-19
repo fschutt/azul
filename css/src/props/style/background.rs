@@ -1324,10 +1324,11 @@ impl PrintAsCssValue for BackgroundPositionVertical {
 #[allow(variant_size_differences)]
 // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
 // disparity accepted
-/// The `background-size` property: `contain`, `cover`, a width and a height,
-/// or `auto` on one axis or both - where `auto` follows the image's own
-/// proportions from the other axis, or is its own size (CSS Backgrounds 3
-/// s3.9).
+/// The `background-size` property (CSS Backgrounds 3 s3.9).
+///
+/// `contain`, `cover`, a width and a height, or `auto` on one axis or both -
+/// where `auto` follows the image's own proportions from the other axis, or
+/// is its own size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]

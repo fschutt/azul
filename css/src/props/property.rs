@@ -4815,10 +4815,10 @@ pub fn parse_combined_css_property(
             let reset = || {
                 vec![
                     CssProperty::FontVariantNumeric(CssPropertyValue::Exact(
-                        crate::props::basic::font::StyleFontVariantNumeric::NORMAL,
+                        StyleFontVariantNumeric::NORMAL,
                     )),
                     CssProperty::FontVariantCaps(CssPropertyValue::Exact(
-                        crate::props::basic::font::StyleFontVariantCaps::Normal,
+                        StyleFontVariantCaps::Normal,
                     )),
                 ]
             };
@@ -4831,13 +4831,13 @@ pub fn parse_combined_css_property(
             let mut caps = None;
             let mut other: Vec<String> = Vec::new();
             for word in words_outside_parentheses(trimmed) {
-                if let Ok(c) = crate::props::basic::font::parse_style_font_variant_caps(word) {
-                    if caps.is_some() || c == crate::props::basic::font::StyleFontVariantCaps::Normal
+                if let Ok(c) = parse_style_font_variant_caps(word) {
+                    if caps.is_some() || c == StyleFontVariantCaps::Normal
                     {
                         return Err(invalid());
                     }
                     caps = Some(c);
-                } else if crate::props::basic::font::parse_style_font_variant_numeric(word).is_ok()
+                } else if parse_style_font_variant_numeric(word).is_ok()
                     && !word.eq_ignore_ascii_case("normal")
                 {
                     numeric.push(word);
@@ -4855,9 +4855,9 @@ pub fn parse_combined_css_property(
                 return Err(invalid());
             }
             let numeric = if numeric.is_empty() {
-                crate::props::basic::font::StyleFontVariantNumeric::NORMAL
+                StyleFontVariantNumeric::NORMAL
             } else {
-                crate::props::basic::font::parse_style_font_variant_numeric(&numeric.join(" "))
+                parse_style_font_variant_numeric(&numeric.join(" "))
                     .map_err(|_| invalid())?
             };
             Ok(vec![
