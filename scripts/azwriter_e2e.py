@@ -4,10 +4,11 @@
     1. starts AzWriter on an empty, temporary data folder with --sample: the sample document opens,
        is saved as writer/<uuid>.md and spans two A4 pages (a page break), each page an editing
        host of the shared editor (#__azwriter_doc-page-<first block>);
-    2. the first page has the keyboard as it opens (its autofocus); types into the second block, saves (Ctrl/Cmd+S) and reads the FILE back;
+    2. the first page has the keyboard and a blinking caret as it opens (its autofocus); types into the second block, saves (Ctrl/Cmd+S) and reads the FILE back;
     3. undoes the typing with Ctrl/Cmd+Z (the editor's ONE history, not the engine's text undo),
        saves, and the file no longer has the text;
-    4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file;
+    4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file; then Enter at
+       the paragraph's end: the caret blinks at the new paragraph's start and typing lands there;
     5. exports a PDF (Ctrl/Cmd+P) into writer/exports/ and checks the bytes;
     6. opens File > Open (Ctrl/Cmd+O): the document is listed; Escape leaves it;
     7. types again and closes the window: the close guard asks "Save changes?"; Cancel keeps the
@@ -30,6 +31,7 @@ Run it through the capped runner (scripts/waves/tools/run_capped.sh) on a small 
 """
 
 import glob
+import json
 import os
 import re
 import sys
@@ -64,6 +66,18 @@ def saved_count(app, doc_id):
     return len([v for v in app.printed("AZWRITER_SAVED", r"[0-9a-f-]+") if v == doc_id])
 
 
+def caret(app):
+    """The window's caret (`get_cursor_state`): None without one, else its node, its byte and
+    whether its blink timer runs - a caret with no timer is never drawn again after its
+    first blink-off."""
+    answer = app.must("get_cursor_state")
+    data_ = answer.get("data") if isinstance(answer, dict) else None
+    value = data_.get("value") if isinstance(data_, dict) and "value" in data_ else data_
+    if not isinstance(value, dict) or not value.get("has_cursor"):
+        return None
+    return value.get("cursor") or None
+
+
 def save_and_wait(app, doc_id):
     before = saved_count(app, doc_id)
     app.key("s", primary=True)
@@ -96,7 +110,9 @@ def first_session(app, data, out):
         value = data_.get("value") if isinstance(data_, dict) and "value" in data_ else data_
         return ((value or {}).get("focused_node") or {}).get("selector") or ""
     app.until("the first page to take the keyboard", lambda: "doc-page-0" in focused())
-    app.log("the document opens with the caret in its first page")
+    app.until("the caret to blink in the first page",
+              lambda: (caret(app) or {}).get("blink_timer_active"))
+    app.log("the document opens with a blinking caret in its first page")
 
     # HOME fits a 1280 px window: the styles gallery shows a row of a few
     # styles (More shows all), so the Editing group's Undo is on screen.
@@ -132,6 +148,28 @@ def first_session(app, data, out):
         raise e.Failure("Ctrl/Cmd+2 made no heading:\n%s" % read(doc_file(data, doc_id)))
     app.key("z", primary=True)
     app.log("heading 2 and back")
+
+    # Enter at the end of a paragraph: a new paragraph, and the caret goes on blinking at its
+    # start, so the next letters land there without a click (the user once saw the caret gone
+    # after Enter).
+    app.click(BLOCK % 1)
+    app.key("end")
+    before_enter = caret(app)
+    app.key("return")
+    after_enter = app.until("a caret after Enter", lambda: caret(app))
+    if not after_enter.get("blink_timer_active"):
+        raise e.Failure("the caret after Enter does not blink: %s" % json.dumps(after_enter))
+    if before_enter and (after_enter.get("node_id"), after_enter.get("position")) == (
+            before_enter.get("node_id"), before_enter.get("position")):
+        raise e.Failure("Enter left the caret where it was: %s" % json.dumps(after_enter))
+    app.screenshot(os.path.join(out, "after-enter.png"))
+    app.must("text_input", text="NEWLINE")
+    app.frame(2)
+    save_and_wait(app, doc_id)
+    if not re.search(r"\n\nNEWLINE", read(doc_file(data, doc_id))):
+        raise e.Failure("the text typed after Enter is not a paragraph of its own:\n%s"
+                        % read(doc_file(data, doc_id)))
+    app.log("Enter makes a paragraph and the caret blinks at its start")
 
     # Export as PDF into the data tree.
     before = len(app.printed("AZWRITER_EXPORTED", r".+"))

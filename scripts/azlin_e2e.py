@@ -34,6 +34,11 @@ if not os.environ.get("AZLIN_CONFIG"):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# The backend an app starts on: headless by default. `run(..., --window)` sets "cpu", the
+# platform's real window drawn by azul's CPU renderer, for the proof runs that have to show
+# what a user sees; screenshots are then the OS's capture of the window.
+BACKEND = "headless"
+
 
 class Failure(Exception):
     pass
@@ -304,7 +309,7 @@ class App:
         self.out_path = os.path.join(logs, "%s.stdout" % tag)
         self.err_path = os.path.join(logs, "%s.stderr" % tag)
         env = dict(os.environ)
-        env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(port)})
+        env.update({"AZ_BACKEND": BACKEND, "AZ_DEBUG": str(port)})
         env.update(extra_env or {})
         command = [binary] + list(args)
         self.capped = bool(capped)
@@ -791,10 +796,13 @@ class App:
         # slides every moved node to its new place: AzSheets' Budget sample, shot mid-slide,
         # showed the grid's cell borders strewn over the empty rows.
         self.settle()
-        value = self.value("take_screenshot")
-        data = value.get("data") if isinstance(value, dict) else None
+        # A real window is shot as the OS composited it (what the user sees, web views
+        # included); headless, azul's own render is the picture.
+        op = "take_screenshot" if BACKEND == "headless" else "take_native_screenshot"
+        value = self.value(op)
+        data = value.get("data") if isinstance(value, dict) else value
         if not isinstance(data, str) or "base64," not in data:
-            raise Failure("take_screenshot returned no PNG: %s" % json.dumps(value)[:200])
+            raise Failure("%s returned no PNG: %s" % (op, json.dumps(value)[:200]))
         with open(path, "wb") as f:
             f.write(base64.b64decode(data.split("base64,", 1)[1]))
         self.log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
@@ -891,7 +899,12 @@ def run(tag, body, argv=None, default_port=8781, binary_name=None, binary_env=No
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--out")
     parser.add_argument("--keep", action="store_true", help="keep the data folder and logs")
+    parser.add_argument("--window", action="store_true",
+                        help="run the app in a real window (the CPU backend), not headless")
     args = parser.parse_args(argv)
+    if args.window:
+        global BACKEND
+        BACKEND = "cpu"
     logs = tempfile.mkdtemp(prefix="%s-e2e-" % tag)
     out = args.out or os.path.join(logs, "screenshots")
     os.makedirs(out, exist_ok=True)
