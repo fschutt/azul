@@ -1449,7 +1449,7 @@ mod forms {
                     children_arena: Vec::new(),
                     children_offsets: Vec::new(),
                     subtree_needs_intrinsic: Vec::new(),
-                },
+                }.into(),
                 calculated_positions: Vec::new(),
                 viewport: LogicalRect::zero(),
                 display_list: Arc::new(DisplayList::default()),

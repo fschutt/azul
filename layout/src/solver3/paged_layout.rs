@@ -406,7 +406,7 @@ where
         )?;
 
         // Generate display list from cached tree/positions
-        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {
@@ -474,7 +474,7 @@ where
     )?;
 
     // Get the layout tree and positions
-    let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+    let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
     let calculated_positions = &cache.calculated_positions;
 
     // Debug: log page layout info
@@ -590,7 +590,7 @@ where
     // = the plain interval algorithm).
     let break_input = page_breaks::PageBreakInput {
         display_list: &full_display_list,
-        layout_tree: cache.tree.as_ref(),
+        layout_tree: cache.tree.as_deref(),
         styled_dom: new_dom,
         table_headers: Some(&slicer_config.table_headers),
     };
@@ -842,7 +842,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
         debug_log!(ctx, "No changes, layout cache is clean");
-        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
 
         let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
         cache.scroll_ids = scroll_ids;
@@ -969,7 +969,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // --- Step 4: Update Cache ---
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
 
-    cache.tree = Some(new_tree);
+    cache.tree = Some(alloc::sync::Arc::new(new_tree));
     cache.previous_positions =
         std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
@@ -1245,7 +1245,7 @@ where
             .breaks
             .get(budget - 1)
             .map_or(info.total_content_height, |b| b.y);
-        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
         let spine = spine_path_at_y(tree, &cache.calculated_positions, section_styled, cut_y);
 
         let working_dom = working
@@ -2213,7 +2213,7 @@ pub fn pagination_to_dom_breaks(
     styled_dom: &StyledDom,
     pagination: &crate::solver3::page_breaks::PaginationInfo,
 ) -> Option<Vec<StructuralBreak>> {
-    let tree = cache.tree.as_ref()?;
+    let tree = cache.tree.as_deref()?;
     let positions = &cache.calculated_positions;
     Some(
         pagination
@@ -2760,7 +2760,11 @@ where
             resume,
         };
 
-        let tree = cache.tree.as_mut().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache
+            .tree
+            .as_mut()
+            .map(alloc::sync::Arc::make_mut)
+            .ok_or(LayoutError::InvalidTree)?;
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {

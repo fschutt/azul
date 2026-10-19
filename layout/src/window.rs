@@ -977,8 +977,9 @@ impl FrameReport {
 pub struct DomLayoutResult {
     /// The styled DOM that was laid out
     pub styled_dom: StyledDom,
-    /// The layout tree with computed sizes and positions
-    pub layout_tree: LayoutTree,
+    /// The layout tree with computed sizes and positions - the solver's
+    /// cached tree itself (`LayoutCache::tree`), shared, not a copy.
+    pub layout_tree: alloc::sync::Arc<LayoutTree>,
     /// Absolute positions of all nodes
     pub calculated_positions: solver3::PositionVec,
     /// The viewport used for this layout
@@ -6050,7 +6051,7 @@ impl LayoutWindow {
             &self.virtual_view_manager.materialized_sizes(),
         );
         layout_result.ok()?;
-        scratch_cache.tree.as_ref()?;
+        scratch_cache.tree.as_deref()?;
         Some(scratch_cache)
     }
 
@@ -6061,7 +6062,7 @@ impl LayoutWindow {
     /// needs 260 px, not the height of all its rows.
     fn scratch_extent(cache: &Solver3LayoutCache, styled_dom: &StyledDom) -> LogicalSize {
         use crate::solver3::getters::{get_overflow_x, get_overflow_y};
-        let Some(tree) = cache.tree.as_ref() else {
+        let Some(tree) = cache.tree.as_deref() else {
             return LogicalSize::zero();
         };
         let states = styled_dom.styled_nodes.as_container();
@@ -8041,7 +8042,7 @@ impl LayoutWindow {
         // compositors read these live values, so the correction is visible
         // in this very frame.
         if !self.skip_gpu_sync {
-            let tree = self.layout_cache.tree.as_ref();
+            let tree = self.layout_cache.tree.as_deref();
             let new_size = |node: NodeId| -> Option<(f32, f32)> {
                 let tree = tree?;
                 let idx = *tree.dom_to_layout.get(&node)?.first()?;
@@ -8070,7 +8071,7 @@ impl LayoutWindow {
                     dom_id,
                     DomLayoutResult {
                         styled_dom,
-                        layout_tree: tree,
+                        layout_tree: tree.into(),
                         calculated_positions: self.layout_cache.calculated_positions.clone(),
                         viewport,
                         display_list: Arc::new(DisplayList::default()),
@@ -8869,7 +8870,7 @@ impl LayoutWindow {
             dom_id,
             DomLayoutResult {
                 styled_dom,
-                layout_tree: tree,
+                layout_tree: tree.into(),
                 calculated_positions: self.layout_cache.calculated_positions.clone(),
                 viewport,
                 display_list,
@@ -17947,7 +17948,7 @@ impl LayoutWindow {
         let (layout_tree, positions): (&LayoutTree, &solver3::PositionVec) =
             if node_id.dom == DomId::ROOT_ID {
                 (
-                    self.layout_cache.tree.as_ref()?,
+                    self.layout_cache.tree.as_deref()?,
                     &self.layout_cache.calculated_positions,
                 )
             } else {
@@ -20100,7 +20101,7 @@ impl LayoutWindow {
                     if let Ok(dl) = solved {
                         z.retained.display_list = dl;
                         z.applied_sizes.insert(node, wants);
-                        if let Some(tree) = z.scratch_cache.tree.as_ref() {
+                        if let Some(tree) = z.scratch_cache.tree.as_deref() {
                             for (idx, tn) in tree.nodes.iter().enumerate() {
                                 if tn.dom_node_id == Some(node) {
                                     if let (Some(size), Some(pos)) = (
@@ -28813,7 +28814,7 @@ mod autotest_generated {
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),

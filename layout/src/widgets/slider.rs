@@ -845,7 +845,7 @@ mod autotest_generated {
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),
@@ -869,7 +869,7 @@ mod autotest_generated {
         dom_to_layout.insert(NodeId::new(1), vec![LayoutNodeId::new(1)]);
 
         let mut result = unlaid(styled_dom);
-        result.layout_tree.nodes = vec![
+        std::sync::Arc::make_mut(&mut result.layout_tree).nodes = vec![
             hot(0, track, None),
             hot(
                 1,
@@ -877,7 +877,7 @@ mod autotest_generated {
                 Some(0),
             ),
         ];
-        result.layout_tree.dom_to_layout = dom_to_layout;
+        std::sync::Arc::make_mut(&mut result.layout_tree).dom_to_layout = dom_to_layout;
         result.calculated_positions = vec![LogicalPosition::zero(), LogicalPosition::zero()];
         result
     }

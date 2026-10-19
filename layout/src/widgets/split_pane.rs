@@ -1257,7 +1257,7 @@ mod autotest_generated {
     fn layout_result(styled_dom: StyledDom, boxes: &[(usize, LogicalSize)]) -> DomLayoutResult {
         let mut lr = DomLayoutResult {
             styled_dom,
-            layout_tree: empty_layout_tree(),
+            layout_tree: empty_layout_tree().into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),
@@ -1265,11 +1265,11 @@ mod autotest_generated {
             scroll_id_to_node_id: HashMap::new(),
         };
         for (layout_index, (node_index, used)) in boxes.iter().enumerate() {
-            lr.layout_tree.dom_to_layout.insert(
+            std::sync::Arc::make_mut(&mut lr.layout_tree).dom_to_layout.insert(
                 NodeId::new(*node_index),
                 vec![LayoutNodeId::new(layout_index)],
             );
-            lr.layout_tree.nodes.push(LayoutNodeHot {
+            std::sync::Arc::make_mut(&mut lr.layout_tree).nodes.push(LayoutNodeHot {
                 box_props: PackedBoxProps::default(),
                 dom_node_id: Some(NodeId::new(*node_index)),
                 used_size: Some(*used),

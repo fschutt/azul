@@ -768,7 +768,7 @@ mod autotest_generated {
         let mut lr = layout_result(styled_dom);
         lr.calculated_positions = vec![LogicalPosition::zero(); lr.layout_tree.nodes.len()];
         for &(node_index, position, used_size) in boxes {
-            if let Some(node) = lr.layout_tree.nodes.get_mut(node_index) {
+            if let Some(node) = std::sync::Arc::make_mut(&mut lr.layout_tree).nodes.get_mut(node_index) {
                 node.used_size = used_size;
             }
             if let Some(slot) = lr.calculated_positions.get_mut(node_index) {
@@ -1441,7 +1441,7 @@ mod autotest_generated {
             &[(TARGET, pos(10.0, 20.0), Some(size(30.0, 40.0)))],
         );
         // A DOM node mapped to *no* layout box (can happen for display:none).
-        lr.layout_tree.dom_to_layout.insert(nid(TARGET), Vec::new());
+        std::sync::Arc::make_mut(&mut lr.layout_tree).dom_to_layout.insert(nid(TARGET), Vec::new());
         assert!(get_node_rect(dnid(0, TARGET), &window(lr)).is_none());
     }
 

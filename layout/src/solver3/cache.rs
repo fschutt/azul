@@ -504,6 +504,13 @@ impl OverridesOnlyStamp {
     }
 }
 
+/// `tree` as a pass's own tree: moved out of the `Arc` when nothing else
+/// holds it, copied when the window still holds the previous result.
+#[must_use]
+pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
+    alloc::sync::Arc::try_unwrap(tree).unwrap_or_else(|shared| (*shared).clone())
+}
+
 /// The persistent cache that holds the layout state between frames.
 // Independent per-pass state FLAGS, not a state machine to enum-ify: each
 // bool is set by a different stage and read by a different consumer.
@@ -511,7 +518,14 @@ impl OverridesOnlyStamp {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
-    pub tree: Option<LayoutTree>,
+    ///
+    /// Shared with the window's result for the DOM
+    /// (`DomLayoutResult::layout_tree`): handing the result a copy of every
+    /// node was a fixed cost of every pass. A pass takes it back as its own
+    /// with [`unshare`]: moved when the window dropped its result first (a
+    /// relayout of the same DOM does), copied only while the old result is
+    /// still held.
+    pub tree: Option<alloc::sync::Arc<LayoutTree>>,
     /// One-shot latch: the next `layout_document` call is a RESIZE-ONLY
     /// relayout of the SAME `StyledDom` object (set by the dll's
     /// `incremental_relayout_for_resize`, consumed unconditionally at entry).
@@ -1528,7 +1542,7 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     //     size; reconciliation merely decides what that pass may REUSE (shaped runs, intrinsic
     //     widths), not whether it runs.
     let viewport_resized = cache.viewport.is_none_or(|v| v.size != viewport.size);
-    let old_tree = cache.tree.as_ref();
+    let old_tree = cache.tree.as_deref();
 
     if viewport_resized {
         recon_result.layout_roots.insert(0); // Root is always index 0

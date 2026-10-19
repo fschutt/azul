@@ -2669,7 +2669,7 @@ mod autotest_generated {
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions,
             viewport: LogicalRect::zero(),
             display_list: std::sync::Arc::new(DisplayList {

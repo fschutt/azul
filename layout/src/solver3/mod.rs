@@ -811,7 +811,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Every path below leaves the tree laid out for this pass's overlay.
     cache.laid_out_with_overlay = overlay_shapes_layout;
     let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
-        && cache.tree.as_ref().is_some_and(|t| {
+        && cache.tree.as_deref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
                 .is_none_or(|(max_id, _)| max_id.index() < dom_len_for_hint)
@@ -826,7 +826,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cache.last_reconcile_was_skipped = true;
         // The one-shot diff is spent either way.
         cache.dom_diff_clean = None;
-        let tree = cache.tree.take().expect("checked is_some above");
+        let tree = cache::unshare(cache.tree.take().expect("checked is_some above"));
         // DL-patching input: the sizes the PREVIOUS pass computed — the
         // layout pass below overwrites used_size in place (same tree
         // object), so this is the only moment they can be captured.
@@ -850,7 +850,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // DL-patching input for the STRUCTURE-PRESERVED case (a text edit):
         // the sizes the previous pass computed, captured before reconcile
         // consumes the old tree.
-        if let Some(t) = cache.tree.as_ref() {
+        if let Some(t) = cache.tree.as_deref() {
             cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
         }
         let dom_diff_clean = cache.dom_diff_clean.take();
@@ -983,7 +983,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // the window read it (a reconciled pass left the cache's own
             // tree in place).
             if cache.last_reconcile_was_skipped {
-                cache.tree = Some(*new_tree);
+                cache.tree = Some(alloc::sync::Arc::from(new_tree));
             }
             return Ok(dl);
         }
@@ -1177,7 +1177,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // through to the default (empty, i.e. dirty) entry.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
-    if let Some(old_tree) = cache.tree.as_ref() {
+    if let Some(old_tree) = cache.tree.as_deref() {
         let mut remapped = cache::LayoutCacheMap::default();
         remapped
             .entries
@@ -1323,7 +1323,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // work (the census is load-bearing — tests assert on it).
         cache.last_intrinsic_dirty = 0;
         cache.last_reconcile_reused = recon_result.reused_nodes;
-        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
 
         // Use cached scroll IDs if available, otherwise compute them
         let scroll_ids = if cache.scroll_ids.is_empty() {
@@ -2192,7 +2192,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         display_list.clone(),
     ));
 
-    cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
+    cache.tree = Some(alloc::sync::Arc::from(new_tree)); // [g56] unbox the heap LayoutTree back into the cache
     cache.previous_positions =
         std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
@@ -3830,7 +3830,7 @@ mod autotest_generated {
             if run(&mut cache, &dom, rect(0.0, 0.0, 800.0, 600.0)).is_err() {
                 return; // font-less environment quirk — nothing to assert
             }
-            let tree = cache.tree.as_ref().expect("tree must be cached");
+            let tree = cache.tree.as_deref().expect("tree must be cached");
             for (idx, node) in tree.nodes.iter().enumerate() {
                 if node.dom_node_id.is_none() {
                     continue;
