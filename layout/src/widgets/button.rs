@@ -301,6 +301,7 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
     if cfg!(feature = "web_lift") {
         return alloc::vec![
             CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+            CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
             CssPropertyWithConditions::simple(CssProperty::const_padding_top(
                 LayoutPaddingTop::const_px(6)
             )),
@@ -327,6 +328,11 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
     props.push(CssPropertyWithConditions::simple(
         CssProperty::const_justify_content(LayoutJustifyContent::Center),
     ));
+    // The text's centre is the button's, as a browser's UA sheet has it: the label inherits
+    // it, and a `text-align` an app sets on the button wins.
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_text_align(
+        StyleTextAlign::Center,
+    )));
     props.push(CssPropertyWithConditions::simple(
         CssProperty::const_align_items(LayoutAlignItems::Center),
     ));
@@ -472,20 +478,26 @@ static BUTTON_ICON_DEFAULT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// Build label style properties
-fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
+/// The label's style. The centre is the button's own (its container style says it, as a
+/// browser's UA sheet does on `<button>`), so the label inherits it and a `text-align` set on
+/// the button reaches the label; `declares_align` puts it on the label instead, for a
+/// container style the caller brought (which says nothing about the label's alignment).
+fn build_button_label_style(declares_align: bool) -> Vec<CssPropertyWithConditions> {
     // Use system UI font
     let font_family =
         StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(SystemFontType::Ui)]);
 
-    vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            14,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_family)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ]
+    let mut props = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(14),
+    ))];
+    if declares_align {
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_text_align(
+            StyleTextAlign::Center,
+        )));
+    }
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(font_family)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)));
+    props
 }
 
 impl Button {
@@ -615,7 +627,11 @@ impl Button {
         self.label_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_vec(build_button_label_style(
+                    self.container_style.is_some(),
+                ))
+            })
     }
 
     /// The image CSS this button renders with.
@@ -627,7 +643,11 @@ impl Button {
         self.image_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_vec(build_button_label_style(
+                    self.container_style.is_some(),
+                ))
+            })
     }
 
     /// The leading-icon CSS this button renders with.
@@ -1687,7 +1707,8 @@ mod autotest_generated {
 
     #[test]
     fn build_button_label_style_declares_the_four_documented_properties_unconditionally() {
-        let v = CssPropertyWithConditionsVec::from_vec(build_button_label_style());
+        // The label style of a caller's own container style: the centre is the label's.
+        let v = CssPropertyWithConditionsVec::from_vec(build_button_label_style(true));
         assert_eq!(
             v.len(),
             4,
@@ -1739,8 +1760,8 @@ mod autotest_generated {
     #[test]
     fn build_button_label_style_is_pure() {
         assert_eq!(
-            build_button_label_style(),
-            build_button_label_style(),
+            build_button_label_style(true),
+            build_button_label_style(true),
             "label style is not deterministic"
         );
     }
@@ -1799,7 +1820,7 @@ mod autotest_generated {
                 // Styles are the ones the builders produce, and the vec lengths are
                 // consistent with what was handed to `from_vec`.
                 let container = build_button_container_style(ty);
-                let label_style = build_button_label_style();
+                let label_style = build_button_label_style(false);
                 assert_eq!(
                     b.resolved_container_style().len(),
                     container.len(),
