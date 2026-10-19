@@ -58,13 +58,14 @@ import urllib.parse
 import urllib.request
 
 import azlin_claim
+import azlin_client
 import azlin_e2e as e2e
 from azlin_e2e import Failure
-from azdrive_e2e import Drive, I, select_item
-from azdrive_add_e2e import (add_id, drive_menu, hand_back, navigate, navigation_to,
-                             new_drive_encrypted, open_dialog, other_profile, pay_id,
-                             pending_checkouts, popover_of, side_drive, the_view, wait_closed,
-                             webviews)
+from azdrive_e2e import Drive, I, open_item, select_item
+from azdrive_add_e2e import (add_id, drive_menu, hand_back, keyring_entries, navigate,
+                             navigation_to, new_drive_encrypted, open_dialog, other_profile,
+                             pay_id, pending_checkouts, popover_of, side_drive, the_view,
+                             wait_closed, webviews)
 
 # The cardholder typed in the popover; the sandbox's test cards (its page lists them).
 NAME = "Erika Example"
@@ -117,6 +118,38 @@ def make_upload(documents, upload_mb, small_files):
         with open(os.path.join(documents, folder, sub, "note-%02d.txt" % i), "wb") as f:
             f.write(("note %d of the full system run\n" % i).encode() * (i + 1))
     return big, folder
+
+
+PACK = "fullsim-pack"
+
+
+def make_pack(documents, count):
+    """Documents/fullsim-pack/keep/ and drop/: `count` small text files in all, 20 bytes to 4 KB
+    each - what an encrypted Azlin drive packs into pack objects instead of an object a file."""
+    root = os.path.join(documents, PACK)
+    for half in ("keep", "drop"):
+        os.makedirs(os.path.join(root, half))
+    for i in range(count):
+        half = "keep" if i % 2 == 0 else "drop"
+        size = 20 + (i * 7919) % 4000
+        line = ("small file %d of the pack proof\n" % i).encode()
+        with open(os.path.join(root, half, "n%05d.txt" % i), "wb") as f:
+            f.write((line * (size // len(line) + 1))[:size])
+
+
+def bucket_objects(drives_file, keyring_file, drive_id):
+    """(key, size) of every object in the drive's bucket, listed with the session AzDrive keeps
+    for it (its keyring file)."""
+    with open(drives_file, "r", encoding="utf-8") as f:
+        entry = next(e for e in json.load(f)["drives"] if e["id"] == drive_id)
+    location = entry["location"]
+    session = json.loads(keyring_entries(keyring_file)["azul-storage/s3/" + drive_id])
+    bundle = {"drive": {"id": drive_id, "location": {"bucket": location["bucket"],
+                                                     "endpoint": location["endpoint"],
+                                                     "region": location.get("region")}},
+              "credentials": {k: session[k] for k in
+                              ("access_key_id", "secret_access_key", "session_token")}}
+    return azlin_client.Bucket(bundle).list("")[0]
 
 
 def copy_between(app, source_click, source_listed, names, target_click, target_listed,
@@ -298,6 +331,73 @@ def real_page_pays(app, popover, sandbox, out):
     return last4["url"].rsplit("=", 1)[-1]
 
 
+def pack_delete_half(app, drive_id, result):
+    """The pack proof's delete: the drive's fullsim-pack/drop/ (half of the small files) goes
+    for good, which leaves their packs sparse or empty."""
+    drive = re.escape(drive_id)
+    app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % drive,
+              lambda: app.click(selector=side_drive(drive_id)))
+    app.after("the pack folder", "AZDRIVE_LISTED", r"%s %s/ 2" % (drive, PACK),
+              lambda: open_item(app, PACK))
+    app.after("drop selected", "AZDRIVE_SELECTED", r"1 .*drop/?", lambda: select_item(app, "drop"))
+    windows = len(app.window_ids())
+    app.key("delete")
+    app.until("the delete's question", lambda: len(app.window_ids()) > windows)
+    gone = app.after("the delete", "AZDRIVE_DELETED", r"\d+",
+                     lambda: e2e.click_dialog_button(app, "Delete", closes=True))
+    result["pack_deleted"] = int(gone)
+    log("6p. drop/ deleted for good from %s (%s items)" % (drive_id, gone))
+
+
+def pack_after_maintenance(binary, switches, env, home, args, logs, drive_id, uploaded, result):
+    """The pack proof's end: the second computer starts again (its first idle minute runs a
+    maintenance round of the drive's index: sparse packs repacked, emptied ones retired), then
+    copies the drive's fullsim-pack/keep/ into Documents/after-delete/: every kept file reads
+    back byte for byte."""
+    keyring_file = env["AZ_KEYRING_FILE"]
+    drives_file = switches[switches.index("--drives") + 1]
+    before = {k for k, _ in bucket_objects(drives_file, keyring_file, drive_id)}
+    target = os.path.join(home, "Documents", "after-delete")
+    os.makedirs(target)
+    app = start_app("azdrive-second-again", binary, switches, args.debug_port + 1, logs,
+                    args.timeout, env, False)
+    try:
+        log("6q. the second computer started again: %d s for its maintenance round"
+            % args.maintain_wait)
+        time.sleep(args.maintain_wait)
+        if app.printed("AZDRIVE_MAINTAIN_STOPPED", r".+"):
+            raise Failure("the maintenance round stopped: %s"
+                          % app.printed("AZDRIVE_MAINTAIN_STOPPED", r".+"))
+        after = {k for k, _ in bucket_objects(drives_file, keyring_file, drive_id)}
+        result["bucket_after_maintenance"] = {"objects": len(after), "new": len(after - before),
+                                              "gone": len(before - after)}
+        drive = re.escape(drive_id)
+        app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % drive,
+                  lambda: app.click(selector=side_drive(drive_id)))
+        app.after("the pack folder", "AZDRIVE_LISTED", r"%s %s/ 1" % (drive, PACK),
+                  lambda: open_item(app, PACK))
+        app.after("keep selected", "AZDRIVE_SELECTED", r"1 .*keep/?", lambda: select_item(app, "keep"))
+        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
+        app.after("Documents", "AZDRIVE_LISTED", r"home Documents/ \d+",
+                  lambda: app.click(selector="#" + I("side-fav-documents")))
+        app.after("after-delete", "AZDRIVE_LISTED", r"home Documents/after-delete/ 0",
+                  lambda: open_item(app, "after-delete"))
+        done = app.count("AZDRIVE_TRANSFER", r"\d+ done \d+")
+        app.key("v", primary=True)
+        app.until("the kept files copied", lambda: app.count(
+            "AZDRIVE_TRANSFER", r"\d+ done \d+") > done)
+    finally:
+        app.stop()
+    kept = {k: v for k, v in uploaded.items() if k.startswith(PACK + "/keep/")}
+    back = {os.path.join(PACK, k): v for k, v in
+            tree_digests(target).items()}
+    if back != kept:
+        raise Failure("after the delete and the maintenance round %d of %d kept files read back "
+                      "the same" % (sum(1 for k in kept if back.get(k) == kept[k]), len(kept)))
+    log("6r. after the delete and a maintenance round (%s) the %d kept files read back byte "
+        "for byte" % (result["bucket_after_maintenance"], len(kept)))
+
+
 def run(args, logs):
     binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     out = args.out or os.path.join(logs, "shots")
@@ -306,6 +406,10 @@ def run(args, logs):
     documents = os.path.join(home, "Documents")
     os.makedirs(documents)
     big, folder = make_upload(documents, args.upload_mb, args.small_files)
+    tops = [big, folder]
+    if args.pack_files:
+        make_pack(documents, args.pack_files)
+        tops.append(PACK)
     uploaded = tree_digests(documents)
     drives_file = os.path.join(logs, "config", "drives.json")
     keyring_file = os.path.join(logs, "keyring.json")
@@ -411,13 +515,23 @@ def run(args, logs):
         if args.during_upload:
             during = lambda: run_hook("during the upload", args.during_upload, result)
         copy_between(app, lambda: app.click(selector="#" + I("side-fav-documents")),
-                     r"home Documents/ \d+", [big, folder],
+                     r"home Documents/ \d+", tops,
                      lambda: app.click(selector=side_drive(drive_id)),
                      r"%s / \d+" % re.escape(drive_id), during=during)
-        app.after("F5", "AZDRIVE_LISTED", r"%s / 2" % re.escape(drive_id), lambda: app.key("f5"))
+        app.after("F5", "AZDRIVE_LISTED", r"%s / %d" % (re.escape(drive_id), len(tops)),
+                  lambda: app.key("f5"))
         shot(app, os.path.join(out, "06-uploaded.png"), args.window)
-        log("5. %s and %s/ (%d files in all) copied into %s"
-            % (big, folder, len(uploaded), drive_id))
+        log("5. %s (%d files in all) copied into %s" % (", ".join(tops), len(uploaded), drive_id))
+        if args.pack_files:
+            # An encrypted drive packs small files: far fewer objects than files.
+            objects = bucket_objects(drives_file, keyring_file, drive_id)
+            result["bucket_after_upload"] = {"objects": len(objects),
+                                             "bytes": sum(n for _, n in objects)}
+            if len(objects) * 10 > args.pack_files:
+                raise Failure("%d small files became %d objects: they were not packed"
+                              % (args.pack_files, len(objects)))
+            log("5p. %d small files are %d objects in the bucket (packed)"
+                % (args.pack_files, len(objects)))
         if args.after_upload:
             # The stack changes under the running AzDrive (a node restarted): the drive lists
             # again and takes one more file.
@@ -430,7 +544,7 @@ def run(args, logs):
                          r"home Documents/ \d+", [late],
                          lambda: app.click(selector=side_drive(drive_id)),
                          r"%s / \d+" % re.escape(drive_id))
-            app.after("F5", "AZDRIVE_LISTED", r"%s / 3" % re.escape(drive_id),
+            app.after("F5", "AZDRIVE_LISTED", r"%s / %d" % (re.escape(drive_id), len(tops) + 1),
                       lambda: app.key("f5"))
             log("5b. after the step AzDrive listed %s again and copied %s into it"
                 % (drive_id, late))
@@ -469,12 +583,14 @@ def run(args, logs):
         popup.text_input("#__azdrive_unlock_code", recovery)
         popup.click_exact("Unlock")
         second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
-        names = [big, folder] + (["after-the-step.txt"] if args.after_upload else [])
+        names = tops + (["after-the-step.txt"] if args.after_upload else [])
         copy_between(second, lambda: second.click(selector=side_drive(drive_id)),
                      r"%s / \d+" % re.escape(drive_id), names,
                      lambda: second.click(selector="#" + I("side-fav-documents")),
                      r"home Documents/ \d+")
         shot(second, os.path.join(out, "07-second-computer.png"), False)
+        if args.pack_files:
+            pack_delete_half(second, drive_id, result)
     finally:
         second.stop()
     downloaded = tree_digests(os.path.join(other_home, "Documents"))
@@ -486,6 +602,9 @@ def run(args, logs):
     log("6. A second profile picked %s up with the claim code, unlocked it with the recovery "
         "code and copied %d files back: identical bytes" % (drive_id, len(downloaded)))
     result["downloaded"] = downloaded
+    if args.pack_files:
+        pack_after_maintenance(binary, other_switches, other_env, other_home, args, logs,
+                               drive_id, uploaded, result)
     with open(os.path.join(logs, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
     return True
@@ -509,6 +628,13 @@ def main():
     parser.add_argument("--upload-mb", type=int, default=5)
     parser.add_argument("--small-files", type=int, default=24)
     parser.add_argument("--window", action="store_true", help="real windows, not headless")
+    parser.add_argument("--pack-files", type=int, default=0,
+                        help="the pack proof: this many small files (half in keep/, half in "
+                        "drop/) uploaded, read back on the second computer, drop/ deleted, a "
+                        "maintenance round, keep/ read back again")
+    parser.add_argument("--maintain-wait", type=int, default=120,
+                        help="seconds the restarted second computer is left idle for its "
+                        "maintenance round (the pack proof)")
     parser.add_argument("--during-upload", help="a shell command run while the big file uploads "
                         "(a storage fault)")
     parser.add_argument("--after-upload", help="a shell command run after the upload (a node "
