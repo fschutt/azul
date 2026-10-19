@@ -235,42 +235,58 @@ impl LabelPlacement {
         self.forget(now);
         let world_px = view.world_px();
 
-        // Who is who: each candidate takes the nearest remembered label of
-        // its kind and text, in a fixed order (by identity, then place), so
-        // the outcome does not depend on the order the tiles came in. The
-        // place is the one in the copy of the world the label is drawn in.
+        // Who is who: a remembered label and a candidate of its kind and text
+        // are the same label when they stand close, and the closest pairs
+        // are made first. Letting each candidate take its nearest in turn
+        // instead hands the slot of a shown label to whichever candidate
+        // comes first: two labels of one name a few pixels apart (a country
+        // and a continent) then swap entries, and the shown one comes back as
+        // a new label, fading in, every time the other's fade ends. Equal
+        // distances go to the candidate offering the very label the entry
+        // showed, then by place, so the outcome never depends on the order
+        // the tiles came in. The place is the one in the copy of the world
+        // the label is drawn in.
         let identities: Vec<u64> = candidates.iter().map(|c| label_identity(c.label)).collect();
         let worlds: Vec<(f64, f64)> = candidates.iter().map(|c| view.drawn_copy(c)).collect();
         let mut by_identity: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
         for (index, entry) in self.entries.iter().enumerate() {
             by_identity.entry(entry.identity).or_default().push(index);
         }
-        let mut claimed = alloc::vec![false; self.entries.len()];
-        let mut matched: Vec<Option<usize>> = alloc::vec![None; candidates.len()];
         let mut by_place: Vec<usize> = (0..candidates.len()).collect();
         by_place.sort_by(|&a, &b| {
             identities[a]
                 .cmp(&identities[b])
                 .then_with(|| world_key(worlds[a]).cmp(&world_key(worlds[b])))
         });
-        for &c in &by_place {
+        // (distance px, another label than the entry showed, place rank,
+        // candidate, entry) for every pair close enough to be one label.
+        let mut pairs: Vec<(f64, bool, usize, usize, usize)> = Vec::new();
+        for (rank, &c) in by_place.iter().enumerate() {
             let Some(list) = by_identity.get(&identities[c]) else {
                 continue;
             };
-            let mut best: Option<(f64, usize)> = None;
             for &e in list {
-                if claimed[e] {
-                    continue;
-                }
                 let d = world_distance(self.entries[e].world, worlds[c]) * world_px;
-                if d <= SAME_LABEL_PX && best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, e));
+                if d <= SAME_LABEL_PX {
+                    let other = self.entries[e].label != *candidates[c].label;
+                    pairs.push((d, other, rank, c, e));
                 }
             }
-            if let Some((_, e)) = best {
-                claimed[e] = true;
-                matched[c] = Some(e);
+        }
+        pairs.sort_by(|a, b| {
+            a.0.total_cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.4.cmp(&b.4))
+        });
+        let mut claimed = alloc::vec![false; self.entries.len()];
+        let mut matched: Vec<Option<usize>> = alloc::vec![None; candidates.len()];
+        for &(_, _, _, c, e) in &pairs {
+            if claimed[e] || matched[c].is_some() {
+                continue;
             }
+            claimed[e] = true;
+            matched[c] = Some(e);
         }
 
         // The order labels claim space in: rank, then the ones holding a
