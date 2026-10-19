@@ -36,6 +36,7 @@ pub(crate) fn clipboard(html: &str, plain: &str) -> ClipboardContent {
         plain_text: plain.into(),
         styled_runs: StyledTextRunVec::from_const_slice(&[]),
         html: OptionString::Some(html.into()),
+        ..Default::default()
     }
 }
 
@@ -169,6 +170,7 @@ fn a_paste_without_html_inserts_the_plain_text() {
         plain_text: "X".into(),
         styled_runs: StyledTextRunVec::from_const_slice(&[]),
         html: OptionString::None,
+        ..Default::default()
     };
     let _ = editor.lw.paste_clipboard_content(&content);
     let _ = editor.lw.apply_text_changeset();

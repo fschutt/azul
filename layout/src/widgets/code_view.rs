@@ -3203,6 +3203,7 @@ fn to_clipboard(info: &mut CallbackInfo, text: &str) {
         plain_text: AzString::from(text),
         styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
         html: azul_css::OptionString::None,
+        ..Default::default()
     });
 }
 

@@ -23,7 +23,7 @@
 //! published, because it also emits the matching RTF and the `CF_HTML`
 //! wrapper Windows needs. This stays as public FFI API.
 
-use azul_css::{impl_option, AzString, OptionString};
+use azul_css::{impl_option, AzString, OptionString, OptionU8Vec, StringVec};
 
 // Clipboard Content Extraction
 
@@ -63,8 +63,9 @@ azul_css::impl_vec_debug!(StyledTextRun, StyledTextRunVec);
 azul_css::impl_vec_clone!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor);
 azul_css::impl_vec_partialeq!(StyledTextRun, StyledTextRunVec);
 
-/// Clipboard content with both plain text and styled (HTML) representation
-#[derive(Debug, Clone, PartialEq)]
+/// What the clipboard carries: text (plain, styled runs, HTML), files, an
+/// image and a link - every flavour the source offered that azul reads.
+#[derive(Debug, Clone, PartialEq, Default)]
 #[repr(C)]
 pub struct ClipboardContent {
     /// Plain text representation (UTF-8)
@@ -79,6 +80,18 @@ pub struct ClipboardContent {
     /// a copy that sets it publishes it as the HTML flavour. `None` when the
     /// source offered no HTML.
     pub html: OptionString,
+    /// Files on disk, as absolute paths: what Finder, Explorer or a file
+    /// manager copied, and what a copy of files publishes (one pasteboard
+    /// item per file on macOS, `CF_HDROP` on Windows, `text/uri-list` on
+    /// Linux) so a file manager pastes them. Empty when there are none.
+    pub files: StringVec,
+    /// An image, as the encoded file the source offered (PNG, JPEG, GIF or
+    /// TIFF; a Windows bitmap arrives as PNG): what a screenshot or a
+    /// "Copy image" put there. A copy publishes these bytes as they are, so
+    /// hand it PNG. `None` when there is none.
+    pub image: OptionU8Vec,
+    /// A link: a copied URL, a browser's address. `None` when there is none.
+    pub link: OptionString,
 }
 
 impl_option!(
@@ -230,6 +243,7 @@ impl ClipboardExtract {
             plain_text: self.plain.into(),
             styled_runs: runs.into(),
             html: OptionString::None,
+            ..Default::default()
         })
     }
 }
@@ -326,6 +340,7 @@ mod autotest_generated {
             plain_text: AzString::from(""),
             styled_runs: runs.into(),
             html: OptionString::None,
+            ..Default::default()
         }
     }
 
@@ -410,6 +425,7 @@ mod autotest_generated {
             plain_text: AzString::from("SHOULD-NOT-APPEAR"),
             styled_runs: Vec::<StyledTextRun>::new().into(),
             html: OptionString::None,
+            ..Default::default()
         };
         assert_eq!(c.to_html(), "<div></div>");
     }

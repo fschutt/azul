@@ -3250,6 +3250,7 @@ fn copy_selection(mut data: RefAny, mut info: CallbackInfo, kind: CellGridEventK
         plain_text: AzString::from(cells_to_tsv(&rows)),
         styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
         html: Some(AzString::from(cells_to_html(&rows))).into(),
+        ..Default::default()
     });
     let mut e = CellGridEvent::create(kind, grid.view.clone());
     e.range = range;

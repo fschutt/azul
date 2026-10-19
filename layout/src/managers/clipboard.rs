@@ -144,6 +144,7 @@ mod autotest_generated {
             plain_text: AzString::from(text),
             styled_runs: Vec::<StyledTextRun>::new().into(),
             html: OptionString::None,
+            ..Default::default()
         }
     }
 
@@ -172,6 +173,7 @@ mod autotest_generated {
             plain_text: AzString::from(text),
             styled_runs: runs.into(),
             html: OptionString::None,
+            ..Default::default()
         }
     }
 

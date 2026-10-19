@@ -26944,6 +26944,7 @@ impl LayoutWindow {
                     plain_text: pasted.into(),
                     styled_runs: StyledTextRunVec::from_const_slice(&[]),
                     html: azul_css::OptionString::None,
+                    ..Default::default()
                 },
                 position: CursorPosition::Uninitialized,
                 new_cursor: CursorPosition::Uninitialized,

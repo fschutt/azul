@@ -4143,6 +4143,7 @@ fn copy_rows(t: &DataTable, mut info: CallbackInfo) -> Update {
         plain_text: AzString::from(tsv.clone()),
         styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
         html: Some(AzString::from(html)).into(),
+        ..Default::default()
     });
     let mut e = DataTableEvent::create(DataTableEventKind::Copy, t.view.clone());
     e.text = AzString::from(tsv);

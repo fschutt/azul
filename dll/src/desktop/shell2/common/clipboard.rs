@@ -306,6 +306,7 @@ pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<Clipbo
             plain_text: item.plain_text()?.into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
             html: azul_css::OptionString::None,
+            ..Default::default()
         },
     };
     // The markup NEXT to the runs: paragraphs, lists, quotes and links have
@@ -351,6 +352,7 @@ fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
         plain_text: rich.as_str().into(),
         styled_runs: runs.into(),
         html: azul_css::OptionString::None,
+        ..Default::default()
     }
 }
 
@@ -383,6 +385,7 @@ mod tests {
             plain_text: "boldplain".into(),
             styled_runs: vec![styled("bold", true, 16.0), styled("plain", false, 16.0)].into(),
             html: azul_css::OptionString::None,
+            ..Default::default()
         };
         let payload = clipboard_content_to_payload(&content).expect("encodes");
         let back = payload_to_clipboard_content(&payload).expect("decodes");
@@ -411,6 +414,7 @@ mod tests {
             plain_text: "the real text".into(),
             styled_runs: vec![styled("other", false, 0.0)].into(),
             html: azul_css::OptionString::None,
+            ..Default::default()
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "the real text"),
@@ -440,6 +444,7 @@ mod tests {
             plain_text: "just text".into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
             html: azul_css::OptionString::None,
+            ..Default::default()
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "just text"),
@@ -472,6 +477,7 @@ mod tests {
             plain_text: "a\nb".into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
             html: azul_css::OptionString::Some("<p>a</p><p>b</p>".into()),
+            ..Default::default()
         };
         let payload = clipboard_content_to_payload(&content).expect("encodes");
         let back = payload_to_clipboard_content(&payload).expect("decodes");
@@ -480,5 +486,101 @@ mod tests {
             back.html.as_ref().map(|h| h.as_str()),
             Some("<p>a</p><p>b</p>")
         );
+    }
+
+    /// Three files copied in Finder are three pasteboard items, one
+    /// `public.file-url` each: a paste of them carries all three paths (the
+    /// URLs decoded), whatever else it carries.
+    #[test]
+    fn files_copied_in_finder_paste_as_their_paths() {
+        let mut payload = ClipboardPayload::new(Platform::MacOs);
+        for (i, url) in [
+            "file:///Users/me/Pictures/a%20b.png",
+            "file:///Users/me/notes.txt",
+            "file:///Volumes/Disk/c.pdf",
+        ]
+        .iter()
+        .enumerate()
+        {
+            payload.push(rich_clipboard::ClipboardItem::in_item(
+                i,
+                "public.file-url",
+                url.as_bytes().to_vec(),
+            ));
+        }
+        let content = payload_to_clipboard_content(&payload).expect("a paste of files");
+        let files: Vec<&str> = content.files.as_ref().iter().map(|f| f.as_str()).collect();
+        assert_eq!(
+            files,
+            ["/Users/me/Pictures/a b.png", "/Users/me/notes.txt", "/Volumes/Disk/c.pdf"]
+        );
+    }
+
+    /// A copy of files publishes them as files - so Finder, Explorer or a file
+    /// manager pastes them - and reads back as the same paths.
+    #[test]
+    fn a_copy_of_files_reads_back_as_the_same_files() {
+        let content = ClipboardContent {
+            plain_text: "a b.png\nnotes.txt".into(),
+            files: vec![
+                azul_css::AzString::from("/Users/me/a b.png"),
+                azul_css::AzString::from("/Users/me/notes.txt"),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        let files: Vec<&str> = back.files.as_ref().iter().map(|f| f.as_str()).collect();
+        assert_eq!(files, ["/Users/me/a b.png", "/Users/me/notes.txt"]);
+        assert_eq!(back.plain_text.as_str(), "a b.png\nnotes.txt");
+    }
+
+    /// A screenshot copied to the clipboard is an image and nothing else: the
+    /// paste carries its encoded bytes as the source offered them.
+    #[test]
+    fn an_image_on_the_pasteboard_pastes_as_its_bytes() {
+        let png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+        let payload = ClipboardPayload::new(Platform::MacOs).with("public.png", png.clone());
+        let content = payload_to_clipboard_content(&payload).expect("a paste of an image");
+        assert_eq!(content.image.as_ref().map(|i| i.as_ref().to_vec()), Some(png));
+    }
+
+    /// A copy of an image publishes it as an image, and it reads back as the
+    /// same bytes.
+    #[test]
+    fn a_copy_of_an_image_reads_back_as_the_same_image() {
+        let png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 9, 9];
+        let content = ClipboardContent {
+            image: azul_css::OptionU8Vec::Some(png.clone().into()),
+            ..Default::default()
+        };
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(back.image.as_ref().map(|i| i.as_ref().to_vec()), Some(png));
+    }
+
+    /// A link (a browser's "Copy link", `public.url`) pastes as the link, with
+    /// its address as the plain text; a copy of a link reads back as it.
+    #[test]
+    fn a_link_pastes_as_the_link_and_its_address() {
+        let payload = ClipboardPayload::new(Platform::MacOs)
+            .with("public.url", &b"https://example.com/a?b=1"[..]);
+        let content = payload_to_clipboard_content(&payload).expect("a paste of a link");
+        assert_eq!(
+            content.link.as_ref().map(|l| l.as_str()),
+            Some("https://example.com/a?b=1")
+        );
+        assert_eq!(content.plain_text.as_str(), "https://example.com/a?b=1");
+
+        let copied = ClipboardContent {
+            plain_text: "https://azul.rs".into(),
+            link: azul_css::OptionString::Some("https://azul.rs".into()),
+            ..Default::default()
+        };
+        let payload = clipboard_content_to_payload(&copied).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(back.link.as_ref().map(|l| l.as_str()), Some("https://azul.rs"));
+        assert_eq!(back.plain_text.as_str(), "https://azul.rs");
     }
 }

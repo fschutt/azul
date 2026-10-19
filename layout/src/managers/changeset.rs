@@ -669,6 +669,7 @@ mod autotest_generated {
             plain_text: AzString::from(text),
             styled_runs: Vec::<StyledTextRun>::new().into(),
             html: azul_css::OptionString::None,
+            ..Default::default()
         }
     }
 

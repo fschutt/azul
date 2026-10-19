@@ -19218,6 +19218,7 @@ pub fn process_debug_event(
                         Vec::new(),
                     ),
                     html: html.clone().map(azul_css::AzString::from).into(),
+                    ..Default::default()
                 });
                 send_ok(request, None, None);
             } else {
@@ -22556,6 +22557,7 @@ mod non_interference_can_fail {
                         Vec::new(),
                     ),
                     html: azul_css::OptionString::None,
+                    ..Default::default()
                 });
             },
             super::fp_clipboard
