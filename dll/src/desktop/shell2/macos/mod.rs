@@ -93,6 +93,8 @@ mod events;
 mod gl;
 #[cfg(test)]
 pub(crate) mod headless_gpu;
+/// What the active keyboard layout prints on a key: the meaning of a keycode.
+pub(crate) mod keyboard_layout;
 pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;

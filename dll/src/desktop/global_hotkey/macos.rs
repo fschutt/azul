@@ -243,13 +243,15 @@ unsafe extern "C" fn hot_key_handler(
     NO_ERR
 }
 
-/// The macOS virtual keycode (`kVK_*`) for `key`: the inverse of the table
+/// The macOS virtual keycode (`kVK_*`) for `key`: the inverse of the mapping
 /// the window's own `keyDown:` uses, so a hot key and an in-window shortcut
-/// name the same physical key. Positional (ANSI layout), like that table.
+/// name the same key - the one the active keyboard layout prints `key` on
+/// (Cmd+Shift+Z is the key that prints z, wherever the layout puts it).
 fn keycode_of(key: azul_core::window::VirtualKeyCode) -> Option<u32> {
     (0u16..0x80)
         .find(|code| {
-            crate::desktop::shell2::common::event::macos_keycode_to_virtual_key(*code) == Some(key)
+            crate::desktop::shell2::macos::keyboard_layout::virtual_key_for_keycode(*code)
+                == Some(key)
         })
         .map(u32::from)
 }

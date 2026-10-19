@@ -27,7 +27,7 @@ use objc2_foundation::NSPoint;
 use super::{super::common::debug_server::LogCategory, MacOSWindow};
 // The keycode table lives in `common` so it is tested on every host: nothing in
 // CI compiles this module, so a test next to the table would never run.
-use crate::desktop::shell2::common::event::macos_keycode_to_virtual_key as convert_keycode;
+use super::keyboard_layout::virtual_key_for_keycode as convert_keycode;
 // Re-export common types
 pub(super) use crate::desktop::shell2::common::event::HitTestNode;
 // Import V2 cross-platform event processing trait

@@ -1984,11 +1984,107 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
 }
 
 /// The key a macOS keycode names in the user's keyboard layout, given the
-/// character that layout prints on the key without modifiers.
+/// character that layout prints on the key without modifiers (`layout_char`,
+/// asked of the layout by `macos::keyboard_layout`).
+///
+/// A `VirtualKeyCode` names what a key SAYS, as Win32's virtual keys and
+/// X11's keysyms do: Cmd+Z is the key that prints "z", which on a French
+/// keyboard sits where a US one has "w". The keycode alone is the key's
+/// place ([`macos_keycode_to_virtual_key`] reads it as the US engraving), so
+/// the layout decides for the keys that print a character: a plain ASCII
+/// letter, digit or sign names its key. A key whose layout prints anything
+/// else (AZERTY's top row prints & é " ' without Shift, QWERTZ prints ö)
+/// keeps its place, and so do the keys that print nothing - Return, Tab,
+/// the arrows, the modifiers.
 #[must_use]
 pub fn macos_keycode_in_layout(keycode: u16, layout_char: Option<char>) -> Option<VirtualKeyCode> {
-    let _ = layout_char;
-    macos_keycode_to_virtual_key(keycode)
+    let place = macos_keycode_to_virtual_key(keycode)?;
+    if !is_layout_key(place) {
+        return Some(place);
+    }
+    layout_char
+        .and_then(virtual_key_printing)
+        .or(Some(place))
+}
+
+/// Whether the key at macOS keycode `keycode` takes its meaning from the
+/// keyboard layout ([`macos_keycode_in_layout`] asks the layout only then).
+#[must_use]
+pub fn macos_keycode_follows_layout(keycode: u16) -> bool {
+    macos_keycode_to_virtual_key(keycode).is_some_and(is_layout_key)
+}
+
+/// Whether a key's meaning comes from the keyboard layout: the letters,
+/// digits and signs of the main block, the keys a layout engraves
+/// differently. Everything else is named by its place on every layout.
+const fn is_layout_key(key: VirtualKeyCode) -> bool {
+    use VirtualKeyCode as K;
+    matches!(
+        key,
+        K::A | K::B | K::C | K::D | K::E | K::F | K::G | K::H | K::I | K::J | K::K | K::L | K::M
+            | K::N | K::O | K::P | K::Q | K::R | K::S | K::T | K::U | K::V | K::W | K::X | K::Y
+            | K::Z | K::Key0 | K::Key1 | K::Key2 | K::Key3 | K::Key4 | K::Key5 | K::Key6
+            | K::Key7 | K::Key8 | K::Key9 | K::Minus | K::Equals | K::LBracket | K::RBracket
+            | K::Backslash | K::Semicolon | K::Apostrophe | K::Grave | K::Comma | K::Period
+            | K::Slash
+    )
+}
+
+/// The main-block key that prints the ASCII character `ch` on a US
+/// keyboard - the inverse of the engraving, for a layout's answer. `None`
+/// for anything that names no such key.
+const fn virtual_key_printing(ch: char) -> Option<VirtualKeyCode> {
+    use VirtualKeyCode as K;
+    Some(match ch.to_ascii_lowercase() {
+        'a' => K::A,
+        'b' => K::B,
+        'c' => K::C,
+        'd' => K::D,
+        'e' => K::E,
+        'f' => K::F,
+        'g' => K::G,
+        'h' => K::H,
+        'i' => K::I,
+        'j' => K::J,
+        'k' => K::K,
+        'l' => K::L,
+        'm' => K::M,
+        'n' => K::N,
+        'o' => K::O,
+        'p' => K::P,
+        'q' => K::Q,
+        'r' => K::R,
+        's' => K::S,
+        't' => K::T,
+        'u' => K::U,
+        'v' => K::V,
+        'w' => K::W,
+        'x' => K::X,
+        'y' => K::Y,
+        'z' => K::Z,
+        '0' => K::Key0,
+        '1' => K::Key1,
+        '2' => K::Key2,
+        '3' => K::Key3,
+        '4' => K::Key4,
+        '5' => K::Key5,
+        '6' => K::Key6,
+        '7' => K::Key7,
+        '8' => K::Key8,
+        '9' => K::Key9,
+        '-' => K::Minus,
+        '=' => K::Equals,
+        '[' => K::LBracket,
+        ']' => K::RBracket,
+        '\\' => K::Backslash,
+        ';' => K::Semicolon,
+        '\'' => K::Apostrophe,
+        '`' => K::Grave,
+        ',' => K::Comma,
+        '.' => K::Period,
+        '/' => K::Slash,
+        _ => return None,
+    })
 }
 
 /// The Win32 `VK_*` codes [`win32_vkey_to_virtual_key`] matches on.
