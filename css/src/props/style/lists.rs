@@ -18,7 +18,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
-#[allow(variant_size_differences)] // a C type: boxing the string would change its layout in every binding
+#[allow(variant_size_differences)] // the size only matters inside `CssProperty`, which other string-holding properties already make this large
 pub enum StyleListStyleType {
     None,
     #[default]
