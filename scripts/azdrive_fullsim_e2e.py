@@ -484,6 +484,13 @@ def run(args, logs):
         view = the_view(popover)
         for text in ("card fields by Fake Stripe", "CARDHOLDER"):
             popover.until("the popover's %r" % text, lambda: popover.shows(text))
+        # The chip reads "<host> - card fields by ...": the host and its words keep a gap.
+        host = popover.box("#__azdrive_pay_host")
+        words = popover.text_rect("- card fields by Fake Stripe")
+        if not words or words["x"] < host["x"] + host["width"] + 2:
+            raise Failure("the chip runs its host into its words: the host ends at %.1f, the "
+                          "words start at %s" % (host["x"] + host["width"],
+                                                 words and round(words["x"], 1)))
         shot(popover, os.path.join(out, "04-popover.png"), args.window)
         if args.window:
             last4 = real_page_pays(app, popover, args.sandbox_url, out)
