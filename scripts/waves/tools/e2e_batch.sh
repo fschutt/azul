@@ -20,7 +20,7 @@ e azdrive 400 python3 scripts/azdrive_e2e.py --bin $B/AzDrive --out $L/azdrive-s
 e azdrive_add 400 python3 scripts/azdrive_add_e2e.py --bin $B/AzDrive --out $L/azdrive-add-shots
 e azdrive_add_recovery 400 python3 scripts/azdrive_add_e2e.py --bin $B/AzDrive --recovery --out $L/azdrive-add-rec-shots
 e s3_transfer 300 python3 scripts/s3_transfer_e2e.py --bin $B/examples/s3_transfer
-e azbridge 300 python3 scripts/azbridge_e2e.py --bin $B/azul-bridge
+e azbridge 300 python3 scripts/azbridge_e2e.py --bin $B/azul-bridge --azcloud examples/azcloud-api/target/release/azcloud
 e azmail 400 python3 scripts/azmail_e2e.py --bin $B/AzMail
 e azmaps 400 python3 scripts/azmaps_e2e.py --bin $B/AzMaps --out $L/azmaps-shots
 e azreader 300 python3 scripts/azreader_e2e.py --bin $B/AzReader --out $L/azreader-shots

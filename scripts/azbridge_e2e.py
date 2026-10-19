@@ -47,8 +47,9 @@ keeps markers, as S3 does).
 
 The binary: --bin, else $AZUL_BRIDGE_BIN, else target/release/azul-bridge of this checkout (its
 default features take `encryption`). The encrypted step needs the azcloud command line: --azcloud,
-else $AZCLOUD_BIN, else target/release/azcloud (cargo build --release -p azcloud-api; `encryption`
-is a default feature there too).
+else $AZCLOUD_BIN, else examples/azcloud-api/target/release/azcloud (azcloud-api is a crate of its
+own: `cd examples/azcloud-api && cargo build --release --features encryption`), else
+target/release/azcloud.
 Exit code 0 when every step passed.
 """
 
@@ -107,11 +108,14 @@ def find_binary(explicit):
 
 def find_azcloud(explicit):
     name = 'azcloud.exe' if os.name == 'nt' else 'azcloud'
+    # azcloud-api is a crate of its own (outside the workspace, its own toolchain and target).
     for candidate in (explicit, os.environ.get('AZCLOUD_BIN'),
+                      os.path.join(REPO, 'examples', 'azcloud-api', 'target', 'release', name),
                       os.path.join(REPO, 'target', 'release', name)):
         if candidate and os.path.isfile(candidate):
             return candidate
-    raise Failure('no azcloud binary: cargo build --release -p azcloud-api (or --azcloud PATH)')
+    raise Failure('no azcloud binary: (cd examples/azcloud-api && cargo build --release --features '
+                  'encryption), or --azcloud PATH')
 
 
 def object_name(data, stamp_secs):
