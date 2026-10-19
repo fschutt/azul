@@ -895,8 +895,12 @@ pub fn sync_parent(
             }
             OptionRefAny::Some(m) => {
                 let moved = diff.moved.contains(&w.content_dom);
-                let changed = read(m, |d| d.content != content).unwrap_or(false);
-                if moved || changed {
+                let changed = read(m, |d| looks_different(&d.content, &content)).unwrap_or(false);
+                if !moved && !changed {
+                    // The same look with the callbacks' fresh payloads: the popup lays them out
+                    // on its next pass. Nothing to re-place, no window to wake.
+                    write(m, |d| d.content = content);
+                } else {
                     // A popup follows its anchor (the parent scrolled, the
                     // zone it docked onto moved); a torn toplevel is where
                     // the user put it and only its content refreshes.
@@ -935,6 +939,16 @@ pub fn sync_parent(
         );
     }
     out
+}
+
+/// Whether the popup content `new` looks different from `old`: the engine's own fingerprints
+/// (structure and style, the test the window's own rebuild skips its cascade by), which read the
+/// callbacks' event types but not their payloads. An app makes its payloads anew in every layout
+/// (an event payload per button), so `Dom ==`, which compares payloads by identity, called every
+/// rebuild a change: it woke every other window, and a dialog that owns a popup of its own woke
+/// its parent, whose rebuild woke the dialog again - without end in a real window.
+fn looks_different(old: &Dom, new: &Dom) -> bool {
+    azul_core::diff::fingerprint_dom(old).0 != azul_core::diff::fingerprint_dom(new).0
 }
 
 /// The title of a transient window - a popup, a torn-off toplevel, a dialog
