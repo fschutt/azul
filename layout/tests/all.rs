@@ -1231,3 +1231,5 @@ mod closing_the_last_window_never_waits_for_its_workers;
 mod a_css_wide_keyword_resolves_on_every_property;
 #[path = "a_state_rule_wins_only_where_the_cascade_ranks_it.rs"]
 mod a_state_rule_wins_only_where_the_cascade_ranks_it;
+#[path = "an_appended_dom_keeps_its_stylesheet.rs"]
+mod an_appended_dom_keeps_its_stylesheet;
