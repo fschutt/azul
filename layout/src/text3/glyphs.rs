@@ -486,6 +486,11 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     pub font_hash: u64,
     /// Font size in pixels
     pub font_size_px: f32,
+    /// Draw the face thickened: the run asks for bold and its face has no
+    /// bold cut ([`crate::text3::cache::needs_synthetic_bold`]), as the
+    /// screen draws it. A PDF writes such a run filled and stroked, the
+    /// stroke [`SYNTHETIC_BOLD_STROKE_EM`] of the font size wide.
+    pub synthetic_bold: bool,
     /// Text decoration flags
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// The line index this run belongs to (for breaking runs at line boundaries)
@@ -499,6 +504,10 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// Original cluster text for debugging/CID mapping
     pub cluster_texts: Vec<String>,
 }
+
+/// The width of the stroke a PDF draws a synthetic bold run with, in ems of
+/// its font size: the thickening the rasterizers give it on screen.
+pub const SYNTHETIC_BOLD_STROKE_EM: f32 = 1.0 / 30.0;
 
 /// A glyph with its absolute position and cluster text for PDF rendering
 #[derive(Debug, Clone)]
@@ -567,6 +576,10 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 Some(f) => f.clone(),
                 None => continue, // Skip glyphs with unknown fonts
             };
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                cluster.style.asks_for_bold(),
+                font.weight_class(),
+            );
 
             // Calculate absolute glyph position on baseline
             let glyph_position = Point {
@@ -617,6 +630,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     || run.color != glyph_color
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
+                    || run.synthetic_bold != synthetic_bold
                     || run.text_decoration != text_decoration
                     || run.line_index != line_index
                     || run.direction != direction
@@ -643,6 +657,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     font: font.clone(),
                     font_hash,
                     font_size_px,
+                    synthetic_bold,
                     text_decoration,
                     line_index,
                     direction,
@@ -956,6 +971,8 @@ mod autotest_generated {
     #[derive(Debug, Clone)]
     struct TestFont {
         hash: u64,
+        /// The face's OS/2 weight class; `None` for a face that cannot say.
+        weight: Option<u16>,
     }
 
     impl ShallowClone for TestFont {
@@ -1005,13 +1022,29 @@ mod autotest_generated {
         fn get_space_width(&self) -> Option<usize> {
             Some(500)
         }
+        fn weight_class(&self) -> Option<u16> {
+            self.weight
+        }
     }
 
     fn fonts_with(hashes: &[u64]) -> LoadedFonts<TestFont> {
         let mut fonts = LoadedFonts::new();
         for &h in hashes {
-            fonts.insert(FontId::new(), TestFont { hash: h });
+            fonts.insert(FontId::new(), TestFont { hash: h, weight: None });
         }
+        fonts
+    }
+
+    /// One face of `hash` that says its weight is `weight`.
+    fn font_weighing(hash: u64, weight: u16) -> LoadedFonts<TestFont> {
+        let mut fonts = LoadedFonts::new();
+        fonts.insert(
+            FontId::new(),
+            TestFont {
+                hash,
+                weight: Some(weight),
+            },
+        );
         fonts
     }
 
@@ -1710,6 +1743,31 @@ mod autotest_generated {
 
         assert_eq!(runs.len(), 1, "only the one real cluster survives");
         assert_eq!(runs[0].glyphs.len(), 1);
+    }
+
+    /// Bold asked of a regular face is drawn thickened in a PDF, as on
+    /// screen; a face with a bold cut, or a regular run, is not.
+    #[test]
+    fn pdf_runs_say_when_bold_is_synthesized() {
+        use crate::text3::cache::{FontSelector, FontStack};
+        let bold = styled(|s| {
+            s.font_stack = FontStack::Stack(vec![FontSelector {
+                weight: rust_fontconfig::FcWeight::Bold,
+                ..FontSelector::default()
+            }]);
+        });
+        let runs_of = |st: &Arc<StyleProperties>, face_weight: u16| {
+            let l = layout(vec![at(
+                item(cluster("a", vec![glyph(1, 10.0, st)], st)),
+                0.0,
+                0.0,
+                0,
+            )]);
+            get_glyph_runs_pdf(&l, &font_weighing(FONT_A, face_weight))
+        };
+        assert!(runs_of(&bold, 400)[0].synthetic_bold, "bold from a regular face");
+        assert!(!runs_of(&bold, 700)[0].synthetic_bold, "the face has a bold cut");
+        assert!(!runs_of(&style(), 400)[0].synthetic_bold, "a regular run");
     }
 
     #[test]

@@ -1478,6 +1478,9 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
             })
             .unwrap_or("");
 
+        // Bold asked of a face with no bold cut is drawn thickened.
+        let synthetic_bold =
+            crate::text3::cache::needs_synthetic_bold(style.asks_for_bold(), font.weight_class());
         // The reference predicate, evaluated per CLUSTER (all compared
         // fields are uniform within a cluster in dense scope).
         let merges = current_run.as_ref().is_some_and(|r| {
@@ -1485,6 +1488,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 && r.color == style.color
                 && r.background_color == style.background_color
                 && r.font_size_px == style.font_size_px
+                && r.synthetic_bold == synthetic_bold
                 && r.text_decoration == style.text_decoration
                 && r.line_index == line_index
                 && r.direction == run.direction
@@ -1501,6 +1505,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 font: font.clone(),
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
+                synthetic_bold,
                 text_decoration: style.text_decoration,
                 line_index,
                 direction: run.direction,
