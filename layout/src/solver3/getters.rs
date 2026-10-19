@@ -4463,7 +4463,7 @@ pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> St
         .css_property_cache
         .ptr
         .get_list_style_type(node_data, &id, node_state)
-        .and_then(|v| v.get_property().copied())
+        .and_then(|v| v.get_property().cloned())
         .unwrap_or_default()
 }
 

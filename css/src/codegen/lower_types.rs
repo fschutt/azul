@@ -3631,7 +3631,6 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleLineBreak",
     "StyleLineFitEdge",
     "StyleListStylePosition",
-    "StyleListStyleType",
     "StyleMixBlendMode",
     "StyleObjectFit",
     "StyleOverflowWrap",
@@ -7133,6 +7132,9 @@ impl Lower for crate::props::style::lists::StyleListStylePosition {
 impl Lower for crate::props::style::lists::StyleListStyleType {
     fn lower(&self) -> Expr {
         let variant = match self {
+            Self::String(text) => {
+                return Expr::variant("StyleListStyleType", EnumShape::Tagged, "String", vec![text.lower()]);
+            }
             Self::None => "None",
             Self::Disc => "Disc",
             Self::Circle => "Circle",
@@ -7146,7 +7148,7 @@ impl Lower for crate::props::style::lists::StyleListStyleType {
             Self::LowerAlpha => "LowerAlpha",
             Self::UpperAlpha => "UpperAlpha",
         };
-        Expr::unit("StyleListStyleType", EnumShape::CLike, variant)
+        Expr::unit("StyleListStyleType", EnumShape::Tagged, variant)
     }
 }
 

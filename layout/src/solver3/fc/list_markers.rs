@@ -390,15 +390,18 @@ pub(super) fn generate_list_marker_text(
     }
 
     // Format the counter according to the list-style-type
-    let marker_text = format_counter(counter_value, list_style_type);
+    let marker_text = format_counter(counter_value, list_style_type.clone());
     // No marker string (`none`): no marker - not a lone space.
     if marker_text.is_empty() {
         return String::new();
     }
 
-    // For ordered lists (non-symbolic markers), add a period and space
-    // For unordered lists (symbolic markers like •, ◦, ▪), just add a space
-    if matches!(
+    // A string is the marker as it is. For ordered lists (non-symbolic
+    // markers), add a period and space; for unordered lists (symbolic
+    // markers like •, ◦, ▪), just add a space.
+    if matches!(list_style_type, StyleListStyleType::String(_)) {
+        marker_text
+    } else if matches!(
         list_style_type,
         StyleListStyleType::Decimal
             | StyleListStyleType::DecimalLeadingZero

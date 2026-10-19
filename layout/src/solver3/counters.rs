@@ -377,7 +377,7 @@ mod autotest_generated {
     fn format_counter_no_panic_on_edge_values_for_every_style() {
         for style in ALL_STYLES {
             for v in EDGE_VALUES {
-                let s = format_counter(v, style);
+                let s = format_counter(v, style.clone());
                 if style == StyleListStyleType::None {
                     assert!(s.is_empty(), "`none` must render nothing, got {s:?}");
                 } else {
@@ -397,7 +397,7 @@ mod autotest_generated {
     fn format_counter_is_deterministic() {
         for style in ALL_STYLES {
             for v in EDGE_VALUES {
-                assert_eq!(format_counter(v, style), format_counter(v, style));
+                assert_eq!(format_counter(v, style.clone()), format_counter(v, style.clone()));
             }
         }
     }
@@ -418,7 +418,7 @@ mod autotest_generated {
             (StyleListStyleType::Square, "▪"),
         ] {
             for v in EDGE_VALUES {
-                let s = format_counter(v, style);
+                let s = format_counter(v, style.clone());
                 assert_eq!(s, expected, "bullet changed with value {v}");
                 assert_eq!(s.chars().count(), 1);
             }
@@ -558,8 +558,8 @@ mod autotest_generated {
             StyleListStyleType::UpperGreek,
         ] {
             for v in [1i32, 2, 3, 24, 25, 26, 27, 3999] {
-                let pos = format_counter(v, style);
-                let neg = format_counter(-v, style);
+                let pos = format_counter(v, style.clone());
+                let neg = format_counter(-v, style.clone());
                 assert_eq!(neg, format!("-{pos}"), "asymmetric at {v} in {style:?}");
                 assert!(!pos.starts_with('-'), "positive gained a sign at {v}");
             }
@@ -574,7 +574,7 @@ mod autotest_generated {
             StyleListStyleType::LowerAlpha,
             StyleListStyleType::UpperGreek,
         ] {
-            let s = format_counter(-1, style);
+            let s = format_counter(-1, style.clone());
             assert_eq!(s.chars().count(), 2, "suspiciously long marker: {s}");
         }
     }
@@ -584,7 +584,7 @@ mod autotest_generated {
         // No style may blow up into a megabyte-long marker at the i32 extremes.
         for style in ALL_STYLES {
             for v in [i32::MIN, i32::MAX] {
-                let s = format_counter(v, style);
+                let s = format_counter(v, style.clone());
                 assert!(
                     s.chars().count() <= 32,
                     "marker for {v} in {style:?} is {} chars: {s}",

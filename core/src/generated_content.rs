@@ -603,6 +603,8 @@ impl CssPropertyCache {
 fn marker_text(value: i32, style: StyleListStyleType) -> String {
     match style {
         StyleListStyleType::None => String::new(),
+        // A string is the marker as it is (CSS Lists 3 s3.2).
+        StyleListStyleType::String(text) => text.as_str().to_string(),
         StyleListStyleType::Disc | StyleListStyleType::Circle | StyleListStyleType::Square => {
             let mut text = format_counter(value, style);
             text.push(' ');
@@ -923,7 +925,7 @@ fn generated_texts(
                         let style = cache
                             .get_list_style_type(&node_data[p], &NodeId::new(p), &host_state)
                             .and_then(CssPropertyValue::get_property)
-                            .copied()
+                            .cloned()
                             .unwrap_or_default();
                         marker_text(counters.value("list-item"), style)
                     });
@@ -1215,7 +1217,7 @@ fn function_text(
             let values = if values.is_empty() { alloc::vec![0] } else { values };
             values
                 .into_iter()
-                .map(|v| format_counter(v, style))
+                .map(|v| format_counter(v, style.clone()))
                 .collect::<Vec<_>>()
                 .join(&separator)
         }
