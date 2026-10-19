@@ -1253,9 +1253,12 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
                     .into(),
                 ),
         );
+        // Nested in the box's own sheet: `.x` is a descendant of the box, `:focus-within > .x`
+        // its child while the box holds the focus. A descendant combinator inside a nested
+        // selector is lost by the tokenizer, so neither rule spells one.
         search_box = search_box.with_css(&format!(
-            ".__azul-native-address-bar-search .{SEARCH_HINT_CLASS} {{ display: flex; }} \
-             .__azul-native-address-bar-search:focus-within .{SEARCH_HINT_CLASS} {{ display: none; }}"
+            ".{SEARCH_HINT_CLASS} {{ display: flex; }} \
+             :focus-within > .{SEARCH_HINT_CLASS} {{ display: none; }}"
         ));
     }
 
