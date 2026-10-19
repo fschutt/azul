@@ -2093,8 +2093,9 @@ fn load_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
         },
     );
     let urls = pictures::fetch_list(&sanitized);
+    let fonts = pictures::font_list(&sanitized);
     open.sanitized = Some(sanitized);
-    if urls.is_empty() {
+    if urls.is_empty() && fonts.is_empty() {
         return;
     }
     println!("AZMAIL_PICTURES_FETCH {}", urls.len());
@@ -2106,6 +2107,7 @@ fn load_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
         folder: open.folder.clone(),
         uid: open.entry.uid,
         urls,
+        fonts,
     };
     info.add_thread(
         thread,
@@ -2161,6 +2163,19 @@ struct DownloadJob {
     folder: String,
     uid: u32,
     urls: Vec<String>,
+    /// The mail's web fonts: each `(registered name, address)` (`pictures::font_list`).
+    fonts: Vec<(String, String)>,
+}
+
+/// One web font on its way: the message it belongs to, the name it is registered under, its
+/// address.
+#[derive(Clone)]
+struct FontRef {
+    app: RefAny,
+    folder: String,
+    uid: u32,
+    family: String,
+    url: String,
 }
 
 /// One web picture on its way: the message it belongs to and its address.
@@ -2181,6 +2196,35 @@ extern "C" fn download_thread(mut init: RefAny, _sender: ThreadSender, mut recei
     else {
         return;
     };
+    let stopped = |receiver: &mut ThreadReceiver| {
+        while let OptionThreadSendMsg::Some(message) = receiver.recv() {
+            if matches!(message, ThreadSendMsg::TerminateThread) {
+                return true;
+            }
+        }
+        false
+    };
+    // The fonts first: the text is there before the pictures are.
+    let fonts = HttpRequestConfig::create()
+        .with_timeout(pictures::PICTURE_TIMEOUT_SECS)
+        .with_max_size(pictures::MAX_FONT_BYTES as u64)
+        .with_user_agent("AzMail");
+    for (family, url) in &job.fonts {
+        if stopped(&mut receiver) {
+            return;
+        }
+        let _request = fonts.download_bytes(
+            url.as_str(),
+            RefAny::new(FontRef {
+                app: job.app.clone(),
+                folder: job.folder.clone(),
+                uid: job.uid,
+                family: family.clone(),
+                url: url.clone(),
+            }),
+            on_font_bytes as ResumeCallbackType,
+        );
+    }
     let config = HttpRequestConfig::create()
         .with_timeout(pictures::PICTURE_TIMEOUT_SECS)
         .with_max_size(pictures::MAX_PICTURE_BYTES as u64)
@@ -2204,6 +2248,47 @@ extern "C" fn download_thread(mut init: RefAny, _sender: ThreadSender, mut recei
             on_picture_bytes as ResumeCallbackType,
         );
     }
+}
+
+/// A web font's bytes arrived (on the UI thread): counted against the mail's budget and
+/// registered for the app under the mail's own name of it - the mail's text is laid out in it
+/// at once (a WOFF or WOFF2 is unpacked by the registry).
+extern "C" fn on_font_bytes(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(font) = data.downcast_ref::<FontRef>().map(|f| FontRef::clone(&f)) else {
+        return Update::DoNothing;
+    };
+    let Some(answer) = HttpBytesResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let bytes = match answer.result {
+        azul::error::ResultU8VecHttpError::Ok(bytes) => bytes.as_slice().to_vec(),
+        azul::error::ResultU8VecHttpError::Err(e) => {
+            eprintln!("[azmail] font {} not downloaded: {e:?}", font.url);
+            return Update::DoNothing;
+        }
+    };
+    let mut app = font.app.clone();
+    with_app(&mut app, |s, _app| {
+        let Some(open) = s
+            .open
+            .as_mut()
+            .filter(|o| o.folder == font.folder && o.entry.uid == font.uid)
+        else {
+            return Update::DoNothing;
+        };
+        if !open.budget.take(bytes.len()) {
+            eprintln!("[azmail] font {} left out ({} bytes)", font.url, bytes.len());
+            return Update::DoNothing;
+        }
+        if info.register_font(font.family.as_str(), bytes) {
+            println!("AZMAIL_FONT_REGISTERED {}", font.family);
+            Update::RefreshDom
+        } else {
+            eprintln!("[azmail] font {} is no font", font.url);
+            Update::DoNothing
+        }
+    })
+    .unwrap_or(Update::DoNothing)
 }
 
 /// A web picture's bytes arrived (on the UI thread): counted against the mail's budget, then

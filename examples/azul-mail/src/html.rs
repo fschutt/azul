@@ -90,7 +90,25 @@ pub struct Sanitized {
     /// pictures name), each once, in order: the app decodes those parts and registers each
     /// under [`Sanitized::inline_key`].
     pub inline_images: Vec<String>,
+    /// The web fonts its sheet declares (`@font-face`), fetched with the pictures.
+    pub web_fonts: Vec<WebFont>,
 }
+
+/// A web font a mail's sheet declares (`@font-face`): fetched with its pictures ("download
+/// pictures") and registered under `scoped`, the name the mail's rules call it by after the
+/// sanitizer - so a mail cannot restyle the app by naming its face like one of the app's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebFont {
+    /// The family as the mail names it.
+    pub family: String,
+    /// The family it is registered under: the message's class prefix and the name.
+    pub scoped: String,
+    /// Where it is (http or https).
+    pub url: String,
+}
+
+/// At most this many web fonts of one mail are kept.
+pub const MAX_WEB_FONTS: usize = 8;
 
 impl Sanitized {
     /// The image-cache key of the mail's own picture `content_id`: `cid:<class prefix><id>`,
@@ -411,6 +429,8 @@ struct Sanitizer {
     inline_images: Vec<String>,
     /// The prefix of this message's classes ([`class_prefix`]).
     prefix: String,
+    /// The web fonts its sheets declare, each family once.
+    web_fonts: Vec<WebFont>,
     /// What the mail's `<body>` said ([`body_of`]); it is written by `finish`.
     body: Body,
 }
@@ -456,7 +476,7 @@ impl Sanitizer {
         if name == "body" {
             // The mail's body is the mail-body element `finish` writes around the content (the
             // parser implies one `<body>` around every document): its attributes go there.
-            self.body = body_of(&attributes, &self.prefix);
+            self.body = body_of(&attributes, &self.prefix, &self.web_fonts);
             self.children(&element.children);
             return;
         }
@@ -470,7 +490,7 @@ impl Sanitizer {
             }
             Tag::Keep(tag) => {
                 let mut kept = String::new();
-                push_attributes(&mut kept, name, tag, &attributes, &self.prefix);
+                push_attributes(&mut kept, name, tag, &attributes, &self.prefix, &self.web_fonts);
                 if self.depth >= MAX_DEPTH {
                     self.children(&element.children);
                     return;
@@ -507,7 +527,8 @@ impl Sanitizer {
 
     /// A `<style>`'s sheet: its safe rules, scoped to the paper, join the document's.
     fn style_sheet(&mut self, css: &str) {
-        let (safe, dark) = sanitize_style_sheet(css, &self.prefix);
+        collect_font_faces(css, &self.prefix, &mut self.web_fonts);
+        let (safe, dark) = sanitize_style_sheet(css, &self.prefix, &self.web_fonts);
         self.styles.push_str(&safe);
         self.has_dark_rules |= dark;
     }
@@ -664,6 +685,7 @@ impl Sanitizer {
             class_prefix: self.prefix,
             remote: RemoteContent::default(),
             inline_images: self.inline_images,
+            web_fonts: self.web_fonts,
         }
     }
 }
@@ -707,7 +729,7 @@ struct Body {
 }
 
 /// The mail's `<body>` (see [`Body`]).
-fn body_of(attributes: &[(&str, &str)], prefix: &str) -> Body {
+fn body_of(attributes: &[(&str, &str)], prefix: &str, fonts: &[WebFont]) -> Body {
     let mut body = Body::default();
     let mut rest: Vec<(&str, &str)> = Vec::new();
     for &(name, value) in attributes {
@@ -734,7 +756,7 @@ fn body_of(attributes: &[(&str, &str)], prefix: &str) -> Body {
         }
     }
     // As a renamed element (`div`): `dir` and `style` stay, nothing presentational.
-    push_attributes(&mut body.attributes, "body", "div", &rest, prefix);
+    push_attributes(&mut body.attributes, "body", "div", &rest, prefix, fonts);
     body
 }
 
@@ -748,6 +770,7 @@ fn push_attributes(
     tag: &str,
     attributes: &[(&str, &str)],
     prefix: &str,
+    fonts: &[WebFont],
 ) {
     let mut kept: Vec<(&str, String)> = Vec::new();
     let mut styles: Vec<(String, String)> = Vec::new();
@@ -822,6 +845,7 @@ fn push_attributes(
         push_attribute(out, &value);
         out.push('"');
     }
+    rename_font_families(&mut styles, fonts);
     if !styles.is_empty() {
         let joined = styles
             .iter()
@@ -865,17 +889,116 @@ fn names_dark(value: &str) -> bool {
 /// `@keyframes`, `@supports`, `@charset`), comments, the `<!--` / `-->` wrapping, a rule
 /// left with no declaration. Dark rules: a kept `@media` whose condition says
 /// `prefers-color-scheme: dark`, or a `color-scheme` declaration that names `dark`.
-fn sanitize_style_sheet(css: &str, prefix: &str) -> (String, bool) {
+fn sanitize_style_sheet(css: &str, prefix: &str, fonts: &[WebFont]) -> (String, bool) {
     let plain = sheet::strip_comments(css);
     let mut out = String::new();
     let mut dark = false;
-    sanitize_rules(&plain, &mut out, &mut dark, false, prefix);
+    sanitize_rules(&plain, &mut out, &mut dark, false, prefix, fonts);
     (out, dark)
+}
+
+/// The `@font-face` rules of `css` with a family and an http(s) `url()` source, into `out`:
+/// each family once, at most [`MAX_WEB_FONTS`], a family of letters, digits, blanks, `-` and
+/// `_` only.
+fn collect_font_faces(css: &str, prefix: &str, out: &mut Vec<WebFont>) {
+    let plain = sheet::strip_comments(css);
+    sheet::for_each_item(&plain, &mut |item| {
+        let CssItem::AtBlock { name, body, .. } = item else {
+            return;
+        };
+        if name != "font-face" || out.len() >= MAX_WEB_FONTS {
+            return;
+        }
+        let declarations = sheet::parse_declarations(body);
+        let value = |property: &str| {
+            declarations
+                .iter()
+                .find(|(p, _)| p == property)
+                .map(|(_, v)| v.as_str())
+        };
+        let (Some(family), Some(src)) = (value("font-family"), value("src")) else {
+            return;
+        };
+        let family = unquote_family(family);
+        let plain_name = |c: char| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_');
+        if family.is_empty() || !family.chars().all(plain_name) {
+            return;
+        }
+        let Some(url) = first_web_url(src) else {
+            return;
+        };
+        if out.iter().any(|f| f.family.eq_ignore_ascii_case(&family)) {
+            return;
+        }
+        out.push(WebFont {
+            scoped: format!("{prefix}{}", family.replace(' ', "_")),
+            family,
+            url,
+        });
+    });
+}
+
+/// A family name without its quotes and the blanks around it.
+fn unquote_family(name: &str) -> String {
+    name.trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+        .to_string()
+}
+
+/// The first `url(...)` of a `src` that is http or https.
+fn first_web_url(src: &str) -> Option<String> {
+    let mut rest = src;
+    while let Some(at) = rest.find("url(") {
+        let after = &rest[at + 4..];
+        let end = after.find(')')?;
+        let url = after[..end]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim();
+        let lower = url.to_ascii_lowercase();
+        if lower.starts_with("https://") || lower.starts_with("http://") {
+            return Some(url.to_string());
+        }
+        rest = &after[end + 1..];
+    }
+    None
+}
+
+/// Every `font-family` of `declarations` names the families the mail declared by their scoped
+/// names; the others stay.
+fn rename_font_families(declarations: &mut [(String, String)], fonts: &[WebFont]) {
+    if fonts.is_empty() {
+        return;
+    }
+    for (property, value) in declarations.iter_mut() {
+        if property != "font-family" {
+            continue;
+        }
+        let renamed: Vec<String> = value
+            .split(',')
+            .map(|name| {
+                let bare = unquote_family(name);
+                match fonts.iter().find(|f| f.family.eq_ignore_ascii_case(&bare)) {
+                    Some(font) => font.scoped.clone(),
+                    None => name.trim().to_string(),
+                }
+            })
+            .collect();
+        *value = renamed.join(", ");
+    }
 }
 
 /// The rules of `css` (a sheet, or the inside of an `@media` block when `nested`), made safe
 /// into `out`: the policy over azul-appkit's style-sheet reader (`azul_appkit::css`).
-fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool, prefix: &str) {
+fn sanitize_rules(
+    css: &str,
+    out: &mut String,
+    dark: &mut bool,
+    nested: bool,
+    prefix: &str,
+    fonts: &[WebFont],
+) {
     sheet::for_each_item(css, &mut |item| match item {
         // `@import`, `@charset`, `@namespace`: gone.
         CssItem::AtStatement { .. } => {}
@@ -886,7 +1009,7 @@ fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool, pr
         } => {
             if name == "media" && !nested && sheet::safe_value(condition) {
                 let mut inner = String::new();
-                sanitize_rules(body, &mut inner, dark, true, prefix);
+                sanitize_rules(body, &mut inner, dark, true, prefix, fonts);
                 if !inner.is_empty() {
                     let lower = condition.to_ascii_lowercase();
                     if lower.contains("prefers-color-scheme") && lower.contains("dark") {
@@ -911,7 +1034,8 @@ fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool, pr
             }) {
                 *dark = true;
             }
-            let declarations = safe_declarations(declarations);
+            let mut declarations = safe_declarations(declarations);
+            rename_font_families(&mut declarations, fonts);
             if let (false, Some(scoped)) = (
                 declarations.is_empty(),
                 scope_selectors(selectors, prefix),
@@ -1790,5 +1914,28 @@ mod tests {
         // Another mail with the same part name gets another key.
         let other = sanitize_mail("<img src=\"cid:logo@example\"><p>other</p>", &options);
         assert_ne!(other.inline_key("logo@example"), key);
+    }
+
+    /// A web font the mail's sheet declares is listed with its address and called by a name of
+    /// the message's own - in its rules and its styles -, so a mail that names its face like one
+    /// of the app's restyles nothing outside it.
+    #[test]
+    fn a_mails_web_font_is_listed_and_called_by_a_name_of_its_own() {
+        let html = "<html><head><style>@font-face { font-family: \"Brand Sans\"; \
+                    src: url(https://cdn.example/brand.woff2) format('woff2') } \
+                    .x { font-family: 'Brand Sans', Arial }</style></head>\
+                    <body><p class=\"x\">a</p><span style=\"font-family: Brand Sans\">b</span></body></html>";
+        let s = sanitize(html);
+        assert_eq!(s.web_fonts.len(), 1, "{:?}", s.web_fonts);
+        let font = &s.web_fonts[0];
+        assert_eq!(font.family, "Brand Sans");
+        assert_eq!(font.url, "https://cdn.example/brand.woff2");
+        assert_eq!(font.scoped, format!("{}Brand_Sans", s.class_prefix));
+        assert!(s.xhtml.contains(&format!("font-family: {}, Arial", font.scoped)), "{}", s.xhtml);
+        assert!(!s.xhtml.contains("Brand Sans"), "{}", s.xhtml);
+        // No web address, or a family that is no plain name: nothing to fetch.
+        let none = sanitize("<style>@font-face { font-family: Own; src: url(file:///x.ttf) } \
+                             @font-face { font-family: \"a{b\"; src: url(https://x.example/f.ttf) }</style>");
+        assert!(none.web_fonts.is_empty(), "{:?}", none.web_fonts);
     }
 }

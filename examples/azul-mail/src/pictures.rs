@@ -30,6 +30,19 @@ pub fn fetch_list(sanitized: &Sanitized) -> Vec<String> {
         .collect()
 }
 
+/// A web font larger than this is not downloaded.
+pub const MAX_FONT_BYTES: usize = 3 * 1024 * 1024;
+
+/// What "download pictures" fetches of `sanitized`'s web fonts: each `(registered name, address)`,
+/// in the order the mail declares them (counted against the mail's budget as its pictures are).
+pub fn font_list(sanitized: &Sanitized) -> Vec<(String, String)> {
+    sanitized
+        .web_fonts
+        .iter()
+        .map(|font| (font.scoped.clone(), font.url.clone()))
+        .collect()
+}
+
 /// How much one mail's pictures have downloaded.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Budget {
