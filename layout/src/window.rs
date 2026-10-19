@@ -10268,30 +10268,39 @@ impl LayoutWindow {
     }
 
     /// Change the display list of `dom_id` in place with `patch`, `None` for
-    /// a DOM without one. The solver's structural-identity cache may hold a
-    /// clone of this very list, so `make_mut` copies and the cache would keep
-    /// the PRE-PATCH list: the next relayout over the same tree (a hover, a
-    /// `RefreshDom` without structural change) would serve it back, and with
-    /// unchanged inputs nothing would patch it again (`AzPaint`'s stroke
-    /// vanished until a resize). The patched list goes to the cache when it
-    /// was serving this one. ROOT only: the cache is the root DOM's.
+    /// a DOM without one.
+    ///
+    /// The solver's structural-identity cache may hold this very list: the
+    /// next relayout over the same tree (a hover, a `RefreshDom` without
+    /// structural change) serves it back, so it must be the PATCHED list -
+    /// a cache left on the pre-patch list lost `AzPaint`'s stroke until a
+    /// resize. The cache lets go of the list for the patch and takes the
+    /// patched one back: a list nobody else holds is patched in place,
+    /// instead of copied whole for every frame of a colour tween. A list a
+    /// backend still holds (the CPU compositor keeps the frame it last drew,
+    /// to diff the next one against) is copied on write, as it must stay as
+    /// drawn. ROOT only: the cache is the root DOM's.
     fn patch_display_list<R>(
         &mut self,
         dom_id: DomId,
         patch: impl FnOnce(&mut DisplayList) -> R,
     ) -> Option<R> {
         let lr = self.layout_results.get_mut(&dom_id)?;
-        let cache_serves_this = dom_id == DomId::ROOT_ID
-            && self
-                .layout_cache
+        let cached = if dom_id == DomId::ROOT_ID {
+            self.layout_cache
                 .cached_display_list
-                .as_ref()
-                .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
+                .as_mut()
+                .filter(|cached| Arc::ptr_eq(&cached.5, &lr.display_list))
+        } else {
+            None
+        };
+        let released = cached.map(|cached| {
+            drop(core::mem::take(&mut cached.5));
+            cached
+        });
         let result = patch(Arc::make_mut(&mut lr.display_list));
-        if cache_serves_this {
-            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                cached.5 = lr.display_list.clone();
-            }
+        if let Some(cached) = released {
+            cached.5 = lr.display_list.clone();
         }
         Some(result)
     }
