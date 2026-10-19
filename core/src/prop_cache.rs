@@ -6082,6 +6082,19 @@ impl CssPropertyCache {
             }
         }
 
+        // Step 2b: the global `*` rules, which rank above the UA sheet and below every rule
+        // matched node by node. An element's children inherit what they give it, as a text
+        // node (which `*` does not select) inherits its parent's colour.
+        if star_selects(&node_data[node_index]) {
+            for p in &self.global_css_props {
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, p).unwrap_or(p),
+                    parent_computed,
+                );
+            }
+        }
+
         // Step 3: CSS properties (stylesheets)
         {
             let css_slice = self.css_props.get_slice(node_id.index());
