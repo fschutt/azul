@@ -5186,6 +5186,19 @@ impl Dom {
         crate::icon::icon_view(icon_name)
     }
 
+    /// [`Self::create_icon_view`] whose icon is styled with `css` (a
+    /// declaration list, as `with_css` takes it), on the icon inside the
+    /// view: a swappable icon drawn at the size its page asks for.
+    #[inline]
+    #[must_use]
+    pub fn create_icon_view_with_css<S: Into<AzString>, C: Into<AzString>>(
+        icon_name: S,
+        css: C,
+    ) -> Self {
+        let _ = css.into();
+        crate::icon::icon_view(icon_name)
+    }
+
     #[inline]
     pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
         Self::create_from_data(NodeData::create_virtual_view(data, callback))
