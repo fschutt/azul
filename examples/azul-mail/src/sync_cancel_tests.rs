@@ -51,3 +51,13 @@ fn a_stopped_send_receive_says_so_in_the_status_bar() {
         "a stopped Send / Receive is no up-to-date one: the folders hold only what arrived"
     );
 }
+
+#[test]
+fn a_send_receive_waiting_for_the_keyring_says_what_it_waits_for() {
+    crate::l10n::in_english();
+    let waiting = SyncState::Waiting(azul_appkit::l10n::t("azmail-reading-password"));
+    let (line, _) = crate::ui_main::sync_line(&waiting, false, || {
+        String::from("All folders are up to date.")
+    });
+    assert_eq!(line, azul_appkit::l10n::t("azmail-reading-password"));
+}

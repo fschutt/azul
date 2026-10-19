@@ -283,6 +283,12 @@ pub(crate) enum SyncState {
         percent: f32,
     },
     Done(String),
+    /// Send / Receive waits for the system keyring (the password, the drive token, the DKIM
+    /// key) before its thread starts; the status bar says what it waits for.
+    Waiting(String),
+    /// Cancel stopped the last Send / Receive: the folders hold what arrived until then, so the
+    /// status bar says that instead of "All folders are up to date.".
+    Stopped(String),
     Failed(String),
 }
 
@@ -302,7 +308,7 @@ impl SyncState {
             return None;
         };
         let thread = *thread;
-        *self = SyncState::Done(t("azmail-send-receive-stopped"));
+        *self = SyncState::Stopped(t("azmail-send-receive-stopped"));
         Some(thread)
     }
 }
@@ -997,7 +1003,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
                 },
             );
         }
-        s.sync = SyncState::Done(t(if account.is_azlin() {
+        s.sync = SyncState::Waiting(t(if account.is_azlin() {
             "azmail-reading-token"
         } else {
             "azmail-reading-password"
@@ -1023,7 +1029,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
                 },
             );
         }
-        s.sync = SyncState::Done(t("azmail-reading-dkim"));
+        s.sync = SyncState::Waiting(t("azmail-reading-dkim"));
         return;
     }
     let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();

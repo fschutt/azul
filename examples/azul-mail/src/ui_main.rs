@@ -981,7 +981,10 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                             ("percent", Arg::from(format!("{percent:.0}"))),
                         ],
                     ),
-                    SyncState::Done(text) | SyncState::Failed(text) => {
+                    SyncState::Done(text)
+                    | SyncState::Waiting(text)
+                    | SyncState::Stopped(text)
+                    | SyncState::Failed(text) => {
                         t_args("azmail-progress-last", &[("text", Arg::from(t_label(text)))])
                     }
                     SyncState::Idle => t("azmail-nothing-running"),
@@ -1397,6 +1400,8 @@ pub(crate) fn sync_line(
         _ if no_account => (t("azmail-no-account"), StatusBarSyncKind::Offline),
         // Outlook 2010: "All folders are up to date." beside "Connected to ...".
         SyncState::Done(_) => (up_to_date(), StatusBarSyncKind::Connected),
+        SyncState::Waiting(text) => (t_label(text), StatusBarSyncKind::Syncing),
+        SyncState::Stopped(text) => (t_label(text), StatusBarSyncKind::Connected),
         SyncState::Failed(text) => (t_label(text), StatusBarSyncKind::Error),
         SyncState::Idle => (up_to_date(), StatusBarSyncKind::Connected),
     }

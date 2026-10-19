@@ -311,7 +311,10 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
                     ("percent", Arg::from(format!("{percent:.0}"))),
                 ],
             ),
-            SyncState::Done(text) | SyncState::Failed(text) => {
+            SyncState::Done(text)
+            | SyncState::Waiting(text)
+            | SyncState::Stopped(text)
+            | SyncState::Failed(text) => {
                 t_args("azmail-info-last-time", &[("text", Arg::from(l10n::t_label(text)))])
             }
             SyncState::Idle => String::new(),
