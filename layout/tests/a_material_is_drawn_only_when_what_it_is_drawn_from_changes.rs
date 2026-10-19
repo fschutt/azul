@@ -13,7 +13,8 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
-    texture::materials::renders_on_this_thread, window::LayoutWindow,
+    texture::materials::{renders_on_this_thread, wait_for_deferred_renders},
+    window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
@@ -151,17 +152,15 @@ fn a_large_material_in_a_cpu_window_is_drawn_off_the_ui_thread() {
     );
     assert!(lw.needs_animation_frame(), "the window waits for the frame");
 
-    let mut ready = None;
-    for _ in 0..1000 {
-        lw.prepare_frame_content();
-        let (frame, _) = material_frame(&lw);
-        if frame.get_size() == LogicalSize::new(400.0, 240.0) {
-            ready = Some(frame);
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert!(ready.is_some(), "the leather arrives");
+    // The worker puts the leather into the render cache, where the window's next frame finds it.
+    wait_for_deferred_renders();
+    lw.prepare_frame_content();
+    let (frame, _) = material_frame(&lw);
+    assert_eq!(
+        frame.get_size(),
+        LogicalSize::new(400.0, 240.0),
+        "the leather arrives"
+    );
     assert!(!lw.needs_animation_frame(), "and the window goes idle");
     assert_eq!(renders_on_this_thread() - before, 1, "drawn once");
 }
