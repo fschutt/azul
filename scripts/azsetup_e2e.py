@@ -244,7 +244,8 @@ def english_words():
 
 
 def english_on_screen(app, what, english):
-    """Fails when the window shows one of `english` as a text of its own."""
+    """Notes every one of `english` the window shows as a text of its own (`app.english`, read
+    at the end of the phase, so one run names every page's leftovers)."""
     import re
     shown = set()
     for text in app.texts(every_dom=True):
@@ -252,13 +253,17 @@ def english_on_screen(app, what, english):
             line = line.strip()
             if line in english:
                 shown.add(line)
+            # A label with its value after it ("Space required: 547 MB").
+            shown.update(w for w in english if w.endswith(":") and line.startswith(w + " "))
             # A number field's unit sits in the value's line ("10 min").
             m = re.fullmatch(r"[0-9.,]+ (\S+)", line)
             if m and m.group(1) in ("min", "pt"):
                 shown.add(line)
     if shown:
-        raise Failure("%s: the German window says %s" % (what, sorted(shown)))
-    app.log("%s: no English word" % what)
+        app.english.append("%s: %s" % (what, sorted(shown)))
+        app.log("%s: English: %s" % (what, sorted(shown)))
+    else:
+        app.log("%s: no English word" % what)
 
 
 def walk_wizard_german(app, out, tmp, english):
@@ -282,18 +287,20 @@ def walk_wizard_german(app, out, tmp, english):
 
     english_on_screen(app, "License", english)
     app.screenshot(os.path.join(out, "de-2-license.png"))
-    accept = [t for t in app.texts() if "akzeptiere" in str(t)]
+    # The accept box by its German words, else by the widget's English ones (noted above), so
+    # the walk goes on and names every page's leftovers.
+    accept = [t for t in app.texts() if "akzeptiere" in str(t) or "I accept" in str(t)]
     if not accept:
-        raise Failure("the license page has no German accept box")
+        raise Failure("the license page has no accept box")
     app.click(text=accept[0])
     next_to(app, 2, label=nxt)
 
     folder = os.path.join(tmp, "AzOffice-de")
     app.must("mock", set={"file_open": {"path": folder}})
     english_on_screen(app, "Destination", english)
-    browse = [t for t in app.texts() if str(t).startswith("Durchsuchen")]
+    browse = [t for t in app.texts() if str(t).startswith(("Durchsuchen", "Browse"))]
     if not browse:
-        raise Failure("the destination page has no German Browse button")
+        raise Failure("the destination page has no Browse button")
     app.click(text=browse[0])
     app.until("the picked folder", lambda: folder in app.printed("AZSETUP_PATH"))
     app.frame(2)
@@ -373,6 +380,7 @@ def body(args, logs, out):
 
     # German: every page, box and setting in the window's language.
     english = english_words()
+    leftovers = []
     for name, extra, check in [
         ("wizard-de", [], lambda app: walk_wizard_german(app, out, tmp, english)),
         ("settings-de", ["--screen", "settings"], lambda app: check_settings_german(app, out, english)),
@@ -380,14 +388,19 @@ def body(args, logs, out):
         app = e2e.App(name, binary, ["--data-dir", data_dir, "--language", "de"] + extra,
                       args.debug_port, logs, args.timeout)
         app.out = out
+        app.english = []
         try:
             app.until("the debug server", lambda: app.op("wait_frame") is not None)
             check(app)
+            leftovers.extend("%s, %s" % (name, line) for line in app.english)
         except Failure:
             print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
             raise
         finally:
             app.stop()
+
+    if leftovers:
+        raise Failure("the German windows show English words:\n  %s" % "\n  ".join(leftovers))
 
     # The third start remembers the dark mode.
     app = start("remembered", ["--screen", "settings"])
