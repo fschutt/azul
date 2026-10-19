@@ -1715,6 +1715,11 @@ pub struct TileFetchInit {
     pub cache_dir: AzString,
     /// That folder's cap ([`MapSetup::disk_cache_max_bytes`]).
     pub cache_max_bytes: u64,
+    /// The language the labels are in where a feature names itself in it
+    /// (BCP 47, `de-DE`): the window's active language when the job was
+    /// queued. A tile decoded earlier keeps its labels until it is decoded
+    /// again.
+    pub language: AzString,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -3399,8 +3404,9 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         let mut queue = cache.pending_tiles_nearest_first();
         queue.sort_by_key(|key| !cache.pinned.contains(&key.tile));
         let pending: Vec<TileStyleKey> = queue.into_iter().take(budget).collect();
+        let language = info.get_layout_window().active_language().id;
         for key in pending {
-            to_spawn.push(tile_fetch_init(&cache, key));
+            to_spawn.push(tile_fetch_init(&cache, key, &language));
             cache.tiles.insert(key, TileEntry::Fetching);
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -3460,7 +3466,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
 /// other. Bytes already in hand make it a restyle with no network at all:
 /// a tile's geometry is downloaded once per session. Otherwise the worker
 /// looks in the map's disk cache first.
-fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey) -> TileFetchInit {
+fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey, language: &AzString) -> TileFetchInit {
     TileFetchInit {
         tile: key.tile,
         url: AzString::from(build_tile_url(cache.layer.url_template.as_str(), key.tile)),
@@ -3474,6 +3480,7 @@ fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey) -> TileFetchInit {
         client: cache.setup.http_client.clone(),
         cache_dir: cache.setup.disk_cache_dir.clone(),
         cache_max_bytes: cache.setup.disk_cache_max_bytes,
+        language: language.clone(),
     }
 }
 

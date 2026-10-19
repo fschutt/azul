@@ -25,7 +25,7 @@ pub use mvt::{parse_mvt_tile, TileCoord};
 #[cfg(feature = "map-tiles")]
 mod svg;
 #[cfg(feature = "map-tiles")]
-pub use svg::features_to_svg;
+pub use svg::{features_to_svg, features_to_svg_in};
 
 /// Decode the PBF bytes of a single MVT tile into a `Vec` of GeoJSON
 /// `Feature`s. Wraps `td::parse_mvt_tile` with the tile-coord
@@ -133,7 +133,7 @@ pub extern "C" fn tile_fetch_worker(
         since.elapsed().as_secs_f64() * 1000.0
     }
 
-    let Some((tile, url, mapcss, look, cached_bytes, client, disk)) =
+    let Some((tile, url, mapcss, look, cached_bytes, client, disk, language)) =
         init.downcast_ref::<TileFetchInit>().map(|i| {
             (
                 i.tile,
@@ -143,6 +143,7 @@ pub extern "C" fn tile_fetch_worker(
                 i.bytes.as_ref().to_vec(),
                 i.client.clone(),
                 TileDiskCache::open(i.cache_dir.as_str(), i.cache_max_bytes),
+                i.language.as_str().to_string(),
             )
         })
     else {
@@ -218,7 +219,7 @@ pub extern "C" fn tile_fetch_worker(
         let decode_started = std::time::Instant::now();
         let svg = match decode_mvt_tile(bytes, tile) {
             Ok(features) => {
-                let svg = features_to_svg(&features, tile, &mapcss);
+                let svg = features_to_svg_in(&features, tile, &mapcss, &language);
                 if dbg {
                     eprintln!(
                         "[map] worker decoded tile=({z},{x},{y}) look={look:?} {} features \

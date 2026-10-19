@@ -420,10 +420,13 @@ fn label_priority(layer_lower: &str, class: Option<&str>, rank: Option<f64>) -> 
     base * 100 + within as i32
 }
 
-/// A feature's label text: a house number's number, otherwise its name
-/// (Latin script first, so every font can draw it), without control
-/// characters, at most 48 characters.
-fn label_text(feature: &geojson::Feature, layer_lower: &str) -> Option<String> {
+/// A feature's label text: a house number's number, otherwise its name -
+/// in the user's `language` when the feature names itself in it
+/// (`name:de`), else in Latin script (so every font can draw it) - without
+/// control characters, at most 48 characters. OpenStreetMap writes a name in
+/// several languages as one `;`-separated value ("América do Sul;América del
+/// Sur"): the first of them is the label.
+fn label_text(feature: &geojson::Feature, layer_lower: &str, language: &str) -> Option<String> {
     let prop = |key: &str| {
         feature
             .property(key)
@@ -434,12 +437,21 @@ fn label_text(feature: &geojson::Feature, layer_lower: &str) -> Option<String> {
     let text = if layer_lower == "housenumber" {
         prop("housenumber")
     } else {
-        prop("name:latin")
+        // The language's primary subtag: `de` of `de-DE`, as OSM keys it.
+        let primary = language
+            .split(['-', '_'])
+            .next()
+            .map(str::to_ascii_lowercase)
+            .filter(|p| !p.is_empty());
+        primary
+            .and_then(|p| prop(&format!("name:{p}")))
+            .or_else(|| prop("name:latin"))
             .or_else(|| prop("name"))
             .or_else(|| prop("name_en"))
             .or_else(|| prop("name_int"))
     }?;
-    let text: String = text.chars().filter(|c| !c.is_control()).take(48).collect();
+    let first = text.split(';').map(str::trim).find(|t| !t.is_empty())?;
+    let text: String = first.chars().filter(|c| !c.is_control()).take(48).collect();
     (!text.trim().is_empty()).then_some(text)
 }
 
@@ -522,7 +534,6 @@ pub fn features_to_svg_in(
     mapcss: &str,
     language: &str,
 ) -> String {
-    let _ = language;
     let style_sheet = MapCss::parse(mapcss);
     let mut out = String::with_capacity(features.len().saturating_mul(96) + 256);
     out.push_str(
@@ -615,7 +626,7 @@ pub fn features_to_svg_in(
             if !is_line_label_layer(&layer_lower) {
                 return None;
             }
-            let text = label_text(feature, &layer_lower)?;
+            let text = label_text(feature, &layer_lower, language)?;
             let size = f64::from(style_sheet.label_style(layer_name, class).size);
             let min_len = text.chars().count() as f64 * size * 0.62 + 8.0;
             let mut best: Option<(f64, (f64, f64, f64))> = None;
@@ -650,7 +661,7 @@ pub fn features_to_svg_in(
                 if pos.len() >= 2 {
                     let (x, y) = project(pos[0], pos[1]);
                     if in_tile(x, y) {
-                        if let Some(text) = label_text(feature, &layer_lower) {
+                        if let Some(text) = label_text(feature, &layer_lower, language) {
                             labels.push(label(x, y, 0.0, text));
                         }
                     }
@@ -660,7 +671,7 @@ pub fn features_to_svg_in(
                 if let Some(pos) = points.iter().find(|p| p.len() >= 2) {
                     let (x, y) = project(pos[0], pos[1]);
                     if in_tile(x, y) {
-                        if let Some(text) = label_text(feature, &layer_lower) {
+                        if let Some(text) = label_text(feature, &layer_lower, language) {
                             labels.push(label(x, y, 0.0, text));
                         }
                     }
