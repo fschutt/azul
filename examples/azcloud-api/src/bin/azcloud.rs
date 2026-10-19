@@ -1127,21 +1127,28 @@ fn index_provider(state: &StateDir, device: &str) -> Box<dyn azcloud_kit::encryp
     )
 }
 
-/// Decrypts the encrypted drive's `key` into `file`, a segment at a time, through a hidden file
-/// next to it that is renamed when the whole file is there (its BLAKE3 checked by the reader
-/// at the end). The bytes written.
+/// Decrypts the encrypted drive's `key` into `file` through a hidden file next to it that is
+/// renamed when the whole file is there. A big file comes a segment at a time (its BLAKE3
+/// checked by the reader at the end); a small one shares a pack with others and has no
+/// segments of its own, so it comes whole, in one ranged GET checked against its BLAKE3. The
+/// bytes written.
 #[cfg(feature = "encryption")]
 fn save_encrypted<D: azul_storage::Drive>(
     drive: &azul_storage::encrypted::EncryptedDrive<D>,
     key: &str,
     file: &Path,
 ) -> Result<u64> {
-    let mut reader = match drive.open_reader(key) {
-        Ok(reader) => reader,
-        Err(azul_storage::DriveError::NotFound { .. }) => {
-            return Err(anyhow!("the drive has no {key}"))
-        }
-        Err(e) => return Err(e.into()),
+    let missing = |e: azul_storage::DriveError| match e {
+        azul_storage::DriveError::NotFound { .. } => anyhow!("the drive has no {key}"),
+        e => e.into(),
+    };
+    let entry = drive.entry(key).map_err(missing)?;
+    let packed = entry.object.as_ref().is_some_and(|o| o.packed.is_some());
+    let mut source: Box<dyn Read + '_> = if packed {
+        let plain = azul_storage::Drive::get(drive, key).map_err(missing)?;
+        Box::new(std::io::Cursor::new(plain))
+    } else {
+        Box::new(drive.open_reader(key).map_err(missing)?)
     };
     let partial = file.with_file_name(format!(
         ".{}.azcloud-part",
@@ -1151,7 +1158,7 @@ fn save_encrypted<D: azul_storage::Drive>(
     ));
     let mut out =
         std::fs::File::create(&partial).with_context(|| format!("{}", partial.display()))?;
-    let bytes = std::io::copy(&mut reader, &mut out)
+    let bytes = std::io::copy(&mut source, &mut out)
         .with_context(|| format!("{key} into {}", partial.display()))?;
     out.sync_all()?;
     drop(out);
