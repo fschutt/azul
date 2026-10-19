@@ -661,4 +661,52 @@ mod tests {
             "no day headers for another column"
         );
     }
+
+    fn article(i: usize) -> TableRow {
+        TableRow::Article(ArticleRef { feed: 0, item: i }, i)
+    }
+
+    #[test]
+    fn the_magazine_packs_a_days_articles_into_rows_of_cards() {
+        let rows = vec![
+            TableRow::Day(DateGroup::Today),
+            article(0),
+            article(1),
+            article(2),
+            TableRow::Day(DateGroup::Yesterday),
+            article(3),
+        ];
+        let magazine = magazine_rows(&rows, 2);
+        assert_eq!(
+            magazine,
+            vec![
+                MagazineRow::Day(DateGroup::Today),
+                MagazineRow::Cards(vec![(ArticleRef { feed: 0, item: 0 }, 0), (ArticleRef { feed: 0, item: 1 }, 1)]),
+                MagazineRow::Cards(vec![(ArticleRef { feed: 0, item: 2 }, 2)]),
+                MagazineRow::Day(DateGroup::Yesterday),
+                MagazineRow::Cards(vec![(ArticleRef { feed: 0, item: 3 }, 3)]),
+            ],
+            "a day's last row is not filled with the next day's articles"
+        );
+        // Not sorted by date: no days, the articles one row after the other.
+        let flat: Vec<TableRow> = (0..5).map(article).collect();
+        assert_eq!(magazine_rows(&flat, 3).len(), 2);
+        assert_eq!(magazine_rows(&flat, 0).len(), 5, "at least one card a row");
+    }
+
+    #[test]
+    fn the_magazines_rows_lie_one_under_the_other_by_their_heights() {
+        let rows = vec![
+            MagazineRow::Day(DateGroup::Today),
+            MagazineRow::Cards(vec![(ArticleRef { feed: 0, item: 0 }, 0)]),
+            MagazineRow::Cards(vec![(ArticleRef { feed: 0, item: 1 }, 1)]),
+        ];
+        let tops = magazine_tops(&rows);
+        assert_eq!(tops, vec![0.0, DAY_PX, DAY_PX + CARD_ROW_PX, DAY_PX + 2.0 * CARD_ROW_PX]);
+        assert_eq!(magazine_row_at(&tops, 0.0), 0);
+        assert_eq!(magazine_row_at(&tops, DAY_PX + 1.0), 1);
+        assert_eq!(magazine_row_at(&tops, 1e9), 2, "past the end: the last row");
+        assert_eq!(cards_per_row(100.0), 1);
+        assert_eq!(cards_per_row(3.0 * CARD_MIN_PX + 2.0 * CARD_GAP_PX + 2.0 * CARD_GAP_PX), 3);
+    }
 }
