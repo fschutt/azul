@@ -141,6 +141,14 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     fake-dlocal Pix for BR: `identity_in_app`) is 400 `payer_required` without them and 201
     with them (`payer`: exactly those details), and neither
     its answer nor its poll - nor the mock's stored checkout - holds any of them.
+22. A provider checkout's routes (the payment popover's fallbacks and its close; skipped with
+    no provider card offered with both the fields and a page): a card checkout on the fields
+    is 201; POST /v1/checkout/<id>/surface {"kind": "page"} is 200 with the same checkout on a
+    page (an http(s) URL), a kind the method does not offer is 409 `surface_unavailable`;
+    POST /v1/checkout/<id>/abandon is 200 `expired`, its poll answers `expired`, abandoning it
+    again answers the same, another surface for it is then 409 `checkout_closed`; an unsigned
+    POST /v1/webhook/<its provider> is refused as `bad_signature` (4xx, nothing applied), a
+    webhook of a provider the server does not have is 404 `not_found`.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -385,6 +393,7 @@ def run(token_url, s3_url=None, vouchers='auto', operator=None, cash_key=None):
         voucher_checks(suite, client, required=vouchers == 'required')
     cash_checks(suite, client, operator, cash_key)
     payment_checks(suite, client, operator)
+    provider_route_checks(suite, client)
     ban_checks(suite, client, operator, s3_url)
     # Last: it moves the server's clock on 48 hours (the cash checks compare with this one's).
     if operator is not None:
@@ -532,6 +541,65 @@ def payment_checks(suite, client, operator):
         if operator is not None:
             suite.check('the server keeps none of the payer\'s details',
                         not holds_payer(operator.stored_checkout(checkout_id)))
+
+
+def provider_route_checks(suite, client):
+    """22. A provider checkout's other surface, its abandon and the providers' webhooks."""
+    query = '/v1/checkout/options?tier=100GB&months=1&country=DE&currency=EUR&surfaces=' \
+            'fields,page,browser,paper'
+    status, offer, _ = client.call('GET', query)
+    card = next((p for _, name, p, m in methods_of(offer if status == 200 else None)
+                 if name == 'card' and {'fields', 'page'} <= set(m.get('surfaces') or [])), None)
+    if card is None:
+        print('skipped: a provider checkout\'s routes (no card offered with the fields and a '
+              'page)', flush=True)
+        return
+    _, claim_key = azlin_claim.new_claim_key()
+    order = {'tier': '100GB', 'months': 1, 'withdrawal_consent': True, 'claim_key': claim_key,
+             'provider': card, 'method': 'card', 'surface': 'fields', 'vat_country': 'DE'}
+    status, value, text = client.call('POST', '/v1/checkout', order)
+    checkout_id = (value or {}).get('checkout_id') or ''
+    suite.check('a card checkout via %s on the fields is 201' % card,
+                status == 201 and bool(checkout_id)
+                and ((value or {}).get('surface') or {}).get('kind') == 'fields',
+                '(HTTP %d %s)' % (status, text[:200]))
+    if not checkout_id:
+        return
+    path = '/v1/checkout/' + checkout_id
+    status, value, text = client.call('POST', path + '/surface', {'kind': 'page'})
+    page = (value or {}).get('surface') or {}
+    suite.check('its surface switched to a page is 200: the same checkout on an http(s) page',
+                status == 200 and (value or {}).get('checkout_id') == checkout_id
+                and page.get('kind') == 'page'
+                and str(page.get('url') or '').startswith(('http://', 'https://')),
+                '(HTTP %d %s)' % (status, text[:200]))
+    status, value, _ = client.call('POST', path + '/surface', {'kind': 'paper'})
+    suite.check('a surface the method does not offer is 409 surface_unavailable',
+                status == 409 and error_code(value) == 'surface_unavailable',
+                '(HTTP %d %r)' % (status, value))
+    status, value, text = client.call('POST', path + '/abandon', {})
+    suite.check('abandoning it is 200 expired',
+                status == 200 and (value or {}).get('status') == 'expired',
+                '(HTTP %d %s)' % (status, text[:200]))
+    _, polled, _ = client.call('GET', path)
+    suite.check('its poll answers expired', (polled or {}).get('status') == 'expired',
+                '(%r)' % (polled or {}).get('status'))
+    status, value, _ = client.call('POST', path + '/abandon', {})
+    suite.check('abandoning it again answers the same',
+                status == 200 and (value or {}).get('status') == 'expired',
+                '(HTTP %d %r)' % (status, value))
+    status, value, _ = client.call('POST', path + '/surface', {'kind': 'page'})
+    suite.check('another surface for an abandoned checkout is 409 checkout_closed',
+                status == 409 and error_code(value) == 'checkout_closed',
+                '(HTTP %d %r)' % (status, value))
+    status, value, _ = client.call('POST', '/v1/webhook/' + card, {})
+    suite.check('an unsigned webhook of %s is refused as bad_signature' % card,
+                400 <= status < 500 and error_code(value) == 'bad_signature',
+                '(HTTP %d %r)' % (status, value))
+    status, value, _ = client.call('POST', '/v1/webhook/no-such-provider', {})
+    suite.check('a webhook of a provider the server does not have is 404 not_found',
+                status == 404 and error_code(value) == 'not_found',
+                '(HTTP %d %r)' % (status, value))
 
 
 def cash_checks(suite, client, operator, cash_key):
