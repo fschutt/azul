@@ -2240,4 +2240,28 @@ mod autotest_generated {
             }
         }
     }
+
+    /// "aa bb" is 53px at its natural width: in a 52px box the words go on two lines. The
+    /// space would have to shrink for one line, and no line positioner shrinks a space, so
+    /// that line would stick out of its box - left-aligned or justified.
+    #[test]
+    fn a_line_that_fits_only_if_its_space_shrinks_is_broken_instead() {
+        for align in [TextAlign::Left, TextAlign::Justify] {
+            let c = UnifiedConstraints {
+                text_align: align,
+                text_justify: JustifyContent::InterWord,
+                ..definite(52.0)
+            };
+            let layout = kp_layout(&items_of("aa bb"), &[], &c, None, &no_fonts(), true);
+            assert_eq!(line_count(&layout), 2, "{align:?}: one word per line");
+            for line in 0..2 {
+                let right = line_right(&layout, line);
+                assert!(
+                    right <= 52.0,
+                    "{align:?}: line {line} ({:?}) ends at {right}, past its 52px box",
+                    line_text(&layout, line)
+                );
+            }
+        }
+    }
 }
