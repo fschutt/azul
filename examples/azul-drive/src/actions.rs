@@ -1600,7 +1600,8 @@ fn in_icon_grid(info: &CallbackInfo) -> bool {
     false
 }
 
-/// The keys the focused icon grid handles itself (the window's keyboard leaves them).
+/// The keys the focused icon grid handles itself (the window's keyboard leaves them). F2 is
+/// one: the grid edits the focused tile's name in its own field and reports the new name.
 pub(crate) fn grid_handles(command: Command) -> bool {
     matches!(
         command,
@@ -1610,6 +1611,7 @@ pub(crate) fn grid_handles(command: Command) -> bool {
             | Command::Open
             | Command::SelectAll
             | Command::ContextMenu
+            | Command::Rename
     )
 }
 
