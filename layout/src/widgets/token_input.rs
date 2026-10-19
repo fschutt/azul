@@ -1623,6 +1623,25 @@ mod token_input_tests {
         assert_eq!(split_tokens("a\tb\nc"), (strings(&["a", "b"]), String::from("c")));
     }
 
+    /// A mailbox with a comma in its quoted name, or an address in angle brackets, is one token:
+    /// a separator inside quotes (an escaped quote stays inside) or brackets ends nothing.
+    #[test]
+    fn a_separator_inside_quotes_or_angle_brackets_stays_in_its_token() {
+        assert_eq!(
+            split_tokens("\"Lovelace, Ada\" <ada@x.org>, ben@y.org,"),
+            (strings(&["\"Lovelace, Ada\" <ada@x.org>", "ben@y.org"]), String::new())
+        );
+        assert_eq!(split_tokens("<a,b@x.org>; c"), (strings(&["<a,b@x.org>"]), String::from("c")));
+        assert_eq!(
+            split_tokens("\"Say \\\"hi, all\\\"\" <s@x.org>,"),
+            (strings(&["\"Say \\\"hi, all\\\"\" <s@x.org>"]), String::new())
+        );
+        // A quote still open: all of it is still being typed.
+        assert_eq!(split_tokens("\"Lovelace, Ad"), (Vec::new(), String::from("\"Lovelace, Ad")));
+        assert!(free_separators("\"Lovelace, Ad").is_empty());
+        assert_eq!(free_separators("a,b"), vec![(1, 2)]);
+    }
+
     #[test]
     fn tokens_are_added_trimmed_once_each_and_the_text_is_cleared() {
         let state = TokenInputState::create(sv(&["Rust"])).with_text(s("go")).with_active(1);
