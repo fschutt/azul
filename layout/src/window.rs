@@ -15811,6 +15811,7 @@ impl LayoutWindow {
         let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
             BTreeMap::new();
         let mut compared = 0usize;
+        let mut compared_properties = 0usize;
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -15880,7 +15881,14 @@ impl LayoutWindow {
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
-                for ty in azul_css::props::property::CssPropertyType::ALL {
+                let types = types_to_compare(
+                    old_cache,
+                    new_cache,
+                    (old_nd, m.old_node_id.index()),
+                    (new_nd, m.new_node_id.index()),
+                );
+                compared_properties += types.len();
+                for ty in &types {
                     let before = old_cache.get_property(
                         old_nd,
                         &m.old_node_id,
@@ -16183,7 +16191,7 @@ impl LayoutWindow {
             animate_moves: true,
             move_modes,
             compared,
-            compared_properties: 0,
+            compared_properties,
         }
     }
 
@@ -32721,6 +32729,10 @@ fn unchanged_cascades(
     let parent = |h: &[azul_core::styled_dom::NodeHierarchyItem], i: usize| {
         h.get(i).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
     };
+    // Whether a moved parent hands its children what it handed them before:
+    // its computed inherited values. A container whose background changed
+    // does, so its subtree is not compared for it. Asked once per parent.
+    let mut hands_down_the_same: Vec<Option<bool>> = vec![None; new_data.len()];
     for ni in 0..new_data.len() {
         let Some(old_id) = old_of_new[ni] else {
             continue;
@@ -32728,7 +32740,13 @@ fn unchanged_cascades(
         let oi = old_id.index();
         let parent_same = match (parent(new_hierarchy, ni), parent(old_hierarchy, oi)) {
             (None, None) => true,
-            (Some(np), Some(op)) => unchanged[np.index()] && old_of_new[np.index()] == Some(op),
+            (Some(np), Some(op)) if old_of_new[np.index()] == Some(op) => {
+                unchanged[np.index()]
+                    || *hands_down_the_same[np.index()].get_or_insert_with(|| {
+                        old_cache.computed_values.values_for(op.index())
+                            == new_cache.computed_values.values_for(np.index())
+                    })
+            }
             _ => false,
         };
         if !parent_same {
@@ -32778,6 +32796,51 @@ fn overrides_of(
         .user_overridden_properties
         .get(index)
         .map_or(&[][..], Vec::as_slice)
+}
+
+/// The property types whose resolved value can differ between the matched
+/// nodes `old` (in `old_cache`) and `new` (in `new_cache`): every type either
+/// side declares in a layer of its cascade - its own style, a rule, what it
+/// inherited, a runtime override, the `*` rules - and every inherited type
+/// whose computed value differs. Any other type answers the UA default of the
+/// node's type on both sides, the same under one selector context; so with
+/// another context, or another node type, every type is compared.
+fn types_to_compare(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new_cache: &azul_core::prop_cache::CssPropertyCache,
+    (old_nd, oi): (&azul_core::dom::NodeData, usize),
+    (new_nd, ni): (&azul_core::dom::NodeData, usize),
+) -> Vec<azul_css::props::property::CssPropertyType> {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    if old_cache.dynamic_context != new_cache.dynamic_context
+        || core::mem::discriminant(old_nd.get_node_type())
+            != core::mem::discriminant(new_nd.get_node_type())
+    {
+        return CssPropertyType::ALL.to_vec();
+    }
+    let mut types: Vec<CssPropertyType> = Vec::new();
+    for (cache, nd, i) in [(old_cache, old_nd, oi), (new_cache, new_nd, ni)] {
+        types.extend(cache.css_props.get_slice(i).iter().map(|p| p.prop_type));
+        types.extend(cache.cascaded_props.get_slice(i).iter().map(|p| p.prop_type));
+        types.extend(cache.inline_properties(nd, i).map(|(p, _)| p.get_type()));
+        types.extend(overrides_of(cache, i).iter().map(|(ty, _)| *ty));
+        types.extend(cache.global_css_props.iter().map(CssProperty::get_type));
+    }
+    let old_computed = old_cache.computed_values.values_for(oi);
+    let new_computed = new_cache.computed_values.values_for(ni);
+    for (ty, value) in &old_computed {
+        if new_computed.iter().find(|(t, _)| t == ty).map(|(_, v)| v) != Some(value) {
+            types.push(*ty);
+        }
+    }
+    for (ty, _) in &new_computed {
+        if !old_computed.iter().any(|(t, _)| t == ty) {
+            types.push(*ty);
+        }
+    }
+    types.sort_unstable();
+    types.dedup();
+    types
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for
