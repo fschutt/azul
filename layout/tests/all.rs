@@ -1219,3 +1219,5 @@ mod a_superscript_and_a_subscript_are_drawn_off_the_baseline_in_the_pdf_payload;
 mod a_balanced_paragraph_spaces_its_letters_and_words_as_any_paragraph;
 #[path = "the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme.rs"]
 mod the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme;
+#[path = "a_narrow_settings_window_keeps_every_control_whole_and_inside.rs"]
+mod a_narrow_settings_window_keeps_every_control_whole_and_inside;
