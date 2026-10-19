@@ -1876,27 +1876,24 @@ fn apply_css_property_to_compact(
             }
         }
 
+        // A gap in px is kept as it is; one in em, rem or a percentage needs the node's font
+        // sizes or its box: the sentinel sends the layout to the cascade for it (0 would read
+        // as no gap at all).
         CssProperty::RowGap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    dims.row_gap = encode_resolved_px_i16(g.inner.number.get());
-                }
+                dims.row_gap = encode_gap_i16(g.inner);
             }
         }
         CssProperty::ColumnGap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    dims.column_gap = encode_resolved_px_i16(g.inner.number.get());
-                }
+                dims.column_gap = encode_gap_i16(g.inner);
             }
         }
         CssProperty::Gap(v) => {
             if let Some(g) = v.get_property() {
-                if g.inner.metric == SizeMetric::Px {
-                    let enc = encode_resolved_px_i16(g.inner.number.get());
-                    dims.row_gap = enc;
-                    dims.column_gap = enc;
-                }
+                let enc = encode_gap_i16(g.inner);
+                dims.row_gap = enc;
+                dims.column_gap = enc;
             }
         }
 
@@ -2691,6 +2688,16 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
         _ => return I16_SENTINEL,
     };
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
+}
+
+/// A gap for the compact cache: px as it is, any other unit the sentinel (resolved from the
+/// cascade, with the node's font sizes).
+fn encode_gap_i16(gap: azul_css::props::basic::pixel::PixelValue) -> i16 {
+    if gap.metric == SizeMetric::Px {
+        encode_resolved_px_i16(gap.number.get())
+    } else {
+        I16_SENTINEL
+    }
 }
 
 /// Encode margin: same as `encode_css_pixel_as_i16` but Auto is a distinct value.

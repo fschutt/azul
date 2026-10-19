@@ -1003,42 +1003,43 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ),
         };
 
-        // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
-        // i16 px × 10 in tier2_dims. The slow-path lookup would walk the
-        // cascade for every node even though the answer is already encoded.
+        // Gaps. COMPACT FAST PATH: row_gap / column_gap are i16 px × 10 in tier2_dims, which
+        // spares a cascade walk per node. A gap the compact cache could not keep (em, rem, a
+        // percentage: the sentinel) and every gap without a compact cache come from the
+        // cascade, the longhand first, then `gap`, resolved with the node's font sizes.
+        let gap_from_cascade = |longhand: CssPropertyType| -> LengthPercentage {
+            let get = |ty: &CssPropertyType| cache.get_property(node_data, &id, node_state, ty);
+            let gap = match get(&longhand) {
+                Some(CssProperty::RowGap(v)) => v.get_property().map(|g| g.inner),
+                Some(CssProperty::ColumnGap(v)) => v.get_property().map(|g| g.inner),
+                _ => None,
+            }
+            .or_else(|| match get(&CssPropertyType::Gap) {
+                Some(CssProperty::Gap(v)) => v.get_property().map(|g| g.inner),
+                _ => None,
+            });
+            gap.map_or(LengthPercentage::ZERO, |pv| {
+                pixel_to_lp_ctx(pv, em_size, rem_size)
+            })
+        };
         taffy_style.gap = cache.compact_cache.as_ref().map_or_else(
-            || {
-                cache
-                    .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
-                    .and_then(|p| {
-                        if let CssProperty::Gap(v) = p {
-                            Some(v)
-                        } else {
-                            None
-                        }
-                    })
-                    .map_or_else(Size::zero, |v| {
-                        let val = v.get_property_or_default().unwrap_or_default().inner;
-                        let gap_lp = pixel_to_lp(val);
-                        Size {
-                            width: gap_lp,
-                            height: gap_lp,
-                        }
-                    })
+            || Size {
+                width: gap_from_cascade(CssPropertyType::ColumnGap),
+                height: gap_from_cascade(CssPropertyType::RowGap),
             },
             |cc| {
                 let row = cc.tier2_dims[id.index()].row_gap;
                 let col = cc.tier2_dims[id.index()].column_gap;
-                let decode = |raw: i16| -> LengthPercentage {
+                let decode = |raw: i16, longhand: CssPropertyType| -> LengthPercentage {
                     if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                        LengthPercentage::length(0.0)
+                        gap_from_cascade(longhand)
                     } else {
                         LengthPercentage::length(f32::from(raw) / 10.0)
                     }
                 };
                 Size {
-                    width: decode(col),
-                    height: decode(row),
+                    width: decode(col, CssPropertyType::ColumnGap),
+                    height: decode(row, CssPropertyType::RowGap),
                 }
             },
         );
