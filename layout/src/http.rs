@@ -1548,6 +1548,15 @@ fn decode_response(
     // Where the request ended: ureq follows redirects (up to 10) and records
     // the last URI on the response.
     let final_url = AzString::from(response.get_uri().to_string());
+    // Every URL the request passed through (`save_redirect_history`), or the
+    // one it was sent to.
+    let redirect_history: StringVec = response
+        .get_redirect_history()
+        .map_or_else(
+            || alloc::vec![final_url.clone()],
+            |uris| uris.iter().map(|u| AzString::from(u.to_string())).collect(),
+        )
+        .into();
     let content_type = AzString::from(
         response
             .headers()
@@ -1599,7 +1608,7 @@ fn decode_response(
         content_length,
         headers: HttpHeaderVec::from_vec(headers),
         final_url,
-        redirect_history: StringVec::from_const_slice(&[]),
+        redirect_history,
     })
 }
 
@@ -1638,56 +1647,50 @@ pub fn http_request_with_config(
     };
     let timeout = Some(std::time::Duration::from_secs(config.timeout_secs));
 
-    // ureq 3.x splits the request builder by typestate: `WithoutBody` for
-    // GET/HEAD/DELETE (terminated by `.call()`) and `WithBody` for
-    // POST/PUT/PATCH (terminated by `.send()`). The two are different types,
-    // so the header application is written out per branch.
-    // A DELETE may say what it removes in a body (a signed request); ureq
-    // builds DELETE without one unless asked to send it.
+    // One request through the http crate's builder, whatever the verb: ureq's
+    // typed builders exist for the standard verbs only, and this way the
+    // WebDAV ones (PROPFIND, MKCOL, ...) take the same path. A body goes when
+    // the verb takes one, or when a DELETE says what it removes (a signed
+    // request).
     let sends_body = method.takes_body()
         || (matches!(method, HttpMethod::Delete) && body.is_some_and(|b| !b.is_empty()));
+    let mut builder = ureq::http::Request::builder()
+        .method(method.as_str())
+        .uri(url);
+    if !config.user_agent.as_str().is_empty() {
+        builder = builder.header("User-Agent", config.user_agent.as_str());
+    }
+    if sends_body && !content_type.is_empty() {
+        builder = builder.header("Content-Type", content_type);
+    }
+    for header in config.headers.as_slice() {
+        builder = builder.header(header.name.as_str(), header.value.as_str());
+    }
+    // Up to 10 redirects, ureq's default, or none: the redirect itself is
+    // then the answer. The history names every URL either way.
+    let max_redirects = if config.follow_redirects { 10 } else { 0 };
     let response = if sends_body {
-        let mut request = match method {
-            HttpMethod::Put => agent.put(url),
-            HttpMethod::Patch => agent.patch(url),
-            HttpMethod::Delete => agent.delete(url).force_send_body(),
-            // `sends_body` admits only POST here otherwise.
-            _ => agent.post(url),
-        };
-        if !config.user_agent.as_str().is_empty() {
-            request = request.header("User-Agent", config.user_agent.as_str());
-        }
-        if !content_type.is_empty() {
-            request = request.header("Content-Type", content_type);
-        }
-        for header in config.headers.as_slice() {
-            request = request.header(header.name.as_str(), header.value.as_str());
-        }
-        request
-            .config()
+        let request = builder
+            .body(body.unwrap_or(&[]))
+            .map_err(|e| HttpError::invalid_url(format!("{url}: {e}").into()))?;
+        let request = agent
+            .configure_request(request)
             .timeout_global(timeout)
-            .build()
-            .send(body.unwrap_or(&[]))
-            .map_err(|e| map_ureq_error(url, &e))?
+            .max_redirects(max_redirects)
+            .save_redirect_history(true)
+            .build();
+        agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     } else {
-        let mut request = match method {
-            HttpMethod::Head => agent.head(url),
-            HttpMethod::Delete => agent.delete(url),
-            // `takes_body()` admits only GET/HEAD/DELETE here.
-            _ => agent.get(url),
-        };
-        if !config.user_agent.as_str().is_empty() {
-            request = request.header("User-Agent", config.user_agent.as_str());
-        }
-        for header in config.headers.as_slice() {
-            request = request.header(header.name.as_str(), header.value.as_str());
-        }
-        request
-            .config()
+        let request = builder
+            .body(())
+            .map_err(|e| HttpError::invalid_url(format!("{url}: {e}").into()))?;
+        let request = agent
+            .configure_request(request)
             .timeout_global(timeout)
-            .build()
-            .call()
-            .map_err(|e| map_ureq_error(url, &e))?
+            .max_redirects(max_redirects)
+            .save_redirect_history(true)
+            .build();
+        agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     };
 
     decode_response(response, config)
