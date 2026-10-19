@@ -4239,13 +4239,15 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // so nothing changes for the default map; a tilt promotes the canvas to
     // a reference frame the compositor projects (CPU: the projective blit;
     // GPU: WebRender's 3D transforms).
+    //
+    // The canvas does not clip: the view root does. A turned canvas that
+    // clipped would cut its tiles to its own unturned box before the turn,
+    // and the view's corners would stay bare.
     let grid_css = match camera_transform_css(&viewport, width_px, height_px) {
         Some(camera) => format!(
-            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; \
-             {camera}"
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; {camera}"
         ),
-        None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;"
-            .to_string(),
+        None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%;".to_string(),
     };
     // The grid is what the user pans and zooms, so it is the node that is named:
     // one graphic, "Map", whose value says where it is looking. The tiles inside
