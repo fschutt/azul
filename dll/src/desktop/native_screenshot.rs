@@ -189,9 +189,9 @@ fn take_native_screenshot_macos_bytes(
 
     type CGWindowID = u32;
     type CGImageRef = *mut c_void;
-    type CGDataProviderRef = *mut c_void;
-    type CFDataRef = *const c_void;
-    type CFTypeRef = *const c_void;
+    type CGContextRef = *mut c_void;
+    type CGColorSpaceRef = *mut c_void;
+    type CFStringRef = *const c_void;
     type CGFloat = f64;
     type CGWindowListOption = u32;
     type CGWindowImageOption = u32;
@@ -242,19 +242,26 @@ fn take_native_screenshot_macos_bytes(
         ) -> CGImageRef;
         fn CGImageGetWidth(image: CGImageRef) -> usize;
         fn CGImageGetHeight(image: CGImageRef) -> usize;
-        fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
-        fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
-        fn CGImageGetDataProvider(image: CGImageRef) -> CGDataProviderRef;
         fn CGImageRelease(image: CGImageRef);
-        fn CGDataProviderCopyData(provider: CGDataProviderRef) -> CFDataRef;
+        static kCGColorSpaceSRGB: CFStringRef;
+        fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
+        fn CGColorSpaceRelease(space: CGColorSpaceRef);
+        fn CGBitmapContextCreate(
+            data: *mut c_void,
+            width: usize,
+            height: usize,
+            bits_per_component: usize,
+            bytes_per_row: usize,
+            space: CGColorSpaceRef,
+            bitmap_info: u32,
+        ) -> CGContextRef;
+        fn CGContextDrawImage(context: CGContextRef, rect: CGRect, image: CGImageRef);
+        fn CGContextRelease(context: CGContextRef);
     }
 
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFDataGetLength(data: CFDataRef) -> isize;
-        fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
-        fn CFRelease(cf: CFTypeRef);
-    }
+    // RGBA, 8 bits a channel, alpha premultiplied and last, bytes in that
+    // order (kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big).
+    const RGBA_PREMULTIPLIED_BIG: u32 = 1 | (4 << 12);
 
     unsafe {
         let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
@@ -293,67 +300,54 @@ fn take_native_screenshot_macos_bytes(
             return Err(AzString::from("CGWindowListCreateImage failed"));
         }
 
+        // The capture is in the display's colour space (Display P3 on most
+        // Macs), and PNG readers take bytes as sRGB. Drawing it into an sRGB
+        // bitmap lets CoreGraphics convert the colours, so a screenshot shows
+        // the colours the app asked for, whatever display it was taken on.
         let result = (|| -> Result<Vec<u8>, AzString> {
             let width = CGImageGetWidth(image);
             let height = CGImageGetHeight(image);
-            let bytes_per_row = CGImageGetBytesPerRow(image);
-            let bits_per_pixel = CGImageGetBitsPerPixel(image);
-
             if width == 0 || height == 0 {
                 return Err(AzString::from("Captured image has zero dimensions"));
             }
-            if bits_per_pixel != 32 {
-                return Err(AzString::from(
-                    "Unsupported pixel format from CGWindowListCreateImage",
-                ));
+            let srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            if srgb.is_null() {
+                return Err(AzString::from("No sRGB colour space"));
             }
-
-            let provider = CGImageGetDataProvider(image);
-            if provider.is_null() {
-                return Err(AzString::from("Failed to get CGImage data provider"));
+            let mut pixels: Vec<u8> = vec![0; width * height * 4];
+            let context = CGBitmapContextCreate(
+                pixels.as_mut_ptr().cast::<c_void>(),
+                width,
+                height,
+                8,
+                width * 4,
+                srgb,
+                RGBA_PREMULTIPLIED_BIG,
+            );
+            CGColorSpaceRelease(srgb);
+            if context.is_null() {
+                return Err(AzString::from("CGBitmapContextCreate failed"));
             }
-
-            let data = CGDataProviderCopyData(provider);
-            if data.is_null() {
-                return Err(AzString::from("Failed to copy CGImage pixel data"));
-            }
-
-            let inner = (|| -> Result<Vec<u8>, AzString> {
-                let length = CFDataGetLength(data);
-                let byte_ptr = CFDataGetBytePtr(data);
-                if byte_ptr.is_null() || length <= 0 {
-                    return Err(AzString::from("CGImage pixel data is empty"));
-                }
-                let length = length as usize;
-
-                let mut pixels: Vec<u8> = Vec::with_capacity(width * height * 4);
-                for y in 0..height {
-                    let row_start = y * bytes_per_row;
-                    for x in 0..width {
-                        let pixel_off = row_start + x * 4;
-                        if pixel_off + 3 >= length {
-                            return Err(AzString::from("CGImage pixel data shorter than expected"));
-                        }
-                        // CGWindowListCreateImage returns BGRA in host byte
-                        // order with kCGImageAlphaPremultipliedFirst. Window
-                        // captures are fully opaque (a == 255), so swizzle
-                        // BGRA -> RGBA without unpremultiplication.
-                        let b = *byte_ptr.add(pixel_off);
-                        let g = *byte_ptr.add(pixel_off + 1);
-                        let r = *byte_ptr.add(pixel_off + 2);
-                        let a = *byte_ptr.add(pixel_off + 3);
-                        pixels.push(r);
-                        pixels.push(g);
-                        pixels.push(b);
-                        pixels.push(a);
+            let all = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize {
+                    width: width as CGFloat,
+                    height: height as CGFloat,
+                },
+            };
+            CGContextDrawImage(context, all, image);
+            CGContextRelease(context);
+            // The window is opaque; the shadow around it (with
+            // AZ_SCREENSHOT_SHADOW) is not, and PNG wants straight alpha.
+            for px in pixels.chunks_exact_mut(4) {
+                let a = u32::from(px[3]);
+                if a > 0 && a < 255 {
+                    for c in &mut px[..3] {
+                        *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
                     }
                 }
-
-                encode_rgba_png(pixels, width as u32, height as u32).map_err(AzString::from)
-            })();
-
-            CFRelease(data);
-            inner
+            }
+            encode_rgba_png(pixels, width as u32, height as u32).map_err(AzString::from)
         })();
 
         CGImageRelease(image);

@@ -17,6 +17,9 @@ a real window for a few seconds per backend.
                      nodes (AZ_RECONCILE_DEBUG's `compared`), not the whole page.
     widgets-gpu-dark AzWidgets in dark mode paints the Dialog row's "Delete file..." button with
                      the same face on the GPU as on the CPU.
+    native-colour    A native screenshot of AzWidgets shows the "Delete file..." button in the
+                     colour the CPU frame has: the capture is converted from the display's colour
+                     space to sRGB (a Display P3 Mac moved every colour before).
 """
 import argparse
 import base64
@@ -184,6 +187,38 @@ def face_of(backend, port, args):
     return tuple(rows[y][x * ch:x * ch + 3])
 
 
+def pixel_at(png, rect, scale):
+    w, h, rows, ch = png_pixels(png)
+    x = int((rect["x"] + rect["width"] / 2) * scale)
+    y = int((rect["y"] + rect["height"] / 2) * scale)
+    if not (0 <= x < w and 0 <= y < h):
+        fail("the button's middle %s lies outside the %dx%d capture" % ((x, y), w, h))
+    return tuple(rows[y][x * ch:x * ch + 3])
+
+
+def native_colour(args):
+    app = e2e.App("azwidgets-native-colour", os.path.join(args.bin, "AzWidgets"), [], 18966,
+                  args.logs, 60, extra_env={"AZ_BACKEND": "cpu"})
+    try:
+        started(app)
+        app.must("scroll_into_view", text="Delete file…")
+        app.frame(3)
+        layout = app.value("get_node_layout", text="Delete file…")
+        cpu = app.value("take_screenshot")
+        native = app.value("take_native_screenshot")
+    finally:
+        # A real window stays up only for the proof itself.
+        app.stop()
+    rect = layout.get("rect", layout) if isinstance(layout, dict) else {}
+    as_png = lambda shot: base64.b64decode(shot.get("png_base64") if isinstance(shot, dict) else shot)
+    scale_of = lambda shot: float(shot.get("scale", 1.0)) if isinstance(shot, dict) else 1.0
+    in_cpu = pixel_at(as_png(cpu), rect, scale_of(cpu))
+    in_native = pixel_at(as_png(native), rect, scale_of(native))
+    print("Delete file... face: cpu frame %s, native capture %s" % (in_cpu, in_native))
+    if max(abs(a - b) for a, b in zip(in_cpu, in_native)) > 6:
+        fail("the native capture shows %s where the frame has %s" % (in_native, in_cpu))
+
+
 def widgets_gpu_dark(args):
     cpu = face_of("cpu", 18964, args)
     gpu = face_of("gpu", 18965, args)
@@ -197,6 +232,7 @@ PROOFS = {
     "maps-mode": maps_mode,
     "widgets-click": widgets_click,
     "widgets-gpu-dark": widgets_gpu_dark,
+    "native-colour": native_colour,
 }
 
 
