@@ -238,15 +238,23 @@ pub(crate) fn background_tile(
 
     let area = positioning.size;
     let intrinsic = intrinsic.filter(|s| s.width > 0.0 && s.height > 0.0);
+    let width = |v: PixelValue| v.to_pixels_internal(area.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let height =
+        |v: PixelValue| v.to_pixels_internal(area.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
     let tile = match (size, intrinsic) {
-        (Some(StyleBackgroundSize::ExactSize(exact)), _) => LogicalSize::new(
-            exact
-                .width
-                .to_pixels_internal(area.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-            exact
-                .height
-                .to_pixels_internal(area.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-        ),
+        (Some(StyleBackgroundSize::ExactSize(exact)), _) => {
+            LogicalSize::new(width(exact.width), height(exact.height))
+        }
+        // `auto` on one axis keeps the image's proportions from the other;
+        // an image without proportions (a gradient) fills the area there.
+        (Some(StyleBackgroundSize::AutoHeight(w)), own) => {
+            let w = width(w);
+            LogicalSize::new(w, own.map_or(area.height, |own| w * own.height / own.width))
+        }
+        (Some(StyleBackgroundSize::AutoWidth(h)), own) => {
+            let h = height(h);
+            LogicalSize::new(own.map_or(area.width, |own| h * own.width / own.height), h)
+        }
         (Some(StyleBackgroundSize::Contain | StyleBackgroundSize::Cover), Some(own)) => {
             let fit_x = area.width / own.width;
             let fit_y = area.height / own.height;

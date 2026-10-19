@@ -2118,17 +2118,36 @@ pub mod parser {
             "contain" => Ok(StyleBackgroundSize::Contain),
             "cover" => Ok(StyleBackgroundSize::Cover),
             other => {
-                let mut iter = other.split_whitespace();
-                let x_val = iter.next().ok_or(InvalidValueErr(input))?;
-                let x_pos = parse_pixel_value(x_val).map_err(|_| InvalidValueErr(input))?;
-                let y_pos = match iter.next() {
-                    Some(y_val) => parse_pixel_value(y_val).map_err(|_| InvalidValueErr(input))?,
-                    None => x_pos, // If only one value, it applies to both width and height
+                // `[ <length-percentage> | auto ]{1,2}`: the width, then the
+                // height, which is `auto` when it is left out.
+                // `Some(None)` is `auto`, `None` not a size at all.
+                let axis = |value: &str| -> Option<Option<PixelValue>> {
+                    if value == "auto" {
+                        Some(None)
+                    } else {
+                        parse_pixel_value(value).ok().map(Some)
+                    }
                 };
-                Ok(StyleBackgroundSize::ExactSize(PixelValueSize {
-                    width: x_pos,
-                    height: y_pos,
-                }))
+                let mut iter = other.split_whitespace();
+                let width = iter
+                    .next()
+                    .and_then(axis)
+                    .ok_or(InvalidValueErr(input))?;
+                let height = match iter.next() {
+                    Some(value) => axis(value).ok_or(InvalidValueErr(input))?,
+                    None => None,
+                };
+                if iter.next().is_some() {
+                    return Err(InvalidValueErr(input));
+                }
+                Ok(match (width, height) {
+                    (None, None) => StyleBackgroundSize::Auto,
+                    (Some(width), None) => StyleBackgroundSize::AutoHeight(width),
+                    (None, Some(height)) => StyleBackgroundSize::AutoWidth(height),
+                    (Some(width), Some(height)) => {
+                        StyleBackgroundSize::ExactSize(PixelValueSize { width, height })
+                    }
+                })
             }
         }
     }
