@@ -233,7 +233,7 @@ pub fn import_csv(text: &str, now: u64) -> Result<Imported, Text> {
     let headers = &table.headers;
     let columns = Columns::of(headers);
     if !columns.any() {
-        return Err(Text::key("azkeys-import-no-column"));
+        return Err(Text::key("azpasswordmanager-import-no-column"));
     }
     let format = detect(headers);
     let mut items = Vec::new();
@@ -259,7 +259,7 @@ pub fn import_csv(text: &str, now: u64) -> Result<Imported, Text> {
             .all(|s| s.is_empty())
         {
             skipped.push(
-                Phrase::new("azkeys-import-row-empty")
+                Phrase::new("azpasswordmanager-import-row-empty")
                     .arg("row", row)
                     .into(),
             );
@@ -384,19 +384,19 @@ pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, Text> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let value: Value = serde_json::from_str(text).map_err(|e| {
         Text::from(
-            Phrase::new("azkeys-import-not-json")
+            Phrase::new("azpasswordmanager-import-not-json")
                 .arg("line", e.line())
                 .arg("column", e.column()),
         )
     })?;
     let Some(root) = value.as_object() else {
-        return Err(Text::key("azkeys-import-not-bitwarden"));
+        return Err(Text::key("azpasswordmanager-import-not-bitwarden"));
     };
     if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
-        return Err(Text::key("azkeys-import-encrypted"));
+        return Err(Text::key("azpasswordmanager-import-encrypted"));
     }
     let Some(entries) = root.get("items").and_then(Value::as_array) else {
-        return Err(Text::key("azkeys-import-no-items"));
+        return Err(Text::key("azpasswordmanager-import-no-items"));
     };
     let folders: Vec<(String, String)> = root
         .get("folders")
@@ -418,7 +418,7 @@ pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, Text> {
             Some(5) => Kind::SshKey,
             _ => {
                 skipped.push(
-                    Phrase::new("azkeys-import-unknown-type")
+                    Phrase::new("azpasswordmanager-import-unknown-type")
                         .arg("item", n + 1)
                         .into(),
                 );
@@ -533,7 +533,7 @@ pub fn import_file(bytes: &[u8], now: u64) -> Result<Imported, Text> {
     let bytes = bytes
         .strip_prefix(b"\xef\xbb\xbf".as_slice())
         .unwrap_or(bytes);
-    let text = std::str::from_utf8(bytes).map_err(|_| Text::key("azkeys-import-not-utf8"))?;
+    let text = std::str::from_utf8(bytes).map_err(|_| Text::key("azpasswordmanager-import-not-utf8"))?;
     if text.trim_start().starts_with('{') {
         import_bitwarden_json(text, now)
     } else {
@@ -685,7 +685,7 @@ mod tests {
         assert_eq!(imported.items.len(), 2);
         assert_eq!(imported.items[1].title, "x.example");
         assert_eq!(imported.skipped.len(), 1);
-        let row = imported.skipped[0].phrase("azkeys-import-row-empty");
+        let row = imported.skipped[0].phrase("azpasswordmanager-import-row-empty");
         assert_eq!(
             row.and_then(|p| p.get("row")),
             Some(&azul_appkit::phrase::Arg::from(2_usize)),
@@ -787,7 +787,7 @@ mod tests {
             NOW,
         )
         .expect_err("encrypted");
-        assert_eq!(err.keys(), vec!["azkeys-import-encrypted"], "{err}");
+        assert_eq!(err.keys(), vec!["azpasswordmanager-import-encrypted"], "{err}");
         assert!(import_bitwarden_json("[1, 2]", NOW).is_err());
         assert!(import_bitwarden_json("{ broken", NOW).is_err());
     }

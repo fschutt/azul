@@ -727,6 +727,42 @@ pub struct UpdatePolicy {
     pub skip_version: Option<String>,
 }
 
+/// The Azlin apps that were renamed: `(the app's key now, the key it had)`. What was kept under
+/// the old key - the update choices here, an installed copy's registration, an "Update now" of the
+/// old program - belongs to the app under its new one.
+pub const RENAMED_APPS: [(&str, &str); 1] = [("azpasswordmanager", "azkeys")];
+
+/// The key the app `key` has now: its new one if it was renamed, else `key` itself.
+#[must_use]
+pub fn current_app_key(key: &str) -> &str {
+    RENAMED_APPS
+        .iter()
+        .find(|(_, former)| *former == key)
+        .map_or(key, |(now, _)| *now)
+}
+
+/// The key the app `key` had before it was renamed, if it was.
+#[must_use]
+pub fn former_app_key(key: &str) -> Option<&'static str> {
+    RENAMED_APPS
+        .iter()
+        .find(|(now, _)| *now == key)
+        .map(|(_, former)| *former)
+}
+
+/// Moves the choices kept under a renamed app's former key to its key now (unless the file has
+/// choices under the new key too: those were made later).
+fn adopt_renamed_overrides(overrides: &mut Map<String, Value>) {
+    for (now, former) in RENAMED_APPS {
+        if overrides.contains_key(now) {
+            continue;
+        }
+        if let Some(choices) = overrides.remove(former) {
+            overrides.insert(now.to_string(), choices);
+        }
+    }
+}
+
 /// The `updates` section. Every field is `None` when the file does not say.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UpdatesSection {
@@ -820,7 +856,10 @@ impl UpdatesSection {
             }
         }
         match map.remove("overrides") {
-            Some(Value::Object(overrides)) => section.overrides = overrides,
+            Some(Value::Object(mut overrides)) => {
+                adopt_renamed_overrides(&mut overrides);
+                section.overrides = overrides;
+            }
             Some(Value::Null) | None => {}
             Some(other) => {
                 problems.push(format!("{UPDATES_KEY}.overrides is not an object: {other}"));
@@ -1600,13 +1639,13 @@ mod tests {
         let path = dir.join("config.json");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(&path, r#"{"mode": "dark", "updates": {"overrides": {"azkeys": {"x": 1}}}}"#)
+        std::fs::write(&path, r#"{"mode": "dark", "updates": {"overrides": {"azpasswordmanager": {"x": 1}}}}"#)
             .unwrap();
         AzlinConfig::edit(&path, |c| {
             c.updates.set_autoupdate(None, false);
-            c.updates.set_autoupdate(Some("azkeys"), true);
-            c.updates.set_channel(Some("azkeys"), Channel::Beta);
-            c.updates.set_skip_version("azkeys", Some("3.1.0"));
+            c.updates.set_autoupdate(Some("azpasswordmanager"), true);
+            c.updates.set_channel(Some("azpasswordmanager"), Channel::Beta);
+            c.updates.set_skip_version("azpasswordmanager", Some("3.1.0"));
             c.updates.cohort = Some(7);
         })
         .unwrap();
@@ -1614,15 +1653,43 @@ mod tests {
         assert_eq!(problem, None);
         assert_eq!(c.mode, Some(ModePref::Dark), "the look stays");
         assert_eq!(c.updates.cohort, Some(7));
-        let keys = c.updates.policy_for("azkeys");
+        let keys = c.updates.policy_for("azpasswordmanager");
         assert!(keys.autoupdate);
         assert_eq!(keys.channel, Channel::Beta);
         assert_eq!(keys.skip_version.as_deref(), Some("3.1.0"));
         assert!(!c.updates.policy_for("azmail").autoupdate);
         assert!(c.to_json().contains("\"x\": 1"), "an override's other keys stay");
-        AzlinConfig::edit(&path, |c| c.updates.set_skip_version("azkeys", None)).unwrap();
+        AzlinConfig::edit(&path, |c| c.updates.set_skip_version("azpasswordmanager", None)).unwrap();
         let (c, _) = AzlinConfig::load(&path);
-        assert_eq!(c.updates.policy_for("azkeys").skip_version, None);
+        assert_eq!(c.updates.policy_for("azpasswordmanager").skip_version, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// AzKeys became AzPasswordManager: the update choices a user made for it under its former
+    /// key are its choices now, and the next write keeps them under the new key alone.
+    #[test]
+    fn a_renamed_apps_update_choices_are_kept_under_its_new_key() {
+        let dir = std::env::temp_dir().join(format!("azlin-renamed-test-{}", std::process::id()));
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"updates": {"overrides": {"azkeys": {"channel": "beta", "autoupdate": false}}}}"#,
+        )
+        .unwrap();
+        let (c, problem) = AzlinConfig::load(&path);
+        assert_eq!(problem, None);
+        let policy = c.updates.policy_for("azpasswordmanager");
+        assert_eq!(policy.channel, Channel::Beta);
+        assert!(!policy.autoupdate);
+        AzlinConfig::edit(&path, |c| c.updates.cohort = Some(3)).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"azpasswordmanager\""), "{text}");
+        assert!(!text.contains("\"azkeys\""), "the former key is gone from the file: {text}");
+        assert_eq!(current_app_key("azkeys"), "azpasswordmanager");
+        assert_eq!(current_app_key("azmail"), "azmail");
+        assert_eq!(former_app_key("azpasswordmanager"), Some("azkeys"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

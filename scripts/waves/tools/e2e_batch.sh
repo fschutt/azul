@@ -41,7 +41,7 @@ e azcode 300 python3 scripts/azcode_e2e.py --bin $B/AzCode --out $L/azcode-shots
 e azcontacts 300 python3 scripts/azcontacts_e2e.py --bin $B/AzContacts --out $L/azcontacts-shots
 e azdashboard 240 python3 scripts/azdashboard_e2e.py --bin $B/AzDashboard --out $L/azdashboard-shots
 e azerp 240 python3 scripts/azerp_e2e.py --bin $B/AzERP --out $L/azerp-shots
-e azkeys 240 python3 scripts/azkeys_e2e.py --bin $B/AzKeys --out $L/azkeys-shots
+e azpasswordmanager 240 python3 scripts/azpasswordmanager_e2e.py --bin $B/AzPasswordManager --out $L/azpasswordmanager-shots
 e azmonitor 240 python3 scripts/azmonitor_e2e.py --bin $B/AzMonitor --out $L/azmonitor-shots
 e azmusic 300 python3 scripts/azmusic_e2e.py --bin $B/AzMusic --out $L/azmusic-shots
 e aznews 300 python3 scripts/aznews_e2e.py --bin $B/AzNews --out $L/aznews-shots

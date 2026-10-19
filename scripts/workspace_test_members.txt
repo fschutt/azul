@@ -65,7 +65,7 @@ tested: AzReader             # dll_tests (EPUB container / package / TOC, the co
 tested: AzMusic              # dll_tests (the library, the play queue, playlists, the sample tones, the folder scan, the songs table)
 tested: AzPlayer             # dll_tests (the history and resume positions, the picture / sound sync rule, the controls' auto-hide)
 tested: AzCode               # dll_tests (the piece table, the incremental highlighter, find / replace, the workspace model)
-tested: AzKeys               # dll_tests (the vault file crypto, TOTP vectors, import, generator, audit, the vault files on a drive)
+tested: AzPasswordManager               # dll_tests (the vault file crypto, TOTP vectors, import, generator, audit, the vault files on a drive)
 tested: AzMonitor            # dll_tests (the history ring, rates, sorting, the filter, the sample machine, the tick plan)
 tested: AzNews               # dll_tests (RSS / Atom / JSON Feed parsing incl. malformed feeds, OPML round trip, read state, refresh merge, the reader view)
 tested: AzERP                # dll_tests (money, depreciation schedules, record files, CSV mapping, the view-JSON interpreter, reports)

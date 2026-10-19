@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""AzKeys end to end over the debug server (headless).
+"""AzPasswordManager end to end over the debug server (headless).
 
-    1. starts AzKeys with --sample on an empty, temporary data folder: the sample vault is made
+    1. starts AzPasswordManager with --sample on an empty, temporary data folder: the sample vault is made
        (Argon2id + XChaCha20-Poly1305) and opens; the vault FILE on disk is checked: an
        azkeys-vault envelope that holds neither an item title nor a password in plain text;
     2. searches ("codehost" finds one item), selects it, reads its one-time code (six digits),
@@ -14,12 +14,12 @@
     6. takes screenshots: the vault (light), the wrong-password unlock screen, the audit, the
        vault in dark mode.
 
-Usage (from the azul repository, after building libazul with the debug server and AzKeys):
+Usage (from the azul repository, after building libazul with the debug server and AzPasswordManager):
 
-    python3 scripts/azkeys_e2e.py [--bin target/release/AzKeys] [--debug-port 8781]
+    python3 scripts/azpasswordmanager_e2e.py [--bin target/release/AzPasswordManager] [--debug-port 8781]
         [--timeout 180] [--out <dir>] [--keep]
 
-`AZKEYS_BIN` also names the binary. Run it through the capped runner on a small machine
+`AZPASSWORDMANAGER_BIN` also names the binary. Run it through the capped runner on a small machine
 (scripts/waves/tools/run_capped.sh). Never run while an app is running on the same port.
 """
 
@@ -43,12 +43,12 @@ if not os.environ.get("AZLIN_CONFIG"):
         tempfile.mkdtemp(prefix="azlin-e2e-config-"), "config.json")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PREFIX = "__azkeys_"
+PREFIX = "__azpasswordmanager_"
 SAMPLE_PASSWORD = "sample"
 
 
 def log(line):
-    print("[azkeys] %s" % line, flush=True)
+    print("[azpasswordmanager] %s" % line, flush=True)
 
 
 class Failure(Exception):
@@ -75,15 +75,15 @@ def find_binary(explicit):
     candidates = []
     if explicit:
         candidates.append(explicit)
-    if os.environ.get("AZKEYS_BIN"):
-        candidates.append(os.environ["AZKEYS_BIN"])
+    if os.environ.get("AZPASSWORDMANAGER_BIN"):
+        candidates.append(os.environ["AZPASSWORDMANAGER_BIN"])
     for root in repo_roots():
         for sub in ("release", "debug"):
-            candidates.append(os.path.join(root, "target", sub, "AzKeys"))
+            candidates.append(os.path.join(root, "target", sub, "AzPasswordManager"))
     for c in candidates:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
-    raise Failure("no AzKeys binary; pass --bin or set AZKEYS_BIN (tried %s)" % candidates)
+    raise Failure("no AzPasswordManager binary; pass --bin or set AZPASSWORDMANAGER_BIN (tried %s)" % candidates)
 
 
 def strings(value):
@@ -98,18 +98,18 @@ def strings(value):
 
 
 def sel(name):
-    """The CSS selector of one of AzKeys' ids (ids.rs: every id carries the prefix)."""
+    """The CSS selector of one of AzPasswordManager's ids (ids.rs: every id carries the prefix)."""
     return "#%s%s" % (PREFIX, name)
 
 
 class App:
-    """AzKeys under its debug server, on the data folder `data`."""
+    """AzPasswordManager under its debug server, on the data folder `data`."""
 
     def __init__(self, binary, port, data, logs, deadline, run, extra=()):
         self.port = port
         self.deadline = deadline
-        self.out_path = os.path.join(logs, "azkeys-%d.stdout" % run)
-        self.err_path = os.path.join(logs, "azkeys-%d.stderr" % run)
+        self.out_path = os.path.join(logs, "azpasswordmanager-%d.stdout" % run)
+        self.err_path = os.path.join(logs, "azpasswordmanager-%d.stderr" % run)
         env = dict(os.environ)
         env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(port)})
         self.process = subprocess.Popen(
@@ -168,10 +168,10 @@ class App:
         return re.findall(r"^%s (%s)$" % (re.escape(key), pattern), text, re.M)
 
     def locks(self):
-        """How often the vault locked (`AZKEYS_LOCKED` lines)."""
+        """How often the vault locked (`AZPASSWORDMANAGER_LOCKED` lines)."""
         try:
             with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
-                return len(re.findall(r"^AZKEYS_LOCKED$", f.read(), re.M))
+                return len(re.findall(r"^AZPASSWORDMANAGER_LOCKED$", f.read(), re.M))
         except OSError:
             return 0
 
@@ -179,7 +179,7 @@ class App:
         last = None
         while time.time() < self.deadline:
             if self.process.poll() is not None:
-                raise Failure("AzKeys exited (%s) while waiting for %s" % (self.process.returncode, what))
+                raise Failure("AzPasswordManager exited (%s) while waiting for %s" % (self.process.returncode, what))
             try:
                 value = check()
                 if value:
@@ -259,15 +259,15 @@ def check_vault_file(data, vault_id):
 
 def run(args):
     binary = find_binary(args.bin)
-    out = args.out or tempfile.mkdtemp(prefix="azkeys-e2e-")
+    out = args.out or tempfile.mkdtemp(prefix="azpasswordmanager-e2e-")
     os.makedirs(out, exist_ok=True)
-    data = tempfile.mkdtemp(prefix="azkeys-data-")
+    data = tempfile.mkdtemp(prefix="azpasswordmanager-data-")
     deadline = time.time() + args.timeout
     log("binary %s, data %s, out %s" % (binary, data, out))
     app = App(binary, args.debug_port, data, out, deadline, 1, extra=["--sample"])
     try:
         # 1. The sample vault is made and opens; its file is sealed.
-        vault_id = app.until("the sample vault", lambda: (app.printed("AZKEYS_CREATED", r"[0-9a-f-]+") or [None])[-1])
+        vault_id = app.until("the sample vault", lambda: (app.printed("AZPASSWORDMANAGER_CREATED", r"[0-9a-f-]+") or [None])[-1])
         app.until("the vault screen", lambda: app.shows("All items ("))
         check_vault_file(data, vault_id)
         app.screenshot(os.path.join(out, "vault-flat-light.png"))
@@ -277,43 +277,43 @@ def run(args):
         # "CodeHost recovery codes" (the sample got its 11 notes in db13c2ce8).
         app.type_into(sel("list-search"), "codehost example")
         app.until("one item for 'codehost example'",
-                  lambda: app.printed("AZKEYS_VIEW", r"\d+")[-1:] == ["1"])
+                  lambda: app.printed("AZPASSWORDMANAGER_VIEW", r"\d+")[-1:] == ["1"])
         app.click(sel("row-0"))
-        app.until("CodeHost selected", lambda: "CodeHost (example)" in app.printed("AZKEYS_SELECTED"))
+        app.until("CodeHost selected", lambda: "CodeHost (example)" in app.printed("AZPASSWORDMANAGER_SELECTED"))
         code = app.until("a one-time code", lambda: [t for t in app.texts() if re.fullmatch(r"\d{3} \d{3}", t)])
         log("one-time code shown: %s" % code[0])
         app.click(sel("copy-password"))
-        app.until("the copy", lambda: "password of CodeHost (example)" in app.printed("AZKEYS_COPIED"))
+        app.until("the copy", lambda: "password of CodeHost (example)" in app.printed("AZPASSWORDMANAGER_COPIED"))
         app.until("the clipboard countdown", lambda: app.shows("Clipboard clears in"))
 
         # 3. Lock, a wrong password, the right one.
         app.click(sel("toolbar-lock"))
         app.until("the lock", lambda: app.locks() >= 1 and app.shows("Unlock"))
         unlock(app, "not the password")
-        app.until("the wrong password", lambda: app.printed("AZKEYS_WRONG_PASSWORD", r"\d+"))
+        app.until("the wrong password", lambda: app.printed("AZPASSWORDMANAGER_WRONG_PASSWORD", r"\d+"))
         app.until("the attempts message", lambda: app.shows("2 attempts left"))
         app.screenshot(os.path.join(out, "unlock-wrong-password.png"))
-        unlocked = count(app, "AZKEYS_UNLOCKED")
+        unlocked = count(app, "AZPASSWORDMANAGER_UNLOCKED")
         unlock(app, SAMPLE_PASSWORD)
-        app.until("the unlock", lambda: count(app, "AZKEYS_UNLOCKED") > unlocked)
+        app.until("the unlock", lambda: count(app, "AZPASSWORDMANAGER_UNLOCKED") > unlocked)
         log("locked, refused a wrong password, unlocked")
 
         # 4. A new login goes through the vault file.
-        saves = count(app, "AZKEYS_SAVED")
+        saves = count(app, "AZPASSWORDMANAGER_SAVED")
         app.click(sel("toolbar-new"))
         app.until("the new-item form", lambda: app.shows("New login"))
         app.type_into(sel("edit-title"), "E2E site")
         app.type_into(sel("edit-username"), "e2e@example.org")
         app.type_into(sel("edit-password"), "e2e-Pa55word-xyz!")
         app.click(sel("edit-save"))
-        app.until("the item saved", lambda: "E2E site" in app.printed("AZKEYS_ITEM_SAVED"))
-        app.until("the vault written", lambda: count(app, "AZKEYS_SAVED") > saves)
+        app.until("the item saved", lambda: "E2E site" in app.printed("AZPASSWORDMANAGER_ITEM_SAVED"))
+        app.until("the vault written", lambda: count(app, "AZPASSWORDMANAGER_SAVED") > saves)
         app.click(sel("toolbar-lock"))
-        unlocked = count(app, "AZKEYS_UNLOCKED")
+        unlocked = count(app, "AZPASSWORDMANAGER_UNLOCKED")
         unlock(app, SAMPLE_PASSWORD)
-        app.until("the unlock", lambda: count(app, "AZKEYS_UNLOCKED") > unlocked)
+        app.until("the unlock", lambda: count(app, "AZPASSWORDMANAGER_UNLOCKED") > unlocked)
         app.type_into(sel("list-search"), "E2E")
-        app.until("the new login after a lock", lambda: app.printed("AZKEYS_VIEW", r"\d+")[-1:] == ["1"])
+        app.until("the new login after a lock", lambda: app.printed("AZPASSWORDMANAGER_VIEW", r"\d+")[-1:] == ["1"])
         log("a new login survived a lock")
 
         # 5. The generator and the audit.

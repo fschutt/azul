@@ -92,21 +92,21 @@ impl Attempts {
         let wait = self.wait(now);
         if wait > 0 {
             return t_args(
-                "azkeys-wrong-password-wait",
+                "azpasswordmanager-wrong-password-wait",
                 &[("seconds", Arg::from(wait))],
             );
         }
         if self.failures < Attempts::FREE {
             let left = Attempts::FREE - self.failures;
             return t_args(
-                "azkeys-wrong-password-left",
+                "azpasswordmanager-wrong-password-left",
                 &[
                     ("count", Arg::from(left)),
                     ("seconds", Arg::from(Attempts::WAIT_SECONDS)),
                 ],
             );
         }
-        t("azkeys-wrong-password")
+        t("azpasswordmanager-wrong-password")
     }
 }
 

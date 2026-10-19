@@ -1,9 +1,9 @@
-//! AzKeys' files in the data tree, laid out as the user's S3 bucket will be:
+//! AzPasswordManager's files in the data tree, laid out as the user's S3 bucket will be:
 //!
 //! - `keys/vaults/<vault-uuid>.azkv` - one encrypted vault file per vault ([`crate::crypto`]);
 //! - `keys/backups/<vault-uuid>.azkv` - the file as it was before the last save;
 //! - `keys/exports/audit-<date>.txt` - an exported audit report (no secrets);
-//! - `keys/settings.json` - azul-appkit's settings file (theme, mode, AzKeys' values).
+//! - `keys/settings.json` - azul-appkit's settings file (theme, mode, AzPasswordManager's values).
 //!
 //! The work on them - list, create, unlock (Argon2id: a quarter second), save, change the master
 //! password - is [`run`] on a drive, called from an azul `Thread` (`jobs.rs`), never from a
@@ -16,7 +16,8 @@ use azul_storage::{Drive, DriveError};
 use crate::crypto::{Envelope, KdfParams, SecretKey, VaultError, SUFFIX};
 use crate::vault::Vault;
 
-/// AzKeys' folder in the data root.
+/// AzPasswordManager's folder in the data root. The vaults users have are here: the folder keeps
+/// its name whatever the app is called.
 pub const APP_FOLDER: &str = "keys";
 /// The folder of the vault files (a listing prefix).
 pub const VAULTS: &str = "keys/vaults/";
@@ -33,7 +34,8 @@ pub fn backup_key(vault_id: &str) -> String {
     format!("{APP_FOLDER}/backups/{vault_id}{SUFFIX}")
 }
 
-/// The OS keyring entry that holds a vault's key on this device.
+/// The OS keyring entry that holds a vault's key on this device. It keeps the app's earlier name
+/// (AzKeys): a device unlock already in a keyring is found by it.
 #[must_use]
 pub fn keyring_name(vault_id: &str) -> String {
     format!("azkeys.vault.{vault_id}")

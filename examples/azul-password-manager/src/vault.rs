@@ -529,11 +529,11 @@ impl Scope {
     #[must_use]
     pub fn title(&self) -> String {
         match self {
-            Scope::All => azul_appkit::l10n::t("azkeys-scope-all"),
-            Scope::Favorites => azul_appkit::l10n::t("azkeys-scope-favourites"),
+            Scope::All => azul_appkit::l10n::t("azpasswordmanager-scope-all"),
+            Scope::Favorites => azul_appkit::l10n::t("azpasswordmanager-scope-favourites"),
             Scope::Kind(k) => crate::l10n::kinds(*k),
             Scope::Tag(t) => format!("#{t}"),
-            Scope::OneTimeCodes => azul_appkit::l10n::t("azkeys-scope-codes"),
+            Scope::OneTimeCodes => azul_appkit::l10n::t("azpasswordmanager-scope-codes"),
         }
     }
 }

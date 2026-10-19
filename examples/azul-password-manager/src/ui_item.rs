@@ -64,9 +64,9 @@ pub fn reading_pane(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         Reading::Audit(filter) => audit_view(session, *filter, app),
         Reading::Item => match session.selected_item() {
             Some(item) => item_view(s, session, item, app),
-            None => ShellEmptyState::create(t("azkeys-no-item"))
+            None => ShellEmptyState::create(t("azpasswordmanager-no-item"))
                 .with_icon("key")
-                .with_detail(t("azkeys-no-item-detail"))
+                .with_detail(t("azpasswordmanager-no-item-detail"))
                 .dom(),
         },
     }
@@ -85,7 +85,7 @@ struct RevealRef {
 }
 
 fn copy_button(app: &RefAny, field: &str, id: AzString) -> Dom {
-    Button::create(t("azkeys-copy"))
+    Button::create(t("azpasswordmanager-copy"))
         .with_icon("content_copy")
         .with_on_click(
             RefAny::new(CopyRef {
@@ -99,7 +99,7 @@ fn copy_button(app: &RefAny, field: &str, id: AzString) -> Dom {
 }
 
 fn reveal_button(app: &RefAny, reveal: Reveal, shown: bool, id: AzString) -> Dom {
-    Button::create(t(if shown { "azkeys-hide" } else { "azkeys-show" }))
+    Button::create(t(if shown { "azpasswordmanager-hide" } else { "azpasswordmanager-show" }))
         .with_icon(if shown {
             "visibility_off"
         } else {
@@ -190,7 +190,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
     if !item.username.is_empty() {
         rows.push(
             field_row(
-                &t("azkeys-field-username"),
+                &t("azpasswordmanager-field-username"),
                 text(item.username.as_str()),
                 vec![copy_button(app, "username", ids::COPY_USERNAME)],
             )
@@ -201,7 +201,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let shown = revealed(Reveal::Password);
         rows.push(
             field_row(
-                &t("azkeys-field-password"),
+                &t("azpasswordmanager-field-password"),
                 secret(&item.password, shown),
                 vec![
                     reveal_button(app, Reveal::Password, shown, ids::REVEAL_PASSWORD),
@@ -214,7 +214,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let strength = crate::l10n::strength(generator::Strength::of_bits(bits));
         let words = if item.password_changed > 0 {
             t_args(
-                "azkeys-strength-changed",
+                "azpasswordmanager-strength-changed",
                 &[
                     ("strength", Arg::from(strength)),
                     ("date", Arg::from(date(item.password_changed))),
@@ -245,7 +245,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                             .with_size(40.0)
                             .with_thickness(4.0)
                             .with_value_text(format!("{left}"))
-                            .with_accessibility_name(t("azkeys-seconds-to-next-code"))
+                            .with_accessibility_name(t("azpasswordmanager-seconds-to-next-code"))
                             .with_band(GaugeBand::create(0.0, 5.0, GaugeBandKind::Warn))
                             .dom()
                             .with_id(ids::ITEM_TOTP_RING),
@@ -258,7 +258,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             ),
         };
         rows.push(field_row(
-            &t("azkeys-field-one-time"),
+            &t("azpasswordmanager-field-one-time"),
             value,
             vec![copy_button(app, "totp", ids::COPY_TOTP)],
         ));
@@ -267,14 +267,14 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let card = &item.card;
         if !card.holder.is_empty() {
             rows.push(field_row(
-                &t("azkeys-field-holder"),
+                &t("azpasswordmanager-field-holder"),
                 text(card.holder.as_str()),
                 Vec::new(),
             ));
         }
         if !card.brand.is_empty() {
             rows.push(field_row(
-                &t("azkeys-field-brand"),
+                &t("azpasswordmanager-field-brand"),
                 text(card.brand.as_str()),
                 Vec::new(),
             ));
@@ -287,7 +287,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                 text(card.masked_number())
             };
             rows.push(field_row(
-                &t("azkeys-field-number"),
+                &t("azpasswordmanager-field-number"),
                 value,
                 vec![
                     reveal_button(app, Reveal::CardNumber, shown, ids::reveal_field(1000)),
@@ -297,7 +297,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         }
         if !card.expiry.is_empty() {
             rows.push(field_row(
-                &t("azkeys-field-expires"),
+                &t("azpasswordmanager-field-expires"),
                 text(card.expiry.as_str()),
                 Vec::new(),
             ));
@@ -305,7 +305,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         if !card.code.is_empty() {
             let shown = revealed(Reveal::CardCode);
             rows.push(field_row(
-                &t("azkeys-field-security-code"),
+                &t("azpasswordmanager-field-security-code"),
                 secret(&card.code, shown),
                 vec![
                     reveal_button(app, Reveal::CardCode, shown, ids::reveal_field(1001)),
@@ -318,7 +318,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         rows.push(
             field_row(
                 &if n == 0 {
-                    t("azkeys-field-website")
+                    t("azpasswordmanager-field-website")
                 } else {
                     String::new()
                 },
@@ -349,7 +349,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .map(|t| Chip::create(t.as_str()).dom())
             .collect();
         rows.push(field_row(
-            &t("azkeys-field-tags"),
+            &t("azpasswordmanager-field-tags"),
             flex_row("gap: 4px; flex-wrap: wrap;", chips),
             Vec::new(),
         ));
@@ -361,16 +361,16 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .map(|l| Dom::create_div().with_child(text(l)))
             .collect();
         rows.push(
-            field_row(&t("azkeys-field-notes"), column("", lines), Vec::new())
+            field_row(&t("azpasswordmanager-field-notes"), column("", lines), Vec::new())
                 .with_id(ids::ITEM_NOTES),
         );
     }
     if !item.history.is_empty() {
         rows.push(
             field_row(
-                &t("azkeys-field-history"),
+                &t("azpasswordmanager-field-history"),
                 note(&t_args(
-                    "azkeys-history",
+                    "azpasswordmanager-history",
                     &[
                         ("count", Arg::from(item.history.len())),
                         ("date", Arg::from(date(item.history[0].until))),
@@ -382,7 +382,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         );
     }
     rows.push(note(&t_args(
-        "azkeys-created-changed",
+        "azpasswordmanager-created-changed",
         &[
             ("created", Arg::from(date(item.created))),
             ("changed", Arg::from(date(item.modified))),
@@ -395,18 +395,18 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                 block(
                     "font-size: 13px;",
                     text(t_args(
-                        "azkeys-delete-ask",
+                        "azpasswordmanager-delete-ask",
                         &[("title", Arg::from(&item.title))],
                     )),
                 ),
                 primary(
-                    "azkeys-delete",
+                    "azpasswordmanager-delete",
                     ids::ITEM_DELETE_CONFIRM,
                     app,
                     on_delete_confirmed,
                 ),
                 button(
-                    "azkeys-keep-it",
+                    "azpasswordmanager-keep-it",
                     ids::ITEM_DELETE_CANCEL,
                     app,
                     on_delete_cancelled,
@@ -417,8 +417,8 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
-                icon_button("azkeys-edit", "edit", ids::ITEM_EDIT, app, on_edit),
-                icon_button("azkeys-delete", "delete", ids::ITEM_DELETE, app, on_delete),
+                icon_button("azpasswordmanager-edit", "edit", ids::ITEM_EDIT, app, on_edit),
+                icon_button("azpasswordmanager-delete", "delete", ids::ITEM_DELETE, app, on_delete),
             ],
         )
     };
@@ -497,7 +497,7 @@ extern "C" fn on_delete_confirmed(mut data: RefAny, mut info: CallbackInfo) -> U
     with_app(&mut data, &mut info, |s, info, app| {
         if let Some(session) = s.session.as_mut() {
             if session.delete_selected(now()) {
-                println!("AZKEYS_DELETED");
+                println!("AZPASSWORDMANAGER_DELETED");
             }
         }
         jobs::save(s, info, app);
@@ -610,7 +610,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
             .map(|k| crate::l10n::kind_choice(*k))
             .collect();
         rows.push(form_row(
-            "azkeys-kind-label",
+            "azpasswordmanager-kind-label",
             Segmented::create(strs(&kinds))
                 .with_selected_index(d.kind.index())
                 .with_on_change(app.clone(), on_kind as SegmentedOnChangeCallbackType)
@@ -618,24 +618,24 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
         ));
     }
     rows.push(form_row(
-        "azkeys-title",
+        "azpasswordmanager-title",
         edit_input(
             app,
             EditField::Title,
             &d.title,
-            "azkeys-title",
+            "azpasswordmanager-title",
             false,
             ids::EDIT_TITLE,
         ),
     ));
     if matches!(d.kind, Kind::Login | Kind::Identity | Kind::SshKey) || !d.username.is_empty() {
         rows.push(form_row(
-            "azkeys-username",
+            "azpasswordmanager-username",
             edit_input(
                 app,
                 EditField::Username,
                 &d.username,
-                "azkeys-username-placeholder",
+                "azpasswordmanager-username-placeholder",
                 false,
                 ids::EDIT_USERNAME,
             ),
@@ -643,7 +643,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     if d.kind == Kind::Login || !d.password.is_empty() {
         rows.push(form_row(
-            "azkeys-password",
+            "azpasswordmanager-password",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -653,20 +653,20 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::Password,
                             &d.password,
-                            "azkeys-password",
+                            "azpasswordmanager-password",
                             !form.reveal,
                             ids::EDIT_PASSWORD,
                         ),
                     ),
                     Button::create(t(if form.reveal {
-                        "azkeys-hide"
+                        "azpasswordmanager-hide"
                     } else {
-                        "azkeys-show"
+                        "azpasswordmanager-show"
                     }))
                     .with_on_click(app.clone(), on_form_reveal as ButtonOnClickCallbackType)
                     .dom(),
                     icon_button(
-                        "azkeys-generate",
+                        "azpasswordmanager-generate",
                         "casino",
                         ids::EDIT_GENERATE,
                         app,
@@ -682,12 +682,12 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     if d.kind == Kind::Login || !d.totp.is_empty() {
         rows.push(form_row(
-            "azkeys-one-time-code",
+            "azpasswordmanager-one-time-code",
             edit_input(
                 app,
                 EditField::Totp,
                 &d.totp,
-                "azkeys-totp-placeholder",
+                "azpasswordmanager-totp-placeholder",
                 false,
                 ids::EDIT_TOTP,
             ),
@@ -702,7 +702,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     if d.kind == Kind::Login || !d.urls.is_empty() {
         let website = d.urls.first().map(String::as_str).unwrap_or_default();
         rows.push(form_row(
-            "azkeys-website",
+            "azpasswordmanager-website",
             edit_input(
                 app,
                 EditField::Website,
@@ -716,51 +716,51 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     if d.kind == Kind::Card {
         let c = &d.card;
         rows.push(form_row(
-            "azkeys-holder",
+            "azpasswordmanager-holder",
             edit_input(
                 app,
                 EditField::CardHolder,
                 &c.holder,
-                "azkeys-holder-placeholder",
+                "azpasswordmanager-holder-placeholder",
                 false,
                 ids::EDIT_CARD_HOLDER,
             ),
         ));
         rows.push(form_row(
-            "azkeys-brand",
+            "azpasswordmanager-brand",
             edit_input(
                 app,
                 EditField::CardBrand,
                 &c.brand,
-                "azkeys-brand-placeholder",
+                "azpasswordmanager-brand-placeholder",
                 false,
                 ids::EDIT_CARD_BRAND,
             ),
         ));
         rows.push(form_row(
-            "azkeys-number",
+            "azpasswordmanager-number",
             edit_input(
                 app,
                 EditField::CardNumber,
                 &c.number,
-                "azkeys-card-number",
+                "azpasswordmanager-card-number",
                 false,
                 ids::EDIT_CARD_NUMBER,
             ),
         ));
         rows.push(form_row(
-            "azkeys-expires",
+            "azpasswordmanager-expires",
             edit_input(
                 app,
                 EditField::CardExpiry,
                 &c.expiry,
-                "azkeys-expiry-placeholder",
+                "azpasswordmanager-expiry-placeholder",
                 false,
                 ids::EDIT_CARD_EXPIRY,
             ),
         ));
         rows.push(form_row(
-            "azkeys-security-code",
+            "azpasswordmanager-security-code",
             edit_input(
                 app,
                 EditField::CardCode,
@@ -773,7 +773,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     for (n, f) in d.fields.iter().enumerate() {
         rows.push(form_row(
-            "azkeys-field",
+            "azpasswordmanager-field",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -783,7 +783,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::FieldName(n),
                             &f.name,
-                            "azkeys-name",
+                            "azpasswordmanager-name",
                             false,
                             ids::edit_field_name(n),
                         ),
@@ -794,13 +794,13 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::FieldValue(n),
                             &f.value,
-                            "azkeys-value",
+                            "azpasswordmanager-value",
                             f.hidden,
                             ids::edit_field_value(n),
                         ),
                     ),
                     Switch::create(f.hidden)
-                        .with_accessibility_name(t("azkeys-hidden"))
+                        .with_accessibility_name(t("azpasswordmanager-hidden"))
                         .with_on_toggle(
                             RefAny::new(IndexRef {
                                 app: app.clone(),
@@ -827,7 +827,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     rows.push(form_row(
         "",
         icon_button(
-            "azkeys-add-field",
+            "azpasswordmanager-add-field",
             "add",
             ids::EDIT_ADD_FIELD,
             app,
@@ -846,29 +846,29 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
         .collect();
     let known: Vec<&str> = vault_tags.iter().map(String::as_str).collect();
     rows.push(form_row(
-        "azkeys-tags",
-        TokenInput::create(strs(&tags), t("azkeys-tags"))
+        "azpasswordmanager-tags",
+        TokenInput::create(strs(&tags), t("azpasswordmanager-tags"))
             .with_text(form.tag.as_str())
-            .with_placeholder(t("azkeys-add-tag"))
+            .with_placeholder(t("azpasswordmanager-add-tag"))
             .with_suggestions(strs(&known))
             .with_on_event(app.clone(), on_tags_event as TokenInputOnEventCallbackType)
             .dom()
             .with_id(ids::EDIT_TAG),
     ));
     rows.push(form_row(
-        "azkeys-notes",
+        "azpasswordmanager-notes",
         TextArea::create()
             .with_text(d.notes.as_str())
-            .with_placeholder(t("azkeys-notes"))
-            .with_accessibility_name(t("azkeys-notes"))
+            .with_placeholder(t("azpasswordmanager-notes"))
+            .with_accessibility_name(t("azpasswordmanager-notes"))
             .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
             .dom()
             .with_id(ids::EDIT_NOTES),
     ));
     rows.push(form_row(
-        "azkeys-favourite",
+        "azpasswordmanager-favourite",
         Switch::create(d.favorite)
-            .with_accessibility_name(t("azkeys-favourite"))
+            .with_accessibility_name(t("azpasswordmanager-favourite"))
             .with_on_toggle(app.clone(), on_form_favorite as SwitchOnToggleCallbackType)
             .dom()
             .with_id(ids::EDIT_FAVORITE),
@@ -877,16 +877,16 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
         rows.push(flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
-                block("font-size: 13px;", text(t("azkeys-discard-ask"))),
-                primary("azkeys-discard", ids::EDIT_DISCARD, app, on_form_discard),
-                button("azkeys-keep-editing", ids::EDIT_KEEP, app, on_form_keep),
+                block("font-size: 13px;", text(t("azpasswordmanager-discard-ask"))),
+                primary("azpasswordmanager-discard", ids::EDIT_DISCARD, app, on_form_discard),
+                button("azpasswordmanager-keep-editing", ids::EDIT_KEEP, app, on_form_keep),
             ],
         ));
     } else {
         rows.push(flex_row(
             "gap: 8px; padding: 12px 0px 0px 110px;",
             vec![
-                primary("azkeys-save", ids::EDIT_SAVE, app, on_edit_save),
+                primary("azpasswordmanager-save", ids::EDIT_SAVE, app, on_edit_save),
                 button("kit-button-cancel", ids::EDIT_CANCEL, app, on_form_cancel),
             ],
         ));
@@ -1070,7 +1070,7 @@ pub extern "C" fn on_edit_save(mut data: RefAny, mut info: CallbackInfo) -> Upda
         match session.save_form(now()) {
             Ok(_) => {
                 if let Some(item) = session.selected_item() {
-                    println!("AZKEYS_ITEM_SAVED {}", item.title);
+                    println!("AZPASSWORDMANAGER_ITEM_SAVED {}", item.title);
                 }
                 s.notice.clear();
                 jobs::save(s, info, app);
@@ -1154,7 +1154,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text(t("azkeys-generator-title")),
+            text(t("azpasswordmanager-generator-title")),
         ),
         Segmented::create(strs(&[
             crate::l10n::mode(Mode::Password),
@@ -1174,14 +1174,14 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                 )
                 .with_id(ids::GEN_OUTPUT),
                 icon_button(
-                    "azkeys-regenerate",
+                    "azpasswordmanager-regenerate",
                     "refresh",
                     ids::GEN_REFRESH,
                     app,
                     on_gen_refresh,
                 ),
                 icon_button(
-                    "azkeys-copy",
+                    "azpasswordmanager-copy",
                     "content_copy",
                     ids::GEN_COPY,
                     app,
@@ -1195,19 +1195,19 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
             o.length,
             generator::PASSWORD_LENGTH.0,
             generator::PASSWORD_LENGTH.1,
-            "azkeys-length",
+            "azpasswordmanager-length",
         ),
         Mode::Pin => (
             o.length,
             generator::PIN_LENGTH.0,
             generator::PIN_LENGTH.1,
-            "azkeys-digits",
+            "azpasswordmanager-digits",
         ),
         Mode::Passphrase => (
             o.words,
             generator::PASSPHRASE_WORDS.0,
             generator::PASSPHRASE_WORDS.1,
-            "azkeys-words",
+            "azpasswordmanager-words",
         ),
     };
     let value = value.clamp(min, max);
@@ -1244,7 +1244,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                         app,
                         GenOption::AvoidSimilar,
                         o.avoid_similar,
-                        "azkeys-avoid-similar",
+                        "azpasswordmanager-avoid-similar",
                         ids::GEN_SIMILAR,
                     ),
                 ],
@@ -1258,14 +1258,14 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                         app,
                         GenOption::Capitalize,
                         o.capitalize,
-                        "azkeys-capitals",
+                        "azpasswordmanager-capitals",
                         ids::GEN_CAPITALIZE,
                     ),
                     gen_check(
                         app,
                         GenOption::AddDigit,
                         o.add_digit,
-                        "azkeys-digit-at-end",
+                        "azpasswordmanager-digit-at-end",
                         ids::GEN_ADD_DIGIT,
                     ),
                 ],
@@ -1275,7 +1275,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     }
     rows.push(
         form_row(
-            "azkeys-strength",
+            "azpasswordmanager-strength",
             flex_row(
                 "gap: 8px;",
                 vec![
@@ -1289,10 +1289,10 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
         )
         .with_id(ids::GEN_STRENGTH),
     );
-    rows.push(note("azkeys-generator-note"));
+    rows.push(note("azpasswordmanager-generator-note"));
     rows.push(flex_row(
         "padding-top: 8px;",
-        vec![button("azkeys-close", ids::GEN_CLOSE, app, on_panel_close)],
+        vec![button("azpasswordmanager-close", ids::GEN_CLOSE, app, on_panel_close)],
     ));
     column(PANE, rows).with_id(ids::GENERATOR)
 }
@@ -1382,9 +1382,9 @@ extern "C" fn on_gen_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
         jobs::set_clipboard(info, &secret);
         s.clipboard.clear_after = s.settings.clear_seconds;
         s.clipboard
-            .copied(&secret, &t("azkeys-generated-password"), now());
-        s.notice = t("azkeys-copied-generated");
-        println!("AZKEYS_COPIED generated password");
+            .copied(&secret, &t("azpasswordmanager-generated-password"), now());
+        s.notice = t("azpasswordmanager-copied-generated");
+        println!("AZPASSWORDMANAGER_COPIED generated password");
     })
 }
 
@@ -1402,11 +1402,11 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text(t("azkeys-import-title")),
+            text(t("azpasswordmanager-import-title")),
         ),
-        note("azkeys-import-help"),
+        note("azpasswordmanager-import-help"),
         form_row(
-            "azkeys-file",
+            "azpasswordmanager-file",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -1414,8 +1414,8 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                         "flex-grow: 1; min-width: 0px;",
                         TextInput::create()
                             .with_text(view.path.as_str())
-                            .with_placeholder(t("azkeys-export-path"))
-                            .with_accessibility_name(t("azkeys-export-path"))
+                            .with_placeholder(t("azpasswordmanager-export-path"))
+                            .with_accessibility_name(t("azpasswordmanager-export-path"))
                             .with_on_text_input(
                                 app.clone(),
                                 on_import_path as TextInputOnTextInputCallbackType,
@@ -1423,14 +1423,14 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                             .dom()
                             .with_id(ids::IMPORT_PATH),
                     ),
-                    button("azkeys-choose", ids::IMPORT_CHOOSE, app, on_import_choose),
-                    button("azkeys-read", ids::IMPORT_READ, app, on_import_read_path),
+                    button("azpasswordmanager-choose", ids::IMPORT_CHOOSE, app, on_import_choose),
+                    button("azpasswordmanager-read", ids::IMPORT_READ, app, on_import_read_path),
                 ],
             ),
         ),
     ];
     if view.reading {
-        rows.push(note("azkeys-reading-file"));
+        rows.push(note("azpasswordmanager-reading-file"));
     }
     match &view.result {
         Some(Ok(imported)) => {
@@ -1450,9 +1450,9 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                 ("skipped", Arg::from(imported.skipped.len())),
             ];
             let key = if imported.skipped.is_empty() {
-                "azkeys-import-summary"
+                "azpasswordmanager-import-summary"
             } else {
-                "azkeys-import-summary-skipped"
+                "azpasswordmanager-import-summary-skipped"
             };
             rows.push(
                 block(
@@ -1470,7 +1470,7 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                     vec![
                         primary(
                             &t_args(
-                                "azkeys-import-run",
+                                "azpasswordmanager-import-run",
                                 &[("count", Arg::from(imported.items.len()))],
                             ),
                             ids::IMPORT_RUN,
@@ -1489,7 +1489,7 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
         rows.push(flex_row(
             "padding-top: 8px;",
             vec![button(
-                "azkeys-close",
+                "azpasswordmanager-close",
                 ids::IMPORT_CANCEL,
                 app,
                 on_panel_close,
@@ -1524,7 +1524,7 @@ extern "C" fn on_import_read_path(mut data: RefAny, mut info: CallbackInfo) -> U
             if let Some(Reading::Import(view)) =
                 s.session.as_mut().map(|session| &mut session.reading)
             {
-                view.result = Some(Err(Text::key("azkeys-type-export-path")));
+                view.result = Some(Err(Text::key("azpasswordmanager-type-export-path")));
             }
             return;
         }
@@ -1538,7 +1538,7 @@ extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update 
         return Update::DoNothing;
     }
     let _request = FileDialog::open_file(
-        t("azkeys-import-title"),
+        t("azpasswordmanager-import-title"),
         OptionString::None,
         OptionFileTypeList::None,
         app,
@@ -1578,13 +1578,13 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
         session.keep_selection_in_view();
         s.notice = if known > 0 {
             t_args(
-                "azkeys-imported-known",
+                "azpasswordmanager-imported-known",
                 &[("count", Arg::from(added)), ("known", Arg::from(known))],
             )
         } else {
-            t_args("azkeys-imported", &[("count", Arg::from(added))])
+            t_args("azpasswordmanager-imported", &[("count", Arg::from(added))])
         };
-        println!("AZKEYS_IMPORTED {added} {known}");
+        println!("AZPASSWORDMANAGER_IMPORTED {added} {known}");
         jobs::save(s, info, app);
     })
 }
@@ -1603,11 +1603,11 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         .iter()
         .map(|f| {
             let (key, count) = match f {
-                Filter::All => ("azkeys-audit-all", a.findings.len()),
-                Filter::Weak => ("azkeys-audit-weak", a.weak),
-                Filter::Reused => ("azkeys-audit-reused", a.reused),
-                Filter::Old => ("azkeys-audit-old", a.old),
-                Filter::NoTwoFactor => ("azkeys-audit-no-two-factor", a.no_two_factor),
+                Filter::All => ("azpasswordmanager-audit-all", a.findings.len()),
+                Filter::Weak => ("azpasswordmanager-audit-weak", a.weak),
+                Filter::Reused => ("azpasswordmanager-audit-reused", a.reused),
+                Filter::Old => ("azpasswordmanager-audit-old", a.old),
+                Filter::NoTwoFactor => ("azpasswordmanager-audit-no-two-factor", a.no_two_factor),
             };
             t_args(key, &[("count", Arg::from(count))])
         })
@@ -1616,7 +1616,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text(t("azkeys-audit-title")),
+            text(t("azpasswordmanager-audit-title")),
         ),
         Segmented::create(strs(&label_refs))
             .with_selected_index(Filter::ALL.iter().position(|f| *f == filter).unwrap_or(0))
@@ -1627,7 +1627,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
             .dom()
             .with_id(ids::AUDIT_FILTER),
         note(&t_args(
-            "azkeys-audit-summary",
+            "azpasswordmanager-audit-summary",
             &[
                 ("weak", Arg::from(a.weak)),
                 ("reused", Arg::from(a.reused)),
@@ -1680,19 +1680,19 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         shown += 1;
     }
     if shown == 0 {
-        rows.push(note("azkeys-audit-nothing"));
+        rows.push(note("azpasswordmanager-audit-nothing"));
     }
     rows.push(flex_row(
         "gap: 8px; padding-top: 12px;",
         vec![
             icon_button(
-                "azkeys-export-report",
+                "azpasswordmanager-export-report",
                 "download",
                 ids::AUDIT_EXPORT,
                 app,
                 on_audit_export,
             ),
-            button("azkeys-close", ids::AUDIT_CLOSE, app, on_panel_close),
+            button("azpasswordmanager-close", ids::AUDIT_CLOSE, app, on_panel_close),
         ],
     ));
     column(PANE, rows).with_id(ids::AUDIT)

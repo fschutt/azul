@@ -58,7 +58,7 @@ APPS = {
     "AzDashboard": [],
     "AzDrive": [],
     "AzERP": [],
-    "AzKeys": ["--sample"],
+    "AzPasswordManager": ["--sample"],
     "AzMail": ["--sample"],
     "AzMaps": [],
     "AzMeet": [],

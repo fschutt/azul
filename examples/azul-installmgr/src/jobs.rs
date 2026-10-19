@@ -341,7 +341,7 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
             }
             None => model::installed(engine, &fetching.places, &fetching.updates)
                 .into_iter()
-                .find(|a| a.entry.key == key && a.is_managed())
+                .find(|a| a.entry.key == entry.key && a.is_managed())
                 .ok_or_else(|| format!("{} was not installed by AzInstallManager", entry.name))
                 .and_then(|a| model::release_now(engine, fetching, &a, unix_now()))
                 .and_then(|release| {

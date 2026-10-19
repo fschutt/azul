@@ -1,11 +1,11 @@
 [package]
-name = "AzKeys"
+name = "AzPasswordManager"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzKeys - the password manager of the Azlin apps. One encrypted vault
+    AzPasswordManager - the password manager of the Azlin apps. One encrypted vault
     FILE per vault, keys/vaults/<uuid>.azkv in the user's data folder
     (Argon2id derives the key that wraps the vault key, XChaCha20-Poly1305
     seals the items), written on an azul Thread through azul-storage (a
@@ -53,10 +53,10 @@ sha2 = "0.10"
 azul-pim = { path = "../azul-pim", features = ["test-util"] }
 
 [lib]
-name = "azkeys"
+name = "azpasswordmanager"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "AzKeys"
+name = "AzPasswordManager"
 path = "src/main.rs"

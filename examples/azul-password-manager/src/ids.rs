@@ -1,18 +1,18 @@
-//! Every DOM id and class AzKeys names, defined ONCE, each with the app's prefix `__azkeys_`
+//! Every DOM id and class AzPasswordManager names, defined ONCE, each with the app's prefix `__azpasswordmanager_`
 //! (the widgets' own names carry `__azul_`; user ruling 2026-10-02): no clash with a widget's or
 //! another app's names, and no string literal repeated. A fixed name is a `const AzString`
 //! (`AzString::from_const_str` borrows the static bytes); a name made at run time (a list row, a
 //! custom field) is the prefix, its stem and the index, made by the one function here that knows
-//! the stem. `scripts/azkeys_e2e.py` puts the same prefix in front of the same stems.
+//! the stem. `scripts/azpasswordmanager_e2e.py` puts the same prefix in front of the same stems.
 
 use azul::str::String as AzString;
 
 /// The prefix of every name.
-pub const PREFIX: &str = "__azkeys_";
+pub const PREFIX: &str = "__azpasswordmanager_";
 
 macro_rules! names {
     ($($(#[$doc:meta])* $name:ident = $value:literal;)*) => {
-        $($(#[$doc])* pub const $name: AzString = AzString::from_const_str(concat!("__azkeys_", $value));)*
+        $($(#[$doc])* pub const $name: AzString = AzString::from_const_str(concat!("__azpasswordmanager_", $value));)*
     };
 }
 
@@ -20,7 +20,7 @@ macro_rules! names {
 macro_rules! indexed {
     ($($(#[$doc:meta])* $name:ident = $stem:literal;)*) => {
         $($(#[$doc])* #[must_use] pub fn $name(index: usize) -> AzString {
-            AzString::from(format!(concat!("__azkeys_", $stem, "{}"), index))
+            AzString::from(format!(concat!("__azpasswordmanager_", $stem, "{}"), index))
         })*
     };
 }

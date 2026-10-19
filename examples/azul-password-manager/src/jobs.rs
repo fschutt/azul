@@ -10,11 +10,11 @@
 //! - the window's close (held while a save is on the way) and the input that restarts the idle
 //!   lock.
 //!
-//! On stdout, for `scripts/azkeys_e2e.py` (never a secret): `AZKEYS_DATA <dir>`,
-//! `AZKEYS_LISTED <n>`, `AZKEYS_CREATED <vault-id>`, `AZKEYS_UNLOCKED <vault-id> <items>`,
-//! `AZKEYS_WRONG_PASSWORD <wait-seconds>`, `AZKEYS_SAVED <key>`, `AZKEYS_LOCKED`,
-//! `AZKEYS_COPIED <label>`, `AZKEYS_CLIPBOARD_CLEARED`, `AZKEYS_PASSWORD_CHANGED`,
-//! `AZKEYS_WRITTEN <key>`, `AZKEYS_DEVICE_UNLOCK <vault-id> <mode|off>`, `AZKEYS_FAILED <what>`.
+//! On stdout, for `scripts/azpasswordmanager_e2e.py` (never a secret): `AZPASSWORDMANAGER_DATA <dir>`,
+//! `AZPASSWORDMANAGER_LISTED <n>`, `AZPASSWORDMANAGER_CREATED <vault-id>`, `AZPASSWORDMANAGER_UNLOCKED <vault-id> <items>`,
+//! `AZPASSWORDMANAGER_WRONG_PASSWORD <wait-seconds>`, `AZPASSWORDMANAGER_SAVED <key>`, `AZPASSWORDMANAGER_LOCKED`,
+//! `AZPASSWORDMANAGER_COPIED <label>`, `AZPASSWORDMANAGER_CLIPBOARD_CLEARED`, `AZPASSWORDMANAGER_PASSWORD_CHANGED`,
+//! `AZPASSWORDMANAGER_WRITTEN <key>`, `AZPASSWORDMANAGER_DEVICE_UNLOCK <vault-id> <mode|off>`, `AZPASSWORDMANAGER_FAILED <what>`.
 
 use std::path::{Path, PathBuf};
 
@@ -109,13 +109,13 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             s.listed = true;
             s.busy = None;
             for problem in &problems {
-                eprintln!("[azkeys] {problem}");
+                eprintln!("[azpasswordmanager] {problem}");
             }
             if !problems.is_empty() {
-                s.notice = t_args("azkeys-not-vaults", &[("count", Arg::from(problems.len()))]);
+                s.notice = t_args("azpasswordmanager-not-vaults", &[("count", Arg::from(problems.len()))]);
             }
             s.vaults = vaults;
-            println!("AZKEYS_LISTED {}", s.vaults.len());
+            println!("AZPASSWORDMANAGER_LISTED {}", s.vaults.len());
             let last = setting(s, "last_vault");
             s.unlock.chosen = s
                 .vaults
@@ -123,7 +123,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
                 .position(|v| Some(v.id()) == last.as_deref())
                 .unwrap_or(0);
             if s.vaults.is_empty() && s.sample {
-                s.busy = Some(t("azkeys-making-sample"));
+                s.busy = Some(t("azpasswordmanager-making-sample"));
                 let work = Work::Create {
                     vault: sample_vault(now()),
                     password: Zeroizing::new(SAMPLE_PASSWORD.to_string()),
@@ -137,7 +137,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
         Done::Created(opened) => {
             s.busy = None;
             let id = opened.vault.id.clone();
-            println!("AZKEYS_CREATED {id}");
+            println!("AZPASSWORDMANAGER_CREATED {id}");
             if opened.vault.name == crate::sample::SAMPLE_NAME && s.sample {
                 kit::set_value(&s.kit, info, "sample_vault", &id);
             }
@@ -155,7 +155,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             s.busy = None;
             s.attempts.succeeded();
             println!(
-                "AZKEYS_UNLOCKED {} {}",
+                "AZPASSWORDMANAGER_UNLOCKED {} {}",
                 opened.vault.id,
                 opened.vault.items.len()
             );
@@ -163,7 +163,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
         }
         Done::Saved { key, envelope } => {
             s.saving = false;
-            println!("AZKEYS_SAVED {key}");
+            println!("AZPASSWORDMANAGER_SAVED {key}");
             replace_envelope(s, &key, envelope);
             if s.save_again {
                 s.save_again = false;
@@ -179,8 +179,8 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             s.saving = false;
             replace_envelope(s, &key, envelope);
             s.change = Default::default();
-            s.change.message = t("azkeys-password-changed");
-            println!("AZKEYS_PASSWORD_CHANGED");
+            s.change.message = t("azpasswordmanager-password-changed");
+            println!("AZPASSWORDMANAGER_PASSWORD_CHANGED");
             // A change made while the file was rewritten is saved now.
             if s.save_again {
                 s.save_again = false;
@@ -194,14 +194,14 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
         Done::Put { key } => {
             let path = azul_appkit::data::local_path(&s.data_root, &key);
             s.notice = t_args(
-                "azkeys-written-to",
+                "azpasswordmanager-written-to",
                 &[("path", Arg::from(path.display().to_string()))],
             );
-            println!("AZKEYS_WRITTEN {key}");
+            println!("AZPASSWORDMANAGER_WRITTEN {key}");
         }
         Done::Failed(f) => {
             s.busy = None;
-            println!("AZKEYS_FAILED {}", f.what);
+            println!("AZPASSWORDMANAGER_FAILED {}", f.what);
             let at = now();
             // The failure's message is the vault's or the drive's own detail (English).
             let why = [("why", Arg::from(&f.message))];
@@ -210,32 +210,32 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
                 zeroize::Zeroize::zeroize(&mut *s.unlock.password);
                 s.attempts.failed(at);
                 s.unlock.message = s.attempts.message(at);
-                println!("AZKEYS_WRONG_PASSWORD {}", s.attempts.wait(at));
+                println!("AZPASSWORDMANAGER_WRONG_PASSWORD {}", s.attempts.wait(at));
             } else if f.wrong_key {
                 if let Some(v) = s.chosen_vault() {
                     let id = v.id().to_string();
                     kit::set_value(&s.kit, info, &device_unlock_key(&id), "");
                 }
-                s.unlock.message = t("azkeys-key-stale");
+                s.unlock.message = t("azpasswordmanager-key-stale");
             } else if f.what == "save" || f.what == "change the password" {
                 s.saving = false;
-                s.notice = t_args("azkeys-not-saved", &why);
+                s.notice = t_args("azpasswordmanager-not-saved", &why);
                 if f.what == "change the password" {
-                    s.change.message = t_args("azkeys-password-not-changed", &why);
+                    s.change.message = t_args("azpasswordmanager-password-not-changed", &why);
                 }
                 after_save(s, info);
             } else if s.screen == Screen::Create {
-                s.create.message = t_args("azkeys-create-failed", &why);
+                s.create.message = t_args("azpasswordmanager-create-failed", &why);
             } else if s.screen == Screen::Unlock {
-                s.unlock.message = t_args("azkeys-open-failed", &why);
+                s.unlock.message = t_args("azpasswordmanager-open-failed", &why);
             } else {
-                s.notice = t_args("azkeys-failed", &why);
+                s.notice = t_args("azpasswordmanager-failed", &why);
             }
         }
     }
 }
 
-/// The value of one of AzKeys' settings (the kit's settings file).
+/// The value of one of AzPasswordManager's settings (the kit's settings file).
 pub fn setting(s: &KeysApp, key: &str) -> Option<String> {
     let mut kit_ref = s.kit.clone();
     let value = kit_ref
@@ -337,7 +337,7 @@ pub fn lock(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny) {
     if s.saving {
         s.lock_pending = true;
         s.screen = Screen::Unlock;
-        s.busy = Some(t("azkeys-saving-then-locking"));
+        s.busy = Some(t("azpasswordmanager-saving-then-locking"));
         return;
     }
     finish_lock(s, info);
@@ -356,7 +356,7 @@ fn finish_lock(s: &mut KeysApp, info: &mut CallbackInfo) {
     s.lock_pending = false;
     s.busy = None;
     s.screen = Screen::Unlock;
-    println!("AZKEYS_LOCKED");
+    println!("AZPASSWORDMANAGER_LOCKED");
 }
 
 // ==== The clipboard ====
@@ -400,12 +400,12 @@ pub fn copy_secret(s: &mut KeysApp, info: &mut CallbackInfo, field: &str) {
     s.clipboard.copied(&text, &label, t);
     s.notice = match s.clipboard.remaining(t) {
         Some(secs) => t_args(
-            "azkeys-copied-clears",
+            "azpasswordmanager-copied-clears",
             &[("label", Arg::from(&label)), ("seconds", Arg::from(secs))],
         ),
-        None => t_args("azkeys-copied", &[("label", Arg::from(&label))]),
+        None => t_args("azpasswordmanager-copied", &[("label", Arg::from(&label))]),
     };
-    println!("AZKEYS_COPIED {label}");
+    println!("AZPASSWORDMANAGER_COPIED {label}");
 }
 
 // ==== The timer ====
@@ -457,12 +457,12 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
             set_clipboard(&mut info.callback_info, "");
         }
         s.clipboard.cleared();
-        s.notice = t("azkeys-clipboard-cleared");
-        println!("AZKEYS_CLIPBOARD_CLEARED");
+        s.notice = t("azpasswordmanager-clipboard-cleared");
+        println!("AZPASSWORDMANAGER_CLIPBOARD_CLEARED");
         refresh = true;
     }
     if s.session.is_some() && !s.lock_pending && s.auto_lock.due(at) {
-        println!("AZKEYS_AUTO_LOCK");
+        println!("AZPASSWORDMANAGER_AUTO_LOCK");
         lock(s, &mut info.callback_info, &app);
         refresh = true;
     }
@@ -478,7 +478,7 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
 /// Sends a keyring request when none is on the way; `false` (and a notice) when one is.
 fn keyring(s: &mut KeysApp, info: &mut CallbackInfo, op: KeyringOp, call: KeyringCall) -> bool {
     if s.keyring_waiting.is_some() {
-        s.notice = t("azkeys-keyring-busy");
+        s.notice = t("azpasswordmanager-keyring-busy");
         return false;
     }
     match &call {
@@ -548,30 +548,30 @@ pub fn unlock_with_device(s: &mut KeysApp, info: &mut CallbackInfo) {
     match s.device_unlock(&vault_id) {
         Some(DeviceUnlock::Prompt) => {
             s.biometric_for = Some((vault_id, key));
-            let reason = t_args("azkeys-biometric-reason", &[("name", Arg::from(name))]);
+            let reason = t_args("azpasswordmanager-biometric-reason", &[("name", Arg::from(name))]);
             info.request_biometric_auth(BiometricPrompt {
                 reason: AzString::from(reason),
-                cancel_label: AzString::from(t("azkeys-use-password")),
+                cancel_label: AzString::from(t("azpasswordmanager-use-password")),
                 allow_device_credential: true,
             });
         }
         Some(_) => {
             let call = KeyringCall::Get(store::keyring_name(&vault_id));
             if keyring(s, info, KeyringOp::Get { vault_id, key }, call) {
-                s.busy = Some(t("azkeys-waiting-keyring"));
+                s.busy = Some(t("azpasswordmanager-waiting-keyring"));
             }
         }
-        None => s.unlock.message = t("azkeys-no-device-key"),
+        None => s.unlock.message = t("azpasswordmanager-no-device-key"),
     }
 }
 
 /// Why the keyring did not do it, in the language of the last layout.
 fn keyring_problem(result: &KeyringResult) -> String {
     t(match result {
-        KeyringResult::NotFound => "azkeys-keyring-not-found",
-        KeyringResult::Denied => "azkeys-keyring-denied",
-        KeyringResult::Unavailable => "azkeys-keyring-unavailable",
-        _ => "azkeys-keyring-error",
+        KeyringResult::NotFound => "azpasswordmanager-keyring-not-found",
+        KeyringResult::Denied => "azpasswordmanager-keyring-denied",
+        KeyringResult::Unavailable => "azpasswordmanager-keyring-unavailable",
+        _ => "azpasswordmanager-keyring-error",
     })
 }
 
@@ -598,10 +598,10 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                     mode.name(),
                 );
                 s.notice = t(match mode {
-                    DeviceUnlock::Keyring => "azkeys-device-unlock-keyring-on",
-                    _ => "azkeys-device-unlock-biometric-on",
+                    DeviceUnlock::Keyring => "azpasswordmanager-device-unlock-keyring-on",
+                    _ => "azpasswordmanager-device-unlock-biometric-on",
                 });
-                println!("AZKEYS_DEVICE_UNLOCK {vault_id} {}", mode.name());
+                println!("AZPASSWORDMANAGER_DEVICE_UNLOCK {vault_id} {}", mode.name());
             }
             // A keychain that cannot bind the item to biometry (an unsigned build): keep the key
             // without the binding and ask azul's biometric prompt before reading it.
@@ -612,7 +612,7 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
             }
             other => {
                 s.notice = t_args(
-                    "azkeys-device-unlock-not-on",
+                    "azpasswordmanager-device-unlock-not-on",
                     &[("why", Arg::from(keyring_problem(other)))],
                 );
             }
@@ -622,7 +622,7 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
             match &result {
                 KeyringResult::Retrieved(secret) => match SecretKey::from_base64(secret.as_str()) {
                     Some(vault_key) => {
-                        s.busy = Some(t("azkeys-unlocking"));
+                        s.busy = Some(t("azpasswordmanager-unlocking"));
                         spawn(
                             &mut info,
                             &app,
@@ -630,15 +630,15 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                             Work::UnlockWithKey { key, vault_key },
                         );
                     }
-                    None => s.unlock.message = t("azkeys-keyring-not-a-key"),
+                    None => s.unlock.message = t("azpasswordmanager-keyring-not-a-key"),
                 },
                 KeyringResult::NotFound => {
                     kit::set_value(&s.kit, &mut info, &device_unlock_key(&vault_id), "");
-                    s.unlock.message = t("azkeys-device-key-gone");
+                    s.unlock.message = t("azpasswordmanager-device-key-gone");
                 }
                 other => {
                     s.unlock.message = t_args(
-                        "azkeys-device-unlock-failed",
+                        "azpasswordmanager-device-unlock-failed",
                         &[("why", Arg::from(keyring_problem(other)))],
                     );
                 }
@@ -646,8 +646,8 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
         }
         KeyringOp::Delete { vault_id } => {
             kit::set_value(&s.kit, &mut info, &device_unlock_key(&vault_id), "");
-            s.notice = t("azkeys-device-unlock-off");
-            println!("AZKEYS_DEVICE_UNLOCK {vault_id} off");
+            s.notice = t("azpasswordmanager-device-unlock-off");
+            println!("AZPASSWORDMANAGER_DEVICE_UNLOCK {vault_id} off");
         }
     }
     Update::RefreshDom
@@ -669,11 +669,11 @@ pub extern "C" fn on_biometric_result(mut data: RefAny, mut info: CallbackInfo) 
         BiometricResult::Authenticated | BiometricResult::FellBackToPasscode => {
             let call = KeyringCall::Get(store::keyring_name(&vault_id));
             if keyring(s, &mut info, KeyringOp::Get { vault_id, key }, call) {
-                s.busy = Some(t("azkeys-waiting-keyring"));
+                s.busy = Some(t("azpasswordmanager-waiting-keyring"));
             }
         }
-        BiometricResult::Cancelled => s.unlock.message = t("azkeys-biometric-cancelled"),
-        _ => s.unlock.message = t("azkeys-biometric-failed"),
+        BiometricResult::Cancelled => s.unlock.message = t("azpasswordmanager-biometric-cancelled"),
+        _ => s.unlock.message = t("azpasswordmanager-biometric-failed"),
     }
     Update::RefreshDom
 }
@@ -708,7 +708,7 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
     if s.saving {
         info.prevent_window_close();
         s.close_after_save = true;
-        s.busy = Some(t("azkeys-saving-before-closing"));
+        s.busy = Some(t("azpasswordmanager-saving-before-closing"));
         return Update::RefreshDom;
     }
     // Closing: the vault's strings are overwritten before the process ends.

@@ -1,4 +1,4 @@
-//! AzKeys: the password manager of the Azlin apps (the plan:
+//! AzPasswordManager: the password manager of the Azlin apps (the plan:
 //! azul-apps/planning/core/password-manager.md).
 //!
 //! The model is plain Rust, tested without a window:
@@ -44,7 +44,7 @@ use azul_appkit::{args::AppArgs, ui as kit};
 
 use crate::app::{now, KeysApp, Settings, ABOUT, APP_CATEGORIES, SHORTCUTS, SPEC};
 
-/// Starts AzKeys: the switches, the kit (settings file, data root), the window. Bare arguments
+/// Starts AzPasswordManager: the switches, the kit (settings file, data root), the window. Bare arguments
 /// are exports to import once a vault is unlocked.
 pub fn start() {
     let args = match AppArgs::from_env(&SPEC) {
@@ -57,7 +57,7 @@ pub fn start() {
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
-    let mut config = kit::app_config(&kit_ref).with_app_id("org.azul.AzKeys");
+    let mut config = kit::app_config(&kit_ref).with_app_id("org.azul.AzPasswordManager");
     crate::l10n::register(&mut config);
     let mut kit_now = kit_ref.clone();
     let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
@@ -75,7 +75,7 @@ pub fn start() {
         });
         found.unwrap_or_default()
     };
-    println!("AZKEYS_DATA {}", data_root.display());
+    println!("AZPASSWORDMANAGER_DATA {}", data_root.display());
     let screen = args.screen.clone().unwrap_or_default();
     match screen.as_str() {
         "settings" => kit::open_settings(&kit_ref, None),

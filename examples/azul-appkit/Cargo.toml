@@ -24,7 +24,7 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 azul-storage = { path = "../azul-storage" }
-# In Cargo.lock (AzSheets, AzKeys, AzERP): the one CSV reader (`csv` module).
+# In Cargo.lock (AzSheets, AzPasswordManager, AzERP): the one CSV reader (`csv` module).
 csv = "1.4"
 # No link mode here: the `azul` feature below adds link-dynamic; `look` alone leaves it to the
 # app's own azul dependency (AzMeet links statically on android / ios).

@@ -177,12 +177,12 @@ impl Totp {
     }
 
     /// The generator of an item's one-time field: an `otpauth://totp/...` URL or a base32
-    /// secret. `Err` says why not (never quoting the secret): a key of AzKeys' words, which the
+    /// secret. `Err` says why not (never quoting the secret): a key of AzPasswordManager's words, which the
     /// window says.
     pub fn parse(text: &str) -> Result<Totp, String> {
         let text = text.trim();
         if text.is_empty() {
-            return Err("azkeys-totp-empty".to_string());
+            return Err("azpasswordmanager-totp-empty".to_string());
         }
         let scheme = "otpauth://";
         let is_url = text
@@ -191,16 +191,16 @@ impl Totp {
         if !is_url {
             let secret = base32_decode(text)
                 .filter(|b| b.len() >= MIN_BARE_SECRET)
-                .ok_or("azkeys-totp-not-a-secret")?;
+                .ok_or("azpasswordmanager-totp-not-a-secret")?;
             return Ok(Totp::new(secret));
         }
         let rest = &text[scheme.len()..];
         let (kind, rest) = rest.split_once('/').unwrap_or((rest, ""));
         if kind.eq_ignore_ascii_case("hotp") {
-            return Err("azkeys-totp-hotp".to_string());
+            return Err("azpasswordmanager-totp-hotp".to_string());
         }
         if !kind.eq_ignore_ascii_case("totp") {
-            return Err("azkeys-totp-not-totp".to_string());
+            return Err("azpasswordmanager-totp-not-totp".to_string());
         }
         let (label, query) = rest.split_once('?').unwrap_or((rest, ""));
         let label = percent_decode(label);
@@ -219,12 +219,12 @@ impl Totp {
                     secret = Some(
                         base32_decode(&value)
                             .filter(|b| !b.is_empty())
-                            .ok_or("azkeys-totp-secret-not-base32")?,
+                            .ok_or("azpasswordmanager-totp-secret-not-base32")?,
                     );
                 }
                 "issuer" => issuer = value.trim().to_string(),
                 "algorithm" => {
-                    totp_algorithm = Algorithm::parse(&value).ok_or("azkeys-totp-hash")?;
+                    totp_algorithm = Algorithm::parse(&value).ok_or("azpasswordmanager-totp-hash")?;
                 }
                 "digits" => {
                     digits = value
@@ -232,7 +232,7 @@ impl Totp {
                         .parse::<u32>()
                         .ok()
                         .filter(|d| (6..=8).contains(d))
-                        .ok_or("azkeys-totp-digits")?;
+                        .ok_or("azpasswordmanager-totp-digits")?;
                 }
                 "period" => {
                     period = value
@@ -240,13 +240,13 @@ impl Totp {
                         .parse::<u64>()
                         .ok()
                         .filter(|p| (1..=3600).contains(p))
-                        .ok_or("azkeys-totp-period")?;
+                        .ok_or("azpasswordmanager-totp-period")?;
                 }
                 _ => {}
             }
             value.zeroize();
         }
-        let secret = secret.ok_or("azkeys-totp-no-secret")?;
+        let secret = secret.ok_or("azpasswordmanager-totp-no-secret")?;
         Ok(Totp {
             secret,
             algorithm: totp_algorithm,

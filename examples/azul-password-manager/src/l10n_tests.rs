@@ -1,4 +1,4 @@
-//! AzKeys' words in azul's localization: every key its source names is in resources/en.ftl
+//! AzPasswordManager's words in azul's localization: every key its source names is in resources/en.ftl
 //! and resources/de.ftl and both parse; the engine gets them with appkit's; a language switch
 //! changes a label. (The Language row is appkit's settings page's.) No window.
 
@@ -12,29 +12,29 @@ use azul_appkit::{
 use crate::l10n::{sources, DE, EN};
 
 #[test]
-fn every_key_of_azkeys_source_is_in_english_and_german_and_both_parse() {
+fn every_key_of_azpasswordmanager_source_is_in_english_and_german_and_both_parse() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let problems = check(&manifest.join("src"), &["azkeys"], EN, DE);
+    let problems = check(&manifest.join("src"), &["azpasswordmanager"], EN, DE);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
 #[test]
-fn the_engine_gets_azkeys_words_and_appkits_in_english_and_german() {
+fn the_engine_gets_azpasswordmanager_words_and_appkits_in_english_and_german() {
     let sources = sources();
     let tags: Vec<&str> = sources.iter().map(|(tag, _)| tag.as_str()).collect();
     assert_eq!(tags, vec!["en", "de"]);
     for (tag, source) in &sources {
-        for key in ["kit-general-language", "azkeys-toolbar-lock"] {
+        for key in ["kit-general-language", "azpasswordmanager-toolbar-lock"] {
             assert!(source.contains(&format!("{key} = ")), "{tag} lacks {key}");
         }
     }
 }
 
 #[test]
-fn switching_the_language_changes_a_label_of_azkeys() {
+fn switching_the_language_changes_a_label_of_azpasswordmanager() {
     crate::l10n::in_english();
-    assert_eq!(t("azkeys-toolbar-lock"), "Lock");
+    assert_eq!(t("azpasswordmanager-toolbar-lock"), "Lock");
     set_locale("de-DE");
-    assert_eq!(t("azkeys-toolbar-lock"), "Sperren");
+    assert_eq!(t("azpasswordmanager-toolbar-lock"), "Sperren");
     set_locale("en-US");
 }

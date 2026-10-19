@@ -1057,13 +1057,13 @@ jobs:
           cargo test -p AzCode --lib --no-fail-fast 2>&1 | tee azul-code-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-code-tests.txt
 
-      - name: Run AzKeys tests
+      - name: Run AzPasswordManager tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
           set -o pipefail
-          cargo test -p AzKeys --lib --no-fail-fast 2>&1 | tee azul-keys-tests.txt
-          ./scripts/zero_test_guard.sh --strict azul-keys-tests.txt
+          cargo test -p AzPasswordManager --lib --no-fail-fast 2>&1 | tee azul-password-manager-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-password-manager-tests.txt
 
       - name: Run AzMonitor tests
         env:

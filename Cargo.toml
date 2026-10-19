@@ -46,7 +46,7 @@ members = [
     "examples/azul-music", # AzMusic: the music player (library from a folder, gapless AudioPlayer, MediaControls / SeekBar / LevelMeter) on the S7 MediaShell
     "examples/azul-player", # AzPlayer: the video player (VideoWidget picture + AudioPlayer sound kept in step, controls, fullscreen, resume) on the S7 MediaShell
     "examples/azul-code", # AzCode: the code editor (S8 DeveloperShell, CodeView over a piece table, syntect highlighting, file tree, tabs, find / replace)
-    "examples/azul-keys", # AzKeys: the password manager (Argon2id + XChaCha20-Poly1305 vault files keys/vaults/<uuid>.azkv, keyring / biometric unlock, TOTP, generator, import) on the S4 PimShell
+    "examples/azul-password-manager", # AzPasswordManager: the password manager (Argon2id + XChaCha20-Poly1305 vault files keys/vaults/<uuid>.azkv, keyring / biometric unlock, TOTP, generator, import) on the S4 PimShell
     "examples/azul-monitor", # AzMonitor: processes (sysinfo) in the DataTable, CPU / memory / disk / network history in Charts, S6 RecordsShell
     "examples/azul-news", # AzNews: RSS / Atom / JSON Feed reader on the S4 PimShell (OPML, ETag refresh on a Thread, reader view via the HTML5-like parser)
     "examples/azul-erp", # AzERP: asset management (S6 RecordsShell, the ERP view-JSON interpreter, one erp/<kind>/<uuid>.json per record)

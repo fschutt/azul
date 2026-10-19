@@ -160,7 +160,7 @@ pub fn audit(vault: &Vault, now: u64) -> Audit {
 #[must_use]
 pub fn report(audit: &Audit, vault: &Vault) -> String {
     let mut text = format!(
-        "AzKeys security audit of \"{}\"\nweak: {}, reused: {}, older than 2 years: {}, no one-time code: {}\n\n",
+        "AzPasswordManager security audit of \"{}\"\nweak: {}, reused: {}, older than 2 years: {}, no one-time code: {}\n\n",
         vault.name, audit.weak, audit.reused, audit.old, audit.no_two_factor
     );
     for finding in &audit.findings {

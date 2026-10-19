@@ -1044,7 +1044,7 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
     (restored.save || restored.look.is_some()).then_some(settings)
 }
 
-/// The values whose key starts with `prefix` record what an action did (AzKeys'
+/// The values whose key starts with `prefix` record what an action did (AzPasswordManager's
 /// `device_unlock.<vault>`: a key put into the keyring), not a choice: Cancel leaves them as
 /// they are. Called once, at the start.
 pub fn keep_on_cancel(kit_ref: &RefAny, prefix: &str) {

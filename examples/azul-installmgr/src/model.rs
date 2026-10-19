@@ -108,7 +108,7 @@ pub static APPS: [AppEntry; 28] = [
     app("azplayer", "AzPlayer", "smart_display", "azinstallmgr-app-azplayer", 12, "AudioVideo;Video;Player;", 2),
     app("azvideocut", "AzVideoCut", "movie_edit", "azinstallmgr-app-azvideocut", 24, "AudioVideo;Video;AudioVideoEditing;", 2),
     app("azdrive", "AzDrive", "folder", "azinstallmgr-app-azdrive", 14, "System;FileManager;", 3),
-    app("azkeys", "AzKeys", "key", "azinstallmgr-app-azkeys", 11, "Utility;Security;", 3),
+    app("azpasswordmanager", "AzPasswordManager", "key", "azinstallmgr-app-azpasswordmanager", 11, "Utility;Security;", 3),
     app("azmaps", "AzMaps", "map", "azinstallmgr-app-azmaps", 16, "Utility;Maps;", 3),
     app("azclock", "AzClock", "schedule", "azinstallmgr-app-azclock", 7, "Utility;Clock;", 3),
     app("azcalculator", "AzCalculator", "calculate", "azinstallmgr-app-azcalculator", 7, "Utility;Calculator;", 3),
@@ -119,12 +119,14 @@ pub static APPS: [AppEntry; 28] = [
     app("azerp", "AzERP", "inventory_2", "azinstallmgr-app-azerp", 13, "Office;Finance;", 3),
 ];
 
-/// The entry of `key` (the runtime too).
+/// The entry of `key` (the runtime too); a renamed app's former key is the app under its new
+/// name (an "Update now" of the old program, its registration folder).
 #[must_use]
 pub fn entry(key: &str) -> Option<&'static AppEntry> {
     if key == RUNTIME_KEY {
         return Some(&RUNTIME);
     }
+    let key = azul_appkit::azlin_config::current_app_key(key);
     APPS.iter().find(|a| a.key == key)
 }
 
@@ -1207,7 +1209,11 @@ pub fn installed(engine: &dyn UpdateEngine, places: &Places, updates: &UpdatesSe
         .chain(APPS.iter())
         .filter_map(|entry| {
             let paths = places.app(entry.key);
-            let registration: Registration = read_json(&paths.registration())?;
+            // A copy installed under the app's former name is the app until it is updated.
+            let registration: Registration = read_json(&paths.registration()).or_else(|| {
+                let former = azul_appkit::azlin_config::former_app_key(entry.key)?;
+                read_json(&places.app(former).registration())
+            })?;
             let program = Path::new(&registration.binary);
             let owner = Owner::of(engine.install_kind(program), program, registration.managed);
             let policy = updates.policy_for(entry.key);
@@ -1419,7 +1425,7 @@ where
             _ => None,
         };
         match key {
-            Some(key) if entry(&key).is_some() => apply = Some(key),
+            Some(key) if entry(&key).is_some() => apply = entry(&key).map(|e| e.key.to_string()),
             Some(key) => return Err(format!("--apply: no app is called {key:?}")),
             None => rest.push(argv[i].clone()),
         }
@@ -1619,7 +1625,7 @@ mod model_tests {
             "AzDrive", "AzMail", "AzCalendar", "AzContacts", "AzTasks", "AzCode", "AzTerm",
             "AzWriter", "AzNotes", "AzSheets", "AzShow", "AzMeet", "AzMaps", "AzClock",
             "AzCalculator", "AzPhoto", "AzPaint", "AzReview", "AzMusic", "AzPlayer", "AzNews",
-            "AzKeys", "AzERP", "AzReader", "AzPdf", "AzMonitor", "AzVideoCut", "AzDashboard",
+            "AzPasswordManager", "AzERP", "AzReader", "AzPdf", "AzMonitor", "AzVideoCut", "AzDashboard",
         ] {
             assert_eq!(names.iter().filter(|n| **n == name).count(), 1, "{name}");
         }
@@ -1984,6 +1990,31 @@ mod model_tests {
         assert_eq!(pending[0].0, "azwriter");
         assert!(!process_alive(0));
         assert!(!process_alive(std::process::id()), "the manager never waits for itself");
+    }
+
+    /// AzKeys became AzPasswordManager: its former key, its registration folder and an "Update
+    /// now" of the old program all find the app under its new name.
+    #[test]
+    fn an_app_installed_under_its_former_name_is_the_app_under_its_new_one() {
+        assert_eq!(entry("azkeys").map(|e| e.key), Some("azpasswordmanager"));
+        let (apply, _) = split_switches(["--apply", "azkeys"]).unwrap();
+        assert_eq!(apply.as_deref(), Some("azpasswordmanager"));
+        let dir = TempDir::new("installmgr-renamed");
+        let f = fetching(dir.path());
+        write_json(
+            &f.places.app("azkeys").registration(),
+            &Registration {
+                name: "AzKeys".into(),
+                key: "azkeys".into(),
+                version: "1.0.0".into(),
+                binary: "/opt/azlin/AzKeys".into(),
+                ..Registration::default()
+            },
+        )
+        .unwrap();
+        let apps = installed(&FakeEngine::default(), &f.places, &f.updates);
+        assert_eq!(apps.iter().map(|a| a.entry.key).collect::<Vec<_>>(), vec!["azpasswordmanager"]);
+        assert_eq!(apps[0].registration.version, "1.0.0");
     }
 
     #[test]

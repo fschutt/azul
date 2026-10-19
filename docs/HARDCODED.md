@@ -173,7 +173,7 @@ by those agents (listed, not edited here) - **AZCLOUD15** being done in the endp
 ## 9. Data folders, app by app
 
 - **The kit rule** (`--data-dir` > `AZLIN_DATA` > `<user data dir>/Azlin`, a folder per app):
-  AzCalculator, AzClock, AzCode, AzContacts, AzDashboard, AzErp, AzKeys (its device secret is a
+  AzCalculator, AzClock, AzCode, AzContacts, AzDashboard, AzErp, AzPasswordManager (its device secret is a
   keyring entry), AzMaps, AzMonitor, AzNews, AzNotes, AzPaint, AzPdf, AzPhoto, AzReader, AzReview,
   AzSetup, AzSheets, AzShells, AzShow, AzTerm, AzVideoCut, AzWriter; AzMeet (a headless run without
   either uses `<tmp>/azmeet-<pid>`); AzMusic and AzPlayer for their data (their media folders are

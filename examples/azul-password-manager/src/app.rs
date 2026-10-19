@@ -1,4 +1,4 @@
-//! AzKeys' facts (the switches, About, shortcuts), its settings and the window's state.
+//! AzPasswordManager's facts (the switches, About, shortcuts), its settings and the window's state.
 //!
 //! The settings are values of azul-appkit's settings file (`keys/settings.json`): the idle
 //! minutes before the vault locks, the seconds before a copied secret is cleared, and per vault
@@ -41,15 +41,15 @@ pub const SCREENS: [&str; 9] = [
 ];
 
 pub const SPEC: AppSpec = AppSpec {
-    name: "AzKeys",
-    binary: "AzKeys",
+    name: "AzPasswordManager",
+    binary: "AzPasswordManager",
     summary: "a password manager: encrypted vault files, one-time codes, a generator",
     screens: &SCREENS,
     files_help: "a CSV or Bitwarden JSON export to import (after unlocking)",
 };
 
 pub const ABOUT: AboutInfo = AboutInfo {
-    name: "AzKeys",
+    name: "AzPasswordManager",
     version: env!("CARGO_PKG_VERSION"),
     summary: "Your passwords, cards, notes, identities, SSH keys and one-time codes in an \
               encrypted vault file (Argon2id and XChaCha20-Poly1305), unlocked with a master \
@@ -59,44 +59,44 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keyboard shortcuts (the settings page and F1 list them): the groups and what the keys do
-/// are keys of AzKeys' words.
+/// are keys of AzPasswordManager's words.
 pub const SHORTCUTS: [Shortcut; 12] = [
-    Shortcut::new("azkeys-shortcuts-vault", "Mod+N", "azkeys-new-login"),
-    Shortcut::new("azkeys-shortcuts-vault", "Mod+L", "azkeys-shortcut-lock"),
+    Shortcut::new("azpasswordmanager-shortcuts-vault", "Mod+N", "azpasswordmanager-new-login"),
+    Shortcut::new("azpasswordmanager-shortcuts-vault", "Mod+L", "azpasswordmanager-shortcut-lock"),
     Shortcut::new(
-        "azkeys-shortcuts-vault",
+        "azpasswordmanager-shortcuts-vault",
         "Mod+G",
-        "azkeys-shortcut-generator",
+        "azpasswordmanager-shortcut-generator",
     ),
     Shortcut::new(
-        "azkeys-shortcuts-vault",
+        "azpasswordmanager-shortcuts-vault",
         "Up / Down",
-        "azkeys-shortcut-previous-next",
+        "azpasswordmanager-shortcut-previous-next",
     ),
     Shortcut::new(
-        "azkeys-shortcuts-item",
+        "azpasswordmanager-shortcuts-item",
         "Mod+C",
-        "azkeys-shortcut-copy-password",
+        "azpasswordmanager-shortcut-copy-password",
     ),
     Shortcut::new(
-        "azkeys-shortcuts-item",
+        "azpasswordmanager-shortcuts-item",
         "Mod+B",
-        "azkeys-shortcut-copy-username",
+        "azpasswordmanager-shortcut-copy-username",
     ),
     Shortcut::new(
-        "azkeys-shortcuts-item",
+        "azpasswordmanager-shortcuts-item",
         "Mod+Shift+C",
-        "azkeys-shortcut-copy-code",
+        "azpasswordmanager-shortcut-copy-code",
     ),
-    Shortcut::new("azkeys-shortcuts-item", "Mod+E", "azkeys-shortcut-edit"),
-    Shortcut::new("azkeys-shortcuts-item", "Mod+S", "azkeys-shortcut-save"),
-    Shortcut::new("azkeys-shortcuts-item", "Escape", "azkeys-shortcut-cancel"),
-    Shortcut::new("azkeys-shortcuts-item", "Delete", "azkeys-shortcut-delete"),
-    Shortcut::new("azkeys-shortcuts-unlock", "Enter", "azkeys-shortcut-unlock"),
+    Shortcut::new("azpasswordmanager-shortcuts-item", "Mod+E", "azpasswordmanager-shortcut-edit"),
+    Shortcut::new("azpasswordmanager-shortcuts-item", "Mod+S", "azpasswordmanager-shortcut-save"),
+    Shortcut::new("azpasswordmanager-shortcuts-item", "Escape", "azpasswordmanager-shortcut-cancel"),
+    Shortcut::new("azpasswordmanager-shortcuts-item", "Delete", "azpasswordmanager-shortcut-delete"),
+    Shortcut::new("azpasswordmanager-shortcuts-unlock", "Enter", "azpasswordmanager-shortcut-unlock"),
 ];
 
 /// The settings page's own categories (before the kit's Appearance, Data, Shortcuts, About):
-/// ids, shown as `azkeys-category-security` and `azkeys-category-vault`.
+/// ids, shown as `azpasswordmanager-category-security` and `azpasswordmanager-category-vault`.
 pub const APP_CATEGORIES: [&str; 2] = ["Security", "Vault"];
 
 // ==== Settings ====
@@ -139,7 +139,7 @@ pub fn device_unlock_key(vault_id: &str) -> String {
     format!("device_unlock.{vault_id}")
 }
 
-/// AzKeys' own settings (the theme and the mode are the kit's).
+/// AzPasswordManager's own settings (the theme and the mode are the kit's).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Minutes without input before the vault locks (0 = never).
@@ -189,9 +189,9 @@ impl Settings {
 #[must_use]
 pub fn minutes_label(m: u64) -> String {
     match m {
-        0 => t("azkeys-never"),
-        m if m % 60 == 0 => t_args("azkeys-hours", &[("count", Arg::from(m / 60))]),
-        m => t_args("azkeys-minutes", &[("count", Arg::from(m))]),
+        0 => t("azpasswordmanager-never"),
+        m if m % 60 == 0 => t_args("azpasswordmanager-hours", &[("count", Arg::from(m / 60))]),
+        m => t_args("azpasswordmanager-minutes", &[("count", Arg::from(m))]),
     }
 }
 
@@ -199,9 +199,9 @@ pub fn minutes_label(m: u64) -> String {
 #[must_use]
 pub fn seconds_label(s: u64) -> String {
     match s {
-        0 => t("azkeys-never"),
-        s if s % 60 == 0 => t_args("azkeys-minutes", &[("count", Arg::from(s / 60))]),
-        s => t_args("azkeys-seconds", &[("count", Arg::from(s))]),
+        0 => t("azpasswordmanager-never"),
+        s if s % 60 == 0 => t_args("azpasswordmanager-minutes", &[("count", Arg::from(s / 60))]),
+        s => t_args("azpasswordmanager-seconds", &[("count", Arg::from(s))]),
     }
 }
 
@@ -249,13 +249,13 @@ impl CreateForm {
     #[must_use]
     pub fn problem(&self) -> String {
         if self.name.trim().is_empty() {
-            return t("azkeys-create-needs-name");
+            return t("azpasswordmanager-create-needs-name");
         }
         if self.password.chars().count() < 8 {
-            return t("azkeys-password-too-short");
+            return t("azpasswordmanager-password-too-short");
         }
         if *self.password != *self.confirm {
-            return t("azkeys-passwords-differ");
+            return t("azpasswordmanager-passwords-differ");
         }
         String::new()
     }
@@ -283,7 +283,7 @@ pub enum KeyringOp {
     Delete { vault_id: String },
 }
 
-/// AzKeys' window state.
+/// AzPasswordManager's window state.
 pub struct KeysApp {
     /// azul-appkit's kit: the settings file, the data root, the settings page.
     pub kit: RefAny,

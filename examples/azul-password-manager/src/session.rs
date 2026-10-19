@@ -100,14 +100,14 @@ impl Form {
         let mut item = self.draft.clone();
         item.title = item.title.trim().to_string();
         if item.title.is_empty() {
-            return Err(Text::key("azkeys-item-needs-title"));
+            return Err(Text::key("azpasswordmanager-item-needs-title"));
         }
         item.username = item.username.trim().to_string();
         item.totp = item.totp.trim().to_string();
         if !item.totp.is_empty() {
             if let Err(problem) = Totp::parse(&item.totp) {
                 let why = Arg::word(&problem, &problem);
-                return Err(Phrase::new("azkeys-totp-field").arg("problem", why).into());
+                return Err(Phrase::new("azpasswordmanager-totp-field").arg("problem", why).into());
             }
         }
         item.urls = item
@@ -250,7 +250,7 @@ impl Session {
     /// a save is due.
     pub fn save_form(&mut self, now: u64) -> Result<String, Text> {
         let Reading::Edit(form) = &self.reading else {
-            return Err(Text::key("azkeys-nothing-edited"));
+            return Err(Text::key("azpasswordmanager-nothing-edited"));
         };
         let item = form.finish(now)?;
         let id = item.id.clone();
@@ -304,21 +304,21 @@ impl Session {
         let item = self.selected_item()?;
         let of = |what: String| {
             t_args(
-                "azkeys-copy-of",
+                "azpasswordmanager-copy-of",
                 &[("what", Arg::from(what)), ("title", Arg::from(&item.title))],
             )
         };
         let non_empty =
             |text: &str, what: String| (!text.is_empty()).then(|| (text.to_string(), of(what)));
         match field {
-            "username" => non_empty(item.username.as_str(), t("azkeys-copy-username")),
-            "password" => non_empty(item.password.as_str(), t("azkeys-copy-password")),
+            "username" => non_empty(item.username.as_str(), t("azpasswordmanager-copy-username")),
+            "password" => non_empty(item.password.as_str(), t("azpasswordmanager-copy-password")),
             "totp" => {
                 let totp = Totp::parse(&item.totp).ok()?;
-                Some((totp.code_at(now), of(t("azkeys-copy-code"))))
+                Some((totp.code_at(now), of(t("azpasswordmanager-copy-code"))))
             }
-            "card-number" => non_empty(item.card.number.as_str(), t("azkeys-copy-card-number")),
-            "card-code" => non_empty(item.card.code.as_str(), t("azkeys-copy-card-code")),
+            "card-number" => non_empty(item.card.number.as_str(), t("azpasswordmanager-copy-card-number")),
+            "card-code" => non_empty(item.card.code.as_str(), t("azpasswordmanager-copy-card-code")),
             other => {
                 let index: usize = other.strip_prefix("field-")?.parse().ok()?;
                 let f = item.fields.get(index)?;

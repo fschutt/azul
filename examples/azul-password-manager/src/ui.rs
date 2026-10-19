@@ -1,8 +1,8 @@
-//! AzKeys' window: the app-drawn title row (`NoTitle` + `Titlebar`), then the unlock screen,
+//! AzPasswordManager's window: the app-drawn title row (`NoTitle` + `Titlebar`), then the unlock screen,
 //! the new-vault form, or the unlocked vault on azul's S4 `PimShell` (navigation: all items,
 //! favourites, one-time codes, the kinds, the tags; the searchable list; the reading pane from
 //! `ui_item.rs`), a toolbar in the ribbon row and a status bar with the lock and clipboard
-//! countdowns; or azul-appkit's settings page with AzKeys' Security and Vault sections. An item
+//! countdowns; or azul-appkit's settings page with AzPasswordManager's Security and Vault sections. An item
 //! being edited is guarded against a close (`CloseGuard`).
 
 use std::path::Path;
@@ -178,10 +178,10 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // An edited item is not lost to the close button: the guard asks "save it?" (its own
     // question and buttons, in the window's language).
     let guarded = CloseGuard::create(root, "")
-        .with_question(t("azkeys-close-question"), t("azkeys-close-text"))
+        .with_question(t("azpasswordmanager-close-question"), t("azpasswordmanager-close-text"))
         .with_labels(
-            t("azkeys-save"),
-            t("azkeys-close-discard"),
+            t("azpasswordmanager-save"),
+            t("azpasswordmanager-close-discard"),
             t("kit-button-cancel"),
         )
         .with_dirty_check(app.clone(), dirty_check as CloseGuardDirtyCheckCallbackType)
@@ -244,7 +244,7 @@ fn framed(card: Dom) -> Dom {
 
 fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if !s.listed {
-        return ShellEmptyState::create(t("azkeys-unlock-looking"))
+        return ShellEmptyState::create(t("azpasswordmanager-unlock-looking"))
             .with_icon("hourglass_empty")
             .with_detail(
                 azul_appkit::data::local_path(&s.data_root, crate::store::VAULTS)
@@ -255,10 +255,10 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
             .with_id(ids::UNLOCK_SCREEN);
     }
     let Some(chosen) = s.chosen_vault() else {
-        return ShellEmptyState::create(t("azkeys-unlock-none"))
+        return ShellEmptyState::create(t("azpasswordmanager-unlock-none"))
             .with_icon("lock")
-            .with_detail(t("azkeys-unlock-none-detail"))
-            .with_action_label(t("azkeys-create-vault-action"))
+            .with_detail(t("azpasswordmanager-unlock-none-detail"))
+            .with_action_label(t("azpasswordmanager-create-vault-action"))
             .with_on_action(app.clone(), on_show_create as ButtonOnClickCallbackType)
             .dom()
             .with_id(ids::UNLOCK_SCREEN);
@@ -273,7 +273,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
         block(
             "font-size: 18px; font-weight: 600; text-align: center; padding-bottom: 12px;",
             text(t_args(
-                "azkeys-unlock-title",
+                "azpasswordmanager-unlock-title",
                 &[("name", Arg::from(chosen.name()))],
             )),
         ),
@@ -281,10 +281,10 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if s.vaults.len() > 1 {
         let names: Vec<&str> = s.vaults.iter().map(|v| v.name()).collect();
         children.push(form_row(
-            "azkeys-vault",
+            "azpasswordmanager-vault",
             DropDown::create(strs(&names))
                 .with_selected(s.unlock.chosen)
-                .with_accessibility_name(t("azkeys-vault"))
+                .with_accessibility_name(t("azpasswordmanager-vault"))
                 .with_on_choice_change(
                     app.clone(),
                     on_choose_vault as DropDownOnChoiceChangeCallbackType,
@@ -294,11 +294,11 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ));
     }
     children.push(form_row(
-        "azkeys-password",
+        "azpasswordmanager-password",
         TextInput::create_password()
             .with_text(s.unlock.password.as_str())
-            .with_placeholder(t("azkeys-master-password"))
-            .with_accessibility_name(t("azkeys-master-password"))
+            .with_placeholder(t("azpasswordmanager-master-password"))
+            .with_accessibility_name(t("azpasswordmanager-master-password"))
             .with_on_text_input(
                 app.clone(),
                 on_unlock_text as TextInputOnTextInputCallbackType,
@@ -312,20 +312,20 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     ));
     let mut buttons = vec![];
     let mut unlock = Button::create(if wait > 0 {
-        t_args("azkeys-wait-seconds", &[("seconds", Arg::from(wait))])
+        t_args("azpasswordmanager-wait-seconds", &[("seconds", Arg::from(wait))])
     } else {
-        t("azkeys-unlock")
+        t("azpasswordmanager-unlock")
     })
     .with_button_type(ButtonType::Primary)
     .with_on_click(app.clone(), on_unlock as ButtonOnClickCallbackType);
     if wait > 0 || s.busy.is_some() {
-        unlock = unlock.with_disabled(t("azkeys-wait-for-answer"));
+        unlock = unlock.with_disabled(t("azpasswordmanager-wait-for-answer"));
     }
     buttons.push(unlock.dom().with_id(ids::UNLOCK_BUTTON));
     if let Some(mode) = s.device_unlock(chosen.id()) {
         let label = match mode {
-            crate::app::DeviceUnlock::Keyring => "azkeys-unlock-keyring",
-            _ => "azkeys-use-biometrics",
+            crate::app::DeviceUnlock::Keyring => "azpasswordmanager-unlock-keyring",
+            _ => "azpasswordmanager-use-biometrics",
         };
         buttons.push(icon_button(
             label,
@@ -350,7 +350,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if jobs::setting(s, "sample_vault").as_deref() == Some(chosen.id()) {
         children.push(
             note(&t_args(
-                "azkeys-sample-hint",
+                "azpasswordmanager-sample-hint",
                 &[("password", Arg::from(crate::sample::SAMPLE_PASSWORD))],
             ))
             .with_id(ids::UNLOCK_HINT),
@@ -359,7 +359,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     children.push(flex_row(
         "padding-top: 16px;",
         vec![icon_button(
-            "azkeys-new-vault",
+            "azpasswordmanager-new-vault",
             "add",
             ids::UNLOCK_NEW,
             app,
@@ -415,12 +415,12 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         };
         if s.unlock.password.is_empty() {
-            s.unlock.message = t("azkeys-type-master-password");
+            s.unlock.message = t("azpasswordmanager-type-master-password");
             return;
         }
         let password = Zeroizing::new(s.unlock.password.as_str().to_string());
         s.unlock.message.clear();
-        s.busy = Some(t("azkeys-unlocking"));
+        s.busy = Some(t("azpasswordmanager-unlocking"));
         jobs::spawn(info, app, &s.data_root, Work::Unlock { key, password });
     })
 }
@@ -465,13 +465,13 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
     let mut children = vec![
         block(
             "font-size: 18px; font-weight: 600; padding-bottom: 8px;",
-            text(t("azkeys-create-title")),
+            text(t("azpasswordmanager-create-title")),
         ),
-        note("azkeys-create-note"),
+        note("azpasswordmanager-create-note"),
         form_row(
-            "azkeys-name",
+            "azpasswordmanager-name",
             field(
-                "azkeys-create-name-placeholder",
+                "azpasswordmanager-create-name-placeholder",
                 s.create.name.as_str(),
                 false,
                 CreateField::Name,
@@ -479,9 +479,9 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
             ),
         ),
         form_row(
-            "azkeys-password",
+            "azpasswordmanager-password",
             field(
-                "azkeys-master-password",
+                "azpasswordmanager-master-password",
                 s.create.password.as_str(),
                 true,
                 CreateField::Password,
@@ -490,9 +490,9 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ),
         form_row("", strength_bar(&s.create.password, ids::CREATE_STRENGTH)),
         form_row(
-            "azkeys-again",
+            "azpasswordmanager-again",
             field(
-                "azkeys-same-password-again",
+                "azpasswordmanager-same-password-again",
                 s.create.confirm.as_str(),
                 true,
                 CreateField::Confirm,
@@ -501,7 +501,7 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ),
     ];
     let mut buttons = vec![primary(
-        "azkeys-create-vault",
+        "azpasswordmanager-create-vault",
         ids::CREATE_BUTTON,
         app,
         on_create,
@@ -521,7 +521,7 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if let Some(busy) = &s.busy {
         children.push(note(busy));
     }
-    children.push(note("azkeys-create-crypto-note"));
+    children.push(note("azpasswordmanager-create-crypto-note"));
     column("", children)
 }
 
@@ -579,7 +579,7 @@ extern "C" fn on_create(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         }
         s.create.message.clear();
-        s.busy = Some(t("azkeys-making-vault"));
+        s.busy = Some(t("azpasswordmanager-making-vault"));
         let vault = Vault::new(&s.create.name, now());
         let password = Zeroizing::new(s.create.password.as_str().to_string());
         jobs::spawn(
@@ -610,7 +610,7 @@ fn vault_screen(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         list_pane(session, app),
         crate::ui_item::reading_pane(s, session, app),
     )
-    .with_list_label(t("azkeys-items"))
+    .with_list_label(t("azpasswordmanager-items"))
     .office_shell()
     .with_title_row(kit::title_row(&format!(
         "{} - {}",
@@ -626,7 +626,7 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
     let vault = &session.open.vault;
     let count = |scope: &Scope| vault.items.iter().filter(|i| scope.holds(i)).count();
     let all = TreeViewNode::create(t_args(
-        "azkeys-nav-all",
+        "azpasswordmanager-nav-all",
         &[("count", Arg::from(vault.items.len()))],
     ))
     .with_icon("inventory_2")
@@ -634,7 +634,7 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
     .with_selected(session.scope == Scope::All)
     .with_child(
         TreeViewNode::create(t_args(
-            "azkeys-nav-favourites",
+            "azpasswordmanager-nav-favourites",
             &[("count", Arg::from(count(&Scope::Favorites)))],
         ))
         .with_icon("star")
@@ -642,14 +642,14 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
     )
     .with_child(
         TreeViewNode::create(t_args(
-            "azkeys-nav-codes",
+            "azpasswordmanager-nav-codes",
             &[("count", Arg::from(count(&Scope::OneTimeCodes)))],
         ))
         .with_icon("pin")
         .with_selected(session.scope == Scope::OneTimeCodes),
     );
     let counts = vault.kind_counts();
-    let mut kinds = TreeViewNode::create(t("azkeys-categories"))
+    let mut kinds = TreeViewNode::create(t("azpasswordmanager-categories"))
         .with_icon("category")
         .with_expanded(true);
     for kind in Kind::ALL {
@@ -664,7 +664,7 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         );
     }
     let tag_list = vault.tags();
-    let mut tags = TreeViewNode::create(t("azkeys-tags"))
+    let mut tags = TreeViewNode::create(t("azpasswordmanager-tags"))
         .with_icon("sell")
         .with_expanded(true);
     for (tag, n) in &tag_list {
@@ -675,21 +675,21 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         );
     }
     ShellNavigationPane::create()
-        .with_header(primary("azkeys-new-item", ids::NAV_NEW, app, on_new))
+        .with_header(primary("azpasswordmanager-new-item", ids::NAV_NEW, app, on_new))
         .with_group(
-            ShellNavigationGroup::create(t("azkeys-vault"), all)
+            ShellNavigationGroup::create(t("azpasswordmanager-vault"), all)
                 .with_count(vault.items.len())
                 .with_open(s.nav_open[0]),
         )
         .with_group(
-            ShellNavigationGroup::create(t("azkeys-categories"), kinds).with_open(s.nav_open[1]),
+            ShellNavigationGroup::create(t("azpasswordmanager-categories"), kinds).with_open(s.nav_open[1]),
         )
         .with_group(
-            ShellNavigationGroup::create(t("azkeys-tags"), tags)
+            ShellNavigationGroup::create(t("azpasswordmanager-tags"), tags)
                 .with_count(tag_list.len())
                 .with_open(s.nav_open[2]),
         )
-        .with_label(t("azkeys-nav-label"))
+        .with_label(t("azpasswordmanager-nav-label"))
         .with_on_event(
             app.clone(),
             on_nav as ShellNavigationPaneOnEventCallbackType,
@@ -733,7 +733,7 @@ extern "C" fn on_nav(
         ) {
             session.reading = Reading::Item;
         }
-        println!("AZKEYS_VIEW {}", session.view().len());
+        println!("AZPASSWORDMANAGER_VIEW {}", session.view().len());
     })
 }
 
@@ -747,8 +747,8 @@ fn list_pane(session: &Session, app: &RefAny) -> Dom {
     let list = session.view();
     let search = TextInput::create_search()
         .with_text(session.query.as_str())
-        .with_placeholder(t("azkeys-search"))
-        .with_accessibility_name(t("azkeys-search"))
+        .with_placeholder(t("azpasswordmanager-search"))
+        .with_accessibility_name(t("azpasswordmanager-search"))
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::LIST_SEARCH);
@@ -758,20 +758,20 @@ fn list_pane(session: &Session, app: &RefAny) -> Dom {
     )
     .with_id(ids::LIST_HEADING);
     let body = if session.open.vault.items.is_empty() {
-        ShellEmptyState::create(t("azkeys-empty-vault"))
+        ShellEmptyState::create(t("azpasswordmanager-empty-vault"))
             .with_icon("lock_open")
-            .with_detail(t("azkeys-empty-vault-detail"))
-            .with_action_label(t("azkeys-new-item"))
+            .with_detail(t("azpasswordmanager-empty-vault-detail"))
+            .with_action_label(t("azpasswordmanager-new-item"))
             .with_on_action(app.clone(), on_new as ButtonOnClickCallbackType)
             .dom()
     } else if list.is_empty() {
-        ShellEmptyState::create(t("azkeys-nothing-here"))
+        ShellEmptyState::create(t("azpasswordmanager-nothing-here"))
             .with_icon("search")
             .with_detail(if session.query.trim().is_empty() {
-                t("azkeys-nothing-in-view")
+                t("azpasswordmanager-nothing-in-view")
             } else {
                 t_args(
-                    "azkeys-no-match",
+                    "azpasswordmanager-no-match",
                     &[("query", Arg::from(session.query.trim()))],
                 )
             })
@@ -881,7 +881,7 @@ extern "C" fn on_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
         session.reading = Reading::Item;
         session.select(Some(id));
         if let Some(item) = session.selected_item() {
-            println!("AZKEYS_SELECTED {}", item.title);
+            println!("AZPASSWORDMANAGER_SELECTED {}", item.title);
         }
     })
 }
@@ -896,7 +896,7 @@ extern "C" fn on_search(
         if let Some(session) = s.session.as_mut() {
             session.query = query;
             session.keep_selection_in_view();
-            println!("AZKEYS_VIEW {}", session.view().len());
+            println!("AZPASSWORDMANAGER_VIEW {}", session.view().len());
         }
     });
     OnTextInputReturn {
@@ -909,23 +909,23 @@ fn toolbar(app: &RefAny) -> Dom {
     flex_row(
         "gap: 4px; padding: 4px 8px;",
         vec![
-            icon_button("azkeys-toolbar-new", "add", ids::TOOLBAR_NEW, app, on_new),
+            icon_button("azpasswordmanager-toolbar-new", "add", ids::TOOLBAR_NEW, app, on_new),
             icon_button(
-                "azkeys-toolbar-generator",
+                "azpasswordmanager-toolbar-generator",
                 "password",
                 ids::TOOLBAR_GENERATOR,
                 app,
                 on_generator,
             ),
             icon_button(
-                "azkeys-toolbar-audit",
+                "azpasswordmanager-toolbar-audit",
                 "health_and_safety",
                 ids::TOOLBAR_AUDIT,
                 app,
                 on_audit,
             ),
             icon_button(
-                "azkeys-toolbar-import",
+                "azpasswordmanager-toolbar-import",
                 "file_upload",
                 ids::TOOLBAR_IMPORT,
                 app,
@@ -933,14 +933,14 @@ fn toolbar(app: &RefAny) -> Dom {
             ),
             block("flex-grow: 1;", Dom::create_div()),
             icon_button(
-                "azkeys-toolbar-lock",
+                "azpasswordmanager-toolbar-lock",
                 "lock",
                 ids::TOOLBAR_LOCK,
                 app,
                 on_lock,
             ),
             icon_button(
-                "azkeys-toolbar-settings",
+                "azpasswordmanager-toolbar-settings",
                 "settings",
                 ids::TOOLBAR_SETTINGS,
                 app,
@@ -954,26 +954,26 @@ fn status_bar(s: &KeysApp, session: &Session) -> Dom {
     let at = now();
     let n = session.open.vault.items.len();
     let mut segments = vec![StatusBarSegment::create(t_args(
-        "azkeys-status-items",
+        "azpasswordmanager-status-items",
         &[("count", Arg::from(n))],
     ))];
     if s.saving {
-        segments.push(StatusBarSegment::create(t("azkeys-saving")));
+        segments.push(StatusBarSegment::create(t("azpasswordmanager-saving")));
     }
     segments.push(StatusBarSegment::create(match s.auto_lock.remaining(at) {
-        None => t("azkeys-status-locks-by-hand"),
+        None => t("azpasswordmanager-status-locks-by-hand"),
         Some(r) if r <= 60 => t_args(
-            "azkeys-status-locks-in",
+            "azpasswordmanager-status-locks-in",
             &[("time", Arg::from(crate::lock::clock(r)))],
         ),
         Some(_) => t_args(
-            "azkeys-status-locks-after",
+            "azpasswordmanager-status-locks-after",
             &[("time", Arg::from(minutes_label(s.auto_lock.idle_minutes)))],
         ),
     }));
     if let Some(r) = s.clipboard.remaining(at) {
         segments.push(StatusBarSegment::create(t_args(
-            "azkeys-status-clipboard",
+            "azpasswordmanager-status-clipboard",
             &[("seconds", Arg::from(r))],
         )));
     }
@@ -1061,7 +1061,7 @@ pub fn read_import_file(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, 
     if !kit::spawn_outside_read(info, path, app.clone(), TAG_IMPORT, on_import_read) {
         if let Reading::Import(view) = &mut session.reading {
             view.reading = false;
-            view.result = Some(Err(Text::key("azkeys-import-bad-name")));
+            view.result = Some(Err(Text::key("azpasswordmanager-import-bad-name")));
         }
     }
 }
@@ -1088,20 +1088,20 @@ extern "C" fn on_import_read(mut app: RefAny, mut msg: RefAny, mut info: Callbac
                 let bytes = Zeroizing::new(bytes);
                 crate::import::import_file(&bytes, now())
             }
-            Some(Ok(None)) => Err(Text::key("azkeys-import-missing")),
-            Some(Err(e)) => Err(Phrase::new("azkeys-import-unreadable")
+            Some(Ok(None)) => Err(Text::key("azpasswordmanager-import-missing")),
+            Some(Err(e)) => Err(Phrase::new("azpasswordmanager-import-unreadable")
                 .arg("why", e.to_string())
                 .into()),
-            None => Err(Text::key("azkeys-import-not-read")),
+            None => Err(Text::key("azpasswordmanager-import-not-read")),
         };
         match &result {
             Ok(imported) => println!(
-                "AZKEYS_IMPORT_PREVIEW {} {} {}",
+                "AZPASSWORDMANAGER_IMPORT_PREVIEW {} {} {}",
                 imported.items.len(),
                 imported.skipped.len(),
                 imported.format.label()
             ),
-            Err(_) => println!("AZKEYS_IMPORT_PREVIEW 0 0 none"),
+            Err(_) => println!("AZPASSWORDMANAGER_IMPORT_PREVIEW 0 0 none"),
         }
         view.result = Some(result);
     })
@@ -1265,10 +1265,10 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
         .unwrap_or(1);
     let mut security = vec![
         kit::row(
-            "azkeys-lock-after",
+            "azpasswordmanager-lock-after",
             DropDown::create(strs(&idle_refs))
                 .with_selected(idle_at)
-                .with_accessibility_name(t("azkeys-lock-after"))
+                .with_accessibility_name(t("azpasswordmanager-lock-after"))
                 .with_on_choice_change(
                     app.clone(),
                     on_idle_choice as DropDownOnChoiceChangeCallbackType,
@@ -1277,10 +1277,10 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
                 .with_id(ids::SET_IDLE),
         ),
         kit::row(
-            "azkeys-clear-clipboard",
+            "azpasswordmanager-clear-clipboard",
             DropDown::create(strs(&clear_refs))
                 .with_selected(clear_at)
-                .with_accessibility_name(t("azkeys-clear-clipboard-after"))
+                .with_accessibility_name(t("azpasswordmanager-clear-clipboard-after"))
                 .with_on_choice_change(
                     app.clone(),
                     on_clear_choice as DropDownOnChoiceChangeCallbackType,
@@ -1293,28 +1293,28 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
         Some(session) => {
             let on = s.device_unlock(&session.open.vault.id).is_some();
             security.push(kit::row(
-                "azkeys-device-unlock",
+                "azpasswordmanager-device-unlock",
                 Switch::create(on)
-                    .with_accessibility_name(t("azkeys-device-unlock-switch"))
+                    .with_accessibility_name(t("azpasswordmanager-device-unlock-switch"))
                     .with_on_toggle(app.clone(), on_device_unlock as SwitchOnToggleCallbackType)
                     .dom()
                     .with_id(ids::SET_DEVICE_UNLOCK),
             ));
-            security.push(kit::note("azkeys-device-unlock-note"));
+            security.push(kit::note("azpasswordmanager-device-unlock-note"));
         }
-        None => security.push(kit::note("azkeys-device-unlock-locked")),
+        None => security.push(kit::note("azpasswordmanager-device-unlock-locked")),
     }
-    security.push(kit::note("azkeys-privacy-note"));
+    security.push(kit::note("azpasswordmanager-privacy-note"));
     let mut vault = Vec::new();
     match s.session.as_ref() {
         Some(session) => {
             let kdf = &session.open.envelope.kdf;
             vault.push(kit::row(
-                "azkeys-vault",
+                "azpasswordmanager-vault",
                 text(session.open.vault.name.as_str()),
             ));
             vault.push(kit::row(
-                "azkeys-file",
+                "azpasswordmanager-file",
                 text(
                     azul_appkit::data::local_path(&s.data_root, &session.open.key)
                         .display()
@@ -1322,9 +1322,9 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
                 ),
             ));
             vault.push(kit::row(
-                "azkeys-key-derivation",
+                "azpasswordmanager-key-derivation",
                 text(t_args(
-                    "azkeys-kdf-value",
+                    "azpasswordmanager-kdf-value",
                     &[
                         ("mib", Arg::from(kdf.memory_kib / 1024)),
                         ("passes", Arg::from(kdf.iterations)),
@@ -1333,20 +1333,20 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
                 )),
             ));
             vault.push(kit::row(
-                "azkeys-new-password",
+                "azpasswordmanager-new-password",
                 change_field(
                     app,
-                    "azkeys-new-master-password",
+                    "azpasswordmanager-new-master-password",
                     s.change.password.as_str(),
                     ChangeField::Password,
                     ids::SET_NEW_PASSWORD,
                 ),
             ));
             vault.push(kit::row(
-                "azkeys-again",
+                "azpasswordmanager-again",
                 change_field(
                     app,
-                    "azkeys-same-password-again",
+                    "azpasswordmanager-same-password-again",
                     s.change.confirm.as_str(),
                     ChangeField::Confirm,
                     ids::SET_NEW_CONFIRM,
@@ -1355,7 +1355,7 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
             vault.push(kit::row(
                 "",
                 button(
-                    "azkeys-change-password",
+                    "azpasswordmanager-change-password",
                     ids::SET_CHANGE,
                     app,
                     on_change_password,
@@ -1364,20 +1364,20 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
             if !s.change.message.is_empty() {
                 vault.push(kit::note(&s.change.message).with_id(ids::SET_CHANGE_MESSAGE));
             }
-            vault.push(kit::note("azkeys-change-note"));
+            vault.push(kit::note("azpasswordmanager-change-note"));
         }
-        None => vault.push(kit::note("azkeys-change-locked")),
+        None => vault.push(kit::note("azpasswordmanager-change-locked")),
     }
-    vault.push(kit::note("azkeys-import-note"));
+    vault.push(kit::note("azpasswordmanager-import-note"));
     vec![
         AppSection {
             category: 0,
-            title: t("azkeys-section-security"),
+            title: t("azpasswordmanager-section-security"),
             content: column("", security),
         },
         AppSection {
             category: 1,
-            title: t("azkeys-vault"),
+            title: t("azpasswordmanager-vault"),
             content: column("", vault),
         },
     ]
@@ -1480,15 +1480,15 @@ extern "C" fn on_change_text(
 extern "C" fn on_change_password(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, info, app| {
         if s.saving {
-            s.change.message = t("azkeys-wait-for-save");
+            s.change.message = t("azpasswordmanager-wait-for-save");
             return;
         }
         if s.change.password.chars().count() < 8 {
-            s.change.message = t("azkeys-password-too-short");
+            s.change.message = t("azpasswordmanager-password-too-short");
             return;
         }
         if *s.change.password != *s.change.confirm {
-            s.change.message = t("azkeys-passwords-differ");
+            s.change.message = t("azpasswordmanager-passwords-differ");
             return;
         }
         let Some(session) = s.session.as_ref() else {
@@ -1502,7 +1502,7 @@ extern "C" fn on_change_password(mut data: RefAny, mut info: CallbackInfo) -> Up
             kdf: None,
         };
         s.saving = true;
-        s.change.message = t("azkeys-changing-password");
+        s.change.message = t("azpasswordmanager-changing-password");
         jobs::spawn(info, app, &s.data_root, work);
     })
 }

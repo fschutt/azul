@@ -1,4 +1,4 @@
-//! The one CSV reader of the Azlin apps (AzContacts, AzKeys, AzERP import what
+//! The one CSV reader of the Azlin apps (AzContacts, AzPasswordManager, AzERP import what
 //! spreadsheets, address books and password managers export).
 //!
 //! RFC 4180 through the `csv` crate: fields in double quotes may hold the

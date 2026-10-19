@@ -1,6 +1,6 @@
 //! The small DOM pieces the Azlin apps build their screens from (feature `look`, in `azul`):
 //! a text run, a styled block, a flex column / row, buttons, a `StringVec` of
-//! labels. One copy for every app (AzContacts, AzKeys, the kit's own settings
+//! labels. One copy for every app (AzContacts, AzPasswordManager, the kit's own settings
 //! page; AzNews next) instead of one per app.
 //!
 //! `flex_row` is not [`crate::look::row`]: that one is a settings row (a label

@@ -87,7 +87,7 @@ sqlx = { version = "0.8.6", default-features = false, optional = true, features 
 # The one runtime of both (src/runtime.rs).
 tokio = { version = "1.52", default-features = false, optional = true, features = ["rt", "rt-multi-thread"] }
 # ---- feature `encryption`: client-side encryption (src/crypto/, src/encrypted.rs) ----
-# Every crate here is in Cargo.lock already (AzKeys, AzMeet, azcloud-kit, zip): no new crate.
+# Every crate here is in Cargo.lock already (AzPasswordManager, AzMeet, azcloud-kit, zip): no new crate.
 # XChaCha20-Poly1305; `stream` is aead's STREAM construction (StreamBE32: nonce = prefix ||
 # segment index || last-segment flag), no further crate. Zeroizes its key on drop.
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc", "stream"], optional = true }
@@ -103,7 +103,7 @@ zstd = { version = "0.13.3", default-features = false, optional = true }
 # brotli quality 11 per segment in the recompression pass (pure Rust; brotli 8 is in Cargo.lock
 # already through webrender and the dll's `web` feature).
 brotli = { version = "8", optional = true }
-# Argon2id: the key of a recovery code (AzKeys' features).
+# Argon2id: the key of a recovery code (AzPasswordManager's features).
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
 # The OS random source: file keys, nonces, object ids, salts.
 getrandom = { version = "0.2", optional = true }

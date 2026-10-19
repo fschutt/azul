@@ -1,5 +1,5 @@
 //! RFC 4648 base32 (the alphabet `A`-`Z`, `2`-`7`): what a one-time code's secret is written in
-//! (AzKeys), and the codes an Azlin cash checkout puts on paper (azcloud-kit: the activation
+//! (AzPasswordManager), and the codes an Azlin cash checkout puts on paper (azcloud-kit: the activation
 //! code, the claim code). Encoded upper case without padding; decoded in any case, with blanks,
 //! dashes and `=` padding skipped.
 

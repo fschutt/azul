@@ -161,7 +161,7 @@ impl Snapshot {
     }
 
     /// [`Snapshot::restore`], but the values whose key starts with one of `kept` stay as they
-    /// are now: they record what an action did (AzKeys' `device_unlock.<vault>`: a key put
+    /// are now: they record what an action did (AzPasswordManager's `device_unlock.<vault>`: a key put
     /// into the keyring), which Cancel does not undo.
     #[must_use]
     pub fn restore_keeping(
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn cancel_leaves_the_values_an_action_wrote() {
-        // AzKeys: the device unlock was turned on (its key is in the keyring now) and the
+        // AzPasswordManager: the device unlock was turned on (its key is in the keyring now) and the
         // idle time changed; Cancel puts back the idle time only.
         let mut settings = AppSettings::default();
         settings.set("idle_minutes", "5");

@@ -41,7 +41,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
-/// The `format` of a vault file.
+/// The `format` of a vault file. It keeps the app's earlier name (AzKeys): every vault file
+/// written says it, so it never changes.
 pub const FORMAT: &str = "azkeys-vault";
 /// The `version` this build writes and reads.
 pub const VERSION: u32 = 1;
@@ -302,6 +303,7 @@ fn data_aad(id: &str, name: &str) -> Vec<u8> {
 #[must_use]
 pub fn key_check(key: &SecretKey) -> String {
     let mut hasher = Sha256::new();
+    // The label of every check value written so far (the format's name): it never changes.
     hasher.update(b"azkeys-vault/key-check/");
     hasher.update(key.as_bytes());
     let digest = hasher.finalize();
@@ -427,13 +429,13 @@ impl Envelope {
             .map_err(|e| VaultError::Corrupt(format!("not a vault file: line {}", e.line())))?;
         if envelope.format != FORMAT {
             return Err(VaultError::Unsupported(format!(
-                "the format \"{}\" is not an AzKeys vault",
+                "the format \"{}\" is not an AzPasswordManager vault",
                 envelope.format
             )));
         }
         if envelope.version != VERSION {
             return Err(VaultError::Unsupported(format!(
-                "vault version {} (this AzKeys reads version {VERSION}; a newer AzKeys wrote it)",
+                "vault version {} (this AzPasswordManager reads version {VERSION}; a newer AzPasswordManager wrote it)",
                 envelope.version
             )));
         }
