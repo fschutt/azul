@@ -620,7 +620,7 @@ pub(super) fn emit_wrapper_compare_to(
 ///
 /// ~1400 types never reach [`wrappers`](super::wrappers): a POD struct with a
 /// factory but no `_delete` and no instance method (`LayoutSize.zero()`,
-/// `Uuid.v4()`), every tagged union (`CssProperty.constDisplay(...)`,
+/// `Uuid.v4()`), every tagged union (`CssProperty.display(...)`,
 /// `SvgPathElement.getBounds(...)`) and every monomorphized alias. Their
 /// members are emitted here as `static` forwarders on the FFI value class:
 /// the signature mirrors the `public static native` declaration exactly — the
