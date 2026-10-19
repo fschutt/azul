@@ -106,7 +106,8 @@ pub(crate) const OPTION_CLASS: &str = "__azul-native-token-input-suggestion";
 /// The highlighted suggestion (added to [`OPTION_CLASS`]).
 pub(crate) const OPTION_ACTIVE_CLASS: &str = "__azul-native-token-input-suggestion-active";
 
-/// What ends a token while typing (and splits a pasted list).
+/// What ends a token while typing (and splits a pasted list), outside double quotes and angle
+/// brackets (`free_separators`).
 pub const TOKEN_INPUT_SEPARATORS: &[char] = &[',', ';', '\n', '\t'];
 
 /// How many suggestions show when the app says nothing.
@@ -514,10 +515,14 @@ impl From<TokenInput> for Dom {
 /// typed, its leading blanks dropped).
 #[must_use]
 pub(crate) fn split_tokens(text: &str) -> (Vec<String>, String) {
-    let mut parts: Vec<&str> = text.split(TOKEN_INPUT_SEPARATORS).collect();
-    // `split` always yields at least one part: the text after the last
-    // separator (all of it when there is none).
-    let rest = parts.pop().unwrap_or("").trim_start();
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0;
+    for (from, to) in free_separators(text) {
+        parts.push(&text[start..from]);
+        start = to;
+    }
+    // The text after the last separator (all of it when there is none).
+    let rest = text[start..].trim_start();
     let tokens = parts
         .into_iter()
         .map(str::trim)
@@ -525,6 +530,32 @@ pub(crate) fn split_tokens(text: &str) -> (Vec<String>, String) {
         .map(String::from)
         .collect();
     (tokens, String::from(rest))
+}
+
+/// The byte ranges of the separators in `text` that end a token: none inside double quotes
+/// (`"Lovelace, Ada"`; `\"` stays inside them) or angle brackets (`<a,b@x.org>`), so a mailbox
+/// with a comma in its name is one token.
+#[must_use]
+pub(crate) fn free_separators(text: &str) -> Vec<(usize, usize)> {
+    let (mut quoted, mut escaped, mut angle) = (false, false, 0u32);
+    let mut out = Vec::new();
+    for (i, c) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            '<' if !quoted => angle += 1,
+            '>' if !quoted => angle = angle.saturating_sub(1),
+            c if !quoted && angle == 0 && TOKEN_INPUT_SEPARATORS.contains(&c) => {
+                out.push((i, i + c.len_utf8()));
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// `text` case folded and trimmed - what two tokens are compared by.
@@ -1192,7 +1223,7 @@ extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
         valid: TextInputValid::Yes,
     };
     let text = state.get_text();
-    if !text.contains(TOKEN_INPUT_SEPARATORS) {
+    if free_separators(text.as_str()).is_empty() {
         let next = match data.downcast_ref::<TokenShared>() {
             Some(s) => {
                 let mut next = s.state.clone();
