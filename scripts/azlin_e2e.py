@@ -34,9 +34,9 @@ if not os.environ.get("AZLIN_CONFIG"):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# The backend an app starts on: headless by default. `run(..., --window)` sets "cpu", the
-# platform's real window drawn by azul's CPU renderer, for the proof runs that have to show
-# what a user sees; screenshots are then the OS's capture of the window.
+# The backend an app starts on: headless by default. `--window` (or `--window gpu`) starts the
+# platform's real window drawn by azul's CPU renderer (or the GPU), for the proof runs that have
+# to show what a user sees; screenshots are then the OS's capture of the window.
 BACKEND = "headless"
 
 
@@ -899,12 +899,13 @@ def run(tag, body, argv=None, default_port=8781, binary_name=None, binary_env=No
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--out")
     parser.add_argument("--keep", action="store_true", help="keep the data folder and logs")
-    parser.add_argument("--window", action="store_true",
-                        help="run the app in a real window (the CPU backend), not headless")
+    parser.add_argument("--window", nargs="?", const="cpu", choices=("cpu", "gpu"),
+                        help="run the app in a real window, drawn by azul's CPU renderer (the "
+                             "default) or by the GPU, not headless")
     args = parser.parse_args(argv)
     if args.window:
         global BACKEND
-        BACKEND = "cpu"
+        BACKEND = args.window
     logs = tempfile.mkdtemp(prefix="%s-e2e-" % tag)
     out = args.out or os.path.join(logs, "screenshots")
     os.makedirs(out, exist_ok=True)

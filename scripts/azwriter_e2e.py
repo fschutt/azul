@@ -7,8 +7,8 @@
     2. the first page has the keyboard and a blinking caret as it opens (its autofocus); types into the second block, saves (Ctrl/Cmd+S) and reads the FILE back;
     3. undoes the typing with Ctrl/Cmd+Z (the editor's ONE history, not the engine's text undo),
        saves, and the file no longer has the text;
-    4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file; then Enter at
-       the paragraph's end: the caret blinks at the new paragraph's start and typing lands there;
+    4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file; then End, Enter
+       splits the paragraph: the caret blinks at the new paragraph's start and typing lands there;
     5. exports a PDF (Ctrl/Cmd+P) into writer/exports/ and checks the bytes;
     6. opens File > Open (Ctrl/Cmd+O): the document is listed; Escape leaves it;
     7. types again and closes the window: the close guard asks "Save changes?"; Cancel keeps the
@@ -149,9 +149,9 @@ def first_session(app, data, out):
     app.key("z", primary=True)
     app.log("heading 2 and back")
 
-    # Enter at the end of a paragraph: a new paragraph, and the caret goes on blinking at its
-    # start, so the next letters land there without a click (the user once saw the caret gone
-    # after Enter).
+    # End, Enter: the paragraph splits at the end of its first line, and the caret goes on
+    # blinking at the new paragraph's start, so the next letters land there without a click (the
+    # user once saw the caret gone after Enter).
     app.click(BLOCK % 1)
     app.key("end")
     before_enter = caret(app)
@@ -169,7 +169,7 @@ def first_session(app, data, out):
     if not re.search(r"\n\nNEWLINE", read(doc_file(data, doc_id))):
         raise e.Failure("the text typed after Enter is not a paragraph of its own:\n%s"
                         % read(doc_file(data, doc_id)))
-    app.log("Enter makes a paragraph and the caret blinks at its start")
+    app.log("End, Enter split the paragraph and the caret blinks at the new one's start")
 
     # Export as PDF into the data tree.
     before = len(app.printed("AZWRITER_EXPORTED", r".+"))
