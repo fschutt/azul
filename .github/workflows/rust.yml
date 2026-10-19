@@ -1917,6 +1917,47 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  frame_budgets:
+    # The layout tests' frame-time budgets (`*_fits_its_time_budget*`): a
+    # release build, one test at a time, AZ_TIMING=1 - beside the whole suite
+    # a frame's CPU time grows by half, so test_lib only reports the times.
+    # scripts/frame_budgets.sh is the same run on a developer's machine.
+    name: Frame-time budgets (release, one test at a time)
+    needs: [content_state_lint, documentation_paths, clippy, check_crates]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
+          key: frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs') }}
+          restore-keys: |
+            frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            frame-budgets-${{ env.CACHE_BUST }}-${{ runner.os }}-
+
+      # The measured pages set text; the layout tests take Arial's metrics
+      # from Liberation Sans on Linux, as test_lib does.
+      - name: Install the fonts the layout tests measure
+        run: sudo apt-get update -qq || true && sudo apt-get install -y fonts-liberation fonts-dejavu-core
+
+      - name: Check the frame-time budgets
+        run: ./scripts/frame_budgets.sh
+
   mail_corpus_vs_chrome:
     # OPTIONAL, on demand (workflow_dispatch with mail_corpus = true): every mail
     # of tests/mail_corpus/ through AzMail's sanitizer, rendered by headless
