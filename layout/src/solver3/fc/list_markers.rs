@@ -415,9 +415,21 @@ pub(super) fn generate_list_marker_text(
     }
 }
 
-/// The style a list item's marker is shaped in.
+/// The style a list item's marker is shaped in: the item's, with tabular
+/// numbers (CSS Lists 3's UA `::marker { font-variant-numeric: tabular-nums
+/// }`), so the numbers of a list line up.
 fn marker_style(item: Arc<StyleProperties>) -> Arc<StyleProperties> {
-    item
+    let tabular = crate::text3::cache::FontVariantNumeric {
+        tabular_nums: true,
+        ..crate::text3::cache::FontVariantNumeric::NORMAL
+    };
+    if item.font_variant_numeric == tabular {
+        return item;
+    }
+    Arc::new(StyleProperties {
+        font_variant_numeric: tabular,
+        ..(*item).clone()
+    })
 }
 
 /// Generates marker text segments for a list item marker.
@@ -457,7 +469,7 @@ pub(super) fn generate_list_marker_segments(
     // List markers are generated content, not from DOM nodes
     vec![StyledRun {
         text: Arc::from(marker_text.as_str()),
-        style: base_style,
+        style: marker_style(base_style),
         logical_start_byte: 0,
         source_node_id: None,
     }]

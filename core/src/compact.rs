@@ -884,6 +884,7 @@ impl CssPropertyCache {
                 &mut result.tier2_cold[i],
                 &mut result.tier2b_text[i],
                 &mut result.font_hash_to_families,
+                &mut result.dom_declared_flags,
             );
 
             {
@@ -1296,7 +1297,7 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
     // against `is_inheritable()` — it was the only disagreement.
     | (WRITING_MODE_MASK << WRITING_MODE_SHIFT);
 
-#[allow(clippy::too_many_arguments)] // the node, its place and its five compact slots
+#[allow(clippy::too_many_arguments)] // the node, its place, its five compact slots and the DOM's flags
 fn apply_ua_css_to_compact(
     node: &NodeData,
     node_index: usize,
@@ -1313,16 +1314,21 @@ fn apply_ua_css_to_compact(
         u64,
         azul_css::props::basic::font::StyleFontFamilyVec,
     >,
+    dom_declared_flags: &mut u32,
 ) {
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
     // per-pass copies this replaced had drifted apart (see its doc). The
     // document root's own defaults by the ONE rule the slow path shares
     // (`takes_root_ua_default`: a hosted root inherits its host's instead).
+    // A UA default is as present in the DOM as a declaration (a `::marker`'s
+    // tabular numbers): the readers skip the cascade walk for a type no node
+    // has.
     for pt in crate::ua_css::UA_PROPERTY_TYPES {
         let is_root =
             crate::prop_cache::takes_root_ua_default(node_index, *pt, inherited_from_host);
         if let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
+            update_dom_declared_flags(ua_prop, dom_declared_flags);
         }
     }
 }

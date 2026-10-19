@@ -82,6 +82,15 @@ use crate::dom::{AttributeType, NodeData, NodeType};
 static WHITE_SPACE_PRE: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
     azul_css::props::style::StyleWhiteSpace::Pre,
 ));
+/// `font-variant-numeric: tabular-nums` — a `::marker` (CSS Lists 3 s3.1), so
+/// the numbers of a list line up.
+static FONT_VARIANT_NUMERIC_TABULAR: CssProperty =
+    CssProperty::FontVariantNumeric(CssPropertyValue::Exact(
+        azul_css::props::basic::font::StyleFontVariantNumeric {
+            tabular_nums: true,
+            ..azul_css::props::basic::font::StyleFontVariantNumeric::NORMAL
+        },
+    ));
 /// `white-space: pre-wrap` — `<textarea>` (HTML rendering §15.5.14) and every
 /// editing host (see [`get_ua_editing_host_property`]).
 static WHITE_SPACE_PRE_WRAP: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
@@ -941,6 +950,7 @@ pub fn get_ua_property(
         // s3.1's `white-space: pre`).
         (NT::Before | NT::After | NT::Marker, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Marker, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE),
+        (NT::Marker, PT::FontVariantNumeric) => Some(&FONT_VARIANT_NUMERIC_TABULAR),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
         // No underline here: only a LINK (`<a href>`) is underlined, see
         // `get_ua_link_property`.
@@ -1342,6 +1352,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     // 3,4 instead of restarting at 1).
     CssPropertyType::CounterReset,
     CssPropertyType::CounterIncrement,
+    // `::marker { font-variant-numeric: tabular-nums }`.
+    CssPropertyType::FontVariantNumeric,
 ];
 
 /// The UA defaults of the DOCUMENT ROOT (the node at index 0), themed.
