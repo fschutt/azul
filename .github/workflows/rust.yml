@@ -1226,6 +1226,37 @@ jobs:
             exit 1
           fi
 
+  wasm32_check:
+    # azul-dll for wasm32, as soon as the bindings are generated and gated by nothing else: the
+    # generated C-ABI bodies must resolve through `azul_dll::unified` there too (the desktop
+    # module does not exist on wasm), and a body that does not fails the run at once.
+    name: wasm32 check (azul-dll)
+    needs: [codegen_linux]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: wasm32-unknown-unknown
+
+      - name: Download generated bindings (built once per OS)
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ runner.os }}
+
+      - name: Check the engine crates and azul-dll for wasm32
+        run: |
+          cargo check --target wasm32-unknown-unknown -p azul-css
+          cargo check --target wasm32-unknown-unknown -p azul-core
+          cargo check --target wasm32-unknown-unknown -p azul-layout --no-default-features --features "text_layout,svg,xml"
+          cargo check --target wasm32-unknown-unknown -p azul-dll --no-default-features --features "link-static,logging"
+
   cross_compile_check:
     # Cross-compile cargo check for 32-bit and exotic targets.
     name: Cross-Compile Check (${{ matrix.target }})
@@ -1280,9 +1311,6 @@ jobs:
             runner: macos-14
             check_build_dll: true
             macos_deployment_target: "11.0"
-          - target: wasm32-unknown-unknown
-            runner: ubuntu-22.04
-            check_build_dll: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3349,7 +3377,24 @@ jobs:
       - name: Build python extension (debug-server, for e2e)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
         # The pyext-e2e profile (Cargo.toml): -O1, no debuginfo - the extension is a test artifact.
-        run: cargo build --profile pyext-e2e -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+        # The runner's memory and disk are logged every 30 s while it builds: the Linux runner
+        # was shut down half way through this compile, and the log says which of the two ran out.
+        shell: bash
+        run: |
+          (
+            while sleep 30; do
+              if command -v free >/dev/null; then
+                mem=$(free -m | awk 'NR==2{printf "mem used %s/%s MB, ", $3, $2} NR==3{printf "swap %s/%s MB, ", $3, $2}')
+              else
+                mem=$(vm_stat | awk '/Pages free|Swapouts/ {printf "%s ", $0}')
+              fi
+              rss=$(ps -axo rss=,comm= 2>/dev/null | awk '/rustc/ {s+=$1} END {print int(s/1024) " MB in rustc"}')
+              echo "[resources] $(date +%T) $mem$rss, disk $(df -h . | awk 'NR==2{print $4}') free"
+            done
+          ) &
+          monitor=$!
+          cargo build --profile pyext-e2e -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+          kill $monitor
 
       - name: Stage DLL + codegen artifact
         shell: bash
@@ -5060,7 +5105,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, miri, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, wasm32_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
