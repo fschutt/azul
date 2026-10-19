@@ -4093,3 +4093,93 @@ fn a_press_in_the_parent_of_a_modal_dialog_reaches_nothing_there() {
         "the click beside the modal dialog focused a control of its parent"
     );
 }
+
+// ---- Fresh callback payloads (a real window relaid out without end) ----
+
+/// The state of [`fresh_payload_layout`]: every payload it made, newest last.
+struct FreshPayloads {
+    made: Vec<RefAny>,
+}
+
+extern "C" fn on_fresh_click(_data: RefAny, _info: CallbackInfo) -> Update {
+    Update::DoNothing
+}
+
+/// An open popup whose one button carries a payload made anew on every pass, as an app's event
+/// payloads are (`RefAny::new(...)` inside its layout): the popup looks the same every time.
+extern "C" fn fresh_payload_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let payload = RefAny::new(7u32);
+    if let Some(mut s) = data.downcast_mut::<FreshPayloads>() {
+        s.made.push(payload.clone());
+    }
+    let mut button = Dom::create_div().with_css("width: 120px; height: 40px; background: white;");
+    button.add_callback(
+        EventFilter::Hover(azul_core::events::HoverEventFilter::MouseUp),
+        payload,
+        Callback {
+            cb: on_fresh_click,
+            ctx: azul_core::refany::OptionRefAny::None,
+        }
+        .to_core(),
+    );
+    let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+        TransientWindowConfig::opened(),
+    )))
+    .with_child(button);
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css("width: 60px; height: 24px; margin: 40px;")
+            .with_child(popup),
+    )
+}
+
+/// A rebuild that only makes fresh callback payloads is no content change: the popup looks the
+/// same, so the mailbox keeps its generation - nothing re-places or re-measures it, and no window
+/// is woken for it - yet it carries the fresh callbacks for the popup's next pass. Compared by
+/// the payloads' identity, every rebuild of an app that makes its payloads in its layout was a
+/// change that woke every other window; a dialog owning a popup of its own then woke its parent,
+/// whose rebuild woke the dialog again, and a real window relaid out without end.
+#[test]
+fn a_rebuild_that_only_makes_fresh_callback_payloads_is_no_content_change() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(FreshPayloads { made: Vec::new() })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = fresh_payload_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout 1");
+    let popup_opts = take_queued_popup(&mut parent);
+    assert_eq!(mailbox_state(&popup_opts.window_state), (false, false, 0));
+
+    relayout(&mut parent);
+    relayout(&mut parent);
+    assert!(parent.pending_window_creates.is_empty(), "the same popup stays open");
+    assert_eq!(
+        mailbox_state(&popup_opts.window_state),
+        (false, false, 0),
+        "a rebuild whose popup looks the same changes nothing the popup must act on"
+    );
+
+    let newest = {
+        let mut app = parent.common.app_data.borrow_mut();
+        let s = app.downcast_ref::<FreshPayloads>().expect("state");
+        assert!(s.made.len() >= 3, "the layout ran for each rebuild");
+        s.made.last().cloned().expect("a payload")
+    };
+    let mut m = mailbox_of(&popup_opts.window_state).expect("the popup's mailbox");
+    let d = m.downcast_ref::<TransientWindowData>().expect("mailbox data");
+    let carried: Vec<RefAny> = d
+        .content
+        .children
+        .as_ref()
+        .iter()
+        .flat_map(|c| c.root.callbacks.as_ref().iter().map(|cb| cb.refany.clone()))
+        .collect();
+    assert!(
+        carried.iter().any(|r| *r == newest),
+        "the mailbox carries the newest callbacks for the popup's next pass"
+    );
+}
