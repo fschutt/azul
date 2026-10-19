@@ -997,24 +997,41 @@ mod tests {
         }
     }
 
+    /// The calendar is an Azlin app: without a setting its folder is `calendar` in the data
+    /// root every Azlin app shares (`AZLIN_DATA`, else `Azlin` in the user's data folder), not
+    /// a folder of its own beside it.
     #[test]
-    fn the_data_folder_is_azcal_data_else_the_users_data_folder() {
+    fn the_data_folder_is_azcal_data_else_calendar_in_the_azlin_root() {
+        let root = PathBuf::from("/home/ada/.local/share/Azlin");
+        assert_eq!(data_dir(Some("/tmp/cal"), &root), PathBuf::from("/tmp/cal"));
+        assert_eq!(data_dir(Some("  "), &root), root.join("calendar"));
+        assert_eq!(data_dir(None, &root), root.join("calendar"));
         assert_eq!(
-            data_dir(
-                Some("/tmp/cal"),
-                Some(PathBuf::from("/home/ada/.local/share"))
-            ),
-            PathBuf::from("/tmp/cal")
+            legacy_data_dir(Some(PathBuf::from("/home/ada/.local/share"))),
+            Some(PathBuf::from("/home/ada/.local/share/AzCalendar"))
         );
-        assert_eq!(
-            data_dir(Some("  "), Some(PathBuf::from("/home/ada/.local/share"))),
-            PathBuf::from("/home/ada/.local/share/AzCalendar")
-        );
-        assert_eq!(
-            data_dir(None, Some(PathBuf::from("/home/ada/.local/share"))),
-            PathBuf::from("/home/ada/.local/share/AzCalendar")
-        );
-        assert_eq!(data_dir(None, None), PathBuf::from("AzCalendar"));
+        assert_eq!(legacy_data_dir(None), None);
+    }
+
+    /// The folder AzCalendar kept before moves into the Azlin root once, with everything in
+    /// it; a calendar already there is never overwritten.
+    #[test]
+    fn the_old_calendar_folder_moves_into_the_azlin_root_once() {
+        let base = std::env::temp_dir().join(format!("azcal-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let old = base.join("AzCalendar");
+        let new = base.join("Azlin").join("calendar");
+        std::fs::create_dir_all(old.join("events")).unwrap();
+        std::fs::write(old.join("events").join("a.json"), b"{}").unwrap();
+        assert_eq!(move_legacy_data_dir(&old, &new).unwrap(), true);
+        assert!(new.join("events").join("a.json").is_file());
+        assert!(!old.exists());
+        assert_eq!(move_legacy_data_dir(&old, &new).unwrap(), false, "nothing left to move");
+        std::fs::create_dir_all(old.join("events")).unwrap();
+        std::fs::write(old.join("events").join("b.json"), b"{}").unwrap();
+        assert_eq!(move_legacy_data_dir(&old, &new).unwrap(), false, "the new one stays");
+        assert!(old.join("events").join("b.json").is_file(), "the old one is left as it was");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// The drive of a data folder on disk, for the storage tests.
