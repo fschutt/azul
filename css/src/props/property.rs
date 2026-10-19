@@ -11249,6 +11249,93 @@ mod font_variant_numeric_tests {
     }
 }
 
+/// The `font-variant` shorthand (CSS Fonts 4 s6.11): `normal | none | [
+/// <common-lig-values> || ... || <numeric-figure-values> || ... ||
+/// <caps-values> || ... ]`, each longhand at most once and the ones left out
+/// reset. Azul has `font-variant-numeric` and `font-variant-caps`; the
+/// keywords of the others are taken and set nothing, so a declaration that
+/// names them still applies. The shorthand was not parsed at all: `font-variant:
+/// small-caps` was dropped as unknown.
+#[cfg(test)]
+mod font_variant_shorthand_tests {
+    use super::*;
+
+    fn expand(value: &str) -> Result<Vec<String>, ()> {
+        let key = CombinedCssPropertyType::from_str("font-variant", &CssKeyMap::get())
+            .expect("font-variant is a shorthand");
+        parse_combined_css_property(key, value)
+            .map(|props| {
+                props
+                    .iter()
+                    .map(|p| format!("{}: {}", p.get_type().to_str(), p.value()))
+                    .collect()
+            })
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn font_variant_sets_the_caps_and_the_numeric_forms() {
+        assert_eq!(
+            expand("small-caps tabular-nums"),
+            Ok(vec![
+                "font-variant-numeric: tabular-nums".to_string(),
+                "font-variant-caps: small-caps".to_string(),
+            ])
+        );
+        assert_eq!(
+            expand("Small-Caps"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: small-caps".to_string(),
+            ]),
+            "a longhand left out is reset, keywords ignore case"
+        );
+        assert_eq!(
+            expand("oldstyle-nums slashed-zero"),
+            Ok(vec![
+                "font-variant-numeric: oldstyle-nums slashed-zero".to_string(),
+                "font-variant-caps: normal".to_string(),
+            ])
+        );
+        for reset in ["normal", "none"] {
+            assert_eq!(
+                expand(reset),
+                Ok(vec![
+                    "font-variant-numeric: normal".to_string(),
+                    "font-variant-caps: normal".to_string(),
+                ]),
+                "`{reset}`"
+            );
+        }
+    }
+
+    #[test]
+    fn font_variant_takes_the_keywords_of_the_longhands_azul_has_not() {
+        assert_eq!(
+            expand("no-common-ligatures all-small-caps jis78 super"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: all-small-caps".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn font_variant_rejects_what_is_not_its_value() {
+        for bad in [
+            "small-caps all-small-caps",
+            "lining-nums oldstyle-nums",
+            "normal small-caps",
+            "none tabular-nums",
+            "small-caps small-caps",
+            "bold",
+            "",
+        ] {
+            assert!(expand(bad).is_err(), "`{bad}` is no font-variant value");
+        }
+    }
+}
+
 /// `font-feature-settings` (CSS Fonts 4 s6.12): `normal | <feature-tag-value>#`
 /// where `<feature-tag-value> = <opentype-tag> [ <integer [0,inf]> | on | off ]?`,
 /// inherited. The tag is a quoted string of four printable ASCII characters,
