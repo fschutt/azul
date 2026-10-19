@@ -87,6 +87,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::InsetBlock, "inset-block"),
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
     (CombinedCssPropertyType::ListStyle, "list-style"),
+    (CombinedCssPropertyType::FontVariant, "font-variant"),
     // SVG's `fill` IS a background: an SVG shape's box is clipped to its own
     // geometry, so filling the box fills the shape. Aliasing it here rather
     // than adding a parallel paint model is what lets all three spellings -
@@ -630,6 +631,10 @@ pub enum CombinedCssPropertyType {
     /// `list-style` shorthand: sets `list-style-type` + `list-style-position`
     /// (`list-style-image` is not supported and ignored)
     ListStyle,
+    /// `font-variant` shorthand: sets `font-variant-numeric` +
+    /// `font-variant-caps`; the keywords of the other `font-variant-*`
+    /// longhands, which azul has not, set nothing
+    FontVariant,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -3890,7 +3895,7 @@ pub fn parse_combined_css_property(
         Background, BackgroundColor, BackgroundImage, Border, BorderBottom, BorderColor,
         BorderLeft, BorderRadius, BorderRight, BorderStyle, BorderTop, BorderWidth, BoxShadow,
         ColumnRule, Columns, Flex, Font, Gap, Grid, GridArea, GridGap, InsetBlock, InsetInline,
-        ListStyle, Margin, Overflow, OverscrollBehavior, Padding, TextBox,
+        FontVariant, ListStyle, Margin, Overflow, OverscrollBehavior, Padding, TextBox,
     };
 
     macro_rules! convert_value {
@@ -4070,6 +4075,12 @@ pub fn parse_combined_css_property(
                 CssPropertyType::ListStylePosition,
             ]
         }
+        FontVariant => {
+            vec![
+                CssPropertyType::FontVariantNumeric,
+                CssPropertyType::FontVariantCaps,
+            ]
+        }
     };
 
     // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
@@ -4085,7 +4096,14 @@ pub fn parse_combined_css_property(
     // a 1 + 3 px rule (Chrome 1).
     let has_typed_none = matches!(
         key,
-        ListStyle | Border | BorderTop | BorderRight | BorderBottom | BorderLeft | BorderStyle
+        ListStyle
+            | Border
+            | BorderTop
+            | BorderRight
+            | BorderBottom
+            | BorderLeft
+            | BorderStyle
+            | FontVariant
     );
 
     match value {
@@ -4787,7 +4805,135 @@ pub fn parse_combined_css_property(
                 )),
             ])
         }
+        // CSS Fonts 4 s6.11: `normal | none | [ <common-lig-values> || ... ||
+        // <numeric-figure-values> || ... || <caps-values> || ... ]`. `none`
+        // is the ligatures' `none`; both reset every longhand. The numeric
+        // keywords go to `font-variant-numeric`, which checks its own groups,
+        // one caps keyword to `font-variant-caps`; the keywords of the
+        // longhands azul has not are taken and set nothing.
+        FontVariant => {
+            let reset = || {
+                vec![
+                    CssProperty::FontVariantNumeric(CssPropertyValue::Exact(
+                        crate::props::basic::font::StyleFontVariantNumeric::NORMAL,
+                    )),
+                    CssProperty::FontVariantCaps(CssPropertyValue::Exact(
+                        crate::props::basic::font::StyleFontVariantCaps::Normal,
+                    )),
+                ]
+            };
+            let trimmed = value.trim();
+            if trimmed.eq_ignore_ascii_case("normal") || trimmed.eq_ignore_ascii_case("none") {
+                return Ok(reset());
+            }
+            let invalid = || CssParsingError::InvalidValue(InvalidValueErr(value));
+            let mut numeric: Vec<&str> = Vec::new();
+            let mut caps = None;
+            let mut other: Vec<String> = Vec::new();
+            for word in words_outside_parentheses(trimmed) {
+                if let Ok(c) = crate::props::basic::font::parse_style_font_variant_caps(word) {
+                    if caps.is_some() || c == crate::props::basic::font::StyleFontVariantCaps::Normal
+                    {
+                        return Err(invalid());
+                    }
+                    caps = Some(c);
+                } else if crate::props::basic::font::parse_style_font_variant_numeric(word).is_ok()
+                    && !word.eq_ignore_ascii_case("normal")
+                {
+                    numeric.push(word);
+                } else if is_font_variant_keyword_without_longhand(word) {
+                    let lower = word.to_ascii_lowercase();
+                    if other.contains(&lower) {
+                        return Err(invalid());
+                    }
+                    other.push(lower);
+                } else {
+                    return Err(invalid());
+                }
+            }
+            if numeric.is_empty() && caps.is_none() && other.is_empty() {
+                return Err(invalid());
+            }
+            let numeric = if numeric.is_empty() {
+                crate::props::basic::font::StyleFontVariantNumeric::NORMAL
+            } else {
+                crate::props::basic::font::parse_style_font_variant_numeric(&numeric.join(" "))
+                    .map_err(|_| invalid())?
+            };
+            Ok(vec![
+                CssProperty::FontVariantNumeric(CssPropertyValue::Exact(numeric)),
+                CssProperty::FontVariantCaps(CssPropertyValue::Exact(caps.unwrap_or_default())),
+            ])
+        }
     }
+}
+
+/// Whether `word` is a keyword of a `font-variant-*` longhand azul has not -
+/// `font-variant-ligatures`, `-east-asian`, `-position`, `-alternates` - which
+/// the `font-variant` shorthand takes and which set nothing.
+fn is_font_variant_keyword_without_longhand(word: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "common-ligatures",
+        "no-common-ligatures",
+        "discretionary-ligatures",
+        "no-discretionary-ligatures",
+        "historical-ligatures",
+        "no-historical-ligatures",
+        "contextual",
+        "no-contextual",
+        "jis78",
+        "jis83",
+        "jis90",
+        "jis04",
+        "simplified",
+        "traditional",
+        "full-width",
+        "proportional-width",
+        "ruby",
+        "sub",
+        "super",
+        "historical-forms",
+    ];
+    const FUNCTIONS: &[&str] = &[
+        "stylistic(",
+        "styleset(",
+        "character-variant(",
+        "swash(",
+        "ornaments(",
+        "annotation(",
+    ];
+    KEYWORDS.iter().any(|k| word.eq_ignore_ascii_case(k))
+        || FUNCTIONS.iter().any(|f| {
+            word.len() > f.len()
+                && word.ends_with(')')
+                && word.get(..f.len()).is_some_and(|start| start.eq_ignore_ascii_case(f))
+        })
+}
+
+/// The words of `value` split at whitespace outside parentheses, so a
+/// function's arguments (`styleset(ss01, ss02)`) stay one word.
+fn words_outside_parentheses(value: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut depth = 0usize;
+    let mut start: Option<usize> = None;
+    for (i, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if c.is_ascii_whitespace() && depth == 0 {
+            if let Some(s) = start.take() {
+                words.push(&value[s..i]);
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+    }
+    if let Some(s) = start {
+        words.push(&value[s..]);
+    }
+    words
 }
 
 // Re-add the From implementations for convenience
@@ -11312,7 +11458,7 @@ mod font_variant_shorthand_tests {
     #[test]
     fn font_variant_takes_the_keywords_of_the_longhands_azul_has_not() {
         assert_eq!(
-            expand("no-common-ligatures all-small-caps jis78 super"),
+            expand("no-common-ligatures all-small-caps jis78 super styleset(ss01, ss02)"),
             Ok(vec![
                 "font-variant-numeric: normal".to_string(),
                 "font-variant-caps: all-small-caps".to_string(),
