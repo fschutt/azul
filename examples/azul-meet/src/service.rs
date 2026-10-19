@@ -878,9 +878,10 @@ pub(crate) extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, res
         Ok((200, Some(json))) => {
             let meeting = room.waiting.as_ref().map(|found| found.room.clone()).unwrap_or_default();
             let me = room.node_id.clone();
+            // Who is in the call: a member keeping only the room's chat (its view) is not.
             let names: Vec<String> = verified_peers(s.chats.get(&meeting), peers_from(&json), &me)
                 .into_iter()
-                .filter(|p| p.node_id != me)
+                .filter(|p| p.node_id != me && !p.chat_only)
                 .map(|p| p.name)
                 .collect();
             if room.waiting_people.as_ref() == Some(&names) {
