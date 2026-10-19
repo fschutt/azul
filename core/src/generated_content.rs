@@ -236,7 +236,10 @@ impl Moved {
 /// `content: none` it is `display: none`
 /// ([`CssPropertyCache::hide_contentless_generated_nodes`]).
 #[allow(clippy::too_many_lines)] // one pass: decide the hosts, rebuild the arena, move the scopes
-pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
+/// The hosts the rules of `css` give generated nodes: `(is ::before, host)`
+/// for every rule with a `content`, and the hosts an inline list item rule
+/// gives a `::marker`.
+fn generating_hosts(css: &Css) -> (Vec<(bool, CssPath)>, Vec<CssPath>) {
     let rules: Vec<(bool, CssPath)> = css
         .rules
         .as_ref()
@@ -257,14 +260,22 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
         })
         .map(|rule| host_path(&rule.path, rule.path.selectors.as_ref().len()))
         .collect();
-    let inline_list_items_inline = dom.node_data.internal.iter().any(|node| {
-        node.style.iter_inline_properties().any(|(prop, _)| {
-            matches!(
-                prop,
-                CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineListItem))
-            )
-        })
-    });
+    (rules, marker_rules)
+}
+
+/// Whether the node's own style makes it an inline list item.
+fn inline_list_item_inline(node: &NodeData) -> bool {
+    node.style.iter_inline_properties().any(|(prop, _)| {
+        matches!(
+            prop,
+            CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineListItem))
+        )
+    })
+}
+
+pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
+    let (rules, marker_rules) = generating_hosts(css);
+    let inline_list_items_inline = dom.node_data.internal.iter().any(inline_list_item_inline);
     if rules.is_empty() && marker_rules.is_empty() && !inline_list_items_inline {
         return false;
     }
@@ -304,12 +315,7 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             if in_svg[i] || !can_host(node) {
                 continue;
             }
-            marker[i] = node.style.iter_inline_properties().any(|(prop, _)| {
-                matches!(
-                    prop,
-                    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineListItem))
-                )
-            }) || marker_rules.iter().any(|host| {
+            marker[i] = inline_list_item_inline(node) || marker_rules.iter().any(|host| {
                 matches_html_element_in(
                     host,
                     id,
@@ -1016,6 +1022,82 @@ pub fn fill_generated_text(
 }
 
 impl StyledDom {
+    /// Gives `node` - a node without children at the end of the arena, as a
+    /// node a callback inserts at runtime is - the `::marker`, `::before` and
+    /// `::after` the retained author style sheet makes for it, as the
+    /// creation of the styled DOM does for every node. Returns whether it
+    /// made any; their style and text come with the next restyle.
+    pub fn append_generated_nodes_of(&mut self, node: NodeId) -> bool {
+        let len = self.node_data.len();
+        if node.index() + 1 != len
+            || self.node_hierarchy.as_container()[node]
+                .last_child_id()
+                .is_some()
+        {
+            return false;
+        }
+        let kinds: Vec<NodeType> = {
+            let data = self.node_data.as_container();
+            let hierarchy = self.node_hierarchy.as_container();
+            let host = &data[node];
+            let mut in_svg = false;
+            let mut up = Some(node);
+            while let Some(n) = up {
+                in_svg |= matches!(data[n].get_node_type(), NodeType::Svg);
+                up = hierarchy[n].parent_id();
+            }
+            if in_svg || !can_host(host) {
+                return false;
+            }
+            let (rules, marker_rules) =
+                generating_hosts(&self.css_property_cache.ptr.retained_author_css);
+            let cascade = NodeDataContainerRef::from_slice(self.cascade_info.as_ref());
+            let in_any_state = AncestorStates {
+                nodes: &[],
+                window_inactive: false,
+                every_state: true,
+            };
+            let matches = |path: &CssPath| {
+                matches_html_element_in(
+                    path,
+                    node,
+                    &hierarchy,
+                    &data,
+                    &cascade,
+                    None,
+                    Some(in_any_state),
+                )
+            };
+            let marker = inline_list_item_inline(host) || marker_rules.iter().any(|h| matches(h));
+            let before = rules.iter().any(|(b, h)| *b && matches(h));
+            let after = rules.iter().any(|(b, h)| !*b && matches(h));
+            // CSS Pseudo 4 s3: `::marker` comes first, then `::before`.
+            [
+                (marker, NodeType::Marker),
+                (before, NodeType::Before),
+                (after, NodeType::After),
+            ]
+            .into_iter()
+            .filter_map(|(on, kind)| on.then_some(kind))
+            .collect()
+        };
+        for kind in &kinds {
+            let mut generated = crate::dom::Dom::create_node(kind.clone());
+            generated.root.set_part_of_parent(true);
+            let mut text = crate::dom::Dom::create_text_do_not_use_without_block_level_wrapper("");
+            text.root.set_part_of_parent(true);
+            let mut generated = generated.with_child(text);
+            let styled = StyledDom::create(&mut generated, Css::empty());
+            let generated_id = NodeId::new(self.node_data.len());
+            if !self.append_under_rightmost(node, styled) {
+                return false;
+            }
+            self.extend_author_scopes_for_appended(generated_id, node);
+            self.extend_author_scopes_for_appended(NodeId::new(generated_id.index() + 1), generated_id);
+        }
+        !kinds.is_empty()
+    }
+
     /// Re-writes the generated text from the current cascade and interaction
     /// states: after a restyle, or when a state change switched a generated
     /// node's `content`.

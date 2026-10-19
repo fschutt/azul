@@ -8216,104 +8216,20 @@ pub trait PlatformWindow {
                                 dom = dom.with_class(class.clone());
                             }
 
-                            // Style it (empty CSS = no styles, just creates StyledDom)
-                            let css = azul_css::css::Css::empty();
-                            let styled = azul_core::styled_dom::StyledDom::create(&mut dom, css);
-
-                            // `append_child` always attaches to the DOM's ROOT — the
-                            // requested `parent_node_id` was accepted, validated and
-                            // then IGNORED, so every inserted node landed as a last
-                            // child of <html> (outside <body>, inheriting nothing,
-                            // painting nothing). Append first, then RE-PARENT.
+                            // The node goes in as the creation of the styled
+                            // DOM would have placed it: the retained author
+                            // sheet, its generated content and inheritance.
                             let sd = &mut layout_result.styled_dom;
-                            let new_id = NodeId::new(sd.node_data.as_ref().len());
-                            let root_id = sd.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-                            let root_last_before =
-                                sd.node_hierarchy.as_container()[root_id].last_child_id();
-                            sd.append_child(styled);
-
-                            if *parent_node_id != root_id {
-                                // The hierarchy is a FLAT DFS array whose
-                                // `first_child_id(n)` is *derived* as `n + 1`. A node
-                                // appended at the end of the array can therefore only
-                                // ever be a LAST child, and only of a parent that
-                                // already has children (otherwise the derived first
-                                // child would point at an unrelated node). Anything
-                                // else needs a full re-index of the DOM (and of every
-                                // node-keyed manager) — out of scope here, so it is
-                                // rejected loudly instead of silently corrupting the
-                                // tree.
-                                let parent_last = sd.node_hierarchy.as_container()[*parent_node_id]
-                                    .last_child_id();
-                                match parent_last {
-                                    Some(parent_last) => {
-                                        // 1. unlink the new node from the root chain
-                                        {
-                                            let h = &mut sd.node_hierarchy;
-                                            h.as_container_mut()[root_id].last_child =
-                                                NodeId::into_raw(&root_last_before);
-                                            if let Some(rl) = root_last_before {
-                                                h.as_container_mut()[rl].next_sibling =
-                                                    NodeId::into_raw(&None);
-                                            }
-                                            // 2. link it as the parent's new last child
-                                            h.as_container_mut()[parent_last].next_sibling =
-                                                NodeId::into_raw(&Some(new_id));
-                                            h.as_container_mut()[new_id].previous_sibling =
-                                                NodeId::into_raw(&Some(parent_last));
-                                            h.as_container_mut()[new_id].next_sibling =
-                                                NodeId::into_raw(&None);
-                                            h.as_container_mut()[new_id].parent =
-                                                NodeId::into_raw(&Some(*parent_node_id));
-                                            h.as_container_mut()[*parent_node_id].last_child =
-                                                NodeId::into_raw(&Some(new_id));
-                                        }
-                                        // 3. keep the cascade bookkeeping consistent
-                                        let sibling_index = {
-                                            let h = sd.node_hierarchy.as_container();
-                                            let mut n = parent_node_id.az_children(&h).count();
-                                            n = n.saturating_sub(1);
-                                            n
-                                        };
-                                        let ci = sd.cascade_info.as_mut();
-                                        ci[parent_last.index()].is_last_child = false;
-                                        ci[new_id.index()].index_in_parent =
-                                            u32::try_from(sibling_index).unwrap_or(u32::MAX);
-                                        ci[new_id.index()].is_last_child = true;
-                                        sd.finalize_non_leaf_nodes();
-                                    }
-                                    None => {
-                                        log_warn!(
-                                            super::debug_server::LogCategory::EventLoop,
-                                            "[InsertChildNode] parent {:?} has no children — the \
-                                             flat DFS hierarchy cannot represent a first child \
-                                             appended at the end of the array; the node stayed at \
-                                             the DOM root",
-                                            parent_node_id
-                                        );
-                                    }
-                                }
+                            if !sd.insert_runtime_child(*parent_node_id, dom.root) {
+                                log_warn!(
+                                    super::debug_server::LogCategory::EventLoop,
+                                    "[InsertChildNode] parent {:?} is not on the rightmost spine \
+                                     of the flat DOM, which can only take a last child at its \
+                                     end; the node went under the DOM root",
+                                    parent_node_id
+                                );
                             }
                             let _ = position; // only append-as-last-child is representable
-
-                            // Re-run the author cascade from the retained stylesheet:
-                            // the node was styled with an EMPTY css above (the author
-                            // rules are unavailable here), so without this it would
-                            // never match rules like `.hot { width: 80px }` — the
-                            // "inserted node never gets the author cascade" bug.
-                            // Grow the retained author-CSS scopes so the just-appended
-                            // node is inside them, then re-cascade so it picks up rules
-                            // like `.hot { width: 80px }`.
-                            sd.extend_author_scopes_for_appended(new_id, *parent_node_id);
-                            sd.restyle_retained();
-                            // `append_child` composes the trees but does NOT re-run
-                            // inheritance or rebuild the compact cache (see the doc
-                            // comment on this very method): the appended node keeps
-                            // its isolated cascade — no inherited font-size, no
-                            // inherited color, no UA defaults, no compact-cache
-                            // entry — so it measured 0×0 and painted nothing even
-                            // once it was correctly parented.
-                            sd.recompute_inheritance_and_compact_cache();
                         }
                     }
                     // The tree changed shape: the incremental layout cache (keyed

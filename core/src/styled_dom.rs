@@ -1882,6 +1882,108 @@ impl StyledDom {
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
     }
 
+    /// Whether `node`'s subtree ends where the arena ends: it is the root, or
+    /// the last child of a node that is. Only such a node can take a new last
+    /// child at the end of the arena, which keeps the arena in document order
+    /// (a node's first child is the node after it).
+    #[must_use]
+    pub fn is_on_rightmost_spine(&self, node: NodeId) -> bool {
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut at = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        loop {
+            if at == node {
+                return true;
+            }
+            match hierarchy[at].last_child_id() {
+                Some(last) => at = last,
+                None => return false,
+            }
+        }
+    }
+
+    /// Appends `child` as the last child of `parent`, which must be on the
+    /// rightmost spine ([`Self::is_on_rightmost_spine`]); false, and nothing
+    /// changed, when it is not. The child keeps its own cascade until the
+    /// next restyle.
+    pub fn append_under_rightmost(&mut self, parent: NodeId, child: Self) -> bool {
+        if !self.is_on_rightmost_spine(parent) {
+            return false;
+        }
+        let root = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let new_id = NodeId::new(self.node_data.as_ref().len());
+        let root_last_before = self.node_hierarchy.as_container()[root].last_child_id();
+        let parent_last_before = self.node_hierarchy.as_container()[parent].last_child_id();
+        let index_in_parent = parent.az_children(&self.node_hierarchy.as_container()).count();
+        // `append_child` hangs the child under the root; it then moves to
+        // `parent`, which the spine puts right before it in document order.
+        self.append_child(child);
+        if parent != root {
+            let mut h = self.node_hierarchy.as_container_mut();
+            h[root].last_child = NodeId::into_raw(&root_last_before);
+            if let Some(last) = root_last_before {
+                h[last].next_sibling = NodeId::into_raw(&None);
+            }
+            h[new_id].parent = NodeId::into_raw(&Some(parent));
+            h[new_id].previous_sibling = NodeId::into_raw(&parent_last_before);
+            h[new_id].next_sibling = NodeId::into_raw(&None);
+            if let Some(last) = parent_last_before {
+                h[last].next_sibling = NodeId::into_raw(&Some(new_id));
+            }
+            h[parent].last_child = NodeId::into_raw(&Some(new_id));
+        }
+        let cascade = self.cascade_info.as_mut();
+        if let Some(last) = parent_last_before {
+            cascade[last.index()].is_last_child = false;
+        }
+        cascade[new_id.index()].index_in_parent = u32::try_from(index_in_parent).unwrap_or(u32::MAX);
+        cascade[new_id.index()].is_last_child = true;
+        // The parents by depth follow the new tree: in document order a
+        // parent comes before its children, so one pass gives every depth.
+        let hierarchy = self.node_hierarchy.as_container();
+        let mut depth = vec![0_usize; hierarchy.len()];
+        let mut parents = Vec::new();
+        for i in 0..hierarchy.len() {
+            let id = NodeId::new(i);
+            if let Some(p) = hierarchy[id].parent_id().filter(|p| p.index() < i) {
+                depth[i] = depth[p.index()] + 1;
+            }
+            if hierarchy[id].last_child_id().is_some() {
+                parents.push(ParentWithNodeDepth {
+                    depth: depth[i],
+                    node_id: NodeHierarchyItemId::from_crate_internal(Some(id)),
+                });
+            }
+        }
+        parents.sort_by_key(|p| p.depth);
+        let parents: ParentWithNodeDepthVec = parents.into();
+        self.non_leaf_nodes = parents;
+        true
+    }
+
+    /// Inserts `node`, made by a callback at runtime, as the last child of
+    /// `parent`, styled as if the styled DOM had been created with it: the
+    /// retained author style sheet reaches it, it gets the `::marker`,
+    /// `::before` and `::after` that sheet makes for it, and it inherits from
+    /// its parent. A parent that is not on the rightmost spine cannot take a
+    /// child at the end of the arena: the node then goes under the root and
+    /// false is returned.
+    pub fn insert_runtime_child(&mut self, parent: NodeId, node: NodeData) -> bool {
+        let mut dom = Dom::create_node(crate::dom::NodeType::Div);
+        dom.root = node;
+        let styled = Self::create(&mut dom, Css::empty());
+        let root = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let new_id = NodeId::new(self.node_data.as_ref().len());
+        let placed = self.is_on_rightmost_spine(parent);
+        let parent = if placed { parent } else { root };
+        // The root is always on the spine.
+        self.append_under_rightmost(parent, styled);
+        self.extend_author_scopes_for_appended(new_id, parent);
+        self.append_generated_nodes_of(new_id);
+        self.restyle_retained();
+        self.recompute_inheritance_and_compact_cache();
+        placed
+    }
+
     /// Re-applies CSS styles to the existing DOM structure.
     /// Grow retained author-CSS subtree scopes to cover a node just appended under
     /// `parent`. Mount/`with_css` rules carry a `Root([start, end])` scope
