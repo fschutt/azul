@@ -1199,8 +1199,8 @@ pub struct CssPropertyCache {
     /// the state its anchor was in when the cascade ran, so a state change
     /// re-runs the cascade - only for a state set here, which keeps every
     /// other hover or focus change free (`StyledDom::restyle_nodes_state`).
-    /// Zero after a DOM merge that brought rules the retained stylesheet does
-    /// not hold: re-running the cascade then would drop them.
+    /// A DOM merge takes the union: the merged retained stylesheet holds
+    /// both halves' rules (`append`).
     pub left_state_mask: u32,
 
     /// Per node (sparse): the `(state, property)` pairs a stylesheet rule
@@ -3035,11 +3035,11 @@ impl CssPropertyCache {
                 .into_iter()
                 .map(|((node, ty, keyword), value)| ((node + offset, ty, keyword), value)),
         );
-        // The merged cache keeps only this DOM's stylesheet, so a cascade it
-        // re-ran would lose the other's rules: stop re-running it for
-        // states then (the rules stay as they were cascaded).
+        // The other DOM's stylesheet goes with its nodes, so a later cascade
+        // over the merged DOM (a state anchor's re-run, a viewport or theme
+        // change) styles both halves as their own cascades did.
         if !other.retained_author_css.is_empty() {
-            self.left_state_mask = 0;
+            self.adopt_stylesheet_of(other);
         }
 
         self.node_count += other.node_count;
@@ -3049,6 +3049,56 @@ impl CssPropertyCache {
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;
+    }
+
+    /// Takes `other`'s retained stylesheet into this one, for `append`
+    /// (`other`'s nodes are about to follow this cache's): its rules keep to
+    /// `other`'s nodes - their scopes move with the nodes, an unscoped rule
+    /// is scoped to them - and when this cache has rules of its own, its
+    /// unscoped ones are scoped to its own nodes, so neither sheet reaches
+    /// the other half. The rules anchored on a state left of their subject
+    /// keep their re-run (`left_state_mask`).
+    fn adopt_stylesheet_of(&mut self, other: &mut Self) {
+        use azul_css::css::CssPathSelector;
+        let offset = self.node_count;
+        let scoped = |rule: &azul_css::css::CssRuleBlock| {
+            matches!(rule.path.selectors.as_ref().first(), Some(CssPathSelector::Root(_)))
+        };
+        if !self.retained_author_css.rules.as_ref().is_empty() && offset > 0 {
+            for rule in self.retained_author_css.rules.as_mut() {
+                if !scoped(rule) {
+                    rule.path.push_front_scope_for(0, offset - 1, false);
+                }
+            }
+        }
+        let other_last = offset + other.node_count.saturating_sub(1);
+        let mut rules = core::mem::take(&mut other.retained_author_css.rules)
+            .into_library_owned_vec();
+        for rule in &mut rules {
+            if scoped(rule) {
+                let mut selectors = rule.path.selectors.as_ref().to_vec();
+                for selector in &mut selectors {
+                    if let CssPathSelector::Root(range) = selector {
+                        range.start += offset;
+                        range.end += offset;
+                    }
+                }
+                rule.path.selectors = selectors.into();
+            } else {
+                rule.path.push_front_scope_for(offset, other_last, false);
+            }
+        }
+        let mut merged = core::mem::take(&mut self.retained_author_css.rules)
+            .into_library_owned_vec();
+        merged.extend(rules);
+        self.retained_author_css.rules = merged.into();
+        let mut keyframes = core::mem::take(&mut self.retained_author_css.keyframes)
+            .into_library_owned_vec();
+        keyframes.extend(
+            core::mem::take(&mut other.retained_author_css.keyframes).into_library_owned_vec(),
+        );
+        self.retained_author_css.keyframes = keyframes.into();
+        self.left_state_mask |= other.left_state_mask;
     }
 
     pub fn is_horizontal_overflow_visible(
