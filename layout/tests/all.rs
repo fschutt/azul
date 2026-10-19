@@ -1223,3 +1223,5 @@ mod a_virtual_view_follows_its_windows_mode;
 mod focus_within_reaches_the_host_of_a_virtual_view;
 #[path = "a_descendant_restyled_by_its_ancestors_hover_fades.rs"]
 mod a_descendant_restyled_by_its_ancestors_hover_fades;
+#[path = "a_laid_out_tree_is_shared_with_the_layout_cache.rs"]
+mod a_laid_out_tree_is_shared_with_the_layout_cache;
