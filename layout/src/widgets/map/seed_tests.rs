@@ -53,7 +53,7 @@ fn the_map_takes_the_seeds_its_mount_hook_returns_as_tiles_it_already_has() {
         "its bytes are in hand: drawing it is a restyle, never a download"
     );
     let look = cache.current_look();
-    let init = tile_fetch_init(&cache, TileStyleKey { tile: WORLD, look });
+    let init = tile_fetch_init(&cache, TileStyleKey { tile: WORLD, look }, &AzString::from("en"));
     assert!(!init.bytes.as_ref().is_empty(), "the job carries the bytes: no request");
 }
 

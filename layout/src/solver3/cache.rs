@@ -884,7 +884,7 @@ impl LayoutCache {
     /// Approximate heap bytes retained by this `LayoutCache`.
     #[must_use]
     pub fn memory_report(&self) -> Solver3CacheMemoryReport {
-        let tree_report = self.tree.as_ref().map(LayoutTree::memory_report);
+        let tree_report = self.tree.as_deref().map(LayoutTree::memory_report);
         let tree_bytes = tree_report
             .as_ref()
             .map_or(0, super::layout_tree::LayoutTreeMemoryReport::total_bytes);
@@ -5590,7 +5590,7 @@ mod autotest_generated {
     #[test]
     fn reset_incremental_drops_reuse_state_keeps_the_rest_and_is_idempotent() {
         let mut cache = LayoutCache {
-            tree: Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]])),
+            tree: Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]]).into()),
             ..Default::default()
         };
         cache.cache_map.resize_to_tree(2);

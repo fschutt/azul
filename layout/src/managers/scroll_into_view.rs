@@ -750,7 +750,7 @@ mod autotest_generated {
         let layout_tree = LayoutTree::mirroring_dom(&styled_dom);
         DomLayoutResult {
             styled_dom,
-            layout_tree,
+            layout_tree: layout_tree.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: std::sync::Arc::new(DisplayList::default()),
@@ -1453,7 +1453,7 @@ mod autotest_generated {
         );
         // Stale mapping pointing past the end of both `calculated_positions` and
         // `layout_tree.nodes` — must be a None, not an out-of-bounds index panic.
-        lr.layout_tree
+        lr.layout_tree_mut()
             .dom_to_layout
             .insert(nid(TARGET), vec![LayoutNodeId::new(7)]);
         assert!(get_node_rect(dnid(0, TARGET), &window(lr)).is_none());

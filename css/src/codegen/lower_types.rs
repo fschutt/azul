@@ -6461,6 +6461,9 @@ impl Lower for crate::props::style::background::StyleBackgroundSize {
             Self::ExactSize(v) => Expr::variant("StyleBackgroundSize", EnumShape::Tagged, "ExactSize", vec![v.lower()]),
             Self::Contain => Expr::unit("StyleBackgroundSize", EnumShape::Tagged, "Contain"),
             Self::Cover => Expr::unit("StyleBackgroundSize", EnumShape::Tagged, "Cover"),
+            Self::Auto => Expr::unit("StyleBackgroundSize", EnumShape::Tagged, "Auto"),
+            Self::AutoHeight(v) => Expr::variant("StyleBackgroundSize", EnumShape::Tagged, "AutoHeight", vec![v.lower()]),
+            Self::AutoWidth(v) => Expr::variant("StyleBackgroundSize", EnumShape::Tagged, "AutoWidth", vec![v.lower()]),
         }
     }
 }

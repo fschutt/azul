@@ -3911,7 +3911,7 @@ mod autotest_generated {
         let mut node = hot(Some(0), Some((100.0, 40.0)), None);
         node.box_props = inset(5.0, 2.0); // + 1px border on each of left/top
         let mut lr = layout_result(styled_dom, vec![node], vec![p(10.0, 20.0)], Vec::new());
-        lr.layout_tree
+        lr.layout_tree_mut()
             .dom_to_layout
             .insert(NodeId::new(0), vec![LayoutNodeId::new(0)]);
 
@@ -3958,7 +3958,7 @@ mod autotest_generated {
             vec![p(10.0, 20.0)],
             Vec::new(),
         );
-        lr.layout_tree
+        lr.layout_tree_mut()
             .dom_to_layout
             .insert(NodeId::new(0), vec![LayoutNodeId::new(0)]);
         let mut layout_results = BTreeMap::new();

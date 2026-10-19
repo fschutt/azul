@@ -1116,7 +1116,7 @@ mod autotest_generated {
         let layout_tree = LayoutTree::mirroring_dom(&styled_dom);
         DomLayoutResult {
             styled_dom,
-            layout_tree,
+            layout_tree: layout_tree.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: std::sync::Arc::new(DisplayList::default()),

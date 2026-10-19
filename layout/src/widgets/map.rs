@@ -8041,7 +8041,7 @@ mod autotest_generated {
     /// own unturned box first, which left the corners bare (MAPS22).
     #[test]
     fn a_turned_map_is_cut_at_the_view_and_not_at_its_canvas() {
-        use azul_css::props::layout::overflow::LayoutOverflow;
+        use azul_css::props::{layout::overflow::LayoutOverflow, property::CssProperty};
         let mut cache = cache_at(48.2, 16.37, 12.0);
         cache.viewport.bearing_deg = 45.0;
         let dataset = RefAny::new(cache);

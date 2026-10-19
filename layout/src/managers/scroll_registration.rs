@@ -196,7 +196,7 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 );
                 if raised {
                     if let Some(warm) = layout_result
-                        .layout_tree
+                        .layout_tree_mut()
                         .warm_mut(LayoutNodeId::new(node_idx))
                     {
                         warm.scrollbar_info = Some(scrollbar_info);
@@ -224,7 +224,7 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 );
                 if raised {
                     if let Some(warm) = layout_result
-                        .layout_tree
+                        .layout_tree_mut()
                         .warm_mut(LayoutNodeId::new(node_idx))
                     {
                         warm.scrollbar_info = Some(scrollbar_info);

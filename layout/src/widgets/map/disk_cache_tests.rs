@@ -188,10 +188,10 @@ fn every_fetch_of_a_map_carries_the_disk_cache_its_setup_names() {
         tile: MapTileId { z: 4, x: 8, y: 8 },
         look,
     };
-    let none = tile_fetch_init(&cache, key);
+    let none = tile_fetch_init(&cache, key, &AzString::from("en"));
     assert!(none.cache_dir.as_str().is_empty(), "no folder named: memory only");
     cache.setup = MapSetup::new().with_disk_cache(AzString::from("/data/maps/tiles"), 64 << 20);
-    let init = tile_fetch_init(&cache, key);
+    let init = tile_fetch_init(&cache, key, &AzString::from("en"));
     assert_eq!(init.cache_dir.as_str(), "/data/maps/tiles");
     assert_eq!(init.cache_max_bytes, 64 << 20);
     assert_eq!(init.url.as_str(), "https://tiles.invalid/4/8/8.pbf");

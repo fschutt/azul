@@ -1001,6 +1001,16 @@ pub struct DomLayoutResult {
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
 
+impl DomLayoutResult {
+    /// The layout tree to write to after the pass (a text edit's reshape, a
+    /// scrollbar raised later). While the solver's cache still shares it, the
+    /// write goes to this result's own copy, so the cache keeps the tree its
+    /// next pass starts from, as it did when every pass handed over a copy.
+    pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
+        alloc::sync::Arc::make_mut(&mut self.layout_tree)
+    }
+}
+
 /// Bytes held by `layout_results`, published by the walk at the insert site so
 /// the `accounted / rss` line can say what it is missing. Cross-frame by
 /// necessity: the two are measured at different points in the frame.
@@ -24375,7 +24385,7 @@ impl LayoutWindow {
             // Update the inline layout result with the new layout but preserve constraints (warm
             // data)
             if let Some(warm_node) = layout_result
-                .layout_tree
+                .layout_tree_mut()
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
                 let mut fresh = CachedInlineLayout::new_with_constraints(
@@ -24557,7 +24567,7 @@ impl LayoutWindow {
                 // pass, the scroll-frame content size, the scrollbar thumb)
                 // reads THIS edit, not the last full layout.
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
+                    if let Some(warm) = layout_result.layout_tree_mut().warm_mut(plan.host_idx) {
                         warm.overflow_content_size = Some(plan.merged_extent);
                     }
                 }
@@ -24617,7 +24627,7 @@ impl LayoutWindow {
                         escalate_for_scrollbar_geometry = true;
                     } else {
                         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                            if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
+                            if let Some(warm) = layout_result.layout_tree_mut().warm_mut(plan.host_idx) {
                                 warm.scrollbar_info = Some(plan.now_reqs);
                             }
                         }
