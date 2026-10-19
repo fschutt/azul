@@ -67,3 +67,23 @@ fn a_headless_run_hears_what_the_test_says_or_nothing() {
     assert_eq!(listen_with(Backend::Headless, "en", 100).status, HeardStatus::NothingHeard);
     headless::set_heard(None);
 }
+
+/// What Android's recognizer answered (the Java helper's status code, its text, why not, how
+/// sure) as the engine's answer: the codes are `HeardStatus`'s order, an unknown one a failure.
+#[test]
+fn an_android_recognizers_answer_reads_as_the_engines() {
+    use super::heard_from_android;
+    let heard = heard_from_android(0, "navigiere nach Leipzig", "", 0.82);
+    assert_eq!(heard.status, HeardStatus::Heard);
+    assert_eq!(heard.text.as_str(), "navigiere nach Leipzig");
+    assert!((heard.confidence - 0.82).abs() < 1e-6);
+    assert_eq!(heard_from_android(0, "  ", "", 0.0).status, HeardStatus::NothingHeard, "no words");
+    assert_eq!(heard_from_android(1, "", "", 0.0).status, HeardStatus::NothingHeard);
+    let denied = heard_from_android(2, "", "the microphone is not allowed", 0.0);
+    assert_eq!(denied.status, HeardStatus::Denied);
+    assert_eq!(denied.message.as_str(), "the microphone is not allowed");
+    assert_eq!(heard_from_android(3, "", "", 0.0).status, HeardStatus::Unavailable);
+    assert_eq!(heard_from_android(4, "", "network", 0.0).status, HeardStatus::Failed);
+    assert_eq!(heard_from_android(99, "", "", 0.0).status, HeardStatus::Failed);
+    assert!((heard_from_android(0, "a", "", 7.0).confidence - 1.0).abs() < 1e-6, "kept to 0..1");
+}
