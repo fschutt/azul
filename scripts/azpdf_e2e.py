@@ -36,6 +36,7 @@ writer is the probe's (scripts/pdf_chrome_probe.py).
 """
 
 import json
+import time
 import os
 import subprocess
 
@@ -223,6 +224,22 @@ def body(args, logs, out):
         app.expect_line("AZPDF_PAGE", "2", "Next goes to page 2")
         app.key("pagedown")
         app.expect_line("AZPDF_PAGE", "3", "Page Down goes to page 3")
+        # AF4 (10-06): page 3 snapped back to the top of the view after a scroll. A wheel turn
+        # up moves the pages down by about its amount, and they stay where the wheel left them.
+        app.frame(3)
+        top3 = (app.rect("__azpdf_page-3", every_dom=True) or {}).get("y")
+        view = app.rect(PAGES)
+        app.must("wheel", x=view["x"] + view["width"] / 2.0, y=view["y"] + view["height"] / 2.0,
+                 delta_x=0.0, delta_y=120.0)
+        app.frame(10)
+        time.sleep(1.0)
+        app.frame(3)
+        moved = (app.rect("__azpdf_page-3", every_dom=True) or {}).get("y")
+        if top3 is None or moved is None or moved < top3 + 60.0:
+            raise Failure("a wheel turn up on page 3 left it at y %s (from %s): the view snapped "
+                          "back to the page's top" % (moved, top3))
+        app.key("pagedown")
+        app.frame(3)
 
         # Zoom in: the page gets wider.
         before = app.rect("__azpdf_page-3", every_dom=True) or {}
