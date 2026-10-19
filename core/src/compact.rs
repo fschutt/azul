@@ -914,6 +914,18 @@ impl CssPropertyCache {
             if !nd.is_text_node() {
                 for prop in &self.global_css_props {
                     // (flag already accumulated in the has_global pre-pass)
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
                     apply_css_property_to_compact(
                         prop,
                         &mut result.tier1_enums[i],
@@ -970,17 +982,29 @@ impl CssPropertyCache {
                 if prop.state != azul_css::dynamic_selector::PseudoStateType::Normal {
                     continue;
                 }
-                result.uses_viewport_units |= css_property_uses_viewport_units(&prop.property);
-                apply_css_property_to_compact(
+                let Some(prop) = compact_value(
+                    self,
+                    i,
                     &prop.property,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                    &mut own_line_height,
+                ) else {
+                    continue;
+                };
+                result.uses_viewport_units |= css_property_uses_viewport_units(prop);
+                apply_css_property_to_compact(
+                    prop,
                     &mut result.tier1_enums[i],
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
-                update_dom_declared_flags(&prop.property, &mut result.dom_declared_flags);
-                note_line_height(&prop.property, &mut own_line_height);
+                update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                note_line_height(prop, &mut own_line_height);
             }
 
             {
@@ -1058,6 +1082,18 @@ impl CssPropertyCache {
                 if !is_normal {
                     continue;
                 }
+                let Some(prop) = compact_value(
+                    self,
+                    i,
+                    prop,
+                    &mut result.tier1_enums[i],
+                    &mut result.tier2_dims[i],
+                    &mut result.tier2_cold[i],
+                    &mut result.tier2b_text[i],
+                    &mut own_line_height,
+                ) else {
+                    continue;
+                };
                 result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                 // Layout-critical props dispatched via single-variant `if let` (direct discriminant
                 // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match`
@@ -1108,6 +1144,18 @@ impl CssPropertyCache {
             // single-variant `if let`s exist for the remill lift, see there).
             if let Some(user_props) = self.user_overridden_properties.get(i) {
                 for (_, prop) in user_props {
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
                     result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                     if let CssProperty::Width(v) = prop {
                         result.tier2_dims[i].width = encode_layout_width(v);
@@ -2161,6 +2209,178 @@ fn apply_css_property_to_compact(
         }
 
         // Non-compact properties (background, etc.) — handled by get_property_slow fallback
+        _ => {}
+    }
+}
+
+/// Node `index`'s declaration `prop` as its compact slots take it: a CSS-wide keyword is the
+/// value it stands for ([`CssPropertyCache::css_wide_value_of`]); a keyword that stands for
+/// the initial value resets the property's slots instead and gives nothing to apply.
+#[allow(clippy::too_many_arguments)] // the declaration, its node and the node's slots
+fn compact_value<'a>(
+    cache: &'a CssPropertyCache,
+    index: usize,
+    prop: &'a CssProperty,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+    own_line_height: &mut Option<azul_css::props::style::text::StyleLineHeight>,
+) -> Option<&'a CssProperty> {
+    if prop.css_wide_keyword().is_none() {
+        return Some(prop);
+    }
+    if let Some(value) = cache.css_wide_value_of(index, prop) {
+        return Some(value);
+    }
+    let ty = prop.get_type();
+    reset_compact_property(ty, tier1, dims, cold, text);
+    if ty == azul_css::props::property::CssPropertyType::LineHeight {
+        *own_line_height = None;
+    }
+    None
+}
+
+/// Puts the slots of property `ty` back to what a node that declares nothing and inherits
+/// nothing holds: the property's initial value as the readers know it. The presence bits
+/// (a background, a shadow, a transform, scrollbar rules...) stay: a set bit only sends the
+/// reader to the cascade, which answers the initial value then.
+#[allow(clippy::too_many_lines)] // one arm per property the compact slots hold
+#[allow(clippy::cast_possible_truncation)] // the writing-mode slot is three bits
+fn reset_compact_property(
+    ty: azul_css::props::property::CssPropertyType,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+) {
+    use azul_css::props::property::CssPropertyType as T;
+
+    let initial_dims = CompactNodeProps::default();
+    let initial_cold = CompactNodePropsCold::default();
+    let initial_text = CompactTextProps::default();
+    // The physical overflow slot a logical one writes, as `apply_css_property_to_compact`
+    // maps it through the writing mode.
+    let vertical = {
+        let wm = ((*tier1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8;
+        wm == layout_writing_mode_to_u8(
+            azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl,
+        ) || wm
+            == layout_writing_mode_to_u8(
+                azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr,
+            )
+    };
+    let mut clear = |shift: u32, mask: u64| *tier1 &= !(mask << shift);
+    match ty {
+        T::Display => clear(DISPLAY_SHIFT, DISPLAY_MASK),
+        T::Position => clear(POSITION_SHIFT, POSITION_MASK),
+        T::Float => clear(FLOAT_SHIFT, FLOAT_MASK),
+        T::OverflowX => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+        T::OverflowY => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+        T::OverflowBlock if vertical => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+        T::OverflowBlock => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+        T::OverflowInline if vertical => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+        T::OverflowInline => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+        T::BoxSizing => clear(BOX_SIZING_SHIFT, BOX_SIZING_MASK),
+        T::FlexDirection => clear(FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
+        T::FlexWrap => clear(FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),
+        T::JustifyContent => clear(JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK),
+        T::AlignItems => clear(ALIGN_ITEMS_SHIFT, ALIGN_MASK),
+        T::AlignContent => clear(ALIGN_CONTENT_SHIFT, ALIGN_MASK),
+        T::WritingMode => clear(WRITING_MODE_SHIFT, WRITING_MODE_MASK),
+        T::Clear => clear(CLEAR_SHIFT, CLEAR_MASK),
+        T::FontWeight => clear(FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
+        T::FontStyle => clear(FONT_STYLE_SHIFT, FONT_STYLE_MASK),
+        T::TextAlign => clear(TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
+        T::Visibility => clear(VISIBILITY_SHIFT, VISIBILITY_MASK),
+        T::WhiteSpace => clear(WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
+        T::Direction => clear(DIRECTION_SHIFT, DIRECTION_MASK),
+        T::VerticalAlign => clear(VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
+        T::BorderCollapse => clear(BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+        T::AlignSelf => clear(ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
+        T::JustifySelf => clear(JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
+        T::GridAutoFlow => clear(GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
+        T::JustifyItems => clear(JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK),
+        T::Cursor => cold.cursor = initial_cold.cursor,
+
+        T::Width => dims.width = initial_dims.width,
+        T::Height => dims.height = initial_dims.height,
+        T::MinWidth => dims.min_width = initial_dims.min_width,
+        T::MaxWidth => dims.max_width = initial_dims.max_width,
+        T::MinHeight => dims.min_height = initial_dims.min_height,
+        T::MaxHeight => dims.max_height = initial_dims.max_height,
+        T::FlexBasis => dims.flex_basis = initial_dims.flex_basis,
+        T::FontSize => dims.font_size = initial_dims.font_size,
+        T::PaddingTop => dims.padding_top = initial_dims.padding_top,
+        T::PaddingRight => dims.padding_right = initial_dims.padding_right,
+        T::PaddingBottom => dims.padding_bottom = initial_dims.padding_bottom,
+        T::PaddingLeft => dims.padding_left = initial_dims.padding_left,
+        T::MarginTop => dims.margin_top = initial_dims.margin_top,
+        T::MarginRight => dims.margin_right = initial_dims.margin_right,
+        T::MarginBottom => dims.margin_bottom = initial_dims.margin_bottom,
+        T::MarginLeft => dims.margin_left = initial_dims.margin_left,
+        T::BorderTopWidth => dims.border_top_width = initial_dims.border_top_width,
+        T::BorderRightWidth => dims.border_right_width = initial_dims.border_right_width,
+        T::BorderBottomWidth => dims.border_bottom_width = initial_dims.border_bottom_width,
+        T::BorderLeftWidth => dims.border_left_width = initial_dims.border_left_width,
+        T::Top => dims.top = initial_dims.top,
+        T::Right => dims.right = initial_dims.right,
+        T::Bottom => dims.bottom = initial_dims.bottom,
+        T::Left => dims.left = initial_dims.left,
+        T::FlexGrow => dims.flex_grow = initial_dims.flex_grow,
+        T::FlexShrink => dims.flex_shrink = initial_dims.flex_shrink,
+        T::RowGap => dims.row_gap = initial_dims.row_gap,
+        T::ColumnGap => dims.column_gap = initial_dims.column_gap,
+        T::Gap => {
+            dims.row_gap = initial_dims.row_gap;
+            dims.column_gap = initial_dims.column_gap;
+        }
+
+        T::GridColumn => {
+            cold.grid_col_start = initial_cold.grid_col_start;
+            cold.grid_col_end = initial_cold.grid_col_end;
+        }
+        T::GridRow => {
+            cold.grid_row_start = initial_cold.grid_row_start;
+            cold.grid_row_end = initial_cold.grid_row_end;
+        }
+        T::ZIndex => cold.z_index = initial_cold.z_index,
+        T::BorderTopStyle => cold.border_styles_packed &= !0x000F,
+        T::BorderRightStyle => cold.border_styles_packed &= !0x00F0,
+        T::BorderBottomStyle => cold.border_styles_packed &= !0x0F00,
+        T::BorderLeftStyle => cold.border_styles_packed &= !0xF000,
+        T::BorderTopColor => cold.border_top_color = initial_cold.border_top_color,
+        T::BorderRightColor => cold.border_right_color = initial_cold.border_right_color,
+        T::BorderBottomColor => cold.border_bottom_color = initial_cold.border_bottom_color,
+        T::BorderLeftColor => cold.border_left_color = initial_cold.border_left_color,
+        T::BorderSpacing => {
+            cold.border_spacing_h = initial_cold.border_spacing_h;
+            cold.border_spacing_v = initial_cold.border_spacing_v;
+        }
+        T::TabSize => cold.tab_size = initial_cold.tab_size,
+        T::BorderTopLeftRadius => {
+            cold.border_top_left_radius = initial_cold.border_top_left_radius;
+        }
+        T::BorderTopRightRadius => {
+            cold.border_top_right_radius = initial_cold.border_top_right_radius;
+        }
+        T::BorderBottomLeftRadius => {
+            cold.border_bottom_left_radius = initial_cold.border_bottom_left_radius;
+        }
+        T::BorderBottomRightRadius => {
+            cold.border_bottom_right_radius = initial_cold.border_bottom_right_radius;
+        }
+        T::Opacity => cold.opacity = initial_cold.opacity,
+        T::ScrollbarGutter => cold.hot_flags &= !HOT_FLAG_SCROLLBAR_GUTTER_MASK,
+
+        T::TextColor => text.text_color = initial_text.text_color,
+        T::FontFamily => text.font_family_hash = initial_text.font_family_hash,
+        T::LineHeight => text.line_height = initial_text.line_height,
+        T::LetterSpacing => text.letter_spacing = initial_text.letter_spacing,
+        T::WordSpacing => text.word_spacing = initial_text.word_spacing,
+        T::TextIndent => text.text_indent = initial_text.text_indent,
+
+        // Not in the slots, or a presence bit only: the cascade answers it.
         _ => {}
     }
 }

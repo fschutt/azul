@@ -465,33 +465,30 @@ n12 p8 d10 Inline @8,246 -x- ic=0/0
   dl16 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/split-inline-borders.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x814 ov=800x814 sb=v bl=719 ic=222/222
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x806 ov=784x806 mt=8 mb=8 bl=711 ic=206/206 rel=8,8
+n0 root d0 Block { establishes_new_context: true } @0,0 800x446 ov=800x446 bl=351 ic=222/222
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x438 ov=784x438 mt=8 mb=8 bl=343 ic=206/206 rel=8,8
 n2 p1 d- Inline anon=InlineWrapper @8,8 784x200 ov=120x200 bl=105 ic=48/150 rel=0,0
 n3 p2 d3 Inline @8,8 -x- ic=48/150
-n4 p1 d4 Inline @8,208 206x406 ov=193.59375x400 bl=305 ic=200/200 rel=0,200
+n4 p1 d4 Inline @8,208 206x38 ov=193.59375x32 bl=29 ic=200/200 rel=0,200
 n5 p4 d5 Inline @11,211 -x- ic=62.40625/280
-n6 p1 d- Inline anon=InlineWrapper @8,614 784x200 ov=112x200 bl=105 ic=40/146 rel=0,606
-n7 p6 d6 Inline @8,614 -x- ic=40/146
-n8 p6 d7 Inline @8,614 -x- ic=0/0
-  dl0 PushStackingContext 0,0 800x814
-  dl1 PushScrollFrame 0,0 800x600 content=800x814
-  dl2 HitTestArea 8,8 784x806
-  dl3 Border 18,80.203125 140x56
-  dl4 Text -8,8 816x200 glyphs=19 fs=16
-  dl5 HitTestArea 38,100.203125 120x16
-  dl6 Border 8,208 206x406
-  dl7 HitTestArea 8,208 206x406
-  dl8 Text -5,211 232x400 glyphs=26 fs=16
-  dl9 Text -5,211 232x400 glyphs=12 fs=16
-  dl10 HitTestArea 11,303.20313 193.59375x16
-  dl11 HitTestArea 11,503.20313 82.40625x16
-  dl12 Border 8,686.2031 132x56
-  dl13 Text -8,614 816x200 glyphs=18 fs=16
-  dl14 HitTestArea 8,706.2031 112x16
-  dl15 PopStackingContext
-  dl16 PopScrollFrame
-  dl17 ScrollBarStyled 788,0 12x600
+n6 p1 d- Inline anon=InlineWrapper @8,246 784x200 ov=112x200 bl=105 ic=40/146 rel=0,238
+n7 p6 d6 Inline @8,246 -x- ic=40/146
+n8 p6 d7 Inline @8,246 -x- ic=0/0
+  dl0 PushStackingContext 0,0 800x446
+  dl1 HitTestArea 8,8 784x438
+  dl2 Border 18,80.203125 140x56
+  dl3 Text -8,8 816x200 glyphs=19 fs=16
+  dl4 HitTestArea 38,100.203125 120x16
+  dl5 Border 8,208 206x38
+  dl6 HitTestArea 8,208 206x38
+  dl7 Text -5,211 232x32 glyphs=26 fs=16
+  dl8 Text -5,211 232x32 glyphs=12 fs=16
+  dl9 HitTestArea 11,211.20313 193.59375x16
+  dl10 HitTestArea 11,227.20313 82.40625x16
+  dl11 Border 8,318.20313 132x56
+  dl12 Text -8,246 816x200 glyphs=18 fs=16
+  dl13 HitTestArea 8,338.20313 112x16
+  dl14 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-baseline-003-ref.xht
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x152 ov=800x152 bl=45 ic=83.203125/833.6094
@@ -3706,7 +3703,7 @@ n1 p0 d1 Block { establishes_new_context: false } @8,16 784x48 ov=784x48 mt=16 m
 n2 p1 d3 Inline @8,16 672x32 ov=645.59375x32 bl=29 ic=65.609375/676.8125 rel=0,0
 n3 p2 d4 Inline @8,16 -x- ic=65.609375/676.8125
 n4 p1 d6 Block { establishes_new_context: false } @8,64 784x0 ov=0x0 ic=0/0 rel=0,48
-n5 p4 d8 Inline @752.7969,0 47.203125x16 ov=47.203125x16 bl=13 ic=35.203125/47.203125 rel=0,0
+n5 p4 d8 Inline @752.7969,0 47.203125x600 ov=47.203125x16 bl=13 ic=35.203125/47.203125 rel=0,0
 n6 p5 d9 Inline @752.7969,0 -x- ic=35.203125/47.203125
   dl0 PushStackingContext 0,0 800x56
   dl1 HitTestArea 8,16 784x48
@@ -3717,9 +3714,9 @@ n6 p5 d9 Inline @752.7969,0 -x- ic=35.203125/47.203125
   dl6 HitTestArea 8,32.203125 27.203125x16
   dl7 Rect 8,64 784x0
   dl8 HitTestArea 8,64 784x0
-  dl9 Rect 752.7969,0 47.203125x16
-  dl10 HitTestArea 752.7969,0 47.203125x16
-  dl11 Text 736.7969,0 79.203125x16 glyphs=7 fs=16
+  dl9 Rect 752.7969,0 47.203125x600
+  dl10 HitTestArea 752.7969,0 47.203125x600
+  dl11 Text 736.7969,0 79.203125x600 glyphs=7 fs=16
   dl12 HitTestArea 752.7969,0.203125 47.203125x16
   dl13 PopStackingContext
 === wpt/normalized/css/CSS2/visudet/inline-block-baseline-001-ref.xht
@@ -10190,7 +10187,7 @@ n25 p24 d47 Inline @13,136 -x- ic=7.5/7.5
   dl32 Border 11,113 154x19
   dl33 HitTestArea 11,113 154x19
   dl34 Text -2,115 180x15 glyphs=1 fs=15
-  dl35 HitTestArea 84.25,115 7.5x15
+  dl35 HitTestArea 13,115 7.5x15
   dl36 HitTestArea 11,134 154x19
   dl37 Border 11,134 154x19
   dl38 HitTestArea 11,134 154x19

@@ -1198,6 +1198,17 @@ pub struct CssPropertyCache {
     /// every state, a rule for a state only that state's.
     pub inline_overruled:
         alloc::collections::BTreeMap<usize, Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)>>,
+
+    /// Per node and property (sparse): the value a CSS-wide keyword the node declares stands
+    /// for, where that is not the property's initial value as every reader takes a keyword -
+    /// the parent's value for `inherit` (and `unset` of a property that inherits), the user
+    /// agent's for `revert`, `inline` for `display: initial`. [`Self::get_property_slow`]
+    /// answers it in the keyword's place and the compact cache encodes it. Built in pre-order
+    /// by [`Self::compute_inherited_values`]; empty for a DOM without such keywords.
+    pub css_wide_values: alloc::collections::BTreeMap<
+        (usize, CssPropertyType, azul_css::css::CssWideKeyword),
+        CssProperty,
+    >,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -2858,6 +2869,7 @@ impl CssPropertyCache {
             inherited_from_host: Vec::new(),
             left_state_mask: 0,
             inline_overruled: alloc::collections::BTreeMap::new(),
+            css_wide_values: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -2904,6 +2916,11 @@ impl CssPropertyCache {
             core::mem::take(&mut other.inline_overruled)
                 .into_iter()
                 .map(|(node, overruled)| (node + offset, overruled)),
+        );
+        self.css_wide_values.extend(
+            core::mem::take(&mut other.css_wide_values)
+                .into_iter()
+                .map(|((node, ty, keyword), value)| ((node + offset, ty, keyword), value)),
         );
         // The merged cache keeps only this DOM's stylesheet, so a cascade it
         // re-ran would lose the other's rules: stop re-running it for
@@ -3310,10 +3327,43 @@ impl CssPropertyCache {
     /// Full cascade resolution for any CSS property type.
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
+    /// A CSS-wide keyword that wins is answered by the value it stands for
+    /// ([`Self::css_wide_values`]).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    pub(crate) fn get_property_slow<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        let declared =
+            self.get_declared_property(node_data, node_id, node_state, css_property_type)?;
+        Some(
+            self.css_wide_value_of(node_id.index(), declared)
+                .unwrap_or(declared),
+        )
+    }
+
+    /// The value `declared`, a declaration of node `index`, stands for when it is a CSS-wide
+    /// keyword with a value of its own ([`Self::css_wide_values`]); `None` for any other
+    /// declaration, and for a keyword the readers take as the property's initial value.
+    #[must_use]
+    pub fn css_wide_value_of(&self, index: usize, declared: &CssProperty) -> Option<&CssProperty> {
+        if self.css_wide_values.is_empty() {
+            return None;
+        }
+        let keyword = declared.css_wide_keyword()?;
+        self.css_wide_values
+            .get(&(index, declared.get_type(), keyword))
+    }
+
+    /// The declaration that wins for `css_property_type` on the node, as written: a CSS-wide
+    /// keyword stays a keyword ([`Self::get_property_slow`] answers its value).
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
                                      // (one branch per input variant)
-    pub(crate) fn get_property_slow<'a>(
+    fn get_declared_property<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
@@ -3534,7 +3584,11 @@ impl CssPropertyCache {
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
+                let declared = &v[idx].1;
+                return Some(
+                    self.css_wide_value_of(node_id.index(), declared)
+                        .unwrap_or(declared),
+                );
             }
         }
 
@@ -3550,7 +3604,7 @@ impl CssPropertyCache {
             |conds| conds.as_slice().iter().all(|c| c.matches(context)),
             |conds| context.cascade_rank(conds),
         ) {
-            return Some(prop);
+            return Some(self.css_wide_value_of(node_id.index(), prop).unwrap_or(prop));
         }
 
         // Fall back to CSS file and cascaded properties
@@ -5114,31 +5168,9 @@ impl CssPropertyCache {
             },
         };
 
-        // Extract PixelValue from various property types (returns owned value)
-        let get_pixel_value = |prop: &CssProperty| -> Option<PixelValue> {
-            match prop {
-                CssProperty::FontSize(val) => val.get_property().map(|v| v.inner),
-                CssProperty::LetterSpacing(val) => val.get_property().map(|v| v.inner),
-                CssProperty::WordSpacing(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingLeft(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingRight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingTop(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingBottom(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginLeft(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginRight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginTop(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginBottom(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MinWidth(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MinHeight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MaxWidth(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MaxHeight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::SelectionRadius(val) => val.get_property().map(|v| v.inner),
-                _ => None,
-            }
-        };
 
-        let target_pixel_value = get_pixel_value(target_property)?;
-        let reference_pixel_value = get_pixel_value(reference_property)?;
+        let target_pixel_value = pixel_value_of(target_property)?;
+        let reference_pixel_value = pixel_value_of(reference_property)?;
 
         // Convert reference to absolute pixels first
         let reference_px = match reference_pixel_value.metric {
@@ -5582,6 +5614,8 @@ impl CssPropertyCache {
         // snapshot taken below, not against the live store.
         let previous = core::mem::replace(&mut self.computed_values, InheritedValues::new());
         self.computed_values.grow_to(node_hierarchy.len());
+        // The keywords' values are found node by node below, each from its parent's.
+        self.css_wide_values.clear();
         node_hierarchy
             .iter()
             .enumerate()
@@ -5609,6 +5643,11 @@ impl CssPropertyCache {
                     computed_values: Vec::new(),
                 };
 
+                // What the node's CSS-wide keywords stand for, from its parent's values (all
+                // known: pre-order), before its own values are computed from them.
+                let keyword_values = self.css_wide_values_of_node(node_data, node_index, parent_id);
+                self.css_wide_values.extend(keyword_values);
+
                 // Step 1: Inherit from parent
                 if let Some(ref parent_values) = parent_computed {
                     Self::inherit_from_parent(&mut ctx, parent_values);
@@ -5632,6 +5671,143 @@ impl CssPropertyCache {
                 changed.then_some(node_id)
             })
             .collect()
+    }
+
+    /// The values node `index`'s CSS-wide keyword declarations stand for (see
+    /// [`Self::css_wide_values`]), in every tier and pseudo-state, its `parent`'s values
+    /// already computed (pre-order).
+    fn css_wide_values_of_node(
+        &self,
+        node_data: &[NodeData],
+        index: usize,
+        parent: Option<NodeId>,
+    ) -> Vec<(
+        (usize, CssPropertyType, azul_css::css::CssWideKeyword),
+        CssProperty,
+    )> {
+        let mut declared: Vec<(CssPropertyType, azul_css::css::CssWideKeyword)> = Vec::new();
+        let mut note = |p: &CssProperty| {
+            if let Some(keyword) = p.css_wide_keyword() {
+                let entry = (p.get_type(), keyword);
+                if !declared.contains(&entry) {
+                    declared.push(entry);
+                }
+            }
+        };
+        if let Some(user) = self.user_overridden_properties.get(index) {
+            user.iter().for_each(|(_, p)| note(p));
+        }
+        self.inline_properties(&node_data[index], index)
+            .for_each(|(p, _)| note(p));
+        self.css_props
+            .get_slice(index)
+            .iter()
+            .for_each(|p| note(&p.property));
+        self.cascaded_props
+            .get_slice(index)
+            .iter()
+            .for_each(|p| note(&p.property));
+        self.global_css_props.iter().for_each(&mut note);
+        declared
+            .into_iter()
+            .filter_map(|(ty, keyword)| {
+                self.css_wide_value_for(node_data, index, parent, ty, keyword)
+                    .map(|value| ((index, ty, keyword), value))
+            })
+            .collect()
+    }
+
+    /// The value `keyword` stands for as node `index`'s `ty`; `None` for the property's
+    /// initial value where the readers take the keyword for it.
+    fn css_wide_value_for(
+        &self,
+        node_data: &[NodeData],
+        index: usize,
+        parent: Option<NodeId>,
+        ty: CssPropertyType,
+        keyword: azul_css::css::CssWideKeyword,
+    ) -> Option<CssProperty> {
+        use azul_css::css::CssWideKeyword;
+
+        let inherits = ty.is_inheritable();
+        let from_parent = match keyword {
+            CssWideKeyword::Inherit => true,
+            CssWideKeyword::Unset => inherits,
+            CssWideKeyword::Initial => false,
+            // The author's declarations are rolled back to the user agent's (there is no user
+            // style sheet): its value for the element, else as `unset`.
+            CssWideKeyword::Revert => {
+                let is_root = takes_root_ua_default(index, ty, &self.inherited_from_host);
+                if let Some(ua) = crate::ua_css::get_ua_default(
+                    &node_data[index],
+                    is_root,
+                    ty,
+                    self.dynamic_context.as_deref(),
+                ) {
+                    return Some(ua.clone());
+                }
+                inherits
+            }
+        };
+        if from_parent {
+            self.parent_value(node_data, parent, ty)
+        } else {
+            initial_value_unlike_the_default(ty)
+        }
+    }
+
+    /// The parent's value of `ty`, as `inherit` takes it: its computed value (a font-relative
+    /// length in pixels). `None` where the parent is at the initial value, and for the root of
+    /// a document (a hosted root's parent is its host).
+    fn parent_value(
+        &self,
+        node_data: &[NodeData],
+        parent: Option<NodeId>,
+        ty: CssPropertyType,
+    ) -> Option<CssProperty> {
+        let value = match parent {
+            None => self
+                .inherited_from_host
+                .iter()
+                .find(|(t, _)| *t == ty)
+                .map(|(_, v)| v.property.clone())?,
+            Some(parent) => self.own_value(node_data, parent, ty)?,
+        };
+        // A parent at its initial value hands that on.
+        value.css_wide_keyword().is_none().then_some(value)
+    }
+
+    /// Node `node`'s computed value of `ty`, as a child's `inherit` takes it.
+    fn own_value(
+        &self,
+        node_data: &[NodeData],
+        node: NodeId,
+        ty: CssPropertyType,
+    ) -> Option<CssProperty> {
+        if ty.is_inheritable() {
+            return self
+                .computed_values
+                .get(node.index(), ty)
+                .map(|v| v.property.clone());
+        }
+        let declared = self.get_property_slow(
+            &node_data[node.index()],
+            &node,
+            &StyledNodeState::default(),
+            &ty,
+        )?;
+        // A length in `em` computes against the node's own font size.
+        let em = pixel_value_of(declared)
+            .is_some_and(|v| v.metric == azul_css::props::basic::length::SizeMetric::Em);
+        let font_size = self
+            .computed_values
+            .get(node.index(), CssPropertyType::FontSize)
+            .filter(|_| em);
+        Some(
+            font_size
+                .and_then(|fs| Self::resolve_property_dependency(declared, &fs.property))
+                .unwrap_or_else(|| declared.clone()),
+        )
     }
 
     /// Inherit inheritable properties from parent node
@@ -5676,7 +5852,12 @@ impl CssPropertyCache {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
                     && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property)
                 {
-                    Self::process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(
+                        ctx,
+                        self.css_wide_value_of(node_index, &p.property)
+                            .unwrap_or(&p.property),
+                        parent_computed,
+                    );
                 }
             }
         }
@@ -5686,7 +5867,12 @@ impl CssPropertyCache {
             let css_slice = self.css_props.get_slice(node_id.index());
             for p in css_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    Self::process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(
+                        ctx,
+                        self.css_wide_value_of(node_index, &p.property)
+                            .unwrap_or(&p.property),
+                        parent_computed,
+                    );
                 }
             }
         }
@@ -5718,14 +5904,22 @@ impl CssPropertyCache {
                 other => condition_holds(dyn_ctx, no_context_theme.as_ref(), other),
             });
             if applies {
-                Self::process_property(ctx, prop, parent_computed);
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, prop).unwrap_or(prop),
+                    parent_computed,
+                );
             }
         }
 
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
             for (_, prop) in user_props {
-                Self::process_property(ctx, prop, parent_computed);
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, prop).unwrap_or(prop),
+                    parent_computed,
+                );
             }
         }
     }
@@ -6059,6 +6253,50 @@ pub(crate) fn host_supplies(
 /// inherits its host's value instead. The ONE rule the UA pass, the compact
 /// builder and the slow path's fallback share.
 #[inline]
+/// The length of a property that is one length (a font size, a padding, a margin, a min / max
+/// size, a spacing): what a font-relative length is computed from.
+fn pixel_value_of(prop: &CssProperty) -> Option<azul_css::props::basic::pixel::PixelValue> {
+    match prop {
+        CssProperty::FontSize(val) => val.get_property().map(|v| v.inner),
+        CssProperty::LetterSpacing(val) => val.get_property().map(|v| v.inner),
+        CssProperty::WordSpacing(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingLeft(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingRight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingTop(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingBottom(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginLeft(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginRight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginTop(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginBottom(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MinWidth(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MinHeight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MaxWidth(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MaxHeight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::SelectionRadius(val) => val.get_property().map(|v| v.inner),
+        _ => None,
+    }
+}
+
+/// The initial value of `ty` where it is not what the readers take an `initial` keyword for
+/// (what a node declaring nothing gets): an element without a user agent rule is a block here,
+/// while the initial `display` is `inline`; a font size the readers do not know is the
+/// parent's, while the initial one is `medium`.
+fn initial_value_unlike_the_default(ty: CssPropertyType) -> Option<CssProperty> {
+    match ty {
+        CssPropertyType::Display => Some(CssProperty::Display(
+            azul_css::css::CssPropertyValue::Exact(LayoutDisplay::Inline),
+        )),
+        CssPropertyType::FontSize => Some(CssProperty::FontSize(
+            azul_css::css::CssPropertyValue::Exact(StyleFontSize {
+                inner: azul_css::props::basic::pixel::PixelValue::px(
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ),
+            }),
+        )),
+        _ => None,
+    }
+}
+
 pub(crate) fn takes_root_ua_default(
     node_index: usize,
     prop_type: CssPropertyType,

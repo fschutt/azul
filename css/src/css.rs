@@ -809,6 +809,20 @@ pub enum CssPropertyValue<T> {
     Exact(T),
 }
 
+/// A CSS-wide keyword: a value every property takes, which names a value of the cascade
+/// instead of being one.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CssWideKeyword {
+    /// The property's initial value.
+    Initial,
+    /// The parent's value.
+    Inherit,
+    /// `inherit` for a property that inherits, `initial` for one that does not.
+    Unset,
+    /// The user agent's value, or `unset` where the user agent gives the element none.
+    Revert,
+}
+
 /// Trait for types that can format themselves as a CSS property value string.
 pub trait PrintAsCssValue {
     fn print_as_css_value(&self) -> String;
@@ -909,6 +923,18 @@ impl<T> CssPropertyValue<T> {
     #[inline]
     pub const fn is_unset(&self) -> bool {
         matches!(self, Self::Unset)
+    }
+
+    /// The CSS-wide keyword this value is, if it is one.
+    #[inline]
+    pub const fn css_wide_keyword(&self) -> Option<CssWideKeyword> {
+        match self {
+            Self::Initial => Some(CssWideKeyword::Initial),
+            Self::Inherit => Some(CssWideKeyword::Inherit),
+            Self::Unset => Some(CssWideKeyword::Unset),
+            Self::Revert => Some(CssWideKeyword::Revert),
+            Self::Auto | Self::None | Self::Exact(_) => None,
+        }
     }
 }
 

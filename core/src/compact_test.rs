@@ -1586,3 +1586,121 @@ mod inheritance_mask_tests {
         }
     }
 }
+
+/// A CSS-wide keyword that stands for the initial value puts the property's compact slots back
+/// to what a node that declares nothing holds.
+#[cfg(test)]
+mod css_wide_reset_tests {
+    use azul_css::{
+        compact_cache::*,
+        props::property::{parse_css_property, CssPropertyType as T},
+    };
+
+    use super::{apply_css_property_to_compact, reset_compact_property};
+
+    const DECLARED: &[(T, &str)] = &[
+        (T::Display, "flex"),
+        (T::Position, "absolute"),
+        (T::Float, "left"),
+        (T::OverflowX, "hidden"),
+        (T::OverflowY, "scroll"),
+        (T::BoxSizing, "border-box"),
+        (T::FlexDirection, "column"),
+        (T::FlexWrap, "wrap"),
+        (T::JustifyContent, "center"),
+        (T::AlignItems, "center"),
+        (T::AlignContent, "center"),
+        (T::WritingMode, "vertical-rl"),
+        (T::Clear, "both"),
+        (T::FontWeight, "bold"),
+        (T::FontStyle, "italic"),
+        (T::TextAlign, "center"),
+        (T::Visibility, "hidden"),
+        (T::WhiteSpace, "pre"),
+        (T::Direction, "rtl"),
+        (T::VerticalAlign, "top"),
+        (T::BorderCollapse, "collapse"),
+        (T::AlignSelf, "center"),
+        (T::GridAutoFlow, "column"),
+        (T::JustifyItems, "center"),
+        (T::Cursor, "pointer"),
+        (T::Width, "10px"),
+        (T::Height, "10px"),
+        (T::MinWidth, "10px"),
+        (T::MaxWidth, "10px"),
+        (T::MinHeight, "10px"),
+        (T::MaxHeight, "10px"),
+        (T::FlexBasis, "10px"),
+        (T::FontSize, "10px"),
+        (T::PaddingTop, "3px"),
+        (T::PaddingRight, "3px"),
+        (T::PaddingBottom, "3px"),
+        (T::PaddingLeft, "3px"),
+        (T::MarginTop, "3px"),
+        (T::MarginRight, "3px"),
+        (T::MarginBottom, "3px"),
+        (T::MarginLeft, "3px"),
+        (T::BorderTopWidth, "3px"),
+        (T::BorderRightWidth, "3px"),
+        (T::BorderBottomWidth, "3px"),
+        (T::BorderLeftWidth, "3px"),
+        (T::Top, "3px"),
+        (T::Right, "3px"),
+        (T::Bottom, "3px"),
+        (T::Left, "3px"),
+        (T::FlexGrow, "2"),
+        (T::FlexShrink, "2"),
+        (T::RowGap, "3px"),
+        (T::ColumnGap, "3px"),
+        (T::GridColumn, "1 / 3"),
+        (T::GridRow, "1 / 3"),
+        (T::ZIndex, "3"),
+        (T::BorderTopStyle, "solid"),
+        (T::BorderRightStyle, "solid"),
+        (T::BorderBottomStyle, "solid"),
+        (T::BorderLeftStyle, "solid"),
+        (T::BorderTopColor, "red"),
+        (T::BorderRightColor, "red"),
+        (T::BorderBottomColor, "red"),
+        (T::BorderLeftColor, "red"),
+        (T::BorderSpacing, "3px"),
+        (T::BorderTopLeftRadius, "3px"),
+        (T::BorderTopRightRadius, "3px"),
+        (T::BorderBottomLeftRadius, "3px"),
+        (T::BorderBottomRightRadius, "3px"),
+        (T::Opacity, "0.5"),
+        (T::ScrollbarGutter, "stable"),
+        (T::TextColor, "red"),
+        (T::FontFamily, "serif"),
+        (T::LineHeight, "20px"),
+        (T::LetterSpacing, "3px"),
+        (T::WordSpacing, "3px"),
+        (T::TextIndent, "3px"),
+    ];
+
+    #[test]
+    fn a_reset_property_holds_the_slots_of_a_node_that_declares_nothing() {
+        let nothing = (
+            0u64,
+            CompactNodeProps::default(),
+            CompactNodePropsCold::default(),
+            CompactTextProps::default(),
+        );
+        for &(ty, value) in DECLARED {
+            let prop = parse_css_property(ty, value)
+                .unwrap_or_else(|e| panic!("harness: {ty:?}: {value} parses: {e:?}"));
+            let (mut tier1, mut dims, mut cold, mut text) = nothing;
+            let mut fonts = alloc::collections::BTreeMap::new();
+            apply_css_property_to_compact(
+                &prop, &mut tier1, &mut dims, &mut cold, &mut text, &mut fonts,
+            );
+            assert_ne!(
+                (tier1, dims, cold, text),
+                nothing,
+                "harness: {ty:?}: {value} sets a slot"
+            );
+            reset_compact_property(ty, &mut tier1, &mut dims, &mut cold, &mut text);
+            assert_eq!((tier1, dims, cold, text), nothing, "{ty:?} after a reset");
+        }
+    }
+}
