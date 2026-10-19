@@ -5067,11 +5067,23 @@ pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
     close.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
     close.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
 
+    // The action ("Undo"): the widget's bold label in flora's quiet ink, the
+    // close button's wash and ring.
+    let mut action = t::TOAST_ACTION_BASE.to_vec();
+    action.extend(decl::padding(0, 5, 0, 5));
+    action.extend(decl::radius(3));
+    action.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    action.extend(decl::ring_slot());
+    action.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    action.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+    action.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
     t::ToastSkin {
         theme: super::UiTheme::Flora,
         container: toast_container,
         message: CssPropertyWithConditionsVec::from_const_slice(t::TOAST_MESSAGE_STYLE),
         close: CssPropertyWithConditionsVec::from_vec(close),
+        action: CssPropertyWithConditionsVec::from_vec(action),
     }
 }
 

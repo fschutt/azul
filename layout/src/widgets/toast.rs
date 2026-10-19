@@ -40,7 +40,7 @@ use azul_css::{
     props::{
         basic::{
             color::ColorU,
-            font::{StyleFontFamily, StyleFontFamilyVec},
+            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontWeight},
             StyleFontSize,
         },
         layout::{
@@ -74,6 +74,8 @@ static TOAST_MESSAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 static TOAST_CLOSE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast-close"))];
+static TOAST_ACTION_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-toast-action"))];
 static TOAST_STACK_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast-stack"))];
 
@@ -263,6 +265,25 @@ impl ToastKind {
     }
 }
 
+/// The one action a toast offers beside its message - an "Undo" - and what
+/// it does. A click runs `on_action` with the toast's state, then the toast
+/// closes as its "x" closes it (its `on_dismiss` runs too).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct ToastAction {
+    /// The action's label ("Undo").
+    pub label: AzString,
+    /// What the action does.
+    pub on_action: ToastOnDismiss,
+}
+
+impl_option!(
+    ToastAction,
+    OptionToastAction,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
 /// A transient, floating notification banner with a "x" dismiss button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -292,6 +313,8 @@ pub struct Toast {
     /// notice, 6000 when it offers an action); 0 keeps it until it is
     /// closed.
     pub auto_dismiss_ms: u32,
+    /// The action it offers beside its message ("Undo"), if any.
+    pub action: OptionToastAction,
 }
 
 impl_option!(Toast, OptionToast, copy = false, [Debug, Clone, PartialEq, Eq]);
@@ -747,6 +770,18 @@ pub(crate) static TOAST_CLOSE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
+/// The action button's structure in every theme ("Undo"): a bold label
+/// between the message and the "x", which keeps its width.
+pub(crate) static TOAST_ACTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+        12,
+    ))),
+];
+
 /// Close-button ("x") style: flat's small box on the right, on
 /// [`TOAST_CLOSE_BASE`].
 pub(crate) static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
@@ -768,6 +803,8 @@ pub(crate) struct ToastSkin {
     pub message: CssPropertyWithConditionsVec,
     /// The "x" - focusable, so it owes the focus ring.
     pub close: CssPropertyWithConditionsVec,
+    /// The action's button ("Undo") - focusable too.
+    pub action: CssPropertyWithConditionsVec,
 }
 
 /// The skin `theme` draws toasts with.
@@ -801,6 +838,7 @@ pub(crate) fn follow_skin(structure: UiTheme) -> ToastSkin {
         container: follow_container,
         message: both(flat.message.as_slice(), flora.message.as_slice()),
         close: both(flat.close.as_slice(), flora.close.as_slice()),
+        action: both(flat.action.as_slice(), flora.action.as_slice()),
     }
 }
 
@@ -825,7 +863,39 @@ impl Toast {
             container_style: OptionCssPropertyWithConditionsVec::None,
             theme: OptionUiTheme::None,
             auto_dismiss_ms: 0,
+            action: OptionToastAction::None,
         }
+    }
+
+    /// Offer `label` ("Undo") beside the message: a click runs `on_action`
+    /// with `data` and the toast's state, then closes the toast.
+    #[inline]
+    pub fn set_action<C: Into<ToastOnDismissCallback>>(
+        &mut self,
+        label: AzString,
+        data: RefAny,
+        on_action: C,
+    ) {
+        self.action = OptionToastAction::Some(ToastAction {
+            label,
+            on_action: ToastOnDismiss {
+                callback: on_action.into(),
+                refany: data,
+            },
+        });
+    }
+
+    /// [`Self::set_action`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub fn with_action<C: Into<ToastOnDismissCallback>>(
+        mut self,
+        label: AzString,
+        data: RefAny,
+        on_action: C,
+    ) -> Self {
+        self.set_action(label, data, on_action);
+        self
     }
 
     /// How long the toast stays once it is on screen, in ms; 0 keeps it
@@ -981,9 +1051,36 @@ impl Toast {
             .with_css_props(skin.message);
 
         let mut children = alloc::vec![message];
-        // One state for the "x" and the clock, so whichever closes the toast
-        // first, the other finds it closed.
+        // One state for the "x", the action and the clock, so whichever
+        // closes the toast first, the others find it closed.
         let state = RefAny::new(self.toast_state);
+
+        if let Some(action) = self.action.into_option() {
+            let button = crate::widgets::widget_p_with_text(action.label.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_ACTION_CLASS))
+                .with_css_props(skin.action.clone())
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(action.label).into(),
+                    ..Default::default()
+                })
+                .with_callbacks(
+                    alloc::vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: default_on_toast_action as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: RefAny::new(ToastActionClick {
+                            state: state.clone(),
+                            on_action: action.on_action,
+                        }),
+                    }]
+                    .into(),
+                );
+            children.push(button);
+        }
 
         if self.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
@@ -1082,6 +1179,43 @@ extern "C" fn default_on_toast_dismiss(mut data: RefAny, mut info: CallbackInfo)
     info.set_css_property(container, CssProperty::const_display(LayoutDisplay::None));
 
     result
+}
+
+/// What the action button's click carries: the toast's state (shared with
+/// its "x" and its clock) and the app's action.
+struct ToastActionClick {
+    state: RefAny,
+    on_action: ToastOnDismiss,
+}
+
+/// Action-button click handler: runs the app's action with the toast's
+/// state, then closes the toast as the "x" does - `visible` off, the app's
+/// `on_dismiss`, the container hidden. A toast already closed does nothing.
+extern "C" fn default_on_toast_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let action_node = info.get_hit_node();
+    let Some(container) = info.get_parent(action_node) else {
+        return Update::DoNothing;
+    };
+    let Some(mut click) = data.downcast_mut::<ToastActionClick>() else {
+        return Update::DoNothing;
+    };
+    let click = &mut *click;
+    let mut state = click.state.clone();
+    let Some(mut toast) = state.downcast_mut::<ToastStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    if !toast.inner.visible {
+        return Update::DoNothing;
+    }
+    toast.inner.visible = false;
+    let inner = toast.inner;
+    let ToastOnDismiss { callback, refany } = &mut click.on_action;
+    let mut update = callback.invoke(refany.clone(), info, inner);
+    if let Some(ToastOnDismiss { callback, refany }) = toast.on_dismiss.as_mut() {
+        update.max_self(callback.invoke(refany.clone(), info, inner));
+    }
+    info.set_css_property(container, CssProperty::const_display(LayoutDisplay::None));
+    update
 }
 
 impl From<Toast> for Dom {
@@ -1332,6 +1466,16 @@ mod autotest_generated {
         hit: usize,
         data: RefAny,
     ) -> (Update, Vec<CallbackChange>) {
+        run_handler(styled, hit, data, default_on_toast_dismiss)
+    }
+
+    /// [`run_dismiss`] for any of the toast's click handlers.
+    fn run_handler(
+        styled: Option<StyledDom>,
+        hit: usize,
+        data: RefAny,
+        handler: extern "C" fn(RefAny, CallbackInfo) -> Update,
+    ) -> (Update, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         if let Some(sd) = styled {
@@ -1378,9 +1522,41 @@ mod autotest_generated {
             OptionLogicalPosition::None,
         );
 
-        let update = default_on_toast_dismiss(data, info);
+        let update = handler(data, info);
         let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
         (update, recorded)
+    }
+
+    /// An action ("Undo") sits between the message and the "x"; its click
+    /// runs the app's action with the toast's state, then closes the toast
+    /// as the "x" does: the app's `on_dismiss` hears it and the card hides.
+    /// A second click finds it closed.
+    #[test]
+    fn the_action_runs_then_closes_the_toast() {
+        let actions = RefAny::new(DismissLog { calls: Vec::new() });
+        let dismisses = RefAny::new(DismissLog { calls: Vec::new() });
+        let toast = Toast::create(AzString::from("Deleted"))
+            .with_action(AzString::from("Undo"), actions.clone(), dismiss_cb(record_dismiss))
+            .with_on_dismiss(dismisses.clone(), dismiss_cb(record_dismiss));
+        let dom = toast.dom();
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 3, "message, action, close");
+        assert!(kids[1].root.has_class("__azul-native-toast-action"));
+        assert_eq!(text_of(&kids[1]), Some("Undo"));
+        let data = kids[1].root.get_callbacks().as_ref()[0].refany.clone();
+        // 0 container / 1 message <p> / 2 text / 3 action <p> / 4 text / 5 close <p> / 6 text
+        let styled = StyledDom::create_from_dom(dom);
+        let (update, changes) =
+            run_handler(Some(styled), 3, data.clone(), default_on_toast_action);
+        assert_eq!(update, Update::RefreshDom);
+        let (mut actions, mut dismisses) = (actions, dismisses);
+        assert_eq!(log_calls(&mut actions), vec![false], "the action ran, the toast closing");
+        assert_eq!(log_calls(&mut dismisses), vec![false], "and the toast was dismissed");
+        assert_eq!(display_writes(&changes), vec![(0, LayoutDisplay::None)], "the card hides");
+
+        let (again, _) = run_handler(None, 3, data, default_on_toast_action);
+        assert_eq!(again, Update::DoNothing, "a closed toast's action does nothing");
+        assert_eq!(log_calls(&mut actions).len(), 1);
     }
 
     /// Every `display` write recorded in the change log, as `(node index, display)`.

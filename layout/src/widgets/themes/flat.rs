@@ -3571,11 +3571,18 @@ pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
     let mut close = on_base(t::TOAST_CLOSE_BASE, t::TOAST_CLOSE_STYLE).into_library_owned_vec();
     close.extend(super::decl::focus_halo_stacked(FIELD_RING, DARK_ACC));
 
+    // The action ("Undo"): the widget's bold label, underlined, ringed on
+    // focus like the "x".
+    let mut action = t::TOAST_ACTION_BASE.to_vec();
+    action.extend(super::decl::hover_underline());
+    action.extend(super::decl::focus_halo_stacked(FIELD_RING, DARK_ACC));
+
     t::ToastSkin {
         theme: super::UiTheme::Flat,
         container: toast_container,
         message: CssPropertyWithConditionsVec::from_const_slice(t::TOAST_MESSAGE_STYLE),
         close: CssPropertyWithConditionsVec::from_vec(close),
+        action: CssPropertyWithConditionsVec::from_vec(action),
     }
 }
 
