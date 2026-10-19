@@ -2271,16 +2271,17 @@ fn reset_compact_property(
             )
     };
     let mut clear = |shift: u32, mask: u64| *tier1 &= !(mask << shift);
+    let ty = match (ty, vertical) {
+        (T::OverflowBlock, true) | (T::OverflowInline, false) => T::OverflowX,
+        (T::OverflowBlock, false) | (T::OverflowInline, true) => T::OverflowY,
+        (other, _) => other,
+    };
     match ty {
         T::Display => clear(DISPLAY_SHIFT, DISPLAY_MASK),
         T::Position => clear(POSITION_SHIFT, POSITION_MASK),
         T::Float => clear(FLOAT_SHIFT, FLOAT_MASK),
         T::OverflowX => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
         T::OverflowY => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
-        T::OverflowBlock if vertical => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
-        T::OverflowBlock => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
-        T::OverflowInline if vertical => clear(OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
-        T::OverflowInline => clear(OVERFLOW_X_SHIFT, OVERFLOW_MASK),
         T::BoxSizing => clear(BOX_SIZING_SHIFT, BOX_SIZING_MASK),
         T::FlexDirection => clear(FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
         T::FlexWrap => clear(FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),

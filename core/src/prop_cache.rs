@@ -5695,19 +5695,22 @@ impl CssPropertyCache {
             }
         };
         if let Some(user) = self.user_overridden_properties.get(index) {
-            user.iter().for_each(|(_, p)| note(p));
+            for (_, p) in user {
+                note(p);
+            }
         }
-        self.inline_properties(&node_data[index], index)
-            .for_each(|(p, _)| note(p));
-        self.css_props
-            .get_slice(index)
-            .iter()
-            .for_each(|p| note(&p.property));
-        self.cascaded_props
-            .get_slice(index)
-            .iter()
-            .for_each(|p| note(&p.property));
-        self.global_css_props.iter().for_each(&mut note);
+        for (p, _) in self.inline_properties(&node_data[index], index) {
+            note(p);
+        }
+        for p in self.css_props.get_slice(index) {
+            note(&p.property);
+        }
+        for p in self.cascaded_props.get_slice(index) {
+            note(&p.property);
+        }
+        for p in &self.global_css_props {
+            note(p);
+        }
         declared
             .into_iter()
             .filter_map(|(ty, keyword)| {
