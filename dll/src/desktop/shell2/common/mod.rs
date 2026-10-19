@@ -228,6 +228,9 @@ mod window_id_tests {
         let taken = |id: &str| open.contains(&id);
         assert_eq!(free_window_id("azul-transient", taken), "azul-transient-3");
         assert_eq!(free_window_id("azul-menu", taken), "azul-menu");
-        assert_eq!(free_window_id("azul-window", |id| id == "azul-window"), "azul-window-2");
+        assert_eq!(
+            free_window_id("azul-window", |id| id == "azul-window"),
+            "azul-window-2"
+        );
     }
 }
