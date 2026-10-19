@@ -50,7 +50,8 @@ use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply,
     NSBackingStoreType, NSBitmapImageRep,
-    NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
+    NSColor, NSCompositingOperation, NSDragOperation, NSDraggingContext, NSDraggingInfo,
+    NSDraggingSession, NSDraggingSource, NSEvent, NSEventMask,
     NSEventType, NSFilenamesPboardType, NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat,
     NSOpenGLPixelFormatAttribute, NSOpenGLView, NSResponder, NSScreen, NSTextInputClient,
     NSTrackingArea, NSTrackingAreaOptions, NSView, NSVisualEffectView, NSWindow, NSWindowDelegate,
@@ -95,6 +96,8 @@ mod gl;
 pub(crate) mod headless_gpu;
 /// What the active keyboard layout prints on a key: the meaning of a keycode.
 pub(crate) mod keyboard_layout;
+/// A node drag that leaves the window runs on as the system's drag session.
+mod os_drag;
 pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
@@ -464,6 +467,7 @@ mod view_handlers {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_move(event);
+                macos_window.start_os_drag_if_it_left(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
                         macos_window
@@ -1088,10 +1092,20 @@ mod view_handlers {
         }
     }
 
+    /// Whether the system's drag session over this window is the one this
+    /// window started for its own node drag. Dropped back where it came from
+    /// it is no file drop: the in-app drag ended where it left.
+    unsafe fn own_os_drag(window_ptr: Option<*mut std::ffi::c_void>) -> bool {
+        window_ptr.is_some_and(|ptr| (*(ptr as *const MacOSWindow)).os_drag_running)
+    }
+
     pub(super) fn dragging_entered(
         window_ptr: Option<*mut std::ffi::c_void>,
         info: &ProtocolObject<dyn NSDraggingInfo>,
     ) -> NSDragOperation {
+        if unsafe { own_os_drag(window_ptr) } {
+            return NSDragOperation::None;
+        }
         let paths = extract_dragged_paths(info);
         if paths.is_empty() {
             return NSDragOperation::None;
@@ -1133,6 +1147,9 @@ mod view_handlers {
         window_ptr: Option<*mut std::ffi::c_void>,
         info: &ProtocolObject<dyn NSDraggingInfo>,
     ) -> bool {
+        if unsafe { own_os_drag(window_ptr) } {
+            return false;
+        }
         let paths = extract_dragged_paths(info);
         if paths.is_empty() {
             return false;
@@ -1155,6 +1172,31 @@ mod view_handlers {
             return true;
         }
         false
+    }
+
+    /// What the window's node drag lets the drop do, for the system's drag
+    /// session it runs as (`draggingSession:sourceOperationMaskForDraggingContext:`).
+    pub(super) fn os_drag_operations(window_ptr: Option<*mut std::ffi::c_void>) -> NSDragOperation {
+        let Some(window_ptr) = window_ptr else {
+            return NSDragOperation::None;
+        };
+        // SAFETY: the view's back-pointer, valid while the view lives.
+        let macos_window = unsafe { &*(window_ptr as *const MacOSWindow) };
+        macos_window.os_drag_operations()
+    }
+
+    /// The system's drag session ended (dropped on Finder or another app,
+    /// refused, or cancelled with Escape): the node drag ends with what the
+    /// drop did.
+    pub(super) fn os_drag_ended(window_ptr: Option<*mut std::ffi::c_void>, operation: NSDragOperation) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.os_drag_ended(operation);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
     }
 
     /// AppKit announced that this view's effective appearance changed.
@@ -1910,6 +1952,30 @@ define_class!(
             // Don't call super — prevents NSBeep for "unhandled" commands.
             // Don't set ime_key_handled — arrow keys / backspace / enter should
             // still fall through to handle_key_down for processing.
+        }
+    }
+
+    // NSDraggingSource: a node drag that left the window runs as the system's
+    // drag session with this view as its source (`start_os_drag_if_it_left`).
+    // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    unsafe impl NSDraggingSource for GLView {
+        #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
+        fn dragging_source_operations(
+            &self,
+            _session: &NSDraggingSession,
+            _context: NSDraggingContext,
+        ) -> NSDragOperation {
+            view_handlers::os_drag_operations(*self.ivars().window_ptr.borrow())
+        }
+
+        #[unsafe(method(draggingSession:endedAtPoint:operation:))]
+        fn dragging_session_ended(
+            &self,
+            _session: &NSDraggingSession,
+            _screen_point: NSPoint,
+            operation: NSDragOperation,
+        ) {
+            view_handlers::os_drag_ended(*self.ivars().window_ptr.borrow(), operation);
         }
     }
 );
@@ -3015,6 +3081,30 @@ define_class!(
             // Don't call super — prevents NSBeep for "unhandled" commands.
             // Don't set ime_key_handled — arrow keys / backspace / enter should
             // still fall through to handle_key_down for processing.
+        }
+    }
+
+    // NSDraggingSource: a node drag that left the window runs as the system's
+    // drag session with this view as its source (`start_os_drag_if_it_left`).
+    // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    unsafe impl NSDraggingSource for CPUView {
+        #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
+        fn dragging_source_operations(
+            &self,
+            _session: &NSDraggingSession,
+            _context: NSDraggingContext,
+        ) -> NSDragOperation {
+            view_handlers::os_drag_operations(*self.ivars().window_ptr.borrow())
+        }
+
+        #[unsafe(method(draggingSession:endedAtPoint:operation:))]
+        fn dragging_session_ended(
+            &self,
+            _session: &NSDraggingSession,
+            _screen_point: NSPoint,
+            operation: NSDragOperation,
+        ) {
+            view_handlers::os_drag_ended(*self.ivars().window_ptr.borrow(), operation);
         }
     }
 );
@@ -4716,6 +4806,11 @@ pub struct MacOSWindow {
     /// surface) before its content. `reveal_after_first_frame` makes it
     /// opaque again from the first `drawRect` that could draw.
     awaiting_first_frame: bool,
+    /// A node drag of this window left it and runs as the system's drag
+    /// session (`start_os_drag_if_it_left`) until `os_drag_ended`: AppKit
+    /// tracks the pointer meanwhile, so no `mouseUp:` ends the node drag, and
+    /// the window declines the session as a drop target of its own.
+    os_drag_running: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -6564,6 +6659,7 @@ impl MacOSWindow {
             applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
             webviews: None,            // made (and WebKit loaded) at the first web view
             awaiting_first_frame: false,
+            os_drag_running: false,
         };
 
         // The titlebar in the mode the window will show, before it is ever

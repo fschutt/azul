@@ -141,7 +141,7 @@ impl MacOSWindow {
     /// app-global changes (undo/redo, shared-state mutations from a second
     /// window) refreshed only the window that received the event; every other
     /// window kept rendering the stale DOM until its own next input.
-    fn convert_result_with_fanout(
+    pub(super) fn convert_result_with_fanout(
         &mut self,
         result: azul_core::events::ProcessEventResult,
     ) -> EventProcessResult {
