@@ -2537,7 +2537,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3241,7 +3241,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.4",
 ]
 
 [[package]]
@@ -9184,7 +9184,7 @@ dependencies = [
 [[package]]
 name = "printpdf"
 version = "0.12.8"
-source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#5a778da1151a5ac512320f7565e0c930ce9ccbe3"
+source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#139fac395fd95272965dfaf044225c0c18dcb3a6"
 dependencies = [
  "allsorts-azul",
  "azul-core",
@@ -13251,7 +13251,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
