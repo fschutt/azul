@@ -868,4 +868,63 @@ mod tests {
             "one long word is cut inside"
         );
     }
+
+    /// A news site's page: a header with its menu, the story in an `<article>` among share
+    /// buttons, a sidebar of other stories (many links), the comments and the footer.
+    const SITE: &str = "<html><head><title>Bulbs</title></head><body>\
+        <header><nav><a href=\"/\">Home</a> <a href=\"/garden\">Garden</a> <a href=\"/news\">News</a></nav></header>\
+        <div class=\"layout\">\
+          <div class=\"main-column\"><article class=\"story\">\
+            <h1>When to plant tulip bulbs</h1>\
+            <div class=\"share-buttons\"><a href=\"/s/fb\">Share</a> <a href=\"/s/tw\">Post</a></div>\
+            <p>Tulip bulbs go into the ground in autumn, once the soil has cooled, which in most \
+               gardens means October or early November.</p>\
+            <p>Plant them three times as deep as the bulb is tall, pointed end up, a hand's width \
+               apart, and water them once so the soil settles around them.</p>\
+            <p>In a pot, the same rules hold, but the pot needs a cold spot over winter, a \
+               garage or a north wall, or the bulbs will not flower in spring.</p>\
+          </article></div>\
+          <aside class=\"sidebar\"><h3>More stories</h3>\
+            <p><a href=\"/a\">Ten roses that survive any winter, and three that never do</a></p>\
+            <p><a href=\"/b\">The best compost bins of the year, tested in a real garden</a></p>\
+          </aside>\
+        </div>\
+        <div id=\"comments\"><p>Great article, thanks, I planted mine last week and they came up fine.</p></div>\
+        <footer><p>Copyright Garden Weekly, all rights reserved, imprint and privacy notice here.</p></footer>\
+        </body></html>";
+
+    #[test]
+    fn the_full_text_of_a_page_is_its_story_without_menu_sidebar_comments_or_footer() {
+        let a = full_article(SITE, "https://garden.example/2026/bulbs", false, true, "")
+            .expect("the page holds a story");
+        let body = text(&a);
+        assert!(body.contains("Tulip bulbs go into the ground in autumn"), "{body}");
+        assert!(body.contains("a cold spot over winter"), "{body}");
+        for gone in ["Home", "Share", "More stories", "Ten roses", "Great article", "Copyright"] {
+            assert!(!body.contains(gone), "{gone:?} is not the story: {body}");
+        }
+        assert!(a.words > 60, "{} words", a.words);
+    }
+
+    #[test]
+    fn a_page_without_a_story_gives_no_full_text() {
+        let index = "<html><body><nav><a href=\"/a\">One</a> <a href=\"/b\">Two</a></nav>\
+            <ul><li><a href=\"/c\">A story about bulbs</a></li><li><a href=\"/d\">Another one</a></li></ul>\
+            </body></html>";
+        assert!(full_article(index, "https://garden.example/", false, true, "").is_none());
+        assert!(full_article("", "https://garden.example/", false, true, "").is_none());
+    }
+
+    #[test]
+    fn a_story_without_an_article_element_is_the_block_holding_the_most_paragraph_text() {
+        let page = "<body><div id=\"menu\"><p><a href=\"/x\">Menu entry with a long enough link text</a></p></div>\
+            <div class=\"content\"><p>The first paragraph of the story, long enough to count as text.</p>\
+            <p>The second paragraph of the story, also long enough to count, with a comma, or two.</p>\
+            <p>The third paragraph says the story is over, and that is the end of it here.</p></div>\
+            </body>";
+        let a = full_article(page, "https://garden.example/", false, true, "").expect("a story");
+        let body = text(&a);
+        assert!(body.starts_with("The first paragraph"), "{body}");
+        assert!(!body.contains("Menu entry"), "{body}");
+    }
 }
