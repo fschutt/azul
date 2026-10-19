@@ -19,8 +19,9 @@
     6b. imports a stereo WAV (the file dialog mocked): its levels are read (AZVIDEOCUT_LEVELS,
        100 slices of 20 ms), Open in source and Overwrite (.) put it on A1, and at its second 1
        the meters show -6 dB;
-    6c. plays from the tone's start for 1.5 s: the meters move with the frames shown (at 10 or
-       more frames), and the tone goes to the output (a synthetic sink) at its peak of 0.5;
+    6c. plays from the tone's second 1: the meters read -6 dB at once and drop at its end
+       (frame 50) within two frames, and the tone goes to the output (a synthetic sink) at
+       its peak of 0.5;
     7. switches to flora and dark and takes a screenshot;
     8. two razor cuts right after each other (frames 25 and 75), then the window's close at
        once: the close waits for the saves, the app ends, and project.json holds the clips of
@@ -429,28 +430,36 @@ def run(args, logs, out, data_root):
         log("the tone's levels read (%d slices), on A1 the meters show -6 dB at its second 1" % slices)
 
         # 6c. Playing: the meters move with the frames shown, not with the window's 4 Hz
-        # rebuilds (each in-place move prints `METER <frame> <dB>`), and the tone is heard: the
-        # sound goes to the output (a synthetic sink headless) and its stop prints `SOUND
-        # <samples> <peak>` - at least half a second of samples, the left channel's 0.5 peak.
+        # rebuilds - each in-place move prints `METER <frame> <dB>` -, so playing from the
+        # tone's second 1 the meters read -6 dB at once and drop to silence at its end (frame
+        # 50) within two frames. And the tone is heard: its sound goes to the output (a
+        # synthetic sink headless) and the sound's end prints `SOUND <samples> <peak>`, at
+        # least half a second of samples at the left channel's 0.5 peak.
         playhead(app, lambda: app.key("home"), "Home")
+        start = playhead(app, lambda: app.key("right", shift=True), "Shift+Right into the tone")
         before = len(app.printed("METER", r"-?\d+ \S+"))
-        sound = app.next_line("SOUND", r"\d+ [\d.]+", "the sound's report at the stop")
-        app.key("space")
-        time.sleep(1.5)
+        sound = app.next_line("SOUND", r"\d+ [\d.]+", "the sound's report")
         app.key("space")
         line = sound()
+        time.sleep(0.5)
+        app.key("space")
         samples, peak = int(line.split(" ")[0]), float(line.split(" ")[1])
         if samples < 24000:
-            raise Failure("1.5 s of playing handed %d samples to the output, not 72000" % samples)
+            raise Failure("a second of the tone handed %d samples to the output, not 48000" % samples)
         if not 0.45 <= peak <= 0.55:
             raise Failure("the tone played at a peak of %.3f, not its 0.5" % peak)
-        moves = app.printed("METER", r"-?\d+ \S+")[before:]
-        frames = {int(m.split(" ")[0]) for m in moves}
-        if len(frames) < 10:
-            raise Failure("in 1.5 s of playing the meters moved at %d frames (%s): they follow "
-                          "the window's rebuilds, not the frames" % (len(frames), moves[:12]))
-        log("playing: the meters moved at %d frames, the output got %d samples at peak %.2f"
-            % (len(frames), samples, peak))
+        moves = [(int(m.split(" ")[0]), m.split(" ")[1])
+                 for m in app.printed("METER", r"-?\d+ \S+")[before:]]
+        loud = [f for f, db in moves if db == "-6"]
+        quiet = [f for f, db in moves if db == "-inf" and f >= 50]
+        if not loud or loud[0] > start + 2:
+            raise Failure("playing from frame %d the meters did not read -6 dB at once: %s"
+                          % (start, moves[:12]))
+        if not quiet or not 50 <= quiet[0] <= 52:
+            raise Failure("the meters did not drop at the tone's end (frame 50) within two "
+                          "frames: %s" % moves[:12])
+        log("playing: the meters read -6 dB at frame %d and dropped at frame %d; the output got "
+            "%d samples at peak %.2f" % (loud[0], quiet[0], samples, peak))
 
         # 7. Flora and dark.
         app.must("set_theme", theme="flora")
