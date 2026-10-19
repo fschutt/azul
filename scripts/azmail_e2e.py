@@ -686,6 +686,62 @@ class Run:
             'AZMAIL_COMPOSE_CLOSED'))
         log('a new mail saved as a draft in mail/drafts, then discarded')
 
+    def outlives_main(self):
+        """A compose window outlives the main window, as on every desktop: closing the main
+        window leaves it open, its Send still goes out, and AzMail ends with its last window.
+        Headless ended the app with its first window. Every op names the compose window: the
+        main window is gone."""
+        seen = {line.split()[0] for line in self.printed('AZMAIL_COMPOSE_OPEN')}
+        self.click('New E-mail')
+        opened = self.until('a compose window', lambda: [
+            line for line in self.printed('AZMAIL_COMPOSE_OPEN', r'\S+ new')
+            if line.split()[0] not in seen])
+        window = opened[-1].split()[0]
+        self.until('the compose window', lambda: self.shows('Untitled - Message (HTML)', window))
+        self.type_into('__azmail_compose_to', 'cleo@example.org', window)
+        self.type_into('__azmail_compose_subject', OUTLIVES_SUBJECT, window)
+        self.must('close', 'azmail-main')
+        self.frame(window, 3)
+
+        def listed():
+            answer = self.must('list_windows', window)
+            data = answer.get('data') if isinstance(answer, dict) else None
+            value = data.get('value') if isinstance(data, dict) and 'value' in data else data
+            return [w.get('window_id') for w in (value or {}).get('windows') or []]
+        self.until('the main window to close', lambda: 'azmail-main' not in listed(), limit=20)
+        if window not in listed():
+            raise Failure(f'the compose window closed with the main window: {listed()}')
+        log(f'the main window closed, {window} stays open')
+        self.click_id('__azmail_compose_send', window)
+        sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
+                                               if line.startswith(window + ' ')], limit=60)
+        if sent[-1].split(' ', 2)[1] != 'sent':
+            raise Failure(f'the mail was not sent after the main window closed: {sent[-1]}')
+
+        def stored():
+            for name in sorted(os.listdir(self.sink_dir)):
+                if name.endswith('.eml'):
+                    with open(os.path.join(self.sink_dir, name), 'rb') as f:
+                        msg = email.message_from_bytes(f.read(), policy=email.policy.default)
+                    if msg['Subject'] == OUTLIVES_SUBJECT:
+                        return True
+            return False
+        self.until('the sink to store the mail sent after the main window closed', stored)
+        # The window closes after its send; that was the last window, so AzMail ends. The
+        # waits below do not use `until`, which fails when AzMail exits.
+        app = next(child for name, child in self.children if name == 'azmail')
+        deadline = time.time() + 20
+        while app.poll() is None and time.time() < deadline:
+            time.sleep(0.25)
+        if window not in self.printed('AZMAIL_COMPOSE_CLOSED'):
+            raise Failure('the compose window did not close after its send')
+        if app.poll() is None:
+            raise Failure('AzMail stays up with no window left')
+        if app.returncode != 0:
+            raise Failure(f'AzMail exited {app.returncode} after its last window closed')
+        log('sent from the compose window after the main window closed; AzMail ended with '
+            'its last window')
+
     def check_secret(self):
         secret = self.password.encode()
         for dirpath, _, files in os.walk(self.data):
@@ -709,6 +765,11 @@ class Run:
         self.check_sent()
         self.draft()
         self.check_secret()
+        self.outlives_main()
+
+
+# The mail sent from a compose window after the main window closed (AP-06g).
+OUTLIVES_SUBJECT = 'Sent after the main window closed'
 
 
 # ---- the sample phase (MAIL6): the look and the app-kit flows, no servers ----
