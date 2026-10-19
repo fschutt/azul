@@ -290,6 +290,7 @@ static AzCssPropertyWithConditionsVec style_effects(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr((AzStyleBackgroundSize[]){ AzStyleBackgroundSize_cover() }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClipVec_copyFromPtr((AzStyleBackgroundClip[]){ AzStyleBackgroundClip_PaddingBox }, 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundOrigin(AzStyleBackgroundOriginVec_copyFromPtr((AzStyleBackgroundOrigin[]){ AzStyleBackgroundOrigin_ContentBox }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr((AzStyleTransform[]){ AzStyleTransform_rotate((AzAngleValue){ .metric = AzAngleMetric_Degree, .number = AzFloatValue_create(45.0f) }) }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin((AzStyleTransformOrigin){ .x = AzPixelValue_percent(50.0f), .y = AzPixelValue_percent(50.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin((AzStylePerspectiveOrigin){ .x = AzPixelValue_px(10.0f), .y = AzPixelValue_px(20.0f) })),
@@ -298,7 +299,7 @@ static AzCssPropertyWithConditionsVec style_effects(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_grayscale((AzPercentageValue){ .number = AzFloatValue_create(50.0f) }) }, 1) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode((AzStyleMixBlendModeValue){ .Exact = { .tag = AzStyleMixBlendModeValue_Tag_Exact, .payload = AzStyleMixBlendMode_Multiply } })),
         },
-        12
+        13
     );
 }
 
@@ -361,11 +362,13 @@ static AzCssPropertyWithConditionsVec style_content(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_content((AzContent){ .inner = AzString_copyFromBytes((const uint8_t*)"\"Hello\"", 0, 7) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_counterReset((AzCounterReset){ .counters = AzCounterEntryVec_copyFromPtr((AzCounterEntry[]){ (AzCounterEntry){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 1 } }, 1) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement((AzCounterIncrement){ .counters = AzCounterEntryVec_copyFromPtr((AzCounterEntry[]){ (AzCounterEntry){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 1 } }, 1) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_counterSet((AzCounterSet){ .counters = AzCounterEntryVec_copyFromPtr((AzCounterEntry[]){ (AzCounterEntry){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 3 } }, 1) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_quotes((AzStyleQuotes){ .inner = AzString_copyFromBytes((const uint8_t*)"\"<<\" \">>\"", 0, 9) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_upperRoman())),
             AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside)),
             AzCssPropertyWithConditions_simple(AzCssProperty_stringSet((AzStringSet){ .inner = AzString_copyFromBytes((const uint8_t*)"title \"Chapter\"", 0, 15) })),
         },
-        6
+        8
     );
 }
 

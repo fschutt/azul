@@ -251,32 +251,35 @@ package body Styles is
       t3 : aliased array (0 .. 0) of Az_StyleBackgroundSize;
       t4 : aliased array (0 .. 0) of Az_StyleBackgroundRepeat;
       t5 : aliased array (0 .. 0) of Az_StyleBackgroundClip;
-      t6 : aliased array (0 .. 0) of Az_StyleTransform;
-      t7 : aliased array (0 .. 0) of Az_StyleFilter;
+      t6 : aliased array (0 .. 0) of Az_StyleBackgroundOrigin;
+      t7 : aliased array (0 .. 0) of Az_StyleTransform;
       t8 : aliased array (0 .. 0) of Az_StyleFilter;
-      t9 : aliased array (0 .. 11) of Az_CssPropertyWithConditions;
+      t9 : aliased array (0 .. 0) of Az_StyleFilter;
+      t10 : aliased array (0 .. 12) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_StyleBackgroundContent_Color (Az_ColorU'(R => 250, G => 250, B => 250, A => 255));
       t2 (0) := Az_StyleBackgroundPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Center);
       t3 (0) := Az_StyleBackgroundSize_Cover;
       t4 (0) := Az_StyleBackgroundRepeat'(NoRepeat);
       t5 (0) := Az_StyleBackgroundClip'(PaddingBox);
-      t6 (0) := Az_StyleTransform_Rotate (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (45.0)));
-      t7 (0) := Az_StyleFilter_Blur (Az_StyleBlur'(Width => Az_PixelValue_Px (2.0), Height => Az_PixelValue_Px (2.0)));
-      t8 (0) := Az_StyleFilter_Grayscale (Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)));
-      t9 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t1 (0)'Address, 1)));
-      t9 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Position (Az_StyleBackgroundPositionVec_Copy_From_Ptr (t2 (0)'Address, 1)));
-      t9 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Size (Az_StyleBackgroundSizeVec_Copy_From_Ptr (t3 (0)'Address, 1)));
-      t9 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Repeat (Az_StyleBackgroundRepeatVec_Copy_From_Ptr (t4 (0)'Address, 1)));
-      t9 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Clip (Az_StyleBackgroundClipVec_Copy_From_Ptr (t5 (0)'Address, 1)));
-      t9 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t6 (0)'Address, 1)));
-      t9 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform_Origin (Az_StyleTransformOrigin'(X => Az_PixelValue_Percent (50.0), Y => Az_PixelValue_Percent (50.0))));
-      t9 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Perspective_Origin (Az_StylePerspectiveOrigin'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0))));
-      t9 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backface_Visibility (Az_StyleBackfaceVisibility'(Hidden)));
-      t9 (9) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t7 (0)'Address, 1))));
-      t9 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t8 (0)'Address, 1))));
-      t9 (11) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Mix_Blend_Mode (Az_StyleMixBlendModeValue'(Tag => Exact, Payload_Exact => Az_StyleMixBlendMode'(Multiply))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t9 (0)'Address, 12);
+      t6 (0) := Az_StyleBackgroundOrigin'(ContentBox);
+      t7 (0) := Az_StyleTransform_Rotate (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (45.0)));
+      t8 (0) := Az_StyleFilter_Blur (Az_StyleBlur'(Width => Az_PixelValue_Px (2.0), Height => Az_PixelValue_Px (2.0)));
+      t9 (0) := Az_StyleFilter_Grayscale (Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)));
+      t10 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t1 (0)'Address, 1)));
+      t10 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Position (Az_StyleBackgroundPositionVec_Copy_From_Ptr (t2 (0)'Address, 1)));
+      t10 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Size (Az_StyleBackgroundSizeVec_Copy_From_Ptr (t3 (0)'Address, 1)));
+      t10 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Repeat (Az_StyleBackgroundRepeatVec_Copy_From_Ptr (t4 (0)'Address, 1)));
+      t10 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Clip (Az_StyleBackgroundClipVec_Copy_From_Ptr (t5 (0)'Address, 1)));
+      t10 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Origin (Az_StyleBackgroundOriginVec_Copy_From_Ptr (t6 (0)'Address, 1)));
+      t10 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t7 (0)'Address, 1)));
+      t10 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform_Origin (Az_StyleTransformOrigin'(X => Az_PixelValue_Percent (50.0), Y => Az_PixelValue_Percent (50.0))));
+      t10 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Perspective_Origin (Az_StylePerspectiveOrigin'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0))));
+      t10 (9) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backface_Visibility (Az_StyleBackfaceVisibility'(Hidden)));
+      t10 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t8 (0)'Address, 1))));
+      t10 (11) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t9 (0)'Address, 1))));
+      t10 (12) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Mix_Blend_Mode (Az_StyleMixBlendModeValue'(Tag => Exact, Payload_Exact => Az_StyleMixBlendMode'(Multiply))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t10 (0)'Address, 13);
    end Style_Effects;
 
    --  CSS: .fragment
@@ -329,17 +332,21 @@ package body Styles is
    function Style_Content return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 0) of Az_CounterEntry;
       t2 : aliased array (0 .. 0) of Az_CounterEntry;
-      t3 : aliased array (0 .. 5) of Az_CssPropertyWithConditions;
+      t3 : aliased array (0 .. 0) of Az_CounterEntry;
+      t4 : aliased array (0 .. 7) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_CounterEntry'(Counter_Name => To_Az_String ("section"), Value => 1);
       t2 (0) := Az_CounterEntry'(Counter_Name => To_Az_String ("section"), Value => 1);
-      t3 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""Hello"""))));
-      t3 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Reset (Az_CounterReset'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t1 (0)'Address, 1))));
-      t3 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Increment (Az_CounterIncrement'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t2 (0)'Address, 1))));
-      t3 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Type (Az_StyleListStyleType_Upper_Roman));
-      t3 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Position (Az_StyleListStylePosition'(Inside)));
-      t3 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_String_Set (Az_StringSet'(Inner => To_Az_String ("title ""Chapter"""))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t3 (0)'Address, 6);
+      t3 (0) := Az_CounterEntry'(Counter_Name => To_Az_String ("section"), Value => 3);
+      t4 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""Hello"""))));
+      t4 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Reset (Az_CounterReset'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t1 (0)'Address, 1))));
+      t4 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Increment (Az_CounterIncrement'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t2 (0)'Address, 1))));
+      t4 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Counter_Set (Az_CounterSet'(Counters => Az_CounterEntryVec_Copy_From_Ptr (t3 (0)'Address, 1))));
+      t4 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Quotes (Az_StyleQuotes'(Inner => To_Az_String ("""<<"" "">>"""))));
+      t4 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Type (Az_StyleListStyleType_Upper_Roman));
+      t4 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_List_Style_Position (Az_StyleListStylePosition'(Inside)));
+      t4 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_String_Set (Az_StringSet'(Inner => To_Az_String ("title ""Chapter"""))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t4 (0)'Address, 8);
    end Style_Content;
 
    --  CSS: .anim

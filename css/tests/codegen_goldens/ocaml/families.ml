@@ -299,6 +299,7 @@ let style_effects () =
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundSize (azStyleBackgroundSizeVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_size [(azStyleBackgroundSize_cover ())])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundRepeat (azStyleBackgroundRepeatVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_repeat [(StyleBackgroundRepeat.to_int StyleBackgroundRepeat.NoRepeat)])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundClip (azStyleBackgroundClipVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_clip [(StyleBackgroundClip.to_int StyleBackgroundClip.PaddingBox)])) (Unsigned.Size_t.of_int 1))));
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundOrigin (azStyleBackgroundOriginVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_origin [(StyleBackgroundOrigin.to_int StyleBackgroundOrigin.ContentBox)])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_transform (azStyleTransformVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_transform [(azStyleTransform_rotate (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 45.0)) ]))])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_transformOrigin (az_struct az_style_transform_origin [ (fun v -> Ctypes.setf v az_style_transform_origin_field_x (azPixelValue_percent 50.0)); (fun v -> Ctypes.setf v az_style_transform_origin_field_y (azPixelValue_percent 50.0)) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_perspectiveOrigin (az_struct az_style_perspective_origin [ (fun v -> Ctypes.setf v az_style_perspective_origin_field_x (azPixelValue_px 10.0)); (fun v -> Ctypes.setf v az_style_perspective_origin_field_y (azPixelValue_px 20.0)) ])));
@@ -306,7 +307,7 @@ let style_effects () =
     (azCssPropertyWithConditions_simple (azCssProperty_filter (az_union az_style_filter_vec_value 6 (Some (az_payload az_style_filter_vec (azStyleFilterVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_filter [(azStyleFilter_blur (az_struct az_style_blur [ (fun v -> Ctypes.setf v az_style_blur_field_width (azPixelValue_px 2.0)); (fun v -> Ctypes.setf v az_style_blur_field_height (azPixelValue_px 2.0)) ]))])) (Unsigned.Size_t.of_int 1)))))));
     (azCssPropertyWithConditions_simple (azCssProperty_backdropFilter (az_union az_style_filter_vec_value 6 (Some (az_payload az_style_filter_vec (azStyleFilterVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_filter [(azStyleFilter_grayscale (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 50.0)) ]))])) (Unsigned.Size_t.of_int 1)))))));
     (azCssPropertyWithConditions_simple (azCssProperty_mixBlendMode (az_union az_style_mix_blend_mode_value 6 (Some (az_payload az_style_mix_blend_mode (StyleMixBlendMode.to_int StyleMixBlendMode.Multiply))))))
-  ])) (Unsigned.Size_t.of_int 12))
+  ])) (Unsigned.Size_t.of_int 13))
 
 (* CSS: .fragment *)
 let style_fragment () =
@@ -354,10 +355,12 @@ let style_content () =
     (azCssPropertyWithConditions_simple (azCssProperty_content (az_struct az_content [ (fun v -> Ctypes.setf v az_content_field_inner (azul_az_string "\"Hello\"")) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_counterReset (az_struct az_counter_reset [ (fun v -> Ctypes.setf v az_counter_reset_field_counters (azCounterEntryVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_counter_entry [(az_struct az_counter_entry [ (fun v -> Ctypes.setf v az_counter_entry_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_entry_field_value 1l) ])])) (Unsigned.Size_t.of_int 1))) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_counterIncrement (az_struct az_counter_increment [ (fun v -> Ctypes.setf v az_counter_increment_field_counters (azCounterEntryVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_counter_entry [(az_struct az_counter_entry [ (fun v -> Ctypes.setf v az_counter_entry_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_entry_field_value 1l) ])])) (Unsigned.Size_t.of_int 1))) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_counterSet (az_struct az_counter_set [ (fun v -> Ctypes.setf v az_counter_set_field_counters (azCounterEntryVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_counter_entry [(az_struct az_counter_entry [ (fun v -> Ctypes.setf v az_counter_entry_field_counter_name (azul_az_string "section")); (fun v -> Ctypes.setf v az_counter_entry_field_value 3l) ])])) (Unsigned.Size_t.of_int 1))) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_quotes (az_struct az_style_quotes [ (fun v -> Ctypes.setf v az_style_quotes_field_inner (azul_az_string "\"<<\" \">>\"")) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_listStyleType (azStyleListStyleType_upperRoman ())));
     (azCssPropertyWithConditions_simple (azCssProperty_listStylePosition (StyleListStylePosition.to_int StyleListStylePosition.Inside)));
     (azCssPropertyWithConditions_simple (azCssProperty_stringSet (az_struct az_string_set [ (fun v -> Ctypes.setf v az_string_set_field_inner (azul_az_string "title \"Chapter\"")) ])))
-  ])) (Unsigned.Size_t.of_int 6))
+  ])) (Unsigned.Size_t.of_int 8))
 
 (* CSS: .anim *)
 let style_anim () =

@@ -332,6 +332,7 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_background_size(AzulCodegen.vec(:az_style_background_size_vec_copy_from_ptr, N::AzStyleBackgroundSize, N.az_style_background_size_cover()))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_repeat(AzulCodegen.vec(:az_style_background_repeat_vec_copy_from_ptr, nil, N::AzStyleBackgroundRepeat::NoRepeat))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_clip(AzulCodegen.vec(:az_style_background_clip_vec_copy_from_ptr, nil, N::AzStyleBackgroundClip::PaddingBox))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_origin(AzulCodegen.vec(:az_style_background_origin_vec_copy_from_ptr, nil, N::AzStyleBackgroundOrigin::ContentBox))),
       N.az_css_property_with_conditions_simple(N.az_css_property_transform(AzulCodegen.vec(:az_style_transform_vec_copy_from_ptr, N::AzStyleTransform, N.az_style_transform_rotate(AzulCodegen.struct(N::AzAngleValue, metric: N::AzAngleMetric::Degree, number: N.az_float_value_create(45.0)))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_transform_origin(AzulCodegen.struct(N::AzStyleTransformOrigin, x: N.az_pixel_value_percent(50.0), y: N.az_pixel_value_percent(50.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_perspective_origin(AzulCodegen.struct(N::AzStylePerspectiveOrigin, x: N.az_pixel_value_px(10.0), y: N.az_pixel_value_px(20.0)))),
@@ -399,6 +400,8 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_content(AzulCodegen.struct(N::AzContent, inner: Azul._az_string("\"Hello\"")))),
       N.az_css_property_with_conditions_simple(N.az_css_property_counter_reset(AzulCodegen.struct(N::AzCounterReset, counters: AzulCodegen.vec(:az_counter_entry_vec_copy_from_ptr, N::AzCounterEntry, AzulCodegen.struct(N::AzCounterEntry, counter_name: Azul._az_string("section"), value: 1))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_counter_increment(AzulCodegen.struct(N::AzCounterIncrement, counters: AzulCodegen.vec(:az_counter_entry_vec_copy_from_ptr, N::AzCounterEntry, AzulCodegen.struct(N::AzCounterEntry, counter_name: Azul._az_string("section"), value: 1))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_counter_set(AzulCodegen.struct(N::AzCounterSet, counters: AzulCodegen.vec(:az_counter_entry_vec_copy_from_ptr, N::AzCounterEntry, AzulCodegen.struct(N::AzCounterEntry, counter_name: Azul._az_string("section"), value: 3))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_quotes(AzulCodegen.struct(N::AzStyleQuotes, inner: Azul._az_string("\"<<\" \">>\"")))),
       N.az_css_property_with_conditions_simple(N.az_css_property_list_style_type(N.az_style_list_style_type_upper_roman())),
       N.az_css_property_with_conditions_simple(N.az_css_property_list_style_position(N::AzStyleListStylePosition::Inside)),
       N.az_css_property_with_conditions_simple(N.az_css_property_string_set(AzulCodegen.struct(N::AzStringSet, inner: Azul._az_string("title \"Chapter\""))))

@@ -269,6 +269,7 @@ fun styleEffects(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(azVec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover()))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(azVecInts(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundClip(azVecInts(AzulNativeVec::AzStyleBackgroundClipVec_copyFromPtr, StyleBackgroundClip.PaddingBox.value))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundOrigin(azVecInts(AzulNativeVec::AzStyleBackgroundOriginVec_copyFromPtr, StyleBackgroundOrigin.ContentBox.value))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_transform(azVec(AzulNativeVec::AzStyleTransformVec_copyFromPtr, AzulNativeCss.AzStyleTransform_rotate(AzAngleValue.ByValue().apply { metric = AngleMetric.Degree.value; number = AzulNativeCss.AzFloatValue_create(45.0f) })))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_transformOrigin(AzStyleTransformOrigin.ByValue().apply { x = AzulNativeCss.AzPixelValue_percent(50.0f); y = AzulNativeCss.AzPixelValue_percent(50.0f) })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_perspectiveOrigin(AzStylePerspectiveOrigin.ByValue().apply { x = AzulNativeCss.AzPixelValue_px(10.0f); y = AzulNativeCss.AzPixelValue_px(20.0f) })),
@@ -332,6 +333,8 @@ fun styleContent(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_content(AzContent.ByValue().apply { inner = azStr("\"Hello\"") })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterReset(AzCounterReset.ByValue().apply { counters = azVec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzCounterEntry.ByValue().apply { counter_name = azStr("section"); value = 1 }) })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterIncrement(AzCounterIncrement.ByValue().apply { counters = azVec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzCounterEntry.ByValue().apply { counter_name = azStr("section"); value = 1 }) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_counterSet(AzCounterSet.ByValue().apply { counters = azVec(AzulNativeVec::AzCounterEntryVec_copyFromPtr, AzCounterEntry.ByValue().apply { counter_name = azStr("section"); value = 3 }) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_quotes(AzStyleQuotes.ByValue().apply { inner = azStr("\"<<\" \">>\"") })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStyleType(AzulNativeCss.AzStyleListStyleType_upperRoman())),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_listStylePosition(StyleListStylePosition.Inside.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_stringSet(AzStringSet.ByValue().apply { inner = azStr("title \"Chapter\"") }))

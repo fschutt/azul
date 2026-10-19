@@ -200,6 +200,7 @@ styleScroll = sequence
 -- dropped a value these bindings cannot build: a StyleBackgroundSizeVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundRepeatVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundClipVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a StyleBackgroundOriginVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleTransformVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
@@ -259,6 +260,8 @@ styleTable = sequence
 -- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a CounterEntryVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a CounterEntryVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a CounterEntryVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 styleContent :: IO [CssPropertyWithConditions]
 styleContent = sequence

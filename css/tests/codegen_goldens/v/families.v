@@ -218,31 +218,34 @@ fn style_effects() azul.AzCssPropertyWithConditionsVec {
 	mut t3 := [1]azul.AzStyleBackgroundSize{}
 	mut t4 := [1]azul.AzStyleBackgroundRepeat{}
 	mut t5 := [1]azul.AzStyleBackgroundClip{}
-	mut t6 := [1]azul.AzStyleTransform{}
-	mut t7 := [1]azul.AzStyleFilter{}
+	mut t6 := [1]azul.AzStyleBackgroundOrigin{}
+	mut t7 := [1]azul.AzStyleTransform{}
 	mut t8 := [1]azul.AzStyleFilter{}
-	mut t9 := [12]azul.AzCssPropertyWithConditions{}
+	mut t9 := [1]azul.AzStyleFilter{}
+	mut t10 := [13]azul.AzCssPropertyWithConditions{}
 	t1[0] = C.AzStyleBackgroundContent_color(azul.AzColorU{ r: 250, g: 250, b: 250, a: 255 })
 	t2[0] = azul.AzStyleBackgroundPosition{ horizontal: C.AzBackgroundPositionHorizontal_center(), vertical: C.AzBackgroundPositionVertical_center() }
 	t3[0] = C.AzStyleBackgroundSize_cover()
 	t4[0] = azul.AzStyleBackgroundRepeat.NoRepeat
 	t5[0] = azul.AzStyleBackgroundClip.PaddingBox
-	t6[0] = C.AzStyleTransform_rotate(azul.AzAngleValue{ metric: azul.AzAngleMetric.Degree, number: C.AzFloatValue_create(45.0) })
-	t7[0] = C.AzStyleFilter_blur(azul.AzStyleBlur{ width: C.AzPixelValue_px(2.0), height: C.AzPixelValue_px(2.0) })
-	t8[0] = C.AzStyleFilter_grayscale(azul.AzPercentageValue{ number: C.AzFloatValue_create(50.0) })
-	t9[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(unsafe { &t1[0] }, 1)))
-	t9[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(unsafe { &t2[0] }, 1)))
-	t9[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(unsafe { &t3[0] }, 1)))
-	t9[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(unsafe { &t4[0] }, 1)))
-	t9[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClipVec_copyFromPtr(unsafe { &t5[0] }, 1)))
-	t9[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(unsafe { &t6[0] }, 1)))
-	t9[6] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{ x: C.AzPixelValue_percent(50.0), y: C.AzPixelValue_percent(50.0) }))
-	t9[7] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{ x: C.AzPixelValue_px(10.0), y: C.AzPixelValue_px(20.0) }))
-	t9[8] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backfaceVisibility(azul.AzStyleBackfaceVisibility.Hidden))
-	t9[9] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(azul.AzStyleFilterVecValue{ Exact: azul.AzStyleFilterVecValueVariant_Exact{ tag: 6, payload: C.AzStyleFilterVec_copyFromPtr(unsafe { &t7[0] }, 1) } }))
-	t9[10] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(azul.AzStyleFilterVecValue{ Exact: azul.AzStyleFilterVecValueVariant_Exact{ tag: 6, payload: C.AzStyleFilterVec_copyFromPtr(unsafe { &t8[0] }, 1) } }))
-	t9[11] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(azul.AzStyleMixBlendModeValue{ Exact: azul.AzStyleMixBlendModeValueVariant_Exact{ tag: 6, payload: azul.AzStyleMixBlendMode.Multiply } }))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t9[0] }, 12)
+	t6[0] = azul.AzStyleBackgroundOrigin.ContentBox
+	t7[0] = C.AzStyleTransform_rotate(azul.AzAngleValue{ metric: azul.AzAngleMetric.Degree, number: C.AzFloatValue_create(45.0) })
+	t8[0] = C.AzStyleFilter_blur(azul.AzStyleBlur{ width: C.AzPixelValue_px(2.0), height: C.AzPixelValue_px(2.0) })
+	t9[0] = C.AzStyleFilter_grayscale(azul.AzPercentageValue{ number: C.AzFloatValue_create(50.0) })
+	t10[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(unsafe { &t1[0] }, 1)))
+	t10[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(unsafe { &t2[0] }, 1)))
+	t10[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(unsafe { &t3[0] }, 1)))
+	t10[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(unsafe { &t4[0] }, 1)))
+	t10[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClipVec_copyFromPtr(unsafe { &t5[0] }, 1)))
+	t10[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundOrigin(C.AzStyleBackgroundOriginVec_copyFromPtr(unsafe { &t6[0] }, 1)))
+	t10[6] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(unsafe { &t7[0] }, 1)))
+	t10[7] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{ x: C.AzPixelValue_percent(50.0), y: C.AzPixelValue_percent(50.0) }))
+	t10[8] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{ x: C.AzPixelValue_px(10.0), y: C.AzPixelValue_px(20.0) }))
+	t10[9] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backfaceVisibility(azul.AzStyleBackfaceVisibility.Hidden))
+	t10[10] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(azul.AzStyleFilterVecValue{ Exact: azul.AzStyleFilterVecValueVariant_Exact{ tag: 6, payload: C.AzStyleFilterVec_copyFromPtr(unsafe { &t8[0] }, 1) } }))
+	t10[11] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(azul.AzStyleFilterVecValue{ Exact: azul.AzStyleFilterVecValueVariant_Exact{ tag: 6, payload: C.AzStyleFilterVec_copyFromPtr(unsafe { &t9[0] }, 1) } }))
+	t10[12] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(azul.AzStyleMixBlendModeValue{ Exact: azul.AzStyleMixBlendModeValueVariant_Exact{ tag: 6, payload: azul.AzStyleMixBlendMode.Multiply } }))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t10[0] }, 13)
 }
 
 // CSS: .fragment
@@ -292,16 +295,20 @@ fn style_table() azul.AzCssPropertyWithConditionsVec {
 fn style_content() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [1]azul.AzCounterEntry{}
 	mut t2 := [1]azul.AzCounterEntry{}
-	mut t3 := [6]azul.AzCssPropertyWithConditions{}
+	mut t3 := [1]azul.AzCounterEntry{}
+	mut t4 := [8]azul.AzCssPropertyWithConditions{}
 	t1[0] = azul.AzCounterEntry{ counter_name: azul.az_str('section'), value: 1 }
 	t2[0] = azul.AzCounterEntry{ counter_name: azul.az_str('section'), value: 1 }
-	t3[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(azul.AzContent{ inner: azul.az_str('"Hello"') }))
-	t3[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(azul.AzCounterReset{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t1[0] }, 1) }))
-	t3[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(azul.AzCounterIncrement{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t2[0] }, 1) }))
-	t3[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman()))
-	t3[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(azul.AzStyleListStylePosition.Inside))
-	t3[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(azul.AzStringSet{ inner: azul.az_str('title "Chapter"') }))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 6)
+	t3[0] = azul.AzCounterEntry{ counter_name: azul.az_str('section'), value: 3 }
+	t4[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(azul.AzContent{ inner: azul.az_str('"Hello"') }))
+	t4[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(azul.AzCounterReset{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t1[0] }, 1) }))
+	t4[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(azul.AzCounterIncrement{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t2[0] }, 1) }))
+	t4[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterSet(azul.AzCounterSet{ counters: C.AzCounterEntryVec_copyFromPtr(unsafe { &t3[0] }, 1) }))
+	t4[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_quotes(azul.AzStyleQuotes{ inner: azul.az_str('"<<" ">>"') }))
+	t4[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman()))
+	t4[6] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(azul.AzStyleListStylePosition.Inside))
+	t4[7] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(azul.AzStringSet{ inner: azul.az_str('title "Chapter"') }))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t4[0] }, 8)
 }
 
 // CSS: .anim

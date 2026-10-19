@@ -192,6 +192,7 @@ pub const FAMILIES: &str = r#"
     background-size: cover;
     background-repeat: no-repeat;
     background-clip: padding-box;
+    background-origin: content-box;
     transform: rotate(45deg);
     transform-origin: 50% 50%;
     perspective-origin: 10px 20px;
@@ -236,6 +237,8 @@ pub const FAMILIES: &str = r#"
     content: "Hello";
     counter-reset: section 1;
     counter-increment: section;
+    counter-set: section 3;
+    quotes: "<<" ">>";
     list-style-type: upper-roman;
     list-style-position: inside;
     string-set: title "Chapter";

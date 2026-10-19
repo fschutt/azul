@@ -327,24 +327,27 @@ BEGIN
    [1] AZSTYLEBACKGROUNDSIZE t3;
    [1] AZSTYLEBACKGROUNDREPEAT t4;
    [1] AZSTYLEBACKGROUNDCLIP t5;
-   [1] AZSTYLETRANSFORM t6;
-   [9] AZCSSPROPERTYWITHCONDITIONS t7;
+   [1] AZSTYLEBACKGROUNDORIGIN t6;
+   [1] AZSTYLETRANSFORM t7;
+   [10] AZCSSPROPERTYWITHCONDITIONS t8;
    t1[1] := az style background content color (AZCOLORU (REPR 250, REPR 250, REPR 250, REPR 255));
    t2[1] := AZSTYLEBACKGROUNDPOSITION (az background position horizontal center, az background position vertical center);
    t3[1] := az style background size cover;
    t4[1] := style background repeat no repeat;
    t5[1] := style background clip padding box;
-   t6[1] := az style transform rotate (AZANGLEVALUE (angle metric degree, az float value create (45.0)));
-   t7[1] := az css property with conditions simple (az css property background content (az style background content vec copy from ptr (t1[1], LENG 1)));
-   t7[2] := az css property with conditions simple (az css property background position (az style background position vec copy from ptr (t2[1], LENG 1)));
-   t7[3] := az css property with conditions simple (az css property background size (az style background size vec copy from ptr (t3[1], LENG 1)));
-   t7[4] := az css property with conditions simple (az css property background repeat (az style background repeat vec copy from ptr (t4[1], LENG 1)));
-   t7[5] := az css property with conditions simple (az css property background clip (az style background clip vec copy from ptr (t5[1], LENG 1)));
-   t7[6] := az css property with conditions simple (az css property transform (az style transform vec copy from ptr (t6[1], LENG 1)));
-   t7[7] := az css property with conditions simple (az css property transform origin (AZSTYLETRANSFORMORIGIN (az pixel value percent (50.0), az pixel value percent (50.0))));
-   t7[8] := az css property with conditions simple (az css property perspective origin (AZSTYLEPERSPECTIVEORIGIN (az pixel value px (10.0), az pixel value px (20.0))));
-   t7[9] := az css property with conditions simple (az css property backface visibility (style backface visibility hidden));
-   az css property with conditions vec copy from ptr (t7[1], LENG 9)
+   t6[1] := style background origin content box;
+   t7[1] := az style transform rotate (AZANGLEVALUE (angle metric degree, az float value create (45.0)));
+   t8[1] := az css property with conditions simple (az css property background content (az style background content vec copy from ptr (t1[1], LENG 1)));
+   t8[2] := az css property with conditions simple (az css property background position (az style background position vec copy from ptr (t2[1], LENG 1)));
+   t8[3] := az css property with conditions simple (az css property background size (az style background size vec copy from ptr (t3[1], LENG 1)));
+   t8[4] := az css property with conditions simple (az css property background repeat (az style background repeat vec copy from ptr (t4[1], LENG 1)));
+   t8[5] := az css property with conditions simple (az css property background clip (az style background clip vec copy from ptr (t5[1], LENG 1)));
+   t8[6] := az css property with conditions simple (az css property background origin (az style background origin vec copy from ptr (t6[1], LENG 1)));
+   t8[7] := az css property with conditions simple (az css property transform (az style transform vec copy from ptr (t7[1], LENG 1)));
+   t8[8] := az css property with conditions simple (az css property transform origin (AZSTYLETRANSFORMORIGIN (az pixel value percent (50.0), az pixel value percent (50.0))));
+   t8[9] := az css property with conditions simple (az css property perspective origin (AZSTYLEPERSPECTIVEORIGIN (az pixel value px (10.0), az pixel value px (20.0))));
+   t8[10] := az css property with conditions simple (az css property backface visibility (style backface visibility hidden));
+   az css property with conditions vec copy from ptr (t8[1], LENG 10)
 END;
 
 # CSS: .fragment #
@@ -415,21 +418,29 @@ BEGIN
    AZCOUNTERRESET t3;
    [1] AZCOUNTERENTRY t4;
    AZCOUNTERINCREMENT t5;
-   AZSTRINGSET t6;
-   [6] AZCSSPROPERTYWITHCONDITIONS t7;
+   [1] AZCOUNTERENTRY t6;
+   AZCOUNTERSET t7;
+   AZSTYLEQUOTES t8;
+   AZSTRINGSET t9;
+   [8] AZCSSPROPERTYWITHCONDITIONS t10;
    inner OF t1 := css str ("""Hello""");
    t2[1] := AZCOUNTERENTRY (css str ("section"), 1);
    counters OF t3 := az counter entry vec copy from ptr (t2[1], LENG 1);
    t4[1] := AZCOUNTERENTRY (css str ("section"), 1);
    counters OF t5 := az counter entry vec copy from ptr (t4[1], LENG 1);
-   inner OF t6 := css str ("title ""Chapter""");
-   t7[1] := az css property with conditions simple (az css property content (t1));
-   t7[2] := az css property with conditions simple (az css property counter reset (t3));
-   t7[3] := az css property with conditions simple (az css property counter increment (t5));
-   t7[4] := az css property with conditions simple (az css property list style type (az style list style type upper roman));
-   t7[5] := az css property with conditions simple (az css property list style position (style list style position inside));
-   t7[6] := az css property with conditions simple (az css property string set (t6));
-   az css property with conditions vec copy from ptr (t7[1], LENG 6)
+   t6[1] := AZCOUNTERENTRY (css str ("section"), 3);
+   counters OF t7 := az counter entry vec copy from ptr (t6[1], LENG 1);
+   inner OF t8 := css str ("""<<"" "">>""");
+   inner OF t9 := css str ("title ""Chapter""");
+   t10[1] := az css property with conditions simple (az css property content (t1));
+   t10[2] := az css property with conditions simple (az css property counter reset (t3));
+   t10[3] := az css property with conditions simple (az css property counter increment (t5));
+   t10[4] := az css property with conditions simple (az css property counter set (t7));
+   t10[5] := az css property with conditions simple (az css property quotes (t8));
+   t10[6] := az css property with conditions simple (az css property list style type (az style list style type upper roman));
+   t10[7] := az css property with conditions simple (az css property list style position (style list style position inside));
+   t10[8] := az css property with conditions simple (az css property string set (t9));
+   az css property with conditions vec copy from ptr (t10[1], LENG 8)
 END;
 
 # CSS: .anim #

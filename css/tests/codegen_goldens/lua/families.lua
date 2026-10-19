@@ -272,12 +272,13 @@ end
 -- CSS: .effects
 -- dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 function M.style_effects()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[12]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[13]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 250, g = 250, b = 250, a = 255 })) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClipVec_copyFromPtr(ffi.new('AzStyleBackgroundClip[1]', { C.AzStyleBackgroundClip_PaddingBox }), 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundOrigin(C.AzStyleBackgroundOriginVec_copyFromPtr(ffi.new('AzStyleBackgroundOrigin[1]', { C.AzStyleBackgroundOrigin_ContentBox }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(ffi.new('AzStyleTransform[1]', { C.AzStyleTransform_rotate(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(45.0) })) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(ffi.new('AzStyleTransformOrigin', { x = C.AzPixelValue_percent(50.0), y = C.AzPixelValue_percent(50.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(ffi.new('AzStylePerspectiveOrigin', { x = C.AzPixelValue_px(10.0), y = C.AzPixelValue_px(20.0) }))),
@@ -285,7 +286,7 @@ function M.style_effects()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_blur(ffi.new('AzStyleBlur', { width = C.AzPixelValue_px(2.0), height = C.AzPixelValue_px(2.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_grayscale(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(ffi.new('AzStyleMixBlendModeValue', { Exact = { tag = 6, payload = C.AzStyleMixBlendMode_Multiply } }))),
-    }), 12)
+    }), 13)
 end
 
 -- CSS: .fragment
@@ -333,14 +334,16 @@ end
 
 -- CSS: .content
 function M.style_content()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[6]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[8]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(ffi.new('AzContent', { inner = azul._az_string("\"Hello\"") }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterReset(ffi.new('AzCounterReset', { counters = C.AzCounterEntryVec_copyFromPtr(ffi.new('AzCounterEntry[1]', { ffi.new('AzCounterEntry', { counter_name = azul._az_string("section"), value = 1 }) }), 1) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterIncrement(ffi.new('AzCounterIncrement', { counters = C.AzCounterEntryVec_copyFromPtr(ffi.new('AzCounterEntry[1]', { ffi.new('AzCounterEntry', { counter_name = azul._az_string("section"), value = 1 }) }), 1) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_counterSet(ffi.new('AzCounterSet', { counters = C.AzCounterEntryVec_copyFromPtr(ffi.new('AzCounterEntry[1]', { ffi.new('AzCounterEntry', { counter_name = azul._az_string("section"), value = 3 }) }), 1) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_quotes(ffi.new('AzStyleQuotes', { inner = azul._az_string("\"<<\" \">>\"") }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStyleType(C.AzStyleListStyleType_upperRoman())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_listStylePosition(C.AzStyleListStylePosition_Inside)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_stringSet(ffi.new('AzStringSet', { inner = azul._az_string("title \"Chapter\"") }))),
-    }), 6)
+    }), 8)
 end
 
 -- CSS: .anim

@@ -258,6 +258,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundClip(lib.AzStyleBackgroundClipVec_copyFromPtr([azul.StyleBackgroundClip.PaddingBox], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundOrigin(lib.AzStyleBackgroundOriginVec_copyFromPtr([azul.StyleBackgroundOrigin.ContentBox], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transform(lib.AzStyleTransformVec_copyFromPtr([lib.AzStyleTransform_rotate({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(45.0) })], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transformOrigin({ x: lib.AzPixelValue_percent(50.0), y: lib.AzPixelValue_percent(50.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_perspectiveOrigin({ x: lib.AzPixelValue_px(10.0), y: lib.AzPixelValue_px(20.0) })),
@@ -265,7 +266,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_filter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_blur({ width: lib.AzPixelValue_px(2.0), height: lib.AzPixelValue_px(2.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backdropFilter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_grayscale({ number: lib.AzFloatValue_create(50.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_mixBlendMode({ Exact: { tag: 6, payload: azul.StyleMixBlendMode.Multiply } })),
-    ], 12));
+    ], 13));
 }
 
 // CSS: .fragment
@@ -317,10 +318,12 @@ function styleContent() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_content({ inner: azul._azString("\"Hello\"") })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterReset({ counters: lib.AzCounterEntryVec_copyFromPtr([{ counter_name: azul._azString("section"), value: 1 }], 1) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterIncrement({ counters: lib.AzCounterEntryVec_copyFromPtr([{ counter_name: azul._azString("section"), value: 1 }], 1) })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_counterSet({ counters: lib.AzCounterEntryVec_copyFromPtr([{ counter_name: azul._azString("section"), value: 3 }], 1) })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_quotes({ inner: azul._azString("\"<<\" \">>\"") })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_listStyleType(lib.AzStyleListStyleType_upperRoman())),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_listStylePosition(azul.StyleListStylePosition.Inside)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_stringSet({ inner: azul._azString("title \"Chapter\"") })),
-    ], 6));
+    ], 8));
 }
 
 // CSS: .anim

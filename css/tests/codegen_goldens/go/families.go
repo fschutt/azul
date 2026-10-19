@@ -249,6 +249,7 @@ func StyleEffects() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_Cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.StyleBackgroundRepeat_NoRepeat}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundClip(azul.AzStyleBackgroundClipVec_copyFromPtr(&[]azul.AzStyleBackgroundClip{azul.StyleBackgroundClip_PaddingBox}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundOrigin(azul.AzStyleBackgroundOriginVec_copyFromPtr(&[]azul.AzStyleBackgroundOrigin{azul.StyleBackgroundOrigin_ContentBox}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transform(azul.AzStyleTransformVec_copyFromPtr(&[]azul.AzStyleTransform{azul.AzStyleTransform_Rotate(azul.AzAngleValue{Metric: azul.AngleMetric_Degree, Number: azul.AzFloatValue_create(45.0)})}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{X: azul.AzPixelValue_percent(50.0), Y: azul.AzPixelValue_percent(50.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{X: azul.AzPixelValue_px(10.0), Y: azul.AzPixelValue_px(20.0)})),
@@ -256,7 +257,7 @@ func StyleEffects() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_Filter(azul.AzStyleFilterVecValue_Exact(azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_Blur(azul.AzStyleBlur{Width: azul.AzPixelValue_px(2.0), Height: azul.AzPixelValue_px(2.0)})}[0], 1)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_BackdropFilter(azul.AzStyleFilterVecValue_Exact(azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_Grayscale(azul.AzPercentageValue{Number: azul.AzFloatValue_create(50.0)})}[0], 1)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_MixBlendMode(azul.AzStyleMixBlendModeValue_Exact(azul.StyleMixBlendMode_Multiply))),
-	}[0], 12)
+	}[0], 13)
 }
 
 // CSS: .fragment
@@ -308,10 +309,12 @@ func StyleContent() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_content(azul.AzContent{Inner: azul.Str("\"Hello\"").Raw()})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterReset(azul.AzCounterReset{Counters: azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{CounterName: azul.Str("section").Raw(), Value: 1}}[0], 1)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterIncrement(azul.AzCounterIncrement{Counters: azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{CounterName: azul.Str("section").Raw(), Value: 1}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_counterSet(azul.AzCounterSet{Counters: azul.AzCounterEntryVec_copyFromPtr(&[]azul.AzCounterEntry{azul.AzCounterEntry{CounterName: azul.Str("section").Raw(), Value: 3}}[0], 1)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_quotes(azul.AzStyleQuotes{Inner: azul.Str("\"<<\" \">>\"").Raw()})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStyleType(azul.AzStyleListStyleType_UpperRoman())),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_listStylePosition(azul.StyleListStylePosition_Inside)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_stringSet(azul.AzStringSet{Inner: azul.Str("title \"Chapter\"").Raw()})),
-	}[0], 6)
+	}[0], 8)
 }
 
 // CSS: .anim
