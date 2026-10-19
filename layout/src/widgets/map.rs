@@ -160,21 +160,10 @@ pub enum MapColorScheme {
 }
 
 impl MapColorScheme {
-    /// The scheme the CASCADE is resolving against — `SystemStyle::theme` is
-    /// literally what `DynamicSelectorContext::from_system_style` turns into
-    /// the `ThemeCondition` that `prefers-color-scheme` matches on
-    /// (`css/src/dynamic_selector.rs`). Reading it here means the map and the
-    /// stylesheet cannot disagree about what "dark" means.
-    #[must_use]
-    pub const fn from_system_theme(theme: DarkLightMode) -> Self {
-        match theme {
-            DarkLightMode::Dark => Self::Dark,
-            DarkLightMode::Light => Self::Light,
-        }
-    }
-
-    /// The scheme of a WINDOW theme — what a `MapTheme::System` layer
-    /// follows at render time (`VirtualViewCallbackInfo::window_theme`).
+    /// The scheme of the mode the window shows - what the render reads
+    /// (`VirtualViewCallbackInfo::window_mode`, the mode the window's cascade
+    /// resolves, the app's pin included), so the tiles and the stylesheet
+    /// around them never disagree about what "dark" means.
     #[must_use]
     pub const fn from_window_theme(theme: DarkLightMode) -> Self {
         match theme {
@@ -1040,16 +1029,12 @@ pub struct MapTileCache {
     /// changing it invalidates nothing and discards nothing, because the look
     /// is part of every tile's key.
     pub active_look: MapLook,
-    /// The light/dark answer THE CASCADE gave, recorded by whichever callback
-    /// last had a `CallbackInfo` (mount, the 250 ms sweep, any pointer event).
-    ///
-    /// `SystemStyle::theme` is the exact input `prefers-color-scheme` matches
-    /// on, so the map and the app's stylesheet always agree. It is `None` until
-    /// the first such callback runs — the very first `VirtualView` render happens
-    /// before mount, and rather than invent an answer there it renders the
-    /// layer's own look and lets the sweep correct it. Getting that first guess
-    /// wrong is now free: it re-keys, it does not invalidate, and no tile is
-    /// fetched twice.
+    /// The light/dark the window showed at the last render
+    /// (`VirtualViewCallbackInfo::window_mode`): the look the tiles are keyed,
+    /// fetched and drawn in. Only the render writes it - the window's mode is
+    /// the one answer, and the engine renders the view again when it moves;
+    /// the fetch sweep and the pointer handlers queue work in the look the
+    /// render resolved. `None` before the first render.
     pub cascade_scheme: Option<MapColorScheme>,
     /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
     /// fire it. Carried across relayout.
@@ -1337,8 +1322,8 @@ impl MapTileCache {
     pub const fn current_look(&self) -> MapLook {
         match self.cascade_scheme {
             Some(scheme) => self.layer.theme.look(scheme),
-            // Nothing has told us what the cascade says yet (pre-mount). Use the
-            // light half; the sweep re-keys within 250 ms, for free.
+            // Not rendered yet: the light half. The first render resolves the
+            // window's mode before it reads a key.
             None => self.layer.theme.look(MapColorScheme::Light),
         }
     }
@@ -3314,14 +3299,6 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
 
     use crate::thread::Thread;
 
-    // THE CASCADE'S ANSWER, taken here because this is the earliest point the
-    // widget has a `CallbackInfo` (mount, the 250 ms sweep, every pointer
-    // event all funnel through here). `SystemStyle::theme` is the same value
-    // `DynamicSelectorContext::from_system_style` feeds to
-    // `prefers-color-scheme`, so the tiles and the app's stylesheet resolve
-    // light/dark from one source instead of two.
-    let scheme = MapColorScheme::from_system_theme(info.get_system_style().mode);
-
     // Collect the work first (URL build + state flip) under one borrow,
     // then spawn outside it so we don't hold the cache lock across
     // `info.add_thread`.
@@ -3350,16 +3327,17 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             }
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
-        cache.cascade_scheme = Some(scheme);
+        // The look the last render resolved from the window's mode. Reading
+        // the desktop's mode here instead flipped an app pinned dark on a
+        // light desktop back to light four times a second.
         let look = cache.current_look();
         let look_changed = cache.set_active_look(look);
         #[cfg(feature = "std")]
         if map_debug() {
             std::eprintln!(
-                "[map] spawn_pending: system theme={:?} scheme={:?} look={:?} \
+                "[map] spawn_pending: scheme={:?} look={:?} \
                  look_changed={look_changed} ready={} pending={}",
-                info.get_system_style().mode,
-                scheme,
+                cache.cascade_scheme,
                 look,
                 cache
                     .tiles
@@ -3379,10 +3357,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         // yet"; what is wanted has not changed, only which sheet to style it
         // with, so moving the key preserves the request and costs no request.
         //
-        // Dropping them instead strands the FIRST render's queue on every cold
-        // start: that render runs before any callback exists, so it keys at the
-        // layer's own look — `System`, which is never equal to the look `System`
-        // resolves to — and the whole viewport would have to be re-queued by the
+        // Dropping them instead would strand the queue of the render before a
+        // mode switch: the whole viewport would have to be re-queued by the
         // next render before anything could be fetched.
         //
         // `Fetching` / `Ready` / `Failed` are never touched here: those hold real
@@ -4082,15 +4058,12 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     let (layer, viewport, look) = match data.downcast_mut::<MapTileCache>() {
         Some(mut c) => {
             // THE WINDOW OWNS LIGHT/DARK. The look is the layer's cartography
-            // taken to the window's scheme, resolved HERE, before the tile
-            // lookup: the scheme used to be recorded only by the fetch timer
-            // (`spawn_pending_tile_fetches`), so the first render after a
-            // theme switch still read the old look's keys — every tile
-            // Ready, nothing Pending, nothing to re-decode — and the map
-            // stayed light on a dark window until some later fetch. Resolving
-            // the scheme where the keys are read is what makes a switch
-            // re-key the tiles (a miss under the new look inserts Pending, the
-            // timer decodes it under the new sheet).
+            // taken to the window's mode, resolved here, before the tile
+            // lookup, and nowhere else. A mode switch renders the view again
+            // (the engine re-invokes every view when the mode moves), and
+            // resolving where the keys are read is what makes that render
+            // re-key the tiles: a miss under the new look inserts Pending,
+            // and the sweep styles it from the bytes already held.
             c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_mode));
             let look = c.current_look();
             c.set_active_look(look);

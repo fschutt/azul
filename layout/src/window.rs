@@ -1223,6 +1223,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
             #[cfg(feature = "fluent")]
             fluent_localizer: _,
         last_laid_out_frame: _,
+        last_laid_out_mode: _,
         system_animations_override: _,
         monitors: _,
         input_interpreter: _,
@@ -2135,6 +2136,15 @@ pub struct LayoutWindow {
     /// fixed-size control's box exactly where it was, so `check_reinvoke` sees
     /// no reason. This is that reason.
     pub last_laid_out_frame: azul_core::window::WindowFrame,
+    /// The light / dark the last layout pass ran under, as the window's
+    /// cascade resolves it ([`Self::window_mode_for`]).
+    ///
+    /// The same reason as the frame above: a `VirtualView` callback reads
+    /// the mode (`VirtualViewCallbackInfo::window_mode`) and may build its DOM
+    /// from it - the map picks its tiles' look - but a switch to dark is a
+    /// restyle that keeps every view, so nothing else would render them
+    /// again and the map stays light in a dark window.
+    pub last_laid_out_mode: DarkLightMode,
     /// Per-window override of the app-global system-animation configuration
     /// (`set_global_system_animations`). `None` = use the global. Mostly for
     /// tests, which must not race the process-wide slot.
@@ -2716,6 +2726,7 @@ impl LayoutWindow {
             #[cfg(feature = "fluent")]
             fluent_localizer: None,
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
+            last_laid_out_mode: DarkLightMode::Light,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             preedit_shaped_node: None,
@@ -2939,14 +2950,19 @@ impl LayoutWindow {
             self.layout_cache.overrides_only_hint = None;
         }
 
-        // A frame transition re-invokes every view, BEFORE this pass scans for
-        // them, so a view that renders from the frame is right in the same
-        // frame the window is maximized in. Without it the only path back is a
-        // full DOM rebuild, which a window-manager maximize (super+up, an edge
-        // snap, a tiling rule) does not necessarily cause - and then a
-        // maximized window keeps offering "maximize".
-        if self.last_laid_out_frame != window_state.flags.frame {
+        // A frame or mode transition re-invokes every view, BEFORE this pass
+        // scans for them, so a view that renders from either is right in the
+        // same frame the window is maximized or turns dark in. Without it the
+        // only path back is a full DOM rebuild, which a window-manager
+        // maximize (super+up, an edge snap, a tiling rule) does not
+        // necessarily cause and a mode switch never does (it is a restyle) -
+        // and then a maximized window keeps offering "maximize", and a map
+        // in a dark window keeps its light tiles.
+        let mode = self.window_mode_for(window_state.mode);
+        if self.last_laid_out_frame != window_state.flags.frame || self.last_laid_out_mode != mode
+        {
             self.last_laid_out_frame = window_state.flags.frame;
+            self.last_laid_out_mode = mode;
             for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
                 self.virtual_view_manager.force_reinvoke(dom_id, node_id);
             }
@@ -11288,7 +11304,10 @@ impl LayoutWindow {
             reason,
             &self.font_manager.fc_cache,
             &self.image_cache,
-            window_state.mode,
+            // The mode the window's cascade resolves (the app's pin and
+            // `AZ_MODE` included), so the view's own picture and the CSS
+            // around it never disagree about light and dark.
+            self.window_mode_for(window_state.mode),
             // The live frame, not a copy the widget was built with: a control
             // that draws "maximize" vs "restore" must be right after a window
             // manager maximize too, which never reaches the button's callback.
@@ -28124,6 +28143,7 @@ impl LayoutWindow {
             #[cfg(feature = "fluent")]
             fluent_localizer: _,
             last_laid_out_frame: _,
+            last_laid_out_mode: _,
             monitors: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,
