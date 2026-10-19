@@ -451,14 +451,15 @@ impl DynamicCssParseErrorOwned {
     }
 }
 
-/// The node type a generated pseudo-element stands for: `::before` and
-/// `::after`. CSS 2 wrote them with one colon and browsers still take that,
-/// so both spellings arrive here.
+/// The node type a generated pseudo-element stands for: `::before`,
+/// `::after` and a list item's `::marker`. CSS 2 wrote the first two with
+/// one colon and browsers still take that, so both spellings arrive here.
 #[must_use]
 pub fn generated_pseudo_element(name: &str) -> Option<NodeTypeTag> {
     match name.trim_start_matches(':') {
         "before" => Some(NodeTypeTag::Before),
         "after" => Some(NodeTypeTag::After),
+        "marker" => Some(NodeTypeTag::Marker),
         _ => None,
     }
 }
@@ -511,7 +512,7 @@ pub fn push_generated_pseudo_element(path: &mut Vec<CssPathSelector>, tag: NodeT
 const fn bare_generated_pseudo_element(path: &[CssPathSelector]) -> Option<NodeTypeTag> {
     match path {
         [CssPathSelector::Global, CssPathSelector::DirectChildren, CssPathSelector::Type(tag), ..]
-            if matches!(tag, NodeTypeTag::Before | NodeTypeTag::After) =>
+            if matches!(tag, NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker) =>
         {
             Some(*tag)
         }

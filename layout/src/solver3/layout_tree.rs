@@ -5042,6 +5042,29 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
         }
     }
 
+    // A list item's `::marker` node is in the item's line only in an inline
+    // list item. A block list item lays its marker out itself (the marker
+    // box `create_marker_pseudo_element` makes) and only takes its style
+    // from the node, so the node is nothing in the item's content.
+    let is_marker = matches!(
+        styled_dom
+            .node_data
+            .as_container()
+            .get(node_id)
+            .map(NodeData::get_node_type),
+        Some(NodeType::Marker)
+    );
+    if is_marker {
+        let host = styled_dom.node_hierarchy.as_container()[node_id].parent_id();
+        let in_line = host.is_some_and(|h| {
+            get_display_property(styled_dom, Some(h)).unwrap_or(LayoutDisplay::Inline)
+                == LayoutDisplay::InlineListItem
+        });
+        if !in_line {
+            return LayoutDisplay::None;
+        }
+    }
+
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
 }
 

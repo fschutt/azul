@@ -259,11 +259,14 @@ pub(super) fn push_marker_content<T: ParsedFontTrait>(
         get_list_style_position(ctx.styled_dom, Some(list_dom_id)),
         StyleListStylePosition::Outside
     );
-    // Font fallback happens during shaping
+    // A `::marker` rule styles the marker through the item's marker node,
+    // which inherits from the item; without one the item's style is the
+    // marker's. Font fallback happens during shaping.
+    let style_node = marker_node_of(ctx.styled_dom, list_dom_id).unwrap_or(list_dom_id);
     let base_style = crate::solver3::getters::get_style_properties_cached(
         &mut ctx.style_cache,
         ctx.styled_dom,
-        list_dom_id,
+        style_node,
         ctx.system_style.as_ref(),
         PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     );
@@ -282,6 +285,17 @@ pub(super) fn push_marker_content<T: ParsedFontTrait>(
             position_outside,
         });
     }
+}
+
+/// The `::marker` node of the list item `item`: its first child, when that
+/// is one.
+fn marker_node_of(styled_dom: &StyledDom, item: NodeId) -> Option<NodeId> {
+    let first = styled_dom.node_hierarchy.as_container()[item].first_child_id(item)?;
+    matches!(
+        styled_dom.node_data.as_container()[first].get_node_type(),
+        azul_core::dom::NodeType::Marker
+    )
+    .then_some(first)
 }
 
 /// Generates marker text for a list item marker.

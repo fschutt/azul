@@ -84,6 +84,18 @@ fn generated_subject(path: &CssPath) -> Option<(bool, usize)> {
     })
 }
 
+/// Where the host of a `::marker` rule ends: the index of its `>` before
+/// the `::marker` (the css parser writes `li::marker` as `li > ::marker`).
+fn marker_subject(path: &CssPath) -> Option<usize> {
+    let selectors = path.selectors.as_ref();
+    let combinator = selectors.iter().rposition(is_combinator)?;
+    (matches!(selectors[combinator], CssPathSelector::DirectChildren)
+        && selectors[combinator + 1..]
+            .iter()
+            .any(|s| matches!(s, CssPathSelector::Type(NodeTypeTag::Marker))))
+    .then_some(combinator)
+}
+
 /// Whether a rule makes content: it declares `content` with a value other
 /// than `none` / `normal`. A `var()` counts, its value is not known yet.
 fn makes_content(declarations: &[CssDeclaration]) -> bool {
@@ -237,8 +249,10 @@ impl Moved {
 /// ([`CssPropertyCache::hide_contentless_generated_nodes`]).
 #[allow(clippy::too_many_lines)] // one pass: decide the hosts, rebuild the arena, move the scopes
 /// The hosts the rules of `css` give generated nodes: `(is ::before, host)`
-/// for every rule with a `content`, and the hosts an inline list item rule
-/// gives a `::marker`.
+/// for every rule with a `content`, and the hosts that get a `::marker`
+/// node - those a rule makes inline list items, and those a `::marker` rule
+/// styles the marker of (a block list item lays that marker out itself and
+/// takes its style from the node).
 fn generating_hosts(css: &Css) -> (Vec<(bool, CssPath)>, Vec<CssPath>) {
     let rules: Vec<(bool, CssPath)> = css
         .rules
@@ -254,11 +268,14 @@ fn generating_hosts(css: &Css) -> (Vec<(bool, CssPath)>, Vec<CssPath>) {
         .rules
         .as_ref()
         .iter()
-        .filter(|rule| {
-            generated_subject(&rule.path).is_none()
-                && makes_inline_list_item(rule.declarations.as_ref())
+        .filter_map(|rule| {
+            if let Some(combinator) = marker_subject(&rule.path) {
+                return Some(host_path(&rule.path, combinator));
+            }
+            (generated_subject(&rule.path).is_none()
+                && makes_inline_list_item(rule.declarations.as_ref()))
+            .then(|| host_path(&rule.path, rule.path.selectors.as_ref().len()))
         })
-        .map(|rule| host_path(&rule.path, rule.path.selectors.as_ref().len()))
         .collect();
     (rules, marker_rules)
 }

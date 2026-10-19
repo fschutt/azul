@@ -206,7 +206,9 @@ impl Css {
             !rule.path.selectors.as_ref().iter().any(|s| {
                 matches!(
                     s,
-                    CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+                    CssPathSelector::Type(
+                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                    )
                 )
             })
         });
@@ -2176,7 +2178,9 @@ impl CssPath {
             matches!(
                 s,
                 CssPathSelector::DirectChildren
-                    | CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+                    | CssPathSelector::Type(
+                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                    )
             )
         };
         let is_bare_global = matches!(selectors.first(), Some(CssPathSelector::Global))
@@ -2205,7 +2209,9 @@ impl fmt::Display for CssPath {
             let leads_to_pseudo_element = matches!(selector, CssPathSelector::DirectChildren)
                 && matches!(
                     selectors.get(i + 1),
-                    Some(CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After))
+                    Some(CssPathSelector::Type(
+                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                    ))
                 );
             if !leads_to_pseudo_element {
                 write!(f, "{selector}")?;
