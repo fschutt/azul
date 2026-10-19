@@ -1662,6 +1662,29 @@ mod autotest_generated {
     // build_button_label_style  (private)
     // ------------------------------------------------------------------
 
+    /// A browser's UA sheet centres a `<button>`'s text ON THE BUTTON, and its content inherits
+    /// that, so an author's `text-align` on the button wins. The label declared its own centre,
+    /// which no `text-align` on the button could reach: AzMaps' step rows asked for left and
+    /// showed their wrapped lines centred.
+    #[test]
+    fn a_buttons_text_align_is_the_buttons_so_one_set_on_it_reaches_the_label() {
+        let align = |v: &CssPropertyWithConditionsVec| {
+            v.as_ref().iter().find_map(|p| match &p.property {
+                CssProperty::TextAlign(t) => t.get_property().copied(),
+                _ => None,
+            })
+        };
+        let b = Button::create(AzString::from("Turn left onto Main Street"));
+        assert_eq!(align(&b.resolved_container_style()), Some(StyleTextAlign::Center));
+        assert_eq!(align(&b.resolved_label_style()), None, "the label inherits the button's");
+        // A caller with a container style of its own did not ask for the centre there: its
+        // label keeps declaring it.
+        let mut own = b.clone();
+        own.container_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(vec![]));
+        assert_eq!(align(&own.resolved_label_style()), Some(StyleTextAlign::Center));
+    }
+
     #[test]
     fn build_button_label_style_declares_the_four_documented_properties_unconditionally() {
         let v = CssPropertyWithConditionsVec::from_vec(build_button_label_style());
