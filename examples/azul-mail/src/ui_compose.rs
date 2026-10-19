@@ -32,6 +32,7 @@ use azul::{
         ButtonOnClickCallbackType, ModalOnCloseCallbackType, ResumeCallbackType,
         RichTextEditorOnChangeCallbackType, StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
+        TokenInputOnEventCallbackType, TokenInputOnValidateCallbackType,
     },
     dialog::{FileDialog, FileOpenMultiResult},
     dom::{DomId, FocusTarget, VirtualKeyCode},
@@ -48,7 +49,8 @@ use azul::{
         RichBlockKind, RichFormat,
         RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, StandardDialogEvent,
         StandardDialogEventKind, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
-        Titlebar,
+        Titlebar, TokenInput, TokenInputEvent, TokenInputEventKind, TokenInputState,
+        TokenInputVerdict,
     },
     window::WindowDecorations,
 };
@@ -80,9 +82,14 @@ pub(crate) struct Compose {
     pub(crate) account_id: String,
     /// The From line (`Name <address>`): the account's, or typed without an account.
     pub(crate) from: String,
+    /// The address lines: each recipient a token of its field, kept as `Name <address>`.
     pub(crate) to: String,
     pub(crate) cc: String,
     pub(crate) bcc: String,
+    /// What is typed in the To / Cc / Bcc field and not a token yet (it goes with Send).
+    pub(crate) to_typed: String,
+    pub(crate) cc_typed: String,
+    pub(crate) bcc_typed: String,
     pub(crate) subject: String,
     /// The body: the shared rich-text editor's state (its document, its ONE undo history, the
     /// caret), as its `on_change` last handed it over.
@@ -173,9 +180,9 @@ impl Compose {
     fn fields(&self) -> ComposeFields {
         ComposeFields {
             from: self.from.clone(),
-            to: self.to.clone(),
-            cc: self.cc.clone(),
-            bcc: self.bcc.clone(),
+            to: line_with(&self.to, &self.to_typed),
+            cc: line_with(&self.cc, &self.cc_typed),
+            bcc: line_with(&self.bcc, &self.bcc_typed),
             subject: self.subject.clone(),
             body: self.body.doc.clone(),
             in_reply_to: self.in_reply_to.clone(),
@@ -347,6 +354,9 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         show_link: false,
         link: String::new(),
         link_spans: RichTextSpanVec::from_vec(Vec::new()),
+        to_typed: String::new(),
+        cc_typed: String::new(),
+        bcc_typed: String::new(),
         edited: false,
         asking_close: false,
         close_after_save: false,
@@ -694,6 +704,68 @@ fn field_widget(app: &RefAny, id: u64, field: ComposeField, value: &str) -> Text
         )
 }
 
+/// `line` with what is still `typed` after it (Send takes the field as the user sees it).
+#[must_use]
+pub(crate) fn line_with(line: &str, typed: &str) -> String {
+    let typed = typed.trim();
+    match (line.trim().is_empty(), typed.is_empty()) {
+        (_, true) => line.to_string(),
+        (true, false) => typed.to_string(),
+        (false, false) => format!("{line}, {typed}"),
+    }
+}
+
+/// A typed recipient as the address line keeps it: `Name <address>` (the name quoted when it
+/// holds what separates or opens an entry) or the address alone; `Err` without an address.
+pub(crate) fn address_token(entry: &str) -> Result<String, ()> {
+    use azul_pim::mail_address::{is_email_any_host, parse_mailbox};
+    let mailbox = parse_mailbox(entry);
+    if !is_email_any_host(&mailbox.address) {
+        return Err(());
+    }
+    if mailbox.name.is_empty() {
+        return Ok(mailbox.address);
+    }
+    let name = if mailbox.name.contains([',', ';', '"', '<', '>', '\\']) {
+        format!("\"{}\"", mailbox.name.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        mailbox.name
+    };
+    Ok(format!("{name} <{}>", mailbox.address))
+}
+
+/// The To, Cc or Bcc field: azul's `TokenInput`, each recipient a token (`x` removes it), what
+/// is typed checked as an address when a separator, Enter or Tab ends it.
+fn address_input(app: &RefAny, c: &Compose, field: ComposeField, dom_id: AzString) -> Dom {
+    let (line, typed, name) = match field {
+        ComposeField::To => (&c.to, &c.to_typed, "azmail-compose-to"),
+        ComposeField::Cc => (&c.cc, &c.cc_typed, "azmail-compose-cc"),
+        _ => (&c.bcc, &c.bcc_typed, "azmail-compose-bcc"),
+    };
+    let tokens = || {
+        azul::vec::StringVec::from_vec(
+            azul_pim::mail_address::split_address_line(line)
+                .into_iter()
+                .map(AzString::from)
+                .collect(),
+        )
+    };
+    let target = || {
+        RefAny::new(ComposeFieldRef {
+            app: app.clone(),
+            id: c.id,
+            field,
+        })
+    };
+    TokenInput::create(tokens(), label(name))
+        .with_state(TokenInputState::create(tokens()).with_text(typed.as_str()))
+        .with_on_event(target(), on_address_event as TokenInputOnEventCallbackType)
+        .with_on_validate(target(), on_validate_address as TokenInputOnValidateCallbackType)
+        .dom()
+        .with_id(dom_id)
+        .with_css("flex-grow: 1;")
+}
+
 fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: AzString) -> Dom {
     field_widget(app, id, field, value)
         .dom()
@@ -769,15 +841,15 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
         .with_child(row("azmail-compose-from", from))
         .with_child(row(
             "azmail-compose-to",
-            field_input(app, c.id, ComposeField::To, &c.to, ids::COMPOSE_TO),
+            address_input(app, c, ComposeField::To, ids::COMPOSE_TO),
         ))
         .with_child(row(
             "azmail-compose-cc",
-            field_input(app, c.id, ComposeField::Cc, &c.cc, ids::COMPOSE_CC),
+            address_input(app, c, ComposeField::Cc, ids::COMPOSE_CC),
         ))
         .with_child(row(
             "azmail-compose-bcc",
-            field_input(app, c.id, ComposeField::Bcc, &c.bcc, ids::COMPOSE_BCC),
+            address_input(app, c, ComposeField::Bcc, ids::COMPOSE_BCC),
         ))
         .with_child(row(
             "azmail-compose-subject",
@@ -971,6 +1043,60 @@ extern "C" fn on_compose_field(mut data: RefAny, _info: CallbackInfo, state: Tex
     OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
+    }
+}
+
+/// A recipient added or removed (the line keeps the tokens), the typed text, or a refused entry
+/// (the window says why).
+extern "C" fn on_address_event(mut data: RefAny, _info: CallbackInfo, event: TokenInputEvent) -> Update {
+    let Some((mut app, id, field)) = data
+        .downcast_ref::<ComposeFieldRef>()
+        .map(|r| (r.app.clone(), r.id, r.field))
+    else {
+        return Update::DoNothing;
+    };
+    let tokens: Vec<String> = event
+        .state
+        .tokens
+        .as_slice()
+        .iter()
+        .map(|token| token.as_str().to_string())
+        .collect();
+    let typed = event.state.text.as_str().to_string();
+    let kind = event.kind;
+    let refused = event.message.as_str().to_string();
+    let changed = with_compose(&mut app, id, |s, at, _| {
+        let c = &mut s.composes[at];
+        let (line, slot) = match field {
+            ComposeField::To => (&mut c.to, &mut c.to_typed),
+            ComposeField::Cc => (&mut c.cc, &mut c.cc_typed),
+            _ => (&mut c.bcc, &mut c.bcc_typed),
+        };
+        *slot = typed;
+        match kind {
+            TokenInputEventKind::Add | TokenInputEventKind::Remove => {
+                *line = tokens.join(", ");
+                c.edited = true;
+            }
+            TokenInputEventKind::Refuse => c.status = ComposeStatus::Problem(refused),
+            _ => {}
+        }
+    });
+    match (changed, kind) {
+        (Some(()), TokenInputEventKind::Open) | (None, _) => Update::DoNothing,
+        _ => Update::RefreshDom,
+    }
+}
+
+/// A recipient is a token only when it holds an address: as the line keeps it, else refused
+/// with the entry as typed.
+extern "C" fn on_validate_address(_data: RefAny, _info: CallbackInfo, token: AzString) -> TokenInputVerdict {
+    match address_token(token.as_str()) {
+        Ok(entry) => TokenInputVerdict::create_accepted(AzString::from(entry)),
+        Err(()) => TokenInputVerdict::create_refused(AzString::from(t_args(
+            "azmail-compose-not-an-address",
+            &[("entry", Arg::from(token.as_str()))],
+        ))),
     }
 }
 
@@ -1589,6 +1715,9 @@ mod tests {
             show_link: false,
             link: String::new(),
             link_spans: RichTextSpanVec::from_vec(Vec::new()),
+            to_typed: String::new(),
+            cc_typed: String::new(),
+            bcc_typed: String::new(),
             edited: false,
             asking_close: false,
             close_after_save: false,

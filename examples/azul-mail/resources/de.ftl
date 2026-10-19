@@ -476,6 +476,7 @@ azmail-compose-attachments = { $count ->
    *[other] { $count } Anlagen
  }
 azmail-compose-link-first = Gib zuerst die Adresse des Links ein.
+azmail-compose-not-an-address = { $entry } ist keine E-Mail-Adresse.
 azmail-compose-account-gone = Das Konto gibt es nicht mehr.
 azmail-compose-draft-not-saved = Der Entwurf konnte nicht gespeichert werden: { $why }
 azmail-compose-in-outbox = Im Postausgang: { $subject }
