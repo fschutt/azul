@@ -2098,7 +2098,7 @@ impl StrokeOutline {
     /// The outline of the SVG shape `node` (its kept presentation
     /// attributes, inherited through its groups).
     #[must_use]
-    pub fn of(styled_dom: &azul_core::styled_dom::StyledDom, node: NodeId) -> Self {
+    pub fn of(styled_dom: &StyledDom, node: NodeId) -> Self {
         use azul_core::svg::{SvgLineCap, SvgLineJoin};
         let lookup = |name: &str| super::svg::inherited_svg_attribute(styled_dom, node, name);
         let number = |name: &str| {

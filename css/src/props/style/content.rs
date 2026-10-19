@@ -189,8 +189,9 @@ impl_counter_list!(CounterReset, LIST_ITEM_AT_ZERO);
 impl_counter_list!(CounterIncrement, LIST_ITEM_BY_ONE);
 impl_counter_list!(CounterSet, LIST_ITEM_AT_ZERO);
 
-/// CSS `quotes` (CSS Generated Content 3 s3.1): the marks `open-quote` and
-/// `close-quote` write, stored as its CSS text. `auto` (the initial value)
+/// CSS `quotes`: the marks `open-quote` and `close-quote` write.
+///
+/// CSS Generated Content 3 s3.1; stored as its CSS text. `auto` (the initial value)
 /// takes the marks of the element's language, `none` writes none, and a list
 /// of strings gives one opening and closing pair per nesting level, the last
 /// pair standing for the deeper ones.

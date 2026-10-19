@@ -3525,7 +3525,7 @@ fn render_stroked_path(
     // for a non-uniform viewBox mapping.
     let scale = f64::from(f32::midpoint(sx, sy));
     let device_width = (f64::from(width) * scale).max(1.0);
-    let mut stroke = super::pixmap::svg_stroke_outline(&mut geometry, outline, device_width, scale);
+    let mut stroke = svg_stroke_outline(&mut geometry, outline, device_width, scale);
 
     let agg_color = Rgba8::new(
         u32::from(color.r),

@@ -18,6 +18,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
+#[allow(variant_size_differences)] // a C type: boxing the string would change its layout in every binding
 pub enum StyleListStyleType {
     None,
     #[default]
@@ -194,8 +195,9 @@ fn quote_css_string(text: &str) -> String {
     out
 }
 
-/// The text of `input` when it is exactly one CSS string (CSS Syntax 3
-/// s4.3.5): its escapes undone - a backslash and one to six hex digits (and
+/// The text of `input` when it is exactly one CSS string, its escapes undone.
+///
+/// CSS Syntax 3 s4.3.5: a backslash and one to six hex digits (and
 /// one whitespace after them) is that code point, a backslash before a line
 /// break continues the line, before any other character is that character.
 /// `None` for anything else.
@@ -207,7 +209,7 @@ pub fn parse_css_string(input: &str) -> Option<String> {
     loop {
         match chars.next()? {
             c if c == quote => break,
-            '\n' => return Option::None,
+            '\n' => return None,
             '\\' => match chars.peek().copied()? {
                 '\n' => {
                     chars.next();
@@ -222,7 +224,7 @@ pub fn parse_css_string(input: &str) -> Option<String> {
                                 digits += 1;
                                 chars.next();
                             }
-                            Option::None => break,
+                            None => break,
                         }
                     }
                     if chars.peek().is_some_and(|w| w.is_whitespace()) {
@@ -680,7 +682,7 @@ mod autotest_generated {
             let printed = v.print_as_css_value();
             assert_eq!(
                 parse_style_list_style_type(&printed),
-                Ok(v),
+                Ok(v.clone()),
                 "{v:?} serialized to {printed:?}, which does not parse back"
             );
         }

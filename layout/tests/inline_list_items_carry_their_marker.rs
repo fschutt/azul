@@ -133,8 +133,9 @@ fn an_inline_list_items_marker_has_tabular_numbers() {
     let li = all_of(&styled, |t| matches!(t, NodeType::Li))[0];
     let marker = first_child(&styled, li).expect("the marker");
     let state = styled.styled_nodes.as_container()[marker].styled_node_state;
+    let nodes = styled.node_data.as_container();
     let numeric = styled.css_property_cache.ptr.get_property(
-        &styled.node_data.as_container()[marker],
+        &nodes[marker],
         &marker,
         &state,
         &CssPropertyType::FontVariantNumeric,

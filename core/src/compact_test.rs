@@ -141,6 +141,8 @@ mod autotest_generated {
                 &mut self.cold,
                 &mut self.text,
                 &mut self.fonts,
+                // The DOM-wide flags of what was declared: this fixture reads none.
+                &mut 0,
             );
         }
 

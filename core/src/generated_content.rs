@@ -290,6 +290,7 @@ fn inline_list_item_inline(node: &NodeData) -> bool {
     })
 }
 
+#[allow(clippy::too_many_lines)] // one pass over the DOM: each step feeds the next and reads its locals
 pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
     let (rules, marker_rules) = generating_hosts(css);
     let inline_list_items_inline = dom.node_data.internal.iter().any(inline_list_item_inline);
@@ -561,10 +562,10 @@ impl CssPropertyCache {
                         // Its own display, or the one it would have had at
                         // rest, at the engine's priority: the hidden resting
                         // state must not outrank it.
-                        let shown = last(state, CssPropertyType::Display)
+                        let display_here = last(state, CssPropertyType::Display)
                             .cloned()
                             .unwrap_or_else(|| resting_display.clone());
-                        add.push((state, shown));
+                        add.push((state, display_here));
                     } else {
                         add.push((state, display(LayoutDisplay::None)));
                     }
@@ -1085,7 +1086,7 @@ impl StyledDom {
                     Some(in_any_state),
                 )
             };
-            let marker = inline_list_item_inline(host) || marker_rules.iter().any(|h| matches(h));
+            let marker = inline_list_item_inline(host) || marker_rules.iter().any(&matches);
             let before = rules.iter().any(|(b, h)| *b && matches(h));
             let after = rules.iter().any(|(b, h)| !*b && matches(h));
             // CSS Pseudo 4 s3: `::marker` comes first, then `::before`.
@@ -1104,7 +1105,7 @@ impl StyledDom {
             let mut text = crate::dom::Dom::create_text_do_not_use_without_block_level_wrapper("");
             text.root.set_part_of_parent(true);
             let mut generated = generated.with_child(text);
-            let styled = StyledDom::create(&mut generated, Css::empty());
+            let styled = Self::create(&mut generated, Css::empty());
             let generated_id = NodeId::new(self.node_data.len());
             if !self.append_under_rightmost(node, styled) {
                 return false;

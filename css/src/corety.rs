@@ -215,8 +215,9 @@ impl core::fmt::Display for AzString {
     }
 }
 
-/// The flag of a vec (`flags`) that marks a SECRET: its buffer, and the
-/// buffer of every clone of it, is zeroed before it is freed (a password, a
+/// The flag of a vec (`flags`) that marks a SECRET.
+///
+/// Its buffer, and the buffer of every clone of it, is zeroed before it is freed (a password, a
 /// keyring secret). Bit 0 is a string's translation key (`AzString::tr`).
 pub const VEC_FLAG_SECRET: u8 = 1 << 1;
 

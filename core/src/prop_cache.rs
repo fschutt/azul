@@ -3534,6 +3534,18 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
+        /// Takes `property` (declared at `priority`) over what `found`
+        /// holds only from a higher priority: the states come strongest
+        /// first.
+        fn offer<'p>(
+            found: &mut Option<(u8, &'p CssProperty)>,
+            priority: u8,
+            property: &'p CssProperty,
+        ) {
+            if found.is_none_or(|(best, _)| priority > best) {
+                *found = Some((priority, property));
+            }
+        }
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // Helper: do these conditions identify a rule that applies in `state`
@@ -3675,18 +3687,6 @@ impl CssPropertyCache {
             }
         }
 
-        /// Takes `property` (declared at `priority`) over what `found`
-        /// holds only from a higher priority: the states come strongest
-        /// first.
-        fn offer<'p>(
-            found: &mut Option<(u8, &'p CssProperty)>,
-            priority: u8,
-            property: &'p CssProperty,
-        ) {
-            if found.is_none_or(|(best, _)| priority > best) {
-                *found = Some((priority, property));
-            }
-        }
         let mut found: Option<(u8, &'a CssProperty)> = None;
         for (raised, state) in tiers {
             if !raised {

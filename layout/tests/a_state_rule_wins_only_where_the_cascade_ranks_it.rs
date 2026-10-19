@@ -164,8 +164,8 @@ fn a_star_rule_of_higher_priority_beats_an_author_rule() {
 #[test]
 fn a_star_rule_beats_a_presentational_hint() {
     let parsed = azul_layout::xml::parse_xml(
-        r#"<style>* { background: #00ff00; }</style>
-        <table bgcolor="#ff0000"><tr><td>x</td></tr></table>"#,
+        r##"<style>* { background: #00ff00; }</style>
+        <table bgcolor="#ff0000"><tr><td>x</td></tr></table>"##,
     )
     .expect("parses");
     let styled = StyledDom::create_from_dom(azul_layout::xml::dom_from_parsed_xml(parsed));

@@ -6176,10 +6176,10 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     // wraps, a control does not.
     let mut field_label = vec![
         px(CssProperty::const_width(LayoutWidth::Px(
-            azul_css::props::basic::pixel::PixelValue::percent(40.0),
+            PixelValue::percent(40.0),
         ))),
         px(CssProperty::const_max_width(
-            azul_css::props::layout::LayoutMaxWidth::const_px(240),
+            LayoutMaxWidth::const_px(240),
         )),
     ];
     field_label.extend(decl::margin(0, 16, 0, 0));

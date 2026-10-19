@@ -1221,6 +1221,7 @@ pub fn agg_fill_path(
 /// dashed when the stroke has a pattern, then stroked with its caps and
 /// joins. One builder for the CPU renderer and the GPU mask, which must draw
 /// the same stroke.
+#[allow(missing_debug_implementations, clippy::large_enum_variant)] // AGG's pipeline types have no Debug; a short-lived stack value, never stored
 pub enum SvgStrokeOutline<'a> {
     /// A solid stroke.
     Solid(agg_rust::conv_stroke::ConvStroke<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>),
@@ -1232,7 +1233,7 @@ pub enum SvgStrokeOutline<'a> {
     ),
 }
 
-impl agg_rust::basics::VertexSource for SvgStrokeOutline<'_> {
+impl VertexSource for SvgStrokeOutline<'_> {
     fn rewind(&mut self, path_id: u32) {
         match self {
             Self::Solid(stroke) => stroke.rewind(path_id),
@@ -1260,7 +1261,7 @@ pub fn svg_stroke_outline<'a>(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::svg::{SvgLineCap, SvgLineJoin};
 
-    fn configure<VS: agg_rust::basics::VertexSource>(
+    fn configure<VS: VertexSource>(
         stroke: &mut agg_rust::conv_stroke::ConvStroke<VS>,
         outline: &crate::solver3::display_list::StrokeOutline,
         width: f64,

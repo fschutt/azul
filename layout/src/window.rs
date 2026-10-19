@@ -979,7 +979,7 @@ pub struct DomLayoutResult {
     pub styled_dom: StyledDom,
     /// The layout tree with computed sizes and positions - the solver's
     /// cached tree itself (`LayoutCache::tree`), shared, not a copy.
-    pub layout_tree: alloc::sync::Arc<LayoutTree>,
+    pub layout_tree: Arc<LayoutTree>,
     /// Absolute positions of all nodes
     pub calculated_positions: solver3::PositionVec,
     /// The viewport used for this layout
@@ -1007,7 +1007,7 @@ impl DomLayoutResult {
     /// write goes to this result's own copy, so the cache keeps the tree its
     /// next pass starts from, as it did when every pass handed over a copy.
     pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
-        alloc::sync::Arc::make_mut(&mut self.layout_tree)
+        Arc::make_mut(&mut self.layout_tree)
     }
 }
 
@@ -1688,7 +1688,7 @@ pub struct LayoutWindow {
     /// end of every pass (USER ruling 2026-09-30: "cull refreshes for
     /// animations if the changes aren't on-screen").
     pub culled_tracks: BTreeSet<NodeId>,
-    /// The child DOMs (a VirtualView's content) whose content changed since
+    /// The child DOMs (a `VirtualView`'s content) whose content changed since
     /// they were laid out, by `set_node_text`. A view the relayout keeps
     /// lays such a child out again (`follow_host_in_kept_view`); without it
     /// the kept child showed the text it was laid out with.
@@ -8090,7 +8090,7 @@ impl LayoutWindow {
                     dom_id,
                     DomLayoutResult {
                         styled_dom,
-                        layout_tree: tree.into(),
+                        layout_tree: tree,
                         calculated_positions: self.layout_cache.calculated_positions.clone(),
                         viewport,
                         display_list: Arc::new(DisplayList::default()),
@@ -8889,7 +8889,7 @@ impl LayoutWindow {
             dom_id,
             DomLayoutResult {
                 styled_dom,
-                layout_tree: tree.into(),
+                layout_tree: tree,
                 calculated_positions: self.layout_cache.calculated_positions.clone(),
                 viewport,
                 display_list,
@@ -10321,7 +10321,7 @@ impl LayoutWindow {
             return Some(patch(Arc::make_mut(&mut lr.display_list)));
         };
         if !Arc::ptr_eq(&cached.5, &lr.display_list) {
-            let _ = patch(Arc::make_mut(&mut cached.5));
+            drop(patch(Arc::make_mut(&mut cached.5)));
             return Some(patch(Arc::make_mut(&mut lr.display_list)));
         }
         drop(core::mem::take(&mut cached.5));

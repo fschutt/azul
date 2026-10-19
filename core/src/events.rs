@@ -665,8 +665,9 @@ pub struct MediaControlEventData {
     pub volume: f32,
 }
 
-/// What the system did to the user's session: the screen locked or
-/// unlocked, the machine is about to sleep or woke from it. Delivered as a
+/// What the system did to the user's session.
+///
+/// The screen locked or unlocked, the machine is about to sleep or woke from it. Delivered as a
 /// `SessionChange` event at the root and readable through
 /// `CallbackInfo::get_session_change`. A password manager locks its vault on
 /// `Locked` and `WillSleep`.

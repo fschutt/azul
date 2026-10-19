@@ -119,7 +119,7 @@ fn app_name() -> String {
 /// How a request ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickAnswer {
-    /// The user picked these paths (one for Open, OpenDirectory and Save).
+    /// The user picked these paths (one for Open, `OpenDirectory` and Save).
     Selected(Vec<String>),
     /// The user cancelled: final, no second dialog.
     Cancelled,
@@ -186,7 +186,7 @@ pub fn parse_answer(json: &str) -> PickAnswer {
 /// A provider's registration (`file-picker.json`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registration {
-    /// Who answers ("AzDrive"), for the log.
+    /// Who answers ("`AzDrive`"), for the log.
     pub provider: String,
     /// The program, an absolute path.
     pub exec: PathBuf,
@@ -325,7 +325,7 @@ pub fn choose(env: Option<&str>, e2e: bool, registered: Option<PathBuf>) -> Pick
     }
 }
 
-/// The registration AzDrive writes: `<config dir>/azul-storage/file-picker.json`.
+/// The registration `AzDrive` writes: `<config dir>/azul-storage/file-picker.json`.
 #[must_use]
 pub fn registered_file() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("azul-storage").join("file-picker.json"))
@@ -333,6 +333,7 @@ pub fn registered_file() -> Option<PathBuf> {
 
 /// A request a provider is answering: polled once per frame by the request
 /// queue. Dropping it (the request is gone) ends the provider.
+#[derive(Debug)]
 pub struct PendingPick {
     answer: Mutex<mpsc::Receiver<PickAnswer>>,
     child: Arc<Mutex<Option<Child>>>,
@@ -367,8 +368,8 @@ impl Drop for PendingPick {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         if let Some(mut child) = child {
-            let _ = child.kill();
-            let _ = child.wait();
+            drop(child.kill());
+            drop(child.wait());
         }
     }
 }
@@ -387,10 +388,10 @@ pub fn ask(registration: &Registration, request: &PickRequest) -> PendingPick {
         .spawn();
     match started {
         Err(e) => {
-            let _ = tx.send(PickAnswer::Unusable(format!(
+            drop(tx.send(PickAnswer::Unusable(format!(
                 "{} did not start: {e}",
                 registration.exec.display()
-            )));
+            ))));
         }
         Ok(mut child) => {
             let stdin = child.stdin.take();
@@ -412,9 +413,9 @@ pub fn ask(registration: &Registration, request: &PickRequest) -> PendingPick {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .take();
-                    let _ = tx.send(answer);
+                    drop(tx.send(answer));
                     if let Some(mut child) = child {
-                        let _ = child.wait();
+                        drop(child.wait());
                     }
                 });
             if let Err(e) = spawned {
@@ -436,7 +437,7 @@ pub fn ask(registration: &Registration, request: &PickRequest) -> PendingPick {
 /// A receiver that already holds `answer`.
 fn answered(answer: PickAnswer) -> mpsc::Receiver<PickAnswer> {
     let (tx, rx) = mpsc::channel();
-    let _ = tx.send(answer);
+    drop(tx.send(answer));
     rx
 }
 
@@ -451,7 +452,7 @@ fn converse(
     if let Some(mut stdin) = stdin {
         // A provider that does not read its stdin still answers; a broken
         // pipe here is not a failure of the request.
-        let _ = writeln!(stdin, "{line}");
+        drop(writeln!(stdin, "{line}"));
         // Dropped here: the provider sees the end of its input.
     }
     let Some(stdout) = stdout else {

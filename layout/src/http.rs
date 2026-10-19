@@ -1438,22 +1438,22 @@ pub enum HttpMethod {
     Put,
     Patch,
     Delete,
-    /// What a server supports for a resource (`Allow`, WebDAV's `DAV`).
+    /// What a server supports for a resource (`Allow`, `WebDAV`'s `DAV`).
     Options,
-    /// WebDAV: the properties of a resource or a collection's members (an
+    /// `WebDAV`: the properties of a resource or a collection's members (an
     /// XML body names which; `Depth` says how deep).
     Propfind,
-    /// WebDAV: set or remove properties (an XML body).
+    /// `WebDAV`: set or remove properties (an XML body).
     Proppatch,
-    /// WebDAV: create a collection (a folder).
+    /// `WebDAV`: create a collection (a folder).
     Mkcol,
-    /// WebDAV: copy a resource to the `Destination` header's URL.
+    /// `WebDAV`: copy a resource to the `Destination` header's URL.
     Copy,
-    /// WebDAV: move a resource to the `Destination` header's URL.
+    /// `WebDAV`: move a resource to the `Destination` header's URL.
     Move,
-    /// WebDAV: lock a resource (an XML body describes the lock).
+    /// `WebDAV`: lock a resource (an XML body describes the lock).
     Lock,
-    /// WebDAV: release a lock (`Lock-Token` header).
+    /// `WebDAV`: release a lock (`Lock-Token` header).
     Unlock,
 }
 

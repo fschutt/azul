@@ -1849,7 +1849,7 @@ pub(crate) fn whole_text(old: &str, seen: &str, from: usize, to: Option<usize>) 
 /// pasted parts, with their formats, before the model replaces blocks
 /// `start..end`.
 fn with_cut_ends(
-    doc: &crate::widgets::rich_text::doc::RichTextDoc,
+    doc: &RichTextDoc,
     start: usize,
     end: usize,
     place: Option<PagePlace>,

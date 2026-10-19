@@ -1567,8 +1567,9 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClipVec {
     }
 }
 
-/// One layer's `background-origin` (CSS Backgrounds 3 s3.8): the box its
-/// image is positioned and sized in, the padding box by default. A list, one
+/// One layer's `background-origin`: the box its image is positioned and sized in.
+///
+/// CSS Backgrounds 3 s3.8; the padding box by default. A list, one
 /// box per layer ([`StyleBackgroundOriginVec`]), like `background-clip`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
@@ -2537,10 +2538,12 @@ pub mod parser {
         boxes: Vec<StyleBackgroundClip>,
     }
 
-    /// What the `background` shorthand sets ([`parse_style_background_layers`]):
-    /// its layers, and the per-layer lists the layers name - each list only
+    /// What the `background` shorthand sets ([`parse_style_background_layers`]).
+    ///
+    /// Its layers, and the per-layer lists the layers name - each list only
     /// when a layer names it, a layer that does not taking the initial value.
     /// Every list is in paint order, like the layers.
+    #[derive(Debug)]
     pub struct BackgroundLayers {
         pub contents: StyleBackgroundContentVec,
         /// `background-origin` and `background-clip`.
@@ -5503,7 +5506,7 @@ mod tests {
         assert_eq!(parse_style_background_content(" none ").unwrap(), transparent);
         assert_eq!(
             parse_style_background_layers("none").unwrap().contents.as_slice(),
-            &[transparent.clone()]
+            core::slice::from_ref(&transparent)
         );
         // `background-image: none, url(a.png)`: two layers, the bottom one none.
         let layers = parse_style_background_content_multiple("none, url(a.png)").unwrap();

@@ -430,7 +430,7 @@ pub fn join_stopping_workers() {
     for (handle, told) in stopping {
         loop {
             if handle.is_finished() {
-                let _ = handle.join();
+                drop(handle.join());
                 break;
             }
             if told.is_overdue(wall_clock()) || wall_clock().is_none() {

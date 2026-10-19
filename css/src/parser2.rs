@@ -451,8 +451,9 @@ impl DynamicCssParseErrorOwned {
     }
 }
 
-/// The node type a generated pseudo-element stands for: `::before`,
-/// `::after` and a list item's `::marker`. CSS 2 wrote the first two with
+/// The node type a generated pseudo-element stands for.
+///
+/// That is `::before`, `::after` and a list item's `::marker`. CSS 2 wrote the first two with
 /// one colon and browsers still take that, so both spellings arrive here.
 #[must_use]
 pub fn generated_pseudo_element(name: &str) -> Option<NodeTypeTag> {
