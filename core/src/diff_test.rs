@@ -2899,6 +2899,32 @@ mod dom_fingerprint_tests {
             ))
     }
 
+    /// A node's own style under another condition is another style: the
+    /// same declaration for `:hover` and for `:focus` must not fingerprint
+    /// alike, or a rebuild that moved it skips the cascade and keeps the
+    /// old one. The inline hash counted the conditions and ignored them.
+    #[test]
+    fn an_inline_declarations_condition_is_part_of_the_style_fingerprint() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType},
+            props::{basic::ColorU, property::CssProperty, style::StyleTextColor},
+        };
+        let styled = |state: PseudoStateType| {
+            Dom::create_node(NodeType::Div).with_css_props(
+                alloc::vec![CssPropertyWithConditions {
+                    property: CssProperty::const_text_color(StyleTextColor {
+                        inner: ColorU::new(255, 0, 0, 255),
+                    }),
+                    apply_if: alloc::vec![DynamicSelector::PseudoState(state)].into(),
+                }]
+                .into(),
+            )
+        };
+        let (hover, _) = fingerprint_dom(&styled(PseudoStateType::Hover));
+        let (focus, _) = fingerprint_dom(&styled(PseudoStateType::Focus));
+        assert_ne!(hover.style_root, focus.style_root);
+    }
+
     #[test]
     fn identical_independently_built_doms_fingerprint_equal_on_both_tiers() {
         let (a, _) = fingerprint_dom(&sample_dom());
