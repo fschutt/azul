@@ -558,6 +558,22 @@ pub struct ShellSettingsDialog {
     pub restart_notice: AzString,
     /// The line a search that finds nothing shows.
     pub empty_label: AzString,
+    /// The search field's placeholder ("Search settings").
+    pub search_placeholder: AzString,
+    /// A folder setting's Browse button ("Browse...").
+    pub browse_label: AzString,
+    /// The title of the folder picker that Browse opens ("Choose a folder").
+    pub browse_title: AzString,
+    /// The title of the colour picker a colour setting opens ("Pick color").
+    pub color_title: AzString,
+    /// What a shortcut setting without a shortcut shows ("None").
+    pub no_shortcut_label: AzString,
+    /// What a shortcut setting shows while it listens ("Press a shortcut...").
+    pub shortcut_prompt: AzString,
+    /// What assistive technology calls the dot of a changed setting ("Modified").
+    pub modified_label: AzString,
+    /// Why Apply waits while nothing changed ("There are no changes to apply.").
+    pub apply_held_reason: AzString,
     /// Hears every request.
     pub on_event: OptionShellSettingsDialogOnEvent,
     /// The category shown while there is no search.
@@ -590,6 +606,14 @@ impl ShellSettingsDialog {
             restart_label: AzString::from_const_str("Requires restart"),
             restart_notice: AzString::from_const_str("Restart to apply some changes."),
             empty_label: AzString::from_const_str("No settings match the search."),
+            search_placeholder: AzString::from_const_str("Search settings"),
+            browse_label: AzString::from_const_str("Browse..."),
+            browse_title: AzString::from_const_str("Choose a folder"),
+            color_title: AzString::from_const_str("Pick color"),
+            no_shortcut_label: AzString::from_const_str("None"),
+            shortcut_prompt: AzString::from_const_str("Press a shortcut..."),
+            modified_label: AzString::from_const_str("Modified"),
+            apply_held_reason: AzString::from_const_str(APPLY_HELD_REASON),
             on_event: None.into(),
             active_category: 0,
             recording: NOT_RECORDING,
@@ -722,6 +746,67 @@ impl ShellSettingsDialog {
         empty_label: AzString,
     ) -> Self {
         self.set_texts(restart_label, restart_notice, empty_label);
+        self
+    }
+
+    /// The words inside the fields: the search field's placeholder, a folder
+    /// setting's Browse button and its picker's title, a colour setting's
+    /// picker title, a shortcut setting without a shortcut and while it
+    /// listens.
+    pub fn set_field_texts(
+        &mut self,
+        search_placeholder: AzString,
+        browse_label: AzString,
+        browse_title: AzString,
+        color_title: AzString,
+        no_shortcut_label: AzString,
+        shortcut_prompt: AzString,
+    ) {
+        self.search_placeholder = search_placeholder;
+        self.browse_label = browse_label;
+        self.browse_title = browse_title;
+        self.color_title = color_title;
+        self.no_shortcut_label = no_shortcut_label;
+        self.shortcut_prompt = shortcut_prompt;
+    }
+
+    /// [`Self::set_field_texts`] for the builder chain.
+    #[must_use]
+    pub fn with_field_texts(
+        mut self,
+        search_placeholder: AzString,
+        browse_label: AzString,
+        browse_title: AzString,
+        color_title: AzString,
+        no_shortcut_label: AzString,
+        shortcut_prompt: AzString,
+    ) -> Self {
+        self.set_field_texts(
+            search_placeholder,
+            browse_label,
+            browse_title,
+            color_title,
+            no_shortcut_label,
+            shortcut_prompt,
+        );
+        self
+    }
+
+    /// The hints: what assistive technology calls the dot of a changed
+    /// setting, and why Apply waits while nothing changed.
+    pub fn set_hint_texts(&mut self, modified_label: AzString, apply_held_reason: AzString) {
+        self.modified_label = modified_label;
+        self.apply_held_reason = apply_held_reason;
+    }
+
+    /// [`Self::set_hint_texts`] for the builder chain.
+    #[must_use]
+    pub fn with_hint_texts(
+        mut self,
+        modified_label: AzString,
+        apply_held_reason: AzString,
+    ) -> Self {
+        self.set_hint_texts(modified_label, apply_held_reason);
         self
     }
 
@@ -1117,15 +1202,17 @@ extern "C" fn on_apply(mut data: RefAny, info: CallbackInfo) -> Update {
 // The build
 // ---------------------------------------------------------------------------
 
-/// The control that edits `s` (setting `index`), named by its label.
+/// The control that edits `s` (setting `index`), named by its label; the
+/// words inside it are the dialog's.
 fn control(
     index: usize,
     s: &ShellSetting,
     recording: bool,
-    on_event: &OptionShellSettingsDialogOnEvent,
+    dialog: &ShellSettingsDialog,
     inner: Option<UiTheme>,
     look: &DialogKitLook,
 ) -> Dom {
+    let on_event = &dialog.on_event;
     use crate::widgets::{
         color_input::{ColorInput, ColorInputOnValueChangeCallbackType},
         drop_down::{DropDown, DropDownOnChoiceChangeCallbackType},
@@ -1200,6 +1287,8 @@ fn control(
         ShellSettingValue::Path(path) => {
             let on_change: PathInputOnChangeCallbackType = on_path;
             let mut w = PathInput::create(path.clone())
+                .with_browse_label(dialog.browse_label.clone())
+                .with_dialog_title(dialog.browse_title.clone())
                 .with_accessibility_name(label)
                 .with_on_change(data, on_change);
             if let Some(t) = inner {
@@ -1212,6 +1301,7 @@ fn control(
             let mut w = ColorInput::create(*c)
                 .with_accessibility_name(label)
                 .with_on_value_change(data, on_change);
+            w.color_input_state.title = dialog.color_title.clone();
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
@@ -1220,6 +1310,10 @@ fn control(
         ShellSettingValue::Shortcut(sc) => {
             let on_record: ShortcutRecorderOnEventCallbackType = on_shortcut;
             let mut w = ShortcutRecorder::create()
+                .with_texts(
+                    dialog.no_shortcut_label.clone(),
+                    dialog.shortcut_prompt.clone(),
+                )
                 .with_accessibility_name(label)
                 .with_recording(recording)
                 .with_on_event(data, on_record);
@@ -1268,8 +1362,7 @@ fn row(
     s: &ShellSetting,
     query: &str,
     recording: bool,
-    restart_label: &AzString,
-    on_event: &OptionShellSettingsDialogOnEvent,
+    dialog: &ShellSettingsDialog,
     inner: Option<UiTheme>,
     look: &DialogKitLook,
 ) -> Dom {
@@ -1289,13 +1382,14 @@ fn row(
             )
             .with_ids_and_classes(dialog_kit::class(SETTING_MODIFIED_CLASS))
             .with_accessibility_info(AccessibilityInfo::named(
-                "Modified",
+                dialog.modified_label.clone(),
                 AccessibilityRole::StaticText,
             )),
         );
     }
     if s.requires_restart {
-        let mut badge = Badge::create(restart_label.clone()).with_badge_kind(BadgeKind::Warning);
+        let mut badge =
+            Badge::create(dialog.restart_label.clone()).with_badge_kind(BadgeKind::Warning);
         if let Some(t) = inner {
             badge = badge.with_theme(t);
         }
@@ -1327,11 +1421,12 @@ fn row(
                 .with_children(DomVec::from_vec(label_column)),
             Dom::create_div()
                 .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
-                .with_child(control(index, s, recording, on_event, inner, look)),
+                .with_child(control(index, s, recording, dialog, inner, look)),
         ]))
 }
 
-/// Why Apply waits: nothing changed yet.
+/// Why Apply waits: nothing changed yet (the default of
+/// `ShellSettingsDialog::apply_held_reason`).
 const APPLY_HELD_REASON: &str = "There are no changes to apply.";
 
 /// The button row: "Restore defaults", the restart notice (or a spacer),
@@ -1352,9 +1447,7 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
                 match click {
                     Some(cb) => dialog_kit::RowAction::Click(data.clone(), cb),
                     // Only Apply ever waits.
-                    None => dialog_kit::RowAction::Disabled(AzString::from_const_str(
-                        APPLY_HELD_REASON,
-                    )),
+                    None => dialog_kit::RowAction::Disabled(dialog.apply_held_reason.clone()),
                 },
                 inner,
                 dialog_kit::BUTTON_BOX_CLASS,
@@ -1446,16 +1539,7 @@ pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
                     keywords.push(' ');
                     keywords.push_str(dialog.category_name(s.category));
                     keywords.push(' ');
-                    row(
-                        i,
-                        s,
-                        &query,
-                        dialog.recording == i,
-                        &dialog.restart_label,
-                        &dialog.on_event,
-                        inner,
-                        &look,
-                    )
+                    row(i, s, &query, dialog.recording == i, &dialog, inner, &look)
                 })
                 .collect();
             ShellSettingsSection::create(
@@ -1491,6 +1575,7 @@ pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
         .with_category_badges(StringVec::from_vec(badges))
         .with_sections(ShellSettingsSectionVec::from_vec(sections))
         .with_search(dialog.search.clone())
+        .with_search_placeholder(dialog.search_placeholder.clone())
         .with_active_category(dialog.active_category)
         .with_footer(buttons(&dialog, inner, &look))
         .with_on_category(shared.clone(), on_pick)
@@ -1888,6 +1973,30 @@ mod settings_dialog_build_tests {
                 "a path is a PathInput"
             );
         }
+    }
+
+    #[test]
+    fn the_words_inside_the_fields_are_the_apps() {
+        let dom = dialog()
+            .with_field_texts(
+                AzString::from("Einstellungen durchsuchen"),
+                AzString::from("Durchsuchen \u{2026}"),
+                AzString::from("Ordner w\u{e4}hlen"),
+                AzString::from("Farbe w\u{e4}hlen"),
+                AzString::from("Keine"),
+                AzString::from("Dr\u{fc}cke eine Tastenkombination \u{2026}"),
+            )
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let all = texts(&dom);
+        assert!(
+            all.iter().any(|t| t == "Durchsuchen \u{2026}"),
+            "a folder setting's Browse says the app's word: {all:?}"
+        );
+        assert!(
+            !all.iter().any(|t| t == "Browse..."),
+            "and not the widget's English: {all:?}"
+        );
     }
 
     #[test]
