@@ -285,6 +285,14 @@ const UNNUMBERED: u64 = 0;
 pub const KIND_CHAT: u8 = 8;
 /// Version byte of a chat record between peers.
 pub const CHAT_VERSION: u8 = 1;
+/// Kind byte of the list of records a peer holds (`ChatHave`), sent when two peers meet.
+pub const KIND_CHAT_HAVE: u8 = 9;
+/// The most sealed records a room keeps to hand on (the newest).
+const HELD_RECORDS: usize = 500;
+/// The most record ids a `ChatHave` lists (the newest).
+const HISTORY_IDS: usize = 200;
+/// The most records sent to a peer for one `ChatHave`.
+const HISTORY_SEND: usize = 100;
 
 /// A message as it travels between the peers: exactly the signed, sealed record the meet Worker
 /// gets, with its room and its sender. Checked as a synced message is.
@@ -312,6 +320,35 @@ impl ChatRecord {
     pub fn decode(bytes: &[u8]) -> Option<ChatRecord> {
         match bytes {
             [KIND_CHAT, CHAT_VERSION, json @ ..] => serde_json::from_slice(json).ok(),
+            _ => None,
+        }
+    }
+}
+
+/// Which records of a room a peer holds, sent when two peers meet: the ids of its newest ones,
+/// and the time they start at when it holds more than a list carries (0: it listed them all).
+/// The other sends what it holds of the room that is not listed and not older than that.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatHave {
+    pub room: String,
+    pub ids: Vec<String>,
+    pub since_ts: u64,
+}
+
+impl ChatHave {
+    /// The list on the wire: the kind byte, the version byte, the JSON.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut bytes = vec![KIND_CHAT_HAVE, CHAT_VERSION];
+        bytes.extend(serde_json::to_vec(self).unwrap_or_default());
+        bytes
+    }
+
+    /// A list read back; `None` for any other kind, another version, or bad JSON.
+    #[must_use]
+    pub fn decode(bytes: &[u8]) -> Option<ChatHave> {
+        match bytes {
+            [KIND_CHAT_HAVE, CHAT_VERSION, json @ ..] => serde_json::from_slice(json).ok(),
             _ => None,
         }
     }
@@ -441,6 +478,10 @@ pub struct ChatRoom {
     /// Messages waiting for their key, with how many up-to-date reads they waited.
     waiting: Vec<(WireMessage, u32)>,
     seen: BTreeSet<String>,
+    /// The sealed records of the newest messages opened here (this device's own once sealed),
+    /// by `(time, id)`: what it can hand a peer that lacks them - it cannot seal another
+    /// device's message itself.
+    held: BTreeMap<(u64, String), ChatRecord>,
     /// Messages and keys that failed a check (a signature, a sender, a seal).
     unreadable: u32,
     /// Messages written before this device could read them (no copy of their key for it).
@@ -508,6 +549,7 @@ impl ChatRoom {
             messages: Vec::new(),
             waiting: Vec::new(),
             seen: BTreeSet::new(),
+            held: BTreeMap::new(),
             unreadable: 0,
             before_join: 0,
             outbox: VecDeque::new(),
@@ -766,14 +808,16 @@ impl ChatRoom {
         while let Some(out) = self.peer_out.pop_front() {
             // One that cannot be sealed is not handed out; the Worker still gets it.
             if let Some((body, sig)) = self.seal_outgoing(me, &key, &out) {
-                records.push(ChatRecord {
+                let record = ChatRecord {
                     room: self.room.clone(),
                     id: out.id,
                     sender: me.device().to_string(),
                     key_id: key.id().to_string(),
                     body,
                     sig,
-                });
+                };
+                self.hold(out.ts, record.clone());
+                records.push(record);
             }
         }
         records
@@ -800,6 +844,46 @@ impl ChatRoom {
         self.take_message(me, message, &mut changes, 0);
         let new = self.seen.contains(&id) || self.waiting.iter().any(|(m, _)| m.id == id);
         (changes, new)
+    }
+
+    /// Which records of the room this device holds, for a peer it meets.
+    #[must_use]
+    pub fn have(&self) -> ChatHave {
+        let newest: Vec<&(u64, String)> = self.held.keys().rev().take(HISTORY_IDS).collect();
+        let since_ts = if self.held.len() > HISTORY_IDS {
+            newest.last().map_or(0, |(ts, _)| *ts)
+        } else {
+            0
+        };
+        ChatHave {
+            room: self.room.clone(),
+            ids: newest.iter().map(|(_, id)| id.clone()).collect(),
+            since_ts,
+        }
+    }
+
+    /// The records a peer that holds `have` lacks, newest first, at most [`HISTORY_SEND`].
+    #[must_use]
+    pub fn missing_for(&self, have: &ChatHave) -> Vec<ChatRecord> {
+        if have.room != self.room {
+            return Vec::new();
+        }
+        let theirs: BTreeSet<&str> = have.ids.iter().map(String::as_str).collect();
+        self.held
+            .iter()
+            .rev()
+            .filter(|((ts, id), _)| *ts >= have.since_ts && !theirs.contains(id.as_str()))
+            .take(HISTORY_SEND)
+            .map(|(_, record)| record.clone())
+            .collect()
+    }
+
+    /// Keeps `record`, written at `ts`, to hand on; the oldest go past [`HELD_RECORDS`].
+    fn hold(&mut self, ts: u64, record: ChatRecord) {
+        self.held.insert((ts, record.id.clone()), record);
+        while self.held.len() > HELD_RECORDS {
+            self.held.pop_first();
+        }
     }
 
     // ---- the requests ----
@@ -1584,6 +1668,17 @@ impl ChatRoom {
             return;
         };
         let mine = m.sender == me.device();
+        self.hold(
+            plain.ts,
+            ChatRecord {
+                room: self.room.clone(),
+                id: m.id.clone(),
+                sender: m.sender.clone(),
+                key_id: m.key_id.clone(),
+                body: m.body.clone(),
+                sig: m.sig.clone(),
+            },
+        );
         let message = RoomMessage {
             id: m.id.clone(),
             seq: (m.seq != UNNUMBERED).then_some(m.seq),

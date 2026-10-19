@@ -364,6 +364,9 @@ struct Remote {
     /// The peer's video streams as they reach this side (to show, or to pass on), by (track,
     /// rendition height).
     received: BTreeMap<(u32, u16), VideoIn>,
+    /// Whether the peer has heard which chat records of the call's room this side holds (it
+    /// answers with the ones this side lacks: `peer_chat`).
+    chat_have_sent: bool,
 }
 
 impl Remote {
@@ -384,6 +387,7 @@ impl Remote {
             tile_visible: [true; 2],
             sent: BTreeMap::new(),
             received: BTreeMap::new(),
+            chat_have_sent: false,
         }
     }
 }

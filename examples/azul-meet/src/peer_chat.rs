@@ -5,17 +5,29 @@
 //! and numbers each message as well; a record from a peer is listed at once and numbered when
 //! the service's copy arrives.
 //!
+//! Two peers that meet compare what they hold: each tells the other the newest records of the
+//! room it has (`ChatHave`) and gets the ones it lacks back, so a device catches up from whoever
+//! is online.
+//!
 //! For scripts: `AZMEET_PEER_CHAT <name>: <text>` for a message that arrived from a peer before
 //! the service brought it.
 
 use super::*;
-use crate::chatroom::{ChatRecord, Changes};
+use crate::chatroom::{ChatHave, ChatRecord, Changes};
 
-/// This side's messages of the call's room, sealed for the peers, to every connected peer.
+/// This side's messages of the call's room, sealed for the peers, to every connected peer; and to
+/// a peer new in the call, which of the room's records this side holds.
 pub(crate) fn flush(s: &mut MeetState, endpoint: &IrohEndpoint) {
     let Some(id) = call_room_id(s) else {
         return;
     };
+    if let Some(have) = s.chats.get(&id).map(|chat| chat.have()) {
+        let bytes = have.encode();
+        for remote in s.remotes.iter_mut().filter(|r| !r.chat_have_sent) {
+            endpoint.send_message(remote.handle, bytes.clone());
+            remote.chat_have_sent = true;
+        }
+    }
     let records = {
         let (Some(me), Some(chat)) = (s.identity.as_ref(), s.chats.get_mut(&id)) else {
             return;
@@ -59,6 +71,23 @@ pub(crate) fn on_record(s: &mut MeetState, endpoint: &IrohEndpoint, conn: u64, r
         s.peer_chat.push((room, changes));
     }
     shown
+}
+
+/// A peer of the call said which records of a room it holds: it gets the ones this side holds and
+/// it lacks. Nothing in the window changes.
+pub(crate) fn on_have(s: &MeetState, endpoint: &IrohEndpoint, conn: u64, have: &ChatHave) -> bool {
+    if !s.remotes.iter().any(|r| r.handle == conn) {
+        return false;
+    }
+    let lacking = s
+        .chats
+        .get(&have.room)
+        .map(|chat| chat.missing_for(have))
+        .unwrap_or_default();
+    for record in lacking {
+        endpoint.send_message(conn, record.encode());
+    }
+    false
 }
 
 /// What the peers' records changed since the last pump, by room, for `apply_chat_changes`.

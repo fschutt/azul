@@ -556,6 +556,10 @@ pub(crate) fn receive_item(
         if let Some(record) = chatroom::ChatRecord::decode(bytes) {
             return peer_chat::on_record(s, endpoint, conn, record);
         }
+        // A peer's list of the chat records it holds: it gets the ones it lacks.
+        if let Some(have) = chatroom::ChatHave::decode(bytes) {
+            return peer_chat::on_have(s, endpoint, conn, &have);
+        }
     }
     let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
         // A connection waiting for its signed announcement: what it says about itself is kept
