@@ -1233,3 +1233,5 @@ mod a_css_wide_keyword_resolves_on_every_property;
 mod a_state_rule_wins_only_where_the_cascade_ranks_it;
 #[path = "an_appended_dom_keeps_its_stylesheet.rs"]
 mod an_appended_dom_keeps_its_stylesheet;
+#[path = "an_inline_flow_root_list_item_is_an_inline_block_with_a_marker.rs"]
+mod an_inline_flow_root_list_item_is_an_inline_block_with_a_marker;
