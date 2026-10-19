@@ -213,6 +213,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::CounterIncrement(v) => prop_value(v, "CounterIncrement", "CounterIncrementValue", "CounterIncrement", Some("counter_increment")),
         P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
         P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
+        P::BackgroundOrigin(v) => prop_value(v, "BackgroundOrigin", "StyleBackgroundOriginVecValue", "StyleBackgroundOriginVec", Some("background_origin")),
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
@@ -2108,6 +2109,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionStyleAnimation", "option"),
     ("OptionStyleBackgroundClip", "option"),
     ("OptionStyleBackgroundContent", "option"),
+    ("OptionStyleBackgroundOrigin", "option"),
     ("OptionStyleBackgroundPosition", "option"),
     ("OptionStyleBackgroundRepeat", "option"),
     ("OptionStyleBackgroundSize", "option"),
@@ -2776,6 +2778,12 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleBackgroundContentVecDestructorType", "vec"),
     ("StyleBackgroundContentVecSlice", "css"),
     ("StyleBackgroundContentVecValue", "css"),
+    ("StyleBackgroundOrigin", "css"),
+    ("StyleBackgroundOriginVec", "vec"),
+    ("StyleBackgroundOriginVecDestructor", "vec"),
+    ("StyleBackgroundOriginVecDestructorType", "vec"),
+    ("StyleBackgroundOriginVecSlice", "css"),
+    ("StyleBackgroundOriginVecValue", "css"),
     ("StyleBackgroundPosition", "css"),
     ("StyleBackgroundPositionVec", "vec"),
     ("StyleBackgroundPositionVecDestructor", "vec"),
@@ -3614,6 +3622,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleAppRegion",
     "StyleBackfaceVisibility",
     "StyleBackgroundClip",
+    "StyleBackgroundOrigin",
     "StyleBackgroundRepeat",
     "StyleBaselineSource",
     "StyleBorderCollapse",
@@ -3860,6 +3869,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontFeatureSettings", "StyleFontFeatureSettingsValue", ""),
     ("CounterSet", "CounterSetValue", "counter_set"),
     ("Quotes", "StyleQuotesValue", "quotes"),
+    ("BackgroundOrigin", "StyleBackgroundOriginVecValue", "background_origin"),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4081,6 +4091,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontFeatureSettings",
     "CounterSet",
     "Quotes",
+    "BackgroundOrigin",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -6425,6 +6436,23 @@ impl Lower for crate::props::style::background::StyleBackgroundClip {
             Self::ContentBox => "ContentBox",
         };
         Expr::unit("StyleBackgroundClip", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundOrigin {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::BorderBox => "BorderBox",
+            Self::PaddingBox => "PaddingBox",
+            Self::ContentBox => "ContentBox",
+        };
+        Expr::unit("StyleBackgroundOrigin", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundOriginVec {
+    fn lower(&self) -> Expr {
+        Expr::vec("StyleBackgroundOriginVec", "StyleBackgroundOrigin", self.as_slice().iter().map(Lower::lower).collect())
     }
 }
 

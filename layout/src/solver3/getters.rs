@@ -2666,6 +2666,26 @@ pub fn get_background_clips(
         .unwrap_or_default()
 }
 
+/// The `background-origin` boxes declared on `node_id` (CSS Backgrounds 3
+/// s3.8), one per background layer in paint order - a shorter list repeats
+/// to cover every layer. Empty when none is declared: every layer is then
+/// positioned in its padding box (the initial value).
+#[must_use]
+pub fn get_background_origins(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundOrigin> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_origin(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
 /// The `background-repeat` values declared on `node_id` (CSS Backgrounds 3
 /// s3.4), one per background layer in layer order - a shorter list repeats
 /// to cover every layer. Empty when none is declared: every layer then

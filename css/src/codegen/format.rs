@@ -52,6 +52,7 @@ pub struct VecContents {
     pub style_background_sizes: BTreeMap<u64, StyleBackgroundSizeVec>,
     pub style_background_repeats: BTreeMap<u64, StyleBackgroundRepeatVec>,
     pub style_background_clips: BTreeMap<u64, StyleBackgroundClipVec>,
+    pub style_background_origins: BTreeMap<u64, StyleBackgroundOriginVec>,
     pub counter_entries: BTreeMap<u64, CounterEntryVec>,
     pub style_background_contents: BTreeMap<u64, StyleBackgroundContentVec>,
     pub style_background_positions: BTreeMap<u64, StyleBackgroundPositionVec>,
@@ -131,6 +132,20 @@ impl VecContents {
             let _ = write!(
                 result,
                 "\r\n    const STYLE_BACKGROUND_CLIP_{key}_ITEMS: &[StyleBackgroundClip] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
+            );
+        }
+
+        for (key, item) in &self.style_background_origins {
+            let val = item
+                .iter()
+                .map(|origin| origin.format_as_rust_code(tabs + 1))
+                .collect::<Vec<_>>()
+                .join(&format!(",\r\n{t}"));
+
+            let _ = write!(
+                result,
+                "\r\n    const STYLE_BACKGROUND_ORIGIN_{key}_ITEMS: &[StyleBackgroundOrigin] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
         }
@@ -265,6 +280,9 @@ impl VecContents {
             }
             CssProperty::BackgroundClip(CssPropertyValue::Exact(v)) => {
                 self.style_background_clips.insert(v.get_hash(), v.clone());
+            }
+            CssProperty::BackgroundOrigin(CssPropertyValue::Exact(v)) => {
+                self.style_background_origins.insert(v.get_hash(), v.clone());
             }
             // An empty list (`none`) borrows `&[]` and declares nothing.
             CssProperty::CounterReset(CssPropertyValue::Exact(v)) if !v.is_none() => {

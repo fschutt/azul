@@ -593,6 +593,9 @@ macro_rules! css_property_from_type {
                 CssProperty::CounterSet(CssPropertyValue::$content_type)
             }
             CssPropertyType::Quotes => CssProperty::Quotes(CssPropertyValue::$content_type),
+            CssPropertyType::BackgroundOrigin => {
+                CssProperty::BackgroundOrigin(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

@@ -67,7 +67,7 @@ use azul_css::{
             CaretColorValue, CaretWidthValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
             ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
             ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CounterSetValue,
-            CssProperty, StyleQuotesValue,
+            CssProperty, StyleBackgroundOriginVecValue, StyleQuotesValue,
             CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
@@ -4514,6 +4514,12 @@ impl CssPropertyCache {
 
     impl_get_prop!(get_counter_set, CounterSetValue, CounterSet, as_counter_set);
     impl_get_prop!(get_quotes, StyleQuotesValue, Quotes, as_quotes);
+    impl_get_prop!(
+        get_background_origin,
+        StyleBackgroundOriginVecValue,
+        BackgroundOrigin,
+        as_background_origin
+    );
 
     impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);
     impl_get_prop!(

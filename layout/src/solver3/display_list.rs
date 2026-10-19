@@ -7282,7 +7282,7 @@ where
         border_radius: BorderRadius,
         style_border_radius: StyleBorderRadius,
     ) {
-        use azul_css::props::style::StyleBackgroundClip;
+        use azul_css::props::style::{StyleBackgroundClip, StyleBackgroundOrigin};
 
         // The padding edge and its curve (the border's inner one).
         let padding_box = inset_rect(border_box, border);
@@ -7317,6 +7317,8 @@ where
             // border (a metal edge).
             let clips =
                 super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let origins =
+                super::getters::get_background_origins(self.ctx.styled_dom, dom_id, node_state);
             let placement = self.background_placement(dom_id, node_state, background_contents);
             let layers = background_contents.len();
             let mut sheen_drawn = false;
@@ -7329,9 +7331,14 @@ where
                         inset_radius(padding_radius, padding),
                     ),
                 };
-                // Images and gradients are placed in the padding box (the
-                // initial `background-origin`).
-                match placement.as_ref().and_then(|p| p.tile(padding_box, layer, i, layers)) {
+                // Images and gradients are positioned and sized in their
+                // `background-origin` box, the padding box by default.
+                let positioning = match layer_value(&origins, layers, i).unwrap_or_default() {
+                    StyleBackgroundOrigin::BorderBox => border_box,
+                    StyleBackgroundOrigin::PaddingBox => padding_box,
+                    StyleBackgroundOrigin::ContentBox => inset_rect(padding_box, padding),
+                };
+                match placement.as_ref().and_then(|p| p.tile(positioning, layer, i, layers)) {
                     Some((tile, repeat)) => builder.push_background_layer_placed(
                         area,
                         radius,

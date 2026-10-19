@@ -111,7 +111,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 205] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 206] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -232,6 +232,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 205] = [
     (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
     (CssPropertyType::CounterSet, "counter-set"),
     (CssPropertyType::Quotes, "quotes"),
+    (CssPropertyType::BackgroundOrigin, "background-origin"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -569,6 +570,7 @@ pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
 pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
 pub type CounterSetValue = CssPropertyValue<CounterSet>;
 pub type StyleQuotesValue = CssPropertyValue<StyleQuotes>;
+pub type StyleBackgroundOriginVecValue = CssPropertyValue<StyleBackgroundOriginVec>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -901,6 +903,7 @@ pub enum CssProperty {
     FontFeatureSettings(StyleFontFeatureSettingsValue),
     CounterSet(CounterSetValue),
     Quotes(StyleQuotesValue),
+    BackgroundOrigin(StyleBackgroundOriginVecValue),
 }
 
 impl_option!(
@@ -1172,6 +1175,7 @@ pub enum CssPropertyType {
     FontFeatureSettings,
     CounterSet,
     Quotes,
+    BackgroundOrigin,
 }
 
 impl CssPropertyType {
@@ -1379,6 +1383,7 @@ impl CssPropertyType {
         Self::FontFeatureSettings,
         Self::CounterSet,
         Self::Quotes,
+        Self::BackgroundOrigin,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1629,6 +1634,7 @@ impl CssPropertyType {
             Self::FontFeatureSettings => "font-feature-settings",
             Self::CounterSet => "counter-set",
             Self::Quotes => "quotes",
+            Self::BackgroundOrigin => "background-origin",
         }
     }
 
@@ -1860,8 +1866,8 @@ impl CssPropertyType {
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
-            BackfaceVisibility, BackgroundClip, BackgroundContent, BackgroundPosition,
-            BackgroundRepeat, BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
+            BackfaceVisibility, BackgroundClip, BackgroundContent, BackgroundOrigin,
+            BackgroundPosition, BackgroundRepeat, BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
             BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
             BorderLeftStyle, BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth,
             BorderTopColor, BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle,
@@ -1892,6 +1898,7 @@ impl CssPropertyType {
             | BackgroundSize
             | BackgroundRepeat
             | BackgroundClip
+            | BackgroundOrigin
             | BorderTopColor
             | BorderRightColor
             | BorderLeftColor
@@ -3808,6 +3815,11 @@ pub fn parse_css_property(
                     .map_err(|()| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::BackgroundOrigin => CssProperty::BackgroundOrigin(
+                parse_style_background_origin_multiple(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
                     .map_err(CssParsingError::ListStyleType)?
@@ -4537,12 +4549,14 @@ pub fn parse_combined_css_property(
         }
         Background => {
             // A layer may name its box (`<image> padding-box`): the shorthand
-            // then sets `background-clip` as well, one box per layer.
-            let (background_content, clips) = parse_style_background_layers(value)?;
+            // then sets `background-origin` and `background-clip` as well, one
+            // box per layer.
+            let (background_content, boxes) = parse_style_background_layers(value)?;
             let mut props = vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(
                 background_content,
             ))];
-            if let Some(clips) = clips {
+            if let Some((origins, clips)) = boxes {
+                props.push(CssProperty::BackgroundOrigin(CssPropertyValue::Exact(origins)));
                 props.push(CssProperty::BackgroundClip(CssPropertyValue::Exact(clips)));
             }
             Ok(props)
@@ -5151,6 +5165,7 @@ impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
 impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
 impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
 impl_from_css_prop!(StyleQuotes, CssProperty::Quotes);
+impl_from_css_prop!(StyleBackgroundOriginVec, CssProperty::BackgroundOrigin);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5376,6 +5391,7 @@ impl CssProperty {
             Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
             Self::CounterSet(v) => v.get_css_value_fmt(),
             Self::Quotes(v) => v.get_css_value_fmt(),
+            Self::BackgroundOrigin(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5935,6 +5951,7 @@ impl CssProperty {
             Self::FontFeatureSettings(v) => v.css_wide_keyword(),
             Self::CounterSet(v) => v.css_wide_keyword(),
             Self::Quotes(v) => v.css_wide_keyword(),
+            Self::BackgroundOrigin(v) => v.css_wide_keyword(),
             Self::TableLayout(v) => v.css_wide_keyword(),
             Self::BorderCollapse(v) => v.css_wide_keyword(),
             Self::BorderSpacing(v) => v.css_wide_keyword(),
@@ -6145,6 +6162,7 @@ impl CssProperty {
             Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
             Self::CounterSet(_) => CssPropertyType::CounterSet,
             Self::Quotes(_) => CssPropertyType::Quotes,
+            Self::BackgroundOrigin(_) => CssPropertyType::BackgroundOrigin,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6637,6 +6655,10 @@ impl CssProperty {
     #[must_use]
     pub const fn quotes(input: StyleQuotes) -> Self {
         Self::Quotes(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn background_origin(input: StyleBackgroundOriginVec) -> Self {
+        Self::BackgroundOrigin(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn list_style_type(input: StyleListStyleType) -> Self {
@@ -7936,6 +7958,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_background_origin(&self) -> Option<&StyleBackgroundOriginVecValue> {
+        match self {
+            Self::BackgroundOrigin(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
@@ -8125,7 +8154,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes,
+            Quotes, BackgroundOrigin,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8318,6 +8347,7 @@ impl CssProperty {
             FontFeatureSettings(c) => c.is_initial(),
             CounterSet(c) => c.is_initial(),
             Quotes(c) => c.is_initial(),
+            BackgroundOrigin(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8741,6 +8771,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_quotes(input: StyleQuotes) -> Self {
         Self::Quotes(StyleQuotesValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_origin(input: StyleBackgroundOriginVec) -> Self {
+        Self::BackgroundOrigin(StyleBackgroundOriginVecValue::Exact(input))
     }
     #[must_use]
     pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
@@ -9573,6 +9607,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Quotes(p) => format!(
             "CssProperty::Quotes({})",
             print_css_property_value(p, tabs, "StyleQuotes")
+        ),
+        CssProperty::BackgroundOrigin(p) => format!(
+            "CssProperty::BackgroundOrigin({})",
+            print_css_property_value(p, tabs, "StyleBackgroundOriginVec")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

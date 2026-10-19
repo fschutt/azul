@@ -131,7 +131,7 @@ fn a_percentage_position_is_of_the_origin_box() {
 fn one_box_in_the_shorthand_is_the_origin_and_the_clip() {
     let at = only_image(
         "width: 100px; height: 60px; border: 5px solid transparent; padding: 10px; \
-         background: url(tile) no-repeat content-box;",
+         background: url(tile) content-box; background-repeat: no-repeat;",
     );
     assert!(close(at, (15.0, 15.0, 10.0, 10.0)), "{at:?}");
 }
@@ -140,7 +140,7 @@ fn one_box_in_the_shorthand_is_the_origin_and_the_clip() {
 fn of_two_boxes_in_the_shorthand_the_first_is_the_origin() {
     let at = only_image(
         "width: 100px; height: 60px; border: 5px solid transparent; padding: 10px; \
-         background: url(tile) no-repeat border-box padding-box;",
+         background: url(tile) border-box padding-box; background-repeat: no-repeat;",
     );
     assert!(close(at, (0.0, 0.0, 10.0, 10.0)), "{at:?}");
 }

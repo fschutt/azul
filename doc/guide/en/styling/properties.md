@@ -122,6 +122,7 @@ background: builtin(vellum-overlay), #f2f1ed;
 - `background-size` accepts a length pair, `cover`, `contain`, or `auto`. Type `StyleBackgroundSize`.
 - `background-repeat` accepts `repeat`, `repeat-x`, `repeat-y`, `no-repeat`, `round`, or `space`. Type `StyleBackgroundRepeat`.
 - `background-clip` accepts `border-box` (the default), `padding-box`, or `content-box`, one per layer. In the `background` shorthand a layer names its box after its image: `background: linear-gradient(#2F4A85, #1E3260) padding-box, linear-gradient(#FFFDF3, #C6B279) border-box;` with a transparent border shows the second gradient only through the border. Type `StyleBackgroundClipVec`.
+- `background-origin` accepts `padding-box` (the default), `border-box`, or `content-box`, one per layer: the box a layer's image is positioned and sized in. In the `background` shorthand one box sets a layer's origin and its clip, and of two boxes the first is the origin and the second the clip. Type `StyleBackgroundOriginVec`.
 
 In code (`CssProperty::background_content`, `background_clip`, ...) the per-layer lists are in paint order: the bottom layer first, the reverse of the CSS comma list.
 
