@@ -70,7 +70,8 @@ use azul::{
     app::App,
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, CallbackType, LayoutCallbackInfo, RefAny,
-        TerminalViewDataSourceCallbackType, TerminalViewOnEventCallbackType, TimerCallbackInfo,
+        TerminalViewDataSourceCallbackType, TerminalViewOnEventCallbackType,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo,
         TimerCallbackReturn, Update,
     },
     css::{EventFilter, HoverEventFilter},
@@ -87,8 +88,9 @@ use azul::{
     widgets::{
         AboutDialog, InfoBar, MessageBox, MessageBoxKind, Modal, ModalState, StandardDialogEvent,
         StandardDialogEventKind, TabsInTitlebar,
-        TerminalCursorShape, TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView,
-        TerminalViewEvent, TerminalViewEventKind,
+        TerminalCursorShape, Button, OnTextInputReturn, TerminalGridSize, TerminalScreen,
+        TerminalSelectionKind, TerminalView, TerminalViewEvent, TerminalViewEventKind, TextInput,
+        TextInputState, TextInputValid,
     },
     window::WindowEventFilter,
 };
@@ -127,7 +129,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 9] = [
+pub const SHORTCUTS: [Shortcut; 10] = [
     Shortcut::new("azterm-shortcut-tabs", "Cmd+T / Ctrl+Shift+T", "azterm-new-tab"),
     Shortcut::new("azterm-shortcut-tabs", "Cmd+W / Ctrl+Shift+W", "azterm-shortcut-close-tab"),
     Shortcut::new("azterm-shortcut-tabs", "Cmd+1..9 / Ctrl+Shift+1..9", "azterm-shortcut-tab-n"),
@@ -135,6 +137,7 @@ pub const SHORTCUTS: [Shortcut; 9] = [
     Shortcut::new("azterm-shortcut-tabs", "Cmd+Shift+[ / Ctrl+Shift+[", "azterm-shortcut-previous-tab"),
     Shortcut::new("azterm-shortcut-terminal", "Cmd+C / Ctrl+Shift+C", "azterm-shortcut-copy"),
     Shortcut::new("azterm-shortcut-terminal", "Cmd+V / Ctrl+Shift+V", "azterm-shortcut-paste"),
+    Shortcut::new("azterm-shortcut-terminal", "Cmd+F / Ctrl+Shift+F", "azterm-find"),
     Shortcut::new(
         "azterm-shortcut-terminal",
         "The wheel, Shift+Page Up / Page Down / Home / End; on macOS Cmd+Up / Down / Page Up / \
@@ -189,6 +192,19 @@ pub enum WindowKey {
     Tab(usize),
     Bigger,
     Smaller,
+    /// Find in the shown tab's text, the scrollback with it.
+    Find,
+}
+
+/// The find bar over the terminal: what is looked for, the match shown, whether the last
+/// look found anything.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FindState {
+    pub query: String,
+    pub shown: Option<alacritty_terminal::term::search::Match>,
+    pub missed: bool,
+    /// The field takes the keys once the bar is built.
+    pub focus_pending: bool,
 }
 
 /// The window chord of `key`, if it is one.
@@ -211,6 +227,7 @@ pub fn window_key(key: VirtualKeyCode) -> Option<WindowKey> {
         K::Key9 => WindowKey::Tab(9),
         K::Equals | K::Plus => WindowKey::Bigger,
         K::Minus => WindowKey::Smaller,
+        K::F => WindowKey::Find,
         _ => return None,
     })
 }
@@ -307,6 +324,8 @@ pub struct AppState {
     /// Output ticks since the last input or output in the shown tab: a blinking cursor's
     /// phase ([`cursor_shown`]).
     pub blink_ticks: u32,
+    /// The find bar, while it is open (Cmd+F).
+    pub find: Option<FindState>,
 }
 
 /// Half a blink period of a blinking cursor, in output ticks (16 ms): about 530 ms.
@@ -347,6 +366,7 @@ impl AppState {
             close_confirmed: false,
             bell_flash: 0,
             blink_ticks: 0,
+            find: None,
         }
     }
 
@@ -496,8 +516,55 @@ impl AppState {
             }
             WindowKey::Bigger => self.font_size = (self.font_size + 1.0).min(FONT_RANGE.1),
             WindowKey::Smaller => self.font_size = (self.font_size - 1.0).max(FONT_RANGE.0),
+            WindowKey::Find => {
+                let query = self.find.take().map(|f| f.query).unwrap_or_default();
+                self.find = Some(FindState {
+                    query,
+                    focus_pending: true,
+                    ..FindState::default()
+                });
+            }
         }
         false
+    }
+
+    /// Looks for the find bar's query in the shown tab: the match after the one shown, older
+    /// (`backwards`) or newer, else the newest; the match is selected and scrolled into view.
+    pub fn find_next(&mut self, backwards: bool) {
+        let Some(find) = self.find.as_mut() else {
+            return;
+        };
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let mut term = tab.session.term.lock();
+        let found = azul_termkit::find::find(&*term, &find.query, find.shown.as_ref(), backwards);
+        match &found {
+            Some(m) => {
+                let mut selection = Selection::new(SelectionType::Simple, *m.start(), Side::Left);
+                selection.update(*m.end(), Side::Right);
+                term.selection = Some(selection);
+                term.scroll_to_point(*m.start());
+                println!("AZTERM_FOUND {}", m.start().line.0);
+            }
+            None => {
+                term.selection = None;
+                if !find.query.is_empty() {
+                    println!("AZTERM_NOT_FOUND");
+                }
+            }
+        }
+        let offset = term.grid().display_offset();
+        drop(term);
+        tab.view.note(offset);
+        tab.session.signals.dirty.store(true, Ordering::Release);
+        find.missed = found.is_none() && !find.query.is_empty();
+        find.shown = found;
+    }
+
+    /// Closes the find bar; the match stays selected.
+    pub fn close_find(&mut self) {
+        self.find = None;
     }
 
     /// Scrolls the active tab's view (Cmd + a navigation key) by whole
@@ -728,6 +795,10 @@ const TAB_TITLE_CSS: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; \
 /// A tab's chord ("⌘2").
 const TAB_NUMBER_CSS: &str = "flex-shrink: 0; color: system:tertiary-text; font-size: 11px;";
 /// A tab whose bell rang while it was behind: the bell, before its chord.
+const FIND_BAR_CSS: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px; \
+     padding: 4px 8px; flex-shrink: 0; border-bottom: 1px solid system:separator; \
+     background: system:window-background;";
+const FIND_NOTE_CSS: &str = "font-size: 12px; color: system:secondary-text; white-space: nowrap;";
 const TAB_BELL_CSS: &str = "flex-shrink: 0; font-size: 13px; color: system:accent; padding: 0px 2px;";
 /// The shown terminal's visual bell: a light wash over it for a few ticks.
 const BELL_FLASH_CSS: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
@@ -820,6 +891,107 @@ fn tab_bar(app: &RefAny, st: &AppState) -> Dom {
             ),
     );
     bar
+}
+
+/// The find bar over the terminal: the query (Return finds an older match, Shift+Return a
+/// newer one, Escape closes), "No match" when there is none, the arrows and the close.
+fn find_bar(app: &RefAny, find: &FindState) -> Dom {
+    use azul_appkit::l10n::{label, t};
+    let field = TextInput::create()
+        .with_text(find.query.as_str())
+        .with_placeholder(label("azterm-find-placeholder"))
+        .with_accessibility_name(label("azterm-find"))
+        .with_on_text_input(app.clone(), on_find_text as TextInputOnTextInputCallbackType)
+        .with_on_virtual_key_down(app.clone(), on_find_key as TextInputOnVirtualKeyDownCallbackType)
+        .dom()
+        .with_id(ids::FIND)
+        .with_css("flex-grow: 1; max-width: 360px;");
+    let mut bar = Dom::create_div().with_css(FIND_BAR_CSS).with_child(field);
+    if find.missed {
+        bar = bar.with_child(
+            Dom::create_div_with_text(AzString::from(t("azterm-find-none"))).with_css(FIND_NOTE_CSS),
+        );
+    }
+    let button = |glyph: &str, name: &str, cb: ButtonOnClickCallbackType, id: AzString| {
+        Button::create(AzString::from(glyph))
+            .with_on_click(app.clone(), cb)
+            .dom()
+            .with_accessibility_name(label(name))
+            .with_id(id)
+    };
+    bar.with_child(button("\u{2191}", "azterm-find-older", on_find_older, ids::FIND_OLDER))
+        .with_child(button("\u{2193}", "azterm-find-newer", on_find_newer, ids::FIND_NEWER))
+        .with_child(button("\u{00d7}", "azterm-find-close", on_find_close, ids::FIND_CLOSE))
+        .with_id(ids::FIND_BAR)
+}
+
+extern "C" fn on_find_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let query = state.get_text().as_str().to_string();
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        if let Some(find) = st.find.as_mut() {
+            if find.query != query {
+                find.query = query;
+                find.shown = None;
+            }
+        }
+        st.find_next(true);
+    }
+    rerender_terminal(&mut info);
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_find_key(mut data: RefAny, mut info: CallbackInfo, _state: TextInputState) -> OnTextInputReturn {
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let shift = info.get_key_modifiers().shift;
+    let mut update = Update::DoNothing;
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        match key {
+            Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+                info.stop_propagation();
+                st.find_next(!shift);
+                update = Update::RefreshDom;
+            }
+            Some(VirtualKeyCode::Escape) => {
+                info.stop_propagation();
+                st.close_find();
+                update = Update::RefreshDom;
+            }
+            _ => {}
+        }
+    }
+    if matches!(update, Update::RefreshDom) {
+        rerender_terminal(&mut info);
+    }
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+fn find_step(data: &mut RefAny, info: &mut CallbackInfo, backwards: bool) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.find_next(backwards);
+    }
+    rerender_terminal(info);
+    Update::RefreshDom
+}
+
+extern "C" fn on_find_older(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    find_step(&mut data, &mut info, true)
+}
+
+extern "C" fn on_find_newer(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    find_step(&mut data, &mut info, false)
+}
+
+extern "C" fn on_find_close(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.close_find();
+    }
+    Update::RefreshDom
 }
 
 /// The last problem, until dismissed.
@@ -957,6 +1129,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         let mut children = vec![tab_bar(&app, st)];
         if !st.notice.is_empty() {
             children.push(notice_bar(&app, st));
+        }
+        if let Some(find) = st.find.as_ref() {
+            children.push(find_bar(&app, find));
         }
         children.push(pane(&app, st));
         column(children)
@@ -1427,7 +1602,8 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
             let _ = tab.session.signals.take_dirty();
         }
     }
-    let focus = !st.about_open && !kit::settings_open(&st.kit);
+    let find_focus = st.find.as_mut().is_some_and(|f| std::mem::take(&mut f.focus_pending));
+    let focus = !st.about_open && !kit::settings_open(&st.kit) && st.find.is_none();
     // A tab opened or picked is scrolled into the strip - in the strip as
     // it is laid out (not on a tick that rebuilds it).
     let reveal = (st.reveal_ticks > 0 && !rebuild).then(|| {
@@ -1440,6 +1616,16 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     }
     if focus {
         focus_terminal(&mut info.callback_info);
+    }
+    if find_focus {
+        let dom = DomId { inner: 0 };
+        let raw = info
+            .callback_info
+            .get_node_id_by_id_attribute(dom, ids::FIND)
+            .into_raw();
+        if raw != 0 {
+            info.callback_info.set_focus_to_node(dom, NodeId { inner: raw - 1 });
+        }
     }
     if let Some(index) = reveal {
         reveal_tab(&mut info.callback_info, index);

@@ -30,3 +30,9 @@ pub const SETTINGS_VIEW: AzString = AzString::from_const_str("__azterm_settings-
 pub const ABOUT: AzString = AzString::from_const_str("__azterm_about");
 /// The question before a close stops a running program.
 pub const CLOSE_QUESTION: AzString = AzString::from_const_str("__azterm_close-question");
+/// The find bar (Cmd+F), its field and its buttons.
+pub const FIND_BAR: AzString = AzString::from_const_str("__azterm_find-bar");
+pub const FIND: AzString = AzString::from_const_str("__azterm_find");
+pub const FIND_OLDER: AzString = AzString::from_const_str("__azterm_find-older");
+pub const FIND_NEWER: AzString = AzString::from_const_str("__azterm_find-newer");
+pub const FIND_CLOSE: AzString = AzString::from_const_str("__azterm_find-close");
