@@ -1227,3 +1227,7 @@ mod a_descendant_restyled_by_its_ancestors_hover_fades;
 mod a_laid_out_tree_is_shared_with_the_layout_cache;
 #[path = "closing_the_last_window_never_waits_for_its_workers.rs"]
 mod closing_the_last_window_never_waits_for_its_workers;
+#[path = "a_css_wide_keyword_resolves_on_every_property.rs"]
+mod a_css_wide_keyword_resolves_on_every_property;
+#[path = "a_state_rule_wins_only_where_the_cascade_ranks_it.rs"]
+mod a_state_rule_wins_only_where_the_cascade_ranks_it;
