@@ -107,8 +107,11 @@ pub struct EditorForm {
     /// The calendar's id (empty: the default calendar).
     pub calendar: String,
     pub notes: String,
-    /// The attendees as typed: addresses separated by commas, semicolons or lines.
+    /// The attendees, the field's tokens as an address line (`Name <address>` or the address,
+    /// separated by commas).
     pub attendees: String,
+    /// What is still typed in the attendees field (no separator, no Enter yet): invited too.
+    pub attendees_typed: String,
     /// "Add AzMeet link" is ticked.
     pub add_meet: bool,
     /// The event's meeting, kept as it is while "Add AzMeet link" stays ticked.
@@ -160,6 +163,7 @@ impl EditorForm {
             calendar: calendar.to_string(),
             notes: String::new(),
             attendees: String::new(),
+            attendees_typed: String::new(),
             add_meet: false,
             meeting: None,
             except: Vec::new(),
@@ -344,7 +348,10 @@ impl EditorForm {
             return Err(t("azcalendar-times-end-that-day"));
         }
         let repeat = self.rule()?;
-        let attendees = parse_attendees(&self.attendees)?;
+        let attendees = parse_attendees(&azul_pim::mail_address::line_with(
+            &self.attendees,
+            &self.attendees_typed,
+        ))?;
         Event {
             id: self.id.clone(),
             title: self.title.clone(),
@@ -376,7 +383,10 @@ impl EditorForm {
         } else {
             title.to_string()
         };
-        let kind = if self.meeting_request || !self.attendees.trim().is_empty() {
+        let kind = if self.meeting_request
+            || !self.attendees.trim().is_empty()
+            || !self.attendees_typed.trim().is_empty()
+        {
             "azcalendar-kind-meeting"
         } else {
             "azcalendar-kind-appointment"
@@ -471,7 +481,7 @@ pub fn error_text(e: &EventError) -> String {
 }
 
 /// "\"team\" is not an e-mail address." (`who` quoted).
-fn not_an_address(who: &str) -> String {
+pub(crate) fn not_an_address(who: &str) -> String {
     t_args(
         "azcalendar-not-an-address",
         &[("who", Arg::from(format!("{who:?}")))],

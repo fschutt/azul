@@ -17,7 +17,8 @@ use azul::{
         CloseGuardOnEventCallbackType,
         DatePickerOnChangeCallbackType, DateRepeatPickerOnChangeCallbackType,
         SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
-        TimePickerOnChangeCallbackType,
+        TimePickerOnChangeCallbackType, TokenInputOnEventCallbackType,
+        TokenInputOnValidateCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
@@ -30,7 +31,8 @@ use azul::{
         DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
-        TextInputState, TimePicker, TimePickerState, Titlebar,
+        TextInputState, TimePicker, TimePickerState, Titlebar, TokenInput, TokenInputEvent,
+        TokenInputEventKind, TokenInputState, TokenInputVerdict,
     },
     window::WindowDecorations,
 };
@@ -424,14 +426,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let attendees = || {
         row(
             "azcalendar-editor-attendees",
-            vec![crate::text_field(
-                &form.attendees,
-                "ana@example.com, bo@example.org",
-                "azcalendar-editor-attendees",
-                ids::EDITOR_ATTENDEES,
-                app.clone(),
-                on_attendees,
-            )],
+            vec![attendees_input(app, form)],
         )
     };
     let location = || {
@@ -640,17 +635,74 @@ extern "C" fn on_location(
     crate::typed()
 }
 
-extern "C" fn on_attendees(
+/// The attendees: azul's `TokenInput`, each attendee a token (`x` removes it), what is typed
+/// checked as an address when a separator, Enter or Tab ends it (AzMail's To line's rule).
+fn attendees_input(app: &RefAny, form: &EditorForm) -> Dom {
+    let tokens = || {
+        StringVec::from_vec(
+            azul_pim::mail_address::split_address_line(&form.attendees)
+                .into_iter()
+                .map(AzString::from)
+                .collect(),
+        )
+    };
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
+        .with_child(
+            TokenInput::create(tokens(), label("azcalendar-editor-attendees"))
+                .with_state(TokenInputState::create(tokens()).with_text(form.attendees_typed.as_str()))
+                .with_on_event(app.clone(), on_attendees_event as TokenInputOnEventCallbackType)
+                .with_on_validate(app.clone(), on_validate_attendee as TokenInputOnValidateCallbackType)
+                .dom()
+                .with_id(ids::EDITOR_ATTENDEES),
+        )
+}
+
+/// A token added or removed: the attendees line; typing: what is still typed; a refused entry:
+/// the editor says why.
+extern "C" fn on_attendees_event(
     mut data: RefAny,
     _info: CallbackInfo,
-    state: TextInputState,
-) -> OnTextInputReturn {
-    let text = state.get_text().as_str().to_string();
+    event: TokenInputEvent,
+) -> Update {
+    let tokens: Vec<String> = event
+        .state
+        .tokens
+        .as_slice()
+        .iter()
+        .map(|token| token.as_str().to_string())
+        .collect();
+    let typed = event.state.text.as_str().to_string();
+    let refused = event.message.as_str().to_string();
+    let kind = event.kind;
     with_form(&mut data, |f| {
-        f.attendees = text;
-        false
-    });
-    crate::typed()
+        f.attendees_typed = typed;
+        match kind {
+            TokenInputEventKind::Add | TokenInputEventKind::Remove => {
+                f.attendees = tokens.join(", ");
+                true
+            }
+            TokenInputEventKind::Refuse => {
+                f.error = refused;
+                true
+            }
+            _ => false,
+        }
+    })
+}
+
+/// An attendee is a token only when it holds an address a person can be invited at.
+extern "C" fn on_validate_attendee(
+    _data: RefAny,
+    _info: CallbackInfo,
+    token: AzString,
+) -> TokenInputVerdict {
+    match azul_pim::mail_address::entry_token(token.as_str(), false) {
+        Some(entry) => TokenInputVerdict::create_accepted(AzString::from(entry)),
+        None => TokenInputVerdict::create_refused(AzString::from(editor::not_an_address(
+            token.as_str(),
+        ))),
+    }
 }
 
 extern "C" fn on_notes(

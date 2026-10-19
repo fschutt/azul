@@ -704,34 +704,15 @@ fn field_widget(app: &RefAny, id: u64, field: ComposeField, value: &str) -> Text
         )
 }
 
-/// `line` with what is still `typed` after it (Send takes the field as the user sees it).
-#[must_use]
-pub(crate) fn line_with(line: &str, typed: &str) -> String {
-    let typed = typed.trim();
-    match (line.trim().is_empty(), typed.is_empty()) {
-        (_, true) => line.to_string(),
-        (true, false) => typed.to_string(),
-        (false, false) => format!("{line}, {typed}"),
-    }
-}
+/// What is still typed goes with the line on Send (azul-pim's, shared with AzCalendar's
+/// attendees).
+pub(crate) use azul_pim::mail_address::line_with;
 
-/// A typed recipient as the address line keeps it: `Name <address>` (the name quoted when it
-/// holds what separates or opens an entry) or the address alone; `Err` without an address.
+/// A typed recipient as the address line keeps it: `Name <address>` or the address alone (any
+/// host: an account on a test server sends to `postmaster@localhost`); `Err` without an
+/// address.
 pub(crate) fn address_token(entry: &str) -> Result<String, ()> {
-    use azul_pim::mail_address::{is_email_any_host, parse_mailbox};
-    let mailbox = parse_mailbox(entry);
-    if !is_email_any_host(&mailbox.address) {
-        return Err(());
-    }
-    if mailbox.name.is_empty() {
-        return Ok(mailbox.address);
-    }
-    let name = if mailbox.name.contains([',', ';', '"', '<', '>', '\\']) {
-        format!("\"{}\"", mailbox.name.replace('\\', "\\\\").replace('"', "\\\""))
-    } else {
-        mailbox.name
-    };
-    Ok(format!("{name} <{}>", mailbox.address))
+    azul_pim::mail_address::entry_token(entry, true).ok_or(())
 }
 
 /// The To, Cc or Bcc field: azul's `TokenInput`, each recipient a token (`x` removes it), what

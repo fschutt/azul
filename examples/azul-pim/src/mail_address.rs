@@ -146,6 +146,44 @@ pub fn address_list(line: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// A typed entry as an address line keeps it, one token of a field of addresses (azul's
+/// `TokenInput` in AzMail's To / Cc / Bcc and AzCalendar's attendees): `name <address>`, the
+/// name quoted when it holds what separates or opens an entry, or the address alone. `None`
+/// when its address does not pass [`is_email_any_host`] (`any_host`) or [`is_email`].
+#[must_use]
+pub fn entry_token(entry: &str, any_host: bool) -> Option<String> {
+    let mailbox = parse_mailbox(entry);
+    let valid = if any_host {
+        is_email_any_host(&mailbox.address)
+    } else {
+        is_email(&mailbox.address)
+    };
+    if !valid {
+        return None;
+    }
+    if mailbox.name.is_empty() {
+        return Some(mailbox.address);
+    }
+    let name = if mailbox.name.contains([',', ';', '"', '<', '>', '\\']) {
+        format!("\"{}\"", mailbox.name.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        mailbox.name
+    };
+    Some(format!("{name} <{}>", mailbox.address))
+}
+
+/// `line` with what is still `typed` in its field (no separator, no Enter yet) as one more
+/// entry: the line a Send or a Save goes with. `line` alone when nothing is typed.
+#[must_use]
+pub fn line_with(line: &str, typed: &str) -> String {
+    let typed = typed.trim();
+    match (line.trim().is_empty(), typed.is_empty()) {
+        (_, true) => line.to_string(),
+        (true, false) => typed.to_string(),
+        (false, false) => format!("{line}, {typed}"),
+    }
+}
+
 /// Whether `text` (trimmed) reads as an e-mail address a person typed: see the module's rules.
 #[must_use]
 pub fn is_email(text: &str) -> bool {
@@ -360,5 +398,19 @@ mod tests {
             Some("example.org")
         );
         assert_eq!(email_domain("ada"), None);
+    }
+
+    #[test]
+    fn a_typed_entry_is_kept_as_its_address_line_writes_it() {
+        assert_eq!(entry_token(" Ada Lovelace <ada@example.org> ", false).as_deref(),
+                   Some("Ada Lovelace <ada@example.org>"));
+        assert_eq!(entry_token("\"Lovelace, Ada\" <ada@example.org>", false).as_deref(),
+                   Some("\"Lovelace, Ada\" <ada@example.org>"));
+        assert_eq!(entry_token("postmaster@localhost", true).as_deref(), Some("postmaster@localhost"));
+        assert_eq!(entry_token("postmaster@localhost", false), None, "a person's address has a dot");
+        assert_eq!(entry_token("Ada <>", true), None);
+        assert_eq!(line_with("a@example.org", " b@example.org "), "a@example.org, b@example.org");
+        assert_eq!(line_with("", "b@example.org"), "b@example.org");
+        assert_eq!(line_with("a@example.org", " "), "a@example.org");
     }
 }
