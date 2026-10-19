@@ -43,6 +43,11 @@ step tab_enter 600 python3 scripts/ap01_proofs/tab_enter_e2e.py $B $OUT/tab-ente
 # APPS23 AzTasks close, AzVideoCut saves and meters.
 step aztasks 300 python3 scripts/aztasks_e2e.py --bin $B/AzTasks --out $OUT/aztasks-shots
 step azvideocut 300 python3 scripts/azvideocut_e2e.py --bin $B/AzVideoCut --out $OUT/azvideocut-shots
+# APPS24: AP-11's re-measure of AzNews' first layout (the sample's 891 articles, the node
+# count of the window; the runner's log has the peak memory) and its magazine; AP-06g's
+# compose window outliving the main window is azmail_e2e's account run.
+step aznews 600 python3 scripts/aznews_e2e.py --bin $B/AzNews --out $OUT/aznews-shots
+step azmail_account 600 python3 scripts/azmail_e2e.py --bin $B/AzMail --phase account --timeout 400
 # RUNTIME23 6 (AzPdf resize).
 step azpdf_resize 300 python3 scripts/azpdf_resize_e2e.py --bin $B/AzPdf
 # MEETMAPS23: a simulated drive rebuilds nothing between position updates.

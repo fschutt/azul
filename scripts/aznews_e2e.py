@@ -21,7 +21,9 @@
        out; followed again it is refreshed; Mark all as read; the settings page switches to
        Flora / Dark; screenshots on the way;
     7. a second run with --sample on another fresh folder: 42 feeds, 891 articles, 127 files;
-       42 closed source sections, one opened shows its 4 topics.
+       42 closed source sections, one opened shows its 4 topics;
+       the window holds at most 2500 nodes (the list is virtualized; 4868 on 10-06), and List /
+       Magazine shows the articles as cards and back;
     8. a third run (--sample --screen feed, a fresh folder): the first feed's page; its name is
        changed, then the window is closed: the subscription list is written first
        (AZNEWS_SAVED news/subscriptions.opml) and the window closes by itself; AzNews starts
@@ -264,6 +266,20 @@ def sample_run(args, logs, out):
         app.until("a topic's articles", lambda: app.has(app.sel("article-0"), every_dom=True))
         app.frame(2)
         app.screenshot(os.path.join(out, "sample-topic.png"))
+        # The first layout of 891 articles was 4868 nodes (2.1 s, 1.47 GB on 10-06): the list is
+        # a VirtualView now, so the window holds the rows in view, not every article.
+        nodes = len(app.hierarchy())
+        app.log("the sample's window: %d nodes" % nodes)
+        if nodes > 2500:
+            raise Failure("the sample's window holds %d nodes: the list is not virtualized" % nodes)
+        # The magazine: the articles as cards, back to the list.
+        app.click(text="Magazine")
+        app.expect_line("AZNEWS_LAYOUT", "magazine", "the magazine")
+        app.until("the magazine's first card", lambda: app.has(app.sel("article-0"), every_dom=True))
+        app.frame(2)
+        app.screenshot(os.path.join(out, "sample-magazine.png"))
+        app.click(text="List")
+        app.expect_line("AZNEWS_LAYOUT", "list", "the list again")
         app.log("PASS (sample)")
         return True
     except Failure:
