@@ -604,11 +604,24 @@ pub fn register_debug_timer(
     // the timer's own re-arming (`DebugPollPace`).
     let timer_id: usize = azul_layout::e2e::DEBUG_TIMER_ID;
     let app_data_for_timer = window.get_app_data().borrow().clone();
-    let window_id = window
-        .get_current_window_state()
-        .window_id
-        .as_str()
-        .to_string();
+    // A request names its window by id: a window under an id a registered one has already (a
+    // dialog's popover beside the dialog, both `azul-transient`, on a backend that does not
+    // number them itself) takes the first free `-N` of it, or it could never be reached.
+    let window_id = crate::desktop::shell2::common::free_window_id(
+        window.get_current_window_state().window_id.as_str(),
+        |id| {
+            azul_layout::e2e::registered_debug_windows()
+                .iter()
+                .any(|(_, registered)| registered == id)
+        },
+    );
+    if window.get_current_window_state().window_id.as_str() != window_id {
+        let id = window_id.clone();
+        window.get_common_mut().update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| ws.window_id = id.as_str().into(),
+        );
+    }
     let get_system_time_fn =
         azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
     let debug_timer = create_debug_timer(

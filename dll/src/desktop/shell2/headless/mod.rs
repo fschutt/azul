@@ -2424,19 +2424,15 @@ impl HeadlessWindow {
             if pending_create.window_state.flags.window_type
                 == azul_core::window::WindowType::Menu
             {
-                let base = pending_create.window_state.window_id.as_str().to_string();
-                let taken = |id: &str| {
-                    self.children
-                        .iter()
-                        .any(|c| c.common.current_window_state().window_id.as_str() == id)
-                };
-                if taken(&base) {
-                    let free = (2usize..)
-                        .map(|n| format!("{base}-{n}"))
-                        .find(|id| !taken(id))
-                        .unwrap_or(base);
-                    pending_create.window_state.window_id = free.into();
-                }
+                let free = crate::desktop::shell2::common::free_window_id(
+                    pending_create.window_state.window_id.as_str(),
+                    |id| {
+                        self.children
+                            .iter()
+                            .any(|c| c.common.current_window_state().window_id.as_str() == id)
+                    },
+                );
+                pending_create.window_state.window_id = free.into();
             }
             log_debug!(
                 LogCategory::Window,

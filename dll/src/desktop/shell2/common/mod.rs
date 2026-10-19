@@ -200,6 +200,21 @@ pub fn window_clear_color(
     ColorU { a: 255, ..color }
 }
 
+/// `window_id`, or the first free `<window_id>-2`, `-3`, ... where `taken` says another open
+/// window has it. The debug server reaches a window by its id, and every popup is
+/// `azul-transient`, every menu `azul-menu`: a dialog's popover or a submenu under the same id as
+/// the window beside it could not be reached at all.
+#[must_use]
+pub fn free_window_id(window_id: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(window_id) {
+        return window_id.to_string();
+    }
+    (2usize..)
+        .map(|n| format!("{window_id}-{n}"))
+        .find(|id| !taken(id))
+        .unwrap_or_else(|| window_id.to_string())
+}
+
 #[cfg(test)]
 mod window_id_tests {
     use super::free_window_id;
