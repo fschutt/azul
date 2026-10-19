@@ -21,7 +21,10 @@ use crate::text3::cache::{
 
 const INFINITY_BADNESS: f32 = 10000.0;
 const SPACE_STRETCH_RATIO: f32 = 0.5;
-const SPACE_SHRINK_RATIO: f32 = 0.33;
+/// How far a space may shrink, as a share of its width: not at all. No line positioner
+/// shrinks a space (justification only widens them, as browsers do), so a line chosen for
+/// a shrunk space would stick out of its box.
+const SPACE_SHRINK_RATIO: f32 = 0.0;
 const HYPHENATION_PENALTY: f32 = 50.0;
 const BADNESS_MULTIPLIER: f32 = 100.0;
 
@@ -148,8 +151,9 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 });
             }
             item if is_word_separator(item) => {
-                // The space stretches and shrinks by the font's space; the
-                // word- and letter-spacing are in its natural width only.
+                // The space stretches by the font's space (it never shrinks,
+                // see SPACE_SHRINK_RATIO); the word- and letter-spacing are in
+                // its natural width only.
                 let space = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
