@@ -12,6 +12,8 @@
 //!   events applied (the bytes to the program, the scroll, the selection, the
 //!   copy), when a flood of output is drawn, the re-render of the view alone.
 
+/// Find in a terminal's text, the scrollback with it.
+pub mod find;
 /// The addresses in a row of a terminal's text (a Cmd+click opens one).
 pub mod links;
 pub mod pane;
