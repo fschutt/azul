@@ -14082,6 +14082,14 @@ mod child_window_tests {
     /// A `<transient-window>`'s popup, as the owner's sync opens one (a Modal's window, a
     /// Popover's, a combobox's list): a `Menu`-type window whose layout ctx is its mailbox.
     fn transient_popup(owner: &HeadlessWindow) -> (WindowCreateOptions, RefAny) {
+        transient_popup_showing(owner, Dom::create_div())
+    }
+
+    /// [`transient_popup`] whose mailbox holds `content`: what the owner's subtree put there.
+    fn transient_popup_showing(
+        owner: &HeadlessWindow,
+        content: Dom,
+    ) -> (WindowCreateOptions, RefAny) {
         use azul_core::{
             geom::{LogicalPosition, LogicalRect, LogicalSize},
             id::NodeId,
@@ -14106,7 +14114,7 @@ mod child_window_tests {
             0,
             owner.common.current_window_state(),
             &open,
-            Dom::create_div(),
+            content,
             None,
             false,
         )
@@ -14247,6 +14255,142 @@ mod child_window_tests {
                 .iter()
                 .all(|c| !has_forwarded_keys(c.common.current_window_state())),
             "the popup replayed the forwarded key in the owner's pass"
+        );
+    }
+
+    const PAY_PAGE: &str = "https://pay.example/fields#cs=secret";
+
+    static OWNER_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
+    static PAGE_OWNER_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn counting_owner_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        OWNER_LAYOUTS.fetch_add(1, Ordering::SeqCst);
+        Dom::create_body()
+    }
+
+    extern "C" fn counting_page_owner_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        PAGE_OWNER_LAYOUTS.fetch_add(1, Ordering::SeqCst);
+        Dom::create_body()
+    }
+
+    /// What AzDrive's payment popover answers when its card page says which card is typed (a
+    /// navigation to `_bridge/brand?v=visa`, cancelled): the state the owner's layout reads
+    /// changed - the popup's content is built there.
+    extern "C" fn page_said_the_brand(_data: RefAny, mut info: CallbackInfo) -> Update {
+        info.prevent_default();
+        Update::RefreshDom
+    }
+
+    /// The same page in a window of its own, whose answer is for every window (a sign-in that
+    /// the main window shows the account of).
+    extern "C" fn page_signed_in(_data: RefAny, mut info: CallbackInfo) -> Update {
+        info.prevent_default();
+        Update::RefreshDomAllWindows
+    }
+
+    fn page_with(callback: azul_layout::callbacks::CallbackType) -> Dom {
+        Dom::create_body().with_css("margin: 0;").with_child(
+            Dom::create_webview(azul_css::AzString::from(PAY_PAGE))
+                .with_css("display: block; width: 200px; height: 100px;")
+                .with_callback(
+                    azul_core::events::EventFilter::Component(
+                        azul_core::events::ComponentEventFilter::WebViewNavigationRequested,
+                    ),
+                    RefAny::new(()),
+                    callback as usize,
+                ),
+        )
+    }
+
+    extern "C" fn page_window_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        page_with(page_signed_in)
+    }
+
+    /// The page in `window` navigates to `url`, as its script would; the callbacks run at the
+    /// window's next turn.
+    fn page_navigates(window: &mut HeadlessWindow, url: &str) {
+        let lw = window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a laid-out window has its layout window");
+        let id = lw
+            .webviews
+            .views()
+            .first()
+            .map(|view| view.id)
+            .expect("the window shows the page");
+        lw.webviews
+            .push_simulated(azul_layout::managers::webview::WebViewReport {
+                id,
+                request: 0,
+                event: azul_core::webview::WebViewEvent::NavigationRequested(
+                    azul_core::webview::WebViewNavigation {
+                        url: azul_css::AzString::from(url),
+                        is_redirect: false,
+                    },
+                ),
+            });
+    }
+
+    /// A popup only mirrors its owner's subtree: when a callback of a web view in the popup asks
+    /// for a rebuild, the OWNER must be rebuilt, or the popup lays out the old content again.
+    /// The event pass does this for a popup's clicks and keys; a web view's report went through
+    /// the web view pump, which rebuilt the popup alone - AzDrive's card artwork never showed
+    /// VISA once nothing else woke the owner every frame.
+    #[test]
+    fn a_popups_web_view_callback_asking_for_a_rebuild_rebuilds_its_owner() {
+        let mut root = root_with(counting_owner_layout);
+        root.regenerate_layout().expect("the owner's first layout");
+        let _ = root.common.take_regeneration();
+        let (popup, _mailbox) = transient_popup_showing(&root, page_with(page_said_the_brand));
+        root.queue_window_create(popup);
+        for _ in 0..2 {
+            root.pump_children();
+            root.pump_once(true);
+        }
+        let before = OWNER_LAYOUTS.load(Ordering::SeqCst);
+        page_navigates(&mut root.children[0], "https://pay.example/_bridge/brand?v=visa");
+        for _ in 0..3 {
+            root.pump_children();
+            root.pump_once(true);
+        }
+        let navigation = root.children[0]
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.webviews.views().first())
+            .and_then(|view| view.navigations.last())
+            .map(|n| n.allowed);
+        assert_eq!(navigation, Some(false), "the popup's callback heard the page and cancelled");
+        assert!(
+            OWNER_LAYOUTS.load(Ordering::SeqCst) > before,
+            "the owner was rebuilt for its popup's web view callback"
+        );
+    }
+
+    /// A web view callback's `RefreshDomAllWindows` rebuilds every window of the app, as it does
+    /// from an event handler or a timer: the web view pump took it for a rebuild of its own
+    /// window only.
+    #[test]
+    fn a_web_view_callback_answering_refresh_all_windows_rebuilds_the_root() {
+        let mut root = root_with(counting_page_owner_layout);
+        root.regenerate_layout().expect("the root's first layout");
+        let _ = root.common.take_regeneration();
+        root.queue_window_create(window(page_window_layout, "sign-in"));
+        for _ in 0..2 {
+            root.pump_children();
+            root.pump_once(true);
+        }
+        let before = PAGE_OWNER_LAYOUTS.load(Ordering::SeqCst);
+        page_navigates(&mut root.children[0], "https://pay.example/_bridge/result?v=succeeded");
+        for _ in 0..3 {
+            root.pump_children();
+            root.pump_once(true);
+        }
+        assert!(
+            PAGE_OWNER_LAYOUTS.load(Ordering::SeqCst) > before,
+            "the root was rebuilt for the web view's RefreshDomAllWindows"
         );
     }
 }
