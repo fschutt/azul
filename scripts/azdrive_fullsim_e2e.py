@@ -36,10 +36,12 @@ the stack from azul-apps' local/fullsim.sh):
 
 `--window` runs the buyer's AzDrive in a real window (the second computer stays headless: its
 unlock is in the drive's context menu, a native menu on macOS that no script may drive): the
-popover's web view loads the sandbox's real page, which the sandbox serves with the test card typed in (`/_dev/fill`, nothing can type into a
-real web view), and the page itself confirms on Pay; the screenshots are the OS's captures (the
-page included). Each profile keeps its keyring in a file of the run (AZ_KEYRING_FILE, which a
-windowed run honours too), never in the system keyring.
+popover's web view loads the sandbox's real page, which the sandbox serves with the test card
+typed in (`/_dev/fill`: nothing can type into a real web view), and the page itself confirms on
+Pay. The screenshots are azul's render of the windows, without the web view's page (a native
+view; the OS's capture of it needs the Screen Recording permission). Each profile keeps its
+keyring in a file of the run (AZ_KEYRING_FILE, which a windowed run honours too), never in the
+system keyring.
 Every key_down has its key_up (the E2E key_up rule).
 """
 
@@ -290,19 +292,10 @@ def play_fields_page(app, popover, view, sandbox, card, decline_first=None, out=
 
 
 def shot(win, path, window):
-    """A screenshot of `win`: azul's own render headless; in a real window the OS's capture of
-    the window, which holds the web view's page too (azul's render leaves it out)."""
-    if not window:
-        win.screenshot(path)
-        return
-    win.settle()
-    value = win.value("take_native_screenshot")
-    data = value.get("data") if isinstance(value, dict) else value
-    if not isinstance(data, str) or "base64," not in data:
-        raise Failure("take_native_screenshot returned no PNG: %s" % json.dumps(value)[:200])
-    with open(path, "wb") as f:
-        f.write(base64.b64decode(data.split("base64,", 1)[1]))
-    log("native screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+    """A screenshot of `win`: azul's own render of the window (a real window's web view is a
+    native view that render leaves out; the OS's capture of it needs the Screen Recording
+    permission, without which it is blank)."""
+    win.screenshot(path)
 
 
 def real_page_pays(app, popover, sandbox, out):
