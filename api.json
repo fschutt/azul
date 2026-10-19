@@ -10447,22 +10447,20 @@
                         ],
                         "enum_fields": [
                             {
-                                "Get": {}
-                            },
-                            {
-                                "Head": {}
-                            },
-                            {
-                                "Post": {}
-                            },
-                            {
-                                "Put": {}
-                            },
-                            {
-                                "Patch": {}
-                            },
-                            {
-                                "Delete": {}
+                                "Get": {},
+                                "Head": {},
+                                "Post": {},
+                                "Put": {},
+                                "Patch": {},
+                                "Delete": {},
+                                "Options": {},
+                                "Propfind": {},
+                                "Proppatch": {},
+                                "Mkcol": {},
+                                "Copy": {},
+                                "Move": {},
+                                "Lock": {},
+                                "Unlock": {}
                             }
                         ],
                         "repr": "C"
@@ -10494,6 +10492,9 @@
                                 },
                                 "final_url": {
                                     "type": "String"
+                                },
+                                "redirect_history": {
+                                    "type": "StringVec"
                                 }
                             }
                         ],
@@ -10602,6 +10603,9 @@
                                 },
                                 "client": {
                                     "type": "OptionHttpClient"
+                                },
+                                "follow_redirects": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -20537,6 +20541,24 @@
                                     }
                                 ],
                                 "fn_body": "object.remove_thread(thread_id)"
+                            },
+                            "get_system_clipboard": {
+                                "doc": [
+                                    "What the system clipboard holds now, read outside a paste: a password",
+                                    "manager checking whether its copy is still there before it clears it,",
+                                    "a \"Paste link\" button. `None` when the clipboard holds nothing azul",
+                                    "reads (text, HTML, files, an image, a link), or on a platform without",
+                                    "one. Inside a paste, [`Self::get_clipboard_content`] is what is pasted."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionClipboardContent"
+                                },
+                                "fn_body": "object.get_system_clipboard()"
                             }
                         },
                         "repr": "C"
@@ -27867,6 +27889,22 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_webview_with_config(src, config)"
+                            },
+                            "create_icon_view_with_css": {
+                                "doc": [
+                                    "[`Self::create_icon_view`] whose icon is styled with `css` (a",
+                                    "declaration list, as `with_css` takes it), on the icon inside the",
+                                    "view: a swappable icon drawn at the size its page asks for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "css": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_icon_view_with_css(icon_name, css)"
                             }
                         },
                         "functions": {
@@ -31882,7 +31920,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -31894,6 +31933,18 @@
                                 },
                                 "html": {
                                     "type": "OptionString"
+                                },
+                                "files": {
+                                    "type": "StringVec"
+                                },
+                                "image": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "link": {
+                                    "type": "OptionString"
+                                },
+                                "concealed": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -43920,7 +43971,8 @@
                                 "Grid": {},
                                 "InlineGrid": {},
                                 "Contents": {},
-                                "InlineListItem": {}
+                                "InlineListItem": {},
+                                "InlineBlockListItem": {}
                             }
                         ],
                         "repr": "C"
@@ -45360,13 +45412,16 @@
                             {
                                 "ExactSize": {
                                     "type": "PixelValueSize"
+                                },
+                                "Contain": {},
+                                "Cover": {},
+                                "Auto": {},
+                                "AutoHeight": {
+                                    "type": "PixelValue"
+                                },
+                                "AutoWidth": {
+                                    "type": "PixelValue"
                                 }
-                            },
-                            {
-                                "Contain": {}
-                            },
-                            {
-                                "Cover": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -54941,7 +54996,8 @@
                                 "TextBox": {},
                                 "InsetBlock": {},
                                 "InsetInline": {},
-                                "ListStyle": {}
+                                "ListStyle": {},
+                                "FontVariant": {}
                             }
                         ],
                         "repr": "C"
