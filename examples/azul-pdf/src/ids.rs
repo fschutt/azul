@@ -40,6 +40,15 @@ pub const ZOOM_IN: AzString = AzString::from_const_str("__azpdf_zoom-in");
 pub const SEARCH_FIELD: AzString = AzString::from_const_str("__azpdf_search");
 pub const SETTINGS: AzString = AzString::from_const_str("__azpdf_settings");
 pub const EXPORT_FILLED: AzString = AzString::from_const_str("__azpdf_export-filled");
+/// Sign: the signature pad (a dialog), its drawing box and its buttons.
+pub const SIGN: AzString = AzString::from_const_str("__azpdf_sign");
+pub const SIGN_PAD: AzString = AzString::from_const_str("__azpdf_sign-pad");
+pub const SIGN_CLEAR: AzString = AzString::from_const_str("__azpdf_sign-clear");
+pub const SIGN_CANCEL: AzString = AzString::from_const_str("__azpdf_sign-cancel");
+pub const SIGN_USE: AzString = AzString::from_const_str("__azpdf_sign-use");
+/// A placed signature over its page, and its remove button: the prefix and its index.
+pub const SIGNATURE_PREFIX: &str = "__azpdf_signature-";
+pub const SIGNATURE_REMOVE_PREFIX: &str = "__azpdf_signature-remove-";
 /// A form field's input over a page: the prefix, the field's index, `-`, the
 /// widget's index.
 pub const FIELD_PREFIX: &str = "__azpdf_field-";

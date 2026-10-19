@@ -13,7 +13,7 @@ use std::time::Instant as StdInstant;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, DialogOnCloseCallbackType,
         DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
         ToolbarOnEventCallbackType,
@@ -26,7 +26,8 @@ use azul::{
     str::String as AzString,
     vec::{CssPropertyWithConditionsVec, StringVec},
     widgets::{
-        CheckBox, CheckBoxState, DropDown, OnTextInputReturn, Segmented, StatusBar,
+        Button, ButtonType, CheckBox, CheckBoxState, Dialog, DropDown, OnTextInputReturn,
+        Segmented, StatusBar,
         StatusBarSegment, TextInputState, TextInputValid, Toolbar, ToolbarEvent, ToolbarEventKind,
         ToolbarItem,
     },
@@ -104,10 +105,13 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .doc
             .as_ref()
             .map_or_else(String::new, |d| format!("{} \u{2014} AzPdf", d.title));
-        let document = Dom::create_div()
+        let mut document = Dom::create_div()
             .with_css(COLUMN)
             .with_child(toolbar(&s, &data))
             .with_child(page_view(&data));
+        if let Some(pad) = signature_pad(&s, &data) {
+            document = document.with_child(pad);
+        }
         let mut shell = DocumentShell::create(document)
             .with_navigation(navigation(&s, &data))
             .with_navigation_ratio(0.18);
@@ -124,7 +128,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // the window closes; Save makes the filled copy and closes once it is saved.
     let document = s.doc.as_ref().map_or_else(|| String::from("AzPdf"), |d| d.title.clone());
     let content = kit::close_guard(content, &document)
-        .with_dirty(s.form.unsaved())
+        .with_dirty(s.unsaved())
         .with_asking(s.asking_close)
         .with_on_event(data.clone(), crate::on_close_guard)
         .dom();
@@ -140,6 +144,11 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             EventFilter::Window(WindowEventFilter::DroppedFile),
             data.clone(),
             crate::on_dropped,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::KeyringResult),
+            data.clone(),
+            crate::on_keyring_result,
         )
 }
 
@@ -281,6 +290,7 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
         .with_id(ids::SEARCH_FIELD);
 
     let has_form = s.doc.as_ref().is_some_and(|d| !d.fields.is_empty());
+    let signed = !s.signatures.is_empty();
     let mut items = vec![
         ToolbarItem::create_button(ids::OPEN, t("azpdf-open"), "folder_open"),
         ToolbarItem::create_separator(),
@@ -297,16 +307,19 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
         ToolbarItem::create_button(ids::ZOOM_OUT, t("azpdf-zoom-out"), "remove"),
         ToolbarItem::create_custom(ids::ZOOM, t("azpdf-zoom"), zoom, 110.0),
         ToolbarItem::create_button(ids::ZOOM_IN, t("azpdf-zoom-in"), "add"),
+        ToolbarItem::create_separator(),
+        ToolbarItem::create_button(ids::SIGN, t("azpdf-sign"), "draw"),
         ToolbarItem::create_spacer(),
         ToolbarItem::create_custom(ids::SEARCH_FIELD, t("azpdf-find"), search, 220.0)
             .with_never_overflow(true),
         ToolbarItem::create_button(ids::SETTINGS, t("azpdf-settings"), "settings"),
     ];
-    if has_form {
-        // After Open: the document's own command.
+    if has_form || signed {
+        // After Open: the document's own command (a filled copy, or a signed one).
+        let label = if has_form { "azpdf-export-filled" } else { "azpdf-save-signed" };
         items.insert(
             1,
-            ToolbarItem::create_button(ids::EXPORT_FILLED, t("azpdf-export-filled"), "download"),
+            ToolbarItem::create_button(ids::EXPORT_FILLED, t(label), "download"),
         );
     }
     items
@@ -338,6 +351,8 @@ extern "C" fn on_toolbar(mut data: RefAny, info: CallbackInfo, event: ToolbarEve
         crate::on_settings_open(data, info)
     } else if id == ids::EXPORT_FILLED.as_str() {
         crate::on_export_filled(data, info)
+    } else if id == ids::SIGN.as_str() {
+        crate::on_sign(data, info)
     } else {
         Update::DoNothing
     }
@@ -440,6 +455,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         scale.to_bits(),
         layout_scale.to_bits(),
         resizing,
+        s.signature_revision * 2 + u64::from(s.placing.is_some()),
     );
     if !s.pages_built.must_build(key, asked_afresh(&info)) {
         return VirtualViewReturn::keep_current(materialized, whole);
@@ -472,6 +488,19 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         let face = page_face(resizing, dom, picture);
         pictures_shown |= matches!(face, PageFace::Picture(_));
         let mut frame = page_frame(page, x, strip.tops[page] - top, w, h, face);
+        // A signature waiting to be placed: a click on the page puts it there.
+        if s.placing.is_some() {
+            frame = frame
+                .with_css("cursor: crosshair;")
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    RefAny::new(crate::PageRef {
+                        app: cb_app.clone(),
+                        page,
+                    }),
+                    crate::on_page_click,
+                );
+        }
         // The form's inputs over the page, at the page's scale.
         if let Some(doc) = s.doc.as_ref() {
             let px_per_pt = doc.sizes.get(page).map_or(0.0, |p| w / p.width_pt.max(1.0));
@@ -489,11 +518,151 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
                     }
                 }
             }
+            // The signatures placed on the page, at the page's scale.
+            for (index, (placed, svg)) in s.signatures.iter().enumerate() {
+                if placed.page == page {
+                    frame.add_child(placed_signature(index, placed, svg, px_per_pt, &cb_app));
+                }
+            }
         }
         root.add_child(frame);
     }
     s.pictures_shown = pictures_shown;
     VirtualViewReturn::with_dom(root, materialized, whole)
+}
+
+/// A placed signature over its page: its drawing in its box (`px_per_pt` CSS px per point),
+/// and a small button that takes it off again.
+fn placed_signature(
+    index: usize,
+    placed: &crate::signature::PlacedSignature,
+    svg: &str,
+    px_per_pt: f32,
+    app: &RefAny,
+) -> Dom {
+    let r = placed.rect;
+    let (x, y, w, h) = (r.x * px_per_pt, r.y * px_per_pt, r.width * px_per_pt, r.height * px_per_pt);
+    let remove = Button::create(AzString::from("\u{00d7}"))
+        .with_button_type(ButtonType::Link)
+        .with_on_click(
+            RefAny::new(crate::SignatureRef {
+                app: app.clone(),
+                index,
+            }),
+            crate::on_signature_remove as ButtonOnClickCallbackType,
+        )
+        .dom()
+        .with_accessibility_name(t("azpdf-sign-remove").as_str())
+        .with_id(ids::numbered(ids::SIGNATURE_REMOVE_PREFIX, index))
+        .with_css("position: absolute; right: -6px; top: -10px; font-size: 14px;");
+    Dom::create_div()
+        .with_id(ids::numbered(ids::SIGNATURE_PREFIX, index))
+        .with_accessibility_name(t("azpdf-sign-placed-name").as_str())
+        .with_css(
+            format!(
+                "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; \
+                 border: 1px dashed rgba(47, 74, 133, 0.45);"
+            )
+            .as_str(),
+        )
+        .with_child(
+            crate::jobs::svg_dom(svg)
+                .with_css(format!("display: block; width: {w}px; height: {h}px;").as_str()),
+        )
+        .with_child(remove)
+}
+
+/// The signature pad: a dialog with the drawing box (the strokes as they are drawn, else the
+/// saved signature, else what to do), Clear, Cancel and Use signature.
+pub fn signature_pad(s: &AppState, data: &RefAny) -> Option<Dom> {
+    let pad = s.pad.as_ref()?;
+    let (w, h) = pad.size();
+    let drawing = crate::pad_drawing(s);
+    let mut surface = Dom::create_div()
+        .with_id(ids::SIGN_PAD)
+        .with_accessibility_name(t("azpdf-sign-pad").as_str())
+        .with_css(
+            format!(
+                "position: relative; width: {w}px; height: {h}px; background: #ffffff; \
+                 border: 1px solid system:separator; border-radius: 4px; cursor: crosshair; \
+                 overflow: hidden;"
+            )
+            .as_str(),
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            data.clone(),
+            crate::on_pad_down,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseOver),
+            data.clone(),
+            crate::on_pad_move,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            data.clone(),
+            crate::on_pad_up,
+        );
+    surface = match &drawing {
+        Some(svg) => surface.with_child(
+            crate::jobs::svg_dom(svg)
+                .with_css(format!("display: block; width: {w}px; height: {h}px;").as_str()),
+        ),
+        None => surface.with_child(
+            Dom::create_div()
+                .with_css(
+                    "position: absolute; left: 0px; right: 0px; top: 50%; margin-top: -9px; \
+                     text-align: center; font-size: 13px; color: #9a9a9a;",
+                )
+                .with_child(Dom::create_span_with_text(t("azpdf-sign-here").as_str())),
+        ),
+    };
+    let saved_note = if pad.is_empty() && s.saved_signature.is_some() {
+        t("azpdf-sign-saved-shown")
+    } else {
+        t("azpdf-sign-hint")
+    };
+    let mut use_button = Button::create(AzString::from(t("azpdf-sign-use")))
+        .with_button_type(ButtonType::Primary)
+        .with_on_click(data.clone(), crate::on_pad_use as ButtonOnClickCallbackType);
+    if drawing.is_none() {
+        use_button = use_button.with_disabled(AzString::from(t("azpdf-sign-nothing-drawn")));
+    }
+    let body = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 10px; padding: 4px;")
+        .with_child(
+            Dom::create_div()
+                .with_css("font-size: 12px; color: system:secondary-text;")
+                .with_child(Dom::create_span_with_text(saved_note.as_str())),
+        )
+        .with_child(surface)
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; gap: 8px; justify-content: flex-end;")
+                .with_child(
+                    Button::create(AzString::from(t("azpdf-sign-clear")))
+                        .with_on_click(data.clone(), crate::on_pad_clear as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::SIGN_CLEAR),
+                )
+                .with_child(
+                    Button::create(AzString::from(t("azpdf-sign-cancel")))
+                        .with_on_click(data.clone(), crate::on_pad_cancel as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::SIGN_CANCEL),
+                )
+                .with_child(use_button.dom().with_id(ids::SIGN_USE)),
+        );
+    Some(
+        Dialog::create(body)
+            .with_title(t("azpdf-sign-title"))
+            .with_open(true)
+            .with_modal(true)
+            .with_close_button(true)
+            .with_on_close(data.clone(), crate::on_pad_closed as DialogOnCloseCallbackType)
+            .dom(),
+    )
 }
 
 /// Whether the engine calls a view for a DOM it does not have: its first

@@ -51,7 +51,9 @@ use azul::{
     str::String as AzString,
     time::SystemTimeDiff,
     vec::StringVec,
-    widgets::{CloseGuardEvent, CloseGuardEventKind},
+    error::KeyringResult,
+    pdf::{PdfRect, PdfStamp},
+    widgets::{CloseGuardEvent, CloseGuardEventKind, DialogState},
 };
 use azul_appkit::{
     about::AboutInfo,
@@ -202,8 +204,9 @@ pub struct AppState {
     /// What the page view's DOM was last built from - the pages in it, the
     /// view's width, the shown and the laid-out scale (the bits of each
     /// `f32`), whether the window was being resized (the pages show their
-    /// pictures then): a call with the same keeps the DOM.
-    pub pages_built: ViewMemo<(usize, usize, u32, u32, u32, bool)>,
+    /// pictures then), the signatures (their revision, and one waiting to be
+    /// placed: the pages take clicks then): a call with the same keeps the DOM.
+    pub pages_built: ViewMemo<(usize, usize, u32, u32, u32, bool, u64)>,
     /// Whether the page view's DOM shows a page's picture instead of its
     /// DOM (`model::page_face`, a window drag): once the view settles it is
     /// made again with the pages' DOMs, whatever the scale.
@@ -251,7 +254,32 @@ pub struct AppState {
     /// From the command line: a PDF to open, the sample to make.
     pub open_on_start: Option<String>,
     pub sample: bool,
+    /// The signature pad, while it is open (Sign).
+    pub pad: Option<signature::Pad>,
+    /// The signature kept in the keyring (read when the pad first opens): its SVG.
+    pub saved_signature: Option<String>,
+    /// The keyring was asked for the saved signature (once a run).
+    pub signature_asked: bool,
+    /// What the keyring request on the way is for.
+    pub keyring_waiting: Option<SignatureKeyring>,
+    /// A signature to place: the next click on a page puts it there.
+    pub placing: Option<String>,
+    /// The signatures placed on the document's pages, with their drawings.
+    pub signatures: Vec<(signature::PlacedSignature, String)>,
+    /// Counts up with every signature placed or removed; the one the last saved copy holds.
+    pub signature_revision: u64,
+    pub signatures_kept: u64,
 }
+
+/// A keyring request about the signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureKeyring {
+    Read,
+    Keep,
+}
+
+/// The keyring item AzPdf keeps the user's signature under (its SVG).
+pub const SIGNATURE_KEY: &str = "azpdf.signature";
 
 impl AppState {
     fn new(kit: RefAny, data_root: PathBuf, open_on_start: Option<String>, sample: bool) -> Self {
@@ -294,7 +322,43 @@ impl AppState {
             pump: TimerId::unique(),
             open_on_start,
             sample,
+            pad: None,
+            saved_signature: None,
+            signature_asked: false,
+            keyring_waiting: None,
+            placing: None,
+            signatures: Vec::new(),
+            signature_revision: 0,
+            signatures_kept: 0,
         }
+    }
+
+    /// Whether the document holds what no saved copy does: values typed into its form, or
+    /// signatures placed on it.
+    #[must_use]
+    pub fn unsaved(&self) -> bool {
+        self.form.unsaved() || self.signature_revision != self.signatures_kept
+    }
+
+    /// The placed signatures as the engine draws them into a copy.
+    #[must_use]
+    pub fn stamps(&self) -> Vec<PdfStamp> {
+        self.signatures
+            .iter()
+            .map(|(placed, svg)| {
+                let r = placed.rect;
+                PdfStamp::create(
+                    placed.page,
+                    PdfRect {
+                        x: r.x,
+                        y: r.y,
+                        width: r.width,
+                        height: r.height,
+                    },
+                    AzString::from(svg.as_str()),
+                )
+            })
+            .collect()
     }
 
     /// The scale the pages are shown at.
@@ -670,6 +734,11 @@ fn show(s: &mut AppState, doc: Doc) {
     s.laid_out_scale = None;
     s.search = SearchState::default();
     s.form = FormValues::new(&doc.fields);
+    // Signatures belong to the document they were placed on.
+    s.signatures.clear();
+    s.placing = None;
+    s.signature_revision = 0;
+    s.signatures_kept = 0;
     if !doc.fields.is_empty() {
         println!("AZPDF_FORM {}", doc.fields.len());
     }
@@ -908,6 +977,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             generation,
             name,
             values,
+            signed,
             result,
         } => {
             if generation != s.generation {
@@ -922,12 +992,13 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                         println!("AZPDF_FILLED {len}");
                         s.status = t_args("azpdf-saved", &[("name", Arg::from(&name))]);
                         s.form.keep(&values);
+                        s.signatures_kept = signed;
                         saved = true;
                     }
                 }
                 Err(why) => s.status = t_args("azpdf-not-filled", &[("why", Arg::from(why))]),
             }
-            if std::mem::take(&mut s.close_after_fill) && saved && !s.form.unsaved() {
+            if std::mem::take(&mut s.close_after_fill) && saved && !s.unsaved() {
                 // "Save" on the close's question: the filled copy is saved, the window goes.
                 println!("AZPDF_CLOSED_AFTER_FILL");
                 info.close_window();
@@ -1312,11 +1383,241 @@ fn export_filled(s: &mut AppState, info: &mut CallbackInfo, handle: &RefAny) -> 
         generation: s.generation,
         pdf,
         values: s.form.all(),
-        stamps: Vec::new(),
+        stamps: s.stamps(),
+        signed: s.signature_revision,
         name: filled_name(&title),
     };
     spawn(info, handle, job);
     true
+}
+
+// ==== Signatures (AF2) ====
+
+/// The signature pad's size (CSS px).
+pub const PAD_SIZE: (f32, f32) = (360.0, 140.0);
+
+/// Sign: the signature pad opens (the saved signature is read from the keyring the first time).
+pub extern "C" fn on_sign(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    if s.doc.is_none() {
+        return Update::DoNothing;
+    }
+    s.pad = Some(signature::Pad::new(PAD_SIZE.0, PAD_SIZE.1));
+    s.placing = None;
+    if !s.signature_asked && s.keyring_waiting.is_none() {
+        s.signature_asked = true;
+        s.keyring_waiting = Some(SignatureKeyring::Read);
+        info.keyring_get(AzString::from(SIGNATURE_KEY));
+    }
+    println!("AZPDF_SIGN_PAD open");
+    Update::RefreshDom
+}
+
+/// A press on the pad starts a stroke where it is.
+pub extern "C" fn on_pad_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(pad) = s.pad.as_mut() else {
+        return Update::DoNothing;
+    };
+    pad.begin(at.x, at.y);
+    Update::RefreshDom
+}
+
+/// The pointer moves over the pad: with the button down the stroke follows it.
+pub extern "C" fn on_pad_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(pad) = s.pad.as_mut() else {
+        return Update::DoNothing;
+    };
+    if !pad.is_drawing() {
+        return Update::DoNothing;
+    }
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    if pad.extend(at.x, at.y) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// The button comes up (on the pad or anywhere: a stroke drawn off the pad ends too).
+pub extern "C" fn on_pad_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    match s.pad.as_mut() {
+        Some(pad) if pad.is_drawing() => {
+            pad.end();
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    }
+}
+
+pub extern "C" fn on_pad_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        if let Some(pad) = s.pad.as_mut() {
+            pad.clear();
+        }
+    }
+    Update::RefreshDom
+}
+
+/// The pad's dialog was closed (its close button, Escape): as Cancel.
+pub extern "C" fn on_pad_closed(data: RefAny, info: CallbackInfo, _state: DialogState) -> Update {
+    on_pad_cancel(data, info)
+}
+
+pub extern "C" fn on_pad_cancel(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.pad = None;
+    }
+    Update::RefreshDom
+}
+
+/// The drawing the pad offers: what was drawn now, else the saved signature.
+#[must_use]
+pub fn pad_drawing(s: &AppState) -> Option<String> {
+    s.pad
+        .as_ref()
+        .and_then(signature::Pad::svg)
+        .or_else(|| s.saved_signature.clone())
+}
+
+/// Use signature: a new drawing is kept in the keyring for the next document; the next click
+/// on a page places it.
+pub extern "C" fn on_pad_use(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(svg) = pad_drawing(&s) else {
+        return Update::DoNothing;
+    };
+    let drawn_now = s.pad.as_ref().is_some_and(|p| !p.is_empty());
+    if drawn_now && s.keyring_waiting.is_none() {
+        s.keyring_waiting = Some(SignatureKeyring::Keep);
+        info.keyring_store(AzString::from(SIGNATURE_KEY), AzString::from(svg.as_str()), false);
+        s.saved_signature = Some(svg.clone());
+    }
+    s.pad = None;
+    s.placing = Some(svg);
+    s.status = t("azpdf-sign-click-page");
+    println!("AZPDF_SIGN_PAD placing");
+    Update::RefreshDom
+}
+
+/// The keyring answered: the saved signature read, or the new one kept (a failure keeps it
+/// for this run only, said in the status bar).
+pub extern "C" fn on_keyring_result(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(result) = info.get_keyring_result().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(op) = s.keyring_waiting.take() else {
+        return Update::DoNothing;
+    };
+    match (op, result) {
+        (SignatureKeyring::Read, KeyringResult::Retrieved(svg)) => {
+            if s.saved_signature.is_none() && !svg.as_str().trim().is_empty() {
+                s.saved_signature = Some(svg.as_str().to_string());
+                println!("AZPDF_SIGNATURE_SAVED_READ");
+            }
+        }
+        (SignatureKeyring::Read, _) => {}
+        (SignatureKeyring::Keep, KeyringResult::Stored) => {
+            println!("AZPDF_SIGNATURE_KEPT");
+        }
+        (SignatureKeyring::Keep, _) => {
+            s.status = t("azpdf-sign-not-kept");
+        }
+    }
+    Update::RefreshDom
+}
+
+/// What a page frame hands its click: the app and the page.
+pub struct PageRef {
+    pub app: RefAny,
+    pub page: usize,
+}
+
+/// A click on a page while a signature waits to be placed: it lands there.
+pub extern "C" fn on_page_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut app, page)) = data.downcast_ref::<PageRef>().map(|r| (r.app.clone(), r.page)) else {
+        return Update::DoNothing;
+    };
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(svg) = s.placing.clone() else {
+        return Update::DoNothing;
+    };
+    let Some(page_pt) = s
+        .doc
+        .as_ref()
+        .and_then(|d| d.sizes.get(page))
+        .map(|p| (p.width_pt, p.height_pt))
+    else {
+        return Update::DoNothing;
+    };
+    let strip = s.strip();
+    let Some(&page_px) = strip.sizes.get(page) else {
+        return Update::DoNothing;
+    };
+    let rect = signature::place((at.x, at.y), page_px, page_pt, PAD_SIZE);
+    s.signatures.push((signature::PlacedSignature { page, rect }, svg));
+    s.signature_revision += 1;
+    s.placing = None;
+    s.status = t_args("azpdf-sign-placed", &[("page", Arg::from(page + 1))]);
+    println!(
+        "AZPDF_SIGNED {} {:.0} {:.0} {:.0} {:.0}",
+        page + 1,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height
+    );
+    Update::RefreshDom
+}
+
+/// What a placed signature's remove button carries.
+pub struct SignatureRef {
+    pub app: RefAny,
+    pub index: usize,
+}
+
+/// A placed signature's remove button.
+pub extern "C" fn on_signature_remove(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<SignatureRef>()
+        .map(|r| (r.app.clone(), r.index))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    if index < s.signatures.len() {
+        s.signatures.remove(index);
+        s.signature_revision += 1;
+        println!("AZPDF_SIGNATURE_REMOVED {index}");
+    }
+    Update::RefreshDom
 }
 
 /// The toolbar's gear: azul-appkit's settings page.

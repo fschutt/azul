@@ -29,6 +29,22 @@ azpdf-fit-page = Ganze Seite
 azpdf-find = Im Dokument suchen
 azpdf-settings = Einstellungen
 azpdf-export-filled = Ausgefülltes PDF exportieren
+azpdf-save-signed = Unterschriebenes PDF speichern
+azpdf-sign = Unterschreiben
+azpdf-sign-title = Ihre Unterschrift
+azpdf-sign-pad = Unterschriftenfeld
+azpdf-sign-hint = Zeichnen Sie Ihre Unterschrift mit der Maus, einem Stift oder dem Finger.
+azpdf-sign-saved-shown = Ihre gespeicherte Unterschrift. Für eine neue zeichnen Sie in das Feld.
+azpdf-sign-here = Hier unterschreiben
+azpdf-sign-clear = Löschen
+azpdf-sign-cancel = Abbrechen
+azpdf-sign-use = Unterschrift verwenden
+azpdf-sign-nothing-drawn = Zeichnen Sie zuerst Ihre Unterschrift.
+azpdf-sign-click-page = Klicken Sie auf eine Seite, wo die Unterschrift hin soll.
+azpdf-sign-placed = Unterschrift auf Seite { $page } gesetzt.
+azpdf-sign-placed-name = Unterschrift
+azpdf-sign-remove = Unterschrift entfernen
+azpdf-sign-not-kept = Die Unterschrift konnte nicht für das nächste Mal gespeichert werden (Schlüsselbund).
 
 ## The pages, the outline, the search
 

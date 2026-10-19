@@ -29,6 +29,22 @@ azpdf-fit-page = Fit page
 azpdf-find = Find in document
 azpdf-settings = Settings
 azpdf-export-filled = Export filled PDF
+azpdf-save-signed = Save signed PDF
+azpdf-sign = Sign
+azpdf-sign-title = Your signature
+azpdf-sign-pad = Signature pad
+azpdf-sign-hint = Draw your signature with the mouse, a pen or a finger.
+azpdf-sign-saved-shown = Your saved signature. Draw on the pad for a new one.
+azpdf-sign-here = Sign here
+azpdf-sign-clear = Clear
+azpdf-sign-cancel = Cancel
+azpdf-sign-use = Use signature
+azpdf-sign-nothing-drawn = Draw your signature first.
+azpdf-sign-click-page = Click on a page where the signature goes.
+azpdf-sign-placed = Signature placed on page { $page }.
+azpdf-sign-placed-name = Signature
+azpdf-sign-remove = Remove signature
+azpdf-sign-not-kept = The signature could not be kept for next time (keyring).
 
 ## The pages, the outline, the search
 

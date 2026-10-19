@@ -122,6 +122,8 @@ pub enum Job {
         pdf: ParsedPdf,
         values: Vec<(String, String)>,
         stamps: Vec<PdfStamp>,
+        /// The signatures' revision the stamps are of (the saved copy holds it).
+        signed: u64,
         name: String,
     },
     /// Build the sample document's bytes.
@@ -165,6 +167,8 @@ pub enum Outcome {
         generation: u64,
         name: String,
         values: Vec<(String, String)>,
+        /// The signatures' revision drawn into it.
+        signed: u64,
         result: Result<Vec<u8>, String>,
     },
 }
@@ -247,6 +251,7 @@ pub extern "C" fn job_thread(
             pdf,
             values,
             stamps,
+            signed,
             name,
         } => {
             let result = fill_pdf(&pdf, &values, stamps, true);
@@ -256,6 +261,7 @@ pub extern "C" fn job_thread(
                     generation,
                     name,
                     values,
+                    signed,
                     result,
                 },
             );
@@ -380,6 +386,17 @@ pub fn page_dom(pdf: &ParsedPdf, page: usize) -> Option<Dom> {
         ResultXmlXmlError::Err(_) => Xml::create_from_html(svg),
     };
     Some(Dom::create_from_parsed_xml_fragment(xml))
+}
+
+/// An SVG (a signature's drawing) as a DOM, read the way a page is ([`page_dom`]).
+#[must_use]
+pub fn svg_dom(svg: &str) -> Dom {
+    let svg = azul::str::String::from(svg);
+    let xml = match Xml::from_str(svg.clone()) {
+        ResultXmlXmlError::Ok(xml) => xml,
+        ResultXmlXmlError::Err(_) => Xml::create_from_html(svg),
+    };
+    Dom::create_from_parsed_xml_fragment(xml)
 }
 
 /// Page `page` drawn `width` px wide on white paper: the page's SVG through
