@@ -1878,3 +1878,131 @@ mod autotest_generated {
         assert!(many.paths.as_ref().is_empty());
     }
 }
+
+/// `FileDialog` with a registered picker: the request goes to the provider,
+/// on a worker, and resumes with what it answers; a provider without a usable
+/// answer hands the request to the system's dialog.
+#[cfg(all(test, unix, not(any(target_os = "android", target_os = "ios"))))]
+mod provider_tests {
+    use azul_core::{callbacks::Update, refany::OptionRefAny};
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackInfo,
+        desktop::file_picker::tests::{fake_provider, scratch, with_provider},
+    };
+
+    extern "C" fn resumed(_: RefAny, _: CallbackInfo, _: RefAny) -> Update {
+        Update::DoNothing
+    }
+
+    fn on_result() -> ResumeCallback {
+        ResumeCallback {
+            cb: resumed,
+            ctx: OptionRefAny::None,
+        }
+    }
+
+    /// The result `id` resumes with, pumping the request queue as the shells
+    /// do once per frame (a provider is a real process).
+    fn resumed_with(id: RequestId) -> RefAny {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            if let Some(done) = request::take_completed()
+                .into_iter()
+                .find(|c| c.request_id == id)
+            {
+                return done.result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the request did not resume in 20 s"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    const PICKED: &str =
+        r#"echo 'AZPICK {"v":1,"status":"selected","items":[{"path":"/picked/a.png"},{"path":"/picked/b.png"}]}'"#;
+
+    #[test]
+    fn open_file_resumes_with_the_path_the_registered_picker_answers() {
+        let dir = scratch("open-file");
+        let registration = fake_provider(&dir, &format!("read line; {PICKED}"), 1);
+        let id = with_provider(&registration, || {
+            FileDialog::open_file(
+                AzString::from("Insert picture"),
+                OptionString::None,
+                OptionFileTypeList::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let result = FileOpenResult::downcast(resumed_with(id)).into_option().expect("an open result");
+        assert_eq!(
+            result.path.into_option().map(|p| p.as_str().to_string()),
+            Some("/picked/a.png".to_string())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn open_multiple_files_and_save_file_resume_with_the_pickers_answer() {
+        let dir = scratch("multi-save");
+        let registration = fake_provider(&dir, &format!("read line; {PICKED}"), 1);
+        let id = with_provider(&registration, || {
+            FileDialog::open_multiple_files(
+                AzString::from("Attach"),
+                OptionString::None,
+                OptionFileTypeList::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let multi = FileOpenMultiResult::downcast(resumed_with(id))
+            .into_option()
+            .expect("a multi result");
+        let paths: Vec<&str> = multi.paths.as_ref().iter().map(FilePath::as_str).collect();
+        assert_eq!(paths, ["/picked/a.png", "/picked/b.png"]);
+
+        let id = with_provider(&registration, || {
+            FileDialog::save_file(
+                AzString::from("Export"),
+                AzString::from("a.png"),
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let saved = SaveTargetResult::downcast(resumed_with(id))
+            .into_option()
+            .expect("a save result");
+        let target = saved.target.into_option().expect("a target");
+        assert_eq!(target.kind, SaveTargetKind::Path);
+        assert_eq!(
+            target.path.into_option().map(|p| p.as_str().to_string()),
+            Some("/picked/a.png".to_string())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_cancel_in_the_registered_picker_is_final() {
+        let dir = scratch("cancel");
+        let registration = fake_provider(
+            &dir,
+            r#"read line; echo 'AZPICK {"v":1,"status":"cancelled"}'"#,
+            1,
+        );
+        let id = with_provider(&registration, || {
+            FileDialog::open_directory(
+                AzString::from("Folder"),
+                OptionString::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let result = FileOpenResult::downcast(resumed_with(id)).into_option().expect("a result");
+        assert!(result.path.into_option().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

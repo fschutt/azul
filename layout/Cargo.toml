@@ -249,7 +249,7 @@ rich_text_markdown = ["dep:pulldown-cmark", "std"]
 # (`FileDialog::open_file(.., data, on_result)`), so they need the callback
 # machinery of `text_layout`. `libc` for `file::disk_space` (statfs /
 # statvfs) on unix; it is already in the tree through `probe`.
-extra = ["dep:tfd", "dep:dirs", "text_layout", "dep:libc"]
+extra = ["dep:tfd", "dep:dirs", "text_layout", "dep:libc", "dep:serde_json"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Requires font_loading for font discovery (FcFontCache)
