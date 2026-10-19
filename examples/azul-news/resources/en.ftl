@@ -118,6 +118,9 @@ aznews-pictures-not-loaded =
        *[other] { $count } pictures were not loaded: the sites they are on learn nothing of what you read.
     }
 aznews-load-pictures = Load pictures
+aznews-layout-list = List
+aznews-layout-magazine = Magazine
+aznews-magazine-pictures-off = Pictures load when asked (Settings).
 aznews-summary-only = The feed carries a summary of this article.
 aznews-show-full-text = Show the full text
 aznews-loading-full-text = Loading the full text from the article's page...

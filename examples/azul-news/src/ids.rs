@@ -70,6 +70,9 @@ names! {
     LIST_HEADING = "list-heading";
     /// The table's rows (a VirtualView: only the rows in view are built).
     ARTICLE_LIST = "article-list";
+    /// List / Magazine over the articles, and the magazine's "Load pictures".
+    LIST_LAYOUT = "list-layout";
+    LOAD_CARD_PICTURES = "load-card-pictures";
     /// The column headers (a click sorts, again turns round).
     TABLE_HEADER = "table-header";
     SORT_UNREAD = "sort-unread";
@@ -79,6 +82,8 @@ names! {
     SORT_DATE = "sort-date";
     /// The class of an article's row.
     ARTICLE_ROW_CLASS = "article-row";
+    /// The class of an article's card in the magazine.
+    MAGAZINE_CARD_CLASS = "magazine-card";
     /// The class of a day's header in the table.
     DAY_HEADER_CLASS = "day-header";
     /// "Mark all as read?" and its answers.

@@ -27,8 +27,9 @@ use azul_pim::dates::{date_group, DateGroup};
 use chrono::NaiveDate;
 
 use super::{
-    leave_form, local_offset_secs, on_add_open, on_filter, on_mark_all_no, on_mark_all_yes,
-    on_open_original, select, title_of, view_title, with_app, NewsApp, FILL,
+    leave_form, local_offset_secs, on_add_open, on_filter, on_layout_change, on_load_card_pictures,
+    on_mark_all_no, on_mark_all_yes, on_open_original, select, title_of, view_title, with_app,
+    NewsApp, Pictures, FILL,
 };
 use crate::{
     ids,
@@ -202,6 +203,7 @@ pub(super) fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
             selected: s.selected_ref(),
             today,
             offset,
+            magazine: s.settings.magazine,
         };
         children.push(header(s, app));
         children.push(
@@ -233,7 +235,33 @@ fn list_bar(s: &NewsApp, app: &RefAny, count: usize, unread: usize) -> Dom {
         .with_on_change(app.clone(), on_filter as SegmentedOnChangeCallbackType)
         .dom()
         .with_id(ids::LIST_FILTER);
-    let mut rows = vec![flex_row(LIST_BAR, vec![heading, filter])];
+    let layout = Segmented::create(strs(&["aznews-layout-list", "aznews-layout-magazine"]))
+        .with_selected_index(usize::from(s.settings.magazine))
+        .with_on_change(app.clone(), on_layout_change as SegmentedOnChangeCallbackType)
+        .dom()
+        .with_id(ids::LIST_LAYOUT);
+    let mut rows = vec![flex_row(LIST_BAR, vec![heading, filter, layout])];
+    if s.settings.magazine
+        && s.settings.pictures == Pictures::OnClick
+        && !s.card_pictures_allowed
+    {
+        rows.push(flex_row(
+            "padding: 4px 8px; gap: 6px; font-size: 12px; flex-shrink: 0; align-items: center; \
+             border-bottom: 1px solid system:separator;",
+            vec![
+                block(
+                    "flex-grow: 1; color: system:secondary-text;",
+                    text(t("aznews-magazine-pictures-off")),
+                ),
+                button(
+                    "aznews-load-pictures",
+                    ids::LOAD_CARD_PICTURES,
+                    app,
+                    on_load_card_pictures,
+                ),
+            ],
+        ));
+    }
     if s.confirm_mark_all {
         rows.push(
             flex_row(
@@ -375,6 +403,8 @@ struct TableData {
     selected: Option<ArticleRef>,
     today: NaiveDate,
     offset: i64,
+    /// The rows as the magazine's cards.
+    magazine: bool,
 }
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
@@ -393,6 +423,9 @@ extern "C" fn table_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     let s = &*guard;
     let size = info.bounds.get_logical_size();
     let width = size.width.max(1.0);
+    if table.magazine {
+        return magazine_view(s, &table, width, size.height.max(CARD_ROW_PX), info.scroll_offset.y);
+    }
     let height = size.height.max(ROW_PX);
     let n = table.rows.len();
     if n == 0 {
@@ -426,6 +459,232 @@ extern "C" fn table_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         rect(0.0, first as f32 * ROW_PX, width, (end - first) as f32 * ROW_PX),
         rect(0.0, 0.0, width, n as f32 * ROW_PX),
     )
+}
+
+// ==== The magazine ====
+//
+// The articles as cards with their pictures, as many a row as the width holds, under their
+// days' headers while sorted by date: a VirtualView too, its rows of two heights (a day's
+// header, a row of cards) found by their tops.
+
+/// The narrowest a card gets, and the room around and between the cards (px).
+pub const CARD_MIN_PX: f32 = 240.0;
+pub const CARD_GAP_PX: f32 = 12.0;
+/// A day's header and a row of cards (px).
+pub const DAY_PX: f32 = 36.0;
+pub const CARD_ROW_PX: f32 = 262.0;
+
+const CARD: &str = "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; \
+                    min-width: 0px; height: 250px; box-sizing: border-box; overflow: hidden; \
+                    border-radius: 6px; border: 1px solid system:separator; \
+                    background: system:window-background; cursor: default;";
+const CARD_SELECTED: &str = "border: 2px solid system:accent;";
+const CARD_PICTURE: &str = "height: 130px; flex-shrink: 0; background-size: cover; \
+                            background-position: center; background-color: system:control-background;";
+/// A card without its picture: the source's first letter on a quiet ground.
+const CARD_PLACEHOLDER: &str = "height: 130px; flex-shrink: 0; display: flex; \
+                                align-items: center; justify-content: center; font-size: 40px; \
+                                font-weight: 700; color: system:secondary-text; \
+                                background: system:control-background;";
+const CARD_BODY: &str = "display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; \
+                         min-height: 0px; overflow: hidden;";
+const CARD_HEADLINE: &str = "font-size: 14px; font-weight: 600; max-height: 38px; overflow: hidden;";
+const CARD_EXCERPT: &str = "font-size: 12px; color: system:secondary-text; max-height: 46px; \
+                            overflow: hidden;";
+const MAGAZINE_DAY: &str = "display: flex; flex-direction: row; align-items: flex-end; \
+                            height: 36px; box-sizing: border-box; padding: 0px 12px 6px 12px; \
+                            font-size: 12px; font-weight: 700; color: system:secondary-text;";
+
+/// One row of the magazine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MagazineRow {
+    /// A day's header (the list is sorted by date).
+    Day(DateGroup),
+    /// A row of cards: the articles and their places among the list's.
+    Cards(Vec<(ArticleRef, usize)>),
+}
+
+/// How many cards a row of `width` holds (at least one).
+#[must_use]
+pub fn cards_per_row(width: f32) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = ((width - CARD_GAP_PX) / (CARD_MIN_PX + CARD_GAP_PX)).floor().max(0.0) as usize;
+    n.max(1)
+}
+
+/// The table's rows as the magazine's: each day's articles in rows of `per_row` cards (at
+/// least one), a day's last row never filled with the next day's.
+#[must_use]
+pub fn magazine_rows(rows: &[TableRow], per_row: usize) -> Vec<MagazineRow> {
+    let per_row = per_row.max(1);
+    let mut out = Vec::new();
+    let mut cards = Vec::new();
+    for row in rows {
+        match *row {
+            TableRow::Day(group) => {
+                if !cards.is_empty() {
+                    out.push(MagazineRow::Cards(core::mem::take(&mut cards)));
+                }
+                out.push(MagazineRow::Day(group));
+            }
+            TableRow::Article(r, index) => {
+                cards.push((r, index));
+                if cards.len() == per_row {
+                    out.push(MagazineRow::Cards(core::mem::take(&mut cards)));
+                }
+            }
+        }
+    }
+    if !cards.is_empty() {
+        out.push(MagazineRow::Cards(cards));
+    }
+    out
+}
+
+/// Where each row starts, and the end of the last: one more entry than `rows`.
+#[must_use]
+pub fn magazine_tops(rows: &[MagazineRow]) -> Vec<f32> {
+    let mut tops = Vec::with_capacity(rows.len() + 1);
+    let mut y = 0.0;
+    tops.push(y);
+    for row in rows {
+        y += match row {
+            MagazineRow::Day(_) => DAY_PX,
+            MagazineRow::Cards(_) => CARD_ROW_PX,
+        };
+        tops.push(y);
+    }
+    tops
+}
+
+/// The row at `y` (the last one past the end, the first before the start).
+#[must_use]
+pub fn magazine_row_at(tops: &[f32], y: f32) -> usize {
+    let rows = tops.len().saturating_sub(1);
+    tops.partition_point(|top| *top <= y)
+        .saturating_sub(1)
+        .min(rows.saturating_sub(1))
+}
+
+/// The magazine's rows in view and a screen either side.
+fn magazine_view(
+    s: &NewsApp,
+    table: &TableData,
+    width: f32,
+    height: f32,
+    scroll_y: f32,
+) -> VirtualViewReturn {
+    let rows = magazine_rows(&table.rows, cards_per_row(width));
+    let tops = magazine_tops(&rows);
+    let total = tops.last().copied().unwrap_or(0.0).max(1.0);
+    if rows.is_empty() {
+        return VirtualViewReturn::with_dom(
+            Dom::create_div(),
+            rect(0.0, 0.0, width, 1.0),
+            rect(0.0, 0.0, width, 1.0),
+        );
+    }
+    let y = scroll_y.clamp(0.0, (total - height).max(0.0));
+    let first = magazine_row_at(&tops, y - height);
+    let end = (magazine_row_at(&tops, y + 2.0 * height) + 1).min(rows.len());
+    let mut root = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: column; width: {width}px;"
+    ));
+    for row in &rows[first..end] {
+        root.add_child(match row {
+            MagazineRow::Day(group) => Dom::create_div()
+                .with_class(ids::DAY_HEADER_CLASS)
+                .with_css(MAGAZINE_DAY)
+                .with_child(text(t(&group.message_id()))),
+            MagazineRow::Cards(cards) => {
+                let mut line = Dom::create_div().with_css(format!(
+                    "display: flex; flex-direction: row; gap: {CARD_GAP_PX}px; height: {CARD_ROW_PX}px; \
+                     box-sizing: border-box; padding: 0px {CARD_GAP_PX}px {CARD_GAP_PX}px {CARD_GAP_PX}px;"
+                ));
+                for (r, index) in cards {
+                    line.add_child(card(s, table, *r, *index));
+                }
+                // A short last row: its cards as wide as a full row's.
+                for _ in cards.len()..cards_per_row(width) {
+                    line.add_child(Dom::create_div().with_css("flex-grow: 1; flex-basis: 0px;"));
+                }
+                line
+            }
+        });
+    }
+    VirtualViewReturn::with_dom(
+        root,
+        rect(0.0, tops[first], width, tops[end] - tops[first]),
+        rect(0.0, 0.0, width, total),
+    )
+}
+
+/// Whether `url` can stand in a CSS `url("...")` as it is.
+fn css_safe(url: &str) -> bool {
+    !url.is_empty() && !url.chars().any(|c| c == '"' || c == '\\' || c.is_whitespace() || c.is_control())
+}
+
+/// One article's card in the magazine: its picture (or its source's letter), its title, its
+/// source and date, its opening lines; a click opens it, a double click its page.
+fn card(s: &NewsApp, table: &TableData, r: ArticleRef, index: usize) -> Dom {
+    let lib = &s.library;
+    let (Some(feed), Some(item)) = (lib.feeds.get(r.feed), lib.article(r)) else {
+        return Dom::create_div().with_css(CARD);
+    };
+    let selected = table.selected == Some(r);
+    let unread = !lib.is_read(r);
+    let title = title_of(item);
+    let picture = item.image.trim();
+    let top = if s.pictures.contains(picture) && css_safe(picture) {
+        Dom::create_div().with_css(format!("{CARD_PICTURE} background-image: url(\"{picture}\");"))
+    } else {
+        let letter = feed
+            .name()
+            .chars()
+            .find(|c| c.is_alphanumeric())
+            .map_or_else(String::new, |c| c.to_uppercase().collect());
+        Dom::create_div().with_css(CARD_PLACEHOLDER).with_child(text(letter))
+    };
+    let source_and_date = format!(
+        "{}{} \u{b7} {}",
+        if unread { "\u{25cf} " } else { "" },
+        feed.name(),
+        list_date(item.date(), table.today, table.offset)
+    );
+    let reference = || RowRef {
+        app: table.app.clone(),
+        feed: feed.sub.id.clone(),
+        item: item.id.clone(),
+    };
+    Dom::create_div()
+        .with_id(ids::article(index))
+        .with_class(ids::MAGAZINE_CARD_CLASS)
+        .with_css(format!("{CARD} {}", if selected { CARD_SELECTED } else { "" }))
+        .with_accessibility_name(title.as_str())
+        .with_child(top)
+        .with_child(
+            Dom::create_div()
+                .with_css(CARD_BODY)
+                .with_child(block(
+                    &format!("{CARD_LINE} {CLIP}"),
+                    text(source_and_date),
+                ))
+                .with_child(block(
+                    &format!("{CARD_HEADLINE} {}", if unread { "" } else { "font-weight: 500;" }),
+                    text(title),
+                ))
+                .with_child(block(CARD_EXCERPT, text(item.excerpt.clone()))),
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            RefAny::new(reference()),
+            on_row,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            RefAny::new(reference()),
+            on_row_open,
+        )
 }
 
 /// What an article's row carries: the app and the article (by ids: the row outlives a
@@ -550,13 +809,7 @@ pub(super) fn reveal_selected(s: &NewsApp, info: &mut CallbackInfo) {
     let Some(selected) = s.selected_ref() else {
         return;
     };
-    let Some(position) = s
-        .table_rows()
-        .iter()
-        .position(|row| matches!(row, TableRow::Article(r, _) if *r == selected))
-    else {
-        return;
-    };
+    let table_rows = s.table_rows();
     let dom = DomId { inner: 0 };
     let node = info.get_node_id_by_id_attribute(dom, ids::ARTICLE_LIST);
     // 0 is "no node"; a node's raw id is its index + 1.
@@ -570,8 +823,26 @@ pub(super) fn reveal_selected(s: &NewsApp, info: &mut CallbackInfo) {
         .get_scroll_offset_for_node(dom, NodeId::create(index))
         .into_option()
         .map_or(0.0, |offset| offset.y);
-    let top = position as f32 * ROW_PX;
-    let bottom = top + ROW_PX;
+    // Where the open article's row lies: a row of the list, or the row of cards holding it.
+    let (top, bottom) = if s.settings.magazine {
+        let rows = magazine_rows(&table_rows, cards_per_row(view.size.width));
+        let Some(position) = rows.iter().position(|row| {
+            matches!(row, MagazineRow::Cards(cards) if cards.iter().any(|(r, _)| *r == selected))
+        }) else {
+            return;
+        };
+        let tops = magazine_tops(&rows);
+        (tops[position], tops[position + 1])
+    } else {
+        let Some(position) = table_rows
+            .iter()
+            .position(|row| matches!(row, TableRow::Article(r, _) if *r == selected))
+        else {
+            return;
+        };
+        let top = position as f32 * ROW_PX;
+        (top, top + ROW_PX)
+    };
     let height = view.size.height.max(ROW_PX);
     let y = if top < scroll_y {
         top

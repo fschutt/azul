@@ -118,6 +118,9 @@ aznews-pictures-not-loaded =
        *[other] { $count } Bilder wurden nicht geladen: Die Websites, auf denen sie liegen, erfahren nichts davon, was du liest.
     }
 aznews-load-pictures = Bilder laden
+aznews-layout-list = Liste
+aznews-layout-magazine = Magazin
+aznews-magazine-pictures-off = Bilder werden erst auf Wunsch geladen (Einstellungen).
 aznews-summary-only = Der Feed enthält eine Zusammenfassung dieses Artikels.
 aznews-show-full-text = Volltext anzeigen
 aznews-loading-full-text = Der Volltext wird von der Seite des Artikels geladen...

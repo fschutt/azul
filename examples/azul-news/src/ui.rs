@@ -236,6 +236,8 @@ pub struct Settings {
     pub keep_days: u32,
     /// The article table's order (the column header clicked last).
     pub sort: Sort,
+    /// The articles as a magazine (cards with their pictures) instead of the list.
+    pub magazine: bool,
 }
 
 impl Default for Settings {
@@ -250,6 +252,7 @@ impl Default for Settings {
             refresh_minutes: 60,
             keep_days: 30,
             sort: Sort::default(),
+            magazine: false,
         }
     }
 }
@@ -312,6 +315,7 @@ impl Settings {
             refresh_minutes: number_in(get("refresh_every").as_deref(), &every, d.refresh_minutes),
             keep_days: number_in(get("keep").as_deref(), &keep, d.keep_days),
             sort: parse_sort(get("sort").as_deref()),
+            magazine: get("layout").as_deref() == Some("magazine"),
         }
     }
 }
@@ -550,6 +554,9 @@ pub struct NewsApp {
     /// The episode bar's times as last shown (moved in place only when they change).
     pub episode_elapsed: String,
     pub episode_total: String,
+    /// The magazine's pictures were asked for ("Load pictures" over it) while pictures load on
+    /// a click.
+    pub card_pictures_allowed: bool,
 }
 
 impl NewsApp {
@@ -604,6 +611,7 @@ impl NewsApp {
             positions: BTreeMap::new(),
             episode_elapsed: String::new(),
             episode_total: String::new(),
+            card_pictures_allowed: false,
         }
     }
 
@@ -1623,7 +1631,47 @@ fn with_app(
         return Update::DoNothing;
     };
     f(&mut guard, info, &handle);
+    // Whatever changed the list (a view, a search, a refresh), the magazine's cards in it ask
+    // for their pictures.
+    ask_card_pictures(&mut guard, info, &handle);
     Update::RefreshDom
+}
+
+/// The magazine's cards show this many of the list's pictures (the first in its order): one
+/// picture job's worth.
+const CARD_PICTURES: usize = jobs::MAX_PICTURES;
+
+/// Whether the magazine's cards load their pictures: always, or after "Load pictures" while
+/// pictures load on a click; never with pictures off.
+fn card_pictures_on(s: &NewsApp) -> bool {
+    match s.settings.pictures {
+        Pictures::Always => true,
+        Pictures::OnClick => s.card_pictures_allowed,
+        Pictures::Never => false,
+    }
+}
+
+/// Asks for the pictures of the magazine's first [`CARD_PICTURES`] cards not asked yet.
+fn ask_card_pictures(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny) {
+    if !s.settings.magazine || !card_pictures_on(s) || !s.loaded {
+        return;
+    }
+    let mut order = s.list();
+    s.library.sort(&mut order, s.settings.sort);
+    let urls: Vec<String> = order
+        .iter()
+        .filter_map(|r| s.library.article(*r))
+        .map(|item| item.image.trim().to_string())
+        .filter(|u| links::is_web(u))
+        .take(CARD_PICTURES)
+        .filter(|u| {
+            !s.pictures.contains(u) && !s.pictures_asked.contains(u) && !s.pictures_failed.contains(u)
+        })
+        .collect();
+    for u in &urls {
+        s.pictures_asked.insert(u.clone());
+    }
+    jobs::spawn_pictures(info, urls, app.clone(), on_picture_event);
 }
 
 fn write_files(s: &NewsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
@@ -2402,6 +2450,33 @@ extern "C" fn on_filter(mut data: RefAny, mut info: CallbackInfo, state: Segment
     with_app(&mut data, &mut info, |s, _info, _| {
         s.unread_only = state.selected_index == 1;
         println!("AZNEWS_VIEW {}", s.list().len());
+    })
+}
+
+/// List / Magazine over the articles (kept in the settings).
+extern "C" fn on_layout_change(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SegmentedState,
+) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        let magazine = state.selected_index == 1;
+        if magazine == s.settings.magazine {
+            return;
+        }
+        s.settings.magazine = magazine;
+        let value = if magazine { "magazine" } else { "list" };
+        azul_appkit::ui::set_value(&s.kit, info, "layout", value);
+        println!("AZNEWS_LAYOUT {value}");
+    })
+}
+
+/// "Load pictures" over the magazine (pictures load on a click): its cards' pictures, for
+/// this session.
+extern "C" fn on_load_card_pictures(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.card_pictures_allowed = true;
+        // `with_app` asks for them once this returns.
     })
 }
 
