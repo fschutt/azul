@@ -604,7 +604,14 @@ fn position_lines_from_breaks(
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
     let mut is_after_forced_break = false;
-    for (line_index, &end_node) in breaks.iter().enumerate() {
+    // `line-clamp` keeps its number of lines; the rest of the paragraph is
+    // not laid out, and the last line kept ends in an ellipsis
+    // (`OverflowInfo::line_clamped`), as on the greedy path.
+    let kept = constraints
+        .line_clamp
+        .map_or(breaks.len(), |clamp| clamp.get().min(breaks.len()));
+    let line_clamped = kept < breaks.len();
+    for (line_index, &end_node) in breaks.iter().take(kept).enumerate() {
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
         let line_indent = crate::text3::cache::text_indent_of_line(
@@ -795,7 +802,10 @@ fn position_lines_from_breaks(
 
     let mut layout = UnifiedLayout {
         items: positioned_items,
-        overflow: OverflowInfo::default(),
+        overflow: OverflowInfo {
+            line_clamped,
+            ..OverflowInfo::default()
+        },
     };
     // Record the unclipped content bounds. `overflow_items` stays empty by
     // design: every item is positioned (visual overflow is clipped at paint
@@ -1685,6 +1695,25 @@ mod autotest_generated {
                 line_right(&layout, line)
             );
         }
+    }
+
+    /// `line-clamp` keeps that many lines on the Knuth-Plass path too, and
+    /// says it cut the paragraph (the last line kept ends in an ellipsis).
+    #[test]
+    fn line_clamp_keeps_its_lines_on_the_knuth_plass_path() {
+        let text = "aaa ".repeat(8);
+        let items = items_of(&text);
+        let mut constraints = definite(100.0);
+        constraints.line_clamp = core::num::NonZeroUsize::new(2);
+        let layout = kp_layout(&items, &[], &constraints, None, &no_fonts(), true);
+        assert_eq!(line_count(&layout), 2);
+        assert!(layout.overflow.line_clamped);
+
+        let mut roomy = definite(100.0);
+        roomy.line_clamp = core::num::NonZeroUsize::new(50);
+        let layout = kp_layout(&items, &[], &roomy, None, &no_fonts(), true);
+        assert!(line_count(&layout) >= 4);
+        assert!(!layout.overflow.line_clamped, "a clamp the paragraph fits in cuts nothing");
     }
 
     // =====================================================================
