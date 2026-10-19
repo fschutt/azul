@@ -48,6 +48,9 @@ step azvideocut 300 python3 scripts/azvideocut_e2e.py --bin $B/AzVideoCut --out 
 # compose window outliving the main window is azmail_e2e's account run.
 step aznews 600 python3 scripts/aznews_e2e.py --bin $B/AzNews --out $OUT/aznews-shots
 step azmail_account 600 python3 scripts/azmail_e2e.py --bin $B/AzMail --phase account --timeout 400
+# AP-08: AzCalendar's attendee tokens, the Azlin-root data folder, and the backstage's text in
+# light mode (said to be faint: the contrast stage measures it and leaves the screenshots).
+step azcalendar 600 python3 scripts/azcalendar_e2e.py --bin $B/AzCalendar --out $OUT/azcalendar-shots
 # AP-04: "AzMeet high CPU?" was never measured: a two-person call, quiet and with video.
 step azmeet_cpu 600 python3 scripts/azmeet_cpu.py --bin $B/AzMeet --seconds 15
 # RUNTIME23 6 (AzPdf resize).
