@@ -293,6 +293,14 @@ pub struct Stat {
     pub modified: Option<u64>,
 }
 
+/// Whether `stats` reach anything of the window beyond the folder's rows: a selected item's
+/// size and date also show in the details pane and the preview, which are built with the
+/// window. Stats of rows alone are drawn by the rows (their virtual view), with no new window.
+pub fn stats_reach_beyond_rows(stats: &[Stat], is_selected: impl Fn(&str) -> bool) -> bool {
+    let _ = (stats, is_selected);
+    true
+}
+
 /// Writes `stats` into the rows they name (a row gone since - another folder, a refresh - is not
 /// there to write); the rows are known from then on. How many rows changed.
 pub fn apply_stats(rows: &mut [Entry], stats: &[Stat]) -> usize {
@@ -366,6 +374,25 @@ pub fn grouped_digits(n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stats_of_rows_alone_need_no_new_window() {
+        let stat = |key: &str| super::Stat {
+            key: key.to_string(),
+            size: Some(5),
+            modified: None,
+        };
+        let stats = [stat("a.txt"), stat("b.txt")];
+        assert!(
+            !super::stats_reach_beyond_rows(&stats, |_| false),
+            "the sizes of rows nobody selected are the rows' own: the rows draw them"
+        );
+        assert!(
+            super::stats_reach_beyond_rows(&stats, |k| k == "b.txt"),
+            "a selected row's size also shows in the details pane: the window is built again"
+        );
+        assert!(!super::stats_reach_beyond_rows(&[], |_| true), "no stats reach nothing");
+    }
+
 
     #[test]
     fn a_view_with_room_for_more_than_its_folder_holds_still_holds_the_folders_items() {
