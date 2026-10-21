@@ -2021,17 +2021,21 @@ pub struct CPUViewIvars {
     /// and the frame is drawn with the Copy operation so stale pixels never
     /// accumulate under transparent regions.
     transparent: Cell<bool>,
+    /// The window's background (its clear colour, RGB) that a resized
+    /// framebuffer is filled with before the frame at the new size is in it
+    /// (`blank_frame_pixel`); kept by every render.
+    blank_rgb: Cell<[u8; 3]>,
 }
 
 /// The RGBA a CPU view's framebuffer is filled with when its size changes,
 /// before a frame is rendered into it. It reaches the screen when a
 /// `drawRect` blits before that render, so a see-through window gets clear
 /// pixels: what lies behind it shows, as it will once the frame is in.
-fn blank_frame_pixel(transparent: bool, _clear: [u8; 3]) -> [u8; 4] {
+fn blank_frame_pixel(transparent: bool, clear: [u8; 3]) -> [u8; 4] {
     if transparent {
         [0, 0, 0, 0]
     } else {
-        [255, 255, 255, 255]
+        [clear[0], clear[1], clear[2], 255]
     }
 }
 
@@ -2341,7 +2345,7 @@ define_class!(
                 ivars.height.set(height);
                 let mut fb = ivars.framebuffer.borrow_mut();
                 fb.resize(width * height * 4, 255);
-                let blank = blank_frame_pixel(ivars.transparent.get(), [255, 255, 255]);
+                let blank = blank_frame_pixel(ivars.transparent.get(), ivars.blank_rgb.get());
                 for chunk in fb.chunks_exact_mut(4) {
                     chunk.copy_from_slice(&blank);
                 }
@@ -2891,6 +2895,7 @@ define_class!(
                 cached_bitmap_h: Cell::new(0),
             cached_bitmap_stale: Cell::new(true),
                 transparent: Cell::new(false),
+                blank_rgb: Cell::new([255, 255, 255]),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -3312,6 +3317,11 @@ impl CPUView {
     /// Whether the view composites the frame's alpha (see the ivar).
     pub fn set_transparent(&self, transparent: bool) {
         self.ivars().transparent.set(transparent);
+    }
+
+    /// The window's background, for the fill of a resized framebuffer.
+    pub fn set_blank_fill(&self, rgb: [u8; 3]) {
+        self.ivars().blank_rgb.set(rgb);
     }
 
     pub fn native_target_ptr(&self, w: usize, h: usize) -> Option<*mut u8> {
@@ -4808,6 +4818,9 @@ pub struct MacOSWindow {
     /// setNeedsDisplay → drawRect gap; pure CVDisplayLink wakeups don't set it,
     /// so the idle early-return optimization stays intact.
     redraw_requested: bool,
+    /// The colour `NSWindow.backgroundColor` was last set to for an opaque
+    /// window ([`MacOSWindow::sync_window_backdrop`]); `None` before it was.
+    backdrop_rgb: Option<[u8; 3]>,
     /// The appearance this window's `NSWindow.appearance` was last set to by
     /// [`MacOSWindow::sync_native_appearance`]: `Some(mode)` = forced into
     /// Aqua / DarkAqua, `None` = nil (inherits the app's, i.e. the desktop's).
@@ -6662,6 +6675,7 @@ impl MacOSWindow {
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
             redraw_requested: true,   // First frame must not be skipped
+            backdrop_rgb: None,
             applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
             webviews: None,            // made (and WebKit loaded) at the first web view
             awaiting_first_frame: false,
@@ -7928,7 +7942,10 @@ impl MacOSWindow {
                         }
 
                         self.window.setOpaque(true);
+                        // The window's own background, set again by the next
+                        // frame (`sync_window_backdrop`), not the system's.
                         self.window.setBackgroundColor(None);
+                        self.backdrop_rgb = None;
                         self.window.setTitlebarAppearsTransparent(false);
                     }
                 }
@@ -8811,6 +8828,7 @@ impl MacOSWindow {
         use super::common::event::PlatformWindow;
 
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
+        self.sync_window_backdrop();
 
         // NOTE: Timer callbacks are NOT invoked here — they run in the
         // NSTimer tick_timers callback. Invoking them here as well would
@@ -9954,6 +9972,41 @@ impl MacOSWindow {
                     .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
+        }
+    }
+
+    /// The CPU view's resize fill and an opaque window's
+    /// `NSWindow.backgroundColor` are its clear colour,
+    /// whenever that changes (a mode switch, the app's background): it is
+    /// what AppKit shows where the window grew before the view drew the
+    /// frame at the new size, and the system default (white in a light
+    /// desktop, also under a dark app) flashed there while a resize went
+    /// from smaller back to larger.
+    fn sync_window_backdrop(&mut self) {
+        let c = self.common.clear_color();
+        if let Some(ref cpu_view) = self.cpu_view {
+            cpu_view.set_blank_fill([c.r, c.g, c.b]);
+        }
+        if !matches!(
+            self.common.current_window_state().flags.background_material,
+            WindowBackgroundMaterial::Opaque
+        ) {
+            self.backdrop_rgb = None;
+            return;
+        }
+        let rgb = [c.r, c.g, c.b];
+        if self.backdrop_rgb == Some(rgb) {
+            return;
+        }
+        self.backdrop_rgb = Some(rgb);
+        unsafe {
+            let backdrop = NSColor::colorWithRed_green_blue_alpha(
+                f64::from(c.r) / 255.0,
+                f64::from(c.g) / 255.0,
+                f64::from(c.b) / 255.0,
+                1.0,
+            );
+            self.window.setBackgroundColor(Some(&backdrop));
         }
     }
 
