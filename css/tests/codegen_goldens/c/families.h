@@ -285,7 +285,8 @@ static AzCssPropertyWithConditionsVec style_scroll(void) {
 static AzCssPropertyWithConditionsVec style_effects(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 250, .g = 250, .b = 250, .a = 255 }) }, 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 0 }) }, 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color((AzColorU){ .r = 250, .g = 250, .b = 250, .a = 255 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr((AzStyleBackgroundPosition[]){ (AzStyleBackgroundPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_center() } }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr((AzStyleBackgroundSize[]){ AzStyleBackgroundSize_cover() }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
@@ -299,7 +300,7 @@ static AzCssPropertyWithConditionsVec style_effects(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_grayscale((AzPercentageValue){ .number = AzFloatValue_create(50.0f) }) }, 1) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode((AzStyleMixBlendModeValue){ .Exact = { .tag = AzStyleMixBlendModeValue_Tag_Exact, .payload = AzStyleMixBlendMode_Multiply } })),
         },
-        13
+        14
     );
 }
 

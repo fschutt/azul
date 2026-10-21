@@ -28,6 +28,7 @@ static AzCssPropertyWithConditionsVec style_hero(void) {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 0 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowLeft((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(12.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 77 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowRight((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(12.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 77 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(12.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 77 } })),
@@ -79,7 +80,7 @@ static AzCssPropertyWithConditionsVec style_hero(void) {
                 )
             ),
         },
-        8
+        9
     );
 }
 
@@ -111,8 +112,9 @@ static AzCssPropertyWithConditionsVec style_halo(void) {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 0 }))),
         },
-        1
+        2
     );
 }
 
@@ -143,8 +145,9 @@ static AzCssPropertyWithConditionsVec style_dial(void) {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 0 }))),
         },
-        1
+        2
     );
 }
 
@@ -153,11 +156,12 @@ static AzCssPropertyWithConditionsVec style_photo(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_image(AzString_copyFromBytes((const uint8_t*)"images/photo.png", 0, 16)) }, 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 0 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr((AzStyleBackgroundSize[]){ AzStyleBackgroundSize_cover() }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr((AzStyleBackgroundPosition[]){ (AzStyleBackgroundPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_center() } }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
         },
-        4
+        5
     );
 }
 

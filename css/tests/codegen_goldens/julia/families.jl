@@ -301,7 +301,8 @@ function style_effects()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(250, 250, 250, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(250, 250, 250, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundPosition(az_vec(Azul.AzStyleBackgroundPositionVec_copyFromPtr, Azul.AzStyleBackgroundPosition, Azul.AzStyleBackgroundPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_center())))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundSize(az_vec(Azul.AzStyleBackgroundSizeVec_copyFromPtr, Azul.AzStyleBackgroundSize, Azul.AzStyleBackgroundSize_cover()))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundRepeat(az_vec(Azul.AzStyleBackgroundRepeatVec_copyFromPtr, Azul.AzStyleBackgroundRepeat, Azul.AzStyleBackgroundRepeat_NoRepeat))),

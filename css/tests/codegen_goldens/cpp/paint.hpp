@@ -30,6 +30,7 @@ inline AzCssPropertyWithConditionsVec style_hero() {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU{ 0, 0, 0, 0 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowLeft(AzStyleBoxShadow{ AzPixelValueNoPercent{ AzPixelValue_px(0.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(4.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(12.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(2.0f) }, AzBoxShadowClipMode_Outset, AzColorU{ 0, 0, 0, 77 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowRight(AzStyleBoxShadow{ AzPixelValueNoPercent{ AzPixelValue_px(0.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(4.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(12.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(2.0f) }, AzBoxShadowClipMode_Outset, AzColorU{ 0, 0, 0, 77 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop(AzStyleBoxShadow{ AzPixelValueNoPercent{ AzPixelValue_px(0.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(4.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(12.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(2.0f) }, AzBoxShadowClipMode_Outset, AzColorU{ 0, 0, 0, 77 } })),
@@ -77,7 +78,7 @@ inline AzCssPropertyWithConditionsVec style_hero() {
                 )
             ),
         }.data(),
-        8
+        9
     );
 }
 
@@ -109,8 +110,9 @@ inline AzCssPropertyWithConditionsVec style_halo() {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU{ 0, 0, 0, 0 }))),
         }.data(),
-        1
+        2
     );
 }
 
@@ -141,8 +143,9 @@ inline AzCssPropertyWithConditionsVec style_dial() {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU{ 0, 0, 0, 0 }))),
         }.data(),
-        1
+        2
     );
 }
 
@@ -151,11 +154,12 @@ inline AzCssPropertyWithConditionsVec style_photo() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_image(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("images/photo.png"), 0, 16)) }.data(), 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU{ 0, 0, 0, 0 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(std::vector<AzStyleBackgroundSize>{ AzStyleBackgroundSize_cover() }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(std::vector<AzStyleBackgroundPosition>{ AzStyleBackgroundPosition{ AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center() } }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(std::vector<AzStyleBackgroundRepeat>{ AzStyleBackgroundRepeat_NoRepeat }.data(), 1))),
         }.data(),
-        4
+        5
     );
 }
 

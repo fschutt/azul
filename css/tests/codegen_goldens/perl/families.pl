@@ -206,7 +206,8 @@ sub style_scroll {
 # dropped a value these bindings cannot build: `StyleMixBlendModeValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 sub style_effects {
     return [
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundContent(Azul::FFI::AzStyleBackgroundContentVec_fromItem(Azul::FFI::AzStyleBackgroundContent_color(Azul::AzColorU->new(r => 250, g => 250, b => 250, a => 255))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundContent(Azul::FFI::AzStyleBackgroundContentVec_fromItem(Azul::FFI::AzStyleBackgroundContent_color(Azul::AzColorU->new(r => 0, g => 0, b => 0, a => 0))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundColor(Azul::FFI::AzStyleBackgroundContent_color(Azul::AzColorU->new(r => 250, g => 250, b => 250, a => 255)))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundPosition(Azul::FFI::AzStyleBackgroundPositionVec_fromItem(Azul::AzStyleBackgroundPosition->new(horizontal => ${ Azul::FFI::AzBackgroundPositionHorizontal_center() }, vertical => ${ Azul::FFI::AzBackgroundPositionVertical_center() })))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundSize(Azul::FFI::AzStyleBackgroundSizeVec_fromItem(Azul::FFI::AzStyleBackgroundSize_cover()))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundRepeat(Azul::FFI::AzStyleBackgroundRepeatVec_fromItem(Azul::AzStyleBackgroundRepeat::NoRepeat()))),

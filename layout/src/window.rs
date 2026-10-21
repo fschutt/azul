@@ -32892,11 +32892,11 @@ fn declared_animation_for(
     if matches!(ty, T::Animation | T::AnimationIn | T::AnimationOut) {
         return None;
     }
-    anims
-        .as_ref()
-        .iter()
-        .rev()
-        .find(|anim| anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str())
+    // `background` names the shorthand: its colour moves with it.
+    let names = |name: &str| {
+        name == "all" || name == ty.to_str() || (name == "background" && ty == T::BackgroundColor)
+    };
+    anims.as_ref().iter().rev().find(|anim| names(anim.name.as_str()))
 }
 
 /// Where a `width` / `height` transition toward a LENGTH starts when the
@@ -32960,6 +32960,12 @@ fn transition_patch_color(
         CssProperty::TextColor(v) => Some((v.get_property()?.inner, PaintColorSlot::Text)),
         CssProperty::BackgroundContent(v) => match v.get_property()?.as_ref() {
             [azul_css::props::style::background::StyleBackgroundContent::Color(c)] => {
+                Some((*c, PaintColorSlot::Background))
+            }
+            _ => None,
+        },
+        CssProperty::BackgroundColor(v) => match v.get_property()? {
+            azul_css::props::style::background::StyleBackgroundContent::Color(c) => {
                 Some((*c, PaintColorSlot::Background))
             }
             _ => None,

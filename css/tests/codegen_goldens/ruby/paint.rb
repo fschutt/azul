@@ -77,6 +77,7 @@ module AzulStyles
           )
         )
       ),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_color(N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_box_shadow_left(AzulCodegen.struct(N::AzStyleBoxShadow, offset_x: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(0.0)), offset_y: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(4.0)), blur_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(12.0)), spread_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(2.0)), clip_mode: N::AzBoxShadowClipMode::Outset, color: AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 77)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_box_shadow_right(AzulCodegen.struct(N::AzStyleBoxShadow, offset_x: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(0.0)), offset_y: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(4.0)), blur_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(12.0)), spread_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(2.0)), clip_mode: N::AzBoxShadowClipMode::Outset, color: AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 77)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_box_shadow_top(AzulCodegen.struct(N::AzStyleBoxShadow, offset_x: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(0.0)), offset_y: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(4.0)), blur_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(12.0)), spread_radius: AzulCodegen.struct(N::AzPixelValueNoPercent, inner: N.az_pixel_value_px(2.0)), clip_mode: N::AzBoxShadowClipMode::Outset, color: AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 77)))),
@@ -154,7 +155,8 @@ module AzulStyles
             )
           )
         )
-      )
+      ),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_color(N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 0))))
     )
   end
 
@@ -184,7 +186,8 @@ module AzulStyles
             )
           )
         )
-      )
+      ),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_color(N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 0))))
     )
   end
 
@@ -194,6 +197,7 @@ module AzulStyles
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
       N.az_css_property_with_conditions_simple(N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_image(Azul._az_string("images/photo.png"))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_color(N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_size(AzulCodegen.vec(:az_style_background_size_vec_copy_from_ptr, N::AzStyleBackgroundSize, N.az_style_background_size_cover()))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_position(AzulCodegen.vec(:az_style_background_position_vec_copy_from_ptr, N::AzStyleBackgroundPosition, AzulCodegen.struct(N::AzStyleBackgroundPosition, horizontal: N.az_background_position_horizontal_center(), vertical: N.az_background_position_vertical_center())))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_repeat(AzulCodegen.vec(:az_style_background_repeat_vec_copy_from_ptr, nil, N::AzStyleBackgroundRepeat::NoRepeat)))

@@ -24,6 +24,7 @@ CssPropertyWithConditions[] styleHero()
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(0, 0, 0, 0)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowLeft(StyleBoxShadow(PixelValueNoPercent(PixelValue.px(0.0f)), PixelValueNoPercent(PixelValue.px(4.0f)), PixelValueNoPercent(PixelValue.px(12.0f)), PixelValueNoPercent(PixelValue.px(2.0f)), BoxShadowClipMode.outset, ColorU(0, 0, 0, 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowRight(StyleBoxShadow(PixelValueNoPercent(PixelValue.px(0.0f)), PixelValueNoPercent(PixelValue.px(4.0f)), PixelValueNoPercent(PixelValue.px(12.0f)), PixelValueNoPercent(PixelValue.px(2.0f)), BoxShadowClipMode.outset, ColorU(0, 0, 0, 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowTop(StyleBoxShadow(PixelValueNoPercent(PixelValue.px(0.0f)), PixelValueNoPercent(PixelValue.px(4.0f)), PixelValueNoPercent(PixelValue.px(12.0f)), PixelValueNoPercent(PixelValue.px(2.0f)), BoxShadowClipMode.outset, ColorU(0, 0, 0, 77)))),
@@ -84,6 +85,7 @@ CssPropertyWithConditions[] styleHalo()
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(0, 0, 0, 0)))),
     ];
 }
 
@@ -108,6 +110,7 @@ CssPropertyWithConditions[] styleDial()
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(0, 0, 0, 0)))),
     ];
 }
 
@@ -116,6 +119,7 @@ CssPropertyWithConditions[] stylePhoto()
 {
     return [
         CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.image("images/photo.png")])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(0, 0, 0, 0)))),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover()])),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(BackgroundPositionHorizontal.center(), BackgroundPositionVertical.center())])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),

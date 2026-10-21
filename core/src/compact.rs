@@ -2114,6 +2114,11 @@ fn apply_css_property_to_compact(
                 cold.hot_flags |= HOT_FLAG_HAS_BACKGROUND;
             }
         }
+        CssProperty::BackgroundColor(v) => {
+            if v.get_property().is_some() {
+                cold.hot_flags |= HOT_FLAG_HAS_BACKGROUND;
+            }
+        }
         CssProperty::ClipPath(v) => {
             if v.get_property().is_some() {
                 cold.hot_flags |= HOT_FLAG_HAS_CLIP_PATH;

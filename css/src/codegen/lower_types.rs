@@ -214,6 +214,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::CounterSet(v) => prop_value(v, "CounterSet", "CounterSetValue", "CounterSet", Some("counter_set")),
         P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
         P::BackgroundOrigin(v) => prop_value(v, "BackgroundOrigin", "StyleBackgroundOriginVecValue", "StyleBackgroundOriginVec", Some("background_origin")),
+        P::BackgroundColor(v) => prop_value(v, "BackgroundColor", "StyleBackgroundContentValue", "StyleBackgroundContent", Some("background_color")),
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
@@ -3870,6 +3871,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("CounterSet", "CounterSetValue", "counter_set"),
     ("Quotes", "StyleQuotesValue", "quotes"),
     ("BackgroundOrigin", "StyleBackgroundOriginVecValue", "background_origin"),
+    ("BackgroundColor", "StyleBackgroundContentValue", "background_color"),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4092,6 +4094,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "CounterSet",
     "Quotes",
     "BackgroundOrigin",
+    "BackgroundColor",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:

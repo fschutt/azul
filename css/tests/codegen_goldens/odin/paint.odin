@@ -27,6 +27,7 @@ style_hero :: proc() -> azul.AzCssPropertyWithConditionsVec {
 				}[0], 1)
 			)
 		),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 0}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowLeft(azul.AzStyleBoxShadow{offset_x = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(0.0)}, offset_y = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(4.0)}, blur_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(12.0)}, spread_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(2.0)}, clip_mode = azul.AzBoxShadowClipMode.Outset, color = azul.AzColorU{r = 0, g = 0, b = 0, a = 77}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowRight(azul.AzStyleBoxShadow{offset_x = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(0.0)}, offset_y = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(4.0)}, blur_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(12.0)}, spread_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(2.0)}, clip_mode = azul.AzBoxShadowClipMode.Outset, color = azul.AzColorU{r = 0, g = 0, b = 0, a = 77}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowTop(azul.AzStyleBoxShadow{offset_x = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(0.0)}, offset_y = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(4.0)}, blur_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(12.0)}, spread_radius = azul.AzPixelValueNoPercent{inner = azul.AzPixelValue_px(2.0)}, clip_mode = azul.AzBoxShadowClipMode.Outset, color = azul.AzColorU{r = 0, g = 0, b = 0, a = 77}})),
@@ -68,7 +69,7 @@ style_hero :: proc() -> azul.AzCssPropertyWithConditionsVec {
 				}
 			)
 		),
-	}[0], 8)
+	}[0], 9)
 }
 
 // CSS: .halo
@@ -92,7 +93,8 @@ style_halo :: proc() -> azul.AzCssPropertyWithConditionsVec {
 				}[0], 1)
 			)
 		),
-	}[0], 1)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 0}))),
+	}[0], 2)
 }
 
 // CSS: .dial
@@ -115,17 +117,19 @@ style_dial :: proc() -> azul.AzCssPropertyWithConditionsVec {
 				}[0], 1)
 			)
 		),
-	}[0], 1)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 0}))),
+	}[0], 2)
 }
 
 // CSS: .photo
 style_photo :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_image(css_str("images/photo.png"))}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 0}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{horizontal = azul.AzBackgroundPositionHorizontal_center(), vertical = azul.AzBackgroundPositionVertical_center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.AzStyleBackgroundRepeat.NoRepeat}[0], 1))),
-	}[0], 4)
+	}[0], 5)
 }
 
 // CSS: .caption

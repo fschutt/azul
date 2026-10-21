@@ -19894,14 +19894,22 @@ pub fn process_debug_event(
                     parse_combined_css_property, CombinedCssPropertyType,
                 };
                 let key_map = get_css_key_map();
-                // A CSS name is either a plain property ("width", "background")
-                // or a COMBINED/shorthand one ("background-color", "margin",
-                // "border", "font", …), which lives in a different enum and
-                // expands to several plain properties. Only the first was
-                // handled, so every shorthand was rejected with "Unknown CSS
-                // property" — `background-color` among them.
+                // A CSS name is either a plain property ("width") or a
+                // COMBINED/shorthand one ("background", "margin", "border",
+                // "font", …), which lives in a different enum and expands to
+                // several plain properties. A shorthand is read first, as the
+                // stylesheet parser does: `background` names a plain property
+                // too, but only the shorthand also sets the colour.
                 let parsed: Result<Vec<azul_css::props::property::CssProperty>, String> =
-                    if let Some(prop_type) = CssPropertyType::from_str(property, &key_map) {
+                    if let Some(combined) = CombinedCssPropertyType::from_str(property, &key_map)
+                    {
+                        parse_combined_css_property(combined, value).map_err(|e| {
+                            format!(
+                                "Failed to parse CSS value '{value}' for shorthand property \
+                                 '{property}': {e:?}"
+                            )
+                        })
+                    } else if let Some(prop_type) = CssPropertyType::from_str(property, &key_map) {
                         azul_css::props::property::parse_css_property(prop_type, value)
                             .map(|p| vec![p])
                             .map_err(|e| {
@@ -19910,15 +19918,6 @@ pub fn process_debug_event(
                                      '{property}': {e:?}"
                                 )
                             })
-                    } else if let Some(combined) =
-                        CombinedCssPropertyType::from_str(property, &key_map)
-                    {
-                        parse_combined_css_property(combined, value).map_err(|e| {
-                            format!(
-                                "Failed to parse CSS value '{value}' for shorthand property \
-                                 '{property}': {e:?}"
-                            )
-                        })
                     } else {
                         Err(format!("Unknown CSS property: '{property}'"))
                     };

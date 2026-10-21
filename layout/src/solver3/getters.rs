@@ -2504,33 +2504,13 @@ pub fn get_background_color(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
-    let cache = &styled_dom.css_property_cache.ptr;
-    let ctx = cache.dynamic_context.as_deref();
-    let styled_nodes = styled_dom.styled_nodes.as_container();
-    let (source, state) = match body_background_propagated_to(styled_dom, node_id, node_state) {
-        Some(body) => (body, &styled_nodes[body].styled_node_state),
-        None => (node_id, node_state),
-    };
-    // Negative fast path: if compact cache says `has_background == 0` on a
-    // normal-state node, skip the cascade walk entirely. Only declared
-    // backgrounds set the bit, so `false` is a safe "unconditionally
-    // transparent" signal.
-    if state.is_normal() {
-        if let Some(ref cc) = cache.compact_cache {
-            if !cc.has_background(source.index()) {
-                return ColorU::TRANSPARENT;
-            }
-        }
-    }
-    let source_data = &styled_dom.node_data.as_container()[source];
-    cache
-        .get_background_content(source_data, &source, state)
-        .and_then(|bg| bg.get_property())
-        .and_then(|bg_vec| bg_vec.get(0).cloned())
+    background_contents_as_declared(styled_dom, node_id, node_state)
+        .into_iter()
+        .next()
         // A `system:` colour is a solid colour too, once resolved against
         // the theme the cascade evaluated.
-        .map(|first_bg| first_bg.resolve_system_colors(ctx))
-        .and_then(|first_bg| match first_bg {
+        .map(|bottom| system_colors_resolved(styled_dom, bottom))
+        .and_then(|bottom| match bottom {
             azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color),
             _ => None, // an image or a gradient: no solid colour
         })
@@ -2584,29 +2564,84 @@ fn background_layers_paint_nothing(
     })
 }
 
-/// The background layers declared on `nid` itself - no propagation, the
-/// `system:` colours unresolved.
+/// The background layers declared on `nid` itself, its `background-color`
+/// the bottom one - no propagation, the `system:` colours unresolved.
 fn own_background_layers(
     styled_dom: &StyledDom,
     nid: NodeId,
     state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    own_background(styled_dom, nid, state).0
+}
+
+/// [`own_background_layers`], and whether its `background-color` was added
+/// under the declared layers (the layer lists then have one entry less).
+fn own_background(
+    styled_dom: &StyledDom,
+    nid: NodeId,
+    state: &StyledNodeState,
+) -> (Vec<azul_css::props::style::StyleBackgroundContent>, bool) {
     let cache = &styled_dom.css_property_cache.ptr;
     // Negative fast path: if compact cache says `has_background == 0` on a
     // normal pseudo-state node, return empty without walking the cascade.
     if state.is_normal() {
         if let Some(ref cc) = cache.compact_cache {
             if !cc.has_background(nid.index()) {
-                return Vec::new();
+                return (Vec::new(), false);
             }
         }
     }
     let ndata = &styled_dom.node_data.as_container()[nid];
-    cache
-        .get_background_content(ndata, &nid, state)
+    let content = cache.get_ranked_property(ndata, &nid, state, &CssPropertyType::BackgroundContent);
+    let content_rank = content.map(|(rank, _)| rank);
+    let mut layers: Vec<_> = content
+        .and_then(|(_, p)| p.as_background_content())
         .and_then(|bg| bg.get_property())
         .map(|bg_vec| bg_vec.iter().cloned().collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let colour = cache
+        .get_ranked_property(ndata, &nid, state, &CssPropertyType::BackgroundColor)
+        .and_then(|(rank, p)| Some((rank, p.as_background_color()?.get_property()?.clone())));
+    let added = colour.is_some_and(|(rank, colour)| {
+        // At an equal rank the colour wins: the two came from one shorthand.
+        let colour_wins = content_rank.is_none_or(|content| rank >= content);
+        put_background_colour(&mut layers, colour, colour_wins)
+    });
+    (layers, added)
+}
+
+/// Puts `background-color` under `layers` (paint order, the bottom first).
+///
+/// A bottom layer that is a colour - a theme's layer list, or a `background`
+/// declared with one value - paints the same thing: the one the cascade
+/// ranks higher stays (`colour_wins`). A transparent bottom layer under other
+/// layers is a `none` image, which the colour replaces. Otherwise the colour
+/// goes under every layer, unless it is transparent and adds nothing.
+/// Returns whether it was added as a layer of its own.
+fn put_background_colour(
+    layers: &mut Vec<azul_css::props::style::StyleBackgroundContent>,
+    colour: azul_css::props::style::StyleBackgroundContent,
+    colour_wins: bool,
+) -> bool {
+    use azul_css::props::style::StyleBackgroundContent as B;
+    let several = layers.len() > 1;
+    match layers.first_mut() {
+        Some(bottom @ B::Color(ColorU { a: 0, .. })) if several => {
+            *bottom = colour;
+            false
+        }
+        Some(bottom @ (B::Color(_) | B::SystemColor(_))) => {
+            if colour_wins {
+                *bottom = colour;
+            }
+            false
+        }
+        _ if matches!(colour, B::Color(c) if c.a == 0) => false,
+        _ => {
+            layers.insert(0, colour);
+            true
+        }
+    }
 }
 
 /// THE layout-side resolution point for `system:` colour keywords.
@@ -2657,13 +2692,24 @@ pub fn get_background_clips(
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundClip> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom
+    let clips: Vec<_> = styled_dom
         .css_property_cache
         .ptr
         .get_background_clip(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| v.iter().copied().collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // A `background-color` added under the layers is clipped like the
+    // bottom layer (CSS Backgrounds 3 s3.2): one clip per layer, that one
+    // first.
+    let (layers, colour_added) = background_as_declared(styled_dom, node_id, node_state);
+    if !colour_added || clips.is_empty() {
+        return clips;
+    }
+    let declared = (layers.len() - 1).max(1);
+    let per_layer = (0..declared).filter_map(|i| super::display_list::layer_value(&clips, declared, i));
+    let bottom = super::display_list::layer_value(&clips, declared, 0);
+    bottom.into_iter().chain(per_layer).collect()
 }
 
 /// The `background-origin` boxes declared on `node_id` (CSS Backgrounds 3
@@ -2753,13 +2799,22 @@ fn background_contents_as_declared(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    background_as_declared(styled_dom, node_id, node_state).0
+}
+
+/// [`background_contents_as_declared`] with [`own_background`]'s flag.
+fn background_as_declared(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> (Vec<azul_css::props::style::StyleBackgroundContent>, bool) {
     match body_background_propagated_to(styled_dom, node_id, node_state) {
-        Some(body) => own_background_layers(
+        Some(body) => own_background(
             styled_dom,
             body,
             &styled_dom.styled_nodes.as_container()[body].styled_node_state,
         ),
-        None => own_background_layers(styled_dom, node_id, node_state),
+        None => own_background(styled_dom, node_id, node_state),
     }
 }
 

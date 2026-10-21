@@ -45,6 +45,7 @@ let style_hero () =
         ])) (Unsigned.Size_t.of_int 1))
       )
     );
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundColor (azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 0)) ]))));
     (azCssPropertyWithConditions_simple (azCssProperty_boxShadowLeft (az_struct az_style_box_shadow [ (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_x (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 0.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_y (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 4.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_blur_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 12.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_spread_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 2.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_clip_mode (BoxShadowClipMode.to_int BoxShadowClipMode.Outset)); (fun v -> Ctypes.setf v az_style_box_shadow_field_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 77)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_boxShadowRight (az_struct az_style_box_shadow [ (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_x (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 0.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_y (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 4.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_blur_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 12.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_spread_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 2.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_clip_mode (BoxShadowClipMode.to_int BoxShadowClipMode.Outset)); (fun v -> Ctypes.setf v az_style_box_shadow_field_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 77)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_boxShadowTop (az_struct az_style_box_shadow [ (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_x (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 0.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_offset_y (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 4.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_blur_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 12.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_spread_radius (az_struct az_pixel_value_no_percent [ (fun v -> Ctypes.setf v az_pixel_value_no_percent_field_inner (azPixelValue_px 2.0)) ])); (fun v -> Ctypes.setf v az_style_box_shadow_field_clip_mode (BoxShadowClipMode.to_int BoxShadowClipMode.Outset)); (fun v -> Ctypes.setf v az_style_box_shadow_field_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 77)) ])) ])));
@@ -100,7 +101,7 @@ let style_hero () =
         )
       )
     )
-  ])) (Unsigned.Size_t.of_int 8))
+  ])) (Unsigned.Size_t.of_int 9))
 
 (* CSS: .halo *)
 let style_halo () =
@@ -128,8 +129,9 @@ let style_halo () =
           )
         ])) (Unsigned.Size_t.of_int 1))
       )
-    )
-  ])) (Unsigned.Size_t.of_int 1))
+    );
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundColor (azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 0)) ]))))
+  ])) (Unsigned.Size_t.of_int 2))
 
 (* CSS: .dial *)
 let style_dial () =
@@ -156,17 +158,19 @@ let style_dial () =
           )
         ])) (Unsigned.Size_t.of_int 1))
       )
-    )
-  ])) (Unsigned.Size_t.of_int 1))
+    );
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundColor (azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 0)) ]))))
+  ])) (Unsigned.Size_t.of_int 2))
 
 (* CSS: .photo *)
 let style_photo () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundContent (azStyleBackgroundContentVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_content [(azStyleBackgroundContent_image (azul_az_string "images/photo.png"))])) (Unsigned.Size_t.of_int 1))));
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundColor (azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 0)) ]))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundSize (azStyleBackgroundSizeVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_size [(azStyleBackgroundSize_cover ())])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundPosition (azStyleBackgroundPositionVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_position [(az_struct az_style_background_position [ (fun v -> Ctypes.setf v az_style_background_position_field_horizontal (azBackgroundPositionHorizontal_center ())); (fun v -> Ctypes.setf v az_style_background_position_field_vertical (azBackgroundPositionVertical_center ())) ])])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundRepeat (azStyleBackgroundRepeatVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_repeat [(StyleBackgroundRepeat.to_int StyleBackgroundRepeat.NoRepeat)])) (Unsigned.Size_t.of_int 1))))
-  ])) (Unsigned.Size_t.of_int 4))
+  ])) (Unsigned.Size_t.of_int 5))
 
 (* CSS: .caption *)
 let style_caption () =

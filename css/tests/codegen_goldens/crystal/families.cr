@@ -232,7 +232,8 @@ module AzulStyles
   # dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
   def self.style_effects : Array(Azul::CssPropertyWithConditions)
     [
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 250_u8, g: 250_u8, b: 250_u8, a: 255_u8)))] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 0_u8)))] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_color(Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 250_u8, g: 250_u8, b: 250_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_position([Azul::StyleBackgroundPosition.__own(LibAzul::AzStyleBackgroundPosition.new(horizontal: Azul::BackgroundPositionHorizontal.center.__take, vertical: Azul::BackgroundPositionVertical.center.__take))] of Azul::StyleBackgroundPosition)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_size([Azul::StyleBackgroundSize.cover] of Azul::StyleBackgroundSize)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_repeat([Azul::StyleBackgroundRepeat::NoRepeat] of Azul::StyleBackgroundRepeat)),

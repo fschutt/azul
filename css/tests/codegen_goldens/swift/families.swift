@@ -242,7 +242,8 @@ public func styleScroll() -> [CssPropertyWithConditions] {
 // dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 public func styleEffects() -> [CssPropertyWithConditions] {
     return [
-        CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 250, g: 250, b: 250, a: 255))])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 0, g: 0, b: 0, a: 0))])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(r: 250, g: 250, b: 250, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(horizontal: BackgroundPositionHorizontal.center, vertical: BackgroundPositionVertical.center)])),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),

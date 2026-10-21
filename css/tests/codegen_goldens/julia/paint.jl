@@ -53,6 +53,7 @@ function style_hero()
                 )
             )
         ),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxShadowLeft(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(12.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 77)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxShadowRight(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(12.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 77)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxShadowTop(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(12.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 77)))),
@@ -129,7 +130,8 @@ function style_halo()
                     )
                 )
             )
-        )
+        ),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0))))
     )
 end
 
@@ -158,7 +160,8 @@ function style_dial()
                     )
                 )
             )
-        )
+        ),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0))))
     )
 end
 
@@ -168,6 +171,7 @@ function style_photo()
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_image(Azul.az_string("images/photo.png"))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundSize(az_vec(Azul.AzStyleBackgroundSizeVec_copyFromPtr, Azul.AzStyleBackgroundSize, Azul.AzStyleBackgroundSize_cover()))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundPosition(az_vec(Azul.AzStyleBackgroundPositionVec_copyFromPtr, Azul.AzStyleBackgroundPosition, Azul.AzStyleBackgroundPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_center())))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundRepeat(az_vec(Azul.AzStyleBackgroundRepeatVec_copyFromPtr, Azul.AzStyleBackgroundRepeat, Azul.AzStyleBackgroundRepeat_NoRepeat)))

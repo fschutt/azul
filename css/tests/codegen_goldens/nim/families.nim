@@ -253,7 +253,8 @@ proc styleScroll*(): AzCssPropertyWithConditionsVec =
 # dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 proc styleEffects*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 250'u8, g: 250'u8, b: 250'u8, a: 255'u8))]))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 0'u8))]))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU(r: 250'u8, g: 250'u8, b: 250'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(azVec(AzStyleBackgroundPositionVec_copyFromPtr, [AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_center())]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),

@@ -23,6 +23,7 @@ function styleHero() {
                 ], 1)
             )
         ),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundColor(lib.AzStyleBackgroundContent_color({ r: 0, g: 0, b: 0, a: 0 }))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_boxShadowLeft({ offset_x: { inner: lib.AzPixelValue_px(0.0) }, offset_y: { inner: lib.AzPixelValue_px(4.0) }, blur_radius: { inner: lib.AzPixelValue_px(12.0) }, spread_radius: { inner: lib.AzPixelValue_px(2.0) }, clip_mode: azul.BoxShadowClipMode.Outset, color: { r: 0, g: 0, b: 0, a: 77 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_boxShadowRight({ offset_x: { inner: lib.AzPixelValue_px(0.0) }, offset_y: { inner: lib.AzPixelValue_px(4.0) }, blur_radius: { inner: lib.AzPixelValue_px(12.0) }, spread_radius: { inner: lib.AzPixelValue_px(2.0) }, clip_mode: azul.BoxShadowClipMode.Outset, color: { r: 0, g: 0, b: 0, a: 77 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_boxShadowTop({ offset_x: { inner: lib.AzPixelValue_px(0.0) }, offset_y: { inner: lib.AzPixelValue_px(4.0) }, blur_radius: { inner: lib.AzPixelValue_px(12.0) }, spread_radius: { inner: lib.AzPixelValue_px(2.0) }, clip_mode: azul.BoxShadowClipMode.Outset, color: { r: 0, g: 0, b: 0, a: 77 } })),
@@ -64,7 +65,7 @@ function styleHero() {
                 }
             )
         ),
-    ], 8));
+    ], 9));
 }
 
 // CSS: .halo
@@ -88,7 +89,8 @@ function styleHalo() {
                 ], 1)
             )
         ),
-    ], 1));
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundColor(lib.AzStyleBackgroundContent_color({ r: 0, g: 0, b: 0, a: 0 }))),
+    ], 2));
 }
 
 // CSS: .dial
@@ -111,17 +113,19 @@ function styleDial() {
                 ], 1)
             )
         ),
-    ], 1));
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundColor(lib.AzStyleBackgroundContent_color({ r: 0, g: 0, b: 0, a: 0 }))),
+    ], 2));
 }
 
 // CSS: .photo
 function stylePhoto() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_image(azul._azString("images/photo.png"))], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundColor(lib.AzStyleBackgroundContent_color({ r: 0, g: 0, b: 0, a: 0 }))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundPosition(lib.AzStyleBackgroundPositionVec_copyFromPtr([{ horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_center() }], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
-    ], 4));
+    ], 5));
 }
 
 // CSS: .caption

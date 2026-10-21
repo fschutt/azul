@@ -1360,6 +1360,7 @@ impl ResolveSystemColors for CssProperty {
             Self::ColumnRuleColor(v) => Self::ColumnRuleColor(v.resolve_system_colors(r)),
             Self::ScrollbarColor(v) => Self::ScrollbarColor(v.resolve_system_colors(r)),
             Self::BackgroundContent(v) => Self::BackgroundContent(v.resolve_system_colors(r)),
+            Self::BackgroundColor(v) => Self::BackgroundColor(v.resolve_system_colors(r)),
             Self::ScrollbarTrack(v) => Self::ScrollbarTrack(v.resolve_system_colors(r)),
             Self::ScrollbarThumb(v) => Self::ScrollbarThumb(v.resolve_system_colors(r)),
             Self::ScrollbarButton(v) => Self::ScrollbarButton(v.resolve_system_colors(r)),
@@ -3340,18 +3341,8 @@ impl CssPropertyWithConditionsVec {
             DynamicSelectorVec::from_vec(inherited_conditions.to_vec())
         };
 
-        // First, try to parse as a regular (non-shorthand) property
-        if let Some(prop_type) = CssPropertyType::from_str(key, key_map) {
-            if let Ok(prop) = parse_css_property(prop_type, value) {
-                props.push(CssPropertyWithConditions {
-                    property: prop,
-                    apply_if: conditions,
-                });
-                return Some(props);
-            }
-        }
-
-        // If not found, try as a shorthand (combined) property
+        // A shorthand first, as the stylesheet parser reads it: `background`
+        // names a longhand too, but only the shorthand also sets the colour.
         if let Some(combined_type) = CombinedCssPropertyType::from_str(key, key_map) {
             if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
                 for prop in expanded_props {
@@ -3360,6 +3351,16 @@ impl CssPropertyWithConditionsVec {
                         apply_if: conditions.clone(),
                     });
                 }
+                return Some(props);
+            }
+        }
+
+        if let Some(prop_type) = CssPropertyType::from_str(key, key_map) {
+            if let Ok(prop) = parse_css_property(prop_type, value) {
+                props.push(CssPropertyWithConditions {
+                    property: prop,
+                    apply_if: conditions,
+                });
                 return Some(props);
             }
         }

@@ -32,18 +32,29 @@ function style_azul_native_button()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(241, 243, 245, 255))))),
+        Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0))))),
+        Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(241, 243, 245, 255)))),
         Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_borderTopColor(Azul.AzStyleBorderTopColor(Azul.AzColorU(173, 181, 189, 255)))),
         Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_borderBottomColor(Azul.AzStyleBorderBottomColor(Azul.AzColorU(173, 181, 189, 255)))),
         Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_borderLeftColor(Azul.AzStyleBorderLeftColor(Azul.AzColorU(173, 181, 189, 255)))),
         Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_borderRightColor(Azul.AzStyleBorderRightColor(Azul.AzColorU(173, 181, 189, 255)))),
-        Azul.AzCssPropertyWithConditions_onActive(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(222, 226, 230, 255))))),
+        Azul.AzCssPropertyWithConditions_onActive(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0))))),
+        Azul.AzCssPropertyWithConditions_onActive(Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(222, 226, 230, 255)))),
         Azul.AzCssPropertyWithConditions_onFocus(Azul.AzCssProperty_borderTopColor(Azul.AzStyleBorderTopColor(Azul.AzColorU(13, 110, 253, 255)))),
         Azul.AzCssPropertyWithConditions_onFocus(Azul.AzCssProperty_borderBottomColor(Azul.AzStyleBorderBottomColor(Azul.AzColorU(13, 110, 253, 255)))),
         Azul.AzCssPropertyWithConditions_onFocus(Azul.AzCssProperty_borderLeftColor(Azul.AzStyleBorderLeftColor(Azul.AzColorU(13, 110, 253, 255)))),
         Azul.AzCssPropertyWithConditions_onFocus(Azul.AzCssProperty_borderRightColor(Azul.AzStyleBorderRightColor(Azul.AzColorU(13, 110, 253, 255)))),
         Azul.AzCssPropertyWithConditions_withConditions(
-            Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(73, 80, 87, 255)))),
+            Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0)))),
+            az_vec(
+                Azul.AzDynamicSelectorVec_copyFromPtr,
+                Azul.AzDynamicSelector,
+                Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Hover),
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
+            )
+        ),
+        Azul.AzCssPropertyWithConditions_withConditions(
+            Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(73, 80, 87, 255))),
             az_vec(
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
@@ -61,7 +72,16 @@ function style_azul_native_button()
             )
         ),
         Azul.AzCssPropertyWithConditions_withConditions(
-            Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(43, 48, 53, 255)))),
+            Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_color(Azul.AzColorU(0, 0, 0, 0)))),
+            az_vec(
+                Azul.AzDynamicSelectorVec_copyFromPtr,
+                Azul.AzDynamicSelector,
+                Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Active),
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
+            )
+        ),
+        Azul.AzCssPropertyWithConditions_withConditions(
+            Azul.AzCssProperty_backgroundColor(Azul.AzStyleBackgroundContent_color(Azul.AzColorU(43, 48, 53, 255))),
             az_vec(
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,

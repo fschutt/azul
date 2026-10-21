@@ -327,7 +327,8 @@ module AzulStyles
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
-      N.az_css_property_with_conditions_simple(N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 250, g: 250, b: 250, a: 255))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 0))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_color(N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 250, g: 250, b: 250, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_position(AzulCodegen.vec(:az_style_background_position_vec_copy_from_ptr, N::AzStyleBackgroundPosition, AzulCodegen.struct(N::AzStyleBackgroundPosition, horizontal: N.az_background_position_horizontal_center(), vertical: N.az_background_position_vertical_center())))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_size(AzulCodegen.vec(:az_style_background_size_vec_copy_from_ptr, N::AzStyleBackgroundSize, N.az_style_background_size_cover()))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_repeat(AzulCodegen.vec(:az_style_background_repeat_vec_copy_from_ptr, nil, N::AzStyleBackgroundRepeat::NoRepeat))),

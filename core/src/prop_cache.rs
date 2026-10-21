@@ -380,6 +380,46 @@ pub struct StatefulCssProperty {
     pub priority: u8,
 }
 
+/// Where the declaration that won a property's cascade sits, comparable
+/// across two properties: the stronger rank is the one the cascade would
+/// have taken had both declared the same property.
+///
+/// By its source first (a runtime override, then the `::placeholder`'s own
+/// values, then what the node declares, then a `*` rule, then what it
+/// inherited or the UA default), then by `rule_priority`, then by the
+/// strength of the state it was declared for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CascadeRank {
+    source: u8,
+    priority: u8,
+    state: u8,
+}
+
+impl CascadeRank {
+    pub const USER_OVERRIDE: Self = Self::of_source(4);
+    pub const PLACEHOLDER: Self = Self::of_source(3);
+    pub const GLOBAL_RULE: Self = Self::of_source(1);
+    pub const INHERITED: Self = Self::of_source(0);
+
+    const fn of_source(source: u8) -> Self {
+        Self {
+            source,
+            priority: 0,
+            state: 0,
+        }
+    }
+
+    /// A declaration of the node at `priority`, for a state of `state`
+    /// strength (the resting state the weakest).
+    const fn declared(priority: u8, state: u8) -> Self {
+        Self {
+            source: 2,
+            priority,
+            state,
+        }
+    }
+}
+
 /// The [`StatefulCssProperty::priority`] of what the engine decides itself
 /// (a generated node whose `content` makes nothing has no box): above every
 /// rule and the node's own style.
@@ -2649,6 +2689,9 @@ impl CssPropertyCache {
         if let Some(p) = self.get_background_content(node_data, node_id, node_state) {
             let _ = write!(s, "background: {};", p.get_css_value_fmt());
         }
+        if let Some(p) = self.get_background_color(node_data, node_id, node_state) {
+            let _ = write!(s, "background-color: {};", p.get_css_value_fmt());
+        }
         if let Some(p) = self.get_background_position(node_data, node_id, node_state) {
             let _ = write!(s, "background-position: {};", p.get_css_value_fmt());
         }
@@ -3509,6 +3552,27 @@ impl CssPropertyCache {
         )
     }
 
+    /// [`Self::get_property`] with the [`CascadeRank`] of the declaration that won: what two
+    /// properties that paint one thing compare (a `background-color` and the bottom colour of a
+    /// layer list).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[must_use]
+    pub fn get_ranked_property<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<(CascadeRank, &'a CssProperty)> {
+        let (rank, declared) =
+            self.get_declared_property_ranked(node_data, node_id, node_state, css_property_type)?;
+        Some((
+            rank,
+            self.css_wide_value_of(node_id.index(), declared)
+                .unwrap_or(declared),
+        ))
+    }
+
     /// The value `declared`, a declaration of node `index`, stands for when it is a CSS-wide
     /// keyword with a value of its own ([`Self::css_wide_values`]); `None` for any other
     /// declaration, and for a keyword the readers take as the property's initial value.
@@ -3534,16 +3598,32 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
-        /// Takes `property` (declared at `priority`) over what `found`
-        /// holds only from a higher priority: the states come strongest
-        /// first.
+        self.get_declared_property_ranked(node_data, node_id, node_state, css_property_type)
+            .map(|(_, p)| p)
+    }
+
+    /// [`Self::get_declared_property`] with the [`CascadeRank`] it won at.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
+    fn get_declared_property_ranked<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<(CascadeRank, &'a CssProperty)> {
+        /// Takes `property` (declared at `priority` for the state of
+        /// strength `state`) over what `found` holds only from a higher
+        /// priority: the states come strongest first.
         fn offer<'p>(
-            found: &mut Option<(u8, &'p CssProperty)>,
+            found: &mut Option<(CascadeRank, &'p CssProperty)>,
             priority: u8,
+            state: u8,
             property: &'p CssProperty,
         ) {
-            if found.is_none_or(|(best, _)| priority > best) {
-                *found = Some((priority, property));
+            if found.is_none_or(|(best, _)| priority > best.priority) {
+                *found = Some((CascadeRank::declared(priority, state), property));
             }
         }
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
@@ -3599,7 +3679,7 @@ impl CssPropertyCache {
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
+                return Some((CascadeRank::USER_OVERRIDE, &v[idx].1));
             }
         }
 
@@ -3683,22 +3763,25 @@ impl CssPropertyCache {
                 .or_else(|| Self::find_in_stateful(sheet, placeholder, css_property_type))
                 .or_else(|| Self::find_in_stateful(inherited, placeholder, css_property_type))
             {
-                return Some(p);
+                return Some((CascadeRank::PLACEHOLDER, p));
             }
         }
 
-        let mut found: Option<(u8, &'a CssProperty)> = None;
-        for (raised, state) in tiers {
+        let mut found: Option<(CascadeRank, &'a CssProperty)> = None;
+        let tier_count = tiers.len();
+        for (tier, (raised, state)) in tiers.into_iter().enumerate() {
             if !raised {
                 continue;
             }
+            // The strongest state ranks highest.
+            let strength = u8::try_from(tier_count - tier).unwrap_or(u8::MAX);
             // PRIORITY 1: inline declarations.
             if let Some(p) = own(state) {
-                offer(&mut found, azul_css::css::rule_priority::INLINE, p);
+                offer(&mut found, azul_css::css::rule_priority::INLINE, strength, p);
             }
             // PRIORITY 2: stylesheet rules (`.x:hover { .. }`).
             if let Some(p) = Self::find_entry_in_stateful(sheet, state, css_property_type) {
-                offer(&mut found, p.priority, &p.property);
+                offer(&mut found, p.priority, strength, &p.property);
             }
             // PRIORITY 2b (Normal only): the global `*` rules (specificity
             // 0,0,0), collected once during restyle for every element. They
@@ -3714,19 +3797,19 @@ impl CssPropertyCache {
                     .rev()
                     .find(|p| p.get_type() == *css_property_type)
                 {
-                    return Some(p);
+                    return Some((CascadeRank::GLOBAL_RULE, p));
                 }
             }
             // PRIORITY 3: cascaded / inherited properties, while nothing is
             // declared.
             if found.is_none() {
                 if let Some(p) = Self::find_in_stateful(inherited, state, css_property_type) {
-                    return Some(p);
+                    return Some((CascadeRank::INHERITED, p));
                 }
             }
         }
-        if let Some((_, p)) = found {
-            return Some(p);
+        if found.is_some() {
+            return found;
         }
 
         // Check computed values cache for inherited properties
@@ -3736,7 +3819,7 @@ impl CssPropertyCache {
                 .computed_values
                 .get(node_id.index(), *css_property_type)
             {
-                return Some(&v.property);
+                return Some((CascadeRank::INHERITED, &v.property));
             }
         }
 
@@ -3757,6 +3840,7 @@ impl CssPropertyCache {
             *css_property_type,
             self.dynamic_context.as_deref(),
         )
+        .map(|p| (CascadeRank::INHERITED, p))
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -4519,6 +4603,12 @@ impl CssPropertyCache {
         StyleBackgroundOriginVecValue,
         BackgroundOrigin,
         as_background_origin
+    );
+    impl_get_prop!(
+        get_background_color,
+        StyleBackgroundContentValue,
+        BackgroundColor,
+        as_background_color
     );
 
     impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);

@@ -256,7 +256,8 @@ pub fn style_scroll() -> CssPropertyWithConditionsVec {
 /// dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 pub fn style_effects() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
-        CssPropertyWithConditions::simple(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 250, g: 250, b: 250, a: 255 })]))),
+        CssPropertyWithConditions::simple(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 0, a: 0 })]))),
+        CssPropertyWithConditions::simple(CssProperty::background_color(StyleBackgroundContent::Color(ColorU { r: 250, g: 250, b: 250, a: 255 }))),
         CssPropertyWithConditions::simple(CssProperty::background_position(StyleBackgroundPositionVec::from(vec![StyleBackgroundPosition { horizontal: BackgroundPositionHorizontal::Center, vertical: BackgroundPositionVertical::Center }]))),
         CssPropertyWithConditions::simple(CssProperty::background_size(StyleBackgroundSizeVec::from(vec![StyleBackgroundSize::Cover]))),
         CssPropertyWithConditions::simple(CssProperty::background_repeat(StyleBackgroundRepeatVec::from(vec![StyleBackgroundRepeat::NoRepeat]))),

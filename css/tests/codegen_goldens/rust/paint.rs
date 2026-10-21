@@ -25,6 +25,7 @@ pub fn style_hero() -> CssPropertyWithConditionsVec {
                 ])
             )
         ),
+        CssPropertyWithConditions::simple(CssProperty::background_color(StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 0, a: 0 }))),
         CssPropertyWithConditions::simple(CssProperty::box_shadow_left(StyleBoxShadow { offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) }, offset_y: PixelValueNoPercent { inner: PixelValue::px(4.0) }, blur_radius: PixelValueNoPercent { inner: PixelValue::px(12.0) }, spread_radius: PixelValueNoPercent { inner: PixelValue::px(2.0) }, clip_mode: BoxShadowClipMode::Outset, color: ColorU { r: 0, g: 0, b: 0, a: 77 } })),
         CssPropertyWithConditions::simple(CssProperty::box_shadow_right(StyleBoxShadow { offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) }, offset_y: PixelValueNoPercent { inner: PixelValue::px(4.0) }, blur_radius: PixelValueNoPercent { inner: PixelValue::px(12.0) }, spread_radius: PixelValueNoPercent { inner: PixelValue::px(2.0) }, clip_mode: BoxShadowClipMode::Outset, color: ColorU { r: 0, g: 0, b: 0, a: 77 } })),
         CssPropertyWithConditions::simple(CssProperty::box_shadow_top(StyleBoxShadow { offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) }, offset_y: PixelValueNoPercent { inner: PixelValue::px(4.0) }, blur_radius: PixelValueNoPercent { inner: PixelValue::px(12.0) }, spread_radius: PixelValueNoPercent { inner: PixelValue::px(2.0) }, clip_mode: BoxShadowClipMode::Outset, color: ColorU { r: 0, g: 0, b: 0, a: 77 } })),
@@ -84,6 +85,7 @@ pub fn style_halo() -> CssPropertyWithConditionsVec {
                 ])
             )
         ),
+        CssPropertyWithConditions::simple(CssProperty::background_color(StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 0, a: 0 }))),
     ])
 }
 
@@ -107,6 +109,7 @@ pub fn style_dial() -> CssPropertyWithConditionsVec {
                 ])
             )
         ),
+        CssPropertyWithConditions::simple(CssProperty::background_color(StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 0, a: 0 }))),
     ])
 }
 
@@ -114,6 +117,7 @@ pub fn style_dial() -> CssPropertyWithConditionsVec {
 pub fn style_photo() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
         CssPropertyWithConditions::simple(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Image(azul::str::String::from("images/photo.png"))]))),
+        CssPropertyWithConditions::simple(CssProperty::background_color(StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 0, a: 0 }))),
         CssPropertyWithConditions::simple(CssProperty::background_size(StyleBackgroundSizeVec::from(vec![StyleBackgroundSize::Cover]))),
         CssPropertyWithConditions::simple(CssProperty::background_position(StyleBackgroundPositionVec::from(vec![StyleBackgroundPosition { horizontal: BackgroundPositionHorizontal::Center, vertical: BackgroundPositionVertical::Center }]))),
         CssPropertyWithConditions::simple(CssProperty::background_repeat(StyleBackgroundRepeatVec::from(vec![StyleBackgroundRepeat::NoRepeat]))),

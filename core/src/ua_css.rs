@@ -640,17 +640,14 @@ static VERTICAL_ALIGN_SUB: CssProperty =
 static VERTICAL_ALIGN_SUPER: CssProperty =
     CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Superscript));
 
-/// `mark { background: yellow }`
-const MARK_BACKGROUND_LAYERS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
+/// `mark { background-color: yellow }`
+static MARK_BACKGROUND: CssProperty =
+    CssProperty::BackgroundColor(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
         r: 255,
         g: 255,
         b: 0,
         a: 255,
-    })];
-static MARK_BACKGROUND: CssProperty = CssProperty::BackgroundContent(CssPropertyValue::Exact(
-    StyleBackgroundContentVec::from_const_slice(MARK_BACKGROUND_LAYERS),
-));
+    })));
 
 /// `mark { color: black }` - in either mode: the highlight stays yellow.
 static MARK_TEXT_COLOR: CssProperty =
@@ -1185,7 +1182,7 @@ pub fn get_ua_property(
         (NT::Ins, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
         // `mark { background: yellow; color: black }`
         (NT::Mark, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::Mark, PT::BackgroundContent) => Some(&MARK_BACKGROUND),
+        (NT::Mark, PT::BackgroundColor) => Some(&MARK_BACKGROUND),
         (NT::Mark, PT::TextColor) => Some(&MARK_TEXT_COLOR),
         (NT::Q, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Dfn, PT::Display) => Some(&DISPLAY_INLINE),
@@ -1337,8 +1334,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::BreakBefore,
     // Text properties
     CssPropertyType::TextColor,
-    // `mark { background: yellow }`.
-    CssPropertyType::BackgroundContent,
+    // `mark { background-color: yellow }`.
+    CssPropertyType::BackgroundColor,
     CssPropertyType::LineHeight,
     CssPropertyType::LetterSpacing,
     CssPropertyType::WordSpacing,

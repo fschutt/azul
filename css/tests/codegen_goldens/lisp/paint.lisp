@@ -62,6 +62,7 @@
           )
         )
       )
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-color (azul-internal::%az-style-background-content-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-box-shadow-left (list 'azul-internal::offset-x (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.0)) 'azul-internal::offset-y (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 4.0)) 'azul-internal::blur-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 12.0)) 'azul-internal::spread-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 2.0)) 'azul-internal::clip-mode :outset 'azul-internal::color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 77))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-box-shadow-right (list 'azul-internal::offset-x (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.0)) 'azul-internal::offset-y (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 4.0)) 'azul-internal::blur-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 12.0)) 'azul-internal::spread-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 2.0)) 'azul-internal::clip-mode :outset 'azul-internal::color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 77))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-box-shadow-top (list 'azul-internal::offset-x (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.0)) 'azul-internal::offset-y (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 4.0)) 'azul-internal::blur-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 12.0)) 'azul-internal::spread-radius (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 2.0)) 'azul-internal::clip-mode :outset 'azul-internal::color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 77))))
@@ -120,6 +121,7 @@
           )
         )
       )
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-color (azul-internal::%az-style-background-content-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 0))))
     )
   ))
 
@@ -158,6 +160,7 @@
           )
         )
       )
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-color (azul-internal::%az-style-background-content-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 0))))
     )
   ))
 
@@ -168,6 +171,7 @@
     'azul-internal::az-css-property-with-conditions
     (list
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-content (css-vec #'azul-internal::%az-style-background-content-vec-copy-from-ptr 'azul-internal::az-style-background-content (list (azul-internal::%az-style-background-content-image (css-str "images/photo.png"))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-color (azul-internal::%az-style-background-content-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-size (css-vec #'azul-internal::%az-style-background-size-vec-copy-from-ptr 'azul-internal::az-style-background-size (list (azul-internal::%az-style-background-size-cover)))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-position (css-vec #'azul-internal::%az-style-background-position-vec-copy-from-ptr 'azul-internal::az-style-background-position (list (list 'azul-internal::horizontal (azul-internal::%az-background-position-horizontal-center) 'azul-internal::vertical (azul-internal::%az-background-position-vertical-center))))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-repeat (css-vec #'azul-internal::%az-style-background-repeat-vec-copy-from-ptr 'azul-internal::az-style-background-repeat (list :no-repeat))))

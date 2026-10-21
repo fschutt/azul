@@ -23,6 +23,7 @@ func StyleHero() azul.AzCssPropertyWithConditionsVec {
 				}[0], 1),
 			),
 		),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 0}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowLeft(azul.AzStyleBoxShadow{OffsetX: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(0.0)}, OffsetY: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(4.0)}, BlurRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(12.0)}, SpreadRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(2.0)}, ClipMode: azul.BoxShadowClipMode_Outset, Color: azul.AzColorU{R: 0, G: 0, B: 0, A: 77}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowRight(azul.AzStyleBoxShadow{OffsetX: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(0.0)}, OffsetY: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(4.0)}, BlurRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(12.0)}, SpreadRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(2.0)}, ClipMode: azul.BoxShadowClipMode_Outset, Color: azul.AzColorU{R: 0, G: 0, B: 0, A: 77}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_boxShadowTop(azul.AzStyleBoxShadow{OffsetX: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(0.0)}, OffsetY: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(4.0)}, BlurRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(12.0)}, SpreadRadius: azul.AzPixelValueNoPercent{Inner: azul.AzPixelValue_px(2.0)}, ClipMode: azul.BoxShadowClipMode_Outset, Color: azul.AzColorU{R: 0, G: 0, B: 0, A: 77}})),
@@ -58,7 +59,7 @@ func StyleHero() azul.AzCssPropertyWithConditionsVec {
 				),
 			),
 		),
-	}[0], 8)
+	}[0], 9)
 }
 
 // CSS: .halo
@@ -82,7 +83,8 @@ func StyleHalo() azul.AzCssPropertyWithConditionsVec {
 				}[0], 1),
 			),
 		),
-	}[0], 1)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 0}))),
+	}[0], 2)
 }
 
 // CSS: .dial
@@ -105,17 +107,19 @@ func StyleDial() azul.AzCssPropertyWithConditionsVec {
 				}[0], 1),
 			),
 		),
-	}[0], 1)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 0}))),
+	}[0], 2)
 }
 
 // CSS: .photo
 func StylePhoto() azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_Image(azul.Str("images/photo.png").Raw())}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 0}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_Cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{Horizontal: azul.AzBackgroundPositionHorizontal_Center(), Vertical: azul.AzBackgroundPositionVertical_Center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.StyleBackgroundRepeat_NoRepeat}[0], 1))),
-	}[0], 4)
+	}[0], 5)
 }
 
 // CSS: .caption

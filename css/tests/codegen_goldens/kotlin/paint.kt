@@ -28,6 +28,7 @@ fun styleHero(): AzCssPropertyWithConditionsVec.ByValue {
                 )
             )
         ),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() }))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowLeft(AzStyleBoxShadow.ByValue().apply { offset_x = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(0.0f) }; offset_y = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(4.0f) }; blur_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(12.0f) }; spread_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(2.0f) }; clip_mode = BoxShadowClipMode.Outset.value; color = AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 77.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowRight(AzStyleBoxShadow.ByValue().apply { offset_x = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(0.0f) }; offset_y = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(4.0f) }; blur_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(12.0f) }; spread_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(2.0f) }; clip_mode = BoxShadowClipMode.Outset.value; color = AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 77.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowTop(AzStyleBoxShadow.ByValue().apply { offset_x = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(0.0f) }; offset_y = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(4.0f) }; blur_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(12.0f) }; spread_radius = AzPixelValueNoPercent.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(2.0f) }; clip_mode = BoxShadowClipMode.Outset.value; color = AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 77.toByte() } })),
@@ -96,7 +97,8 @@ fun styleHalo(): AzCssPropertyWithConditionsVec.ByValue {
                     )
                 )
             )
-        )
+        ),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() })))
     )
 }
 
@@ -122,7 +124,8 @@ fun styleDial(): AzCssPropertyWithConditionsVec.ByValue {
                     )
                 )
             )
-        )
+        ),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() })))
     )
 }
 
@@ -131,6 +134,7 @@ fun stylePhoto(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_image(azStr("images/photo.png"))))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() }))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(azVec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover()))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundPosition(azVec(AzulNativeVec::AzStyleBackgroundPositionVec_copyFromPtr, AzStyleBackgroundPosition.ByValue().apply { horizontal = AzulNativeCss.AzBackgroundPositionHorizontal_center(); vertical = AzulNativeCss.AzBackgroundPositionVertical_center() }))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(azVecInts(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value)))

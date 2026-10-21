@@ -596,6 +596,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::BackgroundOrigin => {
                 CssProperty::BackgroundOrigin(CssPropertyValue::$content_type)
             }
+            CssPropertyType::BackgroundColor => {
+                CssProperty::BackgroundColor(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

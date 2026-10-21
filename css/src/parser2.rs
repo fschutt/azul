@@ -2468,15 +2468,36 @@ fn parse_declaration_resilient<'a>(
             return expanded;
         }
         // A `var()` on a shorthand is ambiguous (which longhand gets which
-        // part of the value?) - unless the shorthand expands to ONE longhand:
-        // `background` / `background-color` set `background-content` and
-        // nothing else, so the variable's value simply IS that longhand's.
+        // part of the value?) - unless the shorthand expands to ONE longhand
+        // (`background-color`), so the variable's value simply IS that
+        // longhand's.
         if let Some(chain) = parse_var_chain(unparsed_css_value) {
             let (names, fallback) = chain?;
             let refused = CssParseErrorInner::VarOnShorthandProperty {
                 key: combined_key,
                 value: unparsed_css_value,
             };
+            // `background: var(--bg)`: one layer or one colour, and both of its
+            // longhands read the whole value (a colour sets the layer and the
+            // colour, an image the layer).
+            if combined_key == CombinedCssPropertyType::Background {
+                let defaults = match fallback {
+                    None => parse_combined_css_property(combined_key, "initial"),
+                    Some(f) => parse_combined_css_property(combined_key, f),
+                };
+                let defaults = match defaults {
+                    Ok(props) => props,
+                    Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+                };
+                let longhands = [CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor];
+                if defaults.len() != longhands.len()
+                    || !defaults.iter().zip(longhands).all(|(p, t)| p.get_type() == t)
+                {
+                    return Err(refused);
+                }
+                declarations.extend(defaults.into_iter().map(|d| var_declaration(&names, d)));
+                return Ok(declarations);
+            }
             let Ok(mut initial) = parse_combined_css_property(combined_key, "initial") else {
                 return Err(refused);
             };
@@ -4185,28 +4206,44 @@ mod autotest_generated {
 
     #[test]
     fn var_on_a_shorthand_with_one_longhand_is_accepted() {
-        // `background` / `background-color` expand to the ONE longhand
-        // `background-content`, so a variable there is not ambiguous - and it
-        // is the design's own example (`background: var(--x, system:..)`).
+        // `background-color` expands to ONE longhand, so a variable there is
+        // not ambiguous; `background` sets the layer and the colour, and both
+        // read the variable - the design's own example
+        // (`background: var(--x, system:..)`).
         let km = key_map();
-        for key in ["background", "background-color"] {
+        for (key, types) in [
+            ("background-color", &[CssPropertyType::BackgroundColor][..]),
+            (
+                "background",
+                &[CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor][..],
+            ),
+        ] {
             let decls = parse_declaration_resilient(key, "var(--bg, #ff0000)", loc(0, 0), &km)
                 .unwrap_or_else(|e| panic!("{key}: {e:?}"));
-            assert_eq!(decls.len(), 1, "{key}");
-            let CssDeclaration::Dynamic(d) = &decls[0] else {
-                panic!("{key}: expected a Dynamic declaration, got {decls:?}");
-            };
-            assert_eq!(d.default_value.get_type(), CssPropertyType::BackgroundContent);
+            assert_eq!(decls.len(), types.len(), "{key}");
+            for (decl, ty) in decls.iter().zip(types) {
+                let CssDeclaration::Dynamic(d) = decl else {
+                    panic!("{key}: expected a Dynamic declaration, got {decls:?}");
+                };
+                assert_eq!(d.default_value.get_type(), *ty, "{key}");
+            }
         }
-        // Without a fallback: the one longhand's initial value.
+        // Without a fallback: each longhand's initial value.
         let decls = parse_declaration_resilient("background", "var(--bg)", loc(0, 0), &km)
             .expect("parses");
-        let CssDeclaration::Dynamic(d) = &decls[0] else {
-            panic!("expected a Dynamic declaration, got {decls:?}");
-        };
+        let defaults: Vec<_> = decls
+            .iter()
+            .map(|d| match d {
+                CssDeclaration::Dynamic(d) => d.default_value.clone(),
+                other => panic!("expected a Dynamic declaration, got {other:?}"),
+            })
+            .collect();
         assert_eq!(
-            d.default_value,
-            CssProperty::initial(CssPropertyType::BackgroundContent)
+            defaults,
+            [
+                CssProperty::initial(CssPropertyType::BackgroundContent),
+                CssProperty::initial(CssPropertyType::BackgroundColor),
+            ]
         );
     }
 

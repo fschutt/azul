@@ -264,7 +264,8 @@ fun styleScroll(): AzCssPropertyWithConditionsVec.ByValue {
 fun styleEffects(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 250.toByte(); g = 250.toByte(); b = 250.toByte(); a = 255.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 250.toByte(); g = 250.toByte(); b = 250.toByte(); a = 255.toByte() }))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundPosition(azVec(AzulNativeVec::AzStyleBackgroundPositionVec_copyFromPtr, AzStyleBackgroundPosition.ByValue().apply { horizontal = AzulNativeCss.AzBackgroundPositionHorizontal_center(); vertical = AzulNativeCss.AzBackgroundPositionVertical_center() }))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(azVec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover()))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(azVecInts(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value))),

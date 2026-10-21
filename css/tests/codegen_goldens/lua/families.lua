@@ -272,8 +272,9 @@ end
 -- CSS: .effects
 -- dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 function M.style_effects()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[13]', {
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 250, g = 250, b = 250, a = 255 })) }), 1))),
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[14]', {
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 0 })) }), 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundColor(C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 250, g = 250, b = 250, a = 255 })))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
@@ -286,7 +287,7 @@ function M.style_effects()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_blur(ffi.new('AzStyleBlur', { width = C.AzPixelValue_px(2.0), height = C.AzPixelValue_px(2.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_grayscale(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(ffi.new('AzStyleMixBlendModeValue', { Exact = { tag = 6, payload = C.AzStyleMixBlendMode_Multiply } }))),
-    }), 13)
+    }), 14)
 end
 
 -- CSS: .fragment

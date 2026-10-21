@@ -34,6 +34,7 @@ public final class AzulStyles {
                     )
                 )
             ),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; })))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowLeft(AzulCodegen.with(new AzStyleBoxShadow.ByValue(), styleBoxShadow -> { styleBoxShadow.offset_x = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(0.0f); }); styleBoxShadow.offset_y = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(4.0f); }); styleBoxShadow.blur_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(12.0f); }); styleBoxShadow.spread_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(2.0f); }); styleBoxShadow.clip_mode = BoxShadowClipMode.Outset.value; styleBoxShadow.color = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 77; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowRight(AzulCodegen.with(new AzStyleBoxShadow.ByValue(), styleBoxShadow -> { styleBoxShadow.offset_x = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(0.0f); }); styleBoxShadow.offset_y = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(4.0f); }); styleBoxShadow.blur_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(12.0f); }); styleBoxShadow.spread_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(2.0f); }); styleBoxShadow.clip_mode = BoxShadowClipMode.Outset.value; styleBoxShadow.color = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 77; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowTop(AzulCodegen.with(new AzStyleBoxShadow.ByValue(), styleBoxShadow -> { styleBoxShadow.offset_x = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(0.0f); }); styleBoxShadow.offset_y = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(4.0f); }); styleBoxShadow.blur_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(12.0f); }); styleBoxShadow.spread_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(2.0f); }); styleBoxShadow.clip_mode = BoxShadowClipMode.Outset.value; styleBoxShadow.color = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 77; }); }))),
@@ -102,7 +103,8 @@ public final class AzulStyles {
                         )
                     )
                 )
-            )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; }))))
         );
     }
 
@@ -128,7 +130,8 @@ public final class AzulStyles {
                         )
                     )
                 )
-            )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; }))))
         );
     }
 
@@ -137,6 +140,7 @@ public final class AzulStyles {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_image(AzulCodegen.str("images/photo.png"))))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; })))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover()))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundPosition(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundPositionVec_copyFromPtr, AzulCodegen.with(new AzStyleBackgroundPosition.ByValue(), styleBackgroundPosition -> { styleBackgroundPosition.horizontal = AzulNativeCss.AzBackgroundPositionHorizontal_center(); styleBackgroundPosition.vertical = AzulNativeCss.AzBackgroundPositionVertical_center(); })))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value)))

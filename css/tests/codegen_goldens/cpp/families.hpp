@@ -281,7 +281,8 @@ inline AzCssPropertyWithConditionsVec style_scroll() {
 inline AzCssPropertyWithConditionsVec style_effects() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_color(AzColorU{ 250, 250, 250, 255 }) }.data(), 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_color(AzColorU{ 0, 0, 0, 0 }) }.data(), 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU{ 250, 250, 250, 255 }))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(std::vector<AzStyleBackgroundPosition>{ AzStyleBackgroundPosition{ AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center() } }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(std::vector<AzStyleBackgroundSize>{ AzStyleBackgroundSize_cover() }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(std::vector<AzStyleBackgroundRepeat>{ AzStyleBackgroundRepeat_NoRepeat }.data(), 1))),
@@ -295,7 +296,7 @@ inline AzCssPropertyWithConditionsVec style_effects() {
             AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter([]{ AzStyleFilterVecValue v{}; v.Exact = AzStyleFilterVecValueVariant_Exact{ AzStyleFilterVecValue_Tag_Exact, AzStyleFilterVec_copyFromPtr(std::vector<AzStyleFilter>{ AzStyleFilter_grayscale(AzPercentageValue{ AzFloatValue_create(50.0f) }) }.data(), 1) }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode([]{ AzStyleMixBlendModeValue v{}; v.Exact = AzStyleMixBlendModeValueVariant_Exact{ AzStyleMixBlendModeValue_Tag_Exact, AzStyleMixBlendMode_Multiply }; return v; }())),
         }.data(),
-        13
+        14
     );
 }
 

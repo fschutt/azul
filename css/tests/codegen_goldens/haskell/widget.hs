@@ -10,15 +10,19 @@ import qualified Azul.CssPropertyWithConditions as CssPropertyWithConditions
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a DynamicSelectorVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a DynamicSelectorVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a DynamicSelectorVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a DynamicSelectorVec has no pure constructor in Azul.Types
 styleAzulNativeButton :: IO [CssPropertyWithConditions]
 styleAzulNativeButton = sequence
   [
+    (CssPropertyWithConditions.onHover (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 241 243 245 255))))),
     (CssPropertyWithConditions.onHover (T.CssProperty_BorderTopColor (T.StyleBorderTopColorValue_Exact (T.StyleBorderTopColor (T.ColorU 173 181 189 255))))),
     (CssPropertyWithConditions.onHover (T.CssProperty_BorderBottomColor (T.StyleBorderBottomColorValue_Exact (T.StyleBorderBottomColor (T.ColorU 173 181 189 255))))),
     (CssPropertyWithConditions.onHover (T.CssProperty_BorderLeftColor (T.StyleBorderLeftColorValue_Exact (T.StyleBorderLeftColor (T.ColorU 173 181 189 255))))),
     (CssPropertyWithConditions.onHover (T.CssProperty_BorderRightColor (T.StyleBorderRightColorValue_Exact (T.StyleBorderRightColor (T.ColorU 173 181 189 255))))),
+    (CssPropertyWithConditions.onActive (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 222 226 230 255))))),
     (CssPropertyWithConditions.onFocus (T.CssProperty_BorderTopColor (T.StyleBorderTopColorValue_Exact (T.StyleBorderTopColor (T.ColorU 13 110 253 255))))),
     (CssPropertyWithConditions.onFocus (T.CssProperty_BorderBottomColor (T.StyleBorderBottomColorValue_Exact (T.StyleBorderBottomColor (T.ColorU 13 110 253 255))))),
     (CssPropertyWithConditions.onFocus (T.CssProperty_BorderLeftColor (T.StyleBorderLeftColorValue_Exact (T.StyleBorderLeftColor (T.ColorU 13 110 253 255))))),

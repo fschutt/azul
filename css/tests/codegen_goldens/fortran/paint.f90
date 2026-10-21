@@ -19,7 +19,7 @@ contains
     type(AzNormalizedLinearColorStop), target :: t1(3)
     type(AzStyleBackgroundContent), target :: t2(1)
     type(AzStyleTransform), target :: t3(4)
-    type(AzCssPropertyWithConditions), target :: t4(6)
+    type(AzCssPropertyWithConditions), target :: t4(7)
     t1(1) = AzNormalizedLinearColorStop(offset=AzPercentageValue(number=az_float_value_create(0.0_c_float)), color=az_color_or_system_color(AzColorU(r_=-1_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t)), offset_px=az_float_value_create(0.0_c_float))
     t1(2) = AzNormalizedLinearColorStop(offset=AzPercentageValue(number=az_float_value_create(50.0_c_float)), color=az_color_or_system_color(AzColorU(r_=0_c_int8_t, g=-1_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t)), offset_px=az_float_value_create(0.0_c_float))
     t1(3) = AzNormalizedLinearColorStop(offset=AzPercentageValue(number=az_float_value_create(100.0_c_float)), color=az_color_or_system_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t)), offset_px=az_float_value_create(0.0_c_float))
@@ -29,12 +29,13 @@ contains
     t3(3) = az_style_transform_scale(AzStyleTransformScale2D(x=az_float_value_create(1.5_c_float), y=az_float_value_create(1.5_c_float)))
     t3(4) = az_style_transform_skew(AzStyleTransformSkew2D(x=AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(10.0_c_float)), y=AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(5.0_c_float))))
     t4(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    t4(2) = az_css_property_with_conditions_simple(az_css_property_box_shadow_left(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
-    t4(3) = az_css_property_with_conditions_simple(az_css_property_box_shadow_right(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
-    t4(4) = az_css_property_with_conditions_simple(az_css_property_box_shadow_top(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
-    t4(5) = az_css_property_with_conditions_simple(az_css_property_box_shadow_bottom(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
-    t4(6) = az_css_property_with_conditions_simple(az_css_property_transform(az_style_transform_vec_copy_from_ptr(c_loc(t3(1)), 4_c_size_t)))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t4(1)), 6_c_size_t)
+    t4(2) = az_css_property_with_conditions_simple(az_css_property_background_color(az_style_background_content_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=0_c_int8_t))))
+    t4(3) = az_css_property_with_conditions_simple(az_css_property_box_shadow_left(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
+    t4(4) = az_css_property_with_conditions_simple(az_css_property_box_shadow_right(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
+    t4(5) = az_css_property_with_conditions_simple(az_css_property_box_shadow_top(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
+    t4(6) = az_css_property_with_conditions_simple(az_css_property_box_shadow_bottom(AzStyleBoxShadow(offset_x=AzPixelValueNoPercent(inner=az_pixel_value_px(0.0_c_float)), offset_y=AzPixelValueNoPercent(inner=az_pixel_value_px(4.0_c_float)), blur_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(12.0_c_float)), spread_radius=AzPixelValueNoPercent(inner=az_pixel_value_px(2.0_c_float)), clip_mode=BoxShadowClipMode_Outset, color=AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=77_c_int8_t))))
+    t4(7) = az_css_property_with_conditions_simple(az_css_property_transform(az_style_transform_vec_copy_from_ptr(c_loc(t3(1)), 4_c_size_t)))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t4(1)), 7_c_size_t)
   end function style_hero
 
   ! CSS: .halo
@@ -42,12 +43,13 @@ contains
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzNormalizedLinearColorStop), target :: t1(2)
     type(AzStyleBackgroundContent), target :: t2(1)
-    type(AzCssPropertyWithConditions), target :: t3(1)
+    type(AzCssPropertyWithConditions), target :: t3(2)
     t1(1) = AzNormalizedLinearColorStop(offset=AzPercentageValue(number=az_float_value_create(0.0_c_float)), color=az_color_or_system_color(AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t)), offset_px=az_float_value_create(0.0_c_float))
     t1(2) = AzNormalizedLinearColorStop(offset=AzPercentageValue(number=az_float_value_create(100.0_c_float)), color=az_color_or_system_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t)), offset_px=az_float_value_create(0.0_c_float))
     t2(1) = az_style_background_content_radial_gradient(AzRadialGradient(shape=Shape_Circle, size_=RadialGradientSize_FarthestCorner, position=AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_left(), vertical=az_background_position_vertical_top()), extend_mode=ExtendMode_Clamp, stops=az_normalized_linear_color_stop_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
     t3(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)
+    t3(2) = az_css_property_with_conditions_simple(az_css_property_background_color(az_style_background_content_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=0_c_int8_t))))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 2_c_size_t)
   end function style_halo
 
   ! CSS: .dial
@@ -55,12 +57,13 @@ contains
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzNormalizedRadialColorStop), target :: t1(2)
     type(AzStyleBackgroundContent), target :: t2(1)
-    type(AzCssPropertyWithConditions), target :: t3(1)
+    type(AzCssPropertyWithConditions), target :: t3(2)
     t1(1) = AzNormalizedRadialColorStop(angle=AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(0.0_c_float)), color=az_color_or_system_color(AzColorU(r_=-1_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t)))
     t1(2) = AzNormalizedRadialColorStop(angle=AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(360.0_c_float)), color=az_color_or_system_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t)))
     t2(1) = az_style_background_content_conic_gradient(AzConicGradient(extend_mode=ExtendMode_Clamp, center=AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_left(), vertical=az_background_position_vertical_top()), angle=AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(90.0_c_float)), stops=az_normalized_radial_color_stop_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
     t3(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)
+    t3(2) = az_css_property_with_conditions_simple(az_css_property_background_color(az_style_background_content_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=0_c_int8_t))))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 2_c_size_t)
   end function style_dial
 
   ! CSS: .photo
@@ -70,16 +73,17 @@ contains
     type(AzStyleBackgroundSize), target :: t2(1)
     type(AzStyleBackgroundPosition), target :: t3(1)
     type(AzStyleBackgroundRepeat), target :: t4(1)
-    type(AzCssPropertyWithConditions), target :: t5(4)
+    type(AzCssPropertyWithConditions), target :: t5(5)
     t1(1) = az_style_background_content_image(azul_string('images/photo.png'))
     t2(1) = az_style_background_size_cover()
     t3(1) = AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_center(), vertical=az_background_position_vertical_center())
     t4(1) = StyleBackgroundRepeat_NoRepeat
     t5(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)))
-    t5(2) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    t5(3) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
-    t5(4) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t5(1)), 4_c_size_t)
+    t5(2) = az_css_property_with_conditions_simple(az_css_property_background_color(az_style_background_content_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=0_c_int8_t))))
+    t5(3) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
+    t5(4) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
+    t5(5) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t5(1)), 5_c_size_t)
   end function style_photo
 
   ! CSS: .caption

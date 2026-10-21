@@ -420,9 +420,7 @@ fn render_svg_shape(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
                 ColorOrSystem::Color(c) => StyleBackgroundContent::Color(c),
                 ColorOrSystem::System(r) => StyleBackgroundContent::SystemColor(r),
             };
-            intrinsic.push(simple(CssProperty::const_background_content(
-                StyleBackgroundContentVec::from_vec(alloc::vec![layer]),
-            )));
+            intrinsic.push(simple(CssProperty::const_background_color(layer)));
         }
     }
     if let Some(stroke) = element.attribute("stroke").map(str::trim).filter(|s| *s != "none") {

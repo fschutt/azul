@@ -111,7 +111,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 206] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 207] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -233,6 +233,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 206] = [
     (CssPropertyType::CounterSet, "counter-set"),
     (CssPropertyType::Quotes, "quotes"),
     (CssPropertyType::BackgroundOrigin, "background-origin"),
+    (CssPropertyType::BackgroundColor, "background-color"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -616,8 +617,8 @@ pub enum CombinedCssPropertyType {
     BorderWidth,
     Padding,
     BoxShadow,
-    BackgroundColor, // BackgroundContent::Color
-    BackgroundImage, // BackgroundContent::Image
+    BackgroundColor, // CssPropertyType::BackgroundColor
+    BackgroundImage, // CssPropertyType::BackgroundContent
     Background,
     Flex,
     Grid,
@@ -904,6 +905,10 @@ pub enum CssProperty {
     CounterSet(CounterSetValue),
     Quotes(StyleQuotesValue),
     BackgroundOrigin(StyleBackgroundOriginVecValue),
+    /// `background-color`: the colour under every background layer (a
+    /// `Color` or a `SystemColor`), apart from `BackgroundContent` so a later
+    /// `background-image` keeps it.
+    BackgroundColor(StyleBackgroundContentValue),
 }
 
 impl_option!(
@@ -1176,6 +1181,7 @@ pub enum CssPropertyType {
     CounterSet,
     Quotes,
     BackgroundOrigin,
+    BackgroundColor,
 }
 
 impl CssPropertyType {
@@ -1384,6 +1390,7 @@ impl CssPropertyType {
         Self::CounterSet,
         Self::Quotes,
         Self::BackgroundOrigin,
+        Self::BackgroundColor,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1635,6 +1642,7 @@ impl CssPropertyType {
             Self::CounterSet => "counter-set",
             Self::Quotes => "quotes",
             Self::BackgroundOrigin => "background-origin",
+            Self::BackgroundColor => "background-color",
         }
     }
 
@@ -1760,7 +1768,7 @@ impl CssPropertyType {
     pub const fn can_trigger_relayout(&self) -> bool {
         use self::CssPropertyType::{
             Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter, BackfaceVisibility,
-            BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
+            BackgroundColor, BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
             BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius, BorderBottomStyle,
             BorderLeftColor, BorderLeftStyle, BorderRightColor, BorderRightStyle, BorderTopColor,
             BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle, BoxDecorationBreak,
@@ -1782,6 +1790,7 @@ impl CssPropertyType {
             TextColor
             | Cursor
             | BackgroundContent
+            | BackgroundColor
             | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
@@ -1866,7 +1875,7 @@ impl CssPropertyType {
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
-            BackfaceVisibility, BackgroundClip, BackgroundContent, BackgroundOrigin,
+            BackfaceVisibility, BackgroundClip, BackgroundColor, BackgroundContent, BackgroundOrigin,
             BackgroundPosition, BackgroundRepeat, BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
             BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
             BorderLeftStyle, BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth,
@@ -1899,6 +1908,7 @@ impl CssPropertyType {
             | BackgroundRepeat
             | BackgroundClip
             | BackgroundOrigin
+            | BackgroundColor
             | BorderTopColor
             | BorderRightColor
             | BorderLeftColor
@@ -3823,6 +3833,11 @@ pub fn parse_css_property(
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::BackgroundColor => {
+                CssProperty::BackgroundColor(CssPropertyValue::Exact(background_color_layer(
+                    parse_color_or_system(value)?,
+                )))
+            }
             CssPropertyType::ListStyleType => CssProperty::ListStyleType(
                 parse_style_list_style_type(value)
                     .map_err(CssParsingError::ListStyleType)?
@@ -3890,6 +3905,15 @@ pub fn parse_css_property(
             ),
         },
     })
+}
+
+#[cfg(feature = "parser")]
+/// The `background-color` value of a parsed colour.
+fn background_color_layer(colour: ColorOrSystem) -> StyleBackgroundContent {
+    match colour {
+        ColorOrSystem::Color(color) => StyleBackgroundContent::Color(color),
+        ColorOrSystem::System(system) => StyleBackgroundContent::SystemColor(system),
+    }
 }
 
 /// Parses a combined CSS property or a CSS property shorthand, for example "margin"
@@ -4062,9 +4086,9 @@ pub fn parse_combined_css_property(
                 CssPropertyType::BoxShadowBottom,
             ]
         }
-        BackgroundColor | BackgroundImage | Background => {
-            vec![CssPropertyType::BackgroundContent]
-        }
+        BackgroundColor => vec![CssPropertyType::BackgroundColor],
+        BackgroundImage => vec![CssPropertyType::BackgroundContent],
+        Background => vec![CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor],
         Flex => {
             vec![
                 CssPropertyType::FlexGrow,
@@ -4531,17 +4555,13 @@ pub fn parse_combined_css_property(
             ])
         }
         BackgroundColor => {
-            // A `system:` keyword stays a reference here, exactly like the
-            // `background:` shorthand's: the getters resolve it against the
-            // theme the cascade evaluated.
-            let layer = match parse_color_or_system(value)? {
-                ColorOrSystem::Color(color) => StyleBackgroundContent::Color(color),
-                ColorOrSystem::System(system) => StyleBackgroundContent::SystemColor(system),
-            };
-            let vec: StyleBackgroundContentVec = vec![layer].into();
-            Ok(vec![CssProperty::BackgroundContent(
-                CssPropertyValue::Exact(vec),
-            )])
+            // Its own property: a later `background-image` (even `none`)
+            // leaves the colour standing. A `system:` keyword stays a
+            // reference; the getters resolve it against the theme the
+            // cascade evaluated.
+            Ok(vec![CssProperty::BackgroundColor(CssPropertyValue::Exact(
+                background_color_layer(parse_color_or_system(value)?),
+            ))])
         }
         BackgroundImage => {
             // One image per layer, as `background-clip` and the other
@@ -4556,9 +4576,15 @@ pub fn parse_combined_css_property(
             // then sets `background-origin` and `background-clip` as well, one
             // box per layer.
             let layers = parse_style_background_layers(value)?;
-            let mut props = vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(
-                layers.contents,
-            ))];
+            // The shorthand sets `background-color` too: the final layer's
+            // colour, else transparent.
+            let colour = layers
+                .colour
+                .unwrap_or(StyleBackgroundContent::Color(ColorU::TRANSPARENT));
+            let mut props = vec![
+                CssProperty::BackgroundContent(CssPropertyValue::Exact(layers.contents)),
+                CssProperty::BackgroundColor(CssPropertyValue::Exact(colour)),
+            ];
             if let Some((origins, clips)) = layers.boxes {
                 props.push(CssProperty::BackgroundOrigin(CssPropertyValue::Exact(origins)));
                 props.push(CssProperty::BackgroundClip(CssPropertyValue::Exact(clips)));
@@ -5406,6 +5432,7 @@ impl CssProperty {
             Self::CounterSet(v) => v.get_css_value_fmt(),
             Self::Quotes(v) => v.get_css_value_fmt(),
             Self::BackgroundOrigin(v) => v.get_css_value_fmt(),
+            Self::BackgroundColor(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5689,6 +5716,13 @@ impl CssProperty {
             // (`interpolate_background_layers`). No value is no layer: a
             // background fades in from `none` and out to it. Only a face that
             // cannot fade (an image) switches half way.
+            // A colour tweens; a `system:` one (unresolved) switches half way.
+            (
+                Self::BackgroundColor(CssPropertyValue::Exact(StyleBackgroundContent::Color(a))),
+                Self::BackgroundColor(CssPropertyValue::Exact(StyleBackgroundContent::Color(b))),
+            ) => Self::background_color(StyleBackgroundContent::Color(
+                a.interpolate_premultiplied(*b, t),
+            )),
             (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
                 // A fn, not a closure: the returned slice borrows the argument
                 // (closures get no input-to-output lifetime elision).
@@ -5966,6 +6000,7 @@ impl CssProperty {
             Self::CounterSet(v) => v.css_wide_keyword(),
             Self::Quotes(v) => v.css_wide_keyword(),
             Self::BackgroundOrigin(v) => v.css_wide_keyword(),
+            Self::BackgroundColor(v) => v.css_wide_keyword(),
             Self::TableLayout(v) => v.css_wide_keyword(),
             Self::BorderCollapse(v) => v.css_wide_keyword(),
             Self::BorderSpacing(v) => v.css_wide_keyword(),
@@ -6177,6 +6212,7 @@ impl CssProperty {
             Self::CounterSet(_) => CssPropertyType::CounterSet,
             Self::Quotes(_) => CssPropertyType::Quotes,
             Self::BackgroundOrigin(_) => CssPropertyType::BackgroundOrigin,
+            Self::BackgroundColor(_) => CssPropertyType::BackgroundColor,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6673,6 +6709,11 @@ impl CssProperty {
     #[must_use]
     pub const fn background_origin(input: StyleBackgroundOriginVec) -> Self {
         Self::BackgroundOrigin(CssPropertyValue::Exact(input))
+    }
+    /// `background-color`: `input` is a `Color` or a `SystemColor`.
+    #[must_use]
+    pub const fn background_color(input: StyleBackgroundContent) -> Self {
+        Self::BackgroundColor(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn list_style_type(input: StyleListStyleType) -> Self {
@@ -7979,6 +8020,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_background_color(&self) -> Option<&StyleBackgroundContentValue> {
+        match self {
+            Self::BackgroundColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
@@ -8168,7 +8216,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes, BackgroundOrigin,
+            Quotes, BackgroundOrigin, BackgroundColor,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8362,6 +8410,7 @@ impl CssProperty {
             CounterSet(c) => c.is_initial(),
             Quotes(c) => c.is_initial(),
             BackgroundOrigin(c) => c.is_initial(),
+            BackgroundColor(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8789,6 +8838,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_background_origin(input: StyleBackgroundOriginVec) -> Self {
         Self::BackgroundOrigin(StyleBackgroundOriginVecValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_color(input: StyleBackgroundContent) -> Self {
+        Self::BackgroundColor(StyleBackgroundContentValue::Exact(input))
     }
     #[must_use]
     pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
@@ -9625,6 +9678,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::BackgroundOrigin(p) => format!(
             "CssProperty::BackgroundOrigin({})",
             print_css_property_value(p, tabs, "StyleBackgroundOriginVec")
+        ),
+        CssProperty::BackgroundColor(p) => format!(
+            "CssProperty::BackgroundColor({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContent")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

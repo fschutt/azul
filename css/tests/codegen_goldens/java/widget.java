@@ -15,18 +15,28 @@ public final class AzulStyles {
     public static AzCssPropertyWithConditionsVec.ByValue styleAzulNativeButton() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-            AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 241; colorU.g = (byte) 243; colorU.b = (byte) 245; colorU.a = (byte) 255; }))))),
+            AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; }))))),
+            AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 241; colorU.g = (byte) 243; colorU.b = (byte) 245; colorU.a = (byte) 255; })))),
             AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderTopColor(AzulCodegen.with(new AzStyleBorderTopColor.ByValue(), styleBorderTopColor -> { styleBorderTopColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 173; colorU.g = (byte) 181; colorU.b = (byte) 189; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderBottomColor(AzulCodegen.with(new AzStyleBorderBottomColor.ByValue(), styleBorderBottomColor -> { styleBorderBottomColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 173; colorU.g = (byte) 181; colorU.b = (byte) 189; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderLeftColor(AzulCodegen.with(new AzStyleBorderLeftColor.ByValue(), styleBorderLeftColor -> { styleBorderLeftColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 173; colorU.g = (byte) 181; colorU.b = (byte) 189; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderRightColor(AzulCodegen.with(new AzStyleBorderRightColor.ByValue(), styleBorderRightColor -> { styleBorderRightColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 173; colorU.g = (byte) 181; colorU.b = (byte) 189; colorU.a = (byte) 255; }); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 222; colorU.g = (byte) 226; colorU.b = (byte) 230; colorU.a = (byte) 255; }))))),
+            AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; }))))),
+            AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 222; colorU.g = (byte) 226; colorU.b = (byte) 230; colorU.a = (byte) 255; })))),
             AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderTopColor(AzulCodegen.with(new AzStyleBorderTopColor.ByValue(), styleBorderTopColor -> { styleBorderTopColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 13; colorU.g = (byte) 110; colorU.b = (byte) 253; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderBottomColor(AzulCodegen.with(new AzStyleBorderBottomColor.ByValue(), styleBorderBottomColor -> { styleBorderBottomColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 13; colorU.g = (byte) 110; colorU.b = (byte) 253; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderLeftColor(AzulCodegen.with(new AzStyleBorderLeftColor.ByValue(), styleBorderLeftColor -> { styleBorderLeftColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 13; colorU.g = (byte) 110; colorU.b = (byte) 253; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderRightColor(AzulCodegen.with(new AzStyleBorderRightColor.ByValue(), styleBorderRightColor -> { styleBorderRightColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 13; colorU.g = (byte) 110; colorU.b = (byte) 253; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_withConditions(
-                AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 73; colorU.g = (byte) 80; colorU.b = (byte) 87; colorU.a = (byte) 255; })))),
+                AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; })))),
+                AzulCodegen.vec(
+                    AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
+                    AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
+                )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_withConditions(
+                AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 73; colorU.g = (byte) 80; colorU.b = (byte) 87; colorU.a = (byte) 255; }))),
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
@@ -42,7 +52,15 @@ public final class AzulStyles {
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_withConditions(
-                AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 43; colorU.g = (byte) 48; colorU.b = (byte) 53; colorU.a = (byte) 255; })))),
+                AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 0; })))),
+                AzulCodegen.vec(
+                    AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
+                    AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
+                )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_withConditions(
+                AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 43; colorU.g = (byte) 48; colorU.b = (byte) 53; colorU.a = (byte) 255; }))),
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),

@@ -9,18 +9,28 @@ import com.sun.jna.Structure
 fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-        AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 241.toByte(); g = 243.toByte(); b = 245.toByte(); a = 255.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 241.toByte(); g = 243.toByte(); b = 245.toByte(); a = 255.toByte() }))),
         AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderTopColor(AzStyleBorderTopColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 173.toByte(); g = 181.toByte(); b = 189.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderBottomColor(AzStyleBorderBottomColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 173.toByte(); g = 181.toByte(); b = 189.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderLeftColor(AzStyleBorderLeftColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 173.toByte(); g = 181.toByte(); b = 189.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_borderRightColor(AzStyleBorderRightColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 173.toByte(); g = 181.toByte(); b = 189.toByte(); a = 255.toByte() } })),
-        AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 222.toByte(); g = 226.toByte(); b = 230.toByte(); a = 255.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() })))),
+        AzulNativeCss.AzCssPropertyWithConditions_onActive(AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 222.toByte(); g = 226.toByte(); b = 230.toByte(); a = 255.toByte() }))),
         AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderTopColor(AzStyleBorderTopColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 13.toByte(); g = 110.toByte(); b = 253.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderBottomColor(AzStyleBorderBottomColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 13.toByte(); g = 110.toByte(); b = 253.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderLeftColor(AzStyleBorderLeftColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 13.toByte(); g = 110.toByte(); b = 253.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_onFocus(AzulNativeCss.AzCssProperty_borderRightColor(AzStyleBorderRightColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 13.toByte(); g = 110.toByte(); b = 253.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
-            AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 73.toByte(); g = 80.toByte(); b = 87.toByte(); a = 255.toByte() }))),
+            AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() }))),
+            azVec(
+                AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
+                AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
+            )
+        ),
+        AzulNativeCss.AzCssPropertyWithConditions_withConditions(
+            AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 73.toByte(); g = 80.toByte(); b = 87.toByte(); a = 255.toByte() })),
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
@@ -36,7 +46,15 @@ fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
             )
         ),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
-            AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 43.toByte(); g = 48.toByte(); b = 53.toByte(); a = 255.toByte() }))),
+            AzulNativeCss.AzCssProperty_backgroundContent(azVec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 0.toByte() }))),
+            azVec(
+                AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
+                AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
+            )
+        ),
+        AzulNativeCss.AzCssPropertyWithConditions_withConditions(
+            AzulNativeCss.AzCssProperty_backgroundColor(AzulNativeCss.AzStyleBackgroundContent_color(AzColorU.ByValue().apply { r = 43.toByte(); g = 48.toByte(); b = 53.toByte(); a = 255.toByte() })),
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),

@@ -25,18 +25,27 @@ function New-CssVec([string]$Copy, [type]$Type, [object[]]$Items) {
 # CSS: .__azul-native-button:hover, .__azul-native-button:active, .__azul-native-button:focus, .__azul-native-button:hover (conditional), .__azul-native-button:active (conditional), .__azul-native-button:focus (conditional)
 function Get-StyleAzulNativeButton {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]241; g = [byte]243; b = [byte]245; a = [byte]255 }))))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]0 }))))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_backgroundColor([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]241; g = [byte]243; b = [byte]245; a = [byte]255 }))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_borderTopColor([Azul.AzStyleBorderTopColor]@{ inner = [Azul.AzColorU]@{ r = [byte]173; g = [byte]181; b = [byte]189; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_borderBottomColor([Azul.AzStyleBorderBottomColor]@{ inner = [Azul.AzColorU]@{ r = [byte]173; g = [byte]181; b = [byte]189; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_borderLeftColor([Azul.AzStyleBorderLeftColor]@{ inner = [Azul.AzColorU]@{ r = [byte]173; g = [byte]181; b = [byte]189; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_borderRightColor([Azul.AzStyleBorderRightColor]@{ inner = [Azul.AzColorU]@{ r = [byte]173; g = [byte]181; b = [byte]189; a = [byte]255 } })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_onActive([Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]222; g = [byte]226; b = [byte]230; a = [byte]255 }))))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_onActive([Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]0 }))))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_onActive([Azul.NativeMethods]::AzCssProperty_backgroundColor([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]222; g = [byte]226; b = [byte]230; a = [byte]255 }))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onFocus([Azul.NativeMethods]::AzCssProperty_borderTopColor([Azul.AzStyleBorderTopColor]@{ inner = [Azul.AzColorU]@{ r = [byte]13; g = [byte]110; b = [byte]253; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onFocus([Azul.NativeMethods]::AzCssProperty_borderBottomColor([Azul.AzStyleBorderBottomColor]@{ inner = [Azul.AzColorU]@{ r = [byte]13; g = [byte]110; b = [byte]253; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onFocus([Azul.NativeMethods]::AzCssProperty_borderLeftColor([Azul.AzStyleBorderLeftColor]@{ inner = [Azul.AzColorU]@{ r = [byte]13; g = [byte]110; b = [byte]253; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onFocus([Azul.NativeMethods]::AzCssProperty_borderRightColor([Azul.AzStyleBorderRightColor]@{ inner = [Azul.AzColorU]@{ r = [byte]13; g = [byte]110; b = [byte]253; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_withConditions(
-            [Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]73; g = [byte]80; b = [byte]87; a = [byte]255 })))),
+            [Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]0 })))),
+            (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(
+                [Azul.NativeMethods]::AzDynamicSelector_pseudoState([Azul.PseudoStateType]::Hover),
+                [Azul.NativeMethods]::AzDynamicSelector_mode([Azul.ModeCondition]::Dark)
+            ))
+        ),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_withConditions(
+            [Azul.NativeMethods]::AzCssProperty_backgroundColor([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]73; g = [byte]80; b = [byte]87; a = [byte]255 })),
             (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(
                 [Azul.NativeMethods]::AzDynamicSelector_pseudoState([Azul.PseudoStateType]::Hover),
                 [Azul.NativeMethods]::AzDynamicSelector_mode([Azul.ModeCondition]::Dark)
@@ -50,7 +59,14 @@ function Get-StyleAzulNativeButton {
             ))
         ),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_withConditions(
-            [Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]43; g = [byte]48; b = [byte]53; a = [byte]255 })))),
+            [Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]0 })))),
+            (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(
+                [Azul.NativeMethods]::AzDynamicSelector_pseudoState([Azul.PseudoStateType]::Active),
+                [Azul.NativeMethods]::AzDynamicSelector_mode([Azul.ModeCondition]::Dark)
+            ))
+        ),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_withConditions(
+            [Azul.NativeMethods]::AzCssProperty_backgroundColor([Azul.NativeMethods]::AzStyleBackgroundContent_color([Azul.AzColorU]@{ r = [byte]43; g = [byte]48; b = [byte]53; a = [byte]255 })),
             (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(
                 [Azul.NativeMethods]::AzDynamicSelector_pseudoState([Azul.PseudoStateType]::Active),
                 [Azul.NativeMethods]::AzDynamicSelector_mode([Azul.ModeCondition]::Dark)

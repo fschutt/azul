@@ -13,6 +13,7 @@ import qualified Azul.CssPropertyWithConditions as CssPropertyWithConditions
 styleHero :: IO [CssPropertyWithConditions]
 styleHero = sequence
   [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 0 0 0 0))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BoxShadowLeft (T.StyleBoxShadowValue_Exact (T.StyleBoxShadow (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 0))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 4000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 12000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 2000))) T.BoxShadowClipMode_Outset (T.ColorU 0 0 0 77))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BoxShadowRight (T.StyleBoxShadowValue_Exact (T.StyleBoxShadow (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 0))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 4000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 12000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 2000))) T.BoxShadowClipMode_Outset (T.ColorU 0 0 0 77))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BoxShadowTop (T.StyleBoxShadowValue_Exact (T.StyleBoxShadow (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 0))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 4000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 12000))) (T.PixelValueNoPercent (T.PixelValue T.SizeMetric_Px (T.FloatValue 2000))) T.BoxShadowClipMode_Outset (T.ColorU 0 0 0 77))))),
@@ -23,13 +24,17 @@ styleHero = sequence
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
 styleHalo :: IO [CssPropertyWithConditions]
 styleHalo = sequence
-  []
+  [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 0 0 0 0)))))
+  ]
 
 -- CSS: .dial
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
 styleDial :: IO [CssPropertyWithConditions]
 styleDial = sequence
-  []
+  [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 0 0 0 0)))))
+  ]
 
 -- CSS: .photo
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
@@ -38,7 +43,9 @@ styleDial = sequence
 -- dropped a value these bindings cannot build: a StyleBackgroundRepeatVec has no pure constructor in Azul.Types
 stylePhoto :: IO [CssPropertyWithConditions]
 stylePhoto = sequence
-  []
+  [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 0 0 0 0)))))
+  ]
 
 -- CSS: .caption
 -- dropped a value these bindings cannot build: a StyleFontFamilyVec has no pure constructor in Azul.Types

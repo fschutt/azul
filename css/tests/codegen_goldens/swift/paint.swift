@@ -21,6 +21,7 @@ public func styleHero() -> [CssPropertyWithConditions] {
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(r: 0, g: 0, b: 0, a: 0)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowLeft(StyleBoxShadow(offsetX: PixelValueNoPercent(inner: PixelValue.px(0.0)), offsetY: PixelValueNoPercent(inner: PixelValue.px(4.0)), blurRadius: PixelValueNoPercent(inner: PixelValue.px(12.0)), spreadRadius: PixelValueNoPercent(inner: PixelValue.px(2.0)), clipMode: BoxShadowClipMode.outset, color: ColorU(r: 0, g: 0, b: 0, a: 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowRight(StyleBoxShadow(offsetX: PixelValueNoPercent(inner: PixelValue.px(0.0)), offsetY: PixelValueNoPercent(inner: PixelValue.px(4.0)), blurRadius: PixelValueNoPercent(inner: PixelValue.px(12.0)), spreadRadius: PixelValueNoPercent(inner: PixelValue.px(2.0)), clipMode: BoxShadowClipMode.outset, color: ColorU(r: 0, g: 0, b: 0, a: 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowTop(StyleBoxShadow(offsetX: PixelValueNoPercent(inner: PixelValue.px(0.0)), offsetY: PixelValueNoPercent(inner: PixelValue.px(4.0)), blurRadius: PixelValueNoPercent(inner: PixelValue.px(12.0)), spreadRadius: PixelValueNoPercent(inner: PixelValue.px(2.0)), clipMode: BoxShadowClipMode.outset, color: ColorU(r: 0, g: 0, b: 0, a: 77)))),
@@ -80,6 +81,7 @@ public func styleHalo() -> [CssPropertyWithConditions] {
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(r: 0, g: 0, b: 0, a: 0)))),
     ]
 }
 
@@ -103,6 +105,7 @@ public func styleDial() -> [CssPropertyWithConditions] {
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(r: 0, g: 0, b: 0, a: 0)))),
     ]
 }
 
@@ -110,6 +113,7 @@ public func styleDial() -> [CssPropertyWithConditions] {
 public func stylePhoto() -> [CssPropertyWithConditions] {
     return [
         CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.image("images/photo.png")])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(r: 0, g: 0, b: 0, a: 0)))),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover])),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(horizontal: BackgroundPositionHorizontal.center, vertical: BackgroundPositionVertical.center)])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),

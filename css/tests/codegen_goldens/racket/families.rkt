@@ -318,7 +318,8 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-color (make-AzColorU 250 250 250 255))))))
+      (css-property-with-conditions-simple (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-color (make-AzColorU 0 0 0 0))))))
+      (css-property-with-conditions-simple (css-property-background-color (style-background-content-color (make-AzColorU 250 250 250 255))))
       (css-property-with-conditions-simple (css-property-background-position (css-vec style-background-position-vec-copy-from-ptr _AzStyleBackgroundPosition (list (make-AzStyleBackgroundPosition (background-position-horizontal-center) (background-position-vertical-center))))))
       (css-property-with-conditions-simple (css-property-background-size (css-vec style-background-size-vec-copy-from-ptr _AzStyleBackgroundSize (list (style-background-size-cover)))))
       (css-property-with-conditions-simple (css-property-background-repeat (css-vec style-background-repeat-vec-copy-from-ptr _AzStyleBackgroundRepeat (list AzStyleBackgroundRepeat_NoRepeat))))

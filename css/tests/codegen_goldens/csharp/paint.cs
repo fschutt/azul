@@ -32,6 +32,7 @@ namespace AzulStyles
                         )
                     )
                 ),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundColor(NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 0, g = 0, b = 0, a = 0 }))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_boxShadowLeft(new AzStyleBoxShadow { offset_x = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(0.0f) }, offset_y = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(4.0f) }, blur_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(12.0f) }, spread_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(2.0f) }, clip_mode = BoxShadowClipMode.Outset, color = new AzColorU { r = 0, g = 0, b = 0, a = 77 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_boxShadowRight(new AzStyleBoxShadow { offset_x = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(0.0f) }, offset_y = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(4.0f) }, blur_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(12.0f) }, spread_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(2.0f) }, clip_mode = BoxShadowClipMode.Outset, color = new AzColorU { r = 0, g = 0, b = 0, a = 77 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_boxShadowTop(new AzStyleBoxShadow { offset_x = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(0.0f) }, offset_y = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(4.0f) }, blur_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(12.0f) }, spread_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(2.0f) }, clip_mode = BoxShadowClipMode.Outset, color = new AzColorU { r = 0, g = 0, b = 0, a = 77 } })),
@@ -103,7 +104,8 @@ namespace AzulStyles
                             )
                         )
                     )
-                )
+                ),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundColor(NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 0, g = 0, b = 0, a = 0 })))
             );
         }
 
@@ -130,7 +132,8 @@ namespace AzulStyles
                             )
                         )
                     )
-                )
+                ),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundColor(NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 0, g = 0, b = 0, a = 0 })))
             );
         }
 
@@ -140,6 +143,7 @@ namespace AzulStyles
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundContent(AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(NativeMethods.AzStyleBackgroundContentVec_copyFromPtr, NativeMethods.AzStyleBackgroundContent_image(AzulCodegen.Str("images/photo.png"))))),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundColor(NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 0, g = 0, b = 0, a = 0 }))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundSize(AzulCodegen.Vec<AzStyleBackgroundSize, AzStyleBackgroundSizeVec>(NativeMethods.AzStyleBackgroundSizeVec_copyFromPtr, NativeMethods.AzStyleBackgroundSize_cover()))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundPosition(AzulCodegen.Vec<AzStyleBackgroundPosition, AzStyleBackgroundPositionVec>(NativeMethods.AzStyleBackgroundPositionVec_copyFromPtr, new AzStyleBackgroundPosition { horizontal = NativeMethods.AzBackgroundPositionHorizontal_center(), vertical = NativeMethods.AzBackgroundPositionVertical_center() }))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundRepeat(AzulCodegen.Vec<StyleBackgroundRepeat, AzStyleBackgroundRepeatVec>(NativeMethods.AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat)))

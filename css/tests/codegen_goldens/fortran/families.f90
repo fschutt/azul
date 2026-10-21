@@ -224,8 +224,8 @@ contains
     type(AzStyleBackgroundClip), target :: t5(1)
     type(AzStyleBackgroundOrigin), target :: t6(1)
     type(AzStyleTransform), target :: t7(1)
-    type(AzCssPropertyWithConditions), target :: t8(10)
-    t1(1) = az_style_background_content_color(AzColorU(r_=-6_c_int8_t, g=-6_c_int8_t, b=-6_c_int8_t, a=-1_c_int8_t))
+    type(AzCssPropertyWithConditions), target :: t8(11)
+    t1(1) = az_style_background_content_color(AzColorU(r_=0_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=0_c_int8_t))
     t2(1) = AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_center(), vertical=az_background_position_vertical_center())
     t3(1) = az_style_background_size_cover()
     t4(1) = StyleBackgroundRepeat_NoRepeat
@@ -233,16 +233,17 @@ contains
     t6(1) = StyleBackgroundOrigin_ContentBox
     t7(1) = az_style_transform_rotate(AzAngleValue(metric=AngleMetric_Degree, number=az_float_value_create(45.0_c_float)))
     t8(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)))
-    t8(2) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    t8(3) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
-    t8(4) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
-    t8(5) = az_css_property_with_conditions_simple(az_css_property_background_clip(az_style_background_clip_vec_copy_from_ptr(c_loc(t5(1)), 1_c_size_t)))
-    t8(6) = az_css_property_with_conditions_simple(az_css_property_background_origin(az_style_background_origin_vec_copy_from_ptr(c_loc(t6(1)), 1_c_size_t)))
-    t8(7) = az_css_property_with_conditions_simple(az_css_property_transform(az_style_transform_vec_copy_from_ptr(c_loc(t7(1)), 1_c_size_t)))
-    t8(8) = az_css_property_with_conditions_simple(az_css_property_transform_origin(AzStyleTransformOrigin(x=az_pixel_value_percent(50.0_c_float), y=az_pixel_value_percent(50.0_c_float))))
-    t8(9) = az_css_property_with_conditions_simple(az_css_property_perspective_origin(AzStylePerspectiveOrigin(x=az_pixel_value_px(10.0_c_float), y=az_pixel_value_px(20.0_c_float))))
-    t8(10) = az_css_property_with_conditions_simple(az_css_property_backface_visibility(StyleBackfaceVisibility_Hidden))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t8(1)), 10_c_size_t)
+    t8(2) = az_css_property_with_conditions_simple(az_css_property_background_color(az_style_background_content_color(AzColorU(r_=-6_c_int8_t, g=-6_c_int8_t, b=-6_c_int8_t, a=-1_c_int8_t))))
+    t8(3) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
+    t8(4) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
+    t8(5) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
+    t8(6) = az_css_property_with_conditions_simple(az_css_property_background_clip(az_style_background_clip_vec_copy_from_ptr(c_loc(t5(1)), 1_c_size_t)))
+    t8(7) = az_css_property_with_conditions_simple(az_css_property_background_origin(az_style_background_origin_vec_copy_from_ptr(c_loc(t6(1)), 1_c_size_t)))
+    t8(8) = az_css_property_with_conditions_simple(az_css_property_transform(az_style_transform_vec_copy_from_ptr(c_loc(t7(1)), 1_c_size_t)))
+    t8(9) = az_css_property_with_conditions_simple(az_css_property_transform_origin(AzStyleTransformOrigin(x=az_pixel_value_percent(50.0_c_float), y=az_pixel_value_percent(50.0_c_float))))
+    t8(10) = az_css_property_with_conditions_simple(az_css_property_perspective_origin(AzStylePerspectiveOrigin(x=az_pixel_value_px(10.0_c_float), y=az_pixel_value_px(20.0_c_float))))
+    t8(11) = az_css_property_with_conditions_simple(az_css_property_backface_visibility(StyleBackfaceVisibility_Hidden))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t8(1)), 11_c_size_t)
   end function style_effects
 
   ! CSS: .fragment

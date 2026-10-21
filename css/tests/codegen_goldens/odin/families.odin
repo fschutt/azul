@@ -257,7 +257,8 @@ style_scroll :: proc() -> azul.AzCssPropertyWithConditionsVec {
 // dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 style_effects :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 250, g = 250, b = 250, a = 255})}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 0})}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundColor(azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 250, g = 250, b = 250, a = 255}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{horizontal = azul.AzBackgroundPositionHorizontal_center(), vertical = azul.AzBackgroundPositionVertical_center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.AzStyleBackgroundRepeat.NoRepeat}[0], 1))),
@@ -270,7 +271,7 @@ style_effects :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_filter(azul.AzStyleFilterVecValue{Exact = {tag = 6, payload = azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_blur(azul.AzStyleBlur{width = azul.AzPixelValue_px(2.0), height = azul.AzPixelValue_px(2.0)})}[0], 1)}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backdropFilter(azul.AzStyleFilterVecValue{Exact = {tag = 6, payload = azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_grayscale(azul.AzPercentageValue{number = azul.AzFloatValue_create(50.0)})}[0], 1)}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_mixBlendMode(azul.AzStyleMixBlendModeValue{Exact = {tag = 6, payload = azul.AzStyleMixBlendMode.Multiply}})),
-	}[0], 13)
+	}[0], 14)
 }
 
 // CSS: .fragment

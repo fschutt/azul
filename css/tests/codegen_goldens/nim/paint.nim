@@ -29,6 +29,7 @@ proc styleHero*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 0'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowLeft(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(12.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 77'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowRight(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(12.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 77'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(12.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 77'u8)))),
@@ -93,6 +94,7 @@ proc styleHalo*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 0'u8)))),
   ])
 
 # CSS: .dial
@@ -115,12 +117,14 @@ proc styleDial*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 0'u8)))),
   ])
 
 # CSS: .photo
 proc stylePhoto*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_image(azStr("images/photo.png"))]))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 0'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(azVec(AzStyleBackgroundPositionVec_copyFromPtr, [AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_center())]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),

@@ -251,7 +251,8 @@ CssPropertyWithConditions[] styleScroll()
 CssPropertyWithConditions[] styleEffects()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(250, 250, 250, 255))])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(0, 0, 0, 0))])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundColor(StyleBackgroundContent.color(ColorU(250, 250, 250, 255)))),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(BackgroundPositionHorizontal.center(), BackgroundPositionVertical.center())])),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover()])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),

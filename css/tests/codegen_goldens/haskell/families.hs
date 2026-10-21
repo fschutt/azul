@@ -207,6 +207,7 @@ styleScroll = sequence
 styleEffects :: IO [CssPropertyWithConditions]
 styleEffects = sequence
   [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundColor (T.StyleBackgroundContentValue_Exact (T.StyleBackgroundContent_Color (T.ColorU 250 250 250 255))))),
     (CssPropertyWithConditions.simple (T.CssProperty_TransformOrigin (T.StyleTransformOriginValue_Exact (T.StyleTransformOrigin (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)) (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_PerspectiveOrigin (T.StylePerspectiveOriginValue_Exact (T.StylePerspectiveOrigin (T.PixelValue T.SizeMetric_Px (T.FloatValue 10000)) (T.PixelValue T.SizeMetric_Px (T.FloatValue 20000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BackfaceVisibility (T.StyleBackfaceVisibilityValue_Exact T.StyleBackfaceVisibility_Hidden))),

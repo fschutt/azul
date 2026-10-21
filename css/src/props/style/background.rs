@@ -2355,9 +2355,9 @@ pub mod parser {
         input: &str,
     ) -> Result<BackgroundLayers, CssBackgroundParseError<'_>> {
         // Every list in CSS order (the top layer first), one entry per
-        // painted layer: a final layer with an image and a colour paints
-        // two, the colour under the image, both with that layer's values.
+        // layer. The final layer's colour is `background-color`, not a layer.
         let mut layers = Vec::new();
+        let mut colour = None;
         let mut clips = Vec::new();
         let mut origins = Vec::new();
         let mut positions = Vec::new();
@@ -2365,7 +2365,9 @@ pub mod parser {
         let mut repeats = Vec::new();
         let (mut names_a_box, mut names_position, mut names_size, mut names_repeat) =
             (false, false, false, false);
-        for layer in split_string_respect_comma(input) {
+        let all_layers = split_string_respect_comma(input);
+        let final_layer = all_layers.len().saturating_sub(1);
+        for (index, layer) in all_layers.into_iter().enumerate() {
             if layer.trim().is_empty() {
                 return Err(CssBackgroundParseError::Error(layer));
             }
@@ -2394,41 +2396,42 @@ pub mod parser {
             names_position |= !parts.position.is_empty();
             names_size |= !parts.size.is_empty();
             names_repeat |= parts.repeat.is_some();
-            // A layer that names no image paints none (`none`).
-            let contents = match parts.images.as_slice() {
-                [] => vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)],
-                [one] => vec![parse_style_background_content(one)?],
-                [first, second] => {
-                    let (a, b) = (
-                        parse_style_background_content(first)?,
-                        parse_style_background_content(second)?,
-                    );
-                    let is_colour = |c: &StyleBackgroundContent| {
-                        matches!(
-                            c,
-                            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
-                        )
-                    };
-                    // An image and a colour, in either order: the colour
-                    // paints under the image.
-                    match (is_colour(&a), is_colour(&b)) {
-                        (false, true) => vec![a, b],
-                        (true, false) => vec![b, a],
-                        _ => return Err(CssBackgroundParseError::Error(layer)),
-                    }
+            let is_colour = |c: &StyleBackgroundContent| {
+                matches!(
+                    c,
+                    StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+                )
+            };
+            let parsed = parts
+                .images
+                .iter()
+                .map(|word| parse_style_background_content(word))
+                .collect::<Result<Vec<_>, _>>()?;
+            // The final layer's colour (before or after its image) is the
+            // background colour; a layer that names no image paints none.
+            let (image, layer_colour) = match parsed.as_slice() {
+                [] => (None, None),
+                [one] if index == final_layer && is_colour(one) => (None, Some(one.clone())),
+                [one] => (Some(one.clone()), None),
+                [a, b] if index == final_layer && is_colour(b) && !is_colour(a) => {
+                    (Some(a.clone()), Some(b.clone()))
+                }
+                [a, b] if index == final_layer && is_colour(a) && !is_colour(b) => {
+                    (Some(b.clone()), Some(a.clone()))
                 }
                 _ => return Err(CssBackgroundParseError::Error(layer)),
             };
-            for content in contents {
-                layers.push(content);
-                clips.push(boxes.map(|(_, clip)| clip).unwrap_or_default());
-                origins.push(
-                    boxes.map_or_else(StyleBackgroundOrigin::default, |(origin, _)| origin.into()),
-                );
-                positions.push(position);
-                sizes.push(size);
-                repeats.push(repeat);
+            if layer_colour.is_some() {
+                colour = layer_colour;
             }
+            layers.push(image.unwrap_or(StyleBackgroundContent::Color(ColorU::TRANSPARENT)));
+            clips.push(boxes.map(|(_, clip)| clip).unwrap_or_default());
+            origins.push(
+                boxes.map_or_else(StyleBackgroundOrigin::default, |(origin, _)| origin.into()),
+            );
+            positions.push(position);
+            sizes.push(size);
+            repeats.push(repeat);
         }
         // Paint order: the bottom layer first.
         layers.reverse();
@@ -2439,6 +2442,7 @@ pub mod parser {
         repeats.reverse();
         Ok(BackgroundLayers {
             contents: layers.into(),
+            colour,
             boxes: names_a_box.then(|| {
                 (
                     StyleBackgroundOriginVec::from_vec(origins),
@@ -2529,7 +2533,7 @@ pub mod parser {
     /// One `background` layer's words by what they set ([`layer_parts`]).
     #[derive(Default)]
     struct LayerParts<'a> {
-        /// The image, and in the final layer the colour.
+        /// The image, and in the final layer the colour (either order).
         images: Vec<&'a str>,
         position: Vec<&'a str>,
         size: Vec<&'a str>,
@@ -2545,7 +2549,10 @@ pub mod parser {
     /// Every list is in paint order, like the layers.
     #[derive(Debug)]
     pub struct BackgroundLayers {
+        /// One per layer; a layer without an image is a transparent colour.
         pub contents: StyleBackgroundContentVec,
+        /// The final layer's colour (`background-color`), when it names one.
+        pub colour: Option<StyleBackgroundContent>,
         /// `background-origin` and `background-clip`.
         pub boxes: Option<(StyleBackgroundOriginVec, StyleBackgroundClipVec)>,
         pub positions: Option<StyleBackgroundPositionVec>,
@@ -5445,7 +5452,8 @@ mod tests {
             Some(vec![StyleBackgroundOrigin::PaddingBox, StyleBackgroundOrigin::ContentBox])
         );
         let parsed = parse_style_background_layers("url(a.png), red").unwrap();
-        assert_eq!(parsed.contents.len(), 2);
+        assert_eq!(parsed.contents.len(), 2, "the final layer has no image");
+        assert!(parsed.colour.is_some());
         assert!(parsed.boxes.is_none());
 
         // Before the image too; one box is the origin and the clip, of two the
@@ -5516,19 +5524,28 @@ mod tests {
     }
 
     #[test]
-    fn the_final_layer_holds_an_image_and_a_colour_under_it() {
+    fn the_final_layer_holds_an_image_and_the_background_colour() {
         let parsed = parse_style_background_layers("url(a.png) no-repeat #ff0000").unwrap();
-        // Paint order: the colour first, then the image, both not repeating.
-        assert_eq!(parsed.contents.len(), 2);
-        assert!(matches!(parsed.contents.as_slice()[0], StyleBackgroundContent::Color(_)));
-        assert!(matches!(parsed.contents.as_slice()[1], StyleBackgroundContent::Image(_)));
-        assert_eq!(
-            parsed.repeats.unwrap().as_slice(),
-            &[StyleBackgroundRepeat::NoRepeat, StyleBackgroundRepeat::NoRepeat]
-        );
+        // One layer, the image; the colour is `background-color`, no layer.
+        assert_eq!(parsed.contents.len(), 1);
+        assert!(matches!(parsed.contents.as_slice()[0], StyleBackgroundContent::Image(_)));
+        assert!(matches!(parsed.colour, Some(StyleBackgroundContent::Color(_))));
+        assert_eq!(parsed.repeats.unwrap().as_slice(), &[StyleBackgroundRepeat::NoRepeat]);
         // The colour may come first too; two images in one layer are no layer.
-        assert_eq!(parse_style_background_layers("red url(a.png)").unwrap().contents.len(), 2);
+        let first = parse_style_background_layers("red url(a.png)").unwrap();
+        assert_eq!(first.contents.len(), 1);
+        assert!(first.colour.is_some());
         assert!(parse_style_background_layers("url(a.png) url(b.png)").is_err());
+        // A colour alone is a layer without an image, and the colour.
+        let alone = parse_style_background_layers("red").unwrap();
+        assert_eq!(
+            alone.contents.as_slice(),
+            &[StyleBackgroundContent::Color(ColorU::TRANSPARENT)]
+        );
+        assert!(alone.colour.is_some());
+        // Only the final layer has a colour (CSS Backgrounds 3 s3.10).
+        assert!(parse_style_background_layers("url(a.png) red, url(b.png)").is_err());
+        assert!(parse_style_background_layers("url(a.png)").unwrap().colour.is_none());
     }
 
     #[test]

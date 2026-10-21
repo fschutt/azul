@@ -79,6 +79,7 @@ function style_hero()
                     )
                 )
             ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundColor($L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 0])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowLeft(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(12.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 77])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowRight(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(12.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 77])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowTop(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(12.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 77])]))),
@@ -173,6 +174,7 @@ function style_halo()
                     )
                 )
             ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundColor($L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 0])))),
         ]
     );
 }
@@ -213,6 +215,7 @@ function style_dial()
                     )
                 )
             ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundColor($L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 0])))),
         ]
     );
 }
@@ -226,6 +229,7 @@ function style_photo()
         'AzCssPropertyWithConditions',
         [
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_image(azul_str('images/photo.png'))]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundColor($L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 0])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundSize(azul_vec('AzStyleBackgroundSizeVec_copyFromPtr', 'AzStyleBackgroundSize', [$L->AzStyleBackgroundSize_cover()]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundPosition(azul_vec('AzStyleBackgroundPositionVec_copyFromPtr', 'AzStyleBackgroundPosition', [azul_struct('AzStyleBackgroundPosition', ['horizontal' => $L->AzBackgroundPositionHorizontal_center(), 'vertical' => $L->AzBackgroundPositionVertical_center()])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundRepeat(azul_vec('AzStyleBackgroundRepeatVec_copyFromPtr', 'AzStyleBackgroundRepeat', [$L->AzStyleBackgroundRepeat_NoRepeat]))),

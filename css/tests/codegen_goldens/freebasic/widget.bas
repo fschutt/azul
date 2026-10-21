@@ -8,35 +8,45 @@ Function StyleAzulNativeButton() As AzCssPropertyWithConditionsVec
     Dim t3(0 To 0) As AzStyleBackgroundContent
     Dim t4(0 To 1) As AzDynamicSelector
     Dim t5(0 To 1) As AzDynamicSelector
-    Dim t6(0 To 0) As AzStyleBackgroundContent
-    Dim t7(0 To 1) As AzDynamicSelector
+    Dim t6(0 To 1) As AzDynamicSelector
+    Dim t7(0 To 0) As AzStyleBackgroundContent
     Dim t8(0 To 1) As AzDynamicSelector
-    Dim t9(0 To 13) As AzCssPropertyWithConditions
-    t1(0) = AzStyleBackgroundContent_color(Type<AzColorU>(241, 243, 245, 255))
-    t2(0) = AzStyleBackgroundContent_color(Type<AzColorU>(222, 226, 230, 255))
-    t3(0) = AzStyleBackgroundContent_color(Type<AzColorU>(73, 80, 87, 255))
+    Dim t9(0 To 1) As AzDynamicSelector
+    Dim t10(0 To 1) As AzDynamicSelector
+    Dim t11(0 To 17) As AzCssPropertyWithConditions
+    t1(0) = AzStyleBackgroundContent_color(Type<AzColorU>(0, 0, 0, 0))
+    t2(0) = AzStyleBackgroundContent_color(Type<AzColorU>(0, 0, 0, 0))
+    t3(0) = AzStyleBackgroundContent_color(Type<AzColorU>(0, 0, 0, 0))
     t4(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Hover)
     t4(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
     t5(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Hover)
     t5(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
-    t6(0) = AzStyleBackgroundContent_color(Type<AzColorU>(43, 48, 53, 255))
-    t7(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Active)
-    t7(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
-    t8(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Focus)
+    t6(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Hover)
+    t6(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
+    t7(0) = AzStyleBackgroundContent_color(Type<AzColorU>(0, 0, 0, 0))
+    t8(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Active)
     t8(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
-    t9(0) = AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t1(0), 1)))
-    t9(1) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(173, 181, 189, 255))))
-    t9(2) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderBottomColor(Type<AzStyleBorderBottomColor>(Type<AzColorU>(173, 181, 189, 255))))
-    t9(3) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderLeftColor(Type<AzStyleBorderLeftColor>(Type<AzColorU>(173, 181, 189, 255))))
-    t9(4) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderRightColor(Type<AzStyleBorderRightColor>(Type<AzColorU>(173, 181, 189, 255))))
-    t9(5) = AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t2(0), 1)))
-    t9(6) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(13, 110, 253, 255))))
-    t9(7) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderBottomColor(Type<AzStyleBorderBottomColor>(Type<AzColorU>(13, 110, 253, 255))))
-    t9(8) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderLeftColor(Type<AzStyleBorderLeftColor>(Type<AzColorU>(13, 110, 253, 255))))
-    t9(9) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderRightColor(Type<AzStyleBorderRightColor>(Type<AzColorU>(13, 110, 253, 255))))
-    t9(10) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t3(0), 1)), AzDynamicSelectorVec_copyFromPtr(@t4(0), 2))
-    t9(11) = AzCssPropertyWithConditions_withConditions(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(73, 80, 87, 255))), AzDynamicSelectorVec_copyFromPtr(@t5(0), 2))
-    t9(12) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t6(0), 1)), AzDynamicSelectorVec_copyFromPtr(@t7(0), 2))
-    t9(13) = AzCssPropertyWithConditions_withConditions(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(59, 130, 246, 255))), AzDynamicSelectorVec_copyFromPtr(@t8(0), 2))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t9(0), 14)
+    t9(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Active)
+    t9(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
+    t10(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Focus)
+    t10(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
+    t11(0) = AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t1(0), 1)))
+    t11(1) = AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(Type<AzColorU>(241, 243, 245, 255))))
+    t11(2) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(173, 181, 189, 255))))
+    t11(3) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderBottomColor(Type<AzStyleBorderBottomColor>(Type<AzColorU>(173, 181, 189, 255))))
+    t11(4) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderLeftColor(Type<AzStyleBorderLeftColor>(Type<AzColorU>(173, 181, 189, 255))))
+    t11(5) = AzCssPropertyWithConditions_onHover(AzCssProperty_borderRightColor(Type<AzStyleBorderRightColor>(Type<AzColorU>(173, 181, 189, 255))))
+    t11(6) = AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t2(0), 1)))
+    t11(7) = AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(Type<AzColorU>(222, 226, 230, 255))))
+    t11(8) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(13, 110, 253, 255))))
+    t11(9) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderBottomColor(Type<AzStyleBorderBottomColor>(Type<AzColorU>(13, 110, 253, 255))))
+    t11(10) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderLeftColor(Type<AzStyleBorderLeftColor>(Type<AzColorU>(13, 110, 253, 255))))
+    t11(11) = AzCssPropertyWithConditions_onFocus(AzCssProperty_borderRightColor(Type<AzStyleBorderRightColor>(Type<AzColorU>(13, 110, 253, 255))))
+    t11(12) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t3(0), 1)), AzDynamicSelectorVec_copyFromPtr(@t4(0), 2))
+    t11(13) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(Type<AzColorU>(73, 80, 87, 255))), AzDynamicSelectorVec_copyFromPtr(@t5(0), 2))
+    t11(14) = AzCssPropertyWithConditions_withConditions(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(73, 80, 87, 255))), AzDynamicSelectorVec_copyFromPtr(@t6(0), 2))
+    t11(15) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t7(0), 1)), AzDynamicSelectorVec_copyFromPtr(@t8(0), 2))
+    t11(16) = AzCssPropertyWithConditions_withConditions(AzCssProperty_backgroundColor(AzStyleBackgroundContent_color(Type<AzColorU>(43, 48, 53, 255))), AzDynamicSelectorVec_copyFromPtr(@t9(0), 2))
+    t11(17) = AzCssPropertyWithConditions_withConditions(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(59, 130, 246, 255))), AzDynamicSelectorVec_copyFromPtr(@t10(0), 2))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t11(0), 18)
 End Function

@@ -18,6 +18,7 @@ module AzulStyles
           ] of Azul::StyleBackgroundContent
         )
       ),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_color(Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 0_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.box_shadow_left(Azul::StyleBoxShadow.__own(LibAzul::AzStyleBoxShadow.new(offset_x: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(0.0_f32).__take), offset_y: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(4.0_f32).__take), blur_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(12.0_f32).__take), spread_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(2.0_f32).__take), clip_mode: Azul::BoxShadowClipMode::Outset, color: LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 77_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.box_shadow_right(Azul::StyleBoxShadow.__own(LibAzul::AzStyleBoxShadow.new(offset_x: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(0.0_f32).__take), offset_y: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(4.0_f32).__take), blur_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(12.0_f32).__take), spread_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(2.0_f32).__take), clip_mode: Azul::BoxShadowClipMode::Outset, color: LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 77_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.box_shadow_top(Azul::StyleBoxShadow.__own(LibAzul::AzStyleBoxShadow.new(offset_x: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(0.0_f32).__take), offset_y: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(4.0_f32).__take), blur_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(12.0_f32).__take), spread_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(2.0_f32).__take), clip_mode: Azul::BoxShadowClipMode::Outset, color: LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 77_u8))))),
@@ -74,6 +75,7 @@ module AzulStyles
           ] of Azul::StyleBackgroundContent
         )
       ),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_color(Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 0_u8))))),
     ] of Azul::CssPropertyWithConditions
   end
 
@@ -94,6 +96,7 @@ module AzulStyles
           ] of Azul::StyleBackgroundContent
         )
       ),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_color(Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 0_u8))))),
     ] of Azul::CssPropertyWithConditions
   end
 
@@ -101,6 +104,7 @@ module AzulStyles
   def self.style_photo : Array(Azul::CssPropertyWithConditions)
     [
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.image("images/photo.png")] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_color(Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 0_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_size([Azul::StyleBackgroundSize.cover] of Azul::StyleBackgroundSize)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_position([Azul::StyleBackgroundPosition.__own(LibAzul::AzStyleBackgroundPosition.new(horizontal: Azul::BackgroundPositionHorizontal.center.__take, vertical: Azul::BackgroundPositionVertical.center.__take))] of Azul::StyleBackgroundPosition)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_repeat([Azul::StyleBackgroundRepeat::NoRepeat] of Azul::StyleBackgroundRepeat)),

@@ -363,7 +363,8 @@ function style_effects()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 250, 'g' => 250, 'b' => 250, 'a' => 255]))]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 0]))]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundColor($L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 250, 'g' => 250, 'b' => 250, 'a' => 255])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundPosition(azul_vec('AzStyleBackgroundPositionVec_copyFromPtr', 'AzStyleBackgroundPosition', [azul_struct('AzStyleBackgroundPosition', ['horizontal' => $L->AzBackgroundPositionHorizontal_center(), 'vertical' => $L->AzBackgroundPositionVertical_center()])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundSize(azul_vec('AzStyleBackgroundSizeVec_copyFromPtr', 'AzStyleBackgroundSize', [$L->AzStyleBackgroundSize_cover()]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundRepeat(azul_vec('AzStyleBackgroundRepeatVec_copyFromPtr', 'AzStyleBackgroundRepeat', [$L->AzStyleBackgroundRepeat_NoRepeat]))),

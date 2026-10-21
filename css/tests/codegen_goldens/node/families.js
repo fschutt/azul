@@ -253,7 +253,8 @@ function styleScroll() {
 // dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 function styleEffects() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_color({ r: 250, g: 250, b: 250, a: 255 })], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_color({ r: 0, g: 0, b: 0, a: 0 })], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundColor(lib.AzStyleBackgroundContent_color({ r: 250, g: 250, b: 250, a: 255 }))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundPosition(lib.AzStyleBackgroundPositionVec_copyFromPtr([{ horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_center() }], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
@@ -266,7 +267,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_filter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_blur({ width: lib.AzPixelValue_px(2.0), height: lib.AzPixelValue_px(2.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backdropFilter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_grayscale({ number: lib.AzFloatValue_create(50.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_mixBlendMode({ Exact: { tag: 6, payload: azul.StyleMixBlendMode.Multiply } })),
-    ], 13));
+    ], 14));
 }
 
 // CSS: .fragment

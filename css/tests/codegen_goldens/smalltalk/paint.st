@@ -39,6 +39,7 @@ AzulStyles class >> styleHero [
                 (AzNormalizedLinearColorStop new offset: (AzPercentageValue new number: (AzulNative azFloatValueCreate: 100.0); yourself); color: (AzulNative azColorOrSystemColor: (AzColorU new r: 0; g: 0; b: 255; a: 255; yourself)); offset_px: (AzulNative azFloatValueCreate: 0.0); yourself)
             }); yourself))
         }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundColor: (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 0; g: 0; b: 0; a: 0; yourself)))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBoxShadowLeft: (AzStyleBoxShadow new offset_x: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 0.0); yourself); offset_y: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 4.0); yourself); blur_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 12.0); yourself); spread_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 2.0); yourself); clip_mode: (AzBoxShadowClipMode Outset); color: (AzColorU new r: 0; g: 0; b: 0; a: 77; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBoxShadowRight: (AzStyleBoxShadow new offset_x: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 0.0); yourself); offset_y: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 4.0); yourself); blur_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 12.0); yourself); spread_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 2.0); yourself); clip_mode: (AzBoxShadowClipMode Outset); color: (AzColorU new r: 0; g: 0; b: 0; a: 77; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBoxShadowTop: (AzStyleBoxShadow new offset_x: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 0.0); yourself); offset_y: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 4.0); yourself); blur_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 12.0); yourself); spread_radius: (AzPixelValueNoPercent new inner: (AzulNative azPixelValuePx: 2.0); yourself); clip_mode: (AzBoxShadowClipMode Outset); color: (AzColorU new r: 0; g: 0; b: 0; a: 77; yourself); yourself))).
@@ -61,7 +62,8 @@ AzulStyles class >> styleHalo [
                 (AzNormalizedLinearColorStop new offset: (AzPercentageValue new number: (AzulNative azFloatValueCreate: 0.0); yourself); color: (AzulNative azColorOrSystemColor: (AzColorU new r: 255; g: 255; b: 255; a: 255; yourself)); offset_px: (AzulNative azFloatValueCreate: 0.0); yourself).
                 (AzNormalizedLinearColorStop new offset: (AzPercentageValue new number: (AzulNative azFloatValueCreate: 100.0); yourself); color: (AzulNative azColorOrSystemColor: (AzColorU new r: 0; g: 0; b: 0; a: 255; yourself)); offset_px: (AzulNative azFloatValueCreate: 0.0); yourself)
             }); yourself))
-        })))
+        }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundColor: (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 0; g: 0; b: 0; a: 0; yourself))))
     }
 ]
 
@@ -74,7 +76,8 @@ AzulStyles class >> styleDial [
                 (AzNormalizedRadialColorStop new angle: (AzAngleValue new metric: (AzAngleMetric Degree); number: (AzulNative azFloatValueCreate: 0.0); yourself); color: (AzulNative azColorOrSystemColor: (AzColorU new r: 255; g: 0; b: 0; a: 255; yourself)); yourself).
                 (AzNormalizedRadialColorStop new angle: (AzAngleValue new metric: (AzAngleMetric Degree); number: (AzulNative azFloatValueCreate: 360.0); yourself); color: (AzulNative azColorOrSystemColor: (AzColorU new r: 0; g: 0; b: 255; a: 255; yourself)); yourself)
             }); yourself))
-        })))
+        }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundColor: (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 0; g: 0; b: 0; a: 0; yourself))))
     }
 ]
 
@@ -83,6 +86,7 @@ AzulStyles class >> styleDial [
 AzulStyles class >> stylePhoto [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentImage: (self str: 'images/photo.png')) }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundColor: (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 0; g: 0; b: 0; a: 0; yourself)))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundSize: (self vec: [ :p :n | AzulNative azStyleBackgroundSizeVecCopyFromPtr: p len: n ] of: AzStyleBackgroundSize items: { (AzulNative azStyleBackgroundSizeCover) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundPosition: (self vec: [ :p :n | AzulNative azStyleBackgroundPositionVecCopyFromPtr: p len: n ] of: AzStyleBackgroundPosition items: { (AzStyleBackgroundPosition new horizontal: (AzulNative azBackgroundPositionHorizontalCenter); vertical: (AzulNative azBackgroundPositionVerticalCenter); yourself) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundRepeat: (self vec: [ :p :n | AzulNative azStyleBackgroundRepeatVecCopyFromPtr: p len: n ] of: AzStyleBackgroundRepeat items: { (AzStyleBackgroundRepeat NoRepeat) })))

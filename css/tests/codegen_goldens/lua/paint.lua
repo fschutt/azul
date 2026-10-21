@@ -7,7 +7,7 @@ local M = {}
 
 -- CSS: .hero
 function M.style_hero()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[8]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[9]', {
         C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_backgroundContent(
                 C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', {
@@ -28,6 +28,7 @@ function M.style_hero()
                 }), 1)
             )
         ),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundColor(C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 0 })))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowLeft(ffi.new('AzStyleBoxShadow', { offset_x = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(0.0) }), offset_y = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(4.0) }), blur_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(12.0) }), spread_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(2.0) }), clip_mode = C.AzBoxShadowClipMode_Outset, color = ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 77 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowRight(ffi.new('AzStyleBoxShadow', { offset_x = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(0.0) }), offset_y = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(4.0) }), blur_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(12.0) }), spread_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(2.0) }), clip_mode = C.AzBoxShadowClipMode_Outset, color = ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 77 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowTop(ffi.new('AzStyleBoxShadow', { offset_x = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(0.0) }), offset_y = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(4.0) }), blur_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(12.0) }), spread_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(2.0) }), clip_mode = C.AzBoxShadowClipMode_Outset, color = ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 77 }) }))),
@@ -75,12 +76,12 @@ function M.style_hero()
                 )
             )
         ),
-    }), 8)
+    }), 9)
 end
 
 -- CSS: .halo
 function M.style_halo()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[1]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[2]', {
         C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_backgroundContent(
                 C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', {
@@ -102,12 +103,13 @@ function M.style_halo()
                 }), 1)
             )
         ),
-    }), 1)
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundColor(C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 0 })))),
+    }), 2)
 end
 
 -- CSS: .dial
 function M.style_dial()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[1]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[2]', {
         C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_backgroundContent(
                 C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', {
@@ -128,17 +130,19 @@ function M.style_dial()
                 }), 1)
             )
         ),
-    }), 1)
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundColor(C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 0 })))),
+    }), 2)
 end
 
 -- CSS: .photo
 function M.style_photo()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[4]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[5]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_image(azul._az_string("images/photo.png")) }), 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundColor(C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 0 })))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
-    }), 4)
+    }), 5)
 end
 
 -- CSS: .caption
