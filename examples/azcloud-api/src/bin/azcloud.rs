@@ -1576,6 +1576,10 @@ fn net_on(runtime: &tokio::runtime::Runtime) -> Result<Net> {
 }
 
 fn main() -> ExitCode {
+    // Every request to the Azlin services says which app and contract sent it.
+    if let Some(hello) = azcloud_kit::hello::of_app("azcloud", env!("CARGO_PKG_VERSION")) {
+        azcloud_kit::hello::announce(hello);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match Args::parse(&argv) {
         Ok(args) => args,

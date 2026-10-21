@@ -362,7 +362,7 @@ fn the_pause_a_node_asks_for_is_kept_and_a_long_one_is_the_callers_to_wait_out()
     let (bucket, pauses) = bucket_with(factory(&long), clock());
     match bucket.get("a.txt") {
         Err(crate::CloudError::Drive(DriveError::Service(e))) => {
-            assert_eq!(e.azlin_error.as_deref(), Some("maintenance"));
+            assert_eq!(e.azlin_error, Some(azul_storage::AzlinError::Maintenance));
             assert_eq!(e.retry_after, Some(3600));
         }
         other => panic!("not the node's answer: {other:?}"),
