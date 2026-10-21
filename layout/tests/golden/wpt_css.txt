@@ -4052,12 +4052,13 @@ n2 p1 d2 Inline @0,16 800x16 ov=320x16 bl=13 ic=83.203125/320 rel=0,0
 n3 p2 d3 Inline @0,16 -x- ic=83.203125/320
   dl0 Rect 0,0 800x600
   dl1 PushStackingContext 0,0 800x32
-  dl2 HitTestArea 0,16 800x16
-  dl3 Rect 0,16 800x16
-  dl4 HitTestArea 0,16 800x16
-  dl5 Text -16,16 832x16 glyphs=44 fs=16
-  dl6 HitTestArea 0,16.203125 320x16
-  dl7 PopStackingContext
+  dl2 Rect 0,16 800x16
+  dl3 HitTestArea 0,16 800x16
+  dl4 Rect 0,16 800x16
+  dl5 HitTestArea 0,16 800x16
+  dl6 Text -16,16 832x16 glyphs=44 fs=16
+  dl7 HitTestArea 0,16.203125 320x16
+  dl8 PopStackingContext
 === wpt/normalized/css/css-backgrounds/background-color-body-propagation-ref.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x32 ov=800x32 bl=29 ic=83.203125/320
@@ -4077,8 +4078,9 @@ n0 root d0 Block { establishes_new_context: true } @0,0 800x128 ov=800x128 ic=15
 n1 p0 d1 Block { establishes_new_context: false } @8,8 784x120 ov=140x120 mt=8 mb=8 ic=140/140 rel=8,8
 n2 p1 d2 Block { establishes_new_context: false } @8,8 140x120 ov=0x0 ic=120/120 rel=0,0
   dl0 PushStackingContext 0,0 800x128
-  dl1 Border 8,8 140x120
-  dl2 PopStackingContext
+  dl1 Rect 18,18 120x100
+  dl2 Border 8,8 140x120
+  dl3 PopStackingContext
 === wpt/normalized/css/css-backgrounds/background-gradient-subpixel-fills-area.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x73 ov=800x73 ic=412.875/412.875
@@ -5449,8 +5451,9 @@ n1 p0 d1 Block { establishes_new_context: false } @8,8 784x100 ov=100x100 mt=8 m
 n2 p1 d2 Block { establishes_new_context: false } @8,8 100x100 ov=0x0 ic=100/100 rel=0,0
   dl0 PushStackingContext 0,0 800x108
   dl1 HitTestArea 8,8 784x100
-  dl2 LinearGradient 8,8 100x100
-  dl3 PopStackingContext
+  dl2 Rect 8,8 100x100
+  dl3 LinearGradient 8,8 100x100
+  dl4 PopStackingContext
 === wpt/normalized/css/css-images/normalization-linear-2.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x108 ov=800x108 ic=116/116
