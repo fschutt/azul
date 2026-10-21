@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""A fault harness for AzDrive's sync: a proxy between the app and the local S3 (or the mock
-Azlin stack) that injects what real networks and nodes do, plus a UDP sink for the iroh lane and a
-slow DNS server. Python's standard library only.
+"""A fault harness for AzDrive's sync and its token calls: a proxy between the app and the local
+S3 or the token server (the mock Azlin stack's or the real ones) that injects what real networks,
+nodes and servers do, plus a UDP sink for the iroh lane and a slow DNS server. Python's standard
+library only.
 
 The proxy forwards every request byte for byte (the Host header stays, so SigV4 still verifies
-at the server behind it) and logs it by its S3 operation. Faults are rules a test adds; the first
+at the server behind it) and logs it by its operation: an S3 call by its S3 name, a token server
+call by its route (`token_op`: Refresh, Lockdown, Claim, Redeem, Voucher, Issue, CheckoutCreate,
+CheckoutStatus, Abandon, AddMember, RemoveMember, ...; the key is the route's drive or checkout
+id). Which of the two a request is follows the proxy's `kind`: "s3", "token", or "auto" (a path
+under /v1/ is a token route: no bucket is named "v1"). Faults are rules a test adds; the first
 rule that takes a request decides what happens to it:
 
     delay        wait `ms` (+ up to `jitter` ms) before forwarding
@@ -17,14 +22,18 @@ rule that takes a request decides what happens to it:
     stall_body   forward, send the head and `bytes` of the body, hold the rest
     corrupt      forward, flip one byte in the middle of the answer's body
     throttle     forward, both bodies at `bps` bytes a second
-    status       answer `status` with an S3 error body (`code`, `message`, `headers`)
+    answer_after forward, read the answer, send the `status` answer below instead (the write
+                 landed, the client hears a refusal: a 503 after the token was rotated)
+    status       answer `status` with an S3 error body (`code`, `message`, `headers`); on a
+                 token route the token server's JSON {"error": code, "message", ...`fields`},
+                 or `body` (any JSON value) as it is
     azlin        answer an Azlin node's error `azlin_error` with the node's status and S3 code
                  (azul-apps iso azlin-proto errors.rs) and its Retry-After
-    stale_map    answer 409 with `x-azlin-map: <epoch> <hash>` (a client's map is older)
 
-A rule matches by `op` (PutObject, UploadPart, ...), `method`, `key` and `bucket` (regular
-expressions, searched), `query` (searched in the raw query), `client` (a substring of the
-request's x-amz-security-token or access key id: one device of several); it takes the `nth`
+A rule matches by `op` (PutObject, UploadPart, Refresh, ...), `method`, `key` and `bucket`
+(regular expressions, searched), `query` (searched in the raw query), `client` (a substring of
+the request's x-amz-security-token or access key id, or of `dt_<family>` of a token call's drive
+token - never its secret part: one device of several); it takes the `nth`
 match (one number or a list, from 1), every match after the first `after`, at most `times`
 times, with `probability` (repeatable with `seed`).
 
@@ -62,9 +71,10 @@ import uuid
 from xml.sax.saxutils import escape
 
 USAGE = """\
-azchaos.py proxy --upstream URL [--host H] [--port P] [--rules FILE] [--log FILE]
-    a fault proxy in front of URL (the local S3 or the mock stack's); FILE: a JSON list of rules
-    (see the module's doc); steer it at http://H:P/__azchaos/
+azchaos.py proxy --upstream URL [--kind s3|token|auto] [--host H] [--port P] [--rules FILE]
+        [--log FILE]
+    a fault proxy in front of URL (an S3 or a token server, the mock stack's or the real ones);
+    FILE: a JSON list of rules (see the module's doc); steer it at http://H:P/__azchaos/
 azchaos.py udp-sink [--port P]
     swallows every datagram (an iroh lane that never answers)
 azchaos.py slow-dns --name NAME=IP [--delay S] [--port P]
@@ -163,10 +173,70 @@ def s3_op(method, path, query, headers):
     return ("Object" + method.title(), bucket, key)
 
 
-class Request:
-    """One request as the proxy read its head."""
+# The token server's routes (azul-apps iso azlin-token lib.rs `Service::handle`): method, path
+# segments ("*" one of any), the operation, and which segment is the key (the drive or checkout
+# id; None: no key). The first that matches names the request.
+TOKEN_ROUTES = [
+    ("GET", ("health",), "Health", None),
+    ("GET", ("v1", "health"), "Health", None),
+    ("GET", ("v1", "tiers"), "Tiers", None),
+    ("POST", ("v1", "drives"), "Signup", None),
+    ("POST", ("v1", "recovery", "challenge"), "RecoveryChallenge", None),
+    ("POST", ("v1", "recovery", "lookup"), "RecoveryLookup", None),
+    ("POST", ("v1", "checkout"), "CheckoutCreate", None),
+    ("GET", ("v1", "checkout", "options"), "CheckoutOptions", None),
+    ("GET", ("v1", "checkout", "*"), "CheckoutStatus", 2),
+    ("POST", ("v1", "checkout", "*", "pay"), "CheckoutPay", 2),
+    ("POST", ("v1", "checkout", "*", "surface"), "CheckoutSurface", 2),
+    ("POST", ("v1", "checkout", "*", "abandon"), "Abandon", 2),
+    ("POST", ("v1", "checkout", "*", "cancel"), "CheckoutCancel", 2),
+    ("POST", ("v1", "webhook", "*"), "Webhook", None),
+    ("POST", ("v1", "tokens", "issue"), "Issue", None),
+    ("GET", ("v1", "tokens", "keys"), "IssuerKeys", None),
+    ("POST", ("v1", "vouchers", "redeem"), "Voucher", None),
+    ("POST", ("v1", "drives", "*", "credentials"), "Refresh", 2),
+    ("GET", ("v1", "drives", "*"), "DriveInfo", 2),
+    ("POST", ("v1", "drives", "*", "claim"), "Claim", 2),
+    ("POST", ("v1", "drives", "*", "members"), "AddMember", 2),
+    ("DELETE", ("v1", "drives", "*", "members", "*"), "RemoveMember", 2),
+    ("POST", ("v1", "drives", "*", "keys"), "CreateKey", 2),
+    ("DELETE", ("v1", "drives", "*", "keys", "*"), "RevokeKey", 2),
+    ("POST", ("v1", "drives", "*", "lockdown"), "Lockdown", 2),
+    ("POST", ("v1", "drives", "*", "lockdown", "cancel"), "LockdownCancel", 2),
+    ("POST", ("v1", "drives", "*", "restore"), "Restore", 2),
+    ("GET", ("v1", "drives", "*", "restore", "*"), "RestoreStatus", 2),
+    ("POST", ("v1", "drives", "*", "redeem"), "Redeem", 2),
+    ("POST", ("v1", "drives", "*", "recovery"), "SetRecovery", 2),
+    ("GET", ("v1", "drives", "*", "recovery_keys"), "RecoveryKeys", 2),
+    ("POST", ("v1", "drives", "*", "recovery_keys"), "AddRecoveryKey", 2),
+    ("DELETE", ("v1", "drives", "*", "recovery_keys", "*"), "RemoveRecoveryKey", 2),
+]
+KINDS = ("s3", "token", "auto")
 
-    def __init__(self, head):
+
+def token_op(method, path):
+    """(operation, key) of a token server request: the route's name and its drive or checkout
+    id ("" for a route without one); `path` without its query."""
+    segments = [urllib.parse.unquote(p) for p in path.strip("/").split("/") if p]
+    method = method.upper()
+    for want_method, pattern, op, key_at in TOKEN_ROUTES:
+        if method != want_method or len(segments) != len(pattern):
+            continue
+        if all(p == "*" or p == s for p, s in zip(pattern, segments)):
+            return op, ("" if key_at is None else segments[key_at])
+    return "TokenOther", ""
+
+
+def is_token_path(path):
+    """Whether an "auto" proxy takes `path` for a token route: S3 bucket names have three
+    letters at least, so no bucket is named "v1"."""
+    return path == "/v1" or path.startswith("/v1/")
+
+
+class Request:
+    """One request as the proxy read its head; `kind` as the proxy's (s3, token, auto)."""
+
+    def __init__(self, head, kind="auto"):
         lines = head.decode("latin-1").split("\r\n")
         self.method, self.target, self.version = (lines[0].split(" ", 2) + ["", ""])[:3]
         self.headers = []
@@ -179,7 +249,13 @@ class Request:
         self.path = path
         self.raw_query = raw_query
         self.query = {k: v for k, v in urllib.parse.parse_qsl(raw_query, keep_blank_values=True)}
-        self.op, self.bucket, self.key = s3_op(self.method, path, self.query, dict(self.headers))
+        self.token = kind == "token" or (kind == "auto" and is_token_path(path))
+        if self.token:
+            self.op, self.key = token_op(self.method, path)
+            self.bucket = ""
+        else:
+            self.op, self.bucket, self.key = s3_op(self.method, path, self.query,
+                                                   dict(self.headers))
 
     def header(self, name):
         name = name.lower()
@@ -190,7 +266,11 @@ class Request:
 
     @property
     def client(self):
-        """What tells the device apart: its session token, else its access key id."""
+        """What tells the device apart: its session token, else its access key id; on a token
+        route the family of its drive token (`dt_<family>`, never the secret after it)."""
+        if self.token:
+            bearer = (self.header("authorization") or "").partition(" ")[2].strip()
+            return bearer.split(".", 1)[0] if bearer.startswith("dt_") else ""
         token = self.header("x-amz-security-token") or ""
         auth = self.header("authorization") or ""
         found = re.search(r"Credential=([^/,\s]+)", auth)
@@ -222,7 +302,7 @@ class Request:
 # ---------------------------------------------------------------------------------------------
 
 ACTIONS = ("delay", "refuse", "reset_before", "reset_after", "stall", "stall_after", "cut_body",
-           "stall_body", "corrupt", "throttle", "status", "azlin", "stale_map")
+           "stall_body", "corrupt", "throttle", "answer_after", "status", "azlin")
 
 
 class Fault:
@@ -496,11 +576,20 @@ def error_body(code, message, resource="", extra=None):
                 uuid.uuid4().hex[:12])).encode("utf-8")
 
 
+def token_body(code, message, fields=None):
+    """The token server's error answer: {"error", "message"} and any `fields` beside them."""
+    value = {"error": code, "message": message}
+    value.update(fields or {})
+    return json.dumps(value).encode("utf-8")
+
+
 def answer_bytes(status, body=b"", headers=None, reason=None):
-    reason = reason or {200: "OK", 301: "Moved Permanently", 304: "Not Modified",
-                        400: "Bad Request", 403: "Forbidden", 404: "Not Found",
-                        409: "Conflict", 412: "Precondition Failed", 500: "Internal Server Error",
-                        503: "Service Unavailable"}.get(status, "Status")
+    reason = reason or {200: "OK", 201: "Created", 202: "Accepted", 301: "Moved Permanently",
+                        304: "Not Modified", 400: "Bad Request", 401: "Unauthorized",
+                        403: "Forbidden", 404: "Not Found", 409: "Conflict",
+                        412: "Precondition Failed", 426: "Upgrade Required",
+                        429: "Too Many Requests", 500: "Internal Server Error",
+                        502: "Bad Gateway", 503: "Service Unavailable"}.get(status, "Status")
     out = ["HTTP/1.1 %d %s" % (status, reason)]
     sent = {k.lower() for k in (headers or {})}
     for name, value in (headers or {}).items():
@@ -520,7 +609,11 @@ def answer_bytes(status, body=b"", headers=None, reason=None):
 class ChaosProxy:
     """The fault proxy in front of `upstream` (http://host:port)."""
 
-    def __init__(self, upstream, host="127.0.0.1", port=0, log_path=None, verbose=False):
+    def __init__(self, upstream, host="127.0.0.1", port=0, log_path=None, verbose=False,
+                 kind="auto"):
+        if kind not in KINDS:
+            raise ValueError("unknown kind %r (one of %s)" % (kind, ", ".join(KINDS)))
+        self.kind = kind
         parsed = urllib.parse.urlsplit(upstream)
         self.upstream = (parsed.hostname, parsed.port or 80)
         self.host = host
@@ -779,7 +872,7 @@ class ChaosProxy:
                     return
                 if head is None:
                     return
-                request = Request(head)
+                request = Request(head, self.kind)
                 if control_only or request.path.startswith(CONTROL):
                     self._control(sock, reader, request)
                     if request.wants_close():
@@ -820,7 +913,8 @@ class ChaosProxy:
     def _one(self, sock, reader, request):
         """Handles one request; whether the connection stays."""
         started = time.time()
-        entry = {"t": round(started, 3), "op": request.op, "method": request.method,
+        entry = {"t": round(started, 3), "op": request.op, "token": request.token,
+                 "method": request.method,
                  "bucket": request.bucket, "key": request.key, "query": request.raw_query,
                  "status": None, "upstream_status": None, "sent": 0, "received": 0,
                  "fault": None, "forwarded": False, "client": request.client.strip()[:48]}
@@ -873,6 +967,15 @@ class ChaosProxy:
         entry["sent"] = sum(len(p) for p in body)
         if action == "reset_before":
             raise Reset("reset before forwarding")
+        if request.token:
+            if action == "status":
+                return self._scripted(sock, request, entry, fault)
+            if action == "azlin":
+                code = fault.param("azlin_error", "unavailable")
+                return self._answer(sock, request, entry, AZLIN_ERRORS[code][0], token_body(
+                    code, fault.param("message", "azchaos: " + code)),
+                    {"Content-Type": "application/json"})
+            return self._forward(sock, request, entry, fault, body)
         # The node's clock.
         if self.clock_offset:
             signed = request.amz_date
@@ -899,15 +1002,7 @@ class ChaosProxy:
                 return self._answer(sock, request, entry, status, error_body(
                     s3_code, "azchaos: the session is refused", request.path), headers)
         if action == "status":
-            headers = {"Content-Type": "application/xml"}
-            headers.update(fault.param("headers", {}) or {})
-            if fault.param("azlin_error"):
-                headers["x-azlin-error"] = fault.param("azlin_error")
-            if fault.param("retry_after") is not None:
-                headers["Retry-After"] = str(fault.param("retry_after"))
-            return self._answer(sock, request, entry, int(fault.param("status", 500)), error_body(
-                fault.param("code", "InternalError"), fault.param("message", "azchaos"),
-                request.path), headers)
+            return self._scripted(sock, request, entry, fault)
         if action == "azlin":
             code = fault.param("azlin_error", "unavailable")
             status, s3_code, retry_after = AZLIN_ERRORS[code]
@@ -918,12 +1013,6 @@ class ChaosProxy:
                 headers["x-azlin-alt-endpoints"] = fault.param("alt_endpoints")
             return self._answer(sock, request, entry, status, error_body(
                 s3_code, fault.param("message", "azchaos: " + code), request.path), headers)
-        if action == "stale_map":
-            epoch = int(fault.param("epoch", 2))
-            digest = fault.param("hash") or hashlib.sha256(b"map %d" % epoch).hexdigest()
-            return self._answer(sock, request, entry, 409, error_body(
-                "Conflict", "the client's map is older than the node's", request.path),
-                {"Content-Type": "application/xml", "x-azlin-map": "%d %s" % (epoch, digest)})
         # Quotas: the write that crosses the bucket's quota.
         with self._lock:
             quota = self.quotas.get(request.bucket)
@@ -941,6 +1030,28 @@ class ChaosProxy:
                 entry["fault"] = entry["fault"] or "sink"
                 return self._sink(sock, request, entry, sink, body)
         return self._forward(sock, request, entry, fault, body)
+
+    def _scripted(self, sock, request, entry, fault):
+        """The answer a `status` or `answer_after` rule gives: an S3 error body, or on a token
+        route the token server's JSON (or the rule's `body` as it is)."""
+        status = int(fault.param("status", 500))
+        headers = dict(fault.param("headers", {}) or {})
+        if fault.param("retry_after") is not None:
+            headers["Retry-After"] = str(fault.param("retry_after"))
+        if request.token:
+            headers.setdefault("Content-Type", "application/json")
+            if fault.param("body") is not None:
+                data = json.dumps(fault.param("body")).encode("utf-8")
+            else:
+                data = token_body(fault.param("code", "unavailable"),
+                                  fault.param("message", "azchaos"), fault.param("fields"))
+            return self._answer(sock, request, entry, status, data, headers)
+        headers.setdefault("Content-Type", "application/xml")
+        if fault.param("azlin_error"):
+            headers["x-azlin-error"] = fault.param("azlin_error")
+        return self._answer(sock, request, entry, status, error_body(
+            fault.param("code", "InternalError"), fault.param("message", "azchaos"),
+            request.path), headers)
 
     def _forward(self, sock, request, entry, fault, body):
         action = fault.action if fault else None
@@ -964,6 +1075,11 @@ class ChaosProxy:
                 for _ in pieces:
                     pass
                 raise Reset("the answer is lost")
+            if action == "answer_after":
+                for _ in pieces:
+                    pass
+                self._scripted(sock, request, entry, fault)
+                return not request.wants_close()
             if action == "stall_after":
                 for_later = list(pieces)
                 self._wait(fault.param("seconds"))
@@ -1307,6 +1423,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     proxy = sub.add_parser("proxy")
     proxy.add_argument("--upstream", required=True)
+    proxy.add_argument("--kind", choices=KINDS, default="auto")
     proxy.add_argument("--host", default="127.0.0.1")
     proxy.add_argument("--port", type=int, default=0)
     proxy.add_argument("--rules", help="a JSON file with a list of rules")
@@ -1320,7 +1437,8 @@ def main(argv=None):
     dns.add_argument("--port", type=int, default=0)
     args = parser.parse_args(argv)
     if args.command == "proxy":
-        running = ChaosProxy(args.upstream, args.host, args.port, args.log, args.verbose).start()
+        running = ChaosProxy(args.upstream, args.host, args.port, args.log, args.verbose,
+                             args.kind).start()
         if args.rules:
             with open(args.rules, "r", encoding="utf-8") as f:
                 for rule in json.load(f):
