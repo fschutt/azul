@@ -416,13 +416,18 @@ fn content_to_rich_item(content: &ClipboardContent) -> RichItem {
 /// their own fields, next to the text the source offered with them. `None`
 /// for a payload with none of these.
 pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<ClipboardContent> {
+    let plain = |text: String| ClipboardContent {
+        plain_text: text.into(),
+        ..Default::default()
+    };
     let text = match decode_payload(payload).ok() {
         Some(RichItem::RichText(rich)) => Some(rich_text_to_content(&rich)),
-        Some(item) => item.plain_text().map(|text| ClipboardContent {
-            plain_text: text.into(),
-            ..Default::default()
-        }),
-        None => None,
+        Some(item) => item
+            .plain_text()
+            .map(str::to_owned)
+            .or_else(|| plain_text_flavor_of(payload))
+            .map(plain),
+        None => plain_text_flavor_of(payload).map(plain),
     };
     let files = files_of(payload);
     let image = image_of(payload);
@@ -445,6 +450,24 @@ pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<Clipbo
     content.link = link.map(azul_css::AzString::from).into();
     content.concealed = concealed;
     Some(content)
+}
+
+/// The text of `payload`'s plain-text flavour. The richest item of a payload that carries
+/// files or a link is their list, which has no text of its own, so the text that came with
+/// them is read here.
+fn plain_text_flavor_of(payload: &ClipboardPayload) -> Option<String> {
+    let platform = payload.platform();
+    let item = payload
+        .items()
+        .iter()
+        .find(|i| i.flavor(platform) == Flavor::PlainText)?;
+    if item.bytes.len() as u64 > MAX_FLAVOR_BYTES {
+        return None;
+    }
+    match decode_with(item, platform, &Options::new()).ok()? {
+        RichItem::Text(text) => Some(text),
+        _ => None,
+    }
 }
 
 /// Every local file `payload` carries, in the source's order: one per
@@ -527,14 +550,35 @@ fn png_of_rgba(_rgba: rich_clipboard::RgbaImage) -> Option<Vec<u8>> {
 /// `text/uri-list` of a web address), as its address.
 fn link_of(payload: &ClipboardPayload) -> Option<String> {
     let platform = payload.platform();
-    let item = payload.items().iter().find(|i| i.flavor(platform) == Flavor::Url)?;
-    if item.bytes.len() as u64 > MAX_FLAVOR_BYTES {
+    let fits = |i: &&rich_clipboard::ClipboardItem| i.bytes.len() as u64 <= MAX_FLAVOR_BYTES;
+    if let Some(item) = payload
+        .items()
+        .iter()
+        .find(|i| i.flavor(platform) == Flavor::Url)
+        .filter(fits)
+    {
+        return match decode_with(item, platform, &Options::new()).ok()? {
+            RichItem::Link(link) => Some(link.target.as_str().to_owned()),
+            _ => None,
+        };
+    }
+    // On X11 and Wayland a link is a `text/uri-list` as files are: a list of one address
+    // that names no local file is the link.
+    if platform != Platform::Unix {
         return None;
     }
-    match decode_with(item, platform, &Options::new()).ok()? {
-        RichItem::Link(link) => Some(link.target.as_str().to_owned()),
-        _ => None,
-    }
+    payload
+        .items()
+        .iter()
+        .filter(|i| i.flavor(platform) == Flavor::FileList)
+        .filter(fits)
+        .find_map(|item| match decode_with(item, platform, &Options::new()).ok()? {
+            RichItem::Files(list) => match list.entries.as_slice() {
+                [rich_clipboard::FileEntry::Uri(uri)] => Some(uri.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
 }
 
 fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
