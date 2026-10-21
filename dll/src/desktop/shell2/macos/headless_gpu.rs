@@ -464,6 +464,7 @@ impl GlStateProbe {
 /// up - blending and the scissor on, a texture on every unit the material
 /// shader samples, unit 2 active: the state before and after, and whether the
 /// material shader runs here. `None` without OpenGL.
+#[cfg(feature = "materials")]
 pub(crate) fn gl_state_around_materials(
     dom: impl Fn() -> Dom,
 ) -> Option<(GlStateProbe, GlStateProbe, bool)> {

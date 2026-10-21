@@ -4183,7 +4183,9 @@ mod tab_curve_pixel_tests {
     }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+// The materials are a feature of their own (on in the shipped library, off in the default
+// test build), and these tests draw them.
+#[cfg(all(test, target_os = "macos", feature = "materials"))]
 mod material_gpu_tests {
     //! The built-in materials as a GPU window draws them - the material
     //! shader run with the window's GL context into a texture of its own -

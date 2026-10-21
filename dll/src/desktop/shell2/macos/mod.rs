@@ -1958,6 +1958,9 @@ define_class!(
     // NSDraggingSource: a node drag that left the window runs as the system's
     // drag session with this view as its source (`start_os_drag_if_it_left`).
     // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    // The drag source protocol extends NSObjectProtocol, which NSObject already implements.
+    unsafe impl NSObjectProtocol for GLView {}
+
     unsafe impl NSDraggingSource for GLView {
         #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
         fn dragging_source_operations(
@@ -3087,6 +3090,9 @@ define_class!(
     // NSDraggingSource: a node drag that left the window runs as the system's
     // drag session with this view as its source (`start_os_drag_if_it_left`).
     // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    // The drag source protocol extends NSObjectProtocol, which NSObject already implements.
+    unsafe impl NSObjectProtocol for CPUView {}
+
     unsafe impl NSDraggingSource for CPUView {
         #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
         fn dragging_source_operations(
