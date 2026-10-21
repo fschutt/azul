@@ -4025,6 +4025,14 @@ mod theme_tests {
         }
     }
 
+    /// The `background-color` a declaration sets (a stylesheet's `background:`).
+    fn bg_colour(p: &CssProperty) -> Option<StyleBackgroundContent> {
+        match p {
+            CssProperty::BackgroundColor(v) => v.get_property().cloned(),
+            _ => None,
+        }
+    }
+
     fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
         props.iter().rev().find_map(f)
     }
@@ -4139,13 +4147,13 @@ mod theme_tests {
         let dom = input(UiTheme::Flora);
         let p = panel(&dom);
         assert_eq!(
-            last(&component(p, false), bg),
-            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)])
+            last(&component(p, false), bg_colour),
+            Some(StyleBackgroundContent::Color(flora::LIGHT_SUR))
         );
         assert_eq!(last(&component(p, false), top_edge), Some(flora::LIGHT_BD));
         assert_eq!(
-            last(&component(p, true), bg),
-            Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+            last(&component(p, true), bg_colour),
+            Some(StyleBackgroundContent::Color(flora::DARK_SUR))
         );
         assert_eq!(last(&component(p, true), top_edge), Some(flora::DARK_BD));
     }

@@ -12,8 +12,8 @@ use super::{
     map_ground_css, map_widget_render, MapTheme, MapTileLayer, MapWidget,
 };
 
-/// The background declarations of a node, with their conditions: its inline
-/// style and its own sheet (`with_css` gives a node a sheet of its own).
+/// The background colour declarations of a node, with their conditions: its
+/// inline style and its own sheet (`with_css` gives a node a sheet of its own).
 fn grounds(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
     dom.root
         .style
@@ -24,7 +24,9 @@ fn grounds(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
                 .iter()
                 .flat_map(|sheet| sheet.iter_inline_properties()),
         )
-        .filter(|(p, _)| p.get_type().to_str().starts_with("background"))
+        .filter(|(p, _)| {
+            p.get_type() == azul_css::props::property::CssPropertyType::BackgroundColor
+        })
         .map(|(p, c)| (p.clone(), c.clone()))
         .collect()
 }
