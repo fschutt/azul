@@ -540,13 +540,20 @@ class S3Error(Exception):
         return ('<?xml version="1.0" encoding="UTF-8"?>\n<Error>%s</Error>' % "".join(parts)).encode("utf-8")
 
 
-class QuotaExceeded(S3Error):
-    """An Azlin node's refusal of a write past the drive's quota."""
+# The Azlin node codes this server answers with: (HTTP status, S3 code, Retry-After). The mock
+# stack sets the contract crate's table (Server.azlin_errors).
+NODE_ERRORS = {
+    "quota_exceeded": (403, "QuotaExceeded", None),
+    "drive_banned": (403, "AccessDenied", None),
+}
 
-    headers = {"x-azlin-error": "quota_exceeded"}
 
-    def __init__(self):
-        super().__init__(403, "QuotaExceeded", "The drive is full.")
+class NodeError(S3Error):
+    """An Azlin node's refusal: its S3 error with `x-azlin-error` (and Retry-After)."""
+
+    def __init__(self, status, code, message, headers):
+        super().__init__(status, code, message)
+        self.headers = headers
 
 
 def parse_range(header, size):
@@ -765,8 +772,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     record["op"] = "Banned"
                     why = ("This drive was closed after its ban." if closed else
                            "This drive is banned: it takes no writes and serves no links.")
-                    self.fail(S3Error(403, "AccessDenied", why), resource,
-                              {"x-azlin-error": "drive_banned"})
+                    error = self.server.node_failure("drive_banned", why)
+                    self.fail(error, resource, error.headers)
                     return
             if payload_hash and payload_hash.startswith("STREAMING-"):
                 raise S3Error(501, "NotImplemented", "streaming (chunked) uploads are not supported")
@@ -943,7 +950,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         total = (store.stored_bytes(bucket) + store.reserved_bytes(bucket, skip_folder, skip_part)
                  + adding - replacing)
         if total > int(quota):
-            raise QuotaExceeded()
+            raise self.server.node_failure("quota_exceeded", "The drive is full.")
 
     def space_headers(self, bucket):
         """An Azlin node's HeadBucket headers (SRV17), when the server plays one
@@ -1114,6 +1121,8 @@ class Server(http.server.ThreadingHTTPServer):
         self.space_quota = None
         # With it the writes keep to that quota as a node's do (check_quota).
         self.enforce_quota = False
+        # The node codes' statuses and S3 codes (NODE_ERRORS; the mock stack's: the contract's).
+        self.azlin_errors = dict(NODE_ERRORS)
         # The kill switches: kind ("parts", "gets") -> how many pass before the rest wait.
         self._holds = {}
         self._counts = {}
@@ -1163,6 +1172,19 @@ class Server(http.server.ThreadingHTTPServer):
         finally:
             with self._lock:
                 self._waiting -= 1
+
+    def node_error(self, code):
+        """(status, S3 code, headers) of the node code `code`."""
+        status, s3_code, retry_after = self.azlin_errors[code]
+        headers = {"x-azlin-error": code}
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
+        return status, s3_code, headers
+
+    def node_failure(self, code, message):
+        """The node's refusal `code` as an error to raise."""
+        status, s3_code, headers = self.node_error(code)
+        return NodeError(status, s3_code, message, headers)
 
     def fail_bucket(self, bucket, status, code, message, headers=None):
         """Every request to `bucket` answers this S3 error (with `headers`, e.g. an Azlin

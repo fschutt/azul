@@ -36,18 +36,17 @@ the unit of the logical refactoring that makes it pass:
                  multipart ETag the client computes (the MD5 of the parts' MD5s, a dash, their
                  count), so a client can verify it instead of uploading again
 
-Every request to the token server sends `x-azlin-idempotency` (base64url of 16 random bytes, the
-same on a retry) where the call spends or grants something. Drive tokens, claim secrets and issue
+Every request to the token server says its hello (`x-azlin-client: azlin-chaos/1.0.0;
+contract=<n>`) and, where the call spends or grants something, `x-azlin-idempotency` (the same
+on a retry) - both as the contract crate (examples/azlin-contract) defines them. Drive tokens, claim secrets and issue
 keys are secret: none is printed. Exit code: the number of failed scenarios.
 """
 import argparse
-import base64
 import calendar
 import hashlib
 import http.client
 import json
 import os
-import secrets
 import subprocess
 import sys
 import tempfile
@@ -63,10 +62,11 @@ sys.path.insert(0, HERE)
 import azchaos  # noqa: E402
 import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
+import azlin_contract  # noqa: E402
 import azlin_period  # noqa: E402
 
 APPROVING_CARD = '4242 4242 4242 4242'
-IDEMPOTENCY = 'x-azlin-idempotency'
+HELLO = azlin_contract.client_hello('azlin-chaos', '1.0.0')
 MIB = 1024 * 1024
 MONTH = 30 * 86400
 # How long the late webhook may take once let go (the sandbox posts every quarter second, after
@@ -88,8 +88,7 @@ def expect(condition, message):
 
 
 def idempotency_key():
-    """A fresh idempotency key: 16 random bytes, base64url without padding."""
-    return base64.urlsafe_b64encode(secrets.token_bytes(16)).decode('ascii').rstrip('=')
+    return azlin_contract.idempotency_key()
 
 
 def code_of(value):
@@ -217,7 +216,9 @@ class World:
     def call(self, method, path, body=None, bearer=None, key=None):
         """A token server call through its proxy; `key`: the idempotency key it carries.
         (status, value) - or None for an answer that never came."""
-        headers = {IDEMPOTENCY: key} if key else None
+        headers = {azlin_contract.CLIENT_HEADER: HELLO}
+        if key:
+            headers[azlin_contract.IDEMPOTENCY_HEADER] = key
         try:
             status, value, _ = self.client.call(method, path, body, bearer=bearer,
                                                 headers=headers)
@@ -226,7 +227,8 @@ class World:
         return status, value
 
     def signup(self, name):
-        status, bundle, text = self.client.signup(name)
+        status, bundle, text = self.client.call('POST', '/v1/drives', {'name': name},
+                                                headers={azlin_contract.CLIENT_HEADER: HELLO})
         expect(status == 201 and isinstance(bundle, dict),
                'no drive to test with: HTTP %d %s' % (status, text[:200]))
         return bundle

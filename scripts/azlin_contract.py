@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""What the Azlin apps and services say to each other, for the Python tools: read from the
+contract crate's golden fixtures (examples/azlin-contract/fixtures, written by its tests), so
+the fault proxy, the mock stack and the chaos scripts keep no copies that could drift.
+
+- `azlin_errors()`: a node's codes (x-azlin-error) -> (HTTP status, S3 code, Retry-After or None)
+- `contract_version()`, `client_hello(app, version)`: the `x-azlin-client` header's value
+- `idempotency_key(raw=None)`: an `x-azlin-idempotency` value (base64url of 16 bytes, no padding)
+
+Standard library only.
+"""
+import base64
+import json
+import os
+import re
+import secrets
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+CRATE = os.path.join(HERE, '..', 'examples', 'azlin-contract')
+FIXTURES = os.path.join(CRATE, 'fixtures')
+CLIENT_HEADER = 'x-azlin-client'
+IDEMPOTENCY_HEADER = 'x-azlin-idempotency'
+
+_cache = {}
+
+
+def fixture(name):
+    """One golden fixture's JSON."""
+    if name not in _cache:
+        with open(os.path.join(FIXTURES, name), encoding='utf-8') as f:
+            _cache[name] = json.load(f)
+    return _cache[name]
+
+
+def azlin_errors():
+    """{code: (status, S3 code, Retry-After seconds or None)} of every node code."""
+    return {e['code']: (e['status'], e['s3'], e['retry_after'])
+            for e in fixture('azlin_errors.json')}
+
+
+def contract_version():
+    """The crate's CONTRACT_VERSION (src/lib.rs), the number every hello carries."""
+    if 'version' not in _cache:
+        with open(os.path.join(CRATE, 'src', 'lib.rs'), encoding='utf-8') as f:
+            found = re.search(r'^pub const CONTRACT_VERSION: u32 = (\d+);$', f.read(), re.M)
+        if not found:
+            raise ValueError('no CONTRACT_VERSION in the contract crate')
+        _cache['version'] = int(found.group(1))
+    return _cache['version']
+
+
+def client_hello(app, version):
+    """The hello of `app` at `version`: `azdrive/0.3.0; contract=3`."""
+    return '%s/%s; contract=%d' % (app, version, contract_version())
+
+
+def idempotency_key(raw=None):
+    """An idempotency key's header value: `raw` (16 bytes; else fresh random ones) as
+    base64url without padding."""
+    raw = secrets.token_bytes(16) if raw is None else bytes(raw)
+    if len(raw) != 16:
+        raise ValueError('an idempotency key is 16 bytes')
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')

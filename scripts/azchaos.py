@@ -28,7 +28,7 @@ rule that takes a request decides what happens to it:
                  token route the token server's JSON {"error": code, "message", ...`fields`},
                  or `body` (any JSON value) as it is
     azlin        answer an Azlin node's error `azlin_error` with the node's status and S3 code
-                 (azul-apps iso azlin-proto errors.rs) and its Retry-After
+                 (the contract crate's table) and its Retry-After
 
 A rule matches by `op` (PutObject, UploadPart, Refresh, ...), `method`, `key` and `bucket`
 (regular expressions, searched), `query` (searched in the raw query), `client` (a substring of
@@ -70,6 +70,9 @@ import urllib.parse
 import uuid
 from xml.sax.saxutils import escape
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azlin_contract  # noqa: E402
+
 USAGE = """\
 azchaos.py proxy --upstream URL [--kind s3|token|auto] [--host H] [--port P] [--rules FILE]
         [--log FILE]
@@ -82,25 +85,9 @@ azchaos.py slow-dns --name NAME=IP [--delay S] [--port P]
     /etc/resolver/<domain> - root - names it: nameserver 127.0.0.1, port P)
 """
 
-# An Azlin node's errors (x-azlin-error): (HTTP status, S3 code, Retry-After), as azlin-proto's
-# errors.rs sends them.
-AZLIN_ERRORS = {
-    "unavailable": (503, "SlowDown", 0),
-    "maintenance": (503, "ServiceUnavailable", 30),
-    "quota_exceeded": (403, "QuotaExceeded", None),
-    "read_only_unpaid": (403, "AccessDenied", None),
-    "credentials_revoked": (403, "InvalidAccessKeyId", None),
-    "object_too_large": (400, "EntityTooLarge", None),
-    "name_conflict": (412, "PreconditionFailed", None),
-    "link_blocked": (403, "AccessDenied", None),
-    "integrity": (500, "InternalError", None),
-    "delete_paused": (503, "SlowDown", 5),
-    "wrong_block": (301, "PermanentRedirect", None),
-    "internal": (500, "InternalError", None),
-    "drive_banned": (403, "AccessDenied", None),
-    "session_expired": (403, "ExpiredToken", None),
-    "clock_skew": (403, "RequestTimeTooSkewed", None),
-}
+# An Azlin node's errors (x-azlin-error): (HTTP status, S3 code, Retry-After), the contract
+# crate's (examples/azlin-contract/fixtures/azlin_errors.json).
+AZLIN_ERRORS = azlin_contract.azlin_errors()
 
 # How far a request's x-amz-date may be off the node's clock (S3's 15 minutes).
 MAX_SKEW_SECONDS = 15 * 60

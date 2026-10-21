@@ -213,6 +213,11 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
   `state.oauth_requests` (grant, client, redirect URI, whether the code or the refresh token
   was good).
 
+  Every call's hello (x-azlin-client) and idempotency key (x-azlin-idempotency) are logged with
+  it (`requests()`: `client`, `idempotency`), never required - as the token server reads them
+  until the version minimum. The node codes' statuses and S3 codes are the contract crate's
+  (scripts/azlin_contract.py reads its fixtures).
+
   Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
   unauthorized, token_reuse, credentials_revoked, bad_tier, no_such_checkout, claim_key_required,
   bad_claim_key, issue_key_required, issue_key_wrong, not_paid, already_issued, bad_token,
@@ -273,6 +278,7 @@ import azlin_cash  # noqa: E402
 import azlin_claim  # noqa: E402
 import azlin_ed25519  # noqa: E402
 import azlin_period  # noqa: E402
+import azlin_contract  # noqa: E402
 import s3_server  # noqa: E402
 
 # The tiers azlin-token knows (tiers.rs): id, bytes, cents a month, cents a year; a sign-up
@@ -2271,7 +2277,11 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-        self.server.record({'method': self.command, 'path': self.path, 'status': status})
+        # Read and logged, never required (as the token server does until the version
+        # minimum): the client's hello and the call's idempotency key.
+        self.server.record({'method': self.command, 'path': self.path, 'status': status,
+                            'client': self.headers.get(azlin_contract.CLIENT_HEADER),
+                            'idempotency': self.headers.get(azlin_contract.IDEMPOTENCY_HEADER)})
 
     def raw_body(self):
         length = int(self.headers.get('Content-Length') or 0)
@@ -2600,6 +2610,8 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     # and keeps every write to that quota as a node does (parts of unfinished uploads count).
     s3.space_quota = state.quota_of_bucket
     s3.enforce_quota = True
+    # The node codes' statuses and S3 codes: the contract crate's.
+    s3.azlin_errors = azlin_contract.azlin_errors()
     state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()
     state.base_url = token.url
