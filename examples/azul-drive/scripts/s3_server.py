@@ -205,6 +205,9 @@ class Store:
         self.versions = {} if keep_versions else None
         self.clock = time.time
         self._versions_lock = threading.Lock()
+        # The ETags of objects a multipart upload completed (S3's "<md5 of md5s>-<n>"), until
+        # the object is written or deleted again: (bucket, key) -> ETag.
+        self._multipart_etags = {}
 
     def _keep(self, bucket, key, data):
         """Records `data` (None: a delete) as the newest version of `key`, the file's version
@@ -304,7 +307,8 @@ class Store:
         if not os.path.isfile(path):
             return None
         stat = os.stat(path)
-        return {"size": stat.st_size, "mtime": stat.st_mtime, "etag": self.etag(path)}
+        etag = self._multipart_etags.get((bucket, key)) or self.etag(path)
+        return {"size": stat.st_size, "mtime": stat.st_mtime, "etag": etag}
 
     @staticmethod
     def etag(path):
@@ -322,6 +326,7 @@ class Store:
     def write(self, bucket, key, data):
         path = self.path(bucket, key)
         self._keep(bucket, key, bytes(data))
+        self._multipart_etags.pop((bucket, key), None)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = os.path.join(self.root, self.TMP, uuid.uuid4().hex)
         with open(tmp, "wb") as f:
@@ -404,7 +409,9 @@ class Store:
                     shutil.copyfileobj(part, out, 1 << 20)
         os.replace(tmp, target)
         shutil.rmtree(folder, ignore_errors=True)
-        return '"%s-%d"' % (hashlib.md5(b"".join(digests)).hexdigest(), len(listed))
+        etag = '"%s-%d"' % (hashlib.md5(b"".join(digests)).hexdigest(), len(listed))
+        self._multipart_etags[(bucket, key)] = etag
+        return etag
 
     def abort(self, folder):
         shutil.rmtree(folder, ignore_errors=True)
@@ -438,6 +445,7 @@ class Store:
         path = self.path(bucket, key)
         if os.path.isfile(path):
             self._keep(bucket, key, None)
+        self._multipart_etags.pop((bucket, key), None)
         try:
             os.remove(path)
         except FileNotFoundError:
