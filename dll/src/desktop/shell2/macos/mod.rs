@@ -102,6 +102,7 @@ pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
+pub mod vsync_ticks;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
 
@@ -5590,20 +5591,12 @@ impl MacOSWindow {
             .map_err(|code| format!("CVDisplayLinkCreateWithCGDisplays failed: {}", code))?;
 
         // Set output callback
-        // For now, we'll use a simple callback that just marks the window for redraw
-        // libdispatch: hop from the CVDisplayLink thread to the main queue.
-        // AppKit is not thread-safe — the old callback called
+        // The tick hops from the CVDisplayLink thread to the main thread
+        // (`vsync_ticks`). AppKit is not thread-safe - the old callback called
         // setViewsNeedDisplay: directly on the display-link thread (UB inside
         // AppKit's view-dirty bookkeeping, and it could not wake a run loop
         // blocked in runMode:beforeDate: either).
-        extern "C" {
-            static _dispatch_main_q: std::ffi::c_void;
-            fn dispatch_async_f(
-                queue: *const std::ffi::c_void,
-                context: *mut std::ffi::c_void,
-                work: extern "C" fn(*mut std::ffi::c_void),
-            );
-        }
+        vsync_ticks::install();
 
         extern "C" fn mark_views_dirty_on_main(context: *mut std::ffi::c_void) {
             // Runs on the MAIN queue. `context` is an NSWindow retained at
@@ -5693,11 +5686,7 @@ impl MacOSWindow {
                 {
                     pace_trace("cvdisplaylink-fire");
                     objc2::ffi::objc_retain(target.window.cast());
-                    dispatch_async_f(
-                        std::ptr::addr_of!(_dispatch_main_q),
-                        target.window,
-                        mark_views_dirty_on_main,
-                    );
+                    vsync_ticks::deliver(target.window, mark_views_dirty_on_main);
                 }
             }
             corevideo::K_CV_RETURN_SUCCESS

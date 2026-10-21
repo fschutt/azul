@@ -1245,6 +1245,14 @@ name = "leak_regression"
 path = "tests/leak_regression.rs"
 required-features = ["build-dll", "e2e-test"]
 
+# Runs on the process's main thread (its run loop and dispatch queue are the
+# ones under test), so it brings its own `main`.
+[[test]]
+name = "a_vsync_tick_reaches_a_main_loop_whose_timer_overruns"
+path = "tests/a_vsync_tick_reaches_a_main_loop_whose_timer_overruns.rs"
+harness = false
+required-features = ["build-dll"]
+
 # -----------------------------------------------------------------------------
 # Examples
 # -----------------------------------------------------------------------------

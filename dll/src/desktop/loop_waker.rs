@@ -54,7 +54,25 @@ pub fn wake() {
         }
     }
     #[cfg(target_os = "macos")]
-    macos::post_wake_event();
+    {
+        #[cfg(test)]
+        WAKE_EVENTS_POSTED.fetch_add(1, Ordering::SeqCst);
+        macos::post_wake_event();
+    }
+}
+
+/// How many wake-up events [`wake`] posted: the tests' work counter.
+#[cfg(all(test, target_os = "macos"))]
+static WAKE_EVENTS_POSTED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// The macOS event loop runs: it comes around again by itself.
+pub fn loop_awake() {}
+
+/// The macOS event loop is about to block in `runMode:beforeDate:`; `false`
+/// when it must not, because work arrived that no event announces.
+#[must_use]
+pub fn loop_may_park() -> bool {
+    true
 }
 
 /// Has a [`wake`] arrived that no iteration has served yet?
@@ -328,6 +346,35 @@ mod tests {
         assert!(must_not_park(), "a pending wake forbids parking");
         assert!(take_pending(), "the loop takes it");
         assert!(!take_pending(), "exactly once");
+    }
+
+    /// The wake-up event exists to end a park. Posted to a loop that runs,
+    /// it is one more event for the loop's event drain, which takes events
+    /// until none is left - and every turn that steps an animation finishes
+    /// a WebRender frame whose notifier wakes the loop again, so the drain
+    /// never ended, never reached the blocking run, and the main queue and
+    /// the vsync tick waited behind it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_wake_posts_a_wake_up_event_only_to_a_parked_loop() {
+        let _serial = serial();
+        let posted = || WAKE_EVENTS_POSTED.load(Ordering::SeqCst);
+        let _ = take_pending();
+        loop_awake();
+        let before = posted();
+        std::thread::spawn(wake).join().expect("the waking thread ran");
+        assert_eq!(posted(), before, "a wake while the loop runs posts no wake-up event");
+        assert!(
+            !loop_may_park(),
+            "the wake is still owed: the loop must not park over it"
+        );
+        assert!(take_pending(), "the loop takes the wake on its next turn");
+        assert!(loop_may_park(), "with nothing owed the loop parks");
+        std::thread::spawn(wake).join().expect("the waking thread ran");
+        assert_eq!(posted(), before + 1, "a wake while the loop is parked posts one");
+        // Leave it as a loop that never announced itself: parked.
+        let _ = take_pending();
+        let _ = loop_may_park();
     }
 
     #[test]
