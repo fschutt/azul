@@ -39771,6 +39771,9 @@
                                 },
                                 "BackgroundOrigin": {
                                     "type": "StyleBackgroundOriginVecValue"
+                                },
+                                "BackgroundColor": {
+                                    "type": "StyleBackgroundContentValue"
                                 }
                             }
                         ],
@@ -40819,6 +40822,17 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::background_origin(input)"
+                            },
+                            "background_color": {
+                                "doc": [
+                                    "`background-color`: `input` is a `Color` or a `SystemColor`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "input": "StyleBackgroundContent"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::background_color(input)"
                             }
                         },
                         "functions": {
@@ -51257,7 +51271,8 @@
                                 "FontFeatureSettings": {},
                                 "CounterSet": {},
                                 "Quotes": {},
-                                "BackgroundOrigin": {}
+                                "BackgroundOrigin": {},
+                                "BackgroundColor": {}
                             }
                         ],
                         "repr": "C"
