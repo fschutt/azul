@@ -1650,9 +1650,10 @@ pub fn http_request_with_config(
 
     // One request through the http crate's builder, whatever the verb: ureq's
     // typed builders exist for the standard verbs only, and this way the
-    // WebDAV ones (PROPFIND, MKCOL, ...) take the same path. A body goes when
-    // the verb takes one, or when a DELETE says what it removes (a signed
-    // request).
+    // WebDAV ones (PROPFIND, MKCOL, ...) take the same path. ureq refuses a
+    // verb outside the standard set unless the request allows it, so every
+    // request does. A body goes when the verb takes one, or when a DELETE
+    // says what it removes (a signed request).
     let sends_body = method.takes_body()
         || (matches!(method, HttpMethod::Delete) && body.is_some_and(|b| !b.is_empty()));
     let mut builder = ureq::http::Request::builder()
@@ -1679,6 +1680,7 @@ pub fn http_request_with_config(
             .timeout_global(timeout)
             .max_redirects(max_redirects)
             .save_redirect_history(true)
+            .allow_non_standard_methods(true)
             .build();
         agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     } else {
@@ -1690,6 +1692,7 @@ pub fn http_request_with_config(
             .timeout_global(timeout)
             .max_redirects(max_redirects)
             .save_redirect_history(true)
+            .allow_non_standard_methods(true)
             .build();
         agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     };
