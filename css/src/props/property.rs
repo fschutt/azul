@@ -588,9 +588,18 @@ impl CssKeyMap {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    /// How many times this thread built the property-name maps: the work counter the parser's
+    /// tests read, so a parse that builds them again shows up as a count, not as a time.
+    pub(crate) static KEY_MAP_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Returns a map useful for parsing the keys of CSS stylesheets
 #[must_use]
 pub fn get_css_key_map() -> CssKeyMap {
+    #[cfg(test)]
+    KEY_MAP_BUILDS.with(|n| n.set(n.get() + 1));
     CssKeyMap {
         non_shorthands: CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
         shorthands: COMBINED_CSS_PROPERTIES_KEY_MAP

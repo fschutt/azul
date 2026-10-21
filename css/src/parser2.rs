@@ -5594,3 +5594,30 @@ mod invalid_selector_tests {
         assert_eq!(paths(&nested), [".card::after"]);
     }
 }
+
+#[cfg(test)]
+mod key_map_work_tests {
+    use crate::{css::Css, props::property::KEY_MAP_BUILDS};
+
+    fn builds() -> usize {
+        KEY_MAP_BUILDS.with(core::cell::Cell::get)
+    }
+
+    #[test]
+    fn parsing_inline_styles_does_not_build_the_property_name_maps_again() {
+        // A virtualized list builds its rows with inline styles on every render, so a parse
+        // must only look its keys up: the maps of every property name are built once.
+        drop(Css::parse_inline("width: 10px;"));
+        let before = builds();
+        for _ in 0..50 {
+            drop(Css::parse_inline(
+                "display: flex; flex-direction: row; align-items: center; min-width: 0px;",
+            ));
+            drop(Css::parse_inline("margin: 4px; width: 10px; width: nonsense;"));
+        }
+        drop(crate::parser2::new_from_str(
+            "@keyframes spin { from { opacity: 0; } to { opacity: 1; } } .a { color: red; }",
+        ));
+        assert_eq!(builds() - before, 0, "the property-name maps were built again by a parse");
+    }
+}
