@@ -26,6 +26,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "examples", "azul-drive", "scripts"))
 
 import azchaos  # noqa: E402
+import azlin_client  # noqa: E402
+import azlin_mock_stack  # noqa: E402
 import s3_server  # noqa: E402
 
 ACCESS = "chaos-test"
@@ -195,15 +197,12 @@ class TheFaults(ProxyCase):
         self.assertEqual(azchaos.AZLIN_ERRORS["read_only_unpaid"], (403, "AccessDenied", None))
         self.assertEqual(azchaos.AZLIN_ERRORS["delete_paused"], (503, "SlowDown", 5))
 
-    def test_a_stale_map_answer_is_409_with_the_newer_epoch_and_its_hash(self):
-        self.proxy.add(op="UploadPart", action="stale_map", epoch=42)
-        status, headers, _ = self.client.request("PUT", BUCKET, "big",
-                                                 query={"partNumber": "1", "uploadId": "u"},
-                                                 body=b"part")
-        self.assertEqual(status, 409)
-        epoch, digest = headers["x-azlin-map"].split(" ")
-        self.assertEqual(epoch, "42")
-        self.assertEqual(len(digest), 64)
+    def test_no_fault_answers_what_a_node_never_sends(self):
+        # A 409 with x-azlin-map is no answer of s3d's and no client reads it: a test of it
+        # tested the mock only.
+        self.assertNotIn("stale_map", azchaos.ACTIONS)
+        with self.assertRaises(ValueError):
+            self.proxy.add(op="UploadPart", action="stale_map", epoch=42)
 
     def test_a_cut_body_sends_part_of_the_object_then_resets(self):
         self.put("cut.bin", bytes(range(256)) * 64)
@@ -301,6 +300,158 @@ class TheFaults(ProxyCase):
         mine = self.put("t1", b"x", headers={"x-amz-security-token": "laptop-token-1"})[0]
         theirs = self.put("t2", b"x", headers={"x-amz-security-token": "desktop-token-1"})[0]
         self.assertEqual((mine, theirs), (403, 200))
+
+
+class TheTokenRoutes(unittest.TestCase):
+    """The token server's routes are named as the router names them, so a rule hits one route."""
+
+    def test_every_token_route_the_apps_call_has_its_op_and_its_id_as_the_key(self):
+        cases = [
+            ("POST", "/v1/drives/d_abc/credentials", ("Refresh", "d_abc")),
+            ("POST", "/v1/drives/d_abc/lockdown", ("Lockdown", "d_abc")),
+            ("POST", "/v1/drives/d_abc/lockdown/cancel", ("LockdownCancel", "d_abc")),
+            ("POST", "/v1/drives/d_abc/claim", ("Claim", "d_abc")),
+            ("POST", "/v1/drives/d_abc/redeem", ("Redeem", "d_abc")),
+            ("POST", "/v1/vouchers/redeem", ("Voucher", "")),
+            ("POST", "/v1/tokens/issue", ("Issue", "")),
+            ("GET", "/v1/tokens/keys", ("IssuerKeys", "")),
+            ("POST", "/v1/checkout", ("CheckoutCreate", "")),
+            ("GET", "/v1/checkout/options?tier=1TB", ("CheckoutOptions", "")),
+            ("GET", "/v1/checkout/ck_x", ("CheckoutStatus", "ck_x")),
+            ("POST", "/v1/checkout/ck_x/pay", ("CheckoutPay", "ck_x")),
+            ("POST", "/v1/checkout/ck_x/surface", ("CheckoutSurface", "ck_x")),
+            ("POST", "/v1/checkout/ck_x/abandon", ("Abandon", "ck_x")),
+            ("POST", "/v1/checkout/ck_x/cancel", ("CheckoutCancel", "ck_x")),
+            ("POST", "/v1/drives/d_abc/members", ("AddMember", "d_abc")),
+            ("DELETE", "/v1/drives/d_abc/members/m_1", ("RemoveMember", "d_abc")),
+            ("POST", "/v1/drives", ("Signup", "")),
+            ("GET", "/v1/drives/d_abc", ("DriveInfo", "d_abc")),
+            ("POST", "/v1/drives/d_abc/keys", ("CreateKey", "d_abc")),
+            ("DELETE", "/v1/drives/d_abc/keys/AZK1", ("RevokeKey", "d_abc")),
+            ("POST", "/v1/drives/d_abc/restore", ("Restore", "d_abc")),
+            ("GET", "/v1/drives/d_abc/restore/r_1", ("RestoreStatus", "d_abc")),
+            ("POST", "/v1/drives/d_abc/recovery", ("SetRecovery", "d_abc")),
+            ("GET", "/v1/drives/d_abc/recovery_keys", ("RecoveryKeys", "d_abc")),
+            ("POST", "/v1/drives/d_abc/recovery_keys", ("AddRecoveryKey", "d_abc")),
+            ("DELETE", "/v1/drives/d_abc/recovery_keys/rk_1", ("RemoveRecoveryKey", "d_abc")),
+            ("POST", "/v1/recovery/challenge", ("RecoveryChallenge", "")),
+            ("POST", "/v1/recovery/lookup", ("RecoveryLookup", "")),
+            ("GET", "/v1/tiers?country=DE", ("Tiers", "")),
+            ("GET", "/health", ("Health", "")),
+            ("GET", "/v1/health", ("Health", "")),
+            ("POST", "/v1/webhook/fake-stripe", ("Webhook", "")),
+            ("GET", "/v1/somewhere/else", ("TokenOther", "")),
+        ]
+        for method, target, want in cases:
+            path = target.split("?", 1)[0]
+            self.assertEqual(azchaos.token_op(method, path), want, (method, target))
+
+    def test_a_proxy_of_either_kind_names_requests_by_what_is_behind_it(self):
+        head = b"POST /v1/drives/d_abc/credentials HTTP/1.1\r\nHost: x\r\n\r\n"
+        self.assertEqual(azchaos.Request(head, "token").op, "Refresh")
+        # "v1" is no bucket name (S3 names have three letters at least): the auto kind tells a
+        # token route from an S3 call by it.
+        self.assertEqual(azchaos.Request(head, "auto").op, "Refresh")
+        self.assertEqual(azchaos.Request(head, "s3").op, "PostObject")
+        health = b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n"
+        self.assertEqual(azchaos.Request(health, "token").op, "Health")
+        self.assertEqual(azchaos.Request(health, "auto").op, "ListObjects")
+        with self.assertRaises(ValueError):
+            azchaos.ChaosProxy("http://127.0.0.1:1", kind="dns")
+
+
+class TokenProxyCase(unittest.TestCase):
+    """The mock stack's token server and a chaos proxy in front of it."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="azchaos-token-test-")
+        self.stack = azlin_mock_stack.start(os.path.join(self.root, "s3"))
+        self.state = self.stack.token.state
+        self.proxy = azchaos.ChaosProxy(self.stack.token_url, kind="token").start()
+        self.client = azlin_client.TokenClient(self.proxy.url, timeout=10)
+        bundle = self.state.signup({"name": "chaos"})
+        self.drive = bundle["drive"]["id"]
+        self.token = bundle["drive_token"]
+        self.family = self.token[3:].split(".")[0]
+
+    def tearDown(self):
+        self.proxy.stop()
+        self.stack.stop()
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def generation(self):
+        return self.state.families[self.family]["generation"]
+
+    def refresh(self, token=None):
+        return self.client.refresh(self.drive, token or self.token)
+
+
+class TheTokenFaults(TokenProxyCase):
+    def test_a_lost_refresh_answer_rotates_at_the_server_and_the_client_sees_a_reset(self):
+        rule = self.proxy.add(op="Refresh", action="reset_after")
+        with self.assertRaises((OSError, http.client.HTTPException)):
+            self.refresh()
+        self.assertEqual(self.generation(), 1, "the server rotated the token")
+        self.assertEqual(rule.applied, 1)
+        entry = self.proxy.requests(op="Refresh")[0]
+        self.assertEqual((entry["forwarded"], entry["upstream_status"], entry["key"]),
+                         (True, 200, self.drive))
+
+    def test_an_answer_replaced_after_the_write_landed_is_the_given_refusal(self):
+        # The server committed the rotation, the client hears a 503 (T2's case).
+        self.proxy.add(op="Refresh", action="answer_after", status=503, code="unavailable",
+                       fields={"spent": True}, times=1)
+        status, value, _ = self.refresh()
+        self.assertEqual(status, 503)
+        self.assertEqual(value, {"error": "unavailable", "message": "azchaos", "spent": True})
+        self.assertEqual(self.generation(), 1)
+        entry = self.proxy.requests(op="Refresh")[0]
+        self.assertEqual((entry["upstream_status"], entry["status"]), (200, 503))
+
+    def test_a_status_on_a_token_route_answers_its_json_and_forwards_nothing(self):
+        self.proxy.add(op="Refresh", action="status", status=503, code="try_again",
+                       fields={"spent": False}, times=1)
+        status, value, _ = self.refresh()
+        self.assertEqual((status, value["error"], value["spent"]), (503, "try_again", False))
+        self.assertEqual(self.generation(), 0, "nothing reached the server")
+        status, value, _ = self.refresh()
+        self.assertEqual(status, 200)
+        self.assertEqual(self.generation(), 1)
+
+    def test_a_scripted_body_is_answered_as_given(self):
+        self.proxy.add(op="Abandon", action="status", status=200,
+                       body={"checkout_id": "ck_x", "status": "pending"})
+        status, value, _ = self.client.call("POST", "/v1/checkout/ck_x/abandon", {})
+        self.assertEqual((status, value), (200, {"checkout_id": "ck_x", "status": "pending"}))
+
+    def test_a_rule_with_a_drive_id_takes_only_that_drive_s_calls(self):
+        other = self.state.signup({"name": "other"})
+        self.proxy.add(op="Refresh", key="^%s$" % other["drive"]["id"], action="status",
+                       status=503, code="unavailable")
+        self.assertEqual(self.refresh()[0], 200)
+        status, _, _ = self.client.refresh(other["drive"]["id"], other["drive_token"])
+        self.assertEqual(status, 503)
+
+    def test_a_stall_after_holds_the_refresh_answer_until_released(self):
+        self.proxy.add(op="Refresh", action="stall_after", times=1)
+        got = {}
+        thread = threading.Thread(target=lambda: got.update(answer=self.refresh()))
+        thread.start()
+        deadline = time.time() + 5
+        while self.proxy.held() == 0 and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.proxy.held(), 1)
+        self.assertEqual(self.generation(), 1, "the rotation landed before the answer was held")
+        self.proxy.release()
+        thread.join(5)
+        self.assertEqual(got["answer"][0], 200)
+
+    def test_the_log_names_the_family_and_never_holds_a_drive_token(self):
+        self.refresh()
+        entry = self.proxy.requests(op="Refresh")[0]
+        self.assertEqual(entry["client"], "dt_" + self.family)
+        secret = self.token.split(".", 2)[2]
+        self.assertNotIn(secret, json.dumps(self.proxy.requests()))
 
 
 class TheNetwork(ProxyCase):
