@@ -381,6 +381,65 @@ class AzlinSpace(ServerTest):
         self.assertNotIn("x-azlin-quota-bytes", headers, "no quota known: none said")
 
 
+class AzlinQuota(ServerTest):
+    """An Azlin node's quota (`enforce_quota` with `space_quota`): a write is refused 403
+    QuotaExceeded with x-azlin-error quota_exceeded when the stored bytes, the parts of the
+    bucket's unfinished uploads and the write, less what it replaces, pass the quota."""
+
+    QUOTA = 100
+
+    def setUp(self):
+        super().setUp()
+        self.server.space_quota = lambda bucket: self.QUOTA if bucket == BUCKET else None
+        self.server.enforce_quota = True
+
+    def put(self, key, data):
+        return self.client.request("PUT", BUCKET, key, body=data)
+
+    def refused(self, answer):
+        status, headers, body = answer
+        return (status, headers.get("x-azlin-error"), xml_code(body)) == (
+            403, "quota_exceeded", "QuotaExceeded")
+
+    def test_the_put_that_passes_the_quota_is_refused_and_one_replacing_bytes_counts_them(self):
+        self.assertEqual(self.put("a", b"x" * 60)[0], 200)
+        self.assertTrue(self.refused(self.put("b", b"y" * 41)))
+        self.assertIsNone(self.server.store.info(BUCKET, "b"), "nothing written")
+        self.assertEqual(self.put("b", b"y" * 40)[0], 200, "exactly the quota fits")
+        self.assertEqual(self.put("a", b"z" * 60)[0], 200, "a rewrite frees what it replaces")
+
+    def test_the_parts_of_an_unfinished_upload_count_until_it_ends(self):
+        status, _, body = self.client.request("POST", BUCKET, "big", query={"uploads": ""})
+        upload = xml_values(body, "UploadId")[0]
+        part = lambda n, data: self.client.request(  # noqa: E731
+            "PUT", BUCKET, "big", query={"partNumber": str(n), "uploadId": upload}, body=data)
+        self.assertEqual(part(1, b"a" * 50)[0], 200)
+        self.assertTrue(self.refused(self.put("small", b"s" * 51)), "the part holds its bytes")
+        self.assertTrue(self.refused(part(2, b"b" * 51)))
+        self.assertEqual(part(1, b"c" * 90)[0], 200, "a part sent again replaces its bytes")
+        self.client.request("DELETE", BUCKET, "big", query={"uploadId": upload})
+        self.assertEqual(self.put("small", b"s" * 51)[0], 200, "an aborted upload frees them")
+
+    def test_of_two_writes_at_once_that_each_fit_only_one_lands(self):
+        import threading  # noqa: PLC0415
+        self.assertEqual(self.put("a", b"x" * 40)[0], 200)
+        answers = []
+        threads = [threading.Thread(target=lambda k=k: answers.append(self.put(k, b"y" * 40)))
+                   for k in ("b", "c")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        self.assertEqual(sorted(a[0] for a in answers), [200, 403])
+
+    def test_a_bucket_without_a_known_quota_and_a_plain_s3_take_every_write(self):
+        self.server.space_quota = lambda bucket: None
+        self.assertEqual(self.put("a", b"x" * 500)[0], 200)
+        self.server.space_quota = lambda bucket: self.QUOTA
+        self.server.enforce_quota = False
+        self.assertEqual(self.put("b", b"x" * 500)[0], 200)
+
+
 class Authentication(ServerTest):
     def test_a_wrong_secret_is_403_signature_does_not_match(self):
         client = s3_server.Client(self.server.url, ACCESS, "wrong-secret")
