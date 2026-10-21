@@ -419,7 +419,7 @@ fn a_refreshed_listing_asks_the_bucket_again_before_its_poll_time() {
     assert!(phone.list(&root()).is_ok(), "within the poll time: the copy");
     match phone.list(&root().refreshed()) {
         Err(DriveError::Service(refused)) => {
-            assert_eq!(refused.azlin_error.as_deref(), Some("read_only_unpaid"));
+            assert_eq!(refused.azlin_error, Some(crate::AzlinError::ReadOnlyUnpaid));
             assert_eq!(refused.request_id.as_deref(), Some("REQ-UNPAID"));
         }
         other => panic!("F5 says the node's refusal, not {other:?}"),

@@ -112,7 +112,7 @@ fn a_refused_write_of_a_banned_drive_is_read_only_in_english_and_german() {
         status: 403,
         code: String::from("AccessDenied"),
         message: String::from("the node's sentence"),
-        azlin_error: Some(String::from("drive_banned")),
+        azlin_error: Some(azul_storage::AzlinError::DriveBanned),
         ..ServiceError::default()
     });
     let user = UserError::from_drive_error(&refused).unwrap();

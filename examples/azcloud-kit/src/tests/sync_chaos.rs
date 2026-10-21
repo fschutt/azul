@@ -77,7 +77,7 @@ fn a_failed_pass_keeps_the_error_tables_code_and_a_good_pass_clears_it() {
         code: String::from("InvalidAccessKeyId"),
         message: String::from("this device was removed from the drive"),
         request_id: Some(String::from("n1-77")),
-        azlin_error: Some(String::from("credentials_revoked")),
+        azlin_error: Some(azul_storage::AzlinError::CredentialsRevoked),
         ..ServiceError::default()
     });
     let offline = DriveError::Transport(String::from("http://n1: Connection refused"));

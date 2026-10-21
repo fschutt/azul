@@ -1,6 +1,7 @@
 //! The errors users see (D33): one table from the token server's and the storage's error codes
 //! to a class, a behaviour and a text in English and German, with the request ID as the error ID.
 
+use azlin_contract::AzlinError;
 use azul_storage::{DriveError, ServiceError};
 
 use crate::{
@@ -16,7 +17,7 @@ fn azlin(status: u16, s3: &str, code: Option<&str>) -> DriveError {
         code: s3.to_string(),
         message: String::from("the node's sentence"),
         request_id: Some(String::from("n2-81723")),
-        azlin_error: code.map(str::to_string),
+        azlin_error: code.map(AzlinError::from_wire),
         ..ServiceError::default()
     })
 }
@@ -423,4 +424,36 @@ fn the_recovery_refusals_have_their_rows_and_texts() {
     assert!(refused(409, "last_recovery_key").message(Lang::En).contains("last"));
     assert!(refused(401, "bad_challenge").message(Lang::En).contains("Try again"));
     assert_eq!(Code::Other.row().code, Code::Other, "Other keeps its row");
+}
+
+#[test]
+fn every_code_of_the_contract_has_a_row_of_its_own() {
+    for code in AzlinError::ALL {
+        let ours = Code::from(code);
+        assert_eq!(ours.row().code, ours, "{code}: {ours:?} has its row");
+        // `internal` is the one code that is "something went wrong" by design.
+        if code != AzlinError::Internal {
+            assert_ne!(ours, Code::Other, "{code} has a row of its own");
+        }
+        let (status, s3) = code.s3();
+        let read = code_of(&azlin(status, s3, Some(code.as_str())));
+        assert_eq!(read, Some(ours), "{code} as a node sends it");
+    }
+}
+
+#[test]
+fn a_client_too_old_for_the_service_is_asked_to_update() {
+    let refused = TokenError::Refused {
+        status: 426,
+        code: String::from("client_too_old"),
+        message: String::from("this app speaks contract 2, the minimum is 3"),
+    };
+    let user = UserError::from_token_error(&refused).unwrap();
+    assert_eq!((user.code, user.class()), (Code::UpdateApp, Class::Fatal));
+    assert!(user.message(Lang::En).contains("Update the app"));
+    assert!(user.message(Lang::De).contains("Aktualisiere die App"));
+    assert_eq!(
+        code_of(&azlin(426, "AzlinClientTooOld", Some("client_too_old"))),
+        Some(Code::UpdateApp)
+    );
 }

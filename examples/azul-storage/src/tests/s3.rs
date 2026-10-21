@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    sigv4, BucketSpace, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply,
+    sigv4, AzlinError, BucketSpace, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply,
     ListRequest, Method, Precondition, S3Config, S3Drive, Transport,
 };
 
@@ -407,7 +407,7 @@ fn an_azlin_error_answer_keeps_its_code_its_retry_after_and_its_request_id() {
     match local_drive(&fake).list(&ListRequest::folder("")) {
         Err(DriveError::Service(e)) => {
             assert_eq!((e.status, e.code.as_str()), (503, "ServiceUnavailable"));
-            assert_eq!(e.azlin_error.as_deref(), Some("maintenance"));
+            assert_eq!(e.azlin_error, Some(AzlinError::Maintenance));
             assert_eq!(e.retry_after, Some(30));
             assert_eq!(e.request_id.as_deref(), Some("n2-81723"));
             let text = DriveError::Service(e).to_string();
@@ -427,6 +427,26 @@ fn an_azlin_error_answer_keeps_its_code_its_retry_after_and_its_request_id() {
             assert_eq!(e.azlin_error, None);
             assert_eq!(e.retry_after, None);
             assert_eq!(e.request_id.as_deref(), Some("4442587FB7D0A2F9"));
+        }
+        other => panic!("expected a service error, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_azlin_code_this_build_does_not_know_reads_as_unknown_not_as_none() {
+    // A newer node's code is still an Azlin node's refusal: the app says to update it,
+    // instead of treating it as a foreign service's error.
+    let fake = Fake::default();
+    fake.answer(
+        403,
+        &[("x-azlin-error", "  a_code_from_a_newer_node "), ("x-amz-request-id", "n3-1")],
+        "<Error><Code>AccessDenied</Code><Message>no</Message></Error>",
+    );
+    match local_drive(&fake).list(&ListRequest::folder("")) {
+        Err(DriveError::Service(e)) => {
+            assert_eq!(e.azlin_error, Some(AzlinError::Unknown));
+            let text = DriveError::Service(e).to_string();
+            assert!(text.contains("x-azlin-error unknown"), "{text}");
         }
         other => panic!("expected a service error, got {other:?}"),
     }

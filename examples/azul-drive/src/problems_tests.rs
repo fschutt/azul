@@ -16,7 +16,7 @@ fn unpaid() -> DriveError {
         code: String::from("AccessDenied"),
         message: String::from("read-only"),
         request_id: Some(String::from("n2-81723")),
-        azlin_error: Some(String::from("read_only_unpaid")),
+        azlin_error: Some(azul_storage::AzlinError::ReadOnlyUnpaid),
         ..ServiceError::default()
     })
 }

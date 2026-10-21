@@ -76,7 +76,7 @@ impl Unplugged {
                 code: "AccessDenied".to_string(),
                 message: "the drive takes no writes".to_string(),
                 request_id: Some("REQ-UNPAID".to_string()),
-                azlin_error: Some("read_only_unpaid".to_string()),
+                azlin_error: Some(crate::AzlinError::ReadOnlyUnpaid),
                 ..ServiceError::default()
             })));
         }
