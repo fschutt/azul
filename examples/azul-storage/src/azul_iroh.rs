@@ -16,6 +16,7 @@ use std::{
 
 use azul::{
     error::ResultU8VecString,
+    http::TrustRoots,
     iroh::{IrohConfig, IrohEndpoint, IrohRelayMode},
     str::String as AzString,
     vec::{StringVec, U8Vec},
@@ -65,7 +66,19 @@ fn endpoint(relay: Option<&str>) -> Result<Arc<Shared>, String> {
             return Ok(bound.clone());
         }
     }
-    let config = IrohConfig::create(S3_OVER_IROH_ALPN).with_max_frame_bytes(MAX_ANSWER_BYTES);
+    // A client: it dials the nodes and serves nobody, so no incoming connection is accepted (a
+    // stranger's frames would only pile up unread). Its relays' TLS trusts Let's Encrypt's
+    // roots only (`crate::trust`).
+    let relay_roots = StringVec::from_vec(
+        crate::trust::AZLIN_RELAY_ROOTS
+            .iter()
+            .map(|(_, pem)| AzString::from(*pem))
+            .collect(),
+    );
+    let config = IrohConfig::create(S3_OVER_IROH_ALPN)
+        .with_max_frame_bytes(MAX_ANSWER_BYTES)
+        .with_trust_roots(TrustRoots::Pinned(relay_roots))
+        .with_allowed_peers(StringVec::from_vec(Vec::new()));
     let config = match key.as_str() {
         "off" => config.with_relay_mode(IrohRelayMode::Disabled),
         "default" => config.with_relay_mode(IrohRelayMode::Default),

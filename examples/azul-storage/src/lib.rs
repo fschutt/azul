@@ -70,6 +70,8 @@ pub mod tables;
 pub mod time;
 pub mod transfer;
 pub mod transport;
+/// The certificate authorities the Azlin apps pin (the iroh relays').
+pub mod trust;
 /// The app's UI thread never waits for a network answer (debug builds assert it).
 pub mod ui_thread;
 /// A request and its answer as HTTP/1.1 bytes: S3 over iroh.
