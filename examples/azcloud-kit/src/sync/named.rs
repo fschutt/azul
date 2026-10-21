@@ -73,8 +73,6 @@ pub(super) struct NamedFiles<'d> {
     moved: Mutex<BTreeSet<String>>,
 }
 
-/// The small files' bytes a batch holds before it is sent: a few packs' worth.
-const BATCH_BYTES: u64 = 16 << 20;
 /// Large files a batch takes before it is sent (and named in one commit of an encrypted
 /// drive's index): enough to keep several uploads in flight, few enough open files.
 const LARGE_BATCH_FILES: usize = 16;
@@ -606,7 +604,7 @@ impl SyncRemote for NamedFiles<'_> {
                             hash: sending.hash,
                             bytes,
                         });
-                        if small_bytes >= BATCH_BYTES {
+                        if small_bytes >= azul_storage::SMALL_BATCH_BYTES {
                             let full = std::mem::take(&mut small);
                             self.send_batch(full, work, report, &mut abandoned)?;
                             small_bytes = 0;

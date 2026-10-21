@@ -168,6 +168,10 @@ pub const CONTENT_HASH_METADATA: &str = "BLAKE3";
 /// every file.
 pub const SMALL_FILE_BYTES: u64 = 512 * 1024;
 
+/// The small files' bytes one [`Drive::put_many`] batch holds before it is sent: a few packs'
+/// worth on an encrypted drive, few enough to keep in memory.
+pub const SMALL_BATCH_BYTES: u64 = 16 << 20;
+
 /// The keys one batch delete request takes at most: S3's DeleteObjects limit.
 pub const DELETE_BATCH: usize = 1000;
 
