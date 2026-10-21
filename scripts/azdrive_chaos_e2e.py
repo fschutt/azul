@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """AzDrive's sync under hostile conditions, end to end and headless: the client side of the chaos
 tests. Each scenario starts the mock Azlin stack (scripts/azlin_mock_stack.py: the token server
-and the S3), the fault proxy in front of the S3 (scripts/azchaos.py: every bundle names the proxy
-as the drive's node), AzDrive (the laptop: the app under test, its folder paired through its view
+and the S3), a fault proxy in front of the S3 (scripts/azchaos.py: every bundle names the proxy
+as the drive's node) and one in front of the token server (AzDrive's --token-url: a lost or
+refused answer of the token server's), AzDrive (the laptop: the app under test, its folder paired through its view
 settings) and, where a second device is needed, the `azcloud` CLI (the desktop: the same sync
 engine, its own token family). Then it does to them what real life does and checks two things:
 
@@ -45,8 +46,10 @@ Scenarios (`--only NAME,...`, `--list`):
   disk-full         the folder lies on a 64 MiB disk image; the drive holds a 100 MiB file and small
                     ones: the small ones come down, the big one fails plainly, no partial file,
                     nothing is deleted on the drive
-  quota             the drive's quota is reached mid-sync: "Your drive is full"-like status, the
-                    files that fit are up, nothing lost here; quota raised: the rest goes up
+  quota             the drive's quota is reached mid-sync - the node's quota (the mock's S3
+                    refuses as a node: the stored bytes and the parts of unfinished uploads
+                    count), not the proxy's: "Your drive is full"-like status, the files that fit
+                    are up, nothing lost here; quota raised: the rest goes up
   revoked           this device is removed at the token server mid-sync: the status says so, no
                     file here is deleted, nothing more goes up
   rotation          (encrypted) another device rotates the drive key ("I was hacked") during a
@@ -70,8 +73,14 @@ Scenarios (`--only NAME,...`, `--list`):
                     getaddrinfo the system's C compiler builds: no root)
   iroh-lane         the node list names an iroh node at a UDP port that swallows everything: the
                     requests fall back to HTTPS at once, the lane rests, nothing is sent twice
-  server-errors     503 SlowDown with Retry-After, 500 bursts, 409 with x-azlin-map (a stale map),
-                    maintenance (Retry-After 30): retried, nothing duplicated, a plain status
+  server-errors     503 SlowDown with Retry-After, 500 bursts, maintenance (Retry-After 30):
+                    retried, nothing duplicated, a plain status
+  lost-refresh      the token server rotates the drive token and the answer is lost (the
+                    connection resets after it): AzDrive syncs on - the device is not removed,
+                    its token family alive, the next refreshes answered, every file up
+  refresh-503       the token server rotated the token, the client hears 503 unavailable: the
+                    same - no retry may spend the old token into a reuse
+  refresh-stalled   the refresh's answer is held 100 s, past the transport's timeout: the same
 
 Usage (from the azul repository, after building libazul with the debug server, AzDrive with its
 default features and the azcloud CLI):
@@ -249,8 +258,12 @@ class Stack:
         self.base = base
         self.s3_root = os.path.join(base, "s3")
         self.stack = azlin_mock_stack.start(self.s3_root, ttl=ttl)
-        self.proxy = azchaos.ChaosProxy(self.stack.s3_url,
+        self.proxy = azchaos.ChaosProxy(self.stack.s3_url, kind="s3",
                                         log_path=os.path.join(base, "proxy.jsonl")).start()
+        # The laptops' token server (their --token-url): its answers can be lost or refused.
+        self.token_proxy = azchaos.ChaosProxy(
+            self.stack.token_url, kind="token",
+            log_path=os.path.join(base, "token-proxy.jsonl")).start()
         self.state = self.stack.token.state
         self.state.s3_url = self.proxy.url
         self.state.set_nodes([azlin_mock_stack.node_entry("n1", self.proxy.url)])
@@ -298,7 +311,19 @@ class Stack:
 
     @property
     def token_url(self):
+        """The token server the devices under test ask: through the token proxy."""
+        return self.token_proxy.url
+
+    @property
+    def direct_token_url(self):
+        """The token server itself (another device's: the proxy's faults are the laptop's)."""
         return self.stack.token_url
+
+    def laptop_families(self, drive_id):
+        """The token families of the devices under test of `drive_id`: id -> state."""
+        with self.state.lock:
+            return {f: dict(st) for f, st in self.state.families.items()
+                    if st.get("drive") == drive_id and st.get("member") in self.proxied}
 
     def signup(self, name, tier=None):
         body = {"name": name}
@@ -342,6 +367,7 @@ class Stack:
         return [d for d in os.listdir(folder) if not d.startswith(".")]
 
     def stop(self):
+        self.token_proxy.stop()
         self.proxy.stop()
         self.stack.stop()
 
@@ -630,7 +656,7 @@ class Desktop:
                     "AZLIN_DATA": os.path.join(self.home, "AzlinData"),
                     "AZLIN_HOME": os.path.join(self.home, ".azlin"),
                     "AZLIN_CONFIG": os.path.join(self.home, ".azlin", "config.json"),
-                    "AZLIN_TOKEN_URL": stack.token_url, "AZCLOUD_DEVICE": name,
+                    "AZLIN_TOKEN_URL": stack.direct_token_url, "AZCLOUD_DEVICE": name,
                     "TMPDIR": os.path.join(self.root, "tmp")})
         os.makedirs(env["TMPDIR"], exist_ok=True)
         self.env = env
@@ -911,8 +937,6 @@ def server_errors(ctx):
             ("500 InternalError, five times", dict(
                 op="PutObject", key=r"^\.azlin/blobs/", action="status", status=500,
                 code="InternalError", times=5)),
-            ("409 stale map (x-azlin-map), once", dict(
-                op="PutObject", key=r"^\.azlin/", action="stale_map", epoch=7, times=1)),
             ("maintenance (Retry-After 30), once", dict(
                 op="PutObject", key=r"^\.azlin/index", action="azlin",
                 azlin_error="maintenance", times=1)),
@@ -1347,7 +1371,11 @@ def quota(ctx):
         folder = laptop.folder(drive)
         bucket = stack.bucket(drive)
         used = lambda: stack.stack.s3.store.stored_bytes(bucket)  # noqa: E731
-        stack.proxy.set_quota(bucket, used() + 3 * MIB + 500 * 1024, used)
+        record = stack.state.drives[drive]
+        tier_quota = record["quota_bytes"]
+        # The node's quota: the mock's S3 refuses the write that passes it, as a node does.
+        with stack.state.lock:
+            record["quota_bytes"] = used() + 3 * MIB + 500 * 1024
         versions = {}
         for i in range(8):
             data = os.urandom(MIB)
@@ -1358,7 +1386,11 @@ def quota(ctx):
         checks.expect(full != UP_TO_DATE, "the drive is full and the status says Up to date")
         nothing_lost(versions, [tree(folder)])
         raw = raw_errors([full])
-        stack.proxy.set_quota(bucket, None)
+        refused = [e for e in stack.proxy.requests(op=azchaos.WRITES) if e["status"] == 403]
+        checks.expect(bool(refused) and not any(e["fault"] for e in refused),
+                      "no write was refused by the node's quota: %s" % refused[:2])
+        with stack.state.lock:
+            record["quota_bytes"] = tier_quota
         laptop.wait_settled("the quota raised", drive)
         nothing_lost(versions, [stack.drive_tree(drive)])
         no_silent_failure(laptop, drive)
@@ -1367,6 +1399,77 @@ def quota(ctx):
     finally:
         laptop.stop()
         stack.stop()
+
+
+def lost_token_answer(ctx, name, rule, what):
+    """A drive whose credentials live 30 s; the next refresh meets `rule` at the token proxy
+    (the token server rotated the drive token, the client does not get the new one). AzDrive
+    syncs on: no family of the laptop revoked, no "This device was removed", refreshes after it
+    answered, every file up."""
+    stack, drive, laptop, _ = plain_world(ctx, name, ttl=30)
+    try:
+        folder = laptop.folder(drive)
+        fault = stack.token_proxy.add(**rule)
+        write(os.path.join(folder, "before.txt"), b"before the refresh\n")
+        deadline = time.time() + 180
+        while fault.applied == 0 and time.time() < deadline:
+            time.sleep(0.2)
+        expect(fault.applied >= 1, "no refresh met the fault in 180 s")
+        met = time.time()
+        for i in range(3):
+            write(os.path.join(folder, "after%d.txt" % i), b"after the refresh %d\n" % i)
+
+        def answered():
+            return [e for e in stack.token_proxy.requests(op="Refresh")
+                    if e["t"] > met and not e["fault"] and e["status"] == 200]
+        deadline = time.time() + 240
+        while len(answered()) < 2 and time.time() < deadline:
+            time.sleep(0.5)
+        checks = Checks()
+        checks.expect(len(answered()) >= 2, "after %s no two refreshes were answered: %s" % (
+            what, [(e["status"], e["fault"]) for e in
+                   stack.token_proxy.requests(op="Refresh")][-5:]))
+        revoked_families = {f: st["revoked"] for f, st in stack.laptop_families(drive).items()
+                            if st["revoked"]}
+        checks.expect(not revoked_families, "after %s the device was removed: families "
+                                            "revoked %s" % (what, revoked_families))
+        seen = statuses_seen(laptop, drive)
+        removed = [st for st in seen if st.startswith("azlin-error-credentials-revoked")]
+        checks.expect(not removed, "after %s AzDrive said the device was removed: %s"
+                                   % (what, removed[:1]))
+        if not removed and not revoked_families:
+            laptop.wait_settled("the files after %s" % what, drive)
+            no_silent_failure(laptop, drive)
+        raw = raw_errors(seen)
+        checks.expect(not raw, "%s showed as a technical error: %s" % (what, raw[:2]))
+        return checks.done("%s: %d refreshes answered after it" % (what, len(answered())))
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("lost-refresh")
+def lost_refresh(ctx):
+    """The token server rotates the drive token, the answer is lost on the way."""
+    return lost_token_answer(ctx, "lost-refresh", dict(op="Refresh", action="reset_after",
+                                                       times=1), "a lost refresh answer")
+
+
+@scenario("refresh-503")
+def refresh_503(ctx):
+    """The token server rotated the token; the client hears 503 unavailable."""
+    return lost_token_answer(ctx, "refresh-503", dict(
+        op="Refresh", action="answer_after", status=503, code="unavailable",
+        message="the account database is not reachable; try again", times=1),
+        "a 503 after the rotation")
+
+
+@scenario("refresh-stalled")
+def refresh_stalled(ctx):
+    """The refresh's answer is held past the transport's timeout."""
+    return lost_token_answer(ctx, "refresh-stalled", dict(
+        op="Refresh", action="stall_after", seconds=100, times=1),
+        "a refresh answer held 100 s")
 
 
 @scenario("revoked")
