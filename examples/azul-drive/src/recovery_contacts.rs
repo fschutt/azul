@@ -33,6 +33,7 @@ use azul::{
 use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase, Text};
 use azul_storage::{
     azul_keyring::AzulKeyring,
+    keyring::KeyringNamespace,
     crypto::{
         contacts::{
             contact_from_text, contact_text, open_share, read_share, request_from_text,
@@ -1113,7 +1114,7 @@ fn lookup_drive(code: &RecoveryCode, token_url: &str) -> Result<String, String> 
 
 /// Runs on a worker thread.
 pub(crate) fn run(job: ContactsJob) -> ContactsDone {
-    let keyring = AzulKeyring::new();
+    let keyring = AzulKeyring::new(KeyringNamespace::azlin_shared());
     match job {
         ContactsJob::NewKey => ContactsDone::NewKey(
             new_contact_key(&keyring)

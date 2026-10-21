@@ -1,6 +1,6 @@
-//! The app's UI thread never waits for a network answer: in the apps (feature `azul`) every
-//! answer comes through that thread's pump, so a wait on it - a request of its own, or a lock
-//! another thread holds across requests - never ends. Debug builds say so at the wait.
+//! The app's UI thread never waits for a network answer: a wait on it - a request of its own,
+//! or a lock another thread holds across requests - would stop every frame meanwhile. Debug
+//! builds say so at the wait.
 
 use std::sync::Arc;
 

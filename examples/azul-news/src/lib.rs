@@ -41,8 +41,8 @@ pub mod ui;
 
 /// Starts AzNews (the switches are read from the command line).
 pub fn start() {
-    // This thread runs the window: its pump delivers every network answer, so it never waits
-    // for one (debug builds assert it).
+    // This thread runs the window: it never waits for a network answer, or every frame would
+    // wait with it (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
     ui::start();
 }

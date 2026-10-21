@@ -367,7 +367,9 @@ impl MailApp {
         // The locks of the account sessions beside the data root's own bookkeeping (`.azlin`
         // is never synced): every AzMail on this data root takes turns there.
         let shared_keyring = azcloud_kit::SharedKeyring::new(
-            std::sync::Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
+            std::sync::Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
+                azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            )),
             azcloud_kit::LockDir::new(data_root.join(".azlin").join("locks")),
         );
         // Read once, before the window (as the kit reads settings.json).
@@ -947,9 +949,14 @@ fn keyring_next(s: &mut MailApp, info: &mut CallbackInfo) {
     let Some(call) = s.keyring_queue.pop_front() else {
         return;
     };
+    // The namespace the Azlin apps share: the drive token the sync thread's keyring rotates
+    // is the one read here.
+    let shared = azul_storage::azul_keyring::azul_namespace(
+        &azul_storage::keyring::KeyringNamespace::azlin_shared(),
+    );
     match &call.secret {
-        Some(secret) => info.keyring_store(call.key.clone(), secret.expose(), false),
-        None => info.keyring_get(call.key.clone()),
+        Some(secret) => info.keyring_store_in(shared, call.key.clone(), secret.expose(), false),
+        None => info.keyring_get_in(shared, call.key.clone()),
     }
     s.keyring = Some(call.op);
 }
@@ -1344,14 +1351,14 @@ fn sync_drive(
         session,
         job.endpoints.s3_url.as_deref(),
         Box::new(transport.clone()),
-        &AzulKeyring::new(),
+        &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
     )
     .map_err(azlin_sync::drive_error)?;
     let drive = mail_drive::open(
         session,
         job.endpoints.s3_url.as_deref(),
         Box::new(transport.clone()),
-        std::sync::Arc::new(AzulKeyring::new()),
+        std::sync::Arc::new(AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared())),
     )
     .map_err(azlin_sync::drive_error)?;
     azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), options, progress)
@@ -1769,7 +1776,7 @@ impl AzlinContext {
             &session,
             self.endpoints.s3_url.as_deref(),
             Box::new(AzulTransport::new(USER_AGENT)),
-            std::sync::Arc::new(AzulKeyring::new()),
+            std::sync::Arc::new(AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared())),
         )
         .map_err(|e| e.to_string())
     }
@@ -2019,7 +2026,7 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                         .map_err(|e| e.to_string())?;
                     let (_, code) = azul_storage::crypto::device::setup_new_drive(
                         &bucket,
-                        &AzulKeyring::new(),
+                        &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
                         &session.drive_id,
                         kdf,
                     )
@@ -2187,8 +2194,8 @@ fn resolve_endpoints(kit_ref: &RefAny, flags: &azlin::Endpoints) -> azlin::Endpo
 }
 
 pub fn start() {
-    // This thread runs the window: its pump delivers every network answer, so it never waits
-    // for one (debug builds assert it).
+    // This thread runs the window: it never waits for a network answer, or every frame would
+    // wait with it (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
     // Every request to the Azlin services says which app and contract sent it.
     if let Some(hello) = azcloud_kit::hello::of_app("azmail", env!("CARGO_PKG_VERSION")) {

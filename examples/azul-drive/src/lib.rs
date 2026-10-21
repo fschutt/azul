@@ -308,8 +308,10 @@ use azul::{
     widgets::{AlertKind, Dialog, IconGridView, ToastKind},
 };
 use azul_storage::{
+    azul_keyring::azul_namespace,
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
+    keyring::KeyringNamespace,
     key, Credentials, Drive, DriveError, LocalDrive,
 };
 use azul_appkit::l10n::{Phrase, Text};
@@ -2289,11 +2291,16 @@ pub(crate) enum KeyringCall {
     Delete(String),
 }
 
+/// Every keyring call of AzDrive's UI goes to the namespace the Azlin apps share: the drive
+/// sessions there are the ones the jobs' `AzulKeyring` re-reads and rotates.
 fn issue(info: &mut CallbackInfo, call: &KeyringCall) {
+    let shared = || azul_namespace(&KeyringNamespace::azlin_shared());
     match call {
-        KeyringCall::Get(key) => info.keyring_get(key.as_str()),
-        KeyringCall::Store(key, secret) => info.keyring_store(key.as_str(), secret.as_str(), false),
-        KeyringCall::Delete(key) => info.keyring_delete(key.as_str()),
+        KeyringCall::Get(key) => info.keyring_get_in(shared(), key.as_str()),
+        KeyringCall::Store(key, secret) => {
+            info.keyring_store_in(shared(), key.as_str(), secret.as_str(), false)
+        }
+        KeyringCall::Delete(key) => info.keyring_delete_in(shared(), key.as_str()),
     }
 }
 
@@ -3381,8 +3388,8 @@ fn data_slot(data_root: &Path) -> Slot {
 }
 
 pub fn start() {
-    // This thread runs the window: its pump delivers every network answer, so it never waits
-    // for one (debug builds assert it).
+    // This thread runs the window: it never waits for a network answer, or every frame would
+    // wait with it (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
     // Every request to the Azlin services says which app and contract sent it.
     if let Some(hello) = azcloud_kit::hello::of_app("azdrive", env!("CARGO_PKG_VERSION")) {
@@ -3589,7 +3596,9 @@ pub fn start() {
     // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
     // entries beside the drives file.
     let keyring = azcloud_kit::SharedKeyring::new(
-        Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
+        Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
+            KeyringNamespace::azlin_shared(),
+        )),
         azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
     );
     let period_tokens =

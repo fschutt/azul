@@ -183,7 +183,8 @@ pub mod https {
         ) -> Result<HttpReply, reqwest::Error> {
             let method = reqwest::Method::from_bytes(call.method.as_str().as_bytes())
                 .unwrap_or(reqwest::Method::GET);
-            let mut request = client.request(method, &call.url);
+            let budget = call.budget();
+            let mut request = client.request(method, &call.url).timeout(budget.overall);
             for (name, value) in &call.headers {
                 request = request.header(name, value);
             }
@@ -210,7 +211,7 @@ pub mod https {
             reqwest::Method::from_bytes(call.method.as_str().as_bytes())
                 .map_err(|e| e.to_string())?;
             let first = self.runtime.block_on(Self::send_with(&self.client, call));
-            match first {
+            let reply = match first {
                 Ok(reply) => Ok(reply),
                 // No connection came up: the host at its known addresses, if it has any.
                 Err(e) if e.is_connect() => match self.pinned_client(&call.url) {
@@ -221,7 +222,16 @@ pub mod https {
                     None => Err(error_text(&e)),
                 },
                 Err(e) => Err(error_text(&e)),
+            }?;
+            // The answer may weigh what the call allows, no more.
+            let max = call.budget().max_answer;
+            if reply.body.len() as u64 > max {
+                return Err(format!(
+                    "the answer has {} bytes, more than the {max} this call takes",
+                    reply.body.len()
+                ));
             }
+            Ok(reply)
         }
 
         /// Every clone reaches `host` at `addresses` when its connection does not come up (the
@@ -299,6 +309,7 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
             content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
         };
         let why = transport.send(&call).unwrap_err();
         assert!(is_dns_failure(&why), "{why}");

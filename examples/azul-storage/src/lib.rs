@@ -145,7 +145,10 @@ pub use local::LocalDrive;
 pub use opendal_drive::OpendalDrive;
 pub use s3::{BucketSpace, Credentials, S3Config, S3Drive};
 pub use scoped::ScopedDrive;
-pub use transport::{HttpCall, HttpReply, Method, Transport};
+pub use transport::{
+    BytesPerSec, CallLimits, ExpectedBody, HttpCall, HttpReply, Method, RequestTimeout,
+    TransferBudget, Transport,
+};
 
 /// Objects per page when a listing does not say (S3's own default and maximum).
 pub const DEFAULT_PAGE_SIZE: u32 = 1000;

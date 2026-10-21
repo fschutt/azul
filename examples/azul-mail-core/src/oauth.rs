@@ -169,6 +169,8 @@ pub fn refresh(transport: &dyn Transport, held: &Grant, now: i64) -> Result<Gran
         headers: vec![(String::from("Accept"), String::from("application/json"))],
         body: held.refresh_form().into_bytes(),
         content_type: String::from("application/x-www-form-urlencoded"),
+        // A token endpoint answers a small JSON document.
+        limits: azul_storage::CallLimits::json(),
     };
     let reply = transport.send(&call)?;
     let text = String::from_utf8_lossy(&reply.body);

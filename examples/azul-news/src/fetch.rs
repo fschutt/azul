@@ -11,7 +11,7 @@
 //! - The User-Agent names the app and its project, never a person ([`USER_AGENT`]).
 
 use azul_appkit::phrase::{Phrase, Text};
-use azul_storage::{HttpCall, HttpReply, Method, Transport};
+use azul_storage::{CallLimits, ExpectedBody, HttpCall, HttpReply, Method, RequestTimeout, Transport};
 
 use crate::{
     feed::{self, Feed, FeedError},
@@ -77,6 +77,22 @@ pub struct Candidate {
     pub last_modified: String,
 }
 
+/// Seconds one feed (or a page searched for its feeds) may take.
+pub const FEED_TIMEOUT_SECS: u64 = 30;
+/// The largest feed or page read (bytes): a bigger answer is refused.
+pub const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
+
+/// What a feed's or a page's GET may take and weigh.
+#[must_use]
+pub fn page_limits() -> CallLimits {
+    CallLimits {
+        timeout: RequestTimeout::Overall(std::time::Duration::from_secs(FEED_TIMEOUT_SECS)),
+        answer: ExpectedBody::Stream {
+            max: MAX_PAGE_BYTES as u64,
+        },
+    }
+}
+
 /// The GET for a feed: what AzNews accepts and the validators of the last answer.
 #[must_use]
 pub fn request(url: &str, etag: &str, last_modified: &str) -> HttpCall {
@@ -96,6 +112,7 @@ pub fn request(url: &str, etag: &str, last_modified: &str) -> HttpCall {
         headers,
         body: Vec::new(),
         content_type: String::new(),
+        limits: page_limits(),
     }
 }
 

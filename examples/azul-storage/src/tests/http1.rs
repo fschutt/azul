@@ -25,6 +25,7 @@ fn call(method: Method, url: &str, body: &[u8]) -> HttpCall {
         } else {
             String::from("application/octet-stream")
         },
+        limits: crate::CallLimits::for_request(method, body.len()),
     }
 }
 

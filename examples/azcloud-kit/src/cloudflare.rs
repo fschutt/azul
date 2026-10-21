@@ -109,6 +109,7 @@ impl Cloudflare {
                 .to_string()
                 .into_bytes(),
             content_type: String::from("application/json"),
+            limits: azul_storage::CallLimits::json(),
         };
         let reply = match self.transport.send(&call) {
             Ok(reply) => reply,

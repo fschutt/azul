@@ -27,12 +27,15 @@ use azul::{
     vec::U8VecRef,
 };
 use azul_appkit::phrase::Text;
-use azul_storage::{azul_transport::AzulTransport, HttpCall, Method, Transport};
+use azul_storage::{
+    azul_transport::AzulTransport, CallLimits, ExpectedBody, HttpCall, Method, RequestTimeout,
+    Transport,
+};
 
 use crate::fetch::{self, Candidate, Fetched};
 
-/// Seconds one feed may take.
-pub const FEED_TIMEOUT_SECS: u64 = 30;
+pub use crate::fetch::{FEED_TIMEOUT_SECS, MAX_PAGE_BYTES};
+
 /// Seconds one picture may take.
 pub const PICTURE_TIMEOUT_SECS: u64 = 20;
 /// The largest picture downloaded (bytes).
@@ -163,7 +166,7 @@ extern "C" fn refresh_thread(
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT).with_timeout(FEED_TIMEOUT_SECS);
+    let transport = AzulTransport::new(fetch::USER_AGENT);
     for job in jobs {
         if stop_asked(&mut receiver) {
             break;
@@ -233,6 +236,12 @@ fn picture(transport: &dyn Transport, url: String) -> PictureEvent {
         headers: vec![("Accept".to_string(), "image/*".to_string())],
         body: Vec::new(),
         content_type: String::new(),
+        limits: CallLimits {
+            timeout: RequestTimeout::Overall(std::time::Duration::from_secs(PICTURE_TIMEOUT_SECS)),
+            answer: ExpectedBody::Stream {
+                max: MAX_PICTURE_BYTES as u64,
+            },
+        },
     };
     match transport.send(&call) {
         Ok(reply) if reply.is_success() && reply.body.len() <= MAX_PICTURE_BYTES => {
@@ -273,7 +282,7 @@ extern "C" fn picture_thread(
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT).with_timeout(PICTURE_TIMEOUT_SECS);
+    let transport = AzulTransport::new(fetch::USER_AGENT);
     for url in urls {
         if stop_asked(&mut receiver) {
             return;
@@ -285,9 +294,6 @@ extern "C" fn picture_thread(
 }
 
 // ==== Page (full text) ====
-
-/// A page larger than this is no article's (16 MiB).
-pub const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
 
 struct PageInit {
     request: Option<(String, String)>,
@@ -327,6 +333,7 @@ fn page(transport: &dyn Transport, url: &str) -> Result<String, String> {
         )],
         body: Vec::new(),
         content_type: String::new(),
+        limits: fetch::page_limits(),
     };
     let reply = transport.send(&call)?;
     if !reply.is_success() {
@@ -346,7 +353,7 @@ extern "C" fn page_thread(mut init: RefAny, mut sender: ThreadSender, _receiver:
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT).with_timeout(FEED_TIMEOUT_SECS);
+    let transport = AzulTransport::new(fetch::USER_AGENT);
     let html = page(&transport, &url);
     let _delivered = post(&mut sender, on_event, PageEvent { item, url, html });
 }
@@ -385,7 +392,7 @@ extern "C" fn find_thread(mut init: RefAny, mut sender: ThreadSender, _receiver:
     }) else {
         return;
     };
-    let transport = AzulTransport::new(fetch::USER_AGENT).with_timeout(FEED_TIMEOUT_SECS);
+    let transport = AzulTransport::new(fetch::USER_AGENT);
     let result = fetch::find_feeds(&transport, &input);
     let _delivered = post(&mut sender, on_event, FindEvent { input, result });
 }

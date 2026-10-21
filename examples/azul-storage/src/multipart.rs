@@ -1,5 +1,6 @@
 //! Big uploads to a bucket ([`S3Drive`]): multipart uploads in parts of [`PART_SIZE`],
-//! [`PARALLEL_PARTS`] in flight at once.
+//! [`PARALLEL_PARTS`] in flight at once - on a slow uplink smaller parts, one at a time
+//! ([`plan_parts`], from what the drive's uploads measured: [`LinkEstimate`]).
 //!
 //! - A streamed body ([`Drive::put_from`], [`Drive::put_from_if`]) is read a few parts ahead
 //!   (at most [`PARALLEL_PARTS`] in memory), and read to its end before the upload is completed:
@@ -43,7 +44,7 @@ use crate::{
     checked::{CheckedUpload, FileCheck},
     local::write_atomically,
     s3::S3Drive,
-    DriveError, Precondition,
+    BytesPerSec, DriveError, Precondition,
 };
 
 /// An unfinished upload older than this is not resumed: aborted and started again (buckets
@@ -55,6 +56,63 @@ pub const PREFIX_CHECK_BYTES: u64 = 1024 * 1024;
 pub const MAX_PARTS: usize = 10_000;
 /// The version of a state file this code writes.
 const STATE_VERSION: u32 = 1;
+/// The smallest part S3 takes (all but the last): 5 MiB.
+pub const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+/// Below this (2 Mbit/s) an upload sends one part at a time: parallel parts would only split a
+/// link this slow, and each would take longer to send again when it is lost.
+pub const SLOW_LINK: BytesPerSec = BytesPerSec(250_000);
+/// What one part should take on the measured link: a lost part costs about this to send again.
+pub const PART_SECS: u64 = 60;
+/// Uploads smaller than this measure the latency more than the link: they are not counted.
+pub const MEASURE_FROM: usize = 1024 * 1024;
+
+/// The part size and the parts in flight of an upload over a link of `link` bytes a second
+/// (`None`: not measured yet), for a drive of parts of up to `ceiling` bytes, `parallel` at
+/// once: each part about [`PART_SECS`] of its share of the link, in whole MiB, at least
+/// [`MIN_PART_SIZE`] (or `ceiling`, when that is less); one part at a time below
+/// [`SLOW_LINK`].
+#[must_use]
+pub fn plan_parts(link: Option<BytesPerSec>, ceiling: usize, parallel: usize) -> (usize, usize) {
+    const MIB: usize = 1024 * 1024;
+    let parallel = parallel.max(1);
+    let ceiling = ceiling.max(1);
+    let Some(link) = link else {
+        return (ceiling, parallel);
+    };
+    let parallel = if link < SLOW_LINK { 1 } else { parallel };
+    let share = link.0 / parallel as u64;
+    let fits = usize::try_from(share.saturating_mul(PART_SECS)).unwrap_or(usize::MAX);
+    let floor = MIN_PART_SIZE.min(ceiling);
+    ((fits / MIB * MIB).clamp(floor, ceiling), parallel)
+}
+
+/// The uplink as a drive's uploads measured it: a running average of what each upload of
+/// [`MEASURE_FROM`] bytes or more moved, times the uploads that shared the link with it.
+#[derive(Debug, Default)]
+pub struct LinkEstimate {
+    /// Bytes a second; `None` before the first sample.
+    rate: Mutex<Option<f64>>,
+}
+
+impl LinkEstimate {
+    /// An upload of `bytes` took `took`, `sharing` uploads in flight at once (itself included).
+    pub fn sample(&self, bytes: usize, took: std::time::Duration, sharing: usize) {
+        if bytes < MEASURE_FROM {
+            return;
+        }
+        let secs = took.as_secs_f64().max(0.001);
+        let sample = bytes as f64 * sharing.max(1) as f64 / secs;
+        let mut rate = lock(&self.rate);
+        // New samples count for a third: one slow part does not halve the next upload's parts.
+        *rate = Some(rate.map_or(sample, |old| old * 0.7 + sample * 0.3));
+    }
+
+    /// The link's bytes a second; `None` before the first sample.
+    #[must_use]
+    pub fn rate(&self) -> Option<BytesPerSec> {
+        lock(&self.rate).map(|rate| BytesPerSec(rate.round() as u64))
+    }
+}
 
 /// The resume folder of every bucket that names none ([`set_resume_folder`]).
 static RESUME_FOLDER: RwLock<Option<PathBuf>> = RwLock::new(None);
@@ -363,7 +421,7 @@ pub(crate) fn upload_stream(
     body: &mut dyn Read,
     condition: Option<&Precondition>,
 ) -> Result<(u64, Option<String>), DriveError> {
-    let part_size = drive.part_size();
+    let (part_size, parallel) = drive.upload_plan();
     let first = read_part(body, part_size)?;
     let second = if first.len() < part_size {
         Vec::new()
@@ -381,7 +439,8 @@ pub(crate) fn upload_stream(
     abort_stale(drive);
     let upload = drive.start_multipart(key)?;
     let held = hold_stream(drive, key, &upload);
-    match stream_parts(drive, key, &upload, vec![first, second], body, condition) {
+    let plan = (part_size, parallel);
+    match stream_parts(drive, key, &upload, plan, vec![first, second], body, condition) {
         Ok(done) => {
             release_stream(held, true);
             Ok(done)
@@ -397,18 +456,18 @@ pub(crate) fn upload_stream(
     }
 }
 
-/// The parts of a streamed upload - `batch`, then what `body` still reads - a batch of up to
-/// the drive's parallel parts at a time, then the completion.
+/// The parts of a streamed upload - `batch`, then what `body` still reads - in the upload's
+/// `(part size, parallel parts)`, a batch of up to that many parts at a time, then the
+/// completion.
 fn stream_parts(
     drive: &S3Drive,
     key: &str,
     upload: &str,
+    (part_size, parallel): (usize, usize),
     mut batch: Vec<Vec<u8>>,
     body: &mut dyn Read,
     condition: Option<&Precondition>,
 ) -> Result<(u64, Option<String>), DriveError> {
-    let part_size = drive.part_size();
-    let parallel = drive.parallel();
     let mut parts: BTreeMap<usize, String> = BTreeMap::new();
     let mut written = 0u64;
     let mut ended = false;
@@ -499,12 +558,25 @@ fn upload_file_with(
     progress: &(dyn Fn(u64) + Sync),
     check: Option<&FileCheck>,
 ) -> Result<FileUpload, DriveError> {
-    let part_size = drive.part_size() as u64;
     let before = fingerprint(path)?;
     if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.modified_ns) {
         return Ok(FileUpload::Changed);
     }
     let size = before.size;
+    let (planned, parallel) = drive.upload_plan();
+    let folder = drive.resume_dir();
+    let state_file = folder.as_deref().map(|f| state_path(f, drive, key, path));
+    let kept = state_file.as_deref().and_then(read_state);
+    // An upload of this very file that is kept goes on in its own part size: its parts are
+    // sent in it. A new one takes the planned size, big enough for MAX_PARTS parts.
+    let part_size = kept
+        .as_ref()
+        .filter(|old| {
+            old.key == key && old.bucket == drive.config().bucket && old.fingerprint() == before
+        })
+        .map_or(planned as u64, |old| old.part_size)
+        .max(size.div_ceil(MAX_PARTS as u64))
+        .max(1);
     if size <= part_size {
         let bytes = fs::read(path)?;
         if check.is_some_and(|c| !c.names(&bytes)) {
@@ -523,11 +595,9 @@ fn upload_file_with(
             "{key}: an upload of more than {MAX_PARTS} parts of {part_size} bytes"
         )));
     }
-    let folder = drive.resume_dir();
-    let state_file = folder.as_deref().map(|f| state_path(f, drive, key, path));
     let now = drive.now();
     let mut state = None;
-    if let Some(old) = state_file.as_deref().and_then(read_state) {
+    if let Some(old) = kept {
         let same = old.key == key
             && old.bucket == drive.config().bucket
             && old.part_size == part_size
@@ -604,7 +674,7 @@ fn upload_file_with(
         .collect();
     let sent = AtomicU64::new(held);
     let shared = Mutex::new(state);
-    let result = in_parallel(missing.len(), drive.parallel(), |i| {
+    let result = in_parallel(missing.len(), parallel, |i| {
         let number = missing[i];
         let start = (number as u64 - 1) * part_size;
         let len = part_size.min(size - start);

@@ -26,7 +26,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
-    ops, same_etag, xml, AzlinError, BatchDelete, BatchStream, ByteRange, Drive, DriveError, HttpCall,
+    ops, same_etag, xml, AzlinError, BatchDelete, BatchStream, ByteRange, CallLimits, Drive,
+    DriveError, HttpCall,
     HttpReply, ListPage, ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport,
     DELETE_BATCH,
 };
@@ -502,6 +503,11 @@ pub struct S3Drive {
     resume_dir: Option<PathBuf>,
     /// Where each request goes and how often it is tried; `None`: once, to the endpoint.
     router: Option<Arc<dyn Router>>,
+    /// The uplink as this drive's uploads measured it: the part size and the parts in flight
+    /// of the next upload follow it ([`crate::multipart::plan_parts`]).
+    link: crate::multipart::LinkEstimate,
+    /// Uploads in flight right now: they share the link a sample measured.
+    uploading: AtomicUsize,
 }
 
 impl fmt::Debug for S3Drive {
@@ -537,6 +543,8 @@ impl S3Drive {
             parallel: AtomicUsize::new(PARALLEL_PARTS),
             resume_dir: None,
             router: None,
+            link: crate::multipart::LinkEstimate::default(),
+            uploading: AtomicUsize::new(0),
         })
     }
 
@@ -547,8 +555,10 @@ impl S3Drive {
         self
     }
 
-    /// Streams [`Drive::put_from`] bodies in parts of `part_size` bytes (at least one; a real
-    /// service wants 5 MiB and more) instead of [`PART_SIZE`].
+    /// Streams [`Drive::put_from`] bodies in parts of up to `part_size` bytes (at least one; a
+    /// real service wants 5 MiB and more) instead of [`PART_SIZE`]. On a slow link the parts
+    /// get smaller, down to 5 MiB (or `part_size`, when that is less), and go one at a time
+    /// ([`crate::multipart::plan_parts`]).
     #[must_use]
     pub fn with_part_size(mut self, part_size: usize) -> Self {
         self.part_size = part_size.max(1);
@@ -596,6 +606,37 @@ impl S3Drive {
         self.parallel.load(Ordering::Relaxed)
     }
 
+    /// The part size and the parts in flight of the next upload: [`S3Drive::part_size`] and
+    /// [`S3Drive::parallel`] until an upload measured the link, then what fits it.
+    #[must_use]
+    pub fn upload_plan(&self) -> (usize, usize) {
+        crate::multipart::plan_parts(self.link.rate(), self.part_size, self.parallel())
+    }
+
+    /// The uplink as this drive's uploads measured it; `None` before the first big one.
+    #[must_use]
+    pub fn measured_link(&self) -> Option<crate::BytesPerSec> {
+        self.link.rate()
+    }
+
+    /// Sends an upload of `len` bytes with `send`; one the service took teaches the link
+    /// estimate how fast the link moved it (shared with the uploads in flight beside it). A
+    /// refusal is not counted: a service may refuse before it read the body.
+    fn timed_upload(
+        &self,
+        len: usize,
+        send: impl FnOnce() -> Result<HttpReply, DriveError>,
+    ) -> Result<HttpReply, DriveError> {
+        let sharing = self.uploading.fetch_add(1, Ordering::SeqCst) + 1;
+        let started = std::time::Instant::now();
+        let result = send();
+        self.uploading.fetch_sub(1, Ordering::SeqCst);
+        if result.as_ref().is_ok_and(HttpReply::is_success) {
+            self.link.sample(len, started.elapsed(), sharing);
+        }
+        result
+    }
+
     /// [`Drive::put_from`] with the new version's ETag (without its quotes) when the service
     /// said it: one PUT for a body of one part or less, else a multipart upload.
     pub fn put_stream(
@@ -641,7 +682,15 @@ impl S3Drive {
     ///
     /// The bucket's refusal or no answer, as every request's.
     pub fn space(&self) -> Result<BucketSpace, DriveError> {
-        let reply = self.request(Method::Head, None, Vec::new(), Vec::new(), Vec::new(), "")?;
+        let reply = self.request(
+            Method::Head,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "",
+            CallLimits::json(),
+        )?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
         }
@@ -715,6 +764,7 @@ impl S3Drive {
         body: Vec<u8>,
         payload_hash: &str,
         content_type: &str,
+        limits: CallLimits,
     ) -> HttpCall {
         let date = amz_date((self.clock)());
         let host = self.host_at(endpoint);
@@ -766,11 +816,13 @@ impl S3Drive {
                 content_type.to_string()
             },
             body,
+            limits,
         }
     }
 
     /// Sends one request on the object `key` (`None`: the bucket): to the drive's endpoint, or
     /// through its [`Router`], which signs it anew for every endpoint it tries.
+    #[allow(clippy::too_many_arguments)]
     fn request(
         &self,
         method: Method,
@@ -779,6 +831,7 @@ impl S3Drive {
         extra: Vec<(String, String)>,
         body: Vec<u8>,
         content_type: &str,
+        limits: CallLimits,
     ) -> Result<HttpReply, DriveError> {
         let payload_hash = if body.is_empty() {
             EMPTY_SHA256.to_string()
@@ -795,6 +848,7 @@ impl S3Drive {
                 body,
                 &payload_hash,
                 content_type,
+                limits,
             );
             return self.send(&call);
         };
@@ -815,6 +869,7 @@ impl S3Drive {
                 body.clone(),
                 &payload_hash,
                 content_type,
+                limits,
             ))
         };
         let probe = |url: &str, probe_key: &str| -> Result<HttpCall, DriveError> {
@@ -829,6 +884,7 @@ impl S3Drive {
                 Vec::new(),
                 EMPTY_SHA256,
                 "",
+                CallLimits::json(),
             ))
         };
         let routed = Routed::new(method, key, &self.config.endpoint, &sign).with_probe(&probe);
@@ -899,8 +955,27 @@ impl S3Drive {
     /// signed with the rest; `content_type` names the body and is not signed. The answer comes
     /// back whatever its status ([`S3Drive::failure_of`] reads a failed one); an `Err` is a key
     /// S3 cannot take or a request that got no answer at all.
+    ///
+    /// Its limits ([`CallLimits`]): an upload's with a body, an object's read whole for a GET,
+    /// a document's otherwise; [`S3Drive::send_with`] names them.
     pub fn send_raw(
         &self,
+        method: Method,
+        key: Option<&str>,
+        query: Vec<(String, String)>,
+        extra: Vec<(String, String)>,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<HttpReply, DriveError> {
+        let limits = CallLimits::for_request(method, body.len());
+        self.send_with(limits, method, key, query, extra, body, content_type)
+    }
+
+    /// [`S3Drive::send_raw`] with the limits the caller knows (a listing's, a range's).
+    #[allow(clippy::too_many_arguments)]
+    pub fn send_with(
+        &self,
+        limits: CallLimits,
         method: Method,
         key: Option<&str>,
         query: Vec<(String, String)>,
@@ -911,7 +986,7 @@ impl S3Drive {
         if let Some(key) = key {
             check_s3_key(key)?;
         }
-        self.request(method, key, query, extra, body, content_type)
+        self.request(method, key, query, extra, body, content_type, limits)
     }
 
     /// The error of a failed answer to a request on `key` (`None`: on the bucket itself): a
@@ -987,7 +1062,10 @@ impl S3Drive {
         key: &str,
         bytes: Vec<u8>,
     ) -> Result<Option<String>, DriveError> {
-        let reply = self.object_call(Method::Put, key, Vec::new(), bytes)?;
+        let len = bytes.len();
+        let reply = self.timed_upload(len, || {
+            self.object_call(Method::Put, key, Vec::new(), bytes, CallLimits::upload())
+        })?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }
@@ -1032,14 +1110,17 @@ impl S3Drive {
             (String::from("partNumber"), number.to_string()),
             (String::from("uploadId"), upload.to_string()),
         ];
-        let reply = self.send_raw(
-            Method::Put,
-            Some(key),
-            query,
-            Vec::new(),
-            bytes,
-            "application/octet-stream",
-        )?;
+        let len = bytes.len();
+        let reply = self.timed_upload(len, || {
+            self.send_raw(
+                Method::Put,
+                Some(key),
+                query,
+                Vec::new(),
+                bytes,
+                "application/octet-stream",
+            )
+        })?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }
@@ -1148,7 +1229,15 @@ impl S3Drive {
             if let Some(marker) = &marker {
                 query.push((String::from("part-number-marker"), marker.clone()));
             }
-            let reply = self.send_raw(Method::Get, Some(key), query, Vec::new(), Vec::new(), "")?;
+            let reply = self.send_with(
+                CallLimits::listing(),
+                Method::Get,
+                Some(key),
+                query,
+                Vec::new(),
+                Vec::new(),
+                "",
+            )?;
             if !reply.is_success() {
                 return Err(failure(&reply, Some(key)));
             }
@@ -1172,6 +1261,7 @@ impl S3Drive {
         key: &str,
         extra: Vec<(String, String)>,
         body: Vec<u8>,
+        limits: CallLimits,
     ) -> Result<HttpReply, DriveError> {
         check_s3_key(key)?;
         self.request(
@@ -1181,6 +1271,7 @@ impl S3Drive {
             extra,
             body,
             content_type_for(key),
+            limits,
         )
     }
 }
@@ -1198,7 +1289,15 @@ impl Drive for S3Drive {
         if let Some(token) = &request.continuation {
             query.push((String::from("continuation-token"), token.clone()));
         }
-        let reply = self.request(Method::Get, None, query, Vec::new(), Vec::new(), "")?;
+        let reply = self.request(
+            Method::Get,
+            None,
+            query,
+            Vec::new(),
+            Vec::new(),
+            "",
+            CallLimits::listing(),
+        )?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
         }
@@ -1208,7 +1307,13 @@ impl Drive for S3Drive {
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        let reply = self.object_call(Method::Get, key, Vec::new(), Vec::new())?;
+        let reply = self.object_call(
+            Method::Get,
+            key,
+            Vec::new(),
+            Vec::new(),
+            CallLimits::whole_object(),
+        )?;
         if reply.is_success() {
             Ok(reply.body)
         } else {
@@ -1222,6 +1327,7 @@ impl Drive for S3Drive {
             key,
             vec![(String::from("range"), range.header_value())],
             Vec::new(),
+            CallLimits::range(range),
         )?;
         match reply.status {
             206 => Ok(reply.body),
@@ -1308,7 +1414,13 @@ impl Drive for S3Drive {
         // CONDITIONAL_TRIES the 409 is the answer.
         let mut attempt = 1;
         loop {
-            let reply = self.object_call(Method::Put, key, vec![header.clone()], bytes.to_vec())?;
+            let reply = self.object_call(
+                Method::Put,
+                key,
+                vec![header.clone()],
+                bytes.to_vec(),
+                CallLimits::upload(),
+            )?;
             if reply.is_success() {
                 return Ok(reply
                     .header("etag")
@@ -1330,7 +1442,7 @@ impl Drive for S3Drive {
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
-        let reply = self.object_call(Method::Delete, key, Vec::new(), Vec::new())?;
+        let reply = self.object_call(Method::Delete, key, Vec::new(), Vec::new(), CallLimits::json())?;
         if reply.is_success() {
             return Ok(());
         }
@@ -1393,7 +1505,7 @@ impl Drive for S3Drive {
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new())?;
+        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new(), CallLimits::json())?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }
@@ -1427,6 +1539,7 @@ impl Drive for S3Drive {
             to,
             vec![(String::from("x-amz-copy-source"), source)],
             Vec::new(),
+            CallLimits::json(),
         )?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(from)));
@@ -1447,7 +1560,7 @@ impl Drive for S3Drive {
     /// One HEAD: the headers that describe the object (not the request), by
     /// readable names; `x-amz-meta-<name>` as `<name>`.
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new())?;
+        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new(), CallLimits::json())?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }

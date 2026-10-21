@@ -1,18 +1,16 @@
-//! [`Transport`] over azul's HTTP client (`HttpRequestConfig::http_request`),
-//! for the apps. Feature `azul`.
+//! [`Transport`] over azul's HTTP client (`HttpRequestConfig::http_request_blocking`), for
+//! the apps. Feature `azul`.
 //!
-//! azul's public HTTP call is request / resume: `http_request` performs the
-//! request where it is called (on desktop, synchronously) and queues its
-//! answer, which the UI thread delivers to a `ResumeCallback` on its next pump
-//! (the thread-poll tick while a `Thread` runs). A [`crate::Drive`] is blocking
-//! and runs on an azul `Thread`, so [`AzulTransport::send`] issues the request
-//! from that thread and waits for the resume callback to hand the answer back
-//! through a channel. The cost is one UI pump per request (about 16 ms).
+//! [`AzulTransport::send`] runs the request on the calling thread and returns its answer:
+//! nothing waits for the UI thread's pump, so a modal, a long layout, App Nap or a window that
+//! closed at quit no longer loses an answer the server already sent (a drive token's rotation
+//! among them). Call it from an azul `Thread` (or any worker thread), never from a UI callback:
+//! azul refuses a blocking request on the thread that runs its event loop (a debug build
+//! panics there), and this crate's mark of the UI thread ([`crate::ui_thread`]) stops it first.
 //!
-//! Never call it from a UI callback: the answer is delivered BY the UI thread,
-//! so waiting for it there would wait forever. The thread the answers arrive on is
-//! marked as the UI thread ([`crate::ui_thread`]): `send` there panics in a debug
-//! build and fails at once in a release build.
+//! The call's limits ([`crate::CallLimits`]) become the request's: the overall timeout, the
+//! times its body may take to send and its answer to arrive, and the most bytes the answer may
+//! have (a bigger one is refused, never cut short).
 //!
 //! Every `AzulTransport` of the process sends through ONE `HttpClient`: its connections
 //! are pooled (a multipart upload's parts and a download's ranges reuse them), its DNS answers
@@ -21,33 +19,24 @@
 //! node reached at its IP when its name does not resolve, TLS still verified for the name)
 //! hold for every request. A name that does not resolve fails with [`DNS_FAILED`] in front.
 
-use std::{
-    sync::{mpsc, Mutex, OnceLock},
-    time::Duration,
-};
+use std::{sync::OnceLock, time::Duration};
 
 use azul::{
-    error::HttpError,
-    http::{HttpClient, HttpClientConfig, HttpGetResult, HttpMethod, HttpRequestConfig},
-    prelude::*,
+    error::{HttpError, ResultHttpResponseHttpError},
+    http::{HttpClient, HttpClientConfig, HttpMethod, HttpRequestConfig},
     vec::U8Vec,
 };
 
 use crate::{transport::DNS_FAILED, HttpCall, HttpReply, Method, Transport};
 
-/// Seconds a request may take before azul's client gives up.
-pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
 /// Seconds the pool reuses a host's DNS answer; once the name stops resolving, the engine serves
 /// the last answer for seven days (serve-stale) - a drive keeps working while DNS is down.
 pub const DNS_CACHE_SECS: u32 = 300;
-/// Extra seconds to wait for the UI thread to deliver an answer.
-const DELIVERY_GRACE_SECS: u64 = 30;
 
-/// Sends through azul's `HttpRequestConfig`. Call only from an azul `Thread`.
+/// Sends through azul's `HttpRequestConfig`. Call only from a worker thread.
 #[derive(Debug, Clone)]
 pub struct AzulTransport {
     user_agent: String,
-    timeout_secs: u64,
 }
 
 impl AzulTransport {
@@ -55,19 +44,9 @@ impl AzulTransport {
     pub fn new(user_agent: &str) -> Self {
         AzulTransport {
             user_agent: user_agent.to_string(),
-            timeout_secs: DEFAULT_TIMEOUT_SECS,
         }
     }
-
-    #[must_use]
-    pub fn with_timeout(mut self, secs: u64) -> Self {
-        self.timeout_secs = secs.max(1);
-        self
-    }
 }
-
-/// What the resume callback hands the waiting thread.
-type Answer = Result<HttpReply, String>;
 
 /// The connection pool every request of the process goes through.
 struct Pool(HttpClient);
@@ -87,11 +66,6 @@ fn pool() -> &'static Pool {
     })
 }
 
-/// The resume callback's data: where the waiting thread listens.
-struct Waiter {
-    reply: Mutex<Option<mpsc::Sender<Answer>>>,
-}
-
 fn http_error_text(e: &HttpError) -> String {
     match e {
         HttpError::Timeout => String::from("timed out"),
@@ -106,13 +80,10 @@ fn http_error_text(e: &HttpError) -> String {
     }
 }
 
-/// The answer in an `http_request` result.
-fn answer_of(result: RefAny) -> Answer {
-    let Some(answer) = HttpGetResult::downcast(result).into_option() else {
-        return Err(String::from("the HTTP client gave no answer"));
-    };
-    match answer.result.into_result() {
-        Ok(response) => Ok(HttpReply {
+/// The answer of a blocking request.
+fn answer_of(result: ResultHttpResponseHttpError) -> Result<HttpReply, String> {
+    match result {
+        ResultHttpResponseHttpError::Ok(response) => Ok(HttpReply {
             status: response.status_code,
             headers: response
                 .headers
@@ -122,22 +93,15 @@ fn answer_of(result: RefAny) -> Answer {
                 .collect(),
             body: response.body.as_slice().to_vec(),
         }),
-        Err(e) => Err(http_error_text(&e)),
+        ResultHttpResponseHttpError::Err(e) => Err(http_error_text(&e)),
     }
 }
 
-/// Runs on the UI thread: passes the answer to the thread waiting in `send`.
-extern "C" fn on_answer(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    crate::ui_thread::mark_ui_thread();
-    let answer = answer_of(result);
-    if let Some(waiter) = data.downcast_ref::<Waiter>() {
-        let sender = waiter.reply.lock().ok().and_then(|mut slot| slot.take());
-        if let Some(sender) = sender {
-            // The thread may have given up waiting; then nobody listens.
-            let _ = sender.send(answer);
-        }
-    }
-    Update::DoNothing
+/// Whole seconds, at least one (azul's timeouts count seconds; 0 would mean none).
+fn secs(time: Duration) -> u64 {
+    time.as_secs()
+        .saturating_add(u64::from(time.subsec_nanos() > 0))
+        .max(1)
 }
 
 /// azul's verb for `method`. azul's `HttpMethod` has GET, HEAD, POST, PUT, PATCH and DELETE
@@ -164,40 +128,28 @@ impl Transport for AzulTransport {
         crate::ui_thread::assert_may_wait("AzulTransport::send");
         if crate::ui_thread::is_ui_thread() {
             return Err(String::from(
-                "a request was sent from the UI thread, which delivers its answer: it never \
-                 arrives there",
+                "a request was sent from the UI thread, which never waits for an answer",
             ));
         }
         let method = method_of(call.method)?;
-        let (sender, receiver) = mpsc::channel::<Answer>();
+        let budget = call.budget();
         let mut config = HttpRequestConfig::create()
-            .with_timeout(self.timeout_secs)
-            // Downloads come in ranged chunks (transfer::CHUNK); no cap here.
-            .with_max_size(0)
+            .with_timeout(secs(budget.overall))
+            .with_send_timeout(budget.send_body.map_or(0, secs))
+            .with_recv_timeout(budget.recv_body.map_or(0, secs))
+            // 0 is "no cap" to azul: an object read whole has none.
+            .with_max_size(if budget.max_answer == u64::MAX { 0 } else { budget.max_answer })
             .with_user_agent(self.user_agent.as_str())
             .with_client(pool().0.clone());
         for (name, value) in &call.headers {
             config = config.with_header(name.as_str(), value.as_str());
         }
-        let waiter = Waiter {
-            reply: Mutex::new(Some(sender)),
-        };
-        let _request = config.http_request(
+        answer_of(config.http_request_blocking(
             method,
             call.url.as_str(),
             U8Vec::from(call.body.clone()),
             call.content_type.as_str(),
-            RefAny::new(waiter),
-            on_answer,
-        );
-        receiver
-            .recv_timeout(Duration::from_secs(self.timeout_secs + DELIVERY_GRACE_SECS))
-            .map_err(|_| {
-                String::from(
-                    "the answer was not delivered (is the app's window still open, and is this \
-                     running on an azul Thread?)",
-                )
-            })?
+        ))
     }
 
     /// The process's pool connects to `host` at `addresses` when its name does not resolve

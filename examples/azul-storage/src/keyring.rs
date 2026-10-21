@@ -34,6 +34,43 @@ impl fmt::Display for KeyringError {
 
 impl std::error::Error for KeyringError {}
 
+/// Which keyring service an app's entries live in (azul's `KeyringNamespace`): an app sees
+/// only the entries of the namespaces it names. The Azlin apps (AzDrive, AzMail, the bridge,
+/// the CLI) share theirs - the drive sessions, the S3 credentials, the open checkouts - in
+/// [`KeyringNamespace::azlin_shared`]; any other app keeps its own ([`KeyringNamespace::app`],
+/// its app id), so a program built on azul does not read them by accident.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct KeyringNamespace(String);
+
+impl KeyringNamespace {
+    /// The service the Azlin apps share.
+    pub const AZLIN_SHARED: &'static str = "io.azlin.shared";
+
+    /// The namespace every Azlin app reads and writes its shared entries in.
+    #[must_use]
+    pub fn azlin_shared() -> Self {
+        KeyringNamespace(Self::AZLIN_SHARED.to_string())
+    }
+
+    /// The app's own namespace: its app id, which azul fills in.
+    #[must_use]
+    pub fn app() -> Self {
+        KeyringNamespace(String::new())
+    }
+
+    /// The namespace `service` (reverse-DNS, `org.example.Editor`); a blank one is the app's own.
+    #[must_use]
+    pub fn named(service: &str) -> Self {
+        KeyringNamespace(service.trim().to_string())
+    }
+
+    /// The service name; empty for the app's own namespace.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The keyring: one secret text per entry name. Blocking: call it from a worker thread, never
 /// from a UI callback (a read may wait for the system's unlock prompt).
 pub trait KeyringStore: Send + Sync {

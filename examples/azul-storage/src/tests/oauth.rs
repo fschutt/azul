@@ -52,6 +52,7 @@ fn api_call(token: &str) -> HttpCall {
         ],
         body: Vec::new(),
         content_type: String::new(),
+        limits: crate::CallLimits::json(),
     }
 }
 
@@ -343,6 +344,7 @@ fn a_request_without_a_bearer_token_passes_untouched() {
         headers: vec![(String::from("content-range"), String::from("bytes 0-1/2"))],
         body: vec![1, 2],
         content_type: String::from("application/octet-stream"),
+        limits: crate::CallLimits::upload(),
     };
     let reply = transport.send(&upload).unwrap();
     assert_eq!(reply.status, 201);

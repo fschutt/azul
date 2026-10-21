@@ -286,6 +286,8 @@ fn post_form(
         headers: vec![(String::from("Accept"), String::from("application/json"))],
         body: body.into_bytes(),
         content_type: String::from("application/x-www-form-urlencoded"),
+        // A token endpoint answers a small JSON document; a body of any size is refused.
+        limits: crate::CallLimits::json(),
     };
     let reply = transport.send(&call).map_err(OAuthError::Transport)?;
     token_response(&reply)

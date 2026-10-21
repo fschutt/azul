@@ -167,15 +167,23 @@ impl UreqTransport {
 }
 
 impl Transport for UreqTransport {
+    /// The call's limits are the request's: its overall time, the times its body may take to
+    /// send and its answer to arrive, and the bytes the answer may have (the bridge's own
+    /// [`MAX_BODY`] at most).
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
         let url = call.url.as_str();
+        let budget = call.budget();
         let response = match call.method {
             Method::Get | Method::Head | Method::Delete => {
                 let mut request = match call.method {
                     Method::Get => self.agent.get(url),
                     Method::Head => self.agent.head(url),
                     _ => self.agent.delete(url),
-                };
+                }
+                .config()
+                .timeout_global(Some(budget.overall))
+                .timeout_recv_body(budget.recv_body)
+                .build();
                 for (name, value) in &call.headers {
                     request = request.header(name.as_str(), value.as_str());
                 }
@@ -186,7 +194,12 @@ impl Transport for UreqTransport {
                     Method::Put => self.agent.put(url),
                     Method::Post => self.agent.post(url),
                     _ => self.agent.patch(url),
-                };
+                }
+                .config()
+                .timeout_global(Some(budget.overall))
+                .timeout_send_body(budget.send_body)
+                .timeout_recv_body(budget.recv_body)
+                .build();
                 for (name, value) in &call.headers {
                     request = request.header(name.as_str(), value.as_str());
                 }
@@ -220,7 +233,7 @@ impl Transport for UreqTransport {
             response
                 .into_body()
                 .into_with_config()
-                .limit(MAX_BODY)
+                .limit(MAX_BODY.min(budget.max_answer))
                 .read_to_vec()
                 .map_err(|e| e.to_string())?
         };
@@ -307,6 +320,7 @@ mod tests {
             ],
             body: b"message".to_vec(),
             content_type: String::from("message/rfc822"),
+            limits: azul_storage::CallLimits::upload(),
         };
         let reply = UreqTransport::new().send(&call).unwrap();
         assert_eq!(reply.status, 403);
@@ -329,6 +343,7 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
             content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
         };
         let reply = UreqTransport::new().send(&call).unwrap();
         assert_eq!(reply.status, 301);
@@ -351,6 +366,7 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
             content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
         };
         let transport = UreqTransport::new();
         let why = transport.send(&call).unwrap_err();

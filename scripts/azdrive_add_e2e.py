@@ -293,14 +293,25 @@ def drives_file_entries(path):
 PENDING_KEY = "azcloud/checkouts"
 
 
+# The keyring namespace (service) the Azlin apps share their entries in.
+AZLIN_KEYRING = "io.azlin.shared"
+
+
 def keyring_entries(path):
-    """The headless keyring kept in the run's file (AZ_KEYRING_FILE): entry name -> text."""
+    """The headless keyring kept in the run's file (AZ_KEYRING_FILE): entry name -> text, of the
+    Azlin apps' namespace. The file keeps each namespace under its service name; a text at the
+    top is an entry of the service every azul app shared before (what a test seeds), which the
+    app moves into its namespace when it first touches it - so both count, the namespace's
+    first."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
     except OSError:
         return {}
-    return json.loads(text) if text.strip() else {}
+    kept = json.loads(text) if text.strip() else {}
+    entries = {name: value for name, value in kept.items() if isinstance(value, str)}
+    entries.update(kept.get(AZLIN_KEYRING) or {})
+    return entries
 
 
 def pending_checkouts(path):

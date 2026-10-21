@@ -951,7 +951,7 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let (file, code) = device::add_recovery_code(
                     auto.bucket().as_ref(),
-                    &AzulKeyring::new(),
+                    &AzulKeyring::new(azul_storage::keyring::KeyringNamespace::azlin_shared()),
                     auto.drive(),
                     kdf,
                 )

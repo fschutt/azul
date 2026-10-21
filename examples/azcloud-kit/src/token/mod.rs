@@ -332,6 +332,8 @@ impl<'a> TokenServer<'a> {
             headers,
             body,
             content_type,
+            // The token server answers small JSON documents; a body of any size is refused.
+            limits: azul_storage::CallLimits::json(),
         };
         self.transport.send(&call).map_err(TokenError::Connect)
     }

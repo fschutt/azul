@@ -72,11 +72,13 @@ fn call_of(request: &http::Request<Buffer>) -> ::opendal::Result<HttpCall> {
             headers.push((name.to_string(), value));
         }
     }
+    let body = request.body().to_vec();
     Ok(HttpCall {
         method,
         url: request.uri().to_string(),
         headers,
-        body: request.body().to_vec(),
+        limits: crate::CallLimits::for_request(method, body.len()),
+        body,
         content_type,
     })
 }

@@ -4,8 +4,8 @@
 //! node dialed by its endpoint id at its iroh sockets (the `iroh_addrs` of the token server's
 //! node list: no discovery and no DNS). Feature `azul`.
 //!
-//! The engine waits on its own runtime, so no UI pump is needed (unlike `AzulTransport`): a
-//! headless app (the bridge) can send through it too. Blocking: call it from a worker thread,
+//! The engine waits on its own runtime, so no UI pump is needed: a headless app (the bridge)
+//! can send through it too. Blocking: call it from a worker thread,
 //! never from a UI callback. The endpoints are the process's, one per relay setting, bound on
 //! first use and kept: every node's connection is kept by the engine for the next request.
 
@@ -26,7 +26,8 @@ use crate::{
     HttpCall, HttpReply, Method, Transport,
 };
 
-/// Seconds one request over iroh may take (a part of a big upload included).
+/// Seconds one request over iroh may take at least (a relayed first request sets up its
+/// connection too); a call whose limits allow more gets more ([`crate::HttpCall::budget`]).
 pub const IROH_TIMEOUT_SECS: u32 = 120;
 /// The largest answer taken (a whole object of a GET without ranges).
 pub const MAX_ANSWER_BYTES: u32 = 1 << 30;
@@ -138,19 +139,29 @@ impl Transport for AzulIrohTransport {
                 .map(|a| AzString::from(a.as_str()))
                 .collect(),
         );
+        let budget = call.budget();
+        let allowed = u32::try_from(budget.overall.as_secs().saturating_add(1)).unwrap_or(u32::MAX);
         let answer = self.endpoint.0.request(
             self.id.as_str(),
             addresses,
             self.relay_url.as_str(),
             U8Vec::from(request),
             false,
-            self.timeout_secs,
+            self.timeout_secs.max(allowed),
         );
-        match answer {
+        let reply = match answer {
             ResultU8VecString::Ok(bytes) => {
-                decode_reply(bytes.as_slice(), call.method == Method::Head)
+                decode_reply(bytes.as_slice(), call.method == Method::Head)?
             }
-            ResultU8VecString::Err(why) => Err(format!("over iroh: {}", why.as_str())),
+            ResultU8VecString::Err(why) => return Err(format!("over iroh: {}", why.as_str())),
+        };
+        if reply.body.len() as u64 > budget.max_answer {
+            return Err(format!(
+                "over iroh: the answer has {} bytes, more than the {} this call takes",
+                reply.body.len(),
+                budget.max_answer
+            ));
         }
+        Ok(reply)
     }
 }
