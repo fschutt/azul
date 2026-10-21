@@ -6,7 +6,9 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
 - S3: AzDrive's stdlib test server (examples/azul-drive/scripts/s3_server.py): SigV4 checked, path
   style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key. HeadBucket
   answers as an Azlin node (SRV17): x-azlin-used-bytes (the bucket's stored bytes) and
-  x-azlin-quota-bytes (the quota of the drive's tier).
+  x-azlin-quota-bytes (the quota of the drive's tier); a write that would pass that quota (the
+  stored bytes, the parts of unfinished uploads and the write, less what it replaces) is 403
+  QuotaExceeded with x-azlin-error quota_exceeded, as a node answers it.
 - The token server: the routes of azlin-token (azul-apps iso/crates/azlin-token, drives.rs) the apps
   use, answering the same JSON:
 
@@ -170,6 +172,12 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     for the payer's details (they are never kept)
     POST /v1/checkout/<id>/surface {"kind"}         200 the same checkout on another surface
     POST /v1/checkout/<id>/abandon                  200 the provider session expires
+                                                    (expired); a session the payer already
+                                                    paid whose webhook has not come yet stays:
+                                                    200 pending, the webhook approves it
+                                                    (routes.rs `session_complete`); 502
+                                                    provider_unavailable after the switch
+                                                    fail_abandon(n): nothing changed
     POST /v1/webhook/<provider>                     200 a signed provider webhook (each event once)
     GET /fields/fake-stripe/v1, /fake-*/...,        the fakes' pages; /return/ok|cancel|pending;
         /_bridge/...                                the bridge (204)
@@ -705,6 +713,11 @@ class TokenState:
         self.webhooks = []
         # The checkouts abandoned (POST /v1/checkout/<id>/abandon), in order.
         self.abandoned = []
+        # How many abandons from now on the provider does not answer (fail_abandon).
+        self.abandon_failures = 0
+        # The fake providers' webhooks held back (hold_webhooks): a payment taken whose webhook
+        # is late. None: each is sent at once.
+        self.held_webhooks = None
         # The fake OAuth token endpoint: every request (POST /oauth/<provider>/token), and the
         # refresh tokens it issued, by token -> provider.
         self.oauth_requests = []
@@ -1174,17 +1187,47 @@ class TokenState:
         return {'checkout_id': checkout_id, 'surface': self.surface_of(checkout_id, kind),
                 'return': self.returns()}
 
+    def fail_abandon(self, count=1):
+        """A test's switch: the next `count` abandons find the provider not answering (502
+        provider_unavailable, the session not expired, nothing changed)."""
+        with self.lock:
+            self.abandon_failures = count
+
+    def hold_webhooks(self, on=True):
+        """A test's switch: the fake providers' webhooks wait until `release_webhooks` (a
+        payment taken at the provider whose webhook comes late); off sends the held ones."""
+        if on:
+            with self.lock:
+                if self.held_webhooks is None:
+                    self.held_webhooks = []
+            return []
+        return self.release_webhooks(stop=True)
+
+    def release_webhooks(self, stop=False):
+        """Sends the held webhooks in order: their HTTP statuses."""
+        with self.lock:
+            held, self.held_webhooks = self.held_webhooks or [], None if stop else []
+        return [self.send_webhook(*args) for args in held]
+
     def abandon(self, checkout_id):
         """POST /v1/checkout/<id>/abandon: the provider session expires (the popover closed
-        before paying): nobody can pay it any more."""
+        before paying): nobody can pay it any more. A session the payer already paid is not
+        expired: the checkout stays pending and its webhook approves it."""
         with self.lock:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
                 raise ApiError(404, 'no_such_checkout', 'unknown checkout')
-            checkout['abandoned'] = True
-            if checkout['status'] == 'pending':
-                checkout['status'] = 'expired'
             self.abandoned.append(checkout_id)
+            if checkout['status'] != 'pending':
+                return {'checkout_id': checkout_id, 'status': checkout['status']}
+            if checkout.get('provider') and self.abandon_failures > 0:
+                self.abandon_failures -= 1
+                raise ApiError(502, 'provider_unavailable', 'the payment provider did not '
+                               'answer; try again or pick another way to pay')
+            if checkout.get('provider_paid'):
+                return {'checkout_id': checkout_id, 'status': 'pending'}
+            checkout['abandoned'] = True
+            checkout['status'] = 'expired'
             return {'checkout_id': checkout_id, 'status': checkout['status']}
 
     def checkout_of_ref(self, provider_ref):
@@ -1201,6 +1244,14 @@ class TokenState:
     def send_webhook(self, provider, provider_ref, paid, created=None, event_id=None):
         """`provider`'s webhook for the payment `provider_ref`, signed with its scheme and
         posted to /v1/webhook/<provider>: the HTTP status."""
+        with self.lock:
+            checkout_id = self.by_ref.get(provider_ref)
+            if paid and checkout_id in self.checkouts:
+                # Paid at the provider: an abandon no longer expires its session.
+                self.checkouts[checkout_id]['provider_paid'] = True
+            if self.held_webhooks is not None:
+                self.held_webhooks.append((provider, provider_ref, paid, created, event_id))
+                return 202
         created = int(time.time()) if created is None else created
         secret = WEBHOOK_SECRETS[provider].encode('utf-8')
         if provider == 'fake-stripe':
@@ -2545,8 +2596,10 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     state = TokenState(s3, s3.url, ttl)
     if nodes is not None or failover:
         state.set_nodes(nodes if nodes is not None else state.nodes, failover)
-    # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier.
+    # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier,
+    # and keeps every write to that quota as a node does (parts of unfinished uploads count).
     s3.space_quota = state.quota_of_bucket
+    s3.enforce_quota = True
     state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()
     state.base_url = token.url
