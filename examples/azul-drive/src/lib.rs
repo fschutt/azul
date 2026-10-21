@@ -2683,14 +2683,32 @@ pub(crate) extern "C" fn on_job_done(
             }
             // A picture's size is known now: it may get its thumbnail.
             actions::request_view_work(&mut info, &handle, s);
+            // The sizes and dates are the rows' own: the rows draw them again, the window stays
+            // (a scroll asks for a batch every few rows). A selected item's also show in the
+            // details pane and the preview, and the icon grid is built with the window.
+            let beyond = listing::stats_reach_beyond_rows(&stats, |key| s.selection.contains(key));
+            if !beyond && !crate::ui_view::uses_icon_grid(s) && crate::ui_view::redraw_rows(&mut info)
+            {
+                return Update::DoNothing;
+            }
         }
         Outcome::Counted { drive_id, counts } => {
+            // A drive's own count shows on its tile; a folder's count only in its row.
+            let mut beyond_rows = false;
             for (key, n) in counts {
                 if key.is_empty() {
                     s.root_counts.insert(drive_id.clone(), n);
+                    beyond_rows = true;
                 } else if s.current_drive_id().as_deref() == Some(drive_id.as_str()) {
+                    beyond_rows |= s.selection.contains(key.as_str());
                     s.counts.insert(key, n);
                 }
+            }
+            if !beyond_rows
+                && !crate::ui_view::uses_icon_grid(s)
+                && crate::ui_view::redraw_rows(&mut info)
+            {
+                return Update::DoNothing;
             }
         }
         Outcome::Folders {

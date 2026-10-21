@@ -297,8 +297,7 @@ pub struct Stat {
 /// size and date also show in the details pane and the preview, which are built with the
 /// window. Stats of rows alone are drawn by the rows (their virtual view), with no new window.
 pub fn stats_reach_beyond_rows(stats: &[Stat], is_selected: impl Fn(&str) -> bool) -> bool {
-    let _ = (stats, is_selected);
-    true
+    stats.iter().any(|stat| is_selected(&stat.key))
 }
 
 /// Writes `stats` into the rows they name (a row gone since - another folder, a refresh - is not
