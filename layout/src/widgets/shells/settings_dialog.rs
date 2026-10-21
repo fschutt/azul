@@ -60,8 +60,8 @@ use crate::{
     widgets::{
         badge::{Badge, BadgeKind},
         dialog_kit::{
-            self, DialogKitLook, BUTTON_ROW_BASE, FIXED_BASE, FIXED_COLUMN_BASE, ROW_MIDDLE_BASE,
-            ROW_TOP_BASE, SPACER_BASE,
+            self, DialogKitLook, BUTTON_ROW_BASE, CONTROL_COLUMN_BASE, FIXED_BASE,
+            LABEL_COLUMN_BASE, ROW_MIDDLE_BASE, ROW_TOP_BASE, SPACER_BASE,
         },
         themes::{OptionUiTheme, UiTheme},
     },
@@ -1417,10 +1417,10 @@ fn row(
         .with_css_props(dialog_kit::part(ROW_TOP_BASE, &look.field_row))
         .with_children(DomVec::from_vec(alloc::vec![
             Dom::create_div()
-                .with_css_props(dialog_kit::part(FIXED_COLUMN_BASE, &look.field_label))
+                .with_css_props(dialog_kit::part(LABEL_COLUMN_BASE, &look.field_label))
                 .with_children(DomVec::from_vec(label_column)),
             Dom::create_div()
-                .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
+                .with_css_props(dialog_kit::part(CONTROL_COLUMN_BASE, &[]))
                 .with_child(control(index, s, recording, dialog, inner, look)),
         ]))
 }

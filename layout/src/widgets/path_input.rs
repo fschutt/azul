@@ -20,14 +20,20 @@ use azul_core::{
     dom::{Dom, DomVec},
     refany::RefAny,
 };
-use azul_css::AzString;
+use azul_css::{
+    dynamic_selector::CssPropertyWithConditions,
+    props::{
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutMinHeight, LayoutMinWidth},
+        property::CssProperty,
+    },
+    AzString,
+};
 
 use crate::{
     callbacks::CallbackInfo,
     widgets::{
         button::{Button, ButtonOnClickCallbackType},
         dialog_kit::{self, DialogKitLook, FIXED_BASE, ROW_MIDDLE_BASE},
-        shells::GROW_COLUMN_BASE,
         text_input::{
             OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType, TextInputState,
             TextInputValid,
@@ -42,6 +48,20 @@ pub const PATH_INPUT_CLASS: &str = "__azul-native-path-input";
 pub const PATH_FIELD_CLASS: &str = "__azul-native-path-input-field";
 /// The class of the box around the Browse button.
 pub const PATH_BROWSE_CLASS: &str = "__azul-native-path-input-browse";
+
+/// The field's box: it takes the room Browse leaves, and never less than a
+/// path needs to be read (a narrow row squeezes what is beside it instead).
+static FIELD_BOX_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
+        160,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+];
 
 /// Callback invoked with the new path: typed into the field, or picked.
 pub type PathInputOnChangeCallbackType = extern "C" fn(RefAny, CallbackInfo, AzString) -> Update;
@@ -363,7 +383,7 @@ pub(crate) fn build(input: PathInput, look: &DialogKitLook) -> Dom {
     let field_box = Dom::create_div()
         .with_ids_and_classes(dialog_kit::class(PATH_FIELD_CLASS))
         // A growing column: the field in it stretches to the box's width.
-        .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
+        .with_css_props(dialog_kit::part(FIELD_BOX_BASE, &[]))
         .with_child(field.dom());
     let browse_box = Dom::create_div()
         .with_ids_and_classes(dialog_kit::class(PATH_BROWSE_CLASS))

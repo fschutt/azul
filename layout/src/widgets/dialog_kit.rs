@@ -537,16 +537,24 @@ pub(crate) static BUTTON_ROW_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// A column that keeps its width in its row (a setting's label column).
-pub(crate) static FIXED_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+/// A setting's label column: its width (the look's) when the row has room,
+/// less when the control beside it needs it - its label wraps.
+pub(crate) static LABEL_COLUMN_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_display(LayoutDisplay::Flex)),
     simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
     simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
-        inner: FloatValue::const_new(0),
-    })),
+];
+
+/// A setting's control column: the rest of the row, and never narrower than
+/// its control (the automatic minimum width of a flex item).
+pub(crate) static CONTROL_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 ];
 
 /// A button's box keeps its size in its row.
