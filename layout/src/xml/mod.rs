@@ -711,9 +711,8 @@ fn parse_xml_to_fast_dom_with_css(
         }
     }
 
-    // Pre-compute the CSS key map once (used for style= attribute parsing)
-    let css_key_map = azul_css::props::property::get_css_key_map();
-    let mut sink = FastDomSink::new(xml.len(), &css_key_map);
+    // The CSS key map parses the style= attributes.
+    let mut sink = FastDomSink::new(xml.len(), azul_css::props::property::css_key_map());
     // The one tree construction, the names lower-cased (an HTML document
     // written as XML: `<DIV>` is a div).
     let mut builder = html::TreeBuilder::new(html::TreeRules::XmlFolded);
@@ -734,8 +733,7 @@ fn parse_xml_to_fast_dom_with_css(
 /// The lenient twin of [`parse_xml_to_fast_dom_with_css`]: HTML as a browser
 /// reads it ([`html::parse_html_into`]), into the same arena.
 fn parse_html_to_fast_dom_with_css(source: &str) -> (azul_core::dom::FastDom, Vec<Css>) {
-    let css_key_map = azul_css::props::property::get_css_key_map();
-    let mut sink = FastDomSink::new(source.len(), &css_key_map);
+    let mut sink = FastDomSink::new(source.len(), azul_css::props::property::css_key_map());
     html::parse_html_into(source, &mut sink);
     sink.finish()
 }

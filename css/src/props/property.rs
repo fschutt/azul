@@ -595,9 +595,23 @@ std::thread_local! {
     pub(crate) static KEY_MAP_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// Returns a map useful for parsing the keys of CSS stylesheets
+/// The maps of every CSS property name, for parsing the keys of stylesheets:
+/// built on first use and kept for the life of the process, so a parse only
+/// looks its keys up (inline styles are parsed for every row a list renders).
+#[must_use]
+pub fn css_key_map() -> &'static CssKeyMap {
+    static MAP: std::sync::OnceLock<CssKeyMap> = std::sync::OnceLock::new();
+    MAP.get_or_init(build_css_key_map)
+}
+
+/// Returns a map useful for parsing the keys of CSS stylesheets: a copy of
+/// [`css_key_map`], for a caller that wants its own.
 #[must_use]
 pub fn get_css_key_map() -> CssKeyMap {
+    css_key_map().clone()
+}
+
+fn build_css_key_map() -> CssKeyMap {
     #[cfg(test)]
     KEY_MAP_BUILDS.with(|n| n.set(n.get() + 1));
     CssKeyMap {

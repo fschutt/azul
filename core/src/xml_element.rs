@@ -610,8 +610,10 @@ fn land_common(
     let hints = super::builtin_presentational_hints(element.tag, element.pairs());
     if !hints.is_empty() {
         if let Some(map) = landing.css_key_map { intrinsic.extend(super::attributes::style_declarations(&hints, map)) } else {
-            let map = azul_css::props::property::get_css_key_map();
-            intrinsic.extend(super::attributes::style_declarations(&hints, &map));
+            intrinsic.extend(super::attributes::style_declarations(
+                &hints,
+                azul_css::props::property::css_key_map(),
+            ));
         }
     }
     super::attributes::apply_settings(
@@ -700,10 +702,7 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
 fn declarations(css: &str, landing: &Landing<'_>) -> Vec<CssPropertyWithConditions> {
     landing.css_key_map.map_or_else(
         || {
-            super::attributes::style_declarations(
-                css,
-                &azul_css::props::property::get_css_key_map(),
-            )
+            super::attributes::style_declarations(css, azul_css::props::property::css_key_map())
         },
         |map| super::attributes::style_declarations(css, map),
     )

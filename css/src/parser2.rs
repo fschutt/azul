@@ -1889,8 +1889,8 @@ fn new_from_str_inner<'a>(
                     }
                     Token::Declaration(key, val) => {
                         if cap.in_stop {
-                            let key_map = crate::props::property::get_css_key_map();
-                            if let Some(ty) = CssPropertyType::from_str(key.trim(), &key_map) {
+                            let key_map = crate::props::property::css_key_map();
+                            if let Some(ty) = CssPropertyType::from_str(key.trim(), key_map) {
                                 if let Ok(prop) = parse_css_property(ty, val.trim()) {
                                     cap.props.push(prop);
                                 }
@@ -2268,7 +2268,7 @@ fn new_from_str_inner<'a>(
                         key,
                         val,
                         location,
-                        &crate::props::property::get_css_key_map(),
+                        crate::props::property::css_key_map(),
                     )
                     .err()
                 } else {
@@ -2319,7 +2319,7 @@ fn css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
 ) -> (Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>) {
-    let css_key_map = crate::props::property::get_css_key_map();
+    let css_key_map = crate::props::property::css_key_map();
     let mut warnings = Vec::new();
     let mut parsed_css_blocks = Vec::new();
 
@@ -2355,7 +2355,7 @@ fn css_blocks_to_stylesheet<'a>(
                 unparsed_css_key,
                 unparsed_css_value,
                 location,
-                &css_key_map,
+                css_key_map,
             ) {
                 Ok(decls) => {
                     if matches!(parse_var_chain(unparsed_css_value), Some(Ok((_, None)))) {
@@ -2368,7 +2368,7 @@ fn css_blocks_to_stylesheet<'a>(
                         });
                     }
                     if let Some(warning) =
-                        too_many_shadows(unparsed_css_key, unparsed_css_value, &css_key_map)
+                        too_many_shadows(unparsed_css_key, unparsed_css_value, css_key_map)
                     {
                         warnings.push(CssParseWarnMsg { warning, location });
                     }

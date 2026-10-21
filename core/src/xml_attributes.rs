@@ -551,8 +551,7 @@ pub fn apply_settings(
     let mut inline = Vec::new();
     if let Some(s) = style_text {
         if let Some(map) = css_key_map { inline.extend(style_declarations(s.as_str(), map)) } else {
-            let map = azul_css::props::property::get_css_key_map();
-            inline.extend(style_declarations(s.as_str(), &map));
+            inline.extend(style_declarations(s.as_str(), azul_css::props::property::css_key_map()));
         }
     }
     if hints.is_empty() && inline.is_empty() {
