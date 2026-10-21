@@ -63,3 +63,18 @@ fn a_keyring_error_says_what_went_wrong() {
         .to_string()
         .contains("locked"));
 }
+
+#[test]
+fn the_azlin_apps_share_one_keyring_namespace_and_any_other_app_keeps_its_own() {
+    use crate::keyring::KeyringNamespace;
+    assert_eq!(KeyringNamespace::azlin_shared().as_str(), "io.azlin.shared");
+    assert_eq!(
+        KeyringNamespace::app().as_str(),
+        "",
+        "empty: the app's own id, which azul fills in"
+    );
+    assert_eq!(
+        KeyringNamespace::named(" org.example.Editor ").as_str(),
+        "org.example.Editor"
+    );
+}

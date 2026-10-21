@@ -753,6 +753,43 @@ mod autotest_generated {
 
     // ── channels: push / drain / has_queued_requests ───────────────────
 
+    /// A callback that names a namespace (the Azlin apps' shared one) has its request run
+    /// there; one that names none runs in the app's own (an empty service).
+    #[test]
+    fn a_queued_request_keeps_the_namespace_its_callback_named() {
+        let _guard = lock_channels();
+        drop(drain_keyring_requests_in());
+
+        push_keyring_request_in(
+            KeyringNamespace::create(AzString::from("io.azlin.shared")),
+            KeyringRequest::Get {
+                key: AzString::from("azul-storage/s3/d_1"),
+            },
+        );
+        push_keyring_request(KeyringRequest::Delete {
+            key: AzString::from("note"),
+        });
+        let drained = drain_keyring_requests_in();
+        assert_eq!(
+            drained,
+            vec![
+                (
+                    KeyringNamespace::create(AzString::from("io.azlin.shared")),
+                    KeyringRequest::Get {
+                        key: AzString::from("azul-storage/s3/d_1")
+                    }
+                ),
+                (
+                    KeyringNamespace::app(),
+                    KeyringRequest::Delete {
+                        key: AzString::from("note")
+                    }
+                ),
+            ]
+        );
+        assert!(drain_keyring_requests_in().is_empty());
+    }
+
     #[test]
     fn request_channel_is_fifo_across_every_variant() {
         let _guard = lock_channels();

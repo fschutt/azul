@@ -34,6 +34,8 @@ mod router;
 mod http1;
 /// The UI thread never waits for a network answer (debug assertions).
 mod ui_thread;
+/// An upload's time grows with its body, a document's answer is capped, parts follow the link.
+mod limits;
 
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]

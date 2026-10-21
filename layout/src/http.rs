@@ -3378,3 +3378,177 @@ mod webdav_and_redirect_tests {
         );
     }
 }
+
+/// What a blocking request may take, what its answer may weigh, and which
+/// thread may wait for it: a local server that answers too much, too slowly or
+/// not at all.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod limits_and_thread_tests {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+
+    /// A server that reads one request's head and hands the stream to `answer`.
+    fn server(answer: fn(std::net::TcpStream)) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                    }
+                    answer(stream);
+                });
+            }
+        });
+        base
+    }
+
+    /// 2 MiB in chunks, without a Content-Length: only reading the body shows its size.
+    fn two_mib_chunked(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..32 {
+            let _ = stream.write_all(format!("{:x}\r\n", chunk.len()).as_bytes());
+            let _ = stream.write_all(&chunk);
+            let _ = stream.write_all(b"\r\n");
+        }
+        let _ = stream.write_all(b"0\r\n\r\n");
+    }
+
+    #[test]
+    fn an_answer_above_the_limit_is_refused_and_never_cut_short() {
+        let base = server(two_mib_chunked);
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_max_size(1024 * 1024);
+        match http_get_with_config(&format!("{base}/token"), &config) {
+            Err(HttpError::ResponseTooLarge(e)) => assert_eq!(e.max_size, 1024 * 1024),
+            other => panic!("a 2 MiB answer to a 1 MiB call: {other:?}"),
+        }
+        // Under the limit the whole body arrives.
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_max_size(2 * 1024 * 1024);
+        let answer = http_get_with_config(&format!("{base}/token"), &config).expect("GET");
+        assert_eq!(answer.body.as_ref().len(), 2 * 1024 * 1024);
+    }
+
+    /// Headers at once, then a body that never comes.
+    fn stalls_in_the_body(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nabc");
+        std::thread::sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn the_receive_timeout_ends_a_body_that_stalls_before_the_overall_one() {
+        let base = server(stalls_in_the_body);
+        let config = HttpRequestConfig::default()
+            .with_timeout(15)
+            .with_recv_timeout(1);
+        assert_eq!(config.recv_timeout_secs, 1);
+        let started = Instant::now();
+        let answer = http_get_with_config(&format!("{base}/stall"), &config);
+        assert!(answer.is_err(), "a stalled body is no answer: {answer:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the receive timeout ended it, not the overall one: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Never reads what it is sent: the body fills the socket's buffers and stops.
+    fn never_reads(_stream: std::net::TcpStream) {
+        std::thread::sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn the_send_timeout_ends_a_body_nobody_takes_before_the_overall_one() {
+        let base = server(never_reads);
+        let config = HttpRequestConfig::default()
+            .with_timeout(15)
+            .with_send_timeout(1);
+        assert_eq!(config.send_timeout_secs, 1);
+        let body = vec![0u8; 64 * 1024 * 1024];
+        let started = Instant::now();
+        let answer = http_request_with_config(
+            HttpMethod::Put,
+            &format!("{base}/part"),
+            Some(&body),
+            "application/octet-stream",
+            &config,
+        );
+        assert!(answer.is_err(), "an unread body is no answer");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the send timeout ended it: {:?}",
+            started.elapsed()
+        );
+    }
+
+    fn ok(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    }
+
+    #[test]
+    fn a_blocking_request_is_refused_on_the_event_loop_thread_and_works_on_any_other() {
+        let base = server(ok);
+        let url = format!("{base}/x");
+        let worker = url.clone();
+        let answered = std::thread::spawn(move || {
+            HttpRequestConfig::default()
+                .with_timeout(5)
+                .http_request_blocking(
+                    HttpMethod::Get,
+                    AzString::from(worker),
+                    U8Vec::from_vec(Vec::new()),
+                    AzString::from(""),
+                )
+        })
+        .join()
+        .expect("a worker thread may wait");
+        assert!(matches!(answered, ResultHttpResponseHttpError::Ok(_)));
+
+        let refused = std::thread::spawn(move || {
+            mark_event_loop_thread();
+            assert!(is_event_loop_thread());
+            std::panic::catch_unwind(|| {
+                HttpRequestConfig::default()
+                    .with_timeout(5)
+                    .http_request_blocking(
+                        HttpMethod::Get,
+                        AzString::from(url),
+                        U8Vec::from_vec(Vec::new()),
+                        AzString::from(""),
+                    )
+            })
+        })
+        .join()
+        .expect("the thread returns what the call did");
+        if cfg!(debug_assertions) {
+            assert!(refused.is_err(), "a debug build stops at the call");
+        } else {
+            match refused {
+                Ok(ResultHttpResponseHttpError::Err(HttpError::Other(why))) => {
+                    assert!(why.as_str().contains("UI thread"), "{}", why.as_str());
+                }
+                other => panic!("the event loop's thread never waits for an answer: {other:?}"),
+            }
+        }
+        assert!(
+            !std::thread::spawn(is_event_loop_thread).join().unwrap(),
+            "the mark is the marking thread's own"
+        );
+    }
+}
