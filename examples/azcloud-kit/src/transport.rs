@@ -683,7 +683,7 @@ impl IrohLane {
                 }
             };
             if !answered && !is_probe {
-                let probe = match request.probe_for(block, PROBE_KEY) {
+                let mut probe = match request.probe_for(block, PROBE_KEY) {
                     Ok(probe) => probe,
                     Err(e) => {
                         // A request that cannot sign a probe goes over HTTPS.
@@ -691,6 +691,7 @@ impl IrohLane {
                         return LaneAnswer::Failed(e.to_string());
                     }
                 };
+                crate::hello::stamp(&mut probe);
                 lock(&self.report).probed = true;
                 if let Err(e) = send_within(&transport, probe, self.probe_timeout) {
                     self.failed(target, "the probe", &e, &targets);
@@ -699,13 +700,14 @@ impl IrohLane {
                 }
                 self.answered(target, true);
             }
-            let call = match request.signed_for(block) {
+            let mut call = match request.signed_for(block) {
                 Ok(call) => call,
                 Err(e) => {
                     self.took_https(None);
                     return LaneAnswer::Failed(e.to_string());
                 }
             };
+            crate::hello::stamp(&mut call);
             let sent = if is_probe {
                 lock(&self.report).probed = true;
                 send_within(&transport, call, self.probe_timeout)

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
-    ops, same_etag, xml, BatchDelete, BatchStream, ByteRange, Drive, DriveError, HttpCall,
+    ops, same_etag, xml, AzlinError, BatchDelete, BatchStream, ByteRange, Drive, DriveError, HttpCall,
     HttpReply, ListPage, ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport,
     DELETE_BATCH,
 };
@@ -333,7 +333,7 @@ fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
-    error.azlin_error = header("x-azlin-error");
+    error.azlin_error = header("x-azlin-error").map(|code| AzlinError::from_wire(&code));
     error.retry_after = header("retry-after").and_then(|secs| secs.parse::<u64>().ok());
     if error.request_id.is_none() {
         error.request_id = header("x-amz-request-id");

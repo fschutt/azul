@@ -468,15 +468,10 @@ impl Bucket {
     /// One signed HEAD of `key`: `Ok` for any answer at all (the pipe works), the reason
     /// otherwise.
     pub fn probe(&self, key: &str) -> Result<(), String> {
+        let mut hello = Vec::new();
+        crate::hello::stamp_headers(&mut hello);
         self.direct
-            .send_raw(
-                Method::Head,
-                Some(key),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                "",
-            )
+            .send_raw(Method::Head, Some(key), Vec::new(), hello, Vec::new(), "")
             .map(|_| ())
             .map_err(|e| e.to_string())
     }

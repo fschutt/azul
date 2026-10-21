@@ -837,6 +837,12 @@ jobs:
           cargo test -p azul-icons-haiku --no-fail-fast 2>&1 | tee azul-icons-haiku-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-icons-haiku-tests.txt
 
+      - name: Run azlin-contract tests
+        run: |
+          set -o pipefail
+          cargo test -p azlin-contract --no-fail-fast 2>&1 | tee azlin-contract-tests.txt
+          ./scripts/zero_test_guard.sh --strict azlin-contract-tests.txt
+
       - name: Run azcloud-kit tests
         run: |
           set -o pipefail

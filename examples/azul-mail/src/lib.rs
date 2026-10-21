@@ -2190,6 +2190,10 @@ pub fn start() {
     // This thread runs the window: its pump delivers every network answer, so it never waits
     // for one (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
+    // Every request to the Azlin services says which app and contract sent it.
+    if let Some(hello) = azcloud_kit::hello::of_app("azmail", env!("CARGO_PKG_VERSION")) {
+        azcloud_kit::hello::announce(hello);
+    }
     let args = match args::MailArgs::from_env() {
         Ok(args) => args,
         Err(text) => {

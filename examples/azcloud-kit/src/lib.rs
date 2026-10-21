@@ -93,6 +93,7 @@ pub mod encryption;
 pub mod endpoints;
 pub mod error;
 pub mod failover;
+pub mod hello;
 pub mod lock;
 pub mod pending;
 pub mod period;
@@ -115,6 +116,8 @@ pub mod user_errors;
 mod tests;
 
 pub use account::{Account, JoinCode};
+/// The contract with the Azlin services, for the apps that name its types.
+pub use azlin_contract;
 pub use bucket::Bucket;
 pub use bundle::{ClaimTicket, DriveBundle, PeriodTokens};
 pub use cash::{ActivationCode, CashError, ClaimCode};

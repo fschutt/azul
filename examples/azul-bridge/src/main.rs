@@ -1,6 +1,10 @@
 //! `azul-bridge`: the Azlin Bridge's command line (see `azul_bridge::cli`).
 
 fn main() {
+    // Every request to the Azlin services says which app and contract sent it.
+    if let Some(hello) = azcloud_kit::hello::of_app("azul-bridge", env!("CARGO_PKG_VERSION")) {
+        azcloud_kit::hello::announce(hello);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let options = match azul_bridge::cli::parse_args(&args) {
         Ok(options) => options,

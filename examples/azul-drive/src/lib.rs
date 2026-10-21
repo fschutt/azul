@@ -3384,6 +3384,10 @@ pub fn start() {
     // This thread runs the window: its pump delivers every network answer, so it never waits
     // for one (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
+    // Every request to the Azlin services says which app and contract sent it.
+    if let Some(hello) = azcloud_kit::hello::of_app("azdrive", env!("CARGO_PKG_VERSION")) {
+        azcloud_kit::hello::announce(hello);
+    }
     // The switches; a variable an older build read fills in a switch that is absent.
     let args = match args::Args::parse(std::env::args().skip(1)) {
         Ok(args) => args.with_env_fallbacks(|var| std::env::var(var).ok()),

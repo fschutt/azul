@@ -30,6 +30,9 @@ azul-storage = { path = "../azul-storage" }
 azul-appkit = { path = "../azul-appkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# What the apps and the Azlin services say to each other: the client hello every request
+# carries, the error codes, the ids (no new crates: serde only).
+azlin-contract = { path = "../azlin-contract" }
 # The sync's content addresses: every blob is named by its BLAKE3 (no new crate: azul's tree has
 # 1.8.7 already).
 blake3 = "1.8"

@@ -592,13 +592,14 @@ impl Router for Failover {
             while i < route.len() {
                 let endpoint = route[i].clone();
                 i += 1;
-                let call = match request.signed_for(&endpoint) {
+                let mut call = match request.signed_for(&endpoint) {
                     Ok(call) => call,
                     Err(e) => {
                         last_error = Some(e);
                         continue;
                     }
                 };
+                crate::hello::stamp(&mut call);
                 let sent = match transport.send(&call) {
                     Err(why)
                         if is_dns_failure(&why)

@@ -11,6 +11,7 @@
 
 use std::fmt::Write as _;
 
+use azlin_contract::AzlinError;
 use azul_storage::{DriveError, ServiceError};
 
 use crate::{error::CloudError, token::TokenError};
@@ -108,11 +109,14 @@ pub enum Code {
     /// This computer's clock is too far off the node's for a signed request (S3's
     /// `RequestTimeTooSkewed`) - the client's own: nothing works until the clock is set.
     ClockSkew,
+    /// The service no longer speaks this app's contract (`client_too_old`): only an update
+    /// helps.
+    UpdateApp,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 23] = [
+    pub const ALL: [Code; 24] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -136,6 +140,7 @@ impl Code {
         Code::LastRecoveryKey,
         Code::BadChallenge,
         Code::ClockSkew,
+        Code::UpdateApp,
     ];
 
     /// `quota_exceeded`, ...
@@ -163,6 +168,7 @@ impl Code {
             Code::LastRecoveryKey => "last_recovery_key",
             Code::BadChallenge => "bad_challenge",
             Code::ClockSkew => "clock_skew",
+            Code::UpdateApp => "update_app",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -192,6 +198,39 @@ impl Code {
             .find(|row| row.code == self)
             .or_else(|| ROWS.iter().find(|row| row.code == Code::Other))
             .unwrap_or(&ROWS[ROWS.len() - 1])
+    }
+}
+
+/// Every code a service sends has its row: a new code in the contract does not compile
+/// until it is given one here.
+impl From<AzlinError> for Code {
+    fn from(code: AzlinError) -> Code {
+        match code {
+            AzlinError::Unavailable => Code::Unavailable,
+            AzlinError::Maintenance => Code::Maintenance,
+            AzlinError::QuotaExceeded => Code::QuotaExceeded,
+            AzlinError::ReadOnlyUnpaid => Code::ReadOnlyUnpaid,
+            AzlinError::CredentialsRevoked => Code::CredentialsRevoked,
+            AzlinError::ObjectTooLarge => Code::ObjectTooLarge,
+            AzlinError::NameConflict => Code::NameConflict,
+            AzlinError::LinkBlocked => Code::LinkBlocked,
+            AzlinError::Integrity => Code::Integrity,
+            AzlinError::DeletePaused => Code::DeletePaused,
+            AzlinError::WrongBlock => Code::WrongBlock,
+            AzlinError::Internal => Code::Other,
+            AzlinError::DriveBanned => Code::DriveBanned,
+            AzlinError::SessionExpired => Code::SessionExpired,
+            AzlinError::ClockSkew => Code::ClockSkew,
+            // Both are fixed by fresh credentials, as expired ones are.
+            AzlinError::MapStale | AzlinError::CredentialsStale => Code::SessionExpired,
+            AzlinError::LockdownPending => Code::LockdownPending,
+            AzlinError::ClientTooOld => Code::UpdateApp,
+            // A code from a newer node, or a broken one: said with what the node said.
+            AzlinError::Unknown => Code::Other,
+            AzlinError::RecoveryKeyRequired => Code::RecoveryKeyRequired,
+            AzlinError::LastRecoveryKey => Code::LastRecoveryKey,
+            AzlinError::BadChallenge => Code::BadChallenge,
+        }
     }
 }
 
@@ -341,6 +380,15 @@ pub const ROWS: &[Row] = &[
              Uhrzeit richtig, dann geht die Synchronisierung weiter.",
     },
     Row {
+        code: Code::UpdateApp,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This version of the app is too old for Azlin Storage. Update the app to go on - \
+             your files are safe.",
+        de: "Diese Version der App ist zu alt für Azlin Storage. Aktualisiere die App, um \
+             weiterzumachen - deine Dateien sind sicher.",
+    },
+    Row {
         code: Code::Other,
         class: Class::Fatal,
         behaviour: Behaviour::Report,
@@ -481,8 +529,8 @@ impl UserError {
     /// An S3 error answer: its `x-azlin-error` (an unknown one is [`Code::Other`]); a service
     /// without Azlin codes by its status only - busy (503, 429) or [`Code::Other`].
     fn from_service(service: &ServiceError) -> UserError {
-        let code = match service.azlin_error.as_deref() {
-            Some(code) => Code::parse(code).unwrap_or(Code::Other),
+        let code = match service.azlin_error {
+            Some(code) => Code::from(code),
             None if service.code == "RequestTimeTooSkewed" => Code::ClockSkew,
             None => busy_or_other(service.status),
         };
@@ -500,8 +548,11 @@ impl UserError {
         Some(match e {
             TokenError::Connect(why) => UserError::new(Code::Network, why.clone()),
             TokenError::SignIn(why) => UserError::new(Code::CredentialsRevoked, why.clone()),
+            // The token server's other codes are not in the contract yet: by their status.
             TokenError::Refused { status, code, .. } => {
-                let known = Code::parse(code).filter(|code| *code != Code::Other);
+                let known = AzlinError::parse(code)
+                    .map(Code::from)
+                    .filter(|code| *code != Code::Other);
                 UserError::new(known.unwrap_or_else(|| busy_or_other(*status)), e.to_string())
             }
             TokenError::Protocol(why) => UserError::new(Code::Other, why.clone()),

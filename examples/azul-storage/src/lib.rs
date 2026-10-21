@@ -136,6 +136,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use azlin_contract::AzlinError;
 pub use config::SecretOptions;
 #[cfg(feature = "sql")]
 pub use database::DatabaseDrive;
@@ -452,9 +453,10 @@ pub struct ServiceError {
     pub region: Option<String>,
     /// `PermanentRedirect`: the endpoint to use instead.
     pub endpoint: Option<String>,
-    /// An Azlin node's own code (`x-azlin-error`: `unavailable`, `quota_exceeded`, ...), which
-    /// azcloud-kit's `user_errors` turns into what the user sees.
-    pub azlin_error: Option<String>,
+    /// An Azlin node's own code (`x-azlin-error`: `unavailable`, `quota_exceeded`, ...;
+    /// [`AzlinError::Unknown`] for one this build does not know), which azcloud-kit's
+    /// `user_errors` turns into what the user sees.
+    pub azlin_error: Option<AzlinError>,
     /// `Retry-After` in seconds, when the service sent a number.
     pub retry_after: Option<u64>,
 }

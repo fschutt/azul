@@ -30,7 +30,7 @@ use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
     ui_thread::NetworkLock,
-    ops, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
+    ops, AzlinError, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
     ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
@@ -41,7 +41,6 @@ use crate::{
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
     transport::{IrohDialer, IrohLane},
-    user_errors::Code,
 };
 
 /// Makes a transport: one for every S3 drive the credentials open, one for every refresh.
@@ -121,7 +120,7 @@ fn drive_error_of(e: &TokenError) -> DriveError {
             status: 401,
             code: String::from("Unauthorized"),
             message: e.to_string(),
-            azlin_error: Some(Code::CredentialsRevoked.as_str().to_string()),
+            azlin_error: Some(AzlinError::CredentialsRevoked),
             ..ServiceError::default()
         }),
         TokenError::Config(why) => DriveError::InvalidConfig(why.clone()),
@@ -136,9 +135,7 @@ fn drive_error_of(e: &TokenError) -> DriveError {
             status: *status,
             code: code.clone(),
             message: message.clone(),
-            azlin_error: Code::parse(code)
-                .filter(|known| *known != Code::Other)
-                .map(|_| code.clone()),
+            azlin_error: AzlinError::parse(code).filter(|known| *known != AzlinError::Internal),
             ..ServiceError::default()
         }),
         TokenError::Protocol(_) => DriveError::Protocol(e.to_string()),
@@ -150,7 +147,7 @@ fn drive_error_of(e: &TokenError) -> DriveError {
 fn refused_credentials(e: &DriveError) -> bool {
     matches!(e, DriveError::Service(service)
         if REFUSED_CREDENTIALS.contains(&service.code.as_str())
-            || service.azlin_error.as_deref() == Some(Code::SessionExpired.as_str()))
+            || service.azlin_error == Some(AzlinError::SessionExpired))
 }
 
 impl AzlinDrive {
