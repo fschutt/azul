@@ -14,9 +14,12 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
 
     POST /v1/drives {"name": ..., "tier": ...}      201 the drive bundle (a development token
                                                     server's sign-up: no payment)
-    POST /v1/drives/<id>/credentials                200 a new bundle with a NEW drive token;
-        Authorization: Bearer <drive token>         the old token is dead: using it again revokes
-                                                    the whole family (401 token_reuse), after
+    POST /v1/drives/<id>/credentials                200 a new bundle with a NEW drive token and
+        Authorization: Bearer <drive token>         family_expires_at; until the new token is
+                                                    presented the old one may ask again (a lost
+                                                    answer), after that it is dead: using it
+                                                    again revokes the
+                                                    whole family (401 token_reuse), after
                                                     which every token of it is refused (401
                                                     credentials_revoked); a recovery-pending
                                                     family gets none until its lockdown's 48 h
@@ -886,7 +889,8 @@ class TokenState:
         # a day's start only (D37), as drive_members' added_at
         day = int(time.time()) // 86400 * 86400
         self.families[family] = {'drive': drive_id, 'member': member, 'generation': 0,
-                                 'current': '', 'used': [], 'revoked': None, 'added_at': day}
+                                 'current': '', 'used': [], 'revoked': None, 'added_at': day,
+                                 'current_used': False}
         return self.new_token(family)
 
     def checkout(self, body):
@@ -1632,9 +1636,14 @@ class TokenState:
         if state['revoked']:
             raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
         digest = token_hash(bearer)
-        if digest == state['current'] or (previous_ok and state['used']
-                                          and digest == state['used'][-1]):
+        rotated_from_last = bool(state['used']) and digest == state['used'][-1]
+        # the token rotated from last while the current one was never presented: the answer of
+        # that refresh was lost, not a reuse (drives.rs `Presented::LostAnswer`)
+        lost_answer = rotated_from_last and not state.get('current_used', True)
+        if digest == state['current'] or lost_answer or (previous_ok and rotated_from_last):
             self.check_ban(drive)
+            if digest == state['current']:
+                state['current_used'] = True
             return drive, state
         if digest in state['used']:
             state['revoked'] = 'reuse'
@@ -2259,10 +2268,23 @@ class TokenState:
             # A banned drive's credentials until its end, never after (ban contract v1).
             self.check_ban(drive)
             digest = token_hash(bearer)
-            if digest == state['current']:
-                state['used'] = (state['used'] + [state['current']])[-20:]
+            lost_answer = (bool(state['used']) and digest == state['used'][-1]
+                           and not state.get('current_used', True))
+            if digest == state['current'] or lost_answer:
+                if lost_answer:
+                    # the lost token is spent; the held one stays the one rotated from last
+                    state['used'] = (state['used'][:-1] + [state['current'], digest])[-20:]
+                else:
+                    state['used'] = (state['used'] + [state['current']])[-20:]
                 state['generation'] += 1
-                return self.bundle(drive, self.new_token(family))
+                state['current_used'] = False
+                answer = self.bundle(drive, self.new_token(family))
+                day = int(time.time()) // 86400 * 86400
+                expires = day + 90 * 86400
+                if drive.get('period_until'):
+                    expires = max(expires, drive['period_until'] + 14 * 86400)
+                answer['family_expires_at'] = {'at': rfc3339(expires), 'kind': 'family_idle'}
+                return answer
             if digest in state['used']:
                 # A rotated token used again: it leaked. The whole family is revoked.
                 state['revoked'] = 'reuse'

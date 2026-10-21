@@ -24,8 +24,10 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     an iroh id (`iroh_id`, else `sign_pubkey`), `ipv4` / `ipv6` that are IP addresses, a
     boolean `ready`, and `iroh_addrs` - only with an iroh id - a list of `ip:port` strings;
     `failover` is a list of http(s) URLs.
- 6. With the old token again: 401 `token_reuse` - and then the new one too: 401
-    `credentials_revoked` (reuse revokes the family).
+ 6. With the old token again while the new one was never presented: 200 with the next token of
+    the same family (the answer was lost; `family_expires_at` names when the family runs out).
+    Once that one refreshed, the old token is 401 `token_reuse` - and then the newest one too:
+    401 `credentials_revoked` (reuse revokes the family).
  7. POST /v1/drives/<a drive nobody has>/credentials: 404 `no_such_drive`.
  8. A route nobody serves: 404 `not_found`.
  9. The claim (CLAIM CONTRACT v1, scripts/azlin_claim.py): POST /v1/checkout without a
@@ -366,11 +368,26 @@ def run(token_url, s3_url=None, vouchers='auto', operator=None, cash_key=None):
                 and int(second.group(2)) == int(first.group(2)) + 1)
     node_checks(suite, [('the sign-up', bundle), ('the refresh', renewed)])
 
+    # the answer was lost: the device asks again with the token it still holds
+    status, again, _ = client.refresh(drive_id, token)
+    lost_answer = (again or {}).get('drive_token') or ''
+    third = TOKEN.match(lost_answer)
+    suite.check('the old token again before the new one was used is 200 (a lost answer)',
+                status == 200 and bool(first and third) and third.group(1) == first.group(1),
+                '(HTTP %d %r)' % (status, error_code(again)))
+    expires = ((again or {}).get('family_expires_at') or {})
+    suite.check('the refresh names when the family runs out (family_expires_at)',
+                expires.get('kind') == 'family_idle' and unix_of(expires.get('at')) is not None,
+                '(%r)' % expires)
+    status, newest, _ = client.refresh(drive_id, lost_answer)
+    newest_token = (newest or {}).get('drive_token') or ''
+    suite.check('its answer refreshes', status == 200 and bool(newest_token),
+                '(HTTP %d %r)' % (status, error_code(newest)))
     status, value, _ = client.refresh(drive_id, token)
-    suite.check('the old token again is 401 token_reuse',
+    suite.check('then the old token again is 401 token_reuse',
                 status == 401 and error_code(value) == 'token_reuse', '(HTTP %d %r)' % (status, value))
-    status, value, _ = client.refresh(drive_id, new_token)
-    suite.check('after a reuse the new token is 401 credentials_revoked',
+    status, value, _ = client.refresh(drive_id, newest_token)
+    suite.check('after a reuse the newest token is 401 credentials_revoked',
                 status == 401 and error_code(value) == 'credentials_revoked',
                 '(HTTP %d %r)' % (status, value))
 
