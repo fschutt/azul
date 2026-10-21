@@ -64,7 +64,11 @@ sheet of `--dialogs inline`:
    10. A load failure falls back to the hosted page of the same checkout, a second one to the
        system browser; Stop waiting keeps the claim.
    11. Closing the dialog while the popover shows the fields abandons the checkout at the token
-       server and takes it off the keyring's list.
+       server and takes it off the keyring's list. Paid, then closed: the payer's card taken on
+       the provider's page, its webhook late, the dialog closed before the page hands the
+       payment back - the token server keeps the checkout pending, so it stays on the keyring's
+       list and its drive arrives when the webhook approves it. An abandon the provider does not
+       answer (502) keeps the claim too: paid later in a forgotten tab, the drive arrives.
    12. A consumer cloud's sign-in (AuthSession): Connect data source > Dropbox without an OAuth
        client id says which setting is missing (AZDRIVE_DROPBOX_CLIENT_ID); Google Drive with
        one (AZDRIVE_GOOGLE_CLIENT_ID, the mock's token endpoint as AZDRIVE_GOOGLE_TOKEN_URL)
@@ -387,14 +391,31 @@ class Payment:
         self.checkout, self.dialog, self.surface, self.added = checkout, dialog, surface, added
 
 
-def open_payment(app, pill, what):
+def open_payment(app, pill, what, country=None):
     """Add drive -> Buy storage (the fake providers' pills) -> the pill `pill`, the consent
-    ticked -> Buy, and the surface the checkout opened: a Payment."""
+    ticked -> Buy, and the surface the checkout opened: a Payment. `country`: (what to type,
+    the country's code) to declare first, as the buyer's Change does."""
     added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
     dialog = open_dialog(app, "the source list",
                          lambda: app.click(selector="#" + I("side-add-drive")))
-    pills = app.after("the payment pills", "AZDRIVE_PILLS", r".+",
-                      lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    if country is None:
+        pills = app.after("the payment pills", "AZDRIVE_PILLS", r".+",
+                          lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    else:
+        search, code = country
+        app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+                  lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+        dialog.page("country", lambda: dialog.click("country"))
+        dialog.type_into("country_search", search)
+        dialog.win.until("the country %s found" % code,
+                         lambda: dialog.win.has(add_id("country_option_" + code)))
+
+        def declare():
+            dialog.click("country_option_" + code)
+            dialog.click("country_continue")
+        pills = app.after("the payment pills", "AZDRIVE_PILLS", r".+",
+                          lambda: app.after("the country declared", "AZDRIVE_COUNTRY",
+                                            code.upper(), declare))
     if pills == "-":
         raise Failure("Buy storage shows no payment pills: build AzDrive with --features "
                       "fake-providers (azul-pay's fakes are taken from a local token server only)")
@@ -2275,13 +2296,79 @@ def run(args, logs):
             log("13. skipped (run with --recovery): the drill, trusted contacts and a recovery by "
                 "two shares")
 
+        # 11b, last so that it hides no other step: paid, then closed. The provider took the
+        # card (as its fields page does), its webhook is late, and the dialog closes before the
+        # page hands the payment back. The token server keeps the checkout pending (the session
+        # was paid): the claim must stay, or the payment is taken and the drive never arrives.
+        # The buyer is in Germany again (step 16 left Brazil declared).
+        stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
+        stack.token.state.hold_webhooks()
+        payment = open_payment(app, "card", "the checkout paid, then closed",
+                               country=("germ", "de"))
+        paid_closed, dialog = payment.checkout, payment.dialog
+        if not payment.surface.startswith("fields "):
+            raise Failure("the card checkout opened %r" % payment.surface)
+        popover_of(app, dialog)
+        secret = stack.token.state.checkouts[paid_closed]["client_secret"]
+        taken = stack.token.state.provider_confirm(
+            {"client_secret": secret, "card_number": azlin_mock_stack.APPROVING_CARD})
+        if taken.get("result") != "succeeded":
+            raise Failure("the fake provider did not take the card: %r" % taken)
+        app.after("the abandon", "AZDRIVE_ABANDONED", r"%s \S+" % re.escape(paid_closed),
+                  lambda: dialog.click("cancel"))
+        if (stack.token.state.checkouts.get(paid_closed) or {}).get("status") != "pending" \
+                or paid_closed not in stack.token.state.abandoned:
+            raise Failure("the paid checkout's abandon: %s at the mock, abandoned %s" % (
+                stack.token.state.checkouts.get(paid_closed, {}).get("status"),
+                stack.token.state.abandoned))
+        wait_closed(app)
+        if paid_closed not in pending_checkouts(keyring_file):
+            raise Failure("the paid checkout %s left the keyring's list when the dialog closed: "
+                          "its claim key is gone and the drive it paid for can never arrive"
+                          % paid_closed)
+        stack.token.state.hold_webhooks(False)
+        paid_late = new_drive(app, payment)
+        new_drive_encrypted(app, paid_late)
+        wait_closed(app)
+        app.until("the paid checkout off the keyring's list once its drive came",
+                  lambda: paid_closed not in pending_checkouts(keyring_file))
+        log("11b. Paid, then closed: the token server kept %s pending, AzDrive kept its claim, "
+            "the late webhook approved it and %s arrived" % (paid_closed, paid_late))
+
+        # 11c. The provider does not answer the abandon (502): the session may still be paid
+        # in a forgotten tab, so the claim stays; paid there, the drive arrives.
+        stack.token.state.fail_abandon(1)
+        payment = open_payment(app, "card", "the checkout whose abandon is not answered")
+        unanswered, dialog = payment.checkout, payment.dialog
+        if not payment.surface.startswith("fields "):
+            raise Failure("the card checkout opened %r" % payment.surface)
+        popover_of(app, dialog)
+        app.after("the abandon", "AZDRIVE_ABANDONED", r"%s \S+" % re.escape(unanswered),
+                  lambda: dialog.click("cancel"))
+        wait_closed(app)
+        if (stack.token.state.checkouts.get(unanswered) or {}).get("status") != "pending":
+            raise Failure("the unanswered abandon changed the checkout: %s"
+                          % stack.token.state.checkouts.get(unanswered, {}).get("status"))
+        if unanswered not in pending_checkouts(keyring_file):
+            raise Failure("the checkout %s left the keyring's list though its abandon was not "
+                          "answered: a payment in a forgotten tab would bring no drive"
+                          % unanswered)
+        stack.token.state.provider_pays(unanswered, True)
+        paid_forgotten = new_drive(app, payment)
+        new_drive_encrypted(app, paid_forgotten)
+        wait_closed(app)
+        app.until("the checkout off the keyring's list once its drive came",
+                  lambda: unanswered not in pending_checkouts(keyring_file))
+        log("11c. The abandon of %s was not answered (502): its claim stayed, the payment made "
+            "afterwards brought %s" % (unanswered, paid_forgotten))
+
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
             "folders), bought a test drive, and claimed two paid drives - one in the background "
             "after Stop waiting, one at the start after AzDrive was closed - from the source list, "
             "This PC's ribbon and Home's ribbon, in the dialog's own window; and paid through "
             "azul-pay: a card in the popover's fields, a direct debit on a hosted page, PayPal in "
-            "the system browser, with blocked navigations, the fallback chain and an abandon; "
-            "and signed in to Google Drive through azul's sign-in session")
+            "the system browser, with blocked navigations, the fallback chain and an abandon "
+            "(a paid one and an unanswered one kept their claims); and signed in to Google Drive through azul's sign-in session")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
