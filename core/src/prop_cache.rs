@@ -387,12 +387,14 @@ pub struct StatefulCssProperty {
 /// By its source first (a runtime override, then the `::placeholder`'s own
 /// values, then what the node declares, then a `*` rule, then what it
 /// inherited or the UA default), then by `rule_priority`, then by the
-/// strength of the state it was declared for.
+/// strength of the state it was declared for, then - for the node's own
+/// declarations - by their order (the later one wins).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CascadeRank {
     source: u8,
     priority: u8,
     state: u8,
+    order: u32,
 }
 
 impl CascadeRank {
@@ -406,6 +408,7 @@ impl CascadeRank {
             source,
             priority: 0,
             state: 0,
+            order: 0,
         }
     }
 
@@ -416,6 +419,7 @@ impl CascadeRank {
             source: 2,
             priority,
             state,
+            order: 0,
         }
     }
 }
@@ -3564,8 +3568,18 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<(CascadeRank, &'a CssProperty)> {
-        let (rank, declared) =
+        let (mut rank, declared) =
             self.get_declared_property_ranked(node_data, node_id, node_state, css_property_type)?;
+        // One of the node's own declarations: its place among them (1-based)
+        // tells two of them at one priority and state apart.
+        if rank.source == CascadeRank::declared(0, 0).source
+            && rank.priority == azul_css::css::rule_priority::INLINE
+        {
+            rank.order = self
+                .inline_properties(node_data, node_id.index())
+                .position(|(p, _)| core::ptr::eq(p, declared))
+                .map_or(0, |i| u32::try_from(i + 1).unwrap_or(u32::MAX));
+        }
         Some((
             rank,
             self.css_wide_value_of(node_id.index(), declared)

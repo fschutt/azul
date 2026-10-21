@@ -9755,6 +9755,12 @@ impl LayoutWindow {
                         // `auto` -> a length starts at the laid-out size -
                         // where there may be nothing left to walk.
                         let from = size_transition_start(&from, prop, laid_out_size).unwrap_or(from);
+                        let painted = solver3::getters::get_background_color(
+                            &layout_result.styled_dom,
+                            node_id,
+                            &state.styled_node_state,
+                        );
+                        let from = background_transition_start(&from, painted).unwrap_or(from);
                         if from == *prop {
                             return None;
                         }
@@ -10050,7 +10056,15 @@ impl LayoutWindow {
                         let from = shown
                             .clone()
                             .or_else(|| previous(*ty))
-                            .unwrap_or_else(|| read(&old_state))
+                            .unwrap_or_else(|| {
+                                let from = read(&old_state);
+                                let painted = solver3::getters::get_background_color(
+                                    &result.styled_dom,
+                                    node,
+                                    &old_state,
+                                );
+                                background_transition_start(&from, painted).unwrap_or(from)
+                            })
                             .resolve_system_colors(sys_ctx);
                         (from, to)
                     })
@@ -32937,6 +32951,34 @@ fn size_transition_start(
             Some(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(
                 size.width,
             ))))
+        }
+        _ => None,
+    }
+}
+
+/// Where a background tween starts when the property it moves is not what
+/// the box paints: layers with no colour over a `background-color`, or no
+/// `background-color` under layers with one, start at the colour the box
+/// paints (`painted`), so a fade leaves that colour instead of transparent.
+fn background_transition_start(
+    from: &azul_css::props::property::CssProperty,
+    painted: azul_css::props::basic::color::ColorU,
+) -> Option<azul_css::props::property::CssProperty> {
+    use azul_css::props::{
+        basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent as B,
+    };
+    if painted.a == 0 {
+        return None;
+    }
+    match from {
+        CssProperty::BackgroundContent(v) => {
+            let layers = v.get_property().map_or(&[][..], |l| l.as_slice());
+            matches!(layers, [] | [B::Color(ColorU { a: 0, .. })])
+                .then(|| CssProperty::background_content(alloc::vec![B::Color(painted)].into()))
+        }
+        CssProperty::BackgroundColor(v) => {
+            matches!(v.get_property(), None | Some(B::Color(ColorU { a: 0, .. })))
+                .then(|| CssProperty::background_color(B::Color(painted)))
         }
         _ => None,
     }

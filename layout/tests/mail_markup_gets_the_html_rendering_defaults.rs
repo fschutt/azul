@@ -197,7 +197,7 @@ fn small_sub_sup_and_mark_look_as_in_a_browser() {
         ),
         "<sup> is vertical-align: super"
     );
-    let mark = prop(&sd, "mark", CssPropertyType::BackgroundContent);
+    let mark = prop(&sd, "mark", CssPropertyType::BackgroundColor);
     let yellow = ColorU {
         r: 255,
         g: 255,
@@ -205,8 +205,8 @@ fn small_sub_sup_and_mark_look_as_in_a_browser() {
         a: 255,
     };
     assert!(
-        matches!(&mark, Some(CssProperty::BackgroundContent(CssPropertyValue::Exact(v)))
-            if v.as_ref().iter().any(|b| matches!(b, StyleBackgroundContent::Color(c) if *c == yellow))),
+        matches!(&mark, Some(CssProperty::BackgroundColor(CssPropertyValue::Exact(
+            StyleBackgroundContent::Color(c)))) if *c == yellow),
         "<mark> has a yellow background: {mark:?}"
     );
 }

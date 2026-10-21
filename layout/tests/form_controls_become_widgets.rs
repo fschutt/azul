@@ -613,19 +613,8 @@ fn background_colour(
     id: NodeId,
     state: &azul_core::styled_dom::StyledNodeState,
 ) -> Option<ColorU> {
-    let nodes = styled.node_data.as_container();
-    match styled.get_css_property_cache().get_property(
-        &nodes[id],
-        &id,
-        state,
-        &azul_css::props::property::CssPropertyType::BackgroundContent,
-    )? {
-        CssProperty::BackgroundContent(v) => match v.get_property()?.as_slice().first()? {
-            azul_css::props::style::StyleBackgroundContent::Color(c) => Some(*c),
-            _ => None,
-        },
-        _ => None,
-    }
+    // What the button paints: its background-color under any layers.
+    Some(azul_layout::solver3::getters::get_background_color(styled, id, state))
 }
 
 /// The top-left corner radius of node `id` at rest.

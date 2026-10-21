@@ -96,6 +96,7 @@ fn paints_a_colour(ty: CssPropertyType) -> bool {
         ty,
         CssPropertyType::TextColor
             | CssPropertyType::BackgroundContent
+            | CssPropertyType::BackgroundColor
             | CssPropertyType::BorderTopColor
             | CssPropertyType::BorderRightColor
             | CssPropertyType::BorderBottomColor
@@ -117,6 +118,11 @@ fn follows_the_theme(p: &CssProperty) -> bool {
                 StyleBackgroundContent::Color(c) => c.a == 0,
                 _ => false,
             })
+        }),
+        CssProperty::BackgroundColor(v) => v.get_property().is_some_and(|c| match c {
+            StyleBackgroundContent::SystemColor(_) => true,
+            StyleBackgroundContent::Color(c) => token(*c),
+            _ => false,
         }),
         CssProperty::TextColor(v) => v.get_property().is_some_and(|c| token(c.inner)),
         CssProperty::BorderTopColor(v) => v.get_property().is_some_and(|c| token(c.inner)),
@@ -205,7 +211,7 @@ fn the_check_tells_a_themed_style_from_a_fixed_one() {
             "background-color: #fff; color: #000; @media (prefers-color-scheme: dark) { color: \
              system:text; }"
         ),
-        vec![CssPropertyType::BackgroundContent],
+        vec![CssPropertyType::BackgroundColor],
         "a twin for one property does not excuse another"
     );
 }

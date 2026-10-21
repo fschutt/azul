@@ -2305,7 +2305,15 @@ fn resting_property_types(rules: &[CssRuleBlock]) -> Vec<CssPropertyType> {
         .filter(|r| r.priority >= rule_priority::AUTHOR && r.conditions.as_slice().is_empty());
     for rule in authored {
         for declaration in rule.declarations.as_slice() {
-            if let Some(ty) = declaration.get_type() {
+            let Some(ty) = declaration.get_type() else {
+                continue;
+            };
+            // The app's background colour replaces the widget's face, its
+            // layers too, as an author background drops a browser's native
+            // button face.
+            let also = (ty == CssPropertyType::BackgroundColor)
+                .then_some(CssPropertyType::BackgroundContent);
+            for ty in core::iter::once(ty).chain(also) {
                 if !types.contains(&ty) {
                     types.push(ty);
                 }

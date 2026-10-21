@@ -11,30 +11,18 @@ use azul_core::{
     dom::{Dom, IdOrClass, NodeId, TabIndex},
     styled_dom::{FocusChange, StyledDom},
 };
-use azul_css::props::{
-    basic::ColorU,
-    property::{CssProperty, CssPropertyType},
-};
+use azul_css::props::basic::ColorU;
 
 const CSS: &str = "
     .field { background-color: #ffffff; }
     .field:focus-visible { background-color: #ff0000; }
 ";
 
+/// The colour the field paints (its `background-color`, under any layers).
 fn background(sd: &StyledDom, node: NodeId) -> Option<ColorU> {
-    let cache = sd.get_css_property_cache();
-    let node_data = &sd.node_data.as_container()[node];
     let state = &sd.styled_nodes.as_container()[node].styled_node_state;
-    match cache.get_property(node_data, &node, state, &CssPropertyType::BackgroundContent) {
-        Some(CssProperty::BackgroundContent(v)) => v
-            .get_property()
-            .and_then(|layers| layers.as_ref().first().cloned())
-            .and_then(|layer| match layer {
-                azul_css::props::style::StyleBackgroundContent::Color(c) => Some(c),
-                _ => None,
-            }),
-        _ => None,
-    }
+    let colour = azul_layout::solver3::getters::get_background_color(sd, node, state);
+    (colour.a > 0).then_some(colour)
 }
 
 #[test]

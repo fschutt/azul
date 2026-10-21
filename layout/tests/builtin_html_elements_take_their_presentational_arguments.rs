@@ -273,7 +273,7 @@ fn the_body_takes_its_background_and_text_colour() {
             loader,
             &styled,
             body,
-            CssPropertyType::BackgroundContent,
+            CssPropertyType::BackgroundColor,
             "background-color: #ffeedd",
         );
     }
