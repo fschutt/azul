@@ -1112,4 +1112,140 @@ mod tests {
             Err(reason) => assert!(reason.contains("relay"), "{reason}"),
         }
     }
+
+    fn listed(ids: &[String]) -> azul_css::StringVec {
+        azul_css::StringVec::from_vec(ids.iter().map(|id| AzString::from(id.clone())).collect())
+    }
+
+    /// The next event of `engine` that is no `Ready` or `Frame`, within 20 s.
+    fn next_event(engine: &Engine) -> IrohEvent {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            match engine.recv() {
+                Some(event) if matches!(event.kind, IrohEventKind::Ready) => {}
+                Some(event) => return event,
+                None => {
+                    assert!(Instant::now() < deadline, "no event within 20 s");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
+    }
+
+    /// An endpoint that lists the peers it accepts refuses every other before any stream of
+    /// theirs is read: the stranger knows the protocol name and the ticket, and gets nothing.
+    #[test]
+    fn with_a_list_of_allowed_peers_an_unlisted_peer_is_refused_and_a_listed_one_accepted() {
+        let paired = local_endpoint();
+        let stranger = local_endpoint();
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_mode(IrohRelayMode::Disabled)
+            .with_allowed_peers(listed(&[paired.endpoint_id()]));
+        let host = Engine::bind(&config).expect("binds");
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+
+        stranger.connect(ticket.as_str()).expect("the ticket parses");
+        let refusal = next_event(&host);
+        assert_eq!(refusal.kind, IrohEventKind::Error, "{}", refusal.text.as_str());
+        assert!(
+            refusal.text.as_str().contains("not an allowed peer")
+                && refusal.text.as_str().contains(&stranger.endpoint_id()),
+            "{}",
+            refusal.text.as_str()
+        );
+        assert_eq!(host.peer_count(), 0, "the stranger never became a peer");
+        next_of(&stranger, IrohEventKind::PeerDisconnected);
+
+        paired.connect(ticket.as_str()).expect("the ticket parses");
+        let connected = next_of(&host, IrohEventKind::PeerConnected);
+        assert_eq!(connected.text.as_str(), paired.endpoint_id());
+        assert_eq!(host.peer_count(), 1);
+    }
+
+    /// Without a list the endpoint behaves as a general one: every peer that knows the
+    /// protocol is accepted, and the app decides what it trusts.
+    #[test]
+    fn without_a_list_every_peer_that_knows_the_protocol_is_accepted() {
+        let host = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        let one = local_endpoint();
+        let two = local_endpoint();
+        one.connect(ticket.as_str()).expect("parses");
+        let first = next_of(&host, IrohEventKind::PeerConnected).text;
+        two.connect(ticket.as_str()).expect("parses");
+        let second = next_of(&host, IrohEventKind::PeerConnected).text;
+        let mut seen = [first.as_str().to_string(), second.as_str().to_string()];
+        seen.sort();
+        let mut expected = [one.endpoint_id(), two.endpoint_id()];
+        expected.sort();
+        assert_eq!(seen, expected);
+    }
+
+    /// A pairing that completes while the endpoint is bound lists the new device at once; an
+    /// empty list accepts nobody.
+    #[test]
+    fn the_allowed_peers_can_be_set_while_the_endpoint_is_bound() {
+        let host = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        host.set_allowed_peers(Some(Vec::new()));
+        let device = local_endpoint();
+        device.connect(ticket.as_str()).expect("parses");
+        let refusal = next_event(&host);
+        assert_eq!(refusal.kind, IrohEventKind::Error, "{}", refusal.text.as_str());
+        next_of(&device, IrohEventKind::PeerDisconnected);
+
+        host.set_allowed_peers(Some(vec![device.endpoint_id()]));
+        device.connect(ticket.as_str()).expect("parses");
+        assert_eq!(
+            next_of(&host, IrohEventKind::PeerConnected).text.as_str(),
+            device.endpoint_id()
+        );
+    }
+
+    fn pinned(ca: &azul_layout::tls_testing::TestCa) -> azul_core::tls::TrustRoots {
+        azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
+            ca.cert_pem.clone(),
+        )]))
+    }
+
+    /// The first thing a relay at `relay` saw from an endpoint trusting `roots` that sends a
+    /// request through it (to a peer only the relay can reach).
+    fn relay_sees(
+        relay: &str,
+        roots: azul_core::tls::TrustRoots,
+        seen: &std::sync::mpsc::Receiver<azul_layout::tls_testing::Seen>,
+    ) -> azul_layout::tls_testing::Seen {
+        while seen.try_recv().is_ok() {}
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_url(AzString::from(relay.to_string()))
+            .with_trust_roots(roots);
+        let engine = Engine::bind(&config).expect("binds");
+        let nobody = SecretKey::from_bytes(&[7u8; 32]).public().to_string();
+        let asking = std::thread::spawn(move || {
+            let _ = engine.request(&nobody, &[], "", b"x", true, Duration::from_secs(8));
+            engine
+        });
+        let first = seen
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the endpoint tried its relay");
+        let _ = asking.join();
+        first
+    }
+
+    /// The relay's TLS trusts what the app pins: a relay whose certificate comes from another
+    /// authority (a forged one) is refused in the handshake, as it is under the public roots;
+    /// its own root pinned, the endpoint talks to it.
+    #[test]
+    fn a_relay_with_a_certificate_outside_the_pinned_set_is_refused() {
+        let ours = azul_layout::tls_testing::TestCa::new("azul test root A");
+        let forged = azul_layout::tls_testing::TestCa::new("azul test root B");
+        let (port, seen) = azul_layout::tls_testing::serve_tls(forged.server_for_loopback());
+        let relay = format!("https://127.0.0.1:{port}");
+        let refused = relay_sees(&relay, pinned(&ours), &seen);
+        assert!(refused.is_err(), "the handshake went through: {refused:?}");
+        let public = relay_sees(&relay, azul_core::tls::TrustRoots::default(), &seen);
+        assert!(public.is_err(), "no public root issued it: {public:?}");
+        let accepted = relay_sees(&relay, pinned(&forged), &seen);
+        assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
+    }
 }

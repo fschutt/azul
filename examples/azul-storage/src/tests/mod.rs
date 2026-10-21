@@ -36,6 +36,8 @@ mod http1;
 mod ui_thread;
 /// An upload's time grows with its body, a document's answer is capped, parts follow the link.
 mod limits;
+/// The roots the Azlin apps pin for the iroh relays.
+mod trust;
 
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]

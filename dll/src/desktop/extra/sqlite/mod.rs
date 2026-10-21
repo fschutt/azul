@@ -1946,4 +1946,48 @@ mod tests {
         let got = other.get_blocking(AzString::from("notes"), DbValue::Integer(1));
         assert!(got.error.is_some());
     }
+
+    /// A backup sync (the app's Turso database) trusts what its config pins: a server whose
+    /// certificate comes from another authority is refused in the handshake, before the token
+    /// or a row leaves; its own root pinned, the request goes out.
+    #[cfg(feature = "http")]
+    #[test]
+    fn a_backup_sync_trusts_only_the_roots_its_config_pins() {
+        use azul_layout::tls_testing::{serve_tls, TestCa};
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(forged.server_for_loopback());
+        let pinned = |ca: &TestCa| {
+            azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
+                ca.cert_pem.clone(),
+            )]))
+        };
+        let sync_with = |roots: azul_core::tls::TrustRoots| {
+            let config = DbConfig::new(AzString::from(":memory:"))
+                .with_schema(memory_db_schema())
+                .with_backup_sync_url(AzString::from(format!("https://127.0.0.1:{port}")))
+                .with_auth_token(AzString::from("token-that-must-not-leave"))
+                .with_trust_roots(roots);
+            let db = Db::open_blocking(config).expect("opens");
+            assert!(db.set(AzString::from("notes"), DbValue::Integer(1), DbValue::Null));
+            let _ = db.sync_now_blocking(OptionDbScope::None);
+            seen.recv_timeout(std::time::Duration::from_secs(20))
+                .expect("the sync reached the server")
+        };
+        let refused = sync_with(pinned(&ours));
+        assert!(refused.is_err(), "a certificate outside the pinned set: {refused:?}");
+        while seen.try_recv().is_ok() {}
+        let accepted = sync_with(pinned(&forged));
+        assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
+    }
+
+    fn memory_db_schema() -> DbSchema {
+        DbSchema {
+            stores: DbStoreSchemaVec::from_vec(vec![DbStoreSchema {
+                name: AzString::from("notes"),
+                indexes: DbIndexSchemaVec::from_vec(Vec::new()),
+                conflict_policy: DbConflictPolicy::LastWriteWins,
+            }]),
+        }
+    }
 }

@@ -407,6 +407,13 @@ pub use file::{
 /// a bare path, or `http(s)://` through [`http`].
 pub mod fetch;
 pub mod http;
+/// Throwaway certificate authorities and a loopback TLS server, for tests only.
+#[cfg(all(
+    any(test, feature = "tls-testing"),
+    feature = "http",
+    not(target_arch = "wasm32")
+))]
+pub mod tls_testing;
 pub use http::{
     download_bytes, download_bytes_with_config, http_get, http_get_with_config, http_post,
     http_post_with_config, http_put_with_config, http_request_with_config, is_url_reachable,

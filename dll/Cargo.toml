@@ -664,6 +664,11 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVReturn",
 ] }
 
+# The tests of what the iroh relays and a database's backup sync trust: throwaway roots and a
+# loopback TLS server (azul-layout's `tls-testing`), TESTS ONLY.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["tls-testing"] }
+
 [build-dependencies]
 brotli = "8"
 # M8.9: in-process remill + LLVM + LLD wrapper. Compiles

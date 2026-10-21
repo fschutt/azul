@@ -3660,3 +3660,83 @@ mod limits_and_thread_tests {
         );
     }
 }
+
+/// Which authorities an HTTPS request trusts: the public roots by default, or the set an app
+/// pins - then a certificate from any other authority fails the handshake, for a request of
+/// its own and for a pooled client alike.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod trust_roots_tests {
+    use azul_core::tls::TrustRoots;
+
+    use super::*;
+    use crate::tls_testing::{serve_tls, TestCa};
+
+    fn pinned(ca: &TestCa) -> TrustRoots {
+        TrustRoots::pinned(StringVec::from_vec(vec![AzString::from(ca.cert_pem.clone())]))
+    }
+
+    #[test]
+    fn a_request_reaches_a_server_under_a_pinned_root_and_refuses_any_other() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(forged.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/token");
+
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_trust_roots(pinned(&ours));
+        let refused = http_get_with_config(&url, &config);
+        assert!(refused.is_err(), "a certificate outside the pinned set: {refused:?}");
+        assert!(
+            seen.recv().expect("the server saw the attempt").is_err(),
+            "the handshake failed on the client's refusal"
+        );
+
+        let public = HttpRequestConfig::default().with_timeout(10);
+        assert!(http_get_with_config(&url, &public).is_err(), "no public root issued it");
+        let _ = seen.recv();
+
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_trust_roots(pinned(&forged));
+        let answer = http_get_with_config(&url, &config).expect("its own root is pinned");
+        assert_eq!(answer.status_code, 200);
+        assert_eq!(
+            seen.recv().expect("seen").as_deref(),
+            Ok("GET /token HTTP/1.1")
+        );
+    }
+
+    #[test]
+    fn a_pooled_client_trusts_what_its_config_pins() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, _seen) = serve_tls(forged.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/x");
+        let client = HttpClient::create(HttpClientConfig::default().with_trust_roots(pinned(&ours)));
+        let config = HttpRequestConfig::default().with_timeout(10).with_client(client);
+        assert!(http_get_with_config(&url, &config).is_err());
+        let client =
+            HttpClient::create(HttpClientConfig::default().with_trust_roots(pinned(&forged)));
+        let config = HttpRequestConfig::default().with_timeout(10).with_client(client);
+        assert_eq!(http_get_with_config(&url, &config).expect("pinned").status_code, 200);
+    }
+
+    #[test]
+    fn a_pinned_set_that_does_not_parse_fails_the_request_and_never_trusts_the_public_roots() {
+        let broken = TrustRoots::pinned(StringVec::from_vec(vec![AzString::from("not a pem")]));
+        let config = HttpRequestConfig::default().with_timeout(5).with_trust_roots(broken.clone());
+        match http_get_with_config("https://127.0.0.1:9/", &config) {
+            Err(HttpError::TlsError(why)) => {
+                assert!(why.as_str().contains("trusted root"), "{}", why.as_str());
+            }
+            other => panic!("a broken pin set: {other:?}"),
+        }
+        let client = HttpClient::create(HttpClientConfig::default().with_trust_roots(broken));
+        let config = HttpRequestConfig::default().with_timeout(5).with_client(client);
+        assert!(matches!(
+            http_get_with_config("https://127.0.0.1:9/", &config),
+            Err(HttpError::TlsError(_))
+        ));
+    }
+}
