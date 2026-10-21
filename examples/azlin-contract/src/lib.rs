@@ -9,8 +9,7 @@
 //! - [`Rfc3339`] and [`Deadline`]: the times the services name, and what ends at them.
 //! - [`AzlinError`]: the codes a node sends in `x-azlin-error` and the token server in its
 //!   `{"error": ...}` body.
-//! - Buying a drive: [`TiersAnswer`] and its [`TierOffer`]s, [`CheckoutAnswer`] with its
-//!   [`CheckoutStatusWire`], [`AbandonAnswer`] and [`CheckoutRefusal`].
+//! - [`RefreshRefusal`]: how the token server refuses a refresh, and whether the token was spent.
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
 //! exactly them, and the services check [`fixtures_digest`] against the digest they were built
@@ -21,6 +20,7 @@ mod error;
 mod hello;
 mod ids;
 mod idempotency;
+mod refresh;
 mod time;
 
 pub use checkout::{
@@ -31,6 +31,7 @@ pub use checkout::{
 pub use error::AzlinError;
 pub use hello::{AppName, ClientHello, SemVer, CLIENT_HEADER};
 pub use idempotency::{IdempotencyKey, IDEMPOTENCY_HEADER};
+pub use refresh::{BanWire, RefreshRefusal};
 pub use ids::{
     BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,
     MemberId, Months, StoredBytes, TierId,
@@ -52,6 +53,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("deadlines.json", include_str!("../fixtures/deadlines.json")),
     ("idempotency_key.json", include_str!("../fixtures/idempotency_key.json")),
     ("ids.json", include_str!("../fixtures/ids.json")),
+    ("refresh_refusals.json", include_str!("../fixtures/refresh_refusals.json")),
 ];
 
 /// The digest of [`FIXTURES`] (`fnv1a64:<16 hex digits>`): the services keep the one they were

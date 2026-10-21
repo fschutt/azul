@@ -27,7 +27,7 @@ use std::{
 };
 
 use azul_storage::{
-    config::{keyring_key, DriveEntry},
+    config::DriveEntry,
     time::now_unix,
     ui_thread::NetworkLock,
     ops, AzlinError, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
@@ -256,10 +256,9 @@ impl AzlinDrive {
         self
     }
 
-    /// The session as it is now (after any refresh).
-    #[must_use]
-    pub fn session(&self) -> AzlinSession {
-        self.lock().session.clone()
+    /// Runs `look` on the session as it is now (after any refresh).
+    pub fn with_session<T>(&self, look: impl FnOnce(&AzlinSession) -> T) -> T {
+        look(&self.lock().session)
     }
 
     #[track_caller]
@@ -297,25 +296,34 @@ impl AzlinDrive {
 
     /// Fresh credentials: under the drive's lock, the session another process refreshed (the
     /// keyring's, when its token is not the one `current` holds - and its credentials are not
-    /// running out, nor the ones the bucket refused: `refused`), else the drive token spent for
-    /// new ones, which go into the keyring before the lock is let go. The new session takes the
-    /// old one's place and goes to `on_rotated`. Called with `current` held: one refresh at a
-    /// time in this process too (`on_rotated` must not call back into this drive).
+    /// running out, nor the ones the bucket refused: `refused`), else the keyring's drive token
+    /// spent for new ones, which go into the keyring before the lock is let go. The new session
+    /// takes the old one's place and goes to `on_rotated`. When the outcome is unknown (no
+    /// answer), the keyring keeps the token and the next refresh sends it again: the token
+    /// server answers it while the new one was never used. Called with `current` held: one
+    /// refresh at a time in this process too (`on_rotated` must not call back into this drive).
     fn refresh(&self, current: &mut Current, refused: Option<&str>) -> Result<(), DriveError> {
-        let key = keyring_key(&current.session.drive_id);
-        let _held = self
+        let spend = self
             .keyring
-            .lock(&key)
+            .spend(&current.session.drive_id)
             .map_err(|e| DriveError::Io(e.to_string()))?;
-        if let Some(newer) = self.newer_in_keyring(&key, &current.session) {
+        let newer = spend
+            .entry()
+            .and_then(|text| AzlinSession::from_keyring_secret(text).ok())
+            .filter(|stored| {
+                stored.drive_id == current.session.drive_id
+                    && stored.drive_token != current.session.drive_token
+            });
+        if let Some(newer) = newer {
             let usable = match refused {
                 Some(refused) => newer.access_key_id != refused,
                 None => !newer.needs_refresh((self.clock)()),
             };
-            // The token this process held is spent either way: the keyring's is the newest.
-            current.session = newer;
-            current.drive = None;
             if usable {
+                // Another process refreshed: its session is the newest, nothing is spent.
+                drop(spend);
+                current.session = newer;
+                current.drive = None;
                 (self.on_rotated)(&current.session, Ok(()));
                 return Ok(());
             }
@@ -323,19 +331,16 @@ impl AzlinDrive {
         let transport = (self.transports)();
         let server =
             TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
-        let bundle = server
-            .refresh(&current.session.drive_id, &current.session.drive_token)
+        let rotation = server
+            .refresh(spend, None)
+            .rotated()
             .map_err(|e| drive_error_of(&e))?;
-        self.learn_nodes(&bundle);
-        let session = bundle.session();
+        self.learn_nodes(rotation.bundle());
         // In the keyring BEFORE the lock is let go: the token just spent is dead, and the next
         // process to refresh must find this one.
-        let saved = self
-            .keyring
-            .set(&key, &session.to_keyring_secret())
-            .map_err(|e| e.to_string());
-        (self.on_rotated)(&session, saved);
-        current.session = session;
+        let kept = rotation.keep();
+        (self.on_rotated)(&kept.session, kept.saved);
+        current.session = kept.session;
         current.drive = None;
         Ok(())
     }
@@ -350,42 +355,23 @@ impl AzlinDrive {
     /// No answer, the token server's refusal, a lock or keyring that cannot be used.
     pub fn lockdown(&self) -> Result<(), DriveError> {
         let mut current = self.lock();
-        let key = keyring_key(&current.session.drive_id);
-        let _held = self
+        let spend = self
             .keyring
-            .lock(&key)
+            .spend(&current.session.drive_id)
             .map_err(|e| DriveError::Io(e.to_string()))?;
-        if let Some(newer) = self.newer_in_keyring(&key, &current.session) {
-            current.session = newer;
-            current.drive = None;
-        }
         let transport = (self.transports)();
         let server =
             TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
         let answer = server
-            .lockdown(&current.session.drive_id, &current.session.drive_token)
+            .lockdown(spend.drive_id(), spend.token().as_str())
             .map_err(|e| drive_error_of(&e))?;
         let bundle = DriveBundle::from_value(&answer).map_err(|e| drive_error_of(&e))?;
         self.learn_nodes(&bundle);
-        let session = bundle.session();
-        let saved = self
-            .keyring
-            .set(&key, &session.to_keyring_secret())
-            .map_err(|e| e.to_string());
-        (self.on_rotated)(&session, saved);
-        current.session = session;
+        let kept = spend.rotated(bundle).keep();
+        (self.on_rotated)(&kept.session, kept.saved);
+        current.session = kept.session;
         current.drive = None;
         Ok(())
-    }
-
-    /// The keyring's session of the drive when it is newer than `held` - another process spent
-    /// `held`'s token -; `None` when the keyring has none, the same one, or cannot be read (the
-    /// session this process holds is the newest it knows then).
-    fn newer_in_keyring(&self, key: &str, held: &AzlinSession) -> Option<AzlinSession> {
-        let text = self.keyring.get(key).ok()??;
-        let stored = AzlinSession::from_keyring_secret(&text).ok()?;
-        (stored.drive_id == held.drive_id && stored.drive_token != held.drive_token)
-            .then_some(stored)
     }
 
     /// The bucket after the bucket refused the credentials of `refused` (an access key): a

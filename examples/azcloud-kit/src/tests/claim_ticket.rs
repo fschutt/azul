@@ -7,6 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -16,8 +17,7 @@ use serde_json::{json, Value};
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
-    lock::LockDir,
-    pending::{self, Final, PendingCheckout, Polled},
+    pending::{self, PendingCheckout, Polled},
     shared::SharedKeyring,
     AzlinSession, ClaimCode, ClaimKey, DriveBundle, TokenServer,
 };
@@ -36,7 +36,11 @@ fn ticketed(ticket: Option<&str>) -> String {
 
 fn shared(dir: &TempDir) -> (SharedKeyring, Arc<MemoryKeyring>) {
     let keyring = Arc::new(MemoryKeyring::new());
-    let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path().join("locks")));
+    let shared = SharedKeyring::with_lock_root(
+        keyring.clone(),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
     (shared, keyring)
 }
 

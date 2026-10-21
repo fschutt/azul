@@ -11,6 +11,7 @@ use std::{
 };
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -497,7 +498,11 @@ pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring 
     keyring
         .set(&keyring_key("d_1"), &session.to_keyring_secret())
         .unwrap();
-    SharedKeyring::new(keyring, LockDir::new(dir.path().join("locks")))
+    SharedKeyring::with_lock_root(
+        keyring,
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    )
 }
 
 /// A token server whose drive `d_1` (100 GB) is paid until `until` (seconds since 1970, moved

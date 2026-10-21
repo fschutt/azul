@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -15,7 +16,6 @@ use azul_storage::{
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     drive::{AzlinDrive, TransportFactory},
-    lock::LockDir,
     shared::SharedKeyring,
     AzlinSession, DriveBundle,
 };
@@ -86,7 +86,8 @@ fn drive(fake: &Arc<Fake>, dir: &TempDir) -> AzlinDrive {
     keyring
         .set(&keyring_key("d_1"), &first.session().to_keyring_secret())
         .unwrap();
-    let shared = SharedKeyring::new(keyring, LockDir::new(dir.path()));
+    let shared =
+        SharedKeyring::with_lock_root(keyring, KeyringNamespace::azlin_shared(), dir.path());
     let answering = fake.clone();
     let factory: TransportFactory =
         Arc::new(move || Box::new(Shared(answering.clone())) as Box<dyn Transport>);

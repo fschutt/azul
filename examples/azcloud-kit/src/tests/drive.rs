@@ -10,6 +10,7 @@ use std::sync::{
 };
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -19,7 +20,6 @@ use azul_storage::{
 use super::{bundle, empty_listing, header, json, Fake, Shared, TOKEN};
 use crate::{
     drive::{AzlinDrive, TransportFactory},
-    lock::LockDir,
     shared::SharedKeyring,
     sync::session::SyncProblem,
     user_errors::{Behaviour, Code, UserError},
@@ -76,7 +76,8 @@ fn keyring_with(first: &DriveBundle, dir: &TempDir) -> (SharedKeyring, Arc<Memor
     keyring
         .set(&keyring_key("d_1"), &first.session().to_keyring_secret())
         .unwrap();
-    let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+    let shared =
+        SharedKeyring::with_lock_root(keyring.clone(), KeyringNamespace::azlin_shared(), dir.path());
     (shared, keyring)
 }
 
@@ -230,7 +231,11 @@ fn a_rotated_session_the_keyring_does_not_take_is_handed_over_with_why() {
         &first.entry_named("Cloud", TOKEN),
         first.session(),
         TOKEN,
-        SharedKeyring::new(Arc::new(NoKeyring), LockDir::new(dir.path())),
+        SharedKeyring::with_lock_root(
+            Arc::new(NoKeyring),
+            KeyringNamespace::azlin_shared(),
+            dir.path(),
+        ),
         factory(&fake),
         Box::new(move |session: &AzlinSession, saved: Result<(), String>| {
             keep.lock().unwrap().push((session.clone(), saved));
@@ -384,7 +389,11 @@ fn two_sessions_over_one_keyring_and_one_lock_race_a_refresh_and_neither_ends_wi
                     &first.entry_named("Cloud", TOKEN),
                     first.session(),
                     TOKEN,
-                    SharedKeyring::new(keyring.clone(), LockDir::new(dir.path())),
+                    SharedKeyring::with_lock_root(
+                        keyring.clone(),
+                        KeyringNamespace::azlin_shared(),
+                        dir.path(),
+                    ),
                     factory(&fake),
                     Box::new(|_: &AzlinSession, _: Result<(), String>| {}),
                 )

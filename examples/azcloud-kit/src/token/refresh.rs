@@ -1,6 +1,8 @@
 //! The drive token's refresh into fresh credentials, the drive's status and its ban.
 
 use super::*;
+use crate::shared::{PendingSpend, RefreshOutcome, SpendOnce};
+use azlin_contract::RefreshRefusal;
 
 /// A drive as the token server keeps it ([`TokenServer::drive_status`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -251,57 +253,83 @@ impl Ban {
 }
 
 impl<'a> TokenServer<'a> {
-    /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
-    /// NEXT drive token: the one given is spent, and spending it again makes the token server
-    /// revoke this device.
-    pub fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<DriveBundle, TokenError> {
-        self.refresh_with(drive_id, drive_token, &json!({}))
-    }
-
-    /// [`Self::refresh`] that tells the token server what this device calls the drive: the
-    /// answer's drive carries `name` instead of the server's default one.
-    pub fn refresh_named(
-        &self,
-        drive_id: &str,
-        drive_token: &str,
-        name: &str,
-    ) -> Result<DriveBundle, TokenError> {
-        self.refresh_with(drive_id, drive_token, &json!({ "name": name.trim() }))
-    }
-
-    fn refresh_with(
-        &self,
-        drive_id: &str,
-        drive_token: &str,
-        body: &Value,
-    ) -> Result<DriveBundle, TokenError> {
-        let drive_id = drive_id.trim();
+    /// Spends the drive token of `spend` for fresh credentials and the next token (`name`: what
+    /// this device calls the drive, which the answer's drive then carries). A refusal that says
+    /// it spent nothing (`not_verified`, `try_again`, `unavailable` with `"spent": false`) is
+    /// sent again after a pause; no answer, or a failure that does not say so, is
+    /// [`RefreshOutcome::Unknown`]: the token may be spent, and only the same token goes on
+    /// ([`Self::retry`], or the next refresh: the keyring still holds it).
+    pub fn refresh<'k>(&self, spend: SpendOnce<'k>, name: Option<&str>) -> RefreshOutcome<'k> {
+        let drive_id = spend.drive_id().to_string();
         if drive_id.is_empty() {
-            return Err(TokenError::Config(String::from("The drive has no id.")));
+            return RefreshOutcome::Refused {
+                refusal: None,
+                error: TokenError::Config(String::from("The drive has no id.")),
+            };
         }
-        let token = token_of(drive_token)?;
-        let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
-        // A 503 (`not_verified`: the token family is not adopted after an upgrade yet;
-        // `try_again`: it changed between the check and the rotation) spent nothing: the SAME
-        // token again after a pause, and never a reason to drop it.
+        let path = format!("/v1/drives/{}/credentials", uri_encode(&drive_id, true));
+        let body = match name.map(str::trim) {
+            Some(name) => json!({ "name": name }),
+            None => json!({}),
+        };
         let mut tries = 1;
-        let value = loop {
-            match self.call(Method::Post, &path, Some(token), Some(body)) {
-                Err(TokenError::Refused { status: 503, .. }) if tries < REFRESH_TRIES => {
+        loop {
+            let token = spend.token().as_str();
+            let reply = match self.exchange(Method::Post, &path, Some(token), Some(&body)) {
+                Ok(reply) => reply,
+                // The request may have reached the token server and spent the token.
+                Err(e) => return RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
+            };
+            if reply.is_success() {
+                let bundle = serde_json::from_slice::<Value>(&reply.body)
+                    .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
+                    .and_then(|value| DriveBundle::from_value(&value));
+                return match bundle {
+                    Ok(bundle) if bundle.drive_id() == drive_id => {
+                        RefreshOutcome::Rotated(spend.rotated(bundle))
+                    }
+                    Ok(bundle) => {
+                        let why = format!(
+                            "the answer is for the drive {}, not {drive_id}",
+                            bundle.drive_id()
+                        );
+                        RefreshOutcome::Unknown(PendingSpend::new(spend, TokenError::Protocol(why)))
+                    }
+                    // Spent, and the answer cannot be read.
+                    Err(e) => RefreshOutcome::Unknown(PendingSpend::new(spend, e)),
+                };
+            }
+            let said: Option<RefreshRefusal> = serde_json::from_slice(&reply.body).ok();
+            let error = refusal(&reply, true);
+            match said {
+                Some(r) if r.spent_nothing() && tries < REFRESH_TRIES => {
                     tries += 1;
                     std::thread::sleep(self.retry_pause);
                 }
-                answer => break answer?,
+                Some(r) if r.spent_nothing() => {
+                    return RefreshOutcome::Refused {
+                        refusal: Some(r),
+                        error,
+                    }
+                }
+                // A failure that does not say it spent nothing (or says it did): maybe it did.
+                _ if reply.status >= 500 => {
+                    return RefreshOutcome::Unknown(PendingSpend::new(spend, error))
+                }
+                said => {
+                    return RefreshOutcome::Refused {
+                        refusal: said,
+                        error,
+                    }
+                }
             }
-        };
-        let bundle = DriveBundle::from_value(&value)?;
-        if bundle.drive_id() != drive_id {
-            return Err(TokenError::Protocol(format!(
-                "the answer is for the drive {}, not {drive_id}",
-                bundle.drive_id()
-            )));
         }
-        Ok(bundle)
+    }
+
+    /// The same token once more after [`RefreshOutcome::Unknown`]: the token server answers it
+    /// again while the token it may have rotated to was never used.
+    pub fn retry<'k>(&self, pending: PendingSpend<'k>, name: Option<&str>) -> RefreshOutcome<'k> {
+        self.refresh(pending.into_spend(), name)
     }
 
     // ==== A drive's account calls, with this device's drive token ====

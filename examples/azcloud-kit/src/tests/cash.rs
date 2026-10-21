@@ -4,14 +4,16 @@
 
 use std::sync::Arc;
 
-use azul_storage::{keyring::MemoryKeyring, testing::TempDir};
+use azul_storage::{
+    keyring::{KeyringNamespace, MemoryKeyring},
+    testing::TempDir,
+};
 
 use super::{bundle, json, Fake, Shared, TOKEN};
 use crate::{
     cash::{ActivationCode, ClaimCode, ACTIVATION_PREFIX, CLAIM_CODE_PREFIX},
     claim::seal,
-    lock::LockDir,
-    pending::{self, Final, CashKept, PendingCheckout, Polled},
+    pending::{self, CashKept, PendingCheckout, Polled},
     shared::SharedKeyring,
     token::{CheckoutStatus, Tiers, TokenServer},
     ClaimKey,
@@ -32,9 +34,10 @@ const CLAIM_CODE: &str = "AZK1-DVRW-WX3B-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB
 const SECRET: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
 fn shared(dir: &TempDir) -> SharedKeyring {
-    SharedKeyring::new(
+    SharedKeyring::with_lock_root(
         Arc::new(MemoryKeyring::new()),
-        LockDir::new(dir.path().join("locks")),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
     )
 }
 

@@ -160,6 +160,9 @@ pub struct DriveBundle {
     /// A paid drive's claim ticket (only in its sealed sign-up): another computer that picks
     /// the drive up claims a token family of its own with it.
     pub claim: Option<ClaimTicket>,
+    /// When this device's token family stops working unless it refreshes before (a refresh's
+    /// answer says it; a paid drive's family does not run out idle).
+    pub family_expires_at: Option<azlin_contract::Deadline>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -262,6 +265,7 @@ impl DriveBundle {
             period_tokens: PeriodTokens::from_value(&value["period_tokens"]),
             ban: Ban::of(value),
             claim: ClaimTicket::from_value(&value["claim"]),
+            family_expires_at: serde_json::from_value(value["family_expires_at"].clone()).ok(),
         })
     }
 
@@ -303,7 +307,7 @@ impl DriveBundle {
     pub fn session(&self) -> AzlinSession {
         AzlinSession {
             drive_id: self.entry.id.clone(),
-            drive_token: self.drive_token.clone(),
+            drive_token: crate::session::DriveToken::new(&self.drive_token),
             access_key_id: self.credentials.access_key_id.clone(),
             secret_access_key: self.credentials.secret_access_key.clone(),
             session_token: self.credentials.session_token.clone(),

@@ -135,9 +135,11 @@ pub use period::{
 };
 pub use recovery::RecoveryKey;
 pub use restore::{restore_bucket_as_of, restore_drive_as_of, BucketRestore, DriveRestore};
-pub use session::AzlinSession;
+pub use session::{AzlinSession, DriveToken};
 pub use settings::{Flags, OsDirs, Settings};
-pub use shared::SharedKeyring;
+pub use shared::{
+    Kept, PendingSpend, RefreshOutcome, Rotation, SharedKeyring, SpendLock, SpendOnce,
+};
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{

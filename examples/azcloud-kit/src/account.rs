@@ -35,6 +35,8 @@ use crate::{
     error::{fail, CloudError, CloudResult, Context},
     now, parse_rfc3339, rfc3339,
     secrets::{credentials_entry, drive_token_entry},
+    session::DriveToken,
+    shared::SpendOnce,
     state::{read_json, write_json, StateDir},
     token::{check_id, TokenError, TokenServer},
 };
@@ -467,9 +469,13 @@ impl Account {
         code: &JoinCode,
     ) -> CloudResult<Account> {
         let base = base_of(token_url);
-        let bundle = with_server(&base, &transports, |server| {
-            server.refresh_named(&code.drive_id, &code.drive_token, &code.name)
+        // The code's token is spent once, under the lock every refresh of this state folder holds.
+        let lock = state.lock("refresh", REFRESH_LOCK_WAIT)?;
+        let spend = SpendOnce::given(&code.drive_id, DriveToken::new(&code.drive_token), lock);
+        let rotation = with_server(&base, &transports, |server| {
+            server.refresh(spend, Some(&code.name)).rotated()
         })?;
+        let (bundle, _lock) = rotation.into_parts();
         let grant = grant_of(&bundle, &base, &code.member, now())?;
         if grant.record.id != code.drive_id {
             fail!(
@@ -642,17 +648,20 @@ impl Account {
     }
 
     fn refresh_locked(&mut self, force: bool) -> CloudResult<bool> {
-        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
+        let lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         // Another process may have refreshed while this one waited for the
         // lock: its token is the one to spend now.
         self.reload()?;
         if !force && !self.needs_refresh(now()) {
             return Ok(false);
         }
-        let token = self.drive_token()?;
-        let bundle = self.server(|server| {
-            server.refresh_named(&self.record.id, &token, &self.record.name)
+        let token = DriveToken::new(&self.drive_token()?);
+        let spend = SpendOnce::given(&self.record.id, token, lock);
+        let rotation = self.server(|server| {
+            server.refresh(spend, Some(&self.record.name)).rotated()
         })?;
+        // Stored before the lock is let go: the token just spent is dead.
+        let (bundle, _lock) = rotation.into_parts();
         let mut grant = grant_of(&bundle, &self.token_url, &self.record.member, now())?;
         grant.record.name = self.record.name.clone();
         store_grant(&self.state, &grant)?;

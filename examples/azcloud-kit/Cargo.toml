@@ -70,6 +70,9 @@ default = []
 # code's key seal. Off in the kit itself; the apps on it (AzDrive, AzMail, the mail core,
 # azcloud) turn it on by default - "we always encrypt and compress".
 encryption = ["azul-storage/encryption"]
+# For other crates' tests: a keyring whose locks are in a folder of the test's own
+# (SharedKeyring::with_lock_root), never in the user's.
+testing = []
 
 [lib]
 name = "azcloud_kit"

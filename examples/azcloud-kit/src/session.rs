@@ -8,7 +8,8 @@
 use std::fmt;
 
 use azul_storage::Credentials;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::Zeroizing;
 
 use crate::token::TokenError;
 
@@ -18,11 +19,71 @@ pub const REFRESH_MARGIN_SECS: u64 = 3600;
 /// starts with credentials about to run out.
 pub const VALID_MARGIN_SECS: u64 = 60;
 
-/// The keyring's text of an Azlin drive. `Debug` shows no secret.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A drive token: spent once by a refresh, which answers the next one. No `Clone`, `Debug` or
+/// `Display`: a copy that outlives the spend is how a device ends up sending a spent token (the
+/// token server then revokes it), so the refresh takes it only from the keyring under the
+/// drive's lock ([`crate::shared::SharedKeyring::spend`]). Wiped from memory when dropped.
+pub struct DriveToken(Zeroizing<String>);
+
+impl DriveToken {
+    /// `text`, trimmed.
+    #[must_use]
+    pub fn new(text: &str) -> DriveToken {
+        DriveToken(Zeroizing::new(text.trim().to_string()))
+    }
+
+    /// The token, for the request that sends it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether there is no token.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl PartialEq for DriveToken {
+    fn eq(&self, other: &DriveToken) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for DriveToken {}
+
+impl PartialEq<str> for DriveToken {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for DriveToken {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl Serialize for DriveToken {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DriveToken {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<DriveToken, D::Error> {
+        let text = Zeroizing::new(String::deserialize(deserializer)?);
+        Ok(DriveToken::new(&text))
+    }
+}
+
+/// The keyring's text of an Azlin drive. `Debug` shows no secret; no `Clone` (its drive token
+/// has none): read it again from the keyring.
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct AzlinSession {
     pub drive_id: String,
-    pub drive_token: String,
+    pub drive_token: DriveToken,
     pub access_key_id: String,
     pub secret_access_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

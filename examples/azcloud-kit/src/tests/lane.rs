@@ -320,7 +320,7 @@ fn an_azlin_drive_with_an_iroh_dialer_goes_over_iroh_to_the_nodes_its_refresh_na
     };
 
     use crate::{
-        drive::AzlinDrive, lock::LockDir, shared::SharedKeyring, AzlinSession, DriveBundle,
+        drive::AzlinDrive, shared::SharedKeyring, AzlinSession, DriveBundle,
     };
 
     let dir = TempDir::new("azcloud-lane");
@@ -341,7 +341,11 @@ fn an_azlin_drive_with_an_iroh_dialer_goes_over_iroh_to_the_nodes_its_refresh_na
         &first.entry_named("Cloud", super::TOKEN),
         first.session(),
         super::TOKEN,
-        SharedKeyring::new(keyring, LockDir::new(dir.path())),
+        SharedKeyring::with_lock_root(
+            keyring,
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            dir.path(),
+        ),
         factory(&cloud),
         Box::new(|_: &AzlinSession, _: Result<(), String>| {}),
     )

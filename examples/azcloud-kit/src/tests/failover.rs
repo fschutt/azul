@@ -23,6 +23,7 @@ use std::{
 };
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -34,7 +35,6 @@ use crate::{
     bucket::Bucket,
     drive::{AzlinDrive, TransportFactory},
     failover::{Node, Retry, STICKY_SECS},
-    lock::LockDir,
     shared::SharedKeyring,
     AzlinSession, DriveBundle,
 };
@@ -509,7 +509,8 @@ fn azlin_drive(
     keyring
         .set(&keyring_key("d_1"), &first.session().to_keyring_secret())
         .unwrap();
-    let shared = SharedKeyring::new(keyring, LockDir::new(dir.path()));
+    let shared =
+        SharedKeyring::with_lock_root(keyring, KeyringNamespace::azlin_shared(), dir.path());
     AzlinDrive::new(
         &first.entry_named("Cloud", TOKEN),
         first.session(),

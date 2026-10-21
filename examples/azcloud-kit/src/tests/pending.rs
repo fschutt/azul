@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use azul_storage::{
+    keyring::KeyringNamespace,
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
@@ -18,8 +19,7 @@ use super::{
 use crate::{
     bundle::PeriodTokens,
     claim::seal,
-    lock::LockDir,
-    pending::{self, Abandoned, Final, Finished, PendingCheckout, Polled, Settled, Transient},
+    pending::{self, Finished, PendingCheckout, Polled},
     period::{Issuer, PeriodTokenStore},
     shared::SharedKeyring,
     AzlinSession, ClaimKey, TokenServer,
@@ -28,7 +28,11 @@ use crate::{
 /// The keyring and the locks of one user, and the keyring itself to look into.
 fn shared(dir: &TempDir) -> (SharedKeyring, Arc<MemoryKeyring>) {
     let keyring = Arc::new(MemoryKeyring::new());
-    let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path().join("locks")));
+    let shared = SharedKeyring::with_lock_root(
+        keyring.clone(),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
     (shared, keyring)
 }
 
@@ -80,9 +84,10 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
     let windows: Vec<_> = (0..2)
         .map(|window| {
             // Each window its own keyring handle and locks over the same entry and folder.
-            let shared = SharedKeyring::new(
+            let shared = SharedKeyring::with_lock_root(
                 keyring.clone() as Arc<dyn KeyringStore>,
-                LockDir::new(dir.path().join("locks")),
+                KeyringNamespace::azlin_shared(),
+                &dir.path().join("locks"),
             );
             // Four each: eight checkouts fit in one entry (MAX_PENDING_BYTES) with room left
             // for each one's issue key after its claim.
