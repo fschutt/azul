@@ -12,7 +12,7 @@ use std::{
 };
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::{key, ops as storage_ops, transfer, BatchDelete, BatchMove, Drive, DriveError};
+use azul_storage::{key, ops as storage_ops, transfer, BatchDelete, BatchMove, BatchPut, Drive, DriveError};
 
 use crate::browse;
 
@@ -483,11 +483,12 @@ pub struct TransferReport {
 
 /// Runs `plan`: renames the whole items, creates the folders, copies every
 /// file (`transfer::copy_object`: a file copy on disk, ranged GETs into a
-/// file, one PUT into a bucket) by its choice - an undecided conflict is
-/// skipped, never overwritten - and for a move deletes what it copied and
-/// the folders it emptied. `cancel` is read before every file; `report`
-/// hears the progress after every chunk and every file. A failure is noted
-/// and the rest goes on.
+/// file, one PUT into a bucket; small files from this computer into a bucket
+/// in `put_many` batches) by its choice - an undecided conflict is skipped,
+/// never overwritten - and for a move deletes what it copied and the folders
+/// it emptied. `cancel` is read before every file; `report` hears the progress
+/// after every chunk, every file and every batch. A failure is noted and the
+/// rest goes on.
 pub fn run_transfer(
     plan: &Plan,
     source: &dyn Drive,
@@ -545,8 +546,13 @@ pub fn run_transfer(
         }
     }
     let mut copied = Vec::new();
+    // Small files from this computer into a bucket go in batches (`put_many`): an encrypted
+    // drive packs a batch's files together and names them in one index change, where one
+    // file at a time would make each its own pack; a bucket gets fewer requests too.
+    let mut batch = SmallBatch::default();
     for file in &plan.files {
         if cancel.load(Ordering::SeqCst) {
+            // A batch not sent yet is not written: its files count as not done.
             out.cancelled = true;
             break;
         }
@@ -558,11 +564,29 @@ pub fn run_transfer(
                 Some(ConflictChoice::Replace) | Some(ConflictChoice::KeepBoth)
             );
         if go {
+            let server_side = plan.same_drive && source.local_path(&file.source_key).is_none();
+            if !server_side {
+                // a bucket's PUT replaces what is there: no delete first, so a batch that is
+                // never sent leaves the old file as it was
+                if let Some(bytes) = small_local_file(source, target, file) {
+                    match bytes {
+                        Ok(bytes) => batch.push(file, bytes),
+                        Err(e) => {
+                            out.failed.push((file.source_key.clone(), crate::l10n::drive_error_text(&e)));
+                            progress.files_done += 1;
+                            report(&progress);
+                        }
+                    }
+                    if batch.bytes >= azul_storage::SMALL_BATCH_BYTES {
+                        batch.send(target, &mut out, &mut copied, &mut progress, report);
+                    }
+                    continue;
+                }
+            }
             if file.conflict && file.choice == Some(ConflictChoice::Replace) {
                 // Out of the way first: a rename over a file fails on Windows.
                 let _ = target.delete(&file.target_key);
             }
-            let server_side = plan.same_drive && source.local_path(&file.source_key).is_none();
             let result = if server_side {
                 // The bucket copies (CopyObject): no byte passes through here.
                 source
@@ -596,6 +620,9 @@ pub fn run_transfer(
         progress.files_done += 1;
         report(&progress);
     }
+    if !out.cancelled {
+        batch.send(target, &mut out, &mut copied, &mut progress, report);
+    }
     if kind.removes_source() && !out.cancelled && !copied.is_empty() {
         let batch: Vec<BatchDelete<'_>> = copied.iter().map(|key| BatchDelete::new(key)).collect();
         for (key, result) in copied.iter().zip(source.delete_many(&batch)) {
@@ -615,6 +642,77 @@ pub fn run_transfer(
         }
     }
     out
+}
+
+/// The bytes of `file` when it is a small file on this computer going into a bucket: what a
+/// paste sends in batches. `None` when it goes its own way (a folder on both sides, a large
+/// or unknown size), `Some(Err)` when it can't be read.
+fn small_local_file(
+    source: &dyn Drive,
+    target: &dyn Drive,
+    file: &PlannedFile,
+) -> Option<Result<Vec<u8>, DriveError>> {
+    if target.local_path(&file.target_key).is_some() {
+        return None;
+    }
+    let path = source.local_path(&file.source_key)?;
+    let size = match file.size {
+        Some(size) => size,
+        None => std::fs::metadata(&path).ok()?.len(),
+    };
+    if size >= azul_storage::SMALL_FILE_BYTES || !path.is_file() {
+        return None;
+    }
+    Some(std::fs::read(&path).map_err(DriveError::from))
+}
+
+/// Small files read and waiting for one `put_many`.
+#[derive(Default)]
+struct SmallBatch {
+    /// Each file's source key, target key and bytes, in the plan's order.
+    files: Vec<(String, String, Vec<u8>)>,
+    /// Their bytes together: the batch is sent once it holds [`azul_storage::SMALL_BATCH_BYTES`].
+    bytes: u64,
+}
+
+impl SmallBatch {
+    fn push(&mut self, file: &PlannedFile, bytes: Vec<u8>) {
+        self.bytes += bytes.len() as u64;
+        self.files.push((file.source_key.clone(), file.target_key.clone(), bytes));
+    }
+
+    /// Writes the batch in one `put_many` and tells each file's outcome as a single copy does.
+    fn send(
+        &mut self,
+        target: &dyn Drive,
+        out: &mut TransferReport,
+        copied: &mut Vec<String>,
+        progress: &mut Progress,
+        report: &mut dyn FnMut(&Progress),
+    ) {
+        if self.files.is_empty() {
+            return;
+        }
+        let files = std::mem::take(&mut self.files);
+        self.bytes = 0;
+        let items: Vec<BatchPut<'_>> = files
+            .iter()
+            .map(|(_, to, bytes)| BatchPut::new(to, bytes))
+            .collect();
+        let results = target.put_many(&items);
+        for ((from, _, bytes), result) in files.iter().zip(results) {
+            match result {
+                Ok(_) => {
+                    out.done += 1;
+                    copied.push(from.clone());
+                }
+                Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
+            }
+            progress.bytes_done += bytes.len() as u64;
+            progress.files_done += 1;
+        }
+        report(progress);
+    }
 }
 
 // ==== Delete, trash, undo ====
