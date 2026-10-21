@@ -708,6 +708,9 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
     ("Wt", "webtransport"),
     ("Iroh", "iroh"),
+    // What a TLS connection trusts: set on `HttpRequestConfig` / `HttpClientConfig` (and on
+    // `IrohConfig`, `DbConfig`); the keyword pass filed it under "str" for its PEM strings.
+    ("TrustRoots", "http"),
     // The CPU rasterizer's text style (`RawImage::from_text` / `draw_text`,
     // `CallbackInfo::text_image`): "Style" filed it under css; it belongs
     // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone

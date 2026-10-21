@@ -10595,6 +10595,9 @@
                                 "client": {
                                     "type": "OptionHttpClient"
                                 },
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
                                 "timeout_secs": {
                                     "type": "u64"
                                 },
@@ -10932,6 +10935,25 @@
                                     "type": "HttpRequestConfig"
                                 },
                                 "fn_body": "object.with_max_size(max_bytes)"
+                            },
+                            "with_trust_roots": {
+                                "doc": [
+                                    "Trust these certificate authorities when the request opens its own",
+                                    "connection (a request through a client trusts what the client's config",
+                                    "says)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpRequestConfig"
+                                },
+                                "fn_body": "object.with_trust_roots(trust_roots)"
                             }
                         },
                         "repr": "C"
@@ -11173,13 +11195,14 @@
                         ],
                         "derive": [
                             "Debug",
-                            "Copy",
                             "Clone",
-                            "PartialEq",
-                            "Eq"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
                                 "max_idle_connections": {
                                     "type": "u32"
                                 },
@@ -11254,9 +11277,44 @@
                                     "type": "HttpClientConfig"
                                 },
                                 "fn_body": "object.with_dns_cache_secs(secs)"
+                            },
+                            "with_trust_roots": {
+                                "doc": [
+                                    "Trust these certificate authorities for every request of the client"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpClientConfig"
+                                },
+                                "fn_body": "object.with_trust_roots(trust_roots)"
                             }
                         },
                         "repr": "C"
+                    },
+                    "TrustRoots": {
+                        "external": "azul_core::tls::TrustRoots",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PublicRoots": {},
+                                "Pinned": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -199604,34 +199662,25 @@
                             {
                                 "local_name": {
                                     "type": "String"
-                                }
-                            },
-                            {
+                                },
                                 "backup_sync_url": {
                                     "type": "OptionString"
-                                }
-                            },
-                            {
+                                },
                                 "auth_token": {
                                     "type": "OptionString"
-                                }
-                            },
-                            {
+                                },
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
                                 "schema": {
                                     "type": "DbSchema"
-                                }
-                            },
-                            {
+                                },
                                 "scope": {
                                     "type": "OptionDbScope"
-                                }
-                            },
-                            {
+                                },
                                 "local_budget_bytes": {
                                     "type": "u64"
-                                }
-                            },
-                            {
+                                },
                                 "auto_sync": {
                                     "type": "DbAutoSync"
                                 }
@@ -199755,6 +199804,23 @@
                                     "type": "DbConfig"
                                 },
                                 "fn_body": "object.with_auto_sync(auto)"
+                            },
+                            "with_trust_roots": {
+                                "doc": [
+                                    "Trust only these certificate authorities for the backup sync."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbConfig"
+                                },
+                                "fn_body": "object.with_trust_roots(trust_roots)"
                             }
                         },
                         "repr": "C"
@@ -206092,6 +206158,12 @@
                                 "secret_key": {
                                     "type": "U8Vec"
                                 },
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
+                                "allowed_peers": {
+                                    "type": "OptionStringVec"
+                                },
                                 "port": {
                                     "type": "u16"
                                 },
@@ -206215,6 +206287,42 @@
                                     "type": "IrohConfig"
                                 },
                                 "fn_body": "object.with_relay_only(relay_only)"
+                            },
+                            "with_allowed_peers": {
+                                "doc": [
+                                    "Returns the config that accepts incoming connections from these endpoint ids only (an",
+                                    "app's paired devices); an empty list accepts nobody."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "peers": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_allowed_peers(peers)"
+                            },
+                            "with_trust_roots": {
+                                "doc": [
+                                    "Returns the config whose relays' TLS trusts `trust_roots` (a pinned set: a relay under",
+                                    "any other authority is refused)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_trust_roots(trust_roots)"
                             }
                         },
                         "repr": "C"
@@ -206710,6 +206818,26 @@
                                     "type": "ResultU8VecString"
                                 },
                                 "fn_body": "object.request(endpoint_id, addresses, relay_url, data, half_close, timeout_secs)"
+                            },
+                            "set_allowed_peers": {
+                                "doc": [
+                                    "Accepts incoming connections from these endpoint ids only, from the next connection on",
+                                    "(a pairing that just completed lists the new device); an empty list accepts nobody, and",
+                                    "any other peer is refused before any of its streams is read (an `Error` event names",
+                                    "it). Returns false when an id does not parse (nothing changes) or nothing is bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peers": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.set_allowed_peers(peers)"
                             }
                         },
                         "repr": "C"

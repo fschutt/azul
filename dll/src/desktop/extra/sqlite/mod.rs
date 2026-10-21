@@ -1556,7 +1556,9 @@ mod sync {
     #[cfg(feature = "http")]
     fn http(state: &DbState, method_post: bool, url: &str, body: Vec<u8>) -> Transport {
         use azul_layout::http::{HttpError, HttpRequestConfig, ResultHttpResponseHttpError};
-        let mut cfg = HttpRequestConfig::new().with_timeout(30);
+        let mut cfg = HttpRequestConfig::new()
+            .with_timeout(30)
+            .with_trust_roots(state.config.trust_roots.clone());
         if let Some(token) = state.config.auth_token.as_ref() {
             cfg = cfg.with_header("Authorization", format!("Bearer {}", token.as_str()));
         }

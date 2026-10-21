@@ -283,6 +283,24 @@ impl IrohEndpoint {
         false
     }
 
+    /// Accepts incoming connections from these endpoint ids only, from the next connection on
+    /// (a pairing that just completed lists the new device); an empty list accepts nobody, and
+    /// any other peer is refused before any of its streams is read (an `Error` event names
+    /// it). Returns false when an id does not parse (nothing changes) or nothing is bound.
+    pub fn set_allowed_peers(&self, peers: StringVec) -> bool {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            let peers = peers
+                .as_ref()
+                .iter()
+                .map(|peer| peer.as_str().to_string())
+                .collect();
+            return engine.set_allowed_peers(Some(peers)).is_ok();
+        }
+        drop(peers);
+        false
+    }
+
     /// Closes the connection to `peer`. Returns false when no such connection is open.
     pub fn disconnect(&self, peer: u64) -> bool {
         #[cfg(az_iroh_engine)]

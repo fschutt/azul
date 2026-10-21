@@ -1,6 +1,7 @@
 //! Plain data of the `azul.iroh` API, shared by the native engine and the wasm stub.
 
-use azul_css::{impl_option, AzString, U8Vec};
+use azul_core::tls::TrustRoots;
+use azul_css::{impl_option, AzString, OptionStringVec, StringVec, U8Vec};
 
 /// Where an endpoint may relay traffic when no direct UDP path to a peer exists.
 #[repr(C)]
@@ -36,6 +37,17 @@ pub struct IrohConfig {
     pub relay_url: AzString,
     /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
     pub secret_key: U8Vec,
+    /// The certificate authorities the relays' (and any other non-iroh) TLS is checked
+    /// against: the public roots by default, or the ones an app pins, so a relay with a
+    /// forged certificate is refused. Iroh's own connections are authenticated by the peers'
+    /// keys and need no authority.
+    pub trust_roots: TrustRoots,
+    /// The endpoint ids an incoming connection is accepted from. `None` (the default): every
+    /// peer that knows the protocol name, and the app decides whom it trusts. `Some`: only
+    /// these (an app's paired devices); any other peer is refused before any of its streams is
+    /// read, and an `Error` event names it. An empty list accepts nobody (an endpoint that only
+    /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound.
+    pub allowed_peers: OptionStringVec,
     /// Local UDP port, 0 for any free port.
     pub port: u16,
     /// Largest inbound frame or message in bytes. Larger ones are dropped.
@@ -51,6 +63,8 @@ impl IrohConfig {
             relay_only: false,
             relay_url: AzString::from_const_str(""),
             secret_key: U8Vec::from_const_slice(&[]),
+            trust_roots: TrustRoots::PublicRoots,
+            allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,
         }
@@ -78,6 +92,20 @@ impl IrohConfig {
     /// Returns the config with a persisted 32-byte identity, as read from `IrohEndpoint::secret_key`.
     pub fn with_secret_key(mut self, secret_key: U8Vec) -> Self {
         self.secret_key = secret_key;
+        self
+    }
+
+    /// Returns the config whose relays' TLS trusts `trust_roots` (a pinned set: a relay under
+    /// any other authority is refused).
+    pub fn with_trust_roots(mut self, trust_roots: TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
+        self
+    }
+
+    /// Returns the config that accepts incoming connections from these endpoint ids only (an
+    /// app's paired devices); an empty list accepts nobody.
+    pub fn with_allowed_peers(mut self, peers: StringVec) -> Self {
+        self.allowed_peers = OptionStringVec::Some(peers);
         self
     }
 

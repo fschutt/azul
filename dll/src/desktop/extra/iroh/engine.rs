@@ -29,6 +29,9 @@ use tokio::{
     sync::{mpsc, Notify},
 };
 
+use azul_core::tls::TrustRoots;
+use rustls_pki_types::{pem::PemObject, CertificateDer};
+
 use super::types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode};
 
 const FRAME_STREAM: u8 = 1;
@@ -41,6 +44,8 @@ const FRAME_PRIORITY: i32 = 0;
 const MESSAGE_PRIORITY: i32 = 1;
 const CLOSED_BY_APP: u32 = 0;
 const PROTOCOL_VIOLATION: u32 = 1;
+/// The close code of a connection from a peer not in the allowed list.
+const NOT_ALLOWED: u32 = 2;
 /// How long a request waits for the connection to its peer (inside the request's own time).
 const REQUEST_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -63,6 +68,39 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The endpoint ids of `peers` (an endpoint id each, surrounding space ignored).
+fn endpoint_ids(
+    peers: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<std::collections::BTreeSet<EndpointId>, String> {
+    peers
+        .into_iter()
+        .map(|peer| {
+            let peer = peer.as_ref().trim();
+            EndpointId::from_str(peer)
+                .map_err(|e| format!("{peer:?} is not an endpoint id: {e}"))
+        })
+        .collect()
+}
+
+/// What the relays' TLS trusts: Mozilla's roots, or exactly the pinned ones (an entry that does
+/// not parse fails the bind; it never falls back to the public roots).
+fn ca_tls_config(roots: &TrustRoots) -> Result<iroh::tls::CaTlsConfig, String> {
+    let TrustRoots::Pinned(pems) = roots else {
+        return Ok(iroh::tls::CaTlsConfig::embedded());
+    };
+    let mut certs = Vec::new();
+    for (i, pem) in pems.as_ref().iter().enumerate() {
+        let before = certs.len();
+        for cert in CertificateDer::pem_slice_iter(pem.as_str().as_bytes()) {
+            certs.push(cert.map_err(|e| format!("trusted root {i} does not parse: {e:?}"))?);
+        }
+        if certs.len() == before {
+            return Err(format!("trusted root {i} holds no certificate"));
+        }
+    }
+    Ok(iroh::tls::CaTlsConfig::custom_roots(certs))
+}
+
 pub(super) struct Engine {
     endpoint: Endpoint,
     alpn: Vec<u8>,
@@ -82,6 +120,9 @@ struct State {
     priorities: Arc<Priorities>,
     /// The connections of `request`, one per peer: no events, no frames, kept until they close.
     requests: Mutex<BTreeMap<EndpointId, Connection>>,
+    /// The peers an incoming connection is accepted from; `None`: every peer
+    /// (`IrohConfig::allowed_peers`, `IrohEndpoint::set_allowed_peers`).
+    allowed: Mutex<Option<std::collections::BTreeSet<EndpointId>>>,
 }
 
 struct Peer {
@@ -175,7 +216,12 @@ impl Engine {
         }
         let mut builder = Endpoint::builder(presets::Minimal)
             .alpns(vec![alpn.clone()])
-            .relay_mode(relay_mode);
+            .relay_mode(relay_mode)
+            .ca_tls_config(ca_tls_config(&config.trust_roots)?);
+        let allowed = match config.allowed_peers.as_ref() {
+            Some(peers) => Some(endpoint_ids(peers.as_ref().iter().map(azul_css::AzString::as_str))?),
+            None => None,
+        };
         let key = config.secret_key.as_ref();
         if !key.is_empty() {
             let key: &[u8; 32] = key.try_into().map_err(|_| {
@@ -199,6 +245,7 @@ impl Engine {
         let state = Arc::new(State {
             max_frame: config.max_frame_bytes as usize,
             next_peer: AtomicU64::new(1),
+            allowed: Mutex::new(allowed),
             ..State::default()
         });
         runtime.spawn(accept_connections(endpoint.clone(), state.clone()));
@@ -208,6 +255,17 @@ impl Engine {
             alpn,
             state,
         })
+    }
+
+    /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
+    /// next connection on. An id that does not parse is refused and nothing changes.
+    pub(super) fn set_allowed_peers(&self, peers: Option<Vec<String>>) -> Result<(), String> {
+        let allowed = match peers {
+            Some(peers) => Some(endpoint_ids(peers.iter().map(String::as_str))?),
+            None => None,
+        };
+        *lock(&self.state.allowed) = allowed;
+        Ok(())
     }
 
     pub(super) fn is_bound(&self) -> bool {
@@ -449,6 +507,13 @@ impl Drop for Engine {
 }
 
 impl State {
+    /// Whether an incoming connection from `peer` is accepted.
+    fn accepts(&self, peer: &EndpointId) -> bool {
+        lock(&self.allowed)
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(peer))
+    }
+
     fn push(&self, event: IrohEvent) {
         lock(&self.events).push_back(event);
     }
@@ -627,6 +692,16 @@ async fn accept_connections(endpoint: Endpoint, state: Arc<State>) {
         let state = state.clone();
         tokio::spawn(async move {
             match incoming.await {
+                Ok(conn) if !state.accepts(&conn.remote_id()) => {
+                    // Before any stream of the peer is read: it learns nothing but the refusal.
+                    let peer = conn.remote_id();
+                    conn.close(VarInt::from_u32(NOT_ALLOWED), b"not an allowed peer");
+                    state.push(IrohEvent::new(
+                        IrohEventKind::Error,
+                        0,
+                        format!("refused a connection from {peer}: not an allowed peer"),
+                    ));
+                }
                 Ok(conn) => adopt(&state, conn),
                 Err(e) => state.push(IrohEvent::new(
                     IrohEventKind::Error,
@@ -1187,14 +1262,16 @@ mod tests {
     fn the_allowed_peers_can_be_set_while_the_endpoint_is_bound() {
         let host = local_endpoint();
         let ticket = next_of(&host, IrohEventKind::Ready).text;
-        host.set_allowed_peers(Some(Vec::new()));
+        host.set_allowed_peers(Some(Vec::new()))
+            .expect("the ids parse");
         let device = local_endpoint();
         device.connect(ticket.as_str()).expect("parses");
         let refusal = next_event(&host);
         assert_eq!(refusal.kind, IrohEventKind::Error, "{}", refusal.text.as_str());
         next_of(&device, IrohEventKind::PeerDisconnected);
 
-        host.set_allowed_peers(Some(vec![device.endpoint_id()]));
+        host.set_allowed_peers(Some(vec![device.endpoint_id()]))
+            .expect("the ids parse");
         device.connect(ticket.as_str()).expect("parses");
         assert_eq!(
             next_of(&host, IrohEventKind::PeerConnected).text.as_str(),
@@ -1202,34 +1279,43 @@ mod tests {
         );
     }
 
-    fn pinned(ca: &azul_layout::tls_testing::TestCa) -> azul_core::tls::TrustRoots {
-        azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
+    fn pinned(ca: &azul_layout::tls_testing::TestCa) -> TrustRoots {
+        TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
             ca.cert_pem.clone(),
         )]))
     }
 
-    /// The first thing a relay at `relay` saw from an endpoint trusting `roots` that sends a
-    /// request through it (to a peer only the relay can reach).
-    fn relay_sees(
+    /// Whether a relay at `relay` let an endpoint trusting `roots` through its TLS while the
+    /// endpoint sent a request through it (to a peer only the relay can reach): `Ok(line)` once
+    /// a connection got past the handshake, `Err(why)` when every connection within 10 s was
+    /// refused in it (and at least one was tried). The endpoint is closed after.
+    fn relay_lets_through(
         relay: &str,
-        roots: azul_core::tls::TrustRoots,
+        roots: TrustRoots,
         seen: &std::sync::mpsc::Receiver<azul_layout::tls_testing::Seen>,
-    ) -> azul_layout::tls_testing::Seen {
+    ) -> Result<String, String> {
         while seen.try_recv().is_ok() {}
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_url(AzString::from(relay.to_string()))
             .with_trust_roots(roots);
-        let engine = Engine::bind(&config).expect("binds");
+        let engine = std::sync::Arc::new(Engine::bind(&config).expect("binds"));
         let nobody = SecretKey::from_bytes(&[7u8; 32]).public().to_string();
-        let asking = std::thread::spawn(move || {
-            let _ = engine.request(&nobody, &[], "", b"x", true, Duration::from_secs(8));
-            engine
+        let asking = engine.clone();
+        std::thread::spawn(move || {
+            let _ = asking.request(&nobody, &[], "", b"x", true, Duration::from_secs(8));
         });
-        let first = seen
-            .recv_timeout(Duration::from_secs(20))
-            .expect("the endpoint tried its relay");
-        let _ = asking.join();
-        first
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut refused = None;
+        let outcome = loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match seen.recv_timeout(left) {
+                Ok(Ok(line)) => break Ok(line),
+                Ok(Err(why)) => refused = Some(why),
+                Err(_) => break Err(refused.expect("the endpoint tried its relay")),
+            }
+        };
+        engine.close();
+        outcome
     }
 
     /// The relay's TLS trusts what the app pins: a relay whose certificate comes from another
@@ -1241,11 +1327,11 @@ mod tests {
         let forged = azul_layout::tls_testing::TestCa::new("azul test root B");
         let (port, seen) = azul_layout::tls_testing::serve_tls(forged.server_for_loopback());
         let relay = format!("https://127.0.0.1:{port}");
-        let refused = relay_sees(&relay, pinned(&ours), &seen);
+        let refused = relay_lets_through(&relay, pinned(&ours), &seen);
         assert!(refused.is_err(), "the handshake went through: {refused:?}");
-        let public = relay_sees(&relay, azul_core::tls::TrustRoots::default(), &seen);
+        let public = relay_lets_through(&relay, TrustRoots::default(), &seen);
         assert!(public.is_err(), "no public root issued it: {public:?}");
-        let accepted = relay_sees(&relay, pinned(&forged), &seen);
+        let accepted = relay_lets_through(&relay, pinned(&forged), &seen);
         assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
     }
 }
