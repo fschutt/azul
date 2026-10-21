@@ -617,6 +617,21 @@ class Multipart(ServerTest):
         self.assertEqual(ops, ["CreateMultipartUpload", "UploadPart", "UploadPart",
                                "CompleteMultipartUpload", "GetObject"])
 
+    def test_a_completed_object_keeps_the_multipart_etag_until_it_is_written_again(self):
+        # S3's: what a client computes to see that a completion whose answer was lost landed.
+        upload = self.start_upload("big.bin")
+        parts = [b"a" * 10, b"b" * 3]
+        etags = [self.part("big.bin", upload, n, data) for n, data in enumerate(parts, 1)]
+        status, _, body = self.complete("big.bin", upload, list(enumerate(etags, 1)))
+        self.assertEqual(status, 200, body)
+        want = '"%s-2"' % hashlib.md5(b"".join(hashlib.md5(p).digest() for p in parts)).hexdigest()
+        self.assertEqual(xml_values(body, "ETag")[0], want)
+        self.assertEqual(self.client.request("HEAD", BUCKET, "big.bin")[1].get("etag"), want)
+        self.assertEqual(self.get("big.bin")[1].get("etag"), want)
+        self.client.request("PUT", BUCKET, "big.bin", body=b"plain")
+        self.assertEqual(self.client.request("HEAD", BUCKET, "big.bin")[1].get("etag"),
+                         '"%s"' % hashlib.md5(b"plain").hexdigest())
+
     def test_list_parts_names_the_parts_sent_with_their_etags_and_sizes(self):
         upload = self.start_upload("big.bin")
         first = self.part("big.bin", upload, 1, b"a" * 10)
