@@ -1855,6 +1855,8 @@ impl StyledDom {
     /// compact cache from scratch on the composed tree.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
         cascade_trace(|| "compact cache REBUILT from css_props".to_string());
+        #[cfg(feature = "std")]
+        COMPACT_CACHE_REBUILDS.with(|n| n.set(n.get() + 1));
         // Use the _with_inheritance variant: it does inheritance inline (via
         // parent-compact-field copy) AND populates hot_flags via
         // apply_css_property_to_compact.  The plain build_compact_cache would
@@ -4240,3 +4242,27 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
 #[cfg(test)]
 #[path = "styled_dom_test.rs"]
 mod styled_dom_test;
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Rebuilds of a DOM's compact cache and inheritance tables on this
+    /// thread ([`compact_cache_rebuilds_on_this_thread`]).
+    static COMPACT_CACHE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many times this thread rebuilt a DOM's compact cache and inheritance
+/// tables ([`StyledDom::recompute_inheritance_and_compact_cache`]). Each
+/// rebuild walks the whole DOM, so a restyle pays it once, however many
+/// overrides it writes; the tests that keep it so read this count. Always 0
+/// without `std`.
+#[must_use]
+pub fn compact_cache_rebuilds_on_this_thread() -> usize {
+    #[cfg(feature = "std")]
+    {
+        COMPACT_CACHE_REBUILDS.with(core::cell::Cell::get)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        0
+    }
+}

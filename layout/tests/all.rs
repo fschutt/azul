@@ -1255,3 +1255,5 @@ mod a_marker_rule_styles_the_list_items_marker;
 mod background_origin_places_the_image_in_its_box;
 #[path = "a_scrolling_view_keeps_its_rows_when_its_box_gets_shorter.rs"]
 mod a_scrolling_view_keeps_its_rows_when_its_box_gets_shorter;
+#[path = "a_restyle_that_starts_many_fades_rebuilds_the_cascade_once.rs"]
+mod a_restyle_that_starts_many_fades_rebuilds_the_cascade_once;
