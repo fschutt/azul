@@ -280,6 +280,38 @@ impl VirtualViewManager {
         dropped
     }
 
+    /// Whether the window a view last materialized still serves its box after
+    /// the box went from `old` to `new` without anything else changing.
+    ///
+    /// Each axis that changed must be one the view scrolls along: its
+    /// document is longer there than the window it rendered, so the content
+    /// is a slice of the document and not laid out to the box, and whether
+    /// the slice still covers the box is what [`Self::check_reinvoke`]'s
+    /// window rules (a grown box, an edge in reach) decide. An axis on which
+    /// the window IS the document (rows as wide as the box, a picture drawn
+    /// for exactly its box) was rendered for the old size and needs the
+    /// callback again.
+    #[must_use]
+    pub fn window_serves_resized_box(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        old: LogicalSize,
+        new: LogicalSize,
+    ) -> bool {
+        let Some(state) = self.states.get(&(dom_id, node_id)) else {
+            return false;
+        };
+        let (Some(window), Some(document)) = (state.materialized, state.virtual_rect) else {
+            return false;
+        };
+        let unchanged = |a: f32, b: f32| (a - b).abs() < 0.5;
+        let scrolls = |rendered: f32, whole: f32| whole - rendered >= 0.5;
+        (unchanged(old.width, new.width) || scrolls(window.size.width, document.size.width))
+            && (unchanged(old.height, new.height)
+                || scrolls(window.size.height, document.size.height))
+    }
+
     /// Returns whether the `VirtualView` has ever been invoked
     #[must_use]
     pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {

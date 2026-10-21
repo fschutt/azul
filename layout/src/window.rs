@@ -11387,10 +11387,13 @@ impl LayoutWindow {
         // It handles all 5 conditional rules.
         //
         // A view CARRIED over this relayout (its host node unchanged, the
-        // funnel kept its child result) is trusted with "nothing to do" only
-        // while its child was laid out for the box it has now: a box of
-        // another size renders it again, as every relayout did before views
-        // were kept (a growth also reads as `BoundsExpanded` below).
+        // funnel kept its child result) is trusted with "nothing to do" while
+        // its child was laid out for the box it has now, or while the box
+        // changed only along axes the view scrolls (its rendered window still
+        // serves it: the frames of a height animation above a list). A box
+        // that changed along an axis the view lays out to its box renders it
+        // again, as every relayout did before views were kept (a growth past
+        // the window also reads as `BoundsExpanded` below).
         let carried = self
             .virtual_view_manager
             .take_carried(parent_dom_id, node_id);
@@ -11405,15 +11408,26 @@ impl LayoutWindow {
             let nested = self
                 .virtual_view_manager
                 .get_nested_dom_id(parent_dom_id, node_id);
-            let fits = nested
+            let laid_out_for = nested
                 .and_then(|child| self.layout_results.get(&child))
-                .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
-            if !carried || fits {
+                .map(|child| child.viewport.size);
+            let served = laid_out_for.is_some_and(|old| {
+                size_eq(old, bounds.size)
+                    || self.virtual_view_manager.window_serves_resized_box(
+                        parent_dom_id,
+                        node_id,
+                        old,
+                        bounds.size,
+                    )
+            });
+            if !carried || served {
                 // The DOM stays - but what it inherits from the host
-                // may have moved since it was styled.
+                // may have moved since it was styled, and its box may
+                // have another size.
                 if let Some(child) = nested {
                     self.follow_host_in_kept_view(
                         child,
+                        bounds.size,
                         inherited_from_host,
                         window_state,
                         renderer_resources,
@@ -11615,10 +11629,11 @@ impl LayoutWindow {
                     let nested = self
                         .virtual_view_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
-                    // The kept DOM follows its host all the same.
+                    // The kept DOM follows its host and its box all the same.
                     if let Some(child) = nested {
                         self.follow_host_in_kept_view(
                             child,
+                            bounds.size,
                             inherited_from_host,
                             window_state,
                             renderer_resources,
@@ -11726,12 +11741,16 @@ impl LayoutWindow {
     /// Re-seed it ([`StyledDom::set_inherited_from_host`]) under the window's
     /// context and lay it out again, in place: the same arena under the same
     /// `DomId`, so there is nothing to reconcile and every node-keyed manager
-    /// stays valid; at the viewport it was laid out at, so nothing about the
-    /// view's materialization changes. Two comparisons, nothing else, while
-    /// neither moved - the common relayout.
+    /// stays valid. Its box (`size`, the view's box this pass) may have
+    /// another size than the one it was laid out for, while the window the
+    /// view rendered still serves it: then it is laid out again for the new
+    /// box, warm, as its styles did not move. Three comparisons, nothing
+    /// else, while none of these moved - the common relayout.
+    #[allow(clippy::too_many_arguments)] // the kept view, its box and the pass it is laid out in
     fn follow_host_in_kept_view(
         &mut self,
         child: DomId,
+        size: LogicalSize,
         inherited_from_host: azul_core::prop_cache::InheritedFromHost,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
@@ -11753,10 +11772,11 @@ impl LayoutWindow {
         // A text the app changed in the child (`set_node_text`) since it was
         // laid out.
         let content_moved = self.content_changed_doms.contains(&child);
-        if !host_moved && !mode_moved && !content_moved {
+        let box_moved = !size_eq(kept.viewport.size, size);
+        if !host_moved && !mode_moved && !content_moved && !box_moved {
             return;
         }
-        let viewport = LogicalRect::new(LogicalPosition::zero(), kept.viewport.size);
+        let viewport = LogicalRect::new(LogicalPosition::zero(), size);
         let context = self.dynamic_selector_context(window_state);
         let Some(kept) = self.layout_results.remove(&child) else {
             return;
@@ -11776,8 +11796,9 @@ impl LayoutWindow {
         styled_dom.set_inherited_from_host(inherited_from_host);
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "VirtualView child {child:?} re-styled in place: its host's inherited values \
-                 (moved: {host_moved}) or the mode (moved: {mode_moved}) changed"
+                "VirtualView child {child:?} laid out again in place: its host's inherited \
+                 values (moved: {host_moved}), the mode (moved: {mode_moved}) or its box \
+                 (moved: {box_moved}) changed"
             )));
         }
         if self
