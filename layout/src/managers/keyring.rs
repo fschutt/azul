@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 // `KeyringRequest` / `KeyringResult` live in `azul-core` so they cross the
 // FFI without a cyclic dep on `azul-layout`. Re-exported for the existing
 // `azul_layout::managers::keyring::*` import paths.
-pub use azul_core::keyring::{KeyringRequest, KeyringResult};
+pub use azul_core::keyring::{KeyringNamespace, KeyringRequest, KeyringResult};
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
@@ -120,24 +120,40 @@ impl EventProvider for KeyringManager {
 
 // ────────── Request channel (callback → platform backend) ─────────────
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<KeyringRequest>> = std::sync::Mutex::new(Vec::new());
+/// Each queued op with the namespace its callback named.
+static PENDING_REQUESTS: std::sync::Mutex<Vec<(KeyringNamespace, KeyringRequest)>> =
+    std::sync::Mutex::new(Vec::new());
 
-/// Queue a keyring op from a callback. Drained by the dll layout pass and
-/// dispatched to the native keyring. Thread-safe; poison-recovering.
+/// Queue a keyring op from a callback, in the app's own namespace. Drained by
+/// the dll layout pass and dispatched to the native keyring. Thread-safe;
+/// poison-recovering.
 pub fn push_keyring_request(request: KeyringRequest) {
+    push_keyring_request_in(KeyringNamespace::app(), request);
+}
+
+/// Queue a keyring op from a callback, in `namespace`.
+pub fn push_keyring_request_in(namespace: KeyringNamespace, request: KeyringRequest) {
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(request);
+    q.push((namespace, request));
 }
 
-/// Drain every queued keyring op, in arrival order. Called once per
-/// layout pass; the dll dispatches each to the platform backend.
-pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
+/// Drain every queued keyring op with its namespace, in arrival order. Called
+/// once per layout pass; the dll dispatches each to the platform backend.
+pub fn drain_keyring_requests_in() -> Vec<(KeyringNamespace, KeyringRequest)> {
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
+}
+
+/// [`drain_keyring_requests_in`] without the namespaces.
+pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
+    drain_keyring_requests_in()
+        .into_iter()
+        .map(|(_, request)| request)
+        .collect()
 }
 
 /// MWA-C-biometric/keyring: see `biometric::has_queued_requests` — pump

@@ -152,14 +152,14 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     }
 
     // Keyring: same request → native backend → parked-result shape.
-    let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests();
+    let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests_in();
     if !keyring_requests.is_empty() {
         lw.keyring_manager
             .mark_requests_dispatched(keyring_requests.len() as u32);
         changed = true;
     }
-    for req in &keyring_requests {
-        crate::desktop::extra::keyring::request(req);
+    for (namespace, req) in &keyring_requests {
+        crate::desktop::extra::keyring::request(namespace, req);
     }
     // Only the answers this window waits for: another window's pass leaves them for it.
     let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);

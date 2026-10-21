@@ -6,7 +6,7 @@
 //! and answers every call `Unavailable`.
 
 #[cfg(target_arch = "wasm32")]
-use azul_core::keyring::KeyringResult;
+use azul_core::keyring::{KeyringNamespace, KeyringResult};
 #[cfg(target_arch = "wasm32")]
 use azul_css::AzString;
 
@@ -40,6 +40,23 @@ impl Keyring {
     }
     /// No keyring on wasm.
     pub fn delete_blocking(_key: AzString) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn get_blocking_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn store_blocking_in(
+        _namespace: KeyringNamespace,
+        _key: AzString,
+        _secret: AzString,
+        _require_biometry: bool,
+    ) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn delete_blocking_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
         KeyringResult::Unavailable
     }
 }

@@ -5843,36 +5843,67 @@ impl CallbackInfo {
     }
 
     /// Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /
-    /// libsecret / `CredentialLocker`). When `require_biometry` is set, a
-    /// later `keyring_get` of this key triggers the OS biometric prompt.
-    /// Returns immediately; the outcome arrives via `get_keyring_result()`
-    /// on a later frame.
+    /// libsecret / `CredentialLocker`), in the app's own namespace (its app
+    /// id). When `require_biometry` is set, a later `keyring_get` of this key
+    /// triggers the OS biometric prompt. Returns immediately; the outcome
+    /// arrives via `get_keyring_result()` on a later frame.
     ///
     /// The secret is marked as one (`AzString::set_secret`): the request, the
     /// backend's copy of it and every clone are zeroed when they are freed.
     pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
+        self.keyring_store_in(azul_core::keyring::KeyringNamespace::app(), key, secret, require_biometry);
+    }
+
+    /// [`Self::keyring_store`] in `namespace`: the entries apps share (the
+    /// Azlin apps' `io.azlin.shared`) live in the namespace they all name.
+    pub fn keyring_store_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+        secret: AzString,
+        require_biometry: bool,
+    ) {
         let mut secret = secret;
         secret.set_secret(true);
-        crate::managers::keyring::push_keyring_request(azul_core::keyring::KeyringRequest::Store {
-            key,
-            secret,
-            require_biometry,
-        });
+        crate::managers::keyring::push_keyring_request_in(
+            namespace,
+            azul_core::keyring::KeyringRequest::Store {
+                key,
+                secret,
+                require_biometry,
+            },
+        );
     }
 
-    /// Read the secret stored under `key`. A biometry-bound item shows the
-    /// OS prompt first; the secret (or a denial) arrives via
-    /// `get_keyring_result()` on a later frame.
+    /// Read the secret stored under `key` in the app's own namespace (its app
+    /// id). A biometry-bound item shows the OS prompt first; the secret (or a
+    /// denial) arrives via `get_keyring_result()` on a later frame.
     pub fn keyring_get(&mut self, key: AzString) {
-        crate::managers::keyring::push_keyring_request(azul_core::keyring::KeyringRequest::Get {
-            key,
-        });
+        self.keyring_get_in(azul_core::keyring::KeyringNamespace::app(), key);
     }
 
-    /// Remove the item stored under `key` from the OS keyring (no-op if
+    /// [`Self::keyring_get`] in `namespace`.
+    pub fn keyring_get_in(&mut self, namespace: azul_core::keyring::KeyringNamespace, key: AzString) {
+        crate::managers::keyring::push_keyring_request_in(
+            namespace,
+            azul_core::keyring::KeyringRequest::Get { key },
+        );
+    }
+
+    /// Remove the item stored under `key` in the app's own namespace (no-op if
     /// absent). The outcome arrives via `get_keyring_result()`.
     pub fn keyring_delete(&mut self, key: AzString) {
-        crate::managers::keyring::push_keyring_request(
+        self.keyring_delete_in(azul_core::keyring::KeyringNamespace::app(), key);
+    }
+
+    /// [`Self::keyring_delete`] in `namespace`.
+    pub fn keyring_delete_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+    ) {
+        crate::managers::keyring::push_keyring_request_in(
+            namespace,
             azul_core::keyring::KeyringRequest::Delete { key },
         );
     }
