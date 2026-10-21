@@ -4,7 +4,7 @@
 use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
-    AppName, AzlinError, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
+    AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, LogicalBytes, MemberId, Months, Rfc3339,
     SemVer, StoredBytes, TierId, FIXTURES,
 };
@@ -146,6 +146,27 @@ fn the_ids_and_units_read_and_write_their_fixture() {
         at: Rfc3339::parse("2026-10-21T08:00:00Z").expect("time"),
     };
     golden("ids.json", &ids);
+}
+
+#[test]
+fn every_refresh_refusal_reads_and_writes_its_fixture() {
+    let refusals = vec![
+        RefreshRefusal::Unauthorized,
+        RefreshRefusal::TokenReuse,
+        RefreshRefusal::CredentialsRevoked,
+        RefreshRefusal::LockdownPending {
+            pending_until: Some(Rfc3339::parse("2026-10-23T08:00:00Z").expect("time")),
+        },
+        RefreshRefusal::DriveBanned(BanWire {
+            ban_reason: Some("spam distribution".into()),
+            ban_until: Some(Rfc3339::parse("2026-10-22T08:00:00Z").expect("time")),
+        }),
+        RefreshRefusal::NotVerified,
+        RefreshRefusal::TryAgain,
+        RefreshRefusal::Unavailable { spent: Some(false) },
+        RefreshRefusal::Unavailable { spent: None },
+    ];
+    golden("refresh_refusals.json", &refusals);
 }
 
 #[test]

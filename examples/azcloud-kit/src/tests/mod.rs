@@ -47,6 +47,7 @@ mod sync_ondemand;
 mod sync_remote;
 mod sync_rules;
 mod sync_session;
+mod spend;
 mod sync_stream;
 mod token;
 mod usage;
@@ -149,4 +150,18 @@ pub(crate) fn header<'a>(call: &'a HttpCall, name: &str) -> Option<&'a str> {
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.as_str())
+}
+
+/// A keyring (a map) holding drive `d_1`'s session with the drive token `token`, its locks in
+/// `dir`.
+pub(crate) fn keyring_holding(dir: &azul_storage::testing::TempDir, token: &str) -> crate::SharedKeyring {
+    use azul_storage::keyring::{KeyringNamespace, KeyringStore, MemoryKeyring};
+    let keyring = Arc::new(MemoryKeyring::new());
+    let session = crate::DriveBundle::parse(&bundle("AKID1", "2026-10-09T21:15:00Z", token))
+        .unwrap()
+        .session();
+    keyring
+        .set(&azul_storage::config::keyring_key("d_1"), &session.to_keyring_secret())
+        .unwrap();
+    crate::SharedKeyring::with_lock_root(keyring, KeyringNamespace::azlin_shared(), dir.path())
 }

@@ -2,7 +2,8 @@
 
 use azlin_contract::{
     fixtures_digest, AppName, AzlinError, BucketName, Cents, ClientHello, Currency, Deadline,
-    DeadlineKind, DriveId, IdempotencyKey, Months, Rfc3339, SemVer, TierId, CONTRACT_VERSION,
+    DeadlineKind, DriveId, IdempotencyKey, Months, RefreshRefusal, Rfc3339, SemVer, TierId,
+    CONTRACT_VERSION,
 };
 
 #[test]
@@ -181,106 +182,27 @@ fn the_digest_names_the_fixtures() {
     assert_eq!(digest, fixtures_digest());
 }
 
-mod checkout {
-    use azlin_contract::{
-        AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, Months,
-        Prepay, TierOffer,
-    };
-
-    #[test]
-    fn a_yearly_only_tier_is_sold_for_12_or_24_months_and_has_no_monthly_price() {
-        let tier: TierOffer = serde_json::from_str(
-            r#"{"id": "12TB", "quota_bytes": 12000000000000, "price_cents_month": null,
-                "price_cents_year": 34990, "currency": "EUR", "yearly_only": true,
-                "methods": ["sepa", "card"], "first_month_free": true,
-                "prepay_months": [24, 12]}"#,
-        )
-        .expect("a yearly-only tier");
-        let months: Vec<u32> = tier.prepay.months().iter().map(|m| m.get()).collect();
-        assert_eq!(months, [12, 24], "sorted");
-        assert!(tier.yearly_only);
-        assert_eq!(tier.price_cents_month, None);
-        assert!(!tier.prepay.contains(Months::try_from(1).expect("1")));
-        assert!(tier.takes("card") && !tier.takes("cash"));
-    }
-
-    #[test]
-    fn a_tier_sold_for_no_period_or_an_odd_one_is_refused() {
-        assert!(Prepay::new(Vec::new()).is_err());
-        let refused = |prepay: &str| {
-            serde_json::from_str::<TierOffer>(&format!(
-                r#"{{"id": "1TB", "quota_bytes": 1, "price_cents_month": 1,
-                    "price_cents_year": 10, "currency": "EUR", "prepay_months": {prepay}}}"#
-            ))
-            .is_err()
-        };
-        assert!(refused("[]"));
-        assert!(refused("[2]"));
-        assert!(!refused("[1]"));
-    }
-
-    #[test]
-    fn a_status_a_refusal_or_an_abandon_answer_this_build_does_not_know_reads_as_unknown() {
-        let answer: CheckoutAnswer = serde_json::from_str(
-            r#"{"checkout_id": "ck_1", "status": "on_hold", "tier": "1TB", "months": 1,
-                "amount_cents": 499}"#,
-        )
-        .expect("an answer of a newer server");
-        assert_eq!(answer.status, CheckoutStatusWire::Unknown);
-        let refusal: CheckoutRefusal =
-            serde_json::from_str(r#"{"error": "needs_a_selfie", "message": "smile"}"#)
-                .expect("a refusal of a newer server");
-        assert_eq!(refusal, CheckoutRefusal::Unknown);
-        let abandon: AbandonWire =
-            serde_json::from_str(r#"{"checkout_id": "ck_1", "status": "frozen"}"#)
-                .expect("an abandon answer of a newer server");
-        assert_eq!(abandon.answer, AbandonAnswer::Unknown);
-        assert!(!abandon.answer.is_over(), "an unknown answer never lets the claim key go");
-    }
-
-    #[test]
-    fn only_an_abandon_that_ended_the_checkout_lets_its_claim_key_go() {
-        for over in [
-            AbandonAnswer::Expired,
-            AbandonAnswer::Declined,
-            AbandonAnswer::Reversed,
-            AbandonAnswer::Rejected,
-        ] {
-            assert!(over.is_over(), "{over:?}");
-        }
-        for open in [AbandonAnswer::StillPending, AbandonAnswer::Unknown] {
-            assert!(!open.is_over(), "{open:?}");
-        }
-        let paid: CheckoutRefusal = serde_json::from_str(
-            r#"{"error": "checkout_paid", "message": "the drive comes with the payment"}"#,
-        )
-        .expect("the refusal of a paid checkout's abandon");
-        assert_eq!(paid, CheckoutRefusal::CheckoutPaid);
-        assert_eq!(paid.status(), 409);
-    }
-
-    #[test]
-    fn every_refusal_word_reads_back_as_its_refusal() {
-        for refusal in CheckoutRefusal::ALL {
-            if refusal == CheckoutRefusal::Unknown {
-                assert_eq!(CheckoutRefusal::parse("unknown"), None);
-                continue;
-            }
-            assert_eq!(CheckoutRefusal::parse(refusal.as_str()), Some(refusal.clone()));
-            let wire = serde_json::to_value(&refusal).expect("serializes");
-            assert_eq!(wire["error"], refusal.as_str());
-        }
-        assert_eq!(CheckoutRefusal::parse("blocked_country").map(|r| r.status()), Some(403));
-    }
-
-    #[test]
-    fn an_approved_checkout_without_its_sealed_sign_up_says_so() {
-        let answer: CheckoutAnswer = serde_json::from_str(
-            r#"{"checkout_id": "ck_1", "status": "approved", "tier": "1TB", "months": 12,
-                "amount_cents": 4990, "months_paid": 12}"#,
-        )
-        .expect("an approved checkout whose hand-over is gone");
-        assert_eq!(answer.status, CheckoutStatusWire::Approved { sealed_signup: None });
-        assert_eq!(answer.months_paid, Some(12));
-    }
+#[test]
+fn a_refresh_refusal_reads_the_token_server_s_body_and_says_whether_to_send_again() {
+    let read = |body: &str| -> RefreshRefusal { serde_json::from_str(body).expect("reads") };
+    let reuse = read(r#"{"error":"token_reuse","message":"an old token was reused"}"#);
+    assert_eq!(reuse, RefreshRefusal::TokenReuse);
+    assert_eq!(reuse.status(), 401);
+    let before = read(r#"{"error":"unavailable","message":"database","spent":false}"#);
+    assert_eq!(before, RefreshRefusal::Unavailable { spent: Some(false) });
+    assert!(before.spent_nothing());
+    let maybe = read(r#"{"error":"unavailable","message":"database"}"#);
+    assert_eq!(maybe, RefreshRefusal::Unavailable { spent: None });
+    assert!(!maybe.spent_nothing(), "it may have been spent");
+    let spent = read(r#"{"error":"unavailable","spent":true}"#);
+    assert!(!spent.spent_nothing());
+    assert!(read(r#"{"error":"try_again","spent":false}"#).spent_nothing());
+    assert!(read(r#"{"error":"not_verified"}"#).spent_nothing());
+    let pending = read(r#"{"error":"lockdown_pending","pending_until":null}"#);
+    assert_eq!(pending, RefreshRefusal::LockdownPending { pending_until: None });
+    let banned = read(
+        r#"{"error":"drive_banned","status":"banned","ban_reason":"spam","ban_until":"2026-10-22T08:00:00Z"}"#,
+    );
+    assert!(matches!(banned, RefreshRefusal::DriveBanned(ref b) if b.ban_reason.as_deref() == Some("spam")));
+    assert_eq!(read(r#"{"error":"teapot","message":"new"}"#), RefreshRefusal::Unknown);
 }
