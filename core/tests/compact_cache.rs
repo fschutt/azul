@@ -290,9 +290,14 @@ fn test_background_color_via_class_selector() {
     let div_id = azul_core::dom::NodeId::new(2);
     let state = azul_core::styled_dom::StyledNodeState::default();
 
-    let bg = cache.get_background_content(&node_data[div_id], &div_id, &state);
-    assert!(
-        bg.is_some(),
+    let bg = cache
+        .get_background_color(&node_data[div_id], &div_id, &state)
+        .and_then(|v| v.get_property().cloned());
+    assert_eq!(
+        bg,
+        Some(azul_css::props::style::StyleBackgroundContent::Color(
+            azul_css::props::basic::color::ColorU::RED
+        )),
         "Div with class 'red' should have background-color from .red {{ background-color: #ff0000 \
          }}"
     );

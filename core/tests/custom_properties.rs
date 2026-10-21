@@ -333,9 +333,8 @@ fn a_hover_definition_recolours_a_resting_consumer_while_hovered() {
     );
 }
 
-/// The design's own example: a `background` (a shorthand key that expands to
-/// the ONE longhand `background-content`) reads a variable with a `system:`
-/// fallback.
+/// The design's own example: a `background` reads a variable with a
+/// `system:` fallback; both its longhands, the layers and the colour, read it.
 #[test]
 fn a_background_var_with_a_system_fallback_follows_the_mode() {
     let dom = Dom::create_body().with_child(inline(
@@ -345,17 +344,20 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
         "@theme(dark) { :root { --azul-button-face: #272822; } }",
         "@theme(light) { :root { --azul-button-face: #fafafa; } }",
     ]);
-    let bg = CssPropertyType::BackgroundContent;
     let mut sd = styled(dom, css, azul_css::system::DarkLightMode::Dark);
-    assert_eq!(
-        slow(&sd, 1, StyledNodeState::default(), bg),
-        parsed(bg, "#272822")
-    );
+    for bg in [CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor] {
+        assert_eq!(
+            slow(&sd, 1, StyledNodeState::default(), bg),
+            parsed(bg, "#272822")
+        );
+    }
     sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
-    assert_eq!(
-        slow(&sd, 1, StyledNodeState::default(), bg),
-        parsed(bg, "#fafafa")
-    );
+    for bg in [CssPropertyType::BackgroundContent, CssPropertyType::BackgroundColor] {
+        assert_eq!(
+            slow(&sd, 1, StyledNodeState::default(), bg),
+            parsed(bg, "#fafafa")
+        );
+    }
 
     // Undefined: the `system:` fallback, still a reference for the getters.
     let sd = styled(
@@ -365,9 +367,17 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
         Css::empty(),
         azul_css::system::DarkLightMode::Dark,
     );
+    // The fallback is a colour: the colour longhand takes it, the layers have
+    // no image.
+    let bg = CssPropertyType::BackgroundColor;
     assert_eq!(
         slow(&sd, 1, StyledNodeState::default(), bg),
         parsed(bg, "system:button-face")
+    );
+    let layers = CssPropertyType::BackgroundContent;
+    assert_eq!(
+        slow(&sd, 1, StyledNodeState::default(), layers),
+        parsed(layers, "none")
     );
 }
 
