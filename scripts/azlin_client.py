@@ -72,11 +72,14 @@ class TokenClient:
         self.url = url.rstrip('/')
         self.timeout = timeout
 
-    def call(self, method, path, body=None, bearer=None):
-        """`(status, parsed JSON or None, raw text)`; never raises for an HTTP error status."""
+    def call(self, method, path, body=None, bearer=None, headers=None):
+        """`(status, parsed JSON or None, raw text)`; never raises for an HTTP error status.
+        `headers`: more request headers (an idempotency key, the client's version)."""
         data = None if body is None else json.dumps(body).encode('utf-8')
         request = urllib.request.Request(self.url + path, data=data, method=method)
         request.add_header('Accept', 'application/json')
+        for name, value in (headers or {}).items():
+            request.add_header(name, value)
         if data is not None:
             request.add_header('Content-Type', 'application/json')
         if bearer:
