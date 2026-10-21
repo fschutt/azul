@@ -7396,10 +7396,13 @@ mod tests {
                 let node = NodeId::new(i);
                 let parent = hierarchy[node].parent_id()?;
                 let index = *lr.layout_tree.dom_to_layout.get(&parent)?.first()?;
+                // The cache entry's bounds: the sparse layout is retired once the dense text
+                // holds the clusters, and then has no items to measure.
                 let width = lr
                     .layout_tree
-                    .get_inline_layout_for_node(index.index())?
-                    .bounds()
+                    .get_cached_inline_layout_for_node(index.index())?
+                    .overflow
+                    .unclipped_bounds
                     .width;
                 return Some((*dom_id, node, width));
             }
