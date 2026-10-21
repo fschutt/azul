@@ -1,7 +1,7 @@
 //! The token server's API: tiers, a development sign-up, a checkout and its sealed sign-up, a
 //! refresh.
 
-use azul_storage::{config::DriveAuth, config::DriveLocation, HttpReply, Method};
+use azul_storage::{config::DriveAuth, config::DriveLocation, Method};
 
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
@@ -54,7 +54,8 @@ fn the_tier_ladder_reads_with_its_prices() {
 /// The ladder's rows in zloty, as GET /v1/tiers?country=PL answers for a buyer in Poland.
 const LADDER_PLN: &str = r#"{"tiers": [
     {"id": "100GB", "quota_bytes": 100000000000, "price_cents_month": 449,
-     "price_cents_year": 4490, "currency": "PLN", "first_month_free": true}],
+     "price_cents_year": 4490, "currency": "PLN", "first_month_free": true,
+     "prepay_months": [1, 3, 6, 12, 24]}],
   "methods": ["card"]}"#;
 
 #[test]
@@ -81,7 +82,8 @@ fn a_ladder_without_prices_still_reads() {
     let fake = Fake::new(|_, _| {
         Ok(json(
             200,
-            r#"{"tiers": [{"id": "100GB", "quota_bytes": 100000000000}]}"#,
+            r#"{"tiers": [{"id": "100GB", "quota_bytes": 100000000000, "currency": "EUR",
+                           "prepay_months": [1, 12]}]}"#,
         ))
     });
     let transport = Shared(fake);
@@ -271,7 +273,7 @@ fn an_approved_checkout_whose_signup_is_not_sealed_to_its_claim_key_is_refused()
     let signup = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa");
     let answers = vec![
         // A token server without claims: the plaintext sign-up, readable by anyone who knows
-        // the checkout id - not taken.
+        // the checkout id - not taken: for this app the drive's hand-over is not there.
         format!(r#"{{"checkout_id": "ck_1", "status": "approved", "signup": {signup}}}"#),
         // Sealed to another checkout's key.
         format!(
@@ -292,14 +294,60 @@ fn an_approved_checkout_whose_signup_is_not_sealed_to_its_claim_key_is_refused()
     let fake = Fake::new(move |_, n| Ok(json(200, &answers[n.min(answers.len() - 1)])));
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    for case in 0..4 {
+    assert_eq!(
+        server.checkout_status("ck_1", &claim).unwrap(),
+        CheckoutStatus::HandoverGone
+    );
+    for case in 1..4 {
         assert!(
             matches!(
                 server.checkout_status("ck_1", &claim),
-                Err(TokenError::Protocol(_))
+                Ok(CheckoutStatus::Unopenable(_))
             ),
             "answer {case}"
         );
+    }
+}
+
+#[test]
+fn a_yearly_only_tier_is_read_with_its_periods_and_methods_and_without_a_monthly_price() {
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            200,
+            r#"{"tiers": [{"id": "12TB", "quota_bytes": 12000000000000,
+                           "price_cents_month": null, "price_cents_year": 34990,
+                           "currency": "EUR", "yearly_only": true, "methods": ["sepa", "card"],
+                           "first_month_free": true, "prepay_months": [12, 24]}],
+                "methods": ["sepa", "card", "cash"]}"#,
+        ))
+    });
+    let transport = Shared(fake);
+    let tiers = TokenServer::new(TOKEN, &transport).unwrap().tiers().unwrap();
+    let tier = &tiers.tiers[0];
+    assert!(tier.yearly_only);
+    let months: Vec<u32> = tier.prepay.months().iter().map(|m| m.get()).collect();
+    assert_eq!(months, [12, 24]);
+    assert!(!tier.sells_monthly() && tier.sells_yearly());
+    assert!(!tier.sells_months(1) && tier.sells_months(24));
+    assert_eq!(tier.price_text(false), None, "no monthly price to show");
+    assert!(tier.takes("card") && !tier.takes("cash"), "cash is the server's, not this tier's");
+}
+
+#[test]
+fn a_tier_list_that_is_not_the_contract_s_is_refused() {
+    for answer in [
+        // No periods: nothing could be ordered.
+        r#"{"tiers": [{"id": "1TB", "quota_bytes": 1000000000000, "currency": "EUR",
+                       "prepay_months": []}]}"#,
+        // No size.
+        r#"{"tiers": [{"id": "1TB", "quota_bytes": 0, "currency": "EUR",
+                       "prepay_months": [1]}]}"#,
+        r#"{"no": "tiers"}"#,
+    ] {
+        let fake = Fake::new(move |_, _| Ok(json(200, answer)));
+        let transport = Shared(fake);
+        let read = TokenServer::new(TOKEN, &transport).unwrap().tiers();
+        assert!(matches!(read, Err(TokenError::Protocol(_))), "{answer}: {read:?}");
     }
 }
 
@@ -685,18 +733,17 @@ fn the_same_checkout_moves_to_another_surface_and_is_abandoned() {
                     "url": "https://checkout.stripe.com/c/pay/cs_test_1"}}"#,
             )
         } else {
-            HttpReply {
-                status: 204,
-                headers: Vec::new(),
-                body: Vec::new(),
-            }
+            json(200, r#"{"checkout_id": "ck_9", "status": "expired"}"#)
         })
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let answer = server.checkout_surface("ck_9", "browser").unwrap();
     assert_eq!(answer["surface"]["kind"], "browser");
-    server.abandon_checkout("ck_9").unwrap();
+    assert_eq!(
+        server.abandon_checkout("ck_9").unwrap(),
+        azlin_contract::AbandonAnswer::Expired
+    );
     let calls = fake.calls();
     assert_eq!(calls[0].method, Method::Post);
     assert_eq!(calls[0].url, format!("{TOKEN}/v1/checkout/ck_9/surface"));

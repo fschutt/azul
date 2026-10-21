@@ -8,6 +8,11 @@ use azlin_contract::{
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, LogicalBytes, MemberId, Months, Rfc3339,
     SemVer, StoredBytes, TierId, FIXTURES,
 };
+use azlin_contract::{
+    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
+    LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange, Settles,
+    TierClosed, TierOffer, TierPriceWire, TiersAnswer,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -160,4 +165,215 @@ fn the_fixture_folder_holds_exactly_the_listed_fixtures_as_built() {
         let disk = std::fs::read_to_string(fixtures_dir().join(name)).expect("reads");
         assert_eq!(&disk, built, "{name} changed since the crate was built");
     }
+}
+
+fn months(list: &[u32]) -> Vec<Months> {
+    list.iter().map(|m| Months::try_from(*m).expect("months")).collect()
+}
+
+fn eur() -> Currency {
+    Currency::parse("EUR").expect("eur")
+}
+
+/// A tier as `GET /v1/tiers` sends it, priced in euros.
+fn tier(id: &str, quota: u64, month: Option<u64>, year: u64) -> TierOffer {
+    let mut prices = std::collections::BTreeMap::new();
+    prices.insert(
+        eur(),
+        TierPriceWire {
+            month_cents: month.unwrap_or(0),
+            year_cents: year,
+        },
+    );
+    TierOffer {
+        id: TierId::parse(id).expect("tier"),
+        quota: StoredBytes(quota),
+        price_cents_month: month,
+        price_cents_year: Some(year),
+        currency: eur(),
+        prices,
+        yearly_only: month.is_none(),
+        methods: Vec::new(),
+        first_month_free: true,
+        prepay: Prepay::new(if month.is_none() {
+            months(&[12, 24])
+        } else {
+            months(&[1, 3, 6, 12, 24])
+        })
+        .expect("prepay"),
+        closed: None,
+        waitlist: false,
+        reason: None,
+    }
+}
+
+#[test]
+fn the_tier_list_reads_and_writes_its_fixture() {
+    let monthly = tier("100GB", 100_000_000_000, Some(99), 990);
+    let yearly = TierOffer {
+        methods: vec![String::from("sepa"), String::from("card")],
+        ..tier("12TB", 12_000_000_000_000, None, 34_990)
+    };
+    let closed = TierOffer {
+        closed: Some(TierClosed::CapacityFull),
+        waitlist: true,
+        reason: Some(String::from("temporarily_unavailable")),
+        ..tier("1TB", 1_000_000_000_000, Some(499), 4990)
+    };
+    let mut moves = std::collections::BTreeMap::new();
+    moves.insert(TierId::parse("100GB").expect("tier"), None);
+    let answer = TiersAnswer {
+        tiers: vec![monthly, yearly],
+        unavailable: vec![closed],
+        unavailable_reason: None,
+        methods: vec![String::from("sepa"), String::from("card"), String::from("cash")],
+        retention_addons: vec![RetentionAddon {
+            id: String::from("90d"),
+            days: 90,
+            cents_per_tb_month: 99,
+        }],
+        legal: Legal {
+            withdrawal_consent: Some(String::from("I agree that the service starts at once.")),
+            sepa_prenotification: None,
+            small_amount_invoice: true,
+        },
+        scheduled_changes: vec![ScheduledChange {
+            id: 2,
+            from_version: 3,
+            to_version: 4,
+            announced_at: Rfc3339::parse("2026-10-01T00:00:00Z").expect("time"),
+            effective_at: Rfc3339::parse("2026-12-01T00:00:00Z").expect("time"),
+            prices: moves,
+            note: String::from("the 100GB tier ends"),
+        }],
+        ladder: Some(LadderRef {
+            version: 3,
+            currency: eur(),
+            active_from: Some(Rfc3339::parse("2026-09-01T00:00:00Z").expect("time")),
+        }),
+    };
+    golden("tiers_answer.json", &answer);
+}
+
+#[test]
+fn every_checkout_status_reads_and_writes_its_fixture() {
+    let id = || CheckoutId::parse("ck_4n2v8r6tqe").expect("checkout");
+    let answer = |status: CheckoutStatusWire| CheckoutAnswer {
+        checkout_id: id(),
+        status,
+        tier: String::from("100GB"),
+        months: 12,
+        amount_cents: 990,
+        expires_at: None,
+        provider: None,
+        settles: None,
+        months_paid: None,
+        recurring: None,
+        receipt: None,
+    };
+    let decline = DeclineWire {
+        reason: Some(String::from("insufficient_funds")),
+        code: Some(String::from("card_declined")),
+        text: Some(String::from("Your card has insufficient funds.")),
+    };
+    let answers = vec![
+        CheckoutAnswer {
+            provider: Some(String::from("stripe")),
+            settles: Some(Settles::Instant),
+            months_paid: Some(0),
+            recurring: Some(false),
+            ..answer(CheckoutStatusWire::Pending {
+                decline: Some(decline.clone()),
+            })
+        },
+        CheckoutAnswer {
+            expires_at: Some(Rfc3339::parse("2026-12-20T08:00:00Z").expect("time")),
+            ..answer(CheckoutStatusWire::AwaitingCash {
+                activation_code: Some(String::from("AZC1-TEST-CODE")),
+                mail_to: Some(MailTo {
+                    name: String::from("Azlin"),
+                    lines: vec![String::from("Postfach 1"), String::from("10115 Berlin")],
+                }),
+            })
+        },
+        CheckoutAnswer {
+            provider: Some(String::from("gocardless")),
+            settles: Some(Settles::Days),
+            months_paid: Some(12),
+            recurring: Some(false),
+            receipt: Some(ReceiptWire {
+                issue_day: String::from("2026-10-21"),
+                service: String::from("Azlin Storage 100GB, 12 months"),
+                gross_cents: 990,
+                currency: eur(),
+                rate_permille: 190,
+                country: String::from("DE"),
+                scheme: String::from("oss"),
+                checkout_id: id(),
+                kind: String::from("small_amount_invoice"),
+            }),
+            ..answer(CheckoutStatusWire::Approved {
+                sealed_signup: Some(String::from("c2VhbGVk")),
+            })
+        },
+        answer(CheckoutStatusWire::Approved {
+            sealed_signup: None,
+        }),
+        answer(CheckoutStatusWire::Declined {
+            decline: Some(decline),
+            reason: None,
+        }),
+        answer(CheckoutStatusWire::Reversed { reason: None }),
+        answer(CheckoutStatusWire::Rejected {
+            reason: Some(String::from("the envelope held EUR 5.00, not EUR 9.90")),
+        }),
+        answer(CheckoutStatusWire::Expired { reason: None }),
+    ];
+    golden("checkout_answers.json", &answers);
+}
+
+#[test]
+fn every_abandon_answer_reads_and_writes_its_fixture() {
+    let answers: Vec<AbandonWire> = [
+        AbandonAnswer::Expired,
+        AbandonAnswer::StillPending,
+        AbandonAnswer::Declined,
+        AbandonAnswer::Reversed,
+        AbandonAnswer::Rejected,
+    ]
+    .into_iter()
+    .map(|answer| AbandonWire {
+        checkout_id: CheckoutId::parse("ck_4n2v8r6tqe").expect("checkout"),
+        answer,
+    })
+    .collect();
+    golden("abandon_answers.json", &answers);
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct RefusalRow {
+    #[serde(flatten)]
+    refusal: CheckoutRefusal,
+    status: u16,
+}
+
+#[test]
+fn every_checkout_refusal_reads_and_writes_its_fixture() {
+    let rows: Vec<RefusalRow> = CheckoutRefusal::ALL
+        .into_iter()
+        .map(|refusal| match refusal {
+            CheckoutRefusal::BadMonths { .. } => CheckoutRefusal::BadMonths {
+                allowed: months(&[12, 24]),
+            },
+            CheckoutRefusal::TierUnavailable { .. } => {
+                CheckoutRefusal::TierUnavailable { waitlist: true }
+            }
+            other => other,
+        })
+        .map(|refusal| RefusalRow {
+            status: refusal.status(),
+            refusal,
+        })
+        .collect();
+    golden("checkout_refusals.json", &rows);
 }

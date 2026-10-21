@@ -20,6 +20,12 @@ fn tier() -> Tier {
         price_cents_year: Some(4990),
         currency: String::from("EUR"),
         first_month_free: false,
+        yearly_only: false,
+        prepay: azcloud_kit::azlin_contract::Prepay::new(
+            azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+        )
+        .expect("every period"),
+        methods: Vec::new(),
     }
 }
 
@@ -57,6 +63,9 @@ fn notices() -> Vec<Notice> {
         Notice::NoBrowserSurface,
         Notice::SurfaceRefused(String::from("no surface")),
         Notice::WaitingForLetter,
+        Notice::CheckingEarlierOrder,
+        Notice::EarlierOrderPaid,
+        Notice::EarlierOrderOpen,
         Notice::IdentityIncomplete(vec![
             azul_pay::PayerField::Name,
             azul_pay::PayerField::Email,

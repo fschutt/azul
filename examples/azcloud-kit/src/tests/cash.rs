@@ -11,7 +11,7 @@ use crate::{
     cash::{ActivationCode, ClaimCode, ACTIVATION_PREFIX, CLAIM_CODE_PREFIX},
     claim::seal,
     lock::LockDir,
-    pending::{self, CashKept, PendingCheckout, Polled},
+    pending::{self, Final, CashKept, PendingCheckout, Polled},
     shared::SharedKeyring,
     token::{CheckoutStatus, Tiers, TokenServer},
     ClaimKey,
@@ -236,7 +236,9 @@ fn a_picked_up_checkout_learns_its_tier_from_the_sealed_sign_up() {
     }));
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     match pending::poll(&server, &shared, &kept) {
-        Polled::Claimed(claimed) => assert_eq!(claimed.bundle.tier.as_deref(), Some("100GB")),
+        Polled::Final(Final::Claimed(claimed)) => {
+            assert_eq!(claimed.bundle.tier.as_deref(), Some("100GB"));
+        }
         other => panic!("not claimed: {other:?}"),
     }
     let listed = pending::list(&shared).unwrap();
@@ -251,7 +253,8 @@ fn the_tier_list_says_whether_the_token_server_takes_cash_by_post() {
     let ladder = |methods: &str| {
         Tiers::parse(&format!(
             r#"{{"tiers": [{{"id": "100GB", "quota_bytes": 100000000000,
-                 "price_cents_month": 99, "price_cents_year": 990, "currency": "EUR"}}],
+                 "price_cents_month": 99, "price_cents_year": 990, "currency": "EUR",
+                 "prepay_months": [1, 12]}}],
                 "methods": {methods}}}"#
         ))
         .unwrap()

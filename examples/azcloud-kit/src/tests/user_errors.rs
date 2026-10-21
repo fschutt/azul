@@ -457,3 +457,40 @@ fn a_client_too_old_for_the_service_is_asked_to_update() {
         Some(Code::UpdateApp)
     );
 }
+
+#[test]
+fn a_refused_order_is_said_in_the_buyers_language_never_as_the_servers_sentence() {
+    let refused = |status: u16, code: &str| {
+        UserError::from_token_error(&TokenError::Refused {
+            status,
+            code: code.to_string(),
+            message: String::from("Azlin Storage is not sold to XX yet"),
+        })
+        .unwrap()
+    };
+    let blocked = refused(403, "blocked_country");
+    assert_eq!(blocked.code, Code::BlockedCountry);
+    assert_eq!(blocked.class(), Class::Fatal, "asking again does not help");
+    for lang in Lang::ALL {
+        let text = blocked.message(lang);
+        assert!(!text.contains("XX") && !text.contains("HTTP"), "{lang:?}: {text}");
+    }
+    assert!(blocked.message(Lang::De).contains("Land"));
+    for (status, code, expected) in [
+        (400, "bad_months", Code::BadMonths),
+        (400, "bad_method", Code::BadMethod),
+        (409, "tier_unavailable", Code::TierUnavailable),
+        (409, "tier_ended", Code::TierUnavailable),
+        (400, "payer_required", Code::PayerRequired),
+        (409, "checkout_paid", Code::CheckoutPaid),
+        (502, "provider_unavailable", Code::Unavailable),
+    ] {
+        assert_eq!(refused(status, code).code, expected, "{code}");
+    }
+    // Every refusal of the contract has its row (the match in user_errors does not compile
+    // without one); the ones no buyer can act on say what went wrong.
+    for refusal in azlin_contract::CheckoutRefusal::ALL {
+        let code = Code::from(&refusal);
+        assert_eq!(code.row().code, code, "{refusal:?}");
+    }
+}

@@ -8,7 +8,7 @@ use super::fixtures::{
 use crate::{
     identity::Payer,
     bridge::CardBrand,
-    machine::{step, ChipPage, Effect, Event, Notice, State, WaitReason},
+    machine::{step, AbandonOutcome, ChipPage, Effect, Event, Notice, State, WaitReason},
     registry::{Method, SurfaceKind},
     surface::Surface,
 };
@@ -645,7 +645,7 @@ fn closing_while_confirming_keeps_the_claim() {
     let (state, effects) = step(confirming, Event::Close);
     assert_eq!(
         state,
-        State::Stopped {
+        State::InFlight {
             checkout_id: "ck_card".to_string()
         }
     );
@@ -659,7 +659,7 @@ fn stop_waiting_keeps_the_claim_and_check_again_waits_again() {
     let (stopped, effects) = step(waiting, Event::StopWaiting);
     assert_eq!(
         stopped,
-        State::Stopped {
+        State::InFlight {
             checkout_id: "ck_card".to_string()
         }
     );
@@ -676,6 +676,105 @@ fn stop_waiting_keeps_the_claim_and_check_again_waits_again() {
     );
 }
 
+/// The checkout `ck_card` in flight: the popover closed while its payment was confirmed.
+fn in_flight() -> State {
+    let (confirming, _) = step(
+        complete_card(),
+        Event::Confirm {
+            name: "F".to_string(),
+        },
+    );
+    let (state, _) = step(confirming, Event::Close);
+    assert_eq!(state.name(), "in-flight");
+    state
+}
+
+fn pay_again() -> Event {
+    Event::Pay {
+        choice: choice(Method::Card),
+        consent: true,
+        payer: Payer::default(),
+    }
+}
+
+fn abandoned(checkout_id: &str, outcome: AbandonOutcome) -> Event {
+    Event::Abandoned {
+        checkout_id: checkout_id.to_string(),
+        outcome,
+    }
+}
+
+#[test]
+fn pay_while_a_checkout_is_in_flight_ends_that_one_first_and_never_orders_a_second() {
+    let (releasing, effects) = step(in_flight(), pay_again());
+    assert_eq!(
+        releasing,
+        State::Releasing {
+            checkout_id: "ck_card".to_string()
+        }
+    );
+    assert!(releasing.busy(), "no second order while it is asked");
+    assert!(
+        !effects.iter().any(|e| matches!(e, Effect::CreateCheckout { .. })),
+        "{effects:?}"
+    );
+    assert!(effects.contains(&Effect::Abandon {
+        checkout_id: "ck_card".to_string()
+    }));
+    assert!(notices(&effects).contains(&&Notice::CheckingEarlierOrder));
+    // Pressed again meanwhile: still nothing ordered.
+    let (still, effects) = step(releasing, pay_again());
+    assert_eq!(still.name(), "releasing");
+    assert!(effects.is_empty(), "{effects:?}");
+}
+
+#[test]
+fn only_the_end_of_the_checkout_in_flight_lets_the_new_order_go_on() {
+    let (releasing, _) = step(in_flight(), pay_again());
+    // Another checkout's abandon is no answer to this one.
+    let (same, effects) = step(releasing.clone(), abandoned("ck_other", AbandonOutcome::Ended));
+    assert_eq!(same, releasing);
+    assert!(effects.is_empty());
+    // Ended: the order the buyer asked for goes on, and only now makes a checkout.
+    let (choosing, effects) = step(releasing.clone(), abandoned("ck_card", AbandonOutcome::Ended));
+    assert_eq!(choosing, State::Choosing);
+    assert_eq!(effects, vec![Effect::OrderAgain]);
+    let (preparing, effects) = step(choosing, pay_again());
+    assert_eq!(preparing.name(), "preparing");
+    assert!(matches!(effects.as_slice(), [Effect::CreateCheckout { .. }]));
+    // Paid meanwhile: its drive is waited for, no new order.
+    let (waiting, effects) = step(releasing.clone(), abandoned("ck_card", AbandonOutcome::Paid));
+    assert_eq!(waiting.name(), "waiting");
+    assert_eq!(waiting.checkout_id(), Some("ck_card"));
+    assert!(effects.contains(&Effect::StartPoll {
+        checkout_id: "ck_card".to_string()
+    }));
+    assert!(notices(&effects).contains(&&Notice::EarlierOrderPaid));
+    // Not ended (no answer, the provider did not answer): still in flight.
+    let (kept, effects) = step(releasing, abandoned("ck_card", AbandonOutcome::Open));
+    assert_eq!(
+        kept,
+        State::InFlight {
+            checkout_id: "ck_card".to_string()
+        }
+    );
+    assert!(notices(&effects).contains(&&Notice::EarlierOrderOpen));
+}
+
+#[test]
+fn closing_the_dialog_keeps_a_checkout_in_flight() {
+    let (closed, effects) = step(in_flight(), Event::Close);
+    assert_eq!(closed.name(), "in-flight");
+    assert!(effects.is_empty());
+    let (releasing, _) = step(in_flight(), pay_again());
+    let (closed, _) = step(releasing, Event::Close);
+    assert_eq!(closed.name(), "in-flight", "the abandon's answer still comes");
+    // A declined (or gone) checkout is over: a new order may follow at once.
+    let (declined, _) = step(in_flight(), Event::Declined("gone".to_string()));
+    let (preparing, _) = step(declined, pay_again());
+    assert_eq!(preparing.name(), "preparing");
+}
+
 #[test]
 fn approved_is_done_and_declined_says_why() {
     let (waiting, _) = step(complete_card(), nav("https://pay.azlin.io/return/ok"));
@@ -690,7 +789,7 @@ fn approved_is_done_and_declined_says_why() {
     assert_eq!(declined.name(), "declined");
     assert!(notices(&effects).contains(&&Notice::Declined("card_declined".to_string())));
     let (stopped, _) = step(
-        State::Stopped {
+        State::InFlight {
             checkout_id: "ck_x".to_string(),
         },
         Event::Approved,
@@ -750,7 +849,7 @@ fn a_method_that_settles_in_days_says_so_while_waiting() {
     assert_eq!(state.name(), "waiting");
     assert!(notices(&effects).contains(&&Notice::SettlesInDays));
     let (stopped, effects) = step(state, Event::PendingForDays);
-    assert_eq!(stopped.name(), "stopped");
+    assert_eq!(stopped.name(), "in-flight");
     assert!(effects.contains(&Effect::StopPoll));
 }
 
@@ -758,7 +857,7 @@ fn a_method_that_settles_in_days_says_so_while_waiting() {
 fn a_navigation_where_no_page_should_be_is_cancelled() {
     for state in [
         State::Choosing,
-        State::Stopped {
+        State::InFlight {
             checkout_id: "ck".to_string(),
         },
     ] {

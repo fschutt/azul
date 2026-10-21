@@ -24,6 +24,12 @@ fn tiers() -> Tiers {
         price_cents_year: Some(year),
         currency: "EUR".to_string(),
         first_month_free: true,
+        yearly_only: false,
+        prepay: azcloud_kit::azlin_contract::Prepay::new(
+            azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+        )
+        .expect("every period"),
+        methods: Vec::new(),
     };
     Tiers {
         tiers: vec![tier("100GB", 100, 99, 990), tier("1TB", 1000, 499, 4990)],
@@ -752,4 +758,81 @@ fn a_default_build_of_azdrive_encrypts_its_azlin_drives() {
         cfg!(feature = "encryption"),
         "AzDrive's default features take `encryption`"
     );
+}
+
+/// A tier sold only by the year (12 or 24 months), with a direct debit and a card only.
+fn yearly_only_tiers() -> Tiers {
+    let yearly = Tier {
+        id: String::from("12TB"),
+        quota_bytes: 12_000_000_000_000,
+        price_cents_month: None,
+        price_cents_year: Some(34_990),
+        currency: String::from("EUR"),
+        first_month_free: true,
+        yearly_only: true,
+        prepay: azcloud_kit::azlin_contract::Prepay::new(vec![
+            azcloud_kit::azlin_contract::Months::try_from(12).expect("12"),
+            azcloud_kit::azlin_contract::Months::try_from(24).expect("24"),
+        ])
+        .expect("a year or two"),
+        methods: vec![String::from("sepa"), String::from("card")],
+    };
+    let mut both = tiers();
+    both.tiers.push(yearly);
+    both.methods.push(String::from("cash"));
+    both
+}
+
+#[test]
+fn a_tier_sold_only_by_the_year_is_offered_and_ordered_by_the_year_only() {
+    crate::l10n::in_english();
+    let mut dialog = AddDialog::new(1);
+    dialog.country = String::from("DE");
+    dialog.choose_buy();
+    dialog.tiers = TiersState::Loaded(yearly_only_tiers());
+    dialog.tier = 2;
+    // "Pay yearly" is off, as it starts: the tier is still ordered for a year.
+    assert!(!dialog.yearly);
+    assert_eq!(dialog.periods(), crate::add_drive::Periods::YearOnly);
+    assert_eq!(dialog.months(), 12, "never a month the token server refuses");
+    assert_eq!(dialog.buy_label(), "Buy 12 TB - EUR 349.90 a year");
+    // A tier sold both ways keeps the switch.
+    dialog.tier = 0;
+    assert_eq!(dialog.periods(), crate::add_drive::Periods::MonthOrYear);
+    assert_eq!(dialog.months(), 1);
+}
+
+#[test]
+fn cash_by_post_is_offered_only_for_a_tier_sold_with_it() {
+    crate::l10n::in_english();
+    let mut dialog = AddDialog::new(1);
+    dialog.country = String::from("DE");
+    dialog.choose_buy();
+    dialog.tiers = TiersState::Loaded(yearly_only_tiers());
+    dialog.tier = 0;
+    assert!(dialog.cash_choice().is_some(), "every method: cash too");
+    dialog.tier = 2;
+    assert!(dialog.cash_choice().is_none(), "this tier is sold by debit or card only");
+    let tier = dialog.chosen_tier().expect("the tier");
+    assert_eq!(tier.v1_method(), "sepa");
+}
+
+#[test]
+fn a_country_azlin_does_not_sell_to_is_said_in_the_windows_words_and_not_offered_again() {
+    crate::l10n::in_english();
+    let refused = azcloud_kit::TokenError::Refused {
+        status: 403,
+        code: String::from("blocked_country"),
+        message: String::from("Azlin Storage is not sold to XX yet"),
+    };
+    let said = crate::jobs::buyer_refused(&refused).expect("a refusal of this buyer");
+    let text = azul_appkit::l10n::t_text(&said);
+    assert!(text.contains("not sold in your country"), "{text}");
+    assert!(!text.contains("XX") && !text.contains("HTTP"), "never the server's sentence: {text}");
+    let busy = azcloud_kit::TokenError::Refused {
+        status: 503,
+        code: String::from("no_price_ladder"),
+        message: String::new(),
+    };
+    assert!(crate::jobs::buyer_refused(&busy).is_none(), "asked again with Try again");
 }

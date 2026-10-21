@@ -1662,6 +1662,12 @@ mod tests {
             price_cents_year: Some(990),
             currency: "EUR".to_string(),
             first_month_free: true,
+            yearly_only: false,
+            prepay: azcloud_kit::azlin_contract::Prepay::new(
+                azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+            )
+            .expect("every period"),
+            methods: Vec::new(),
         };
         let mut d = AddDialog::new(1);
         assert!(d.set_country("DE"));
@@ -1720,6 +1726,12 @@ mod tests {
             price_cents_year: Some(4490),
             currency: "PLN".to_string(),
             first_month_free: true,
+            yearly_only: false,
+            prepay: azcloud_kit::azlin_contract::Prepay::new(
+                azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+            )
+            .expect("every period"),
+            methods: Vec::new(),
         };
         let mut d = AddDialog::new(1);
         assert!(d.set_country("PL"));
@@ -1761,6 +1773,58 @@ mod tests {
             texts_of(paypal),
             vec!["PayPal", "Opens PayPal's website", "via Stripe"]
         );
+    }
+
+    /// Buy storage with a tier sold only by the year chosen: its tile and Buy say the year's
+    /// price, and there is no "Pay yearly" switch to turn off.
+    #[test]
+    fn a_tier_sold_only_by_the_year_shows_the_years_price_and_no_switch() {
+        crate::l10n::in_english();
+        let mut d = AddDialog::new(1);
+        assert!(d.set_country("DE"));
+        d.choose_buy();
+        d.tiers = TiersState::Loaded(Tiers {
+            tiers: vec![Tier {
+                id: String::from("12TB"),
+                quota_bytes: 12_000_000_000_000,
+                price_cents_month: None,
+                price_cents_year: Some(34_990),
+                currency: String::from("EUR"),
+                first_month_free: true,
+                yearly_only: true,
+                prepay: azcloud_kit::azlin_contract::Prepay::new(vec![
+                    azcloud_kit::azlin_contract::Months::try_from(12).expect("12"),
+                ])
+                .expect("a year"),
+                methods: Vec::new(),
+            }],
+            methods: vec!["sepa".to_string()],
+            withdrawal_consent: None,
+        });
+        let page = dialog(&d, false, &SignInSettings::default(), &RefAny::new(())).1;
+        let texts = texts_of(&page);
+        assert!(texts.iter().any(|t| t == "EUR 349.90 a year"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("a month")), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Sold by the year only."), "{texts:?}");
+        assert!(with_id(&page, &ids::ADD_YEARLY).is_none(), "no switch to a month");
+    }
+
+    /// A buyer in a country Azlin does not sell to: the refusal in the window's words, and no
+    /// "Try again" (asking again does not change it).
+    #[test]
+    fn a_refused_country_shows_the_refusal_and_offers_no_try_again() {
+        crate::l10n::in_english();
+        let mut d = AddDialog::new(1);
+        assert!(d.set_country("DE"));
+        d.choose_buy();
+        d.tiers = TiersState::Refused(String::from(
+            "Azlin Storage is not sold in your country yet. Nothing was charged.",
+        ));
+        let page = dialog(&d, false, &SignInSettings::default(), &RefAny::new(())).1;
+        assert!(texts_of(&page)
+            .iter()
+            .any(|t| t.starts_with("Azlin Storage is not sold in your country")));
+        assert!(with_id(&page, &ids::ADD_RETRY).is_none(), "nothing to try again");
     }
 
     /// The dialog kit's sizes (azul's wizard pages, settings rows and standard dialogs): text and

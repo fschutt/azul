@@ -17,7 +17,7 @@ use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
     lock::LockDir,
-    pending::{self, PendingCheckout, Polled},
+    pending::{self, Final, PendingCheckout, Polled},
     shared::SharedKeyring,
     AzlinSession, ClaimCode, ClaimKey, DriveBundle, TokenServer,
 };
@@ -105,7 +105,7 @@ fn a_drive_picked_up_by_its_claim_code_claims_a_token_family_of_its_own_once() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     match pending::poll(&server, &shared, &kept) {
-        Polled::Claimed(claimed) => {
+        Polled::Final(Final::Claimed(claimed)) => {
             assert!(!claimed.already);
             assert_eq!(claimed.bundle.drive_token, "dt_g.0.own", "its own family's token");
         }
@@ -120,7 +120,7 @@ fn a_drive_picked_up_by_its_claim_code_claims_a_token_family_of_its_own_once() {
     }
     // The next poll (another window, the next start) claims nothing more: the keyring has it.
     match pending::poll(&server, &shared, &kept) {
-        Polled::Claimed(claimed) => assert!(claimed.already),
+        Polled::Final(Final::Claimed(claimed)) => assert!(claimed.already),
         other => panic!("not claimed: {other:?}"),
     }
     assert_eq!(claims.lock().unwrap().len(), 1, "one family per computer");
@@ -145,7 +145,7 @@ fn a_drive_from_before_the_tickets_keeps_the_sealed_drive_token() {
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
         pending::poll(&server, &shared, &kept),
-        Polled::Claimed(_)
+        Polled::Final(Final::Claimed(_))
     ));
     assert_eq!(token_kept(&keyring), "dt_f.0.aaa");
 }
@@ -176,7 +176,7 @@ fn a_drive_picked_up_as_often_as_it_may_be_is_not_picked_up_again() {
         let transport = Shared(fake);
         let server = TokenServer::new(TOKEN, &transport).unwrap();
         match pending::poll(&server, &shared, &kept) {
-            Polled::Dropped(why) => assert!(why.contains("picked up"), "{why}"),
+            Polled::Final(Final::Gone(why)) => assert!(why.contains("picked up"), "{why}"),
             other => panic!("HTTP {status}: {other:?}"),
         }
         assert!(pending::list(&shared).unwrap().is_empty(), "off the list");
@@ -203,7 +203,7 @@ fn the_buyers_own_checkout_claims_no_family_it_has_the_first() {
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
         pending::poll(&server, &shared, &kept),
-        Polled::Claimed(_)
+        Polled::Final(Final::Claimed(_))
     ));
     assert!(claims.lock().unwrap().is_empty());
     assert_eq!(token_kept(&keyring), "dt_f.0.aaa", "the sealed sign-up's first token");

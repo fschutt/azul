@@ -2198,7 +2198,7 @@ def run(args, logs):
                if c.get("claim_key") == stack.token.state.checkouts[failing]["claim_key"]) != 1:
             raise Failure("a fallback made a second checkout")
         dialog.win.until("Stop waiting", lambda: dialog.win.has(add_id("stop")))
-        app.after("stopped", "AZDRIVE_PAY", r"stopped", lambda: dialog.click("stop"))
+        app.after("in flight", "AZDRIVE_PAY", r"in-flight", lambda: dialog.click("stop"))
         dialog.win.until("Check again", lambda: dialog.win.has(add_id("check_again")))
         if failing not in pending_checkouts(keyring_file):
             raise Failure("Stop waiting dropped the claim")

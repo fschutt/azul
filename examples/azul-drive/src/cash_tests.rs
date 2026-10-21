@@ -79,6 +79,12 @@ fn cash_by_post_is_a_pill_of_buy_storage_when_the_token_server_offers_it() {
             price_cents_year: Some(990),
             currency: String::from("EUR"),
             first_month_free: true,
+            yearly_only: false,
+            prepay: azcloud_kit::azlin_contract::Prepay::new(
+                azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+            )
+            .expect("every period"),
+            methods: Vec::new(),
         }],
         methods: Vec::new(),
         withdrawal_consent: None,
@@ -245,6 +251,12 @@ fn a_token_server_whose_tiers_list_cash_offers_cash_by_post_without_payment_opti
             price_cents_year: Some(990),
             currency: String::from("EUR"),
             first_month_free: true,
+            yearly_only: false,
+            prepay: azcloud_kit::azlin_contract::Prepay::new(
+                azcloud_kit::azlin_contract::Months::ALL.to_vec(),
+            )
+            .expect("every period"),
+            methods: Vec::new(),
         }],
         methods: methods.iter().map(|m| (*m).to_string()).collect(),
         withdrawal_consent: None,

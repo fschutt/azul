@@ -19,7 +19,7 @@ use crate::{
     bundle::PeriodTokens,
     claim::seal,
     lock::LockDir,
-    pending::{self, Finished, PendingCheckout, Polled},
+    pending::{self, Abandoned, Final, Finished, PendingCheckout, Polled, Settled, Transient},
     period::{Issuer, PeriodTokenStore},
     shared::SharedKeyring,
     AzlinSession, ClaimKey, TokenServer,
@@ -44,6 +44,8 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         method: String::new(),
         cash: None,
         picked_up: false,
+        in_flight_since: None,
+        open_failures: 0,
     }
 }
 
@@ -99,8 +101,9 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
     assert_eq!(pending::list(&shared).unwrap().len(), 8, "none lost");
     let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
     assert!(text.contains("ck_0_3") && text.contains("ck_1_0"));
-    assert!(pending::remove(&shared, "ck_0_3").unwrap());
-    assert!(!pending::remove(&shared, "ck_0_3").unwrap(), "removed once");
+    let ended = || Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+    assert!(pending::settle(&shared, "ck_0_3", ended()).unwrap());
+    assert!(!pending::settle(&shared, "ck_0_3", ended()).unwrap(), "removed once");
     assert_eq!(pending::list(&shared).unwrap().len(), 7);
     // One entry per checkout: adding one again replaces it.
     let claim = ClaimKey::generate().unwrap();
@@ -142,7 +145,8 @@ fn the_unfinished_checkouts_stay_within_what_every_keyring_keeps_in_one_entry() 
     assert!(listed.iter().all(|c| c.name.chars().count() <= 64));
     assert!(listed.iter().all(|c| c.claim_key().is_ok()));
     // Taking one off makes room again.
-    assert!(pending::remove(&shared, &listed[0].checkout_id).unwrap());
+    let ended = Settled::abandoned(azlin_contract::AbandonAnswer::Expired).unwrap();
+    assert!(pending::settle(&shared, &listed[0].checkout_id, ended).unwrap());
     let claim = ClaimKey::generate().unwrap();
     pending::add(&shared, &checkout("ck_room", &claim)).unwrap();
 }
@@ -173,7 +177,7 @@ fn an_approved_checkout_becomes_the_drive_and_its_session_is_kept_once_by_drive_
     let server = TokenServer::new(TOKEN, &transport).unwrap();
 
     let first = match pending::poll(&server, &shared, &ck) {
-        Polled::Claimed(claimed) => claimed,
+        Polled::Final(Final::Claimed(claimed)) => claimed,
         other => panic!("not claimed: {other:?}"),
     };
     assert!(!first.already);
@@ -193,7 +197,7 @@ fn an_approved_checkout_becomes_the_drive_and_its_session_is_kept_once_by_drive_
         .set(&keyring_key("d_1"), &rotated.to_keyring_secret())
         .unwrap();
     let again = match pending::poll(&server, &shared, &ck) {
-        Polled::Claimed(claimed) => claimed,
+        Polled::Final(Final::Claimed(claimed)) => claimed,
         other => panic!("not claimed: {other:?}"),
     };
     assert!(again.already);
@@ -235,16 +239,16 @@ fn a_declined_or_gone_checkout_is_dropped_and_said_once() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     match pending::poll(&server, &shared, &declined) {
-        Polled::Dropped(why) => assert!(why.contains("insufficient funds"), "{why}"),
+        Polled::Final(Final::Declined(why)) => assert!(why.contains("insufficient funds"), "{why}"),
         other => panic!("not dropped: {other:?}"),
     }
     match pending::poll(&server, &shared, &gone) {
-        Polled::Dropped(why) => assert!(why.contains("unknown checkout"), "{why}"),
+        Polled::Final(Final::Gone(why)) => assert!(why.contains("unknown checkout"), "{why}"),
         other => panic!("not dropped: {other:?}"),
     }
     assert!(matches!(
         pending::poll(&server, &shared, &expired),
-        Polled::Dropped(_)
+        Polled::Final(Final::Gone(_))
     ));
     assert!(pending::list(&shared).unwrap().is_empty());
     // Another window polling the same checkout afterwards has nothing more to say.
@@ -259,6 +263,44 @@ fn a_checkout_the_token_server_cannot_answer_about_is_kept_for_the_next_try() {
     let dir = TempDir::new("azcloud-pending");
     let (shared, _) = shared(&dir);
     let claim = ClaimKey::generate().unwrap();
+    let ck = checkout("ck_1", &claim);
+    pending::add(&shared, &ck).unwrap();
+    let fake = Fake::new(move |_, n| match n {
+        0 => Err(String::from("connection refused")),
+        1 => Ok(json(503, r#"{"error": "busy", "message": "try later"}"#)),
+        2 => Ok(json(200, r#"{"checkout_id": "ck_1", "status": "pending"}"#)),
+        3 => Ok(json(200, r#"{"checkout_id": "ck_1", "status": "on_hold"}"#)),
+        _ => Ok(json(200, "not json")),
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        pending::poll(&server, &shared, &ck),
+        Polled::Transient(Transient::NoAnswer(_))
+    ));
+    assert!(matches!(
+        pending::poll(&server, &shared, &ck),
+        Polled::Transient(Transient::Busy(_))
+    ));
+    assert!(matches!(
+        pending::poll(&server, &shared, &ck),
+        Polled::Pending
+    ));
+    // A status of a newer token server, an answer that is none: kept, never taken as an end.
+    for _ in 0..2 {
+        assert!(matches!(
+            pending::poll(&server, &shared, &ck),
+            Polled::Transient(Transient::Unread(_))
+        ));
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1);
+}
+
+#[test]
+fn a_sign_up_that_does_not_open_twice_ends_its_checkout_with_an_error_id() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
     let other = ClaimKey::generate().unwrap();
     let ck = checkout("ck_1", &claim);
     pending::add(&shared, &ck).unwrap();
@@ -267,39 +309,151 @@ fn a_checkout_the_token_server_cannot_answer_about_is_kept_for_the_next_try() {
         "ck_1",
         bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").as_bytes(),
     );
-    let fake = Fake::new(move |_, n| match n {
-        0 => Err(String::from("connection refused")),
-        1 => Ok(json(503, r#"{"error": "busy", "message": "try later"}"#)),
-        2 => Ok(json(200, r#"{"checkout_id": "ck_1", "status": "pending"}"#)),
-        _ => Ok(json(
+    let fake = Fake::new(move |_, _| {
+        Ok(json(
             200,
             &format!(
                 r#"{{"checkout_id": "ck_1", "status": "approved",
                      "sealed_signup": "{sealed_to_another}"}}"#
             ),
-        )),
+        ))
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // The first time may have been a damaged answer: asked once more.
     assert!(matches!(
         pending::poll(&server, &shared, &ck),
-        Polled::Kept(_)
+        Polled::Transient(Transient::Unopened(_))
     ));
+    assert_eq!(pending::list(&shared).unwrap()[0].open_failures, 1);
+    // A list read again by another window counts on from the list, not from its own copy.
+    match pending::poll(&server, &shared, &ck) {
+        Polled::Final(Final::Unopenable { error_id, .. }) => assert_eq!(error_id, "ck_1"),
+        other => panic!("not given up: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty(), "its room in the list is free again");
+}
+
+#[test]
+fn an_approved_checkout_whose_hand_over_is_gone_ends_and_says_so() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let ck = checkout("ck_1", &claim);
+    pending::add(&shared, &ck).unwrap();
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            200,
+            r#"{"checkout_id": "ck_1", "status": "approved", "tier": "100GB", "months": 12,
+                "amount_cents": 990}"#,
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &shared, &ck) {
+        Polled::Final(Final::Gone(why)) => {
+            assert!(why.contains("30 days") && why.contains("ck_1"), "{why}");
+        }
+        other => panic!("not ended: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+/// A token server whose abandon of `ck_1` answers `abandon` (its HTTP status and body), whose
+/// poll answers pending until the abandon was asked, then approves it (sealed to `claim`).
+fn abandoning(claim: &ClaimKey, abandon: (u16, &'static str)) -> Arc<Fake> {
+    let sealed = seal(
+        &claim.public_base64(),
+        "ck_1",
+        bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").as_bytes(),
+    );
+    let asked = std::sync::atomic::AtomicBool::new(false);
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/abandon") {
+            asked.store(true, std::sync::atomic::Ordering::SeqCst);
+            return Ok(json(abandon.0, abandon.1));
+        }
+        Ok(if asked.load(std::sync::atomic::Ordering::SeqCst) {
+            json(
+                200,
+                &format!(
+                    r#"{{"checkout_id": "ck_1", "status": "approved",
+                         "sealed_signup": "{sealed}"}}"#
+                ),
+            )
+        } else {
+            json(200, r#"{"checkout_id": "ck_1", "status": "pending"}"#)
+        })
+    })
+}
+
+#[test]
+fn an_abandon_the_token_server_does_not_end_keeps_the_checkout_and_its_drive_is_claimed() {
+    // Paid meanwhile (409 checkout_paid), still waiting for its money, the provider not
+    // answering, no answer at all: the claim key stays, so the payment still brings the drive.
+    let cases: [(u16, &'static str, bool); 4] = [
+        (409, r#"{"error": "checkout_paid", "message": "the drive comes"}"#, true),
+        (200, r#"{"checkout_id": "ck_1", "status": "pending"}"#, false),
+        (502, r#"{"error": "provider_unavailable", "message": "no answer"}"#, false),
+        (200, r#"{"checkout_id": "ck_1", "status": "frozen"}"#, false),
+    ];
+    for (status, body, paid_said) in cases {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let claim = ClaimKey::generate().unwrap();
+        let ck = checkout("ck_1", &claim);
+        pending::add(&shared, &ck).unwrap();
+        let transport = Shared(abandoning(&claim, (status, body)));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        match pending::abandon(&server, &shared, "ck_1") {
+            Abandoned::Kept { paid, .. } => assert_eq!(paid, paid_said, "{body}"),
+            other => panic!("{body}: not kept: {other:?}"),
+        }
+        let listed = pending::list(&shared).unwrap();
+        assert_eq!(listed.len(), 1, "{body}: the claim key stays");
+        assert!(listed[0].in_flight_since.is_some(), "{body}: marked in flight");
+        match pending::poll(&server, &shared, &listed[0]) {
+            Polled::Final(Final::Claimed(claimed)) => assert_eq!(claimed.bundle.drive_id(), "d_1"),
+            other => panic!("{body}: the paid drive did not arrive: {other:?}"),
+        }
+    }
+    // No answer at all.
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
+    let silent = Fake::new(|_, _| Err(String::from("timed out")));
+    let transport = Shared(silent);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        pending::poll(&server, &shared, &ck),
-        Polled::Kept(_)
-    ));
-    assert!(matches!(
-        pending::poll(&server, &shared, &ck),
-        Polled::Pending
-    ));
-    // A sign-up that does not open with the checkout's claim key: kept - the checkout id and
-    // its key are what support can help with.
-    assert!(matches!(
-        pending::poll(&server, &shared, &ck),
-        Polled::Kept(_)
+        pending::abandon(&server, &shared, "ck_1"),
+        Abandoned::Kept { paid: false, .. }
     ));
     assert_eq!(pending::list(&shared).unwrap().len(), 1);
+}
+
+#[test]
+fn an_abandon_that_ended_the_checkout_takes_it_off_the_list() {
+    for body in [
+        r#"{"checkout_id": "ck_1", "status": "expired"}"#,
+        r#"{"checkout_id": "ck_1", "status": "declined"}"#,
+    ] {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let claim = ClaimKey::generate().unwrap();
+        pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
+        let transport = Shared(abandoning(&claim, (200, body)));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert_eq!(pending::abandon(&server, &shared, "ck_1"), Abandoned::Ended, "{body}");
+        assert!(pending::list(&shared).unwrap().is_empty(), "{body}");
+        assert_eq!(
+            pending::abandon(&server, &shared, "ck_1"),
+            Abandoned::Settled,
+            "a second window finds it gone"
+        );
+    }
+    // A pending answer never ends it, whatever it is called from.
+    assert!(Settled::abandoned(azlin_contract::AbandonAnswer::StillPending).is_none());
 }
 
 /// What `ck_1`'s sealed sign-up grants: `months` period tokens against the tests' issue key.
