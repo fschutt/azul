@@ -10601,6 +10601,12 @@
                                 "max_response_size": {
                                     "type": "u64"
                                 },
+                                "send_timeout_secs": {
+                                    "type": "u64"
+                                },
+                                "recv_timeout_secs": {
+                                    "type": "u64"
+                                },
                                 "disable_tls_cert_verification": {
                                     "type": "bool"
                                 },
@@ -10635,23 +10641,6 @@
                                     "type": "HttpRequestConfig"
                                 },
                                 "fn_body": "object.with_timeout(secs)"
-                            },
-                            "with_max_size": {
-                                "doc": [
-                                    "Set maximum response size (0 = unlimited)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "max_bytes": "u64"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HttpRequestConfig"
-                                },
-                                "fn_body": "object.with_max_size(max_bytes)"
                             },
                             "with_user_agent": {
                                 "doc": [
@@ -10855,6 +10844,94 @@
                                     "type": "HttpRequestConfig"
                                 },
                                 "fn_body": "object.with_client(client)"
+                            },
+                            "http_request_blocking": {
+                                "doc": [
+                                    "HTTP request with an arbitrary verb and an optional body, answered on",
+                                    "the calling thread: it blocks until the answer arrived (or the",
+                                    "timeouts ended it). For worker threads, whose answer then never depends",
+                                    "on the UI thread's pump. An EMPTY `body` sends no body; `content_type`",
+                                    "is only applied when a body is present.",
+                                    "",
+                                    "The thread that runs the app's event loop never waits here: a debug",
+                                    "build panics, a release build answers `HttpError::Other` at once",
+                                    "(a UI callback uses `http_request`, whose answer comes on a later frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "method": "HttpMethod"
+                                    },
+                                    {
+                                        "url": "String"
+                                    },
+                                    {
+                                        "body": "U8Vec"
+                                    },
+                                    {
+                                        "content_type": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultHttpResponseHttpError"
+                                },
+                                "fn_body": "object.http_request_blocking(method, url, body, content_type)"
+                            },
+                            "with_recv_timeout": {
+                                "doc": [
+                                    "Set the seconds the response body may take to arrive (0 = only the",
+                                    "overall timeout applies)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "secs": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpRequestConfig"
+                                },
+                                "fn_body": "object.with_recv_timeout(secs)"
+                            },
+                            "with_send_timeout": {
+                                "doc": [
+                                    "Set the seconds the request body may take to send (0 = only the overall",
+                                    "timeout applies)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "secs": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpRequestConfig"
+                                },
+                                "fn_body": "object.with_send_timeout(secs)"
+                            },
+                            "with_max_size": {
+                                "doc": [
+                                    "Set maximum response size (0 = unlimited). A bigger answer is refused",
+                                    "with `HttpError::ResponseTooLarge`, never cut short."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max_bytes": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpRequestConfig"
+                                },
+                                "fn_body": "object.with_max_size(max_bytes)"
                             }
                         },
                         "repr": "C"
@@ -15958,61 +16035,6 @@
                                 ],
                                 "fn_body": "object.request_biometric_auth(prompt)"
                             },
-                            "keyring_store": {
-                                "doc": [
-                                    "Store `secret` under `key` in the OS keyring (Keychain / KeyStore /",
-                                    "libsecret / CredentialLocker). When `require_biometry` is set, a",
-                                    "later `keyring_get` of this key triggers the OS biometric prompt.",
-                                    "Returns immediately; the outcome arrives via `get_keyring_result()`",
-                                    "on a later frame."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "key": "String"
-                                    },
-                                    {
-                                        "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
-                                    }
-                                ],
-                                "fn_body": "object.keyring_store(key, secret, require_biometry)"
-                            },
-                            "keyring_get": {
-                                "doc": [
-                                    "Read the secret stored under `key`. A biometry-bound item shows the",
-                                    "OS prompt first; the secret (or a denial) arrives via",
-                                    "`get_keyring_result()` on a later frame."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "key": "String"
-                                    }
-                                ],
-                                "fn_body": "object.keyring_get(key)"
-                            },
-                            "keyring_delete": {
-                                "doc": [
-                                    "Remove the item stored under `key` from the OS keyring (no-op if",
-                                    "absent). The outcome arrives via `get_keyring_result()`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "key": "String"
-                                    }
-                                ],
-                                "fn_body": "object.keyring_delete(key)"
-                            },
                             "get_keyring_result": {
                                 "doc": [
                                     "Get the most recent keyring outcome, or `None` until the first op",
@@ -20576,6 +20598,122 @@
                                     "type": "OptionSessionChange"
                                 },
                                 "fn_body": "object.get_session_change()"
+                            },
+                            "keyring_delete_in": {
+                                "doc": [
+                                    "[`Self::keyring_delete`] in `namespace`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_delete_in(namespace, key)"
+                            },
+                            "keyring_get_in": {
+                                "doc": [
+                                    "[`Self::keyring_get`] in `namespace`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_get_in(namespace, key)"
+                            },
+                            "keyring_store_in": {
+                                "doc": [
+                                    "[`Self::keyring_store`] in `namespace`: the entries apps share (the",
+                                    "Azlin apps' `io.azlin.shared`) live in the namespace they all name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_store_in(namespace, key, secret, require_biometry)"
+                            },
+                            "keyring_delete": {
+                                "doc": [
+                                    "Remove the item stored under `key` in the app's own namespace (no-op if",
+                                    "absent). The outcome arrives via `get_keyring_result()`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_delete(key)"
+                            },
+                            "keyring_get": {
+                                "doc": [
+                                    "Read the secret stored under `key` in the app's own namespace (its app",
+                                    "id). A biometry-bound item shows the OS prompt first; the secret (or a",
+                                    "denial) arrives via `get_keyring_result()` on a later frame."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_get(key)"
+                            },
+                            "keyring_store": {
+                                "doc": [
+                                    "Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /",
+                                    "libsecret / `CredentialLocker`), in the app's own namespace (its app",
+                                    "id). When `require_biometry` is set, a later `keyring_get` of this key",
+                                    "triggers the OS biometric prompt. Returns immediately; the outcome",
+                                    "arrives via `get_keyring_result()` on a later frame.",
+                                    "",
+                                    "The secret is marked as one (`AzString::set_secret`): the request, the",
+                                    "backend's copy of it and every clone are zeroed when they are freed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_store(key, secret, require_biometry)"
                             }
                         },
                         "repr": "C"
@@ -195083,10 +195221,68 @@
                             }
                         ],
                         "functions": {
+                            "delete_blocking_in": {
+                                "doc": [
+                                    "Removes the item stored under `key` in `namespace`, on this thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::delete_blocking_in(namespace, key)"
+                            },
+                            "get_blocking_in": {
+                                "doc": [
+                                    "Reads the secret stored under `key` in `namespace` (the entries apps",
+                                    "share live in the namespace they all name), on this thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::get_blocking_in(namespace, key)"
+                            },
+                            "store_blocking_in": {
+                                "doc": [
+                                    "Stores `secret` under `key` in `namespace`, on this thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking_in(namespace, key, secret, require_biometry)"
+                            },
                             "delete_blocking": {
                                 "doc": [
-                                    "Removes the item stored under `key`, on this thread: `Deleted` (also",
-                                    "when there was none), or why not."
+                                    "Removes the item stored under `key` in the app's own namespace, on this",
+                                    "thread: `Deleted` (also when there was none), or why not."
                                 ],
                                 "fn_args": [
                                     {
@@ -195100,8 +195296,9 @@
                             },
                             "get_blocking": {
                                 "doc": [
-                                    "Reads the secret stored under `key`, on this thread: `Retrieved`,",
-                                    "`NotFound`, or why not (`Denied`, `Unavailable`, `Error`)."
+                                    "Reads the secret stored under `key` in the app's own namespace (its",
+                                    "app id), on this thread: `Retrieved`, `NotFound`, or why not (`Denied`,",
+                                    "`Unavailable`, `Error`)."
                                 ],
                                 "fn_args": [
                                     {
@@ -195115,9 +195312,9 @@
                             },
                             "store_blocking": {
                                 "doc": [
-                                    "Stores `secret` under `key` (replacing what was there), on this",
-                                    "thread: `Stored`, or why not. `require_biometry` as in",
-                                    "`CallbackInfo::keyring_store`."
+                                    "Stores `secret` under `key` in the app's own namespace (replacing what",
+                                    "was there), on this thread: `Stored`, or why not. `require_biometry` as",
+                                    "in `CallbackInfo::keyring_store`."
                                 ],
                                 "fn_args": [
                                     {
@@ -195134,6 +195331,64 @@
                                     "type": "KeyringResult"
                                 },
                                 "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret, require_biometry)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "KeyringNamespace": {
+                        "external": "azul_core::keyring::KeyringNamespace",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "service": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "app": {
+                                "doc": [
+                                    "The app's own namespace: its id, which the platform layer fills in."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::keyring::KeyringNamespace::app()"
+                            },
+                            "create": {
+                                "doc": [
+                                    "The namespace `service` (reverse-DNS, `io.azlin.shared`); an empty one",
+                                    "is the app's own."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "service": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::keyring::KeyringNamespace::create(service)"
+                            }
+                        },
+                        "functions": {
+                            "is_app": {
+                                "doc": [
+                                    "Whether this is the app's own namespace (no service named)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_app()"
                             }
                         },
                         "repr": "C"
