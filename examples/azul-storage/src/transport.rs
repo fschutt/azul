@@ -37,7 +37,8 @@ impl BytesPerSec {
     #[must_use]
     pub fn time_for(self, bytes: u64) -> Duration {
         let rate = self.0.max(1);
-        Duration::from_secs(bytes / rate) + Duration::from_nanos((bytes % rate) * 1_000_000_000 / rate)
+        let nanos = u128::from(bytes % rate) * 1_000_000_000 / u128::from(rate);
+        Duration::from_secs(bytes / rate) + Duration::from_nanos(nanos as u64)
     }
 }
 
