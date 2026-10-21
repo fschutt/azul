@@ -59,7 +59,7 @@ use azul_storage::{
 };
 
 use crate::{
-    add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState},
+    add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, Periods, TiersState},
     countries,
     add_flow::{self, AddEvent},
     ids, look, pay_words,
@@ -434,6 +434,11 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         TiersState::NotLoaded | TiersState::Loading => {
             children.push(line("azdrive-add-loading-storage-tiers").with_id(ids::ADD_STATUS));
         }
+        // Refused for this buyer (a country Azlin does not sell to): said in the window's
+        // language, and nothing to try again.
+        TiersState::Refused(said) => {
+            children.push(error_line(said).with_id(ids::ADD_STATUS));
+        }
         TiersState::Failed(why) => {
             children.push(error_line(&t_args(
                 "azdrive-add-tiers-failed",
@@ -454,7 +459,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                 .iter()
                 .enumerate()
                 .map(|(index, tier)| {
-                    let price = pay_words::tier_price(tier, d.yearly)
+                    let price = pay_words::tier_price(tier, d.yearly_for(tier))
                         .unwrap_or_else(|| t("azdrive-add-price-on-request"));
                     tile(
                         app,
@@ -476,29 +481,39 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                     )
                     .with_children(DomVec::from(cells)),
             );
-            children.push(
-                Dom::create_div()
-                    .with_css("display: flex; flex-direction: row; align-items: center;")
-                    .with_child(
-                        CheckBox::create(d.yearly)
-                            .with_accessibility_name(l10n::label("azdrive-add-pay-yearly"))
-                            .with_on_toggle(
-                                event_ref(app, AddEvent::Yearly),
-                                on_yearly as CheckBoxOnToggleCallbackType,
+            // The switch only where the tier is sold both ways; a tier sold by the year only
+            // says so (its tile shows the year's price).
+            match d.periods() {
+                Periods::MonthOrYear => {
+                    children.push(
+                        Dom::create_div()
+                            .with_css("display: flex; flex-direction: row; align-items: center;")
+                            .with_child(
+                                CheckBox::create(d.yearly)
+                                    .with_accessibility_name(l10n::label("azdrive-add-pay-yearly"))
+                                    .with_on_toggle(
+                                        event_ref(app, AddEvent::Yearly),
+                                        on_yearly as CheckBoxOnToggleCallbackType,
+                                    )
+                                    .dom()
+                                    .with_id(ids::ADD_YEARLY),
                             )
-                            .dom()
-                            .with_id(ids::ADD_YEARLY),
-                    )
-                    .with_child(
-                        Dom::create_span_with_text(l10n::label("azdrive-add-pay-yearly-free"))
-                            .with_css("margin-left: 8px;")
-                            .with_callback(
-                                EventFilter::Hover(HoverEventFilter::Click),
-                                event_ref(app, AddEvent::Yearly),
-                                on_event,
+                            .with_child(
+                                Dom::create_span_with_text(l10n::label("azdrive-add-pay-yearly-free"))
+                                    .with_css("margin-left: 8px;")
+                                    .with_callback(
+                                        EventFilter::Hover(HoverEventFilter::Click),
+                                        event_ref(app, AddEvent::Yearly),
+                                        on_event,
+                                    ),
                             ),
-                    ),
-            );
+                    );
+                }
+                Periods::YearOnly => {
+                    children.push(note("azdrive-add-sold-by-the-year"));
+                }
+                Periods::MonthOnly => {}
+            }
             if d.offer().is_some() {
                 children.extend(payment(d, app));
             } else if matches!(d.offer, OfferState::Loading) {
@@ -553,7 +568,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
             None,
         ));
     } else {
-        if matches!(d.pay, PayState::Stopped { .. }) {
+        if matches!(d.pay, PayState::InFlight { .. }) {
             row.push(button(
                 app,
                 "azdrive-add-check-again",
@@ -889,7 +904,7 @@ fn amount(d: &AddDialog) -> String {
         Some(price) => l10n::money(price.amount_cents, &price.currency),
         None => d
             .chosen_tier()
-            .and_then(|t| pay_words::tier_price(t, d.yearly))
+            .and_then(|t| pay_words::tier_price(t, d.pays_yearly()))
             .unwrap_or_default(),
     }
 }
@@ -927,7 +942,7 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
             "azdrive-pay-what",
             &[
                 ("quota", Arg::from(pay_words::quota(tier))),
-                ("months", Arg::from(if d.yearly { 12_u32 } else { 1 })),
+                ("months", Arg::from(d.months())),
             ],
         ),
         None => String::new(),

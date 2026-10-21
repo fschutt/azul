@@ -38,7 +38,7 @@ use std::sync::{
 };
 
 use azcloud_kit::{
-    pending::{Claimed, Finished},
+    pending::{Abandoned, Claimed, Finished},
     PendingCheckout, Tiers,
 };
 use azul::{
@@ -54,7 +54,7 @@ use azul_appkit::l10n::{self, t, t_args, Arg, Phrase, Text};
 use azul_pay::{
     machine::Notice,
     offer::{Offer, OfferContext},
-    Effect, Event, Method, SecretUrl, State as PayState,
+    AbandonOutcome, Effect, Event, Method, SecretUrl, State as PayState,
 };
 use azul_storage::{
     config::{self, DriveAuth, DriveEntry, DriveLocation, DrivesFile},
@@ -68,7 +68,7 @@ use crate::{
     countries,
     browse::Place,
     go, ids,
-    jobs::{BoughtDrive, Job, OptionsFailed, PayVia, Started},
+    jobs::{BoughtDrive, Job, OptionsFailed, PayVia, Started, TiersFailed},
     keyring, refresh_disks,
     sign_in::{self, PendingSignIn},
     spawn, with_state, DriveState, KeyringCall, KeyringOp, Popup, Slot,
@@ -160,6 +160,13 @@ pub(crate) fn open(s: &mut DriveState) {
         Some(d.country.clone())
     };
     d.country_pick = first.as_deref().and_then(countries::listed);
+    // A checkout whose payment may be under way: a new order asks about it first.
+    if let Some(checkout) = s.in_flight.first() {
+        d.pay = PayState::InFlight {
+            checkout_id: checkout.checkout_id.clone(),
+        };
+        d.kept = Some(checkout.clone());
+    }
     print_page(&d);
     s.popup = Some(Popup::AddDrive(d));
 }
@@ -198,7 +205,10 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
                     cancel.store(true, Ordering::SeqCst);
                 }
                 d.step = BuyStep::Idle;
-                d.pay = PayState::Choosing;
+                // A checkout in flight stays so: the next order asks about it first.
+                if !matches!(d.pay, PayState::InFlight { .. } | PayState::Releasing { .. }) {
+                    d.pay = PayState::Choosing;
+                }
                 d.back();
             }
         }
@@ -676,7 +686,8 @@ fn load_tiers(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, again: 
     let wanted = match &d.tiers {
         TiersState::NotLoaded => true,
         TiersState::Failed(_) => again,
-        TiersState::Loading | TiersState::Loaded(_) => false,
+        // Refused for this buyer's country: only another country asks again.
+        TiersState::Loading | TiersState::Loaded(_) | TiersState::Refused(_) => false,
     };
     if !wanted {
         return;
@@ -713,7 +724,7 @@ pub(crate) fn tiers_answered(
     s: &mut DriveState,
     serial: u64,
     country: &str,
-    result: Result<Tiers, String>,
+    result: Result<Tiers, TiersFailed>,
 ) {
     // A list for the country declared before is not this one's (its prices are in another
     // currency): the list asked for since answers.
@@ -728,7 +739,11 @@ pub(crate) fn tiers_answered(
             d.tiers = TiersState::Loaded(tiers);
             load_options(info, app, s);
         }
-        Err(why) => d.tiers = TiersState::Failed(why),
+        Err(TiersFailed::Refused(said)) => {
+            println!("AZDRIVE_TIERS_REFUSED");
+            d.tiers = TiersState::Refused(l10n::t_text(&said));
+        }
+        Err(TiersFailed::Failed(why)) => d.tiers = TiersState::Failed(why),
     }
 }
 
@@ -787,9 +802,9 @@ pub(crate) fn options_answered(
             Err(why) => d.offer = OfferState::Failed(why.to_string()),
         },
         Ok(None) => d.offer = OfferState::Legacy,
-        Err(OptionsFailed::Refused(sentence)) => {
+        Err(OptionsFailed::Refused(said)) => {
             println!("AZDRIVE_PAY_REFUSED");
-            d.offer = OfferState::Refused(sentence);
+            d.offer = OfferState::Refused(l10n::t_text(&said));
         }
         Err(OptionsFailed::Failed(why)) => d.offer = OfferState::Failed(why),
     }
@@ -821,7 +836,7 @@ fn buy_parts(s: &mut DriveState) -> Option<(String, String, String, u64)> {
     if d.busy() {
         return None;
     }
-    // The token server refused this buyer (a country it does not serve): its sentence stands.
+    // The token server refused this buyer (a country it does not serve): its refusal stands.
     if let Some(sentence) = d.refused().map(String::from) {
         d.notice = sentence;
         return None;
@@ -928,6 +943,7 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         return;
     };
     let consent = d.consent;
+    d.cash_order = false;
     // What the payer typed for a method that asks the app; the machine checks it and the
     // checkout takes it (the dialog drops it then).
     let payer = d.payer.clone();
@@ -963,6 +979,7 @@ fn pay_cash(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         d.consent = true;
     }
     let consent = d.consent;
+    d.cash_order = true;
     // Cash by post asks nothing about the payer.
     let payer = azul_pay::Payer::default();
     let _ = pay(
@@ -1000,11 +1017,14 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
     };
-    let months = match dialog(s) {
+    let (months, method) = match dialog(s) {
         Some(d) => {
             d.step = BuyStep::StartingCheckout;
             d.notice = t("azdrive-add-preparing-payment");
-            d.months()
+            let method = d.chosen_tier().map_or(azcloud_kit::token::DEFAULT_METHOD, |tier| {
+                tier.v1_method()
+            });
+            (d.months(), method.to_string())
         }
         None => return,
     };
@@ -1018,6 +1038,7 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             token_url,
             tier,
             months,
+            method,
             name,
             keyring,
             via: None,
@@ -1046,7 +1067,19 @@ pub(crate) fn pay(
     if next.name() != before {
         println!("AZDRIVE_PAY {}", next.name());
     }
+    // The dialog's checkout went in flight: the next opening of the dialog starts there too.
+    let went_in_flight = match (&next, &d.kept) {
+        (PayState::InFlight { checkout_id }, Some(kept)) if kept.checkout_id == *checkout_id => {
+            Some(kept.clone())
+        }
+        _ => None,
+    };
     d.pay = next;
+    if let Some(kept) = went_in_flight {
+        if !s.in_flight.iter().any(|c| c.checkout_id == kept.checkout_id) {
+            s.in_flight.push(kept);
+        }
+    }
     let mut cancel = false;
     for effect in effects {
         cancel |= run_effect(info, app, s, effect);
@@ -1121,6 +1154,15 @@ fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect:
                     keyring,
                 },
             );
+        }
+        // The checkout in flight ended: the order asked for meanwhile goes on, from the button
+        // it was asked with (the dialog still holds what it needs).
+        Effect::OrderAgain => {
+            if dialog(s).is_some_and(|d| d.cash_order) {
+                pay_cash(info, app, s);
+            } else {
+                buy(info, app, s);
+            }
         }
         Effect::StartPoll { checkout_id } => start_poll(info, app, s, &checkout_id),
         Effect::StopPoll => {
@@ -1200,6 +1242,8 @@ fn start_pay_checkout(
         token_url,
         tier,
         months: d.months(),
+        // Through a provider the checkout names its method itself.
+        method: String::new(),
         name: d.buy_name.trim().to_string(),
         keyring,
         via: Some(Box::new(via)),
@@ -1277,13 +1321,68 @@ pub(crate) fn surface_answered(
     let _ = pay(info, app, s, event);
 }
 
-/// A checkout abandoned at the token server (and off the keyring's list).
-pub(crate) fn abandoned(checkout_id: &str, result: Result<(), String>) {
-    match result {
-        Ok(()) => println!("AZDRIVE_ABANDONED {checkout_id} ok"),
-        Err(why) => {
-            println!("AZDRIVE_ABANDONED {checkout_id} error");
-            eprintln!("[azdrive] the checkout {checkout_id} was not abandoned: {why}");
+/// What an abandon found: an ended checkout is off the keyring's list; one paid meanwhile, or
+/// one the token server could not end, stays on it in flight - the background claims bring its
+/// drive, and a new order asks about it first. The dialog's machine hears the answer.
+pub(crate) fn abandoned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    checkout_id: &str,
+    result: Abandoned,
+) {
+    let outcome = match &result {
+        Abandoned::Ended | Abandoned::Settled => {
+            println!("AZDRIVE_ABANDONED {checkout_id} ok");
+            s.in_flight.retain(|c| c.checkout_id != checkout_id);
+            AbandonOutcome::Ended
+        }
+        Abandoned::Kept { paid, why } => {
+            println!(
+                "AZDRIVE_ABANDONED {checkout_id} {}",
+                if *paid { "paid" } else { "kept" }
+            );
+            eprintln!("[azdrive] the checkout {checkout_id} stays on the list: {why}");
+            // The dialog's own checkout is known here; any other the claims report.
+            let kept = dialog(s)
+                .and_then(|d| d.kept.clone())
+                .filter(|k| k.checkout_id == checkout_id);
+            if let Some(kept) = kept {
+                if !s.in_flight.iter().any(|c| c.checkout_id == checkout_id) {
+                    s.in_flight.push(kept);
+                }
+            }
+            start_claims(info, app, s);
+            if *paid {
+                AbandonOutcome::Paid
+            } else {
+                AbandonOutcome::Open
+            }
+        }
+    };
+    let _ = pay(
+        info,
+        app,
+        s,
+        Event::Abandoned {
+            checkout_id: checkout_id.to_string(),
+            outcome,
+        },
+    );
+}
+
+/// The background claims found `checkout`, whose payment may be under way (bought here, not
+/// claimed yet): a new order asks about it first.
+pub(crate) fn in_flight(s: &mut DriveState, checkout: PendingCheckout) {
+    if !s.in_flight.iter().any(|c| c.checkout_id == checkout.checkout_id) {
+        s.in_flight.push(checkout.clone());
+    }
+    if let Some(d) = dialog(s) {
+        if matches!(d.pay, PayState::Choosing) {
+            d.pay = PayState::InFlight {
+                checkout_id: checkout.checkout_id.clone(),
+            };
+            d.kept = Some(checkout);
         }
     }
 }
@@ -1422,6 +1521,7 @@ pub(crate) fn payment_ended(
     s: &mut DriveState,
     serial: u64,
     why: Text,
+    ended: bool,
 ) {
     if why.is_empty() {
         start_claims(info, app, s);
@@ -1439,8 +1539,14 @@ pub(crate) fn payment_ended(
         }
     };
     if waiting {
-        // The machine's checkout ended: a new order may follow.
-        let _ = pay(info, app, s, Event::Declined(said.clone()));
+        // The machine's checkout ended: a new order may follow. One that did not end (the wait
+        // timed out) stays in flight: a new order asks about it first.
+        let event = if ended {
+            Event::Declined(said.clone())
+        } else {
+            Event::StopWaiting
+        };
+        let _ = pay(info, app, s, event);
     }
     if let Some(d) = dialog_of(s, serial) {
         d.notice = said;
@@ -1538,6 +1644,7 @@ pub(crate) fn claimed(
 ) {
     let drive_id = claimed.bundle.drive_id().to_string();
     println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    s.in_flight.retain(|c| c.checkout_id != checkout.checkout_id);
     crate::cash::claimed(s, &checkout.checkout_id);
     // A checkout picked up by its claim code learns its tier from the sealed sign-up: its
     // period tokens are issued for it.
@@ -1602,6 +1709,13 @@ pub(crate) fn claimed(
 /// The background claims took a checkout off the keyring's list: said once - a cash order's end
 /// on the drive list (until it is dismissed) and in the dialog that shows it.
 pub(crate) fn checkout_dropped(s: &mut DriveState, checkout_id: &str, why: &str) {
+    s.in_flight.retain(|c| c.checkout_id != checkout_id);
+    // A checkout in flight that ended: the dialog's machine may order again.
+    if let Some(d) = dialog(s) {
+        if matches!(&d.pay, PayState::InFlight { checkout_id: id } if id == checkout_id) {
+            d.pay = PayState::Choosing;
+        }
+    }
     if crate::cash::ended(s, checkout_id, why) {
         let text = crate::cash::ended_text(why);
         if let Some(d) = dialog(s) {

@@ -1,0 +1,22 @@
+[
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "expired"
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "pending"
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "declined"
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "reversed"
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "rejected"
+  }
+]

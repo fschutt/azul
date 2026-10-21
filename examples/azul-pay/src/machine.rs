@@ -10,9 +10,12 @@
 //! Presenting --success / pending return page, a provider login (to the browser)--> Waiting
 //! Presenting --load failed / Open in browser--> the next surface of the SAME checkout
 //! Presenting --cancel return page / Close--> Choosing (the checkout abandoned)
-//! Confirming --Close--> Stopped (the claim kept: the payment may be in flight)
+//! Confirming --Close--> InFlight (the claim kept: the payment may be under way)
 //! Waiting --Approved--> Done        Waiting --Declined--> Declined
-//! Waiting --Stop waiting / Close--> Stopped --Check again--> Waiting
+//! Waiting --Stop waiting / Close--> InFlight --Check again--> Waiting
+//! InFlight --Pay--> Releasing (the checkout in flight abandoned first: no second payment)
+//! Releasing --Abandoned (ended)--> Choosing (the order goes on)
+//! Releasing --Abandoned (paid)--> Waiting   Releasing --Abandoned (open)--> InFlight
 //! Preparing (paper) --Posted--> Posted: the slip shown, the background claims look daily
 //! Posted --Approved--> Done   Posted --Declined--> Declined   Posted --Close--> Choosing (kept)
 //! ```
@@ -24,7 +27,9 @@
 //! view's `WebViewNavigationRequested` callback - exactly one of the two for every
 //! [`Event::Navigation`] of a page), [`Effect::WebviewNavigate`] (`webview_navigate`),
 //! [`Effect::OpenBrowser`] (`Url::open`), [`Effect::SwitchSurface`]
-//! (`POST /v1/checkout/{id}/surface`), [`Effect::Abandon`] (`POST /v1/checkout/{id}/abandon`),
+//! (`POST /v1/checkout/{id}/surface`), [`Effect::Abandon`] (`POST /v1/checkout/{id}/abandon`,
+//! its answer back as [`Event::Abandoned`]), [`Effect::OrderAgain`] (the order asked for while
+//! a checkout was in flight goes on),
 //! [`Effect::StartPoll`] / [`Effect::StopPoll`] (the dialog's wait for the drive; after
 //! `StopPoll` the background claims and the next start take over), [`Effect::Notice`].
 //!
@@ -85,6 +90,12 @@ pub enum Notice {
     WaitingForLetter,
     /// The method needs these details of the payer, typed in the popover, before the order.
     IdentityIncomplete(Vec<PayerField>),
+    /// A new order waits: the last one's payment may be under way, and is asked about first.
+    CheckingEarlierOrder,
+    /// The last order was paid: its drive comes (no new order).
+    EarlierOrderPaid,
+    /// The last order could not be closed and may still be paid: no new order yet.
+    EarlierOrderOpen,
 }
 
 impl Notice {
@@ -145,6 +156,17 @@ impl Notice {
                 "This payment method needs your {} first. They are sent once with the order \
                  and not kept.",
                 crate::identity::english_list(fields)
+            ),
+            Notice::CheckingEarlierOrder => String::from(
+                "Your last order may still be paid: AzDrive asks about it first, so you never \
+                 pay twice.",
+            ),
+            Notice::EarlierOrderPaid => String::from(
+                "Your last order is paid: its drive arrives as soon as the payment is confirmed.",
+            ),
+            Notice::EarlierOrderOpen => String::from(
+                "Your last order could not be closed and may still be paid. Its drive comes if \
+                 it is; try a new order again in a moment.",
             ),
         }
     }
@@ -236,8 +258,14 @@ pub enum State {
         browser: Option<SecretUrl>,
         settles: Settles,
     },
-    /// The dialog stopped waiting; the claim stays (the background claims, the next start).
-    Stopped { checkout_id: String },
+    /// The dialog stopped waiting while the checkout's payment may be under way (the popover
+    /// closed while it confirmed, Stop waiting, a payment that settles in days, an abandon the
+    /// token server did not end). Its claim stays (the background claims, the next start), and
+    /// a new order ends it first: the buyer would pay twice.
+    InFlight { checkout_id: String },
+    /// A new order was asked for while a checkout was in flight: that checkout is abandoned
+    /// first, and its answer says whether the order goes on.
+    Releasing { checkout_id: String },
     Done { checkout_id: String },
     Declined { checkout_id: String, reason: String },
     /// A cash checkout: its slip is printed, the letter on its way; the background claims
@@ -288,7 +316,7 @@ pub struct Chip {
 
 impl State {
     /// For the scripts' lines: `choosing`, `preparing`, `presenting`, `confirming`, `waiting`,
-    /// `stopped`, `done`, `declined`, `posted`.
+    /// `in-flight`, `releasing`, `done`, `declined`, `posted`.
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
@@ -297,7 +325,8 @@ impl State {
             State::Presenting { .. } => "presenting",
             State::Confirming { .. } => "confirming",
             State::Waiting { .. } => "waiting",
-            State::Stopped { .. } => "stopped",
+            State::InFlight { .. } => "in-flight",
+            State::Releasing { .. } => "releasing",
             State::Done { .. } => "done",
             State::Declined { .. } => "declined",
             State::Posted { .. } => "posted",
@@ -313,7 +342,8 @@ impl State {
                 Some(&checkout.checkout_id)
             }
             State::Waiting { checkout_id, .. }
-            | State::Stopped { checkout_id }
+            | State::InFlight { checkout_id }
+            | State::Releasing { checkout_id }
             | State::Done { checkout_id }
             | State::Declined { checkout_id, .. } => Some(checkout_id),
             State::Posted { slip } => Some(&slip.checkout_id),
@@ -340,6 +370,7 @@ impl State {
                 | State::Presenting { .. }
                 | State::Confirming { .. }
                 | State::Waiting { .. }
+                | State::Releasing { .. }
         )
     }
 
@@ -407,6 +438,11 @@ pub enum Event {
     Approved,
     /// The poll says the payment was declined (or the checkout is gone).
     Declined(String),
+    /// `POST /v1/checkout/{id}/abandon` answered for `checkout_id`.
+    Abandoned {
+        checkout_id: String,
+        outcome: AbandonOutcome,
+    },
     /// `POST /v1/checkout` of a cash checkout answered, checked: its slip.
     Posted(Box<CashSlip>),
 }
@@ -449,9 +485,28 @@ impl fmt::Debug for Event {
             Event::PendingForDays => f.write_str("PendingForDays"),
             Event::Approved => f.write_str("Approved"),
             Event::Declined(why) => f.debug_tuple("Declined").field(why).finish(),
+            Event::Abandoned {
+                checkout_id,
+                outcome,
+            } => f
+                .debug_struct("Abandoned")
+                .field("checkout_id", checkout_id)
+                .field("outcome", outcome)
+                .finish(),
             Event::Posted(slip) => f.debug_tuple("Posted").field(&slip.checkout_id).finish(),
         }
     }
+}
+
+/// What an abandon found at the token server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbandonOutcome {
+    /// It ended the checkout: nobody can pay it any more.
+    Ended,
+    /// The checkout was paid meanwhile: its drive comes.
+    Paid,
+    /// It could not end it (no answer, the provider did not answer): it may still be paid.
+    Open,
 }
 
 /// What the app does.
@@ -480,9 +535,13 @@ pub enum Effect {
         checkout_id: String,
         kind: SurfaceKind,
     },
-    /// `POST /v1/checkout/{id}/abandon`: the provider session expires (and the checkout leaves
-    /// the keyring's list - it can never be paid).
+    /// `POST /v1/checkout/{id}/abandon`: the provider session expires. The checkout leaves the
+    /// keyring's list only when the answer says it ended; its answer comes back as
+    /// [`Event::Abandoned`].
     Abandon { checkout_id: String },
+    /// The order asked for while a checkout was in flight goes on: the app sends its
+    /// [`Event::Pay`] again (the earlier checkout has ended).
+    OrderAgain,
     /// The dialog waits for the drive.
     StartPoll { checkout_id: String },
     /// The dialog stops waiting; the background claims take over.
@@ -506,7 +565,8 @@ pub fn step(state: State, event: Event) -> (State, Vec<Effect>) {
             browser,
             settles,
         } => waiting(checkout_id, reason, browser, settles, event),
-        State::Stopped { checkout_id } => stopped(checkout_id, event),
+        State::InFlight { checkout_id } => in_flight(checkout_id, event),
+        State::Releasing { checkout_id } => releasing(checkout_id, event),
         State::Posted { slip } => posted(slip, event),
         State::Done { checkout_id } => match event {
             Event::Navigation { .. } => (State::Done { checkout_id }, vec![Effect::CancelNavigation]),
@@ -909,7 +969,7 @@ fn presenting(
         Event::Close => {
             if confirming {
                 return (
-                    State::Stopped {
+                    State::InFlight {
                         checkout_id: checkout.checkout_id,
                     },
                     vec![Effect::StopPoll, Effect::Notice(Notice::StoppedWaiting)],
@@ -935,6 +995,7 @@ fn presenting(
         | Event::PendingForDays
         | Event::Approved
         | Event::Declined(_)
+        | Event::Abandoned { .. }
         | Event::Posted(_) => (keep(checkout, page), Vec::new()),
     }
 }
@@ -1034,11 +1095,11 @@ fn waiting(
     match event {
         Event::Navigation { .. } => (same(checkout_id, browser), vec![Effect::CancelNavigation]),
         Event::StopWaiting | Event::Close => (
-            State::Stopped { checkout_id },
+            State::InFlight { checkout_id },
             vec![Effect::StopPoll, Effect::Notice(Notice::StoppedWaiting)],
         ),
         Event::PendingForDays => (
-            State::Stopped { checkout_id },
+            State::InFlight { checkout_id },
             vec![Effect::StopPoll, Effect::Notice(Notice::SettlesInDays)],
         ),
         Event::OpenInBrowser => {
@@ -1066,7 +1127,10 @@ fn waiting(
     }
 }
 
-fn stopped(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
+/// A checkout whose payment may be under way. Its claim stays; a new order (`Pay`) abandons
+/// it first and goes on only once the token server says it ended - else the buyer would pay
+/// twice. Closing the dialog keeps it in flight.
+fn in_flight(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
     match event {
         Event::CheckAgain => wait(
             checkout_id,
@@ -1083,16 +1147,72 @@ fn stopped(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
             },
             vec![Effect::Notice(Notice::Declined(why))],
         ),
-        Event::Close => (State::Choosing, Vec::new()),
-        Event::Pay { .. } => choosing(event),
-        Event::Navigation { .. } => (State::Stopped { checkout_id }, vec![Effect::CancelNavigation]),
+        Event::Pay { .. } => (
+            State::Releasing {
+                checkout_id: checkout_id.clone(),
+            },
+            vec![
+                Effect::Abandon { checkout_id },
+                Effect::Notice(Notice::CheckingEarlierOrder),
+            ],
+        ),
+        // It ended meanwhile (another abandon of it was answered): a new order may follow.
+        Event::Abandoned {
+            checkout_id: ended,
+            outcome: AbandonOutcome::Ended,
+        } if ended == checkout_id => (State::Choosing, Vec::new()),
+        Event::Navigation { .. } => (State::InFlight { checkout_id }, vec![Effect::CancelNavigation]),
         Event::Created(created) => (
-            State::Stopped { checkout_id },
+            State::InFlight { checkout_id },
             vec![Effect::Abandon {
                 checkout_id: created.checkout_id,
             }],
         ),
-        _ => (State::Stopped { checkout_id }, Vec::new()),
+        _ => (State::InFlight { checkout_id }, Vec::new()),
+    }
+}
+
+/// A new order waits for the abandon of the checkout in flight.
+fn releasing(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
+    match event {
+        Event::Abandoned {
+            checkout_id: answered,
+            outcome,
+        } if answered == checkout_id => match outcome {
+            AbandonOutcome::Ended => (State::Choosing, vec![Effect::OrderAgain]),
+            AbandonOutcome::Paid => wait(
+                checkout_id,
+                WaitReason::Again,
+                None,
+                Settles::Instant,
+                vec![Effect::Notice(Notice::EarlierOrderPaid)],
+            ),
+            AbandonOutcome::Open => (
+                State::InFlight { checkout_id },
+                vec![Effect::Notice(Notice::EarlierOrderOpen)],
+            ),
+        },
+        Event::Approved => (State::Done { checkout_id }, Vec::new()),
+        Event::Declined(why) => (
+            State::Declined {
+                checkout_id,
+                reason: why.clone(),
+            },
+            vec![Effect::Notice(Notice::Declined(why))],
+        ),
+        // The answer still comes; the dialog's next opening starts in flight.
+        Event::Close => (State::InFlight { checkout_id }, Vec::new()),
+        Event::Navigation { .. } => (
+            State::Releasing { checkout_id },
+            vec![Effect::CancelNavigation],
+        ),
+        Event::Created(created) => (
+            State::Releasing { checkout_id },
+            vec![Effect::Abandon {
+                checkout_id: created.checkout_id,
+            }],
+        ),
+        _ => (State::Releasing { checkout_id }, Vec::new()),
     }
 }
 

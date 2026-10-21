@@ -18,7 +18,8 @@
 //! |                                       | fields page, a hosted page, the browser); `payer` |
 //! |                                       | only for a method that asks the app for it        |
 //! | `POST /v1/checkout/{id}/surface`      | the same checkout on the next surface             |
-//! | `POST /v1/checkout/{id}/abandon`      | the provider session expires (popover closed)     |
+//! | `POST /v1/checkout/{id}/abandon`      | the provider session expires (popover closed);    |
+//! |                                       | 409 checkout_paid for a checkout paid meanwhile   |
 //! | `GET /v1/tokens/keys`                 | the period tokens' issuer keys (tier and year)    |
 //! | `POST /v1/tokens/issue`               | a paid checkout's blind-signed period tokens      |
 //! |                                       | (against the sealed sign-up's issue key)          |

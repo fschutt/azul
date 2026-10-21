@@ -1,15 +1,21 @@
 //! The tiers, a development sign-up, a checkout through the browser, a provider or cash, its
 //! status and its abandon, and a voucher.
 
+use azlin_contract::{
+    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutStatusWire, Months, Prepay, TierOffer,
+    TiersAnswer,
+};
+
 use super::*;
 
-/// One storage tier: its size and its prices.
+/// One storage tier: its size, its prices, the periods and the methods it is sold with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tier {
     /// `100GB`, `1TB`: what a sign-up or a checkout names.
     pub id: String,
     pub quota_bytes: u64,
-    /// The price of a month, in cents of `currency`; `None` when the server names none.
+    /// The price of a month, in cents of `currency`; `None` when the server names none (a
+    /// tier sold only by the year has none).
     pub price_cents_month: Option<u64>,
     /// The price of a year (paid yearly).
     pub price_cents_year: Option<u64>,
@@ -17,6 +23,13 @@ pub struct Tier {
     pub currency: String,
     /// The first month costs nothing.
     pub first_month_free: bool,
+    /// Sold for 12 or 24 months only: an order of one month is refused (`bad_months`).
+    pub yearly_only: bool,
+    /// The periods a checkout of it may pay at once, shortest first (never empty): an app
+    /// offers only these.
+    pub prepay: Prepay,
+    /// The payment methods it is sold with; empty: every one the token server takes.
+    pub methods: Vec<String>,
 }
 
 /// `99` cents as `0.99`.
@@ -54,6 +67,61 @@ impl Tier {
         };
         Some(format!("{} {} {per}", self.currency, amount(cents)))
     }
+
+    /// Whether a checkout of it may pay `months` months at once.
+    #[must_use]
+    pub fn sells_months(&self, months: u32) -> bool {
+        Months::try_from(months).is_ok_and(|m| self.prepay.contains(m))
+    }
+
+    /// Whether it is sold a month at a time, with a monthly price.
+    #[must_use]
+    pub fn sells_monthly(&self) -> bool {
+        !self.yearly_only && self.price_cents_month.is_some() && self.sells_months(1)
+    }
+
+    /// Whether it is sold a year at a time.
+    #[must_use]
+    pub fn sells_yearly(&self) -> bool {
+        self.sells_months(12)
+    }
+
+    /// Whether a checkout may pay it with `method` (`sepa`, `card`, `cash`).
+    #[must_use]
+    pub fn takes(&self, method: &str) -> bool {
+        self.methods.is_empty() || self.methods.iter().any(|m| m.trim() == method.trim())
+    }
+
+    /// The method of a checkout without payment options (a payment page in the browser): a
+    /// direct debit where the tier is sold with one, else its first method that is not cash.
+    #[must_use]
+    pub fn v1_method(&self) -> &str {
+        if self.takes(DEFAULT_METHOD) {
+            return DEFAULT_METHOD;
+        }
+        self.methods
+            .iter()
+            .map(|m| m.trim())
+            .find(|m| *m != crate::cash::CASH_METHOD)
+            .unwrap_or(DEFAULT_METHOD)
+    }
+
+    fn of_offer(offer: TierOffer) -> Result<Tier, TokenError> {
+        if offer.quota.0 == 0 {
+            return Err(TokenError::Protocol(format!("the tier {} has no size", offer.id)));
+        }
+        Ok(Tier {
+            id: offer.id.as_str().to_string(),
+            quota_bytes: offer.quota.0,
+            price_cents_month: offer.price_cents_month.filter(|_| !offer.yearly_only),
+            price_cents_year: offer.price_cents_year,
+            currency: offer.currency.as_str().to_string(),
+            first_month_free: offer.first_month_free,
+            yearly_only: offer.yearly_only,
+            prepay: offer.prepay,
+            methods: offer.methods,
+        })
+    }
 }
 
 /// The token server's tier list (`GET /v1/tiers`).
@@ -76,47 +144,20 @@ impl Tiers {
             .any(|m| m.trim() == crate::cash::CASH_METHOD)
     }
 
-    /// Reads the answer of `GET /v1/tiers`.
+    /// Reads the answer of `GET /v1/tiers` (the contract's [`TiersAnswer`]).
     pub fn parse(text: &str) -> Result<Tiers, TokenError> {
-        let value: Value = serde_json::from_str(text)
-            .map_err(|_| TokenError::Protocol(String::from("the tier list is not JSON")))?;
-        let list = value["tiers"]
-            .as_array()
-            .ok_or_else(|| TokenError::Protocol(String::from("the answer has no tier list")))?;
-        let mut tiers = Vec::with_capacity(list.len());
-        for tier in list {
-            let id = tier["id"].as_str().unwrap_or_default().trim().to_string();
-            let quota_bytes = tier["quota_bytes"].as_u64().unwrap_or(0);
-            if id.is_empty() || quota_bytes == 0 {
-                return Err(TokenError::Protocol(String::from(
-                    "a tier has no id or no size",
-                )));
-            }
-            tiers.push(Tier {
-                id,
-                quota_bytes,
-                price_cents_month: tier["price_cents_month"].as_u64(),
-                price_cents_year: tier["price_cents_year"].as_u64(),
-                currency: tier["currency"].as_str().unwrap_or("EUR").to_string(),
-                first_month_free: tier["first_month_free"].as_bool().unwrap_or(false),
-            });
-        }
-        let methods = value["methods"]
-            .as_array()
-            .map(|m| {
-                m.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let withdrawal_consent = value["legal"]["withdrawal_consent"]
-            .as_str()
-            .map(str::to_string);
+        let answer: TiersAnswer = serde_json::from_str(text).map_err(|e| {
+            TokenError::Protocol(format!("the tier list does not read as one: {e}"))
+        })?;
+        let tiers = answer
+            .tiers
+            .into_iter()
+            .map(Tier::of_offer)
+            .collect::<Result<Vec<Tier>, TokenError>>()?;
         Ok(Tiers {
             tiers,
-            methods,
-            withdrawal_consent,
+            methods: answer.methods,
+            withdrawal_consent: answer.legal.withdrawal_consent,
         })
     }
 }
@@ -179,18 +220,29 @@ impl fmt::Debug for CheckoutVia<'_> {
     }
 }
 
-/// Where a checkout stands (`GET /v1/checkout/{id}`).
+/// Where a checkout stands (`GET /v1/checkout/{id}`), as this app can act on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckoutStatus {
-    /// Not paid yet.
+    /// Not paid yet (a cash checkout: its letter is on its way).
     Pending,
     /// Paid: the new drive, opened from the sign-up the token server sealed to the checkout's
     /// claim key (it answers it to every poll for 30 days).
     Approved(Box<DriveBundle>),
-    /// The payment was declined or reversed: why.
+    /// The payment was declined, reversed, or the cash refused: why.
     Declined(String),
     /// The token server no longer has the checkout (it expired, or it is unknown: a 404): why.
     Gone(String),
+    /// Paid, but the sealed sign-up is gone (purged 30 days after the payment, or a checkout
+    /// from before the claim keys): no poll can bring this drive any more.
+    HandoverGone,
+    /// Paid, and the sealed sign-up does not open with the claim key (sealed to another key,
+    /// or for another checkout) or holds no drive: why.
+    Unopenable(String),
+    /// Paid, and the sign-up is a renewal's (months for a drive that exists, no new drive):
+    /// claimed by the renewal, not here.
+    Renewal,
+    /// A status this app does not know (a newer token server): the status word.
+    Unknown(String),
 }
 
 /// What a voucher bought.
@@ -383,20 +435,39 @@ impl<'a> TokenServer<'a> {
     }
 
     /// Abandons the checkout `checkout_id` (`POST /v1/checkout/{id}/abandon`): the provider
-    /// session expires, so a forgotten browser tab can never take money for it.
-    pub fn abandon_checkout(&self, checkout_id: &str) -> Result<(), TokenError> {
+    /// session expires, so a forgotten browser tab can never take money for it - unless it
+    /// was paid meanwhile, which the token server refuses as `checkout_paid` (409). Only an
+    /// answer whose [`AbandonAnswer::is_over`] lets the checkout's claim key go
+    /// ([`crate::pending::abandon`]).
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal (`checkout_paid`, `provider_unavailable`: the session may still
+    /// be paid), an answer that is not one.
+    pub fn abandon_checkout(&self, checkout_id: &str) -> Result<AbandonAnswer, TokenError> {
         let path = format!("/v1/checkout/{}/abandon", check_id(checkout_id.trim())?);
-        self.send(Method::Post, &path, None, Some(&json!({})))
-            .map(|_| ())
+        let value = self.call(Method::Post, &path, None, Some(&json!({})))?;
+        let wire: AbandonWire = serde_json::from_value(value).map_err(|e| {
+            TokenError::Protocol(format!("the abandon's answer does not read as one: {e}"))
+        })?;
+        if wire.checkout_id.as_str() != checkout_id.trim() {
+            return Err(TokenError::Protocol(String::from(
+                "the abandon's answer is about another checkout",
+            )));
+        }
+        Ok(wire.answer)
     }
 
     /// Where the checkout `checkout_id` stands; once it is paid, the new drive - its sign-up
     /// opened with `claim`, the key the checkout named (every poll for 30 days answers it).
+    /// An approved checkout whose sign-up is gone or does not open is said as such
+    /// ([`CheckoutStatus::HandoverGone`], [`CheckoutStatus::Unopenable`]): asking again
+    /// changes neither.
     ///
     /// # Errors
     ///
-    /// No answer or a refusal; [`TokenError::Protocol`] for an approved checkout whose sign-up
-    /// is not sealed to `claim` for this checkout (or is no drive bundle).
+    /// No answer, a refusal other than a 404, an answer that does not read as the contract's
+    /// [`CheckoutAnswer`].
     pub fn checkout_status(
         &self,
         checkout_id: &str,
@@ -423,42 +494,54 @@ impl<'a> TokenServer<'a> {
             }
             Err(e) => return Err(e),
         };
-        let reason = |default: &str| value["reason"].as_str().unwrap_or(default).to_string();
-        match value["status"].as_str().unwrap_or_default() {
-            // A cash checkout waits for its letter like any unpaid one (cash contract v1).
-            "pending" | "awaiting_cash" => Ok(CheckoutStatus::Pending),
-            "approved" => {
-                // The plaintext `signup` of a token server without claims is never taken: anyone
-                // who knew the checkout id could have read it.
-                let sealed = value["sealed_signup"]
-                    .as_str()
-                    .filter(|s| !s.trim().is_empty())
-                    .ok_or_else(|| {
-                        TokenError::Protocol(String::from(
-                            "the approved checkout has no sealed sign-up",
-                        ))
-                    })?;
-                let signup = claim
-                    .open(id, sealed)
-                    .map_err(|e| TokenError::Protocol(e.to_string()))?;
-                Ok(CheckoutStatus::Approved(Box::new(DriveBundle::parse(
-                    &signup,
-                )?)))
-            }
-            "declined" | "reversed" => Ok(CheckoutStatus::Declined(reason(
-                "the payment was declined",
-            ))),
-            // The operator did not take the letter's cash (the amount, the slip).
-            "rejected" => Ok(CheckoutStatus::Declined(reason(
-                "the cash sent was not accepted",
-            ))),
-            "expired" => Ok(CheckoutStatus::Gone(reason(
-                "the checkout expired at the token server",
-            ))),
-            other => Err(TokenError::Protocol(format!(
-                "the checkout is \"{other}\", neither pending, approved, declined nor expired"
-            ))),
+        let answer: CheckoutAnswer = serde_json::from_value(value).map_err(|e| {
+            TokenError::Protocol(format!("the checkout's answer does not read as one: {e}"))
+        })?;
+        if answer.checkout_id.as_str() != id {
+            return Err(TokenError::Protocol(String::from(
+                "the answer is about another checkout",
+            )));
         }
+        let said = |reason: Option<String>, default: &str| {
+            reason
+                .map(|r| r.trim().to_string())
+                .filter(|r| !r.is_empty())
+                .unwrap_or_else(|| default.to_string())
+        };
+        Ok(match answer.status {
+            // A cash checkout waits for its letter like any unpaid one (cash contract v1).
+            CheckoutStatusWire::Pending { .. } | CheckoutStatusWire::AwaitingCash { .. } => {
+                CheckoutStatus::Pending
+            }
+            // The plaintext `signup` of a token server without claims is never taken: anyone
+            // who knew the checkout id could have read it.
+            CheckoutStatusWire::Approved {
+                sealed_signup: None,
+            } => CheckoutStatus::HandoverGone,
+            CheckoutStatusWire::Approved {
+                sealed_signup: Some(sealed),
+            } if sealed.trim().is_empty() => CheckoutStatus::HandoverGone,
+            CheckoutStatusWire::Approved {
+                sealed_signup: Some(sealed),
+            } => opened(claim, id, &sealed),
+            CheckoutStatusWire::Declined { decline, reason } => {
+                let text = decline.and_then(|d| d.text.or(d.reason));
+                CheckoutStatus::Declined(said(reason.or(text), "the payment was declined"))
+            }
+            CheckoutStatusWire::Reversed { reason } => {
+                CheckoutStatus::Declined(said(reason, "the payment was taken back"))
+            }
+            // The operator did not take the letter's cash (the amount, the slip).
+            CheckoutStatusWire::Rejected { reason } => {
+                CheckoutStatus::Declined(said(reason, "the cash sent was not accepted"))
+            }
+            CheckoutStatusWire::Expired { reason } => {
+                CheckoutStatus::Gone(said(reason, "the checkout expired at the token server"))
+            }
+            CheckoutStatusWire::Unknown => CheckoutStatus::Unknown(String::from(
+                "the token server names a checkout status this app does not know",
+            )),
+        })
     }
 
     /// A voucher `code` (`POST /v1/vouchers/redeem`): on the drive `drive` (its id and this
@@ -508,5 +591,24 @@ impl<'a> TokenServer<'a> {
                 .as_str()
                 .and_then(azul_storage::time::parse_iso8601),
         })
+    }
+}
+
+/// The sealed sign-up of the approved checkout `checkout_id` opened with `claim`: the new
+/// drive, a renewal's months, or why it does not open.
+fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
+    let signup = match claim.open(checkout_id, sealed) {
+        Ok(signup) => signup,
+        Err(e) => return CheckoutStatus::Unopenable(e.to_string()),
+    };
+    // A renewal's sign-up adds months to a drive that exists: it holds no drive to open.
+    let renewal = serde_json::from_str::<Value>(&signup)
+        .is_ok_and(|v| v.get("renewal_of").is_some_and(|r| !r.is_null()));
+    if renewal {
+        return CheckoutStatus::Renewal;
+    }
+    match DriveBundle::parse(&signup) {
+        Ok(bundle) => CheckoutStatus::Approved(Box::new(bundle)),
+        Err(e) => CheckoutStatus::Unopenable(e.to_string()),
     }
 }

@@ -75,6 +75,9 @@ pub(crate) fn notice(notice: &Notice) -> String {
         Notice::NoBrowserSurface => t("azdrive-pay-notice-no-browser"),
         Notice::SurfaceRefused(reason) => why("azdrive-pay-notice-surface-refused", reason),
         Notice::WaitingForLetter => t("azdrive-pay-notice-waiting-for-letter"),
+        Notice::CheckingEarlierOrder => t("azdrive-pay-notice-checking-earlier"),
+        Notice::EarlierOrderPaid => t("azdrive-pay-notice-earlier-paid"),
+        Notice::EarlierOrderOpen => t("azdrive-pay-notice-earlier-open"),
         Notice::IdentityIncomplete(fields) => t_args(
             "azdrive-pay-notice-identity-incomplete",
             &[("fields", Arg::from(payer_fields(fields)))],

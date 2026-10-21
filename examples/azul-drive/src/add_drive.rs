@@ -74,8 +74,22 @@ pub(crate) enum TiersState {
     /// Asked for; the answer is on its way.
     Loading,
     Loaded(Tiers),
-    /// Why there is none.
+    /// Why there is none (asked again with "Try again").
     Failed(String),
+    /// The token server refused this buyer the tiers (a country Azlin does not sell to), in
+    /// the window's language: asking again does not help, so nothing offers it.
+    Refused(String),
+}
+
+/// The periods Buy storage offers for the chosen tier: a month or a year, as the tier is sold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Periods {
+    /// A month or a year: the "Pay yearly" switch.
+    MonthOrYear,
+    /// Only by the year (a yearly-only tier): no switch, the year's price.
+    YearOnly,
+    /// Only by the month: no switch, the month's price.
+    MonthOnly,
 }
 
 /// What Buy storage is doing.
@@ -120,7 +134,8 @@ pub(crate) struct AddDialog {
     pub tiers: TiersState,
     /// The chosen tier, an index of the list.
     pub tier: usize,
-    /// Paid yearly (else monthly).
+    /// "Pay yearly" is on (else monthly) - for a tier sold both ways ([`AddDialog::periods`]);
+    /// a tier sold one way only is bought that way whatever it says.
     pub yearly: bool,
     /// The bought drive's name.
     pub buy_name: String,
@@ -154,6 +169,9 @@ pub(crate) struct AddDialog {
     pub card_name: String,
     /// The checkout the machine runs, as the keyring's list keeps it (what the poll asks with).
     pub kept: Option<PendingCheckout>,
+    /// The order button the machine's last order came from was "Pay with cash by post" (else
+    /// Buy): an order that waited for the checkout in flight goes on as it was asked.
+    pub cash_order: bool,
     /// The look the fields page should take (`flora-light`, `flat-dark`).
     pub look_name: String,
     /// "I have a voucher"'s code, as typed.
@@ -277,6 +295,7 @@ impl AddDialog {
             pay: PayState::Choosing,
             card_name: String::new(),
             kept: None,
+            cash_order: false,
             look_name: String::from("flat-light"),
             voucher_code: String::new(),
             claim_code: String::new(),
@@ -527,10 +546,48 @@ impl AddDialog {
         }
     }
 
-    /// Months paid at once: 12 yearly, else 1.
+    /// The periods the chosen tier is sold for (a month or a year when no tier is chosen yet).
+    #[must_use]
+    pub(crate) fn periods(&self) -> Periods {
+        match self.chosen_tier() {
+            Some(tier) => Self::periods_of(tier),
+            None => Periods::MonthOrYear,
+        }
+    }
+
+    /// The periods `tier` is sold for, as this dialog offers them (a month and a year; a tier
+    /// sold for neither is offered by the year, which the token server then names).
+    #[must_use]
+    pub(crate) fn periods_of(tier: &Tier) -> Periods {
+        match (tier.sells_monthly(), tier.sells_yearly()) {
+            (true, true) => Periods::MonthOrYear,
+            (true, false) => Periods::MonthOnly,
+            (false, _) => Periods::YearOnly,
+        }
+    }
+
+    /// Whether `tier` is bought by the year: the switch for a tier sold both ways, else how it
+    /// is sold.
+    #[must_use]
+    pub(crate) fn yearly_for(&self, tier: &Tier) -> bool {
+        match Self::periods_of(tier) {
+            Periods::MonthOrYear => self.yearly,
+            Periods::YearOnly => true,
+            Periods::MonthOnly => false,
+        }
+    }
+
+    /// Whether the chosen tier is bought by the year ([`Self::yearly_for`]).
+    #[must_use]
+    pub(crate) fn pays_yearly(&self) -> bool {
+        self.chosen_tier()
+            .map_or(self.yearly, |tier| self.yearly_for(tier))
+    }
+
+    /// Months paid at once: 12 by the year, else 1 - only periods the tier is sold for.
     #[must_use]
     pub(crate) fn months(&self) -> u32 {
-        if self.yearly {
+        if self.pays_yearly() {
             12
         } else {
             1
@@ -541,7 +598,7 @@ impl AddDialog {
     #[must_use]
     pub(crate) fn buy_label(&self) -> String {
         match self.chosen_tier() {
-            Some(tier) => match crate::pay_words::tier_price(tier, self.yearly) {
+            Some(tier) => match crate::pay_words::tier_price(tier, self.yearly_for(tier)) {
                 Some(price) => t_args(
                     "azdrive-add-buy-tier-price",
                     &[
@@ -663,7 +720,11 @@ impl AddDialog {
         let TiersState::Loaded(tiers) = &self.tiers else {
             return None;
         };
-        if !tiers.takes_cash() {
+        // The server takes cash, and the chosen tier is sold for it.
+        let tier_takes = self
+            .chosen_tier()
+            .is_none_or(|tier| tier.takes(azcloud_kit::cash::CASH_METHOD));
+        if !tiers.takes_cash() || !tier_takes {
             return None;
         }
         azul_pay::cash::choice(&self.pill_context())

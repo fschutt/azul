@@ -126,7 +126,9 @@ pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
-pub use pending::{CashKept, Finished, PendingCheckout, PendingTokens, Polled};
+pub use pending::{
+    Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, Settled, Transient,
+};
 pub use period::{
     issue_tokens, look_at_drive, redeem_due, IssueRequest, Issuer, IssuerKey, Look, PeriodToken,
     PeriodTokenStore, Redeemed,

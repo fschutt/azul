@@ -6,21 +6,29 @@
 //! still reaches it. It stays within [`MAX_PENDING_BYTES`] (Windows' Credential Manager keeps no
 //! more in one entry): a checkout that would not fit is refused before its payment page opens.
 //!
+//! A checkout's claim secret is the only key to the drive it pays for, so a checkout leaves the
+//! list only through [`settle`], with a [`Settled`] made from what the token server answered:
+//! the drive claimed and nothing more owed, the payment declined, the checkout gone or ended by
+//! its abandon ([`abandon`]), a sealed sign-up that did not open twice. Nothing the app decides
+//! on its own (a closed popover, a timeout) takes one off.
+//!
 //! An app polls them while its dialog waits, at every start and in the background after "Stop
 //! waiting" ([`poll`]): an approved checkout becomes the drive - its session goes into the
 //! keyring under the drive's lock unless the keyring has it already (idempotent by drive id: a
 //! session that rotated since is never replaced by the sign-up's spent token) - and the app
 //! tells the list once the drive is in its drives file ([`claimed`]): a checkout without period
 //! tokens is done then; a paid one stays, its claim secret and now its issue key with it, until
-//! [`finish`] has issued its period tokens and kept them (AZDRIVE-INTEGRATION §4). A checkout
-//! whose payment was declined, or that the token server no longer has, is taken off at once -
-//! and said by the one poll that took it off.
+//! [`finish`] has issued its period tokens and kept them (AZDRIVE-INTEGRATION §4). What a poll
+//! found is [`Polled`]: an answer that ends the checkout ([`Final`], said by the one poll that
+//! took it off) or one that keeps it for the next poll ([`Transient`]).
 //!
 //! Blocking (the keyring, the token server): call it from an azul `Thread`.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+use azlin_contract::AbandonAnswer;
 
 use crate::{
     bundle::{DriveBundle, PeriodTokens},
@@ -76,7 +84,23 @@ pub struct PendingCheckout {
     /// a token family of this computer's own ([`poll`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub picked_up: bool,
+    /// When its abandon did not end it (it was paid meanwhile, or the token server could not
+    /// expire its payment session), in seconds since 1970: its payment may be under way, so
+    /// the app asks about it before it starts another order ([`abandon`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_flight_since: Option<i64>,
+    /// How often its sealed sign-up did not open with its claim key: the second time it is
+    /// given up ([`Final::Unopenable`]), the first may have been a damaged answer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub open_failures: u32,
 }
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// How often a sealed sign-up must fail to open before its checkout is given up.
+pub const UNOPENABLE_AFTER: u32 = 2;
 
 /// What a cash checkout's slip prints (cash contract v1): the amount, the activation code, the
 /// operator's address, the checkout's end.
@@ -109,6 +133,8 @@ impl fmt::Debug for PendingCheckout {
             .field("method", &self.method)
             .field("cash", &self.cash)
             .field("picked_up", &self.picked_up)
+            .field("in_flight_since", &self.in_flight_since)
+            .field("open_failures", &self.open_failures)
             .finish()
     }
 }
@@ -167,6 +193,8 @@ impl PendingCheckout {
             method: String::new(),
             cash: None,
             picked_up: false,
+            in_flight_since: None,
+            open_failures: 0,
         }
     }
 
@@ -276,12 +304,9 @@ fn short_name(name: &str) -> String {
 }
 
 /// Takes the checkout `checkout_id` off the list; whether this call did (`false`: it was not
-/// on it - another window took it off).
-///
-/// # Errors
-///
-/// When the list cannot be read or written.
-pub fn remove(shared: &SharedKeyring, checkout_id: &str) -> CloudResult<bool> {
+/// on it - another window took it off). Only [`settle`] calls it: a checkout leaves the list
+/// with the token server's word only.
+fn take_off(shared: &SharedKeyring, checkout_id: &str) -> CloudResult<bool> {
     let _lock = shared.lock(PENDING_KEY)?;
     let mut checkouts = read(shared)?;
     let before = checkouts.len();
@@ -291,6 +316,141 @@ pub fn remove(shared: &SharedKeyring, checkout_id: &str) -> CloudResult<bool> {
     }
     write(shared, checkouts)?;
     Ok(true)
+}
+
+/// What the token server said that ends a checkout: the only thing that takes one off the list
+/// ([`settle`]). Made from its answers here and by [`Settled::abandoned`], never from a guess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settled(SettledBy);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SettledBy {
+    /// Its drive is in the drives file and nothing more is owed for it.
+    Claimed,
+    /// Its period tokens are issued and kept, or the token server will never issue them.
+    Finished,
+    /// The payment did not go through, or went back.
+    Declined,
+    /// The token server no longer has it, or its drive's hand-over is gone.
+    Gone,
+    /// Its abandon ended it at the token server.
+    Abandoned(AbandonAnswer),
+    /// Its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`] times.
+    Unopenable,
+}
+
+impl Settled {
+    /// What it ends the checkout for, for an error's context.
+    fn what(&self) -> String {
+        let why = match &self.0 {
+            SettledBy::Claimed => "its drive is saved",
+            SettledBy::Finished => "its period tokens are dealt with",
+            SettledBy::Declined => "its payment did not go through",
+            SettledBy::Gone => "the token server no longer has it",
+            SettledBy::Abandoned(answer) => {
+                return format!("ending the checkout: its abandon answered {answer:?}")
+            }
+            SettledBy::Unopenable => "its sign-up does not open",
+        };
+        format!("ending the checkout: {why}")
+    }
+
+    /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`
+    /// when the checkout may still be paid.
+    #[must_use]
+    pub fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
+        answer
+            .is_over()
+            .then_some(Settled(SettledBy::Abandoned(answer)))
+    }
+}
+
+/// Takes the checkout `checkout_id` off the list for `proof`: its claim secret goes, and with it
+/// every way to the drive it paid for. Whether this call did (`false`: another window did).
+///
+/// # Errors
+///
+/// When the list cannot be read or written: the checkout stays.
+pub fn settle(shared: &SharedKeyring, checkout_id: &str, proof: Settled) -> CloudResult<bool> {
+    take_off(shared, checkout_id).map_err(|e| e.context(proof.what()))
+}
+
+/// Changes the kept checkout `checkout_id` by `change` (a mark of its lifecycle: in flight, a
+/// sign-up that did not open); the checkout as it is now, `None` when it is not on the list
+/// (another window took it off). The marks fit in the room [`add`] keeps for each unclaimed
+/// checkout's period tokens, and [`claimed`] clears them when it fills that room.
+fn change(
+    shared: &SharedKeyring,
+    checkout_id: &str,
+    change: impl FnOnce(&mut PendingCheckout),
+) -> CloudResult<Option<PendingCheckout>> {
+    let _lock = shared.lock(PENDING_KEY)?;
+    let mut checkouts = read(shared)?;
+    let Some(checkout) = checkouts.iter_mut().find(|c| c.checkout_id == checkout_id) else {
+        return Ok(None);
+    };
+    change(checkout);
+    let changed = checkout.clone();
+    let text = text_of(checkouts)?;
+    if text.len() > MAX_PENDING_BYTES {
+        fail!("the keyring's list of unfinished checkouts has no room left for {checkout_id}");
+    }
+    shared.set(PENDING_KEY, &text)?;
+    Ok(Some(changed))
+}
+
+/// What became of an abandon ([`abandon`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Abandoned {
+    /// The token server ended it (nobody can pay it any more): off the list.
+    Ended,
+    /// Off the list already: another window dealt with it.
+    Settled,
+    /// It stays on the list, its payment possibly under way ([`PendingCheckout::in_flight_since`]):
+    /// it was paid meanwhile (`paid`: its drive comes with the payment's confirmation), or the
+    /// token server could not end it (no answer, the provider did not answer, an answer this app
+    /// does not read) - a payment made in a forgotten tab still brings the drive. Why.
+    Kept { paid: bool, why: String },
+}
+
+/// Abandons the checkout `checkout_id` at `server` (its own token server): the popover closed
+/// before the payment was confirmed. Only an answer that ends it takes it off the list; a paid
+/// one (409 `checkout_paid`) and one the token server could not end stay, marked in flight, for
+/// the polls that bring its drive. A 404 is a checkout the token server no longer has.
+#[must_use]
+pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &str) -> Abandoned {
+    let kept = |paid: bool, why: String| {
+        let marked = change(shared, checkout_id, |c| {
+            c.in_flight_since.get_or_insert_with(crate::now);
+        });
+        match marked {
+            Ok(Some(_)) => Abandoned::Kept { paid, why },
+            Ok(None) => Abandoned::Settled,
+            Err(e) => Abandoned::Kept {
+                paid,
+                why: format!("{why}; it was not marked as in flight: {e}"),
+            },
+        }
+    };
+    let settled = |proof: Settled| match settle(shared, checkout_id, proof) {
+        Ok(true) => Abandoned::Ended,
+        Ok(false) => Abandoned::Settled,
+        Err(e) => Abandoned::Kept {
+            paid: false,
+            why: format!("it ended, but could not be taken off the list: {e}"),
+        },
+    };
+    match server.abandon_checkout(checkout_id) {
+        Ok(answer) => match Settled::abandoned(answer) {
+            Some(proof) => settled(proof),
+            None => kept(false, format!("the token server keeps it open ({answer:?})")),
+        },
+        Err(TokenError::Refused { code, message, .. }) if code == "checkout_paid" => {
+            kept(true, if message.is_empty() { code } else { message })
+        }
+        Err(TokenError::Refused { status: 404, .. }) => settled(Settled(SettledBy::Gone)),
+        Err(e) => kept(false, e.to_string()),
+    }
 }
 
 /// A paid checkout's drive, its session in the keyring. `Debug` shows no session.
@@ -319,17 +479,80 @@ impl fmt::Debug for Claimed {
 pub enum Polled {
     /// Not paid yet: it stays on the list.
     Pending,
-    /// Paid: the drive. The app adds it (its drives file, its window) and then takes the
-    /// checkout off the list.
-    Claimed(Box<Claimed>),
-    /// This poll took it off the list: why (the payment was declined, the token server no longer
-    /// has it) - to be said once.
-    Dropped(String),
-    /// It stays on the list for the next try: why (no answer, a refusal, a sign-up that does not
-    /// open with its claim key, a keyring that failed).
-    Kept(String),
+    /// The answer ends the checkout ([`Final`]): to be said once.
+    Final(Final),
+    /// It stays on the list for the next poll ([`Transient`]).
+    Transient(Transient),
     /// Off the list already: another window (or run) dealt with it; nothing to say.
     Settled,
+}
+
+/// An answer that ends a checkout.
+#[derive(Debug)]
+pub enum Final {
+    /// Paid: the drive. The app adds it (its drives file, its window) and then tells the list
+    /// ([`claimed`]).
+    Claimed(Box<Claimed>),
+    /// Off the list: the payment did not go through (declined, taken back, the cash refused).
+    Declined(String),
+    /// Off the list: the token server no longer has it (expired, unknown), the drive can no
+    /// longer be picked up here, or its drive's hand-over is gone. Why.
+    Gone(String),
+    /// Off the list: its sealed sign-up did not open with its claim key, [`UNOPENABLE_AFTER`]
+    /// times (sealed to another key, or holding no drive). `error_id` is what support traces:
+    /// the checkout's id.
+    Unopenable { error_id: String, why: String },
+}
+
+impl Final {
+    /// Why it ended, as said once; empty for a claimed one.
+    #[must_use]
+    pub fn why(&self) -> String {
+        match self {
+            Final::Claimed(_) => String::new(),
+            Final::Declined(why) | Final::Gone(why) => why.clone(),
+            Final::Unopenable { error_id, why } => format!(
+                "its drive's sign-up does not open with this computer's key ({why}): support \
+                 can help with the error ID {error_id}"
+            ),
+        }
+    }
+}
+
+/// An answer that keeps a checkout for the next poll.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Transient {
+    /// No answer from the token server (DNS, connection, TLS, a timeout).
+    NoAnswer(String),
+    /// The token server was busy (5xx, 429).
+    Busy(String),
+    /// Its sealed sign-up did not open (fewer than [`UNOPENABLE_AFTER`] times): asked again.
+    Unopened(String),
+    /// This device could not keep what the answer brought, or change the list (its keyring).
+    NotKept(String),
+    /// An answer this app cannot act on: a status or a refusal it does not know (a newer token
+    /// server - an update helps), a renewal's sign-up (claimed by the renewal, not here).
+    Unread(String),
+}
+
+impl Transient {
+    /// Why it stays.
+    #[must_use]
+    pub fn why(&self) -> &str {
+        match self {
+            Transient::NoAnswer(why)
+            | Transient::Busy(why)
+            | Transient::Unopened(why)
+            | Transient::NotKept(why)
+            | Transient::Unread(why) => why,
+        }
+    }
+}
+
+impl fmt::Display for Transient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.why())
+    }
 }
 
 /// Asks `server` (the checkout's own token server) about `checkout` and acts on the answer: see
@@ -343,53 +566,116 @@ pub fn poll(
     let claim = match checkout.claim_key() {
         Ok(claim) => claim,
         // Its sealed sign-up can never be opened.
-        Err(e) => return drop_it(shared, checkout, format!("its claim key cannot be read ({e})")),
+        Err(e) => {
+            return end(
+                shared,
+                checkout,
+                SettledBy::Unopenable,
+                Final::Unopenable {
+                    error_id: checkout.checkout_id.clone(),
+                    why: format!("its claim key cannot be read: {e}"),
+                },
+            )
+        }
     };
     match server.checkout_status(&checkout.checkout_id, &claim) {
         Ok(CheckoutStatus::Pending) => Polled::Pending,
-        Ok(CheckoutStatus::Approved(bundle)) => {
-            let kept = if checkout.picked_up {
-                keep_picked_up(server, shared, checkout, *bundle)
-            } else {
-                match shared.keep_new_drive(&bundle) {
-                    Ok((session, already)) => Ok((*bundle, session, already)),
-                    Err(e) => Err(Polled::Kept(format!(
-                        "the new drive's session could not be kept: {e}"
-                    ))),
-                }
-            };
-            match kept {
-                Ok((bundle, session, already)) => {
-                    // A checkout picked up by its claim code learns its tier here: its period
-                    // tokens are issued for it. Quietly: the next claim tries again.
-                    if checkout.tier.is_empty() {
-                        if let Some(tier) = bundle.tier.as_deref() {
-                            let _ = set_tier(shared, &checkout.checkout_id, tier);
-                        }
-                    }
-                    Polled::Claimed(Box::new(Claimed {
-                        bundle,
-                        session,
-                        already,
-                    }))
-                }
-                Err(polled) => polled,
-            }
-        }
-        Ok(CheckoutStatus::Declined(why)) => drop_it(
+        Ok(CheckoutStatus::Approved(bundle)) => claim_drive(server, shared, checkout, *bundle),
+        Ok(CheckoutStatus::Declined(why)) => end(
             shared,
             checkout,
-            format!("the payment did not go through: {why}"),
+            SettledBy::Declined,
+            Final::Declined(format!("the payment did not go through: {why}")),
         ),
-        Ok(CheckoutStatus::Gone(why)) => drop_it(
+        Ok(CheckoutStatus::Gone(why)) => end(
             shared,
             checkout,
-            format!("the token server no longer has it: {why}"),
+            SettledBy::Gone,
+            Final::Gone(format!("the token server no longer has it: {why}")),
         ),
-        Err(TokenError::Connect(why)) => {
-            Polled::Kept(format!("no answer from the token server: {why}"))
+        Ok(CheckoutStatus::HandoverGone) => end(
+            shared,
+            checkout,
+            SettledBy::Gone,
+            Final::Gone(format!(
+                "it was paid, but the token server keeps its drive's hand-over only 30 days \
+                 after the payment and has it no more: support can help with the checkout \
+                 {}",
+                checkout.checkout_id
+            )),
+        ),
+        Ok(CheckoutStatus::Unopenable(why)) => unopenable(shared, checkout, why),
+        Ok(CheckoutStatus::Renewal) => Polled::Transient(Transient::Unread(String::from(
+            "its sign-up is a renewal's: the months are added to their drive by the renewal",
+        ))),
+        Ok(CheckoutStatus::Unknown(why)) => Polled::Transient(Transient::Unread(why)),
+        Err(TokenError::Connect(why)) => Polled::Transient(Transient::NoAnswer(format!(
+            "no answer from the token server: {why}"
+        ))),
+        Err(e @ TokenError::Refused { status, .. }) if status >= 500 || status == 429 => {
+            Polled::Transient(Transient::Busy(e.to_string()))
         }
-        Err(e) => Polled::Kept(e.to_string()),
+        Err(e) => Polled::Transient(Transient::Unread(e.to_string())),
+    }
+}
+
+/// The approved `checkout`'s drive `bundle`, its session kept in the keyring (a picked-up one
+/// claimed as this computer's own token family first).
+fn claim_drive(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    bundle: DriveBundle,
+) -> Polled {
+    let kept = if checkout.picked_up {
+        keep_picked_up(server, shared, checkout, bundle)
+    } else {
+        match shared.keep_new_drive(&bundle) {
+            Ok((session, already)) => Ok((bundle, session, already)),
+            Err(e) => Err(Polled::Transient(Transient::NotKept(format!(
+                "the new drive's session could not be kept: {e}"
+            )))),
+        }
+    };
+    let (bundle, session, already) = match kept {
+        Ok(kept) => kept,
+        Err(polled) => return polled,
+    };
+    // A checkout picked up by its claim code learns its tier here: its period tokens are
+    // issued for it. Quietly: the next claim tries again.
+    if checkout.tier.is_empty() {
+        if let Some(tier) = bundle.tier.as_deref() {
+            let _ = set_tier(shared, &checkout.checkout_id, tier);
+        }
+    }
+    Polled::Final(Final::Claimed(Box::new(Claimed {
+        bundle,
+        session,
+        already,
+    })))
+}
+
+/// A sealed sign-up of `checkout` that did not open, `why`: counted on the list, given up the
+/// [`UNOPENABLE_AFTER`]th time.
+fn unopenable(shared: &SharedKeyring, checkout: &PendingCheckout, why: String) -> Polled {
+    let counted = change(shared, &checkout.checkout_id, |c| {
+        c.open_failures = c.open_failures.saturating_add(1);
+    });
+    match counted {
+        Ok(Some(now)) if now.open_failures >= UNOPENABLE_AFTER => end(
+            shared,
+            checkout,
+            SettledBy::Unopenable,
+            Final::Unopenable {
+                error_id: checkout.checkout_id.clone(),
+                why,
+            },
+        ),
+        Ok(Some(_)) => Polled::Transient(Transient::Unopened(why)),
+        Ok(None) => Polled::Settled,
+        Err(e) => Polled::Transient(Transient::NotKept(format!(
+            "{why}; the list could not count it: {e}"
+        ))),
     }
 }
 
@@ -422,8 +708,11 @@ fn keep_picked_up(
     mut bundle: DriveBundle,
 ) -> Result<(DriveBundle, String, bool), Polled> {
     let key = azul_storage::config::keyring_key(bundle.drive_id());
-    let not_kept =
-        |e: CloudError| Polled::Kept(format!("the new drive's session could not be kept: {e}"));
+    let not_kept = |e: CloudError| {
+        Polled::Transient(Transient::NotKept(format!(
+            "the new drive's session could not be kept: {e}"
+        )))
+    };
     let _lock = shared.lock(&key).map_err(not_kept)?;
     if let Some(text) = shared.get(&key).map_err(not_kept)? {
         let ours = crate::session::AzlinSession::from_keyring_secret(&text)
@@ -441,16 +730,23 @@ fn keep_picked_up(
                 if code == "claims_used" || code == "claim_expired" =>
             {
                 let why = if message.is_empty() { code } else { message };
-                return Err(drop_it(
+                return Err(end(
                     shared,
                     checkout,
-                    format!("the drive cannot be picked up here any more: {why}"),
+                    SettledBy::Gone,
+                    Final::Gone(format!("the drive cannot be picked up here any more: {why}")),
                 ));
             }
             Err(TokenError::Connect(why)) => {
-                return Err(Polled::Kept(format!("no answer from the token server: {why}")))
+                return Err(Polled::Transient(Transient::NoAnswer(format!(
+                    "no answer from the token server: {why}"
+                ))))
             }
-            Err(e) => return Err(Polled::Kept(format!("the drive was not picked up: {e}"))),
+            Err(e) => {
+                return Err(Polled::Transient(Transient::Unread(format!(
+                    "the drive was not picked up: {e}"
+                ))))
+            }
         }
     }
     let text = bundle.session().to_keyring_secret();
@@ -458,12 +754,15 @@ fn keep_picked_up(
     Ok((bundle, text, false))
 }
 
-/// Takes `checkout` off the list because of `why`.
-fn drop_it(shared: &SharedKeyring, checkout: &PendingCheckout, why: String) -> Polled {
-    match remove(shared, &checkout.checkout_id) {
-        Ok(true) => Polled::Dropped(why),
+/// Takes `checkout` off the list for `by`; `said` once by the poll that did.
+fn end(shared: &SharedKeyring, checkout: &PendingCheckout, by: SettledBy, said: Final) -> Polled {
+    match settle(shared, &checkout.checkout_id, Settled(by)) {
+        Ok(true) => Polled::Final(said),
         Ok(false) => Polled::Settled,
-        Err(e) => Polled::Kept(format!("{why}; it could not be taken off the list: {e}")),
+        Err(e) => Polled::Transient(Transient::NotKept(format!(
+            "{}; it could not be taken off the list: {e}",
+            said.why()
+        ))),
     }
 }
 
@@ -484,7 +783,7 @@ pub fn claimed(
     grant: Option<&PeriodTokens>,
 ) -> CloudResult<()> {
     let Some(grant) = grant else {
-        remove(shared, checkout_id)?;
+        settle(shared, checkout_id, Settled(SettledBy::Claimed))?;
         return Ok(());
     };
     let _lock = shared.lock(PENDING_KEY)?;
@@ -498,6 +797,9 @@ pub fn claimed(
         months: grant.months,
         issue_key: grant.issue_key.trim().to_string(),
     });
+    // Claimed: neither in flight nor unopened any more, and their room is the tokens' now.
+    checkout.in_flight_since = None;
+    checkout.open_failures = 0;
     let text = text_of(checkouts)?;
     if text.len() > MAX_PENDING_BYTES {
         fail!(
@@ -555,7 +857,7 @@ pub fn finish(
     // Done: its kept issue request goes, then the checkout leaves the list.
     let done = |finished: Finished| {
         let _ = store.forget_issue_request(id);
-        match remove(shared, id) {
+        match settle(shared, id, Settled(SettledBy::Finished)) {
             Ok(_) => finished,
             Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
         }

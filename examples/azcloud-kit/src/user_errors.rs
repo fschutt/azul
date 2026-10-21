@@ -11,7 +11,7 @@
 
 use std::fmt::Write as _;
 
-use azlin_contract::AzlinError;
+use azlin_contract::{AzlinError, CheckoutRefusal};
 use azul_storage::{DriveError, ServiceError};
 
 use crate::{error::CloudError, token::TokenError};
@@ -112,11 +112,25 @@ pub enum Code {
     /// The service no longer speaks this app's contract (`client_too_old`): only an update
     /// helps.
     UpdateApp,
+    /// Azlin Storage is not sold to the buyer's country (`blocked_country`): nothing can be
+    /// bought, asking again does not help.
+    BlockedCountry,
+    /// The tier is not sold for the period ordered (`bad_months`).
+    BadMonths,
+    /// The tier is not sold with the payment method ordered (`bad_method`).
+    BadMethod,
+    /// The tier is sold out for now, or no longer sold (`tier_unavailable`, `tier_ended`).
+    TierUnavailable,
+    /// The payment method needs details of the payer first (`payer_required`,
+    /// `payer_invalid`).
+    PayerRequired,
+    /// The checkout was paid already (`checkout_paid`): its drive comes, nothing to cancel.
+    CheckoutPaid,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 24] = [
+    pub const ALL: [Code; 30] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -141,6 +155,12 @@ impl Code {
         Code::BadChallenge,
         Code::ClockSkew,
         Code::UpdateApp,
+        Code::BlockedCountry,
+        Code::BadMonths,
+        Code::BadMethod,
+        Code::TierUnavailable,
+        Code::PayerRequired,
+        Code::CheckoutPaid,
     ];
 
     /// `quota_exceeded`, ...
@@ -169,6 +189,12 @@ impl Code {
             Code::BadChallenge => "bad_challenge",
             Code::ClockSkew => "clock_skew",
             Code::UpdateApp => "update_app",
+            Code::BlockedCountry => "blocked_country",
+            Code::BadMonths => "bad_months",
+            Code::BadMethod => "bad_method",
+            Code::TierUnavailable => "tier_unavailable",
+            Code::PayerRequired => "payer_required",
+            Code::CheckoutPaid => "checkout_paid",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -230,6 +256,45 @@ impl From<AzlinError> for Code {
             AzlinError::RecoveryKeyRequired => Code::RecoveryKeyRequired,
             AzlinError::LastRecoveryKey => Code::LastRecoveryKey,
             AzlinError::BadChallenge => Code::BadChallenge,
+        }
+    }
+}
+
+/// Every way the token server refuses an order has its row: a new refusal in the contract does
+/// not compile until it is given one here. The refusals no buyer can act on are said as what
+/// went wrong ([`Code::Other`], with the server's sentence as the detail).
+impl From<&CheckoutRefusal> for Code {
+    fn from(refusal: &CheckoutRefusal) -> Code {
+        match refusal {
+            CheckoutRefusal::BlockedCountry => Code::BlockedCountry,
+            CheckoutRefusal::BadMonths { .. } => Code::BadMonths,
+            CheckoutRefusal::BadMethod => Code::BadMethod,
+            CheckoutRefusal::TierUnavailable { .. } | CheckoutRefusal::TierEnded => {
+                Code::TierUnavailable
+            }
+            CheckoutRefusal::PayerRequired | CheckoutRefusal::PayerInvalid => Code::PayerRequired,
+            CheckoutRefusal::CheckoutPaid => Code::CheckoutPaid,
+            // Asking again in a moment may work.
+            CheckoutRefusal::ProviderUnavailable
+            | CheckoutRefusal::NoPriceLadder
+            | CheckoutRefusal::IssuerKeyMissing => Code::Unavailable,
+            CheckoutRefusal::BadTier
+            | CheckoutRefusal::BadCurrency
+            | CheckoutRefusal::CurrencyEnded
+            | CheckoutRefusal::PayerUnexpected
+            | CheckoutRefusal::ConsentRequired
+            | CheckoutRefusal::BadProvider
+            | CheckoutRefusal::SurfaceUnavailable
+            | CheckoutRefusal::CashUnavailable
+            | CheckoutRefusal::ClaimKeyRequired
+            | CheckoutRefusal::LockUsed
+            | CheckoutRefusal::LockKeyWrong
+            | CheckoutRefusal::LockTier
+            | CheckoutRefusal::NoLock
+            | CheckoutRefusal::NotPaid
+            | CheckoutRefusal::CheckoutClosed
+            | CheckoutRefusal::NoSuchCheckout
+            | CheckoutRefusal::Unknown => Code::Other,
         }
     }
 }
@@ -429,6 +494,53 @@ pub const ROWS: &[Row] = &[
              weiteren hinzu, bevor du ihn entfernst.",
     },
     Row {
+        code: Code::BlockedCountry,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "Azlin Storage is not sold in your country yet. Nothing was charged.",
+        de: "Azlin Storage wird in deinem Land noch nicht verkauft. Es wurde nichts berechnet.",
+    },
+    Row {
+        code: Code::BadMonths,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This size is not sold for that period. Choose another period.",
+        de: "Diese Größe wird für diesen Zeitraum nicht verkauft. Wähle einen anderen Zeitraum.",
+    },
+    Row {
+        code: Code::BadMethod,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This size is not sold with that payment method. Choose another way to pay.",
+        de: "Diese Größe wird mit dieser Zahlungsart nicht verkauft. Wähle eine andere \
+             Zahlungsart.",
+    },
+    Row {
+        code: Code::TierUnavailable,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This size is not available right now. Choose another size, or try again later.",
+        de: "Diese Größe ist gerade nicht erhältlich. Wähle eine andere Größe oder versuche es \
+             später noch einmal.",
+    },
+    Row {
+        code: Code::PayerRequired,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This payment method needs a few details about you first. Fill them in and order \
+             again.",
+        de: "Diese Zahlungsart braucht zuerst ein paar Angaben zu dir. Fülle sie aus und \
+             bestelle noch einmal.",
+    },
+    Row {
+        code: Code::CheckoutPaid,
+        class: Class::Retry,
+        behaviour: Behaviour::Nothing,
+        en: "This order is paid already: the drive arrives as soon as the payment is confirmed.",
+        de: "Diese Bestellung ist schon bezahlt: Das Laufwerk kommt, sobald die Zahlung \
+             bestätigt ist.",
+    },
+    Row {
         code: Code::BadChallenge,
         class: Class::Retry,
         behaviour: Behaviour::RetryWithBackoff,
@@ -552,6 +664,7 @@ impl UserError {
             TokenError::Refused { status, code, .. } => {
                 let known = AzlinError::parse(code)
                     .map(Code::from)
+                    .or_else(|| CheckoutRefusal::parse(code).map(|r| Code::from(&r)))
                     .filter(|code| *code != Code::Other);
                 UserError::new(known.unwrap_or_else(|| busy_or_other(*status)), e.to_string())
             }

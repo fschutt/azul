@@ -172,10 +172,11 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     for the payer's details (they are never kept)
     POST /v1/checkout/<id>/surface {"kind"}         200 the same checkout on another surface
     POST /v1/checkout/<id>/abandon                  200 the provider session expires
-                                                    (expired); a session the payer already
-                                                    paid whose webhook has not come yet stays:
-                                                    200 pending, the webhook approves it
-                                                    (routes.rs `session_complete`); 502
+                                                    (expired); a paid checkout - approved, or
+                                                    a session the payer paid whose webhook has
+                                                    not come yet - is 409 checkout_paid and
+                                                    stays, the webhook approves it (routes.rs
+                                                    `session_complete`); 502
                                                     provider_unavailable after the switch
                                                     fail_abandon(n): nothing changed
     POST /v1/webhook/<provider>                     200 a signed provider webhook (each event once)
@@ -1217,21 +1218,30 @@ class TokenState:
 
     def abandon(self, checkout_id):
         """POST /v1/checkout/<id>/abandon: the provider session expires (the popover closed
-        before paying): nobody can pay it any more. A session the payer already paid is not
-        expired: the checkout stays pending and its webhook approves it."""
+        before paying): nobody can pay it any more (200 `expired`; one that ended before says
+        how: `declined`, `reversed`, `rejected`; a letter of cash waits: `pending`). A paid
+        checkout - approved, or a session the payer paid whose webhook is still on its way - is
+        refused as 409 `checkout_paid`: its drive comes, its claim key must stay."""
         with self.lock:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
                 raise ApiError(404, 'no_such_checkout', 'unknown checkout')
             self.abandoned.append(checkout_id)
-            if checkout['status'] != 'pending':
-                return {'checkout_id': checkout_id, 'status': checkout['status']}
+            status = checkout['status']
+            if status == 'approved':
+                raise ApiError(409, 'checkout_paid', 'the checkout was paid: its drive comes '
+                               "with the payment's confirmation")
+            if status in ('expired', 'declined', 'reversed', 'rejected'):
+                return {'checkout_id': checkout_id, 'status': status}
+            if status != 'pending':
+                return {'checkout_id': checkout_id, 'status': 'pending'}
             if checkout.get('provider') and self.abandon_failures > 0:
                 self.abandon_failures -= 1
                 raise ApiError(502, 'provider_unavailable', 'the payment provider did not '
                                'answer; try again or pick another way to pay')
             if checkout.get('provider_paid'):
-                return {'checkout_id': checkout_id, 'status': 'pending'}
+                raise ApiError(409, 'checkout_paid', 'the checkout was paid: its drive comes '
+                               "with the payment's confirmation")
             checkout['abandoned'] = True
             checkout['status'] = 'expired'
             return {'checkout_id': checkout_id, 'status': checkout['status']}

@@ -9,17 +9,25 @@
 //! - [`Rfc3339`] and [`Deadline`]: the times the services name, and what ends at them.
 //! - [`AzlinError`]: the codes a node sends in `x-azlin-error` and the token server in its
 //!   `{"error": ...}` body.
+//! - Buying a drive: [`TiersAnswer`] and its [`TierOffer`]s, [`CheckoutAnswer`] with its
+//!   [`CheckoutStatusWire`], [`AbandonAnswer`] and [`CheckoutRefusal`].
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
 //! exactly them, and the services check [`fixtures_digest`] against the digest they were built
 //! for, so both sides cannot drift apart unnoticed.
 
+mod checkout;
 mod error;
 mod hello;
 mod ids;
 mod idempotency;
 mod time;
 
+pub use checkout::{
+    AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
+    LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange, Settles,
+    TierClosed, TierOffer, TierPriceWire, TiersAnswer,
+};
 pub use error::AzlinError;
 pub use hello::{AppName, ClientHello, SemVer, CLIENT_HEADER};
 pub use idempotency::{IdempotencyKey, IDEMPOTENCY_HEADER};
@@ -35,6 +43,10 @@ pub const CONTRACT_VERSION: u32 = 3;
 
 /// The golden fixtures, `(file name, JSON)`, in the order the digest reads them.
 pub const FIXTURES: &[(&str, &str)] = &[
+    ("abandon_answers.json", include_str!("../fixtures/abandon_answers.json")),
+    ("checkout_answers.json", include_str!("../fixtures/checkout_answers.json")),
+    ("checkout_refusals.json", include_str!("../fixtures/checkout_refusals.json")),
+    ("tiers_answer.json", include_str!("../fixtures/tiers_answer.json")),
     ("azlin_errors.json", include_str!("../fixtures/azlin_errors.json")),
     ("client_hello.json", include_str!("../fixtures/client_hello.json")),
     ("deadlines.json", include_str!("../fixtures/deadlines.json")),

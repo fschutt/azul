@@ -23,7 +23,7 @@ use std::{
 };
 
 use azcloud_kit::{
-    pending::{self, Claimed, Finished, PendingTokens, Polled},
+    pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled},
     look_at_drive, ActivationCode, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle,
     OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
@@ -107,11 +107,32 @@ pub(crate) struct PayVia {
     pub payer: Option<azul_pay::Payer>,
 }
 
-/// Why Buy storage has no payment options: the token server refused this buyer (its own
-/// sentence, shown as it is - a country it does not serve), or it could not be asked.
+/// Why Buy storage has no payment options: the token server refused this buyer (a country it
+/// does not serve: the refusal in the app's words, never the server's sentence), or it could
+/// not be asked.
 pub(crate) enum OptionsFailed {
-    Refused(String),
+    Refused(Text),
     Failed(String),
+}
+
+/// Why Buy storage has no tiers: the token server refused this buyer (asking again does not
+/// help: the refusal in the app's words), or it could not be asked (try again).
+pub(crate) enum TiersFailed {
+    Refused(Text),
+    Failed(String),
+}
+
+/// The token server's refusal of this buyer (a country it does not serve, 403): asking again
+/// does not change it. In the app's words; `None` for any other error.
+pub(crate) fn buyer_refused(e: &TokenError) -> Option<Text> {
+    let TokenError::Refused { status, code, .. } = e else {
+        return None;
+    };
+    let blocked = matches!(
+        azcloud_kit::azlin_contract::CheckoutRefusal::parse(code),
+        Some(azcloud_kit::azlin_contract::CheckoutRefusal::BlockedCountry)
+    );
+    (blocked || *status == 403).then(|| token_error_text(e))
 }
 
 /// A checkout made: the token server's answer, the keyring's entry of it, and - through a
@@ -291,6 +312,9 @@ pub(crate) enum Job {
         token_url: String,
         tier: String,
         months: u32,
+        /// The method of a checkout without payment options (`via` none): one the tier is sold
+        /// with.
+        method: String,
         name: String,
         keyring: SharedKeyring,
         via: Option<Box<PayVia>>,
@@ -317,8 +341,8 @@ pub(crate) enum Job {
         choice: Box<Choice>,
         look: Look,
     },
-    /// The checkout `checkout_id` abandoned (`POST /v1/checkout/{id}/abandon`) and taken off
-    /// the keyring's list: nobody pays it any more.
+    /// The checkout `checkout_id` abandoned (`POST /v1/checkout/{id}/abandon`): off the
+    /// keyring's list when the token server ended it, kept in flight when not.
     Abandon {
         token_url: String,
         checkout_id: String,
@@ -573,7 +597,7 @@ pub(crate) enum Outcome {
     Tiers {
         serial: u64,
         country: String,
-        result: Result<Tiers, String>,
+        result: Result<Tiers, TiersFailed>,
     },
     /// A development server's test drive (or why there is none).
     Bought {
@@ -597,13 +621,14 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<azul_pay::Surface, String>,
     },
-    /// A checkout abandoned (or why the token server did not hear it).
+    /// What the abandon of a checkout found.
     Abandoned {
         checkout_id: String,
-        result: Result<(), String>,
+        result: Abandoned,
     },
-    /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it).
-    PaymentEnded { serial: u64, why: Text },
+    /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it);
+    /// `ended`: the checkout ended (declined, gone) - else it may still be paid.
+    PaymentEnded { serial: u64, why: Text, ended: bool },
     /// A paid checkout's drive, its session in the keyring: from the dialog's wait (`serial`)
     /// or from the background claims (`None`: a message of a job that still runs).
     Claimed {
@@ -689,6 +714,9 @@ pub(crate) enum Outcome {
     /// The background claims asked about the cash checkout `checkout`: it awaits its letter. A
     /// job that still runs.
     CashWaiting { checkout: PendingCheckout },
+    /// The background claims found `checkout`, bought here and not paid yet: its payment may
+    /// be under way. A job that still runs.
+    InFlight { checkout: PendingCheckout },
     /// A claim code's checkout is on the keyring's list (or why not), for the dialog `serial`.
     PickedUp {
         serial: u64,
@@ -2214,6 +2242,7 @@ fn start_checkout(
     token_url: &str,
     tier: &str,
     months: u32,
+    method: &str,
     name: &str,
     keyring: &SharedKeyring,
     via: Option<&PayVia>,
@@ -2232,7 +2261,7 @@ fn start_checkout(
         }
         None => (
             server
-                .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)
+                .checkout(tier, months, method, &claim)
                 .map_err(|e| e.to_string())?,
             None,
         ),
@@ -2283,9 +2312,9 @@ fn start_checkout(
         (Some(via), Some(answer)) => match Created::parse(&answer, &via.choice, &via.look) {
             Ok(created) => Some(created),
             Err(refused) => {
-                // Nothing of it is shown: nobody may pay it.
-                let _ = server.abandon_checkout(&checkout.checkout_id);
-                let _ = pending::remove(keyring, &checkout.checkout_id);
+                // Nothing of it is shown: nobody may pay it. It leaves the list only when the
+                // token server ended it.
+                let _ = pending::abandon(&server, keyring, &checkout.checkout_id);
                 return Err(refused.to_string());
             }
         },
@@ -2340,15 +2369,17 @@ fn switch_surface(
     azul_pay::Surface::parse(surface, choice, look).map_err(|e| e.to_string())
 }
 
-/// The checkout `checkout_id` abandoned at the token server and off the keyring's list.
-fn abandon(token_url: &str, checkout_id: &str, keyring: &SharedKeyring) -> Result<(), String> {
+/// The checkout `checkout_id` abandoned at the token server: off the keyring's list only when
+/// its answer ended it ([`pending::abandon`]).
+fn abandon(token_url: &str, checkout_id: &str, keyring: &SharedKeyring) -> Abandoned {
     let transport = AzulTransport::new(USER_AGENT);
-    // Off the list first: whatever the token server says, this app never claims it.
-    let removed = pending::remove(keyring, checkout_id).map(|_| ());
-    let told = TokenServer::new(token_url, &transport)
-        .and_then(|server| server.abandon_checkout(checkout_id))
-        .map_err(|e| e.to_string());
-    told.and(removed.map_err(|e| e.to_string()))
+    match TokenServer::new(token_url, &transport) {
+        Ok(server) => pending::abandon(&server, keyring, checkout_id),
+        Err(e) => Abandoned::Kept {
+            paid: false,
+            why: e.to_string(),
+        },
+    }
 }
 
 /// Asks the token server about `checkout` every few seconds until its drive is the app's (its
@@ -2370,6 +2401,7 @@ fn await_payment(
             return Outcome::PaymentEnded {
                 serial,
                 why: Text::plain(e.to_string()),
+                ended: false,
             }
         }
     };
@@ -2383,6 +2415,7 @@ fn await_payment(
                 return Outcome::PaymentEnded {
                     serial,
                     why: Text::default(),
+                    ended: false,
                 };
             }
             std::thread::sleep(Duration::from_millis(250));
@@ -2395,30 +2428,37 @@ fn await_payment(
                     .arg("last", last_problem.as_str())
                     .into()
             };
-            return Outcome::PaymentEnded { serial, why };
+            // No payment yet: the checkout stays in flight (its page is still valid).
+            return Outcome::PaymentEnded {
+                serial,
+                why,
+                ended: false,
+            };
         }
         match pending::poll(&server, keyring, checkout) {
             Polled::Pending => {}
-            Polled::Kept(why) => last_problem = why,
-            Polled::Claimed(claimed) => {
+            Polled::Transient(why) => last_problem = why.to_string(),
+            Polled::Final(Final::Claimed(claimed)) => {
                 return Outcome::Claimed {
                     serial: Some(serial),
                     checkout: checkout.clone(),
                     claimed,
                 }
             }
-            Polled::Dropped(why) => {
+            Polled::Final(end) => {
                 return Outcome::PaymentEnded {
                     serial,
                     why: Phrase::new("azdrive-pay-checkout-ended")
-                        .arg("why", why.as_str())
+                        .arg("why", end.why())
                         .into(),
+                    ended: true,
                 }
             }
             Polled::Settled => {
                 return Outcome::PaymentEnded {
                     serial,
                     why: Text::key("azdrive-pay-other-window"),
+                    ended: true,
                 }
             }
         }
@@ -2453,6 +2493,7 @@ fn claim_pending(
     // A cash checkout is asked once, then once each daily interval (its letter takes days):
     // never every round.
     let mut asked_cash: HashMap<String, Instant> = HashMap::new();
+    let mut said_in_flight: Vec<String> = Vec::new();
     loop {
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
@@ -2515,11 +2556,19 @@ fn claim_pending(
             if checkout.is_cash() {
                 asked_cash.insert(checkout.checkout_id.clone(), Instant::now());
             }
+            // Bought here and not paid yet: a new order in this window asks about it first.
+            let may_be_in_flight = !checkout.is_cash() && !checkout.picked_up;
             match pending::poll(&server, keyring, &checkout) {
                 Polled::Pending if checkout.is_cash() => {
                     send(sender, Outcome::CashWaiting { checkout });
                 }
-                Polled::Claimed(claimed) => {
+                Polled::Pending | Polled::Transient(_)
+                    if may_be_in_flight && !said_in_flight.contains(&checkout.checkout_id) =>
+                {
+                    said_in_flight.push(checkout.checkout_id.clone());
+                    send(sender, Outcome::InFlight { checkout });
+                }
+                Polled::Final(Final::Claimed(claimed)) => {
                     reported.push(checkout.checkout_id.clone());
                     send(
                         sender,
@@ -2530,14 +2579,14 @@ fn claim_pending(
                         },
                     );
                 }
-                Polled::Dropped(why) => send(
+                Polled::Final(end) => send(
                     sender,
                     Outcome::CheckoutDropped {
                         checkout_id: checkout.checkout_id,
-                        why,
+                        why: end.why(),
                     },
                 ),
-                Polled::Pending | Polled::Kept(_) | Polled::Settled => {}
+                Polled::Pending | Polled::Transient(_) | Polled::Settled => {}
             }
         }
         if asked == 0 {
@@ -2862,7 +2911,10 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             let transport = AzulTransport::new(USER_AGENT);
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.tiers_in(&country))
-                .map_err(|e| e.to_string());
+                .map_err(|e| match buyer_refused(&e) {
+                    Some(said) => TiersFailed::Refused(said),
+                    None => TiersFailed::Failed(e.to_string()),
+                });
             Outcome::Tiers {
                 serial,
                 country,
@@ -2907,12 +2959,21 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             token_url,
             tier,
             months,
+            method,
             name,
             keyring,
             via,
         } => Outcome::CheckoutStarted {
             serial,
-            result: start_checkout(&token_url, &tier, months, &name, &keyring, via.as_deref()),
+            result: start_checkout(
+                &token_url,
+                &tier,
+                months,
+                &method,
+                &name,
+                &keyring,
+                via.as_deref(),
+            ),
         },
         Job::Options {
             serial,
@@ -2937,13 +2998,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             };
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| server.checkout_options(&query))
-                .map_err(|e| match e {
-                    TokenError::Refused {
-                        status: 403,
-                        code,
-                        message,
-                    } => OptionsFailed::Refused(if message.is_empty() { code } else { message }),
-                    other => OptionsFailed::Failed(other.to_string()),
+                .map_err(|e| match buyer_refused(&e) {
+                    Some(said) => OptionsFailed::Refused(said),
+                    None => OptionsFailed::Failed(e.to_string()),
                 });
             Outcome::Options {
                 serial,

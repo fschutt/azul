@@ -1064,6 +1064,11 @@ pub(crate) struct DriveState {
     pub keyring: azcloud_kit::SharedKeyring,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
+    /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
+    /// new order in the Add drive dialog asks about the first one before it makes another, so
+    /// nobody pays twice. Filled by the background claims and by abandons the token server did
+    /// not end; a checkout leaves it when it is claimed or ends.
+    pub in_flight: Vec<azcloud_kit::PendingCheckout>,
     /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
     /// drive in `period-tokens` beside the drives file.
     pub period_tokens: azcloud_kit::PeriodTokenStore,
@@ -2623,6 +2628,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
             | Outcome::CashWaiting { .. }
+            | Outcome::InFlight { .. }
             | Outcome::CheckoutFinished {
                 from_claims: true,
                 ..
@@ -2892,15 +2898,15 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Abandoned {
             checkout_id,
             result,
-        } => add_flow::abandoned(&checkout_id, result),
+        } => add_flow::abandoned(&mut info, &handle, s, &checkout_id, result),
         Outcome::Bought { serial, result } => {
             add_flow::bought(&mut info, &handle, s, serial, result);
         }
         Outcome::CheckoutStarted { serial, result } => {
             add_flow::checkout_started(&mut info, &handle, s, serial, result);
         }
-        Outcome::PaymentEnded { serial, why } => {
-            add_flow::payment_ended(&mut info, &handle, s, serial, why);
+        Outcome::PaymentEnded { serial, why, ended } => {
+            add_flow::payment_ended(&mut info, &handle, s, serial, why, ended);
         }
         Outcome::Claimed {
             serial,
@@ -3049,6 +3055,7 @@ pub(crate) extern "C" fn on_job_done(
             result,
         } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
         Outcome::CashWaiting { checkout } => cash::waiting(s, checkout),
+        Outcome::InFlight { checkout } => add_flow::in_flight(s, checkout),
         Outcome::PickedUp {
             serial,
             checkout,
@@ -3726,6 +3733,7 @@ pub fn start() {
         rotated: RotatedSessions::default(),
         keyring,
         claiming: false,
+        in_flight: Vec::new(),
         period_tokens,
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
