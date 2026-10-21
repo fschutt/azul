@@ -2027,7 +2027,7 @@ pub struct CPUViewIvars {
 /// before a frame is rendered into it. It reaches the screen when a
 /// `drawRect` blits before that render, so a see-through window gets clear
 /// pixels: what lies behind it shows, as it will once the frame is in.
-fn blank_frame_pixel(transparent: bool) -> [u8; 4] {
+fn blank_frame_pixel(transparent: bool, _clear: [u8; 3]) -> [u8; 4] {
     if transparent {
         [0, 0, 0, 0]
     } else {
@@ -2044,8 +2044,18 @@ mod blank_frame_tests {
     /// white box where the popup opens.
     #[test]
     fn a_see_through_windows_blank_frame_is_clear_not_white() {
-        assert_eq!(blank_frame_pixel(true), [0, 0, 0, 0]);
-        assert_eq!(blank_frame_pixel(false), [255, 255, 255, 255]);
+        assert_eq!(blank_frame_pixel(true, [32, 33, 36]), [0, 0, 0, 0]);
+    }
+
+    /// The area a resize uncovers shows the window's background, not
+    /// white: when the window grows back from smaller, AppKit can blit the
+    /// grown framebuffer before the frame at the new size is in it, and a
+    /// white fill flashed there in a dark window (and in a light one whose
+    /// background is not white).
+    #[test]
+    fn an_opaque_windows_blank_frame_is_its_background() {
+        assert_eq!(blank_frame_pixel(false, [32, 33, 36]), [32, 33, 36, 255]);
+        assert_eq!(blank_frame_pixel(false, [255, 255, 255]), [255, 255, 255, 255]);
     }
 }
 
@@ -2331,7 +2341,7 @@ define_class!(
                 ivars.height.set(height);
                 let mut fb = ivars.framebuffer.borrow_mut();
                 fb.resize(width * height * 4, 255);
-                let blank = blank_frame_pixel(ivars.transparent.get());
+                let blank = blank_frame_pixel(ivars.transparent.get(), [255, 255, 255]);
                 for chunk in fb.chunks_exact_mut(4) {
                     chunk.copy_from_slice(&blank);
                 }
