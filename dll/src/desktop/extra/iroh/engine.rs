@@ -1298,11 +1298,11 @@ mod tests {
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_url(AzString::from(relay.to_string()))
             .with_trust_roots(roots);
-        let engine = std::sync::Arc::new(Engine::bind(&config).expect("binds"));
+        let engine = Arc::new(Engine::bind(&config).expect("binds"));
         let nobody = SecretKey::from_bytes(&[7u8; 32]).public().to_string();
         let asking = engine.clone();
         std::thread::spawn(move || {
-            let _ = asking.request(&nobody, &[], "", b"x", true, Duration::from_secs(8));
+            drop(asking.request(&nobody, &[], "", b"x", true, Duration::from_secs(8)));
         });
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut refused = None;
