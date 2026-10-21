@@ -401,6 +401,8 @@ pub mod icon;
 pub mod id;
 /// JSON value types for the C API (no serde dependency).
 pub mod json;
+/// Which certificate authorities a TLS connection trusts (`TrustRoots`).
+pub mod tls;
 /// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.

@@ -5,6 +5,7 @@
 use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
+pub use azul_core::tls::TrustRoots;
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq, AzString, StringVec, U8Vec,
@@ -196,8 +197,12 @@ pub struct HttpRequestConfig {
     ///
     /// `None` opens a fresh connection for this request and closes it after.
     /// `Some` reuses the client's idle connections, and TLS verification then
-    /// follows the client's `HttpClientConfig`, not the field above.
+    /// follows the client's `HttpClientConfig`, not the fields here.
     pub client: OptionHttpClient,
+    /// The certificate authorities this request trusts when it opens its own
+    /// connection (no `client`): the public roots (default), or the ones an
+    /// app pins for a far end it knows.
+    pub trust_roots: TrustRoots,
     /// Request timeout in seconds (default: 30)
     pub timeout_secs: u64,
     /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
@@ -231,15 +236,20 @@ impl Default for HttpRequestConfig {
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
             client: OptionHttpClient::None,
+            trust_roots: TrustRoots::PublicRoots,
             follow_redirects: true,
         }
     }
 }
 
 /// Settings for an [`HttpClient`]'s connection pool (C-compatible).
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct HttpClientConfig {
+    /// The certificate authorities every request of this client trusts: the
+    /// public roots (default), or the ones an app pins for a far end it knows
+    /// (its token server). A pinned set that does not parse fails every request.
+    pub trust_roots: TrustRoots,
     /// Idle connections kept open across all hosts (default: 32).
     pub max_idle_connections: u32,
     /// Idle connections kept open to any one host (default: 8).
@@ -260,6 +270,7 @@ pub struct HttpClientConfig {
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
+            trust_roots: TrustRoots::PublicRoots,
             max_idle_connections: 32,
             max_idle_connections_per_host: 8,
             dns_cache_secs: 0,
@@ -295,6 +306,13 @@ impl HttpClientConfig {
         self.dns_cache_secs = secs;
         self
     }
+
+    /// Trust these certificate authorities for every request of the client
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
+        self
+    }
 }
 
 /// A connection pool that requests can share (C-compatible handle).
@@ -320,6 +338,10 @@ pub struct HttpClientInner {
     /// ([`HttpClient::add_fallback_address`]); the agent's resolver reads it.
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     fallback: FallbackAddresses,
+    /// Why `config.trust_roots` did not load: every request of the client fails
+    /// with it (the agent trusts nothing), it never falls back to the public roots.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    trust_error: Option<String>,
 }
 
 impl HttpClient {
@@ -328,17 +350,23 @@ impl HttpClient {
     pub fn create(config: HttpClientConfig) -> Self {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
         let fallback = FallbackAddresses::default();
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let agent = client_agent(
+            &config,
+            ureq::unversioned::resolver::DefaultResolver::default(),
+            fallback.clone(),
+        );
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let trust_error = root_certs_of(&config.trust_roots).err();
         Self {
             ptr: Box::new(alloc::sync::Arc::new(HttpClientInner {
                 config,
                 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-                agent: client_agent(
-                    &config,
-                    ureq::unversioned::resolver::DefaultResolver::default(),
-                    fallback.clone(),
-                ),
+                agent,
                 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
                 fallback,
+                #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+                trust_error,
             })),
             run_destructor: true,
         }
@@ -347,7 +375,7 @@ impl HttpClient {
     /// The settings this client was created with
     #[must_use]
     pub fn get_config(&self) -> HttpClientConfig {
-        self.ptr.config
+        self.ptr.config.clone()
     }
 
     /// Connects to `host` at `address` (an IP address, `ip:port` or `[ipv6]:port`) whenever
@@ -619,6 +647,15 @@ impl HttpRequestConfig {
     #[must_use]
     pub const fn with_max_size(mut self, max_bytes: u64) -> Self {
         self.max_response_size = max_bytes;
+        self
+    }
+
+    /// Trust these certificate authorities when the request opens its own
+    /// connection (a request through a client trusts what the client's config
+    /// says)
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
         self
     }
 
@@ -1173,11 +1210,25 @@ pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
 /// * `HttpResult<HttpResponse>` - The response or an error
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::Agent {
+    make_agent_trusting(
+        timeout_secs,
+        disable_tls_cert_verification,
+        ureq::tls::RootCerts::WebPki,
+    )
+}
+
+/// [`make_agent`] trusting `roots`.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn make_agent_trusting(
+    timeout_secs: u64,
+    disable_tls_cert_verification: bool,
+    roots: ureq::tls::RootCerts,
+) -> ureq::Agent {
     use std::time::Duration;
 
     // The fallback resolver without addresses: a lookup error comes back as a DNS failure.
     ureq::Agent::with_parts(
-        agent_config(disable_tls_cert_verification)
+        agent_config_trusting(disable_tls_cert_verification, roots)
             .timeout_global(Some(Duration::from_secs(timeout_secs)))
             .build(),
         ureq::unversioned::transport::DefaultConnector::default(),
@@ -1242,6 +1293,15 @@ fn dns_failure(error: ureq::Error) -> ureq::Error {
 fn agent_config(
     disable_tls_cert_verification: bool,
 ) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
+    agent_config_trusting(disable_tls_cert_verification, ureq::tls::RootCerts::WebPki)
+}
+
+/// [`agent_config`] trusting `roots` (unless verification is off).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn agent_config_trusting(
+    disable_tls_cert_verification: bool,
+    roots: ureq::tls::RootCerts,
+) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     let mut tls_builder = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()));
@@ -1249,7 +1309,7 @@ fn agent_config(
     if disable_tls_cert_verification {
         tls_builder = tls_builder.disable_verification(true);
     } else {
-        tls_builder = tls_builder.root_certs(ureq::tls::RootCerts::WebPki);
+        tls_builder = tls_builder.root_certs(roots);
     }
 
     let tls_config = tls_builder.build();
@@ -1258,6 +1318,31 @@ fn agent_config(
         .tls_config(tls_config)
         .http_status_as_error(false)
         .timeout_resolve(Some(DNS_LOOKUP_TIMEOUT))
+}
+
+/// The root store `roots` names: Mozilla's for the public roots, else exactly
+/// the pinned certificates (nothing of the public set). A pinned entry that
+/// holds no certificate, or one that does not parse, is an error naming it.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn root_certs_of(roots: &TrustRoots) -> Result<ureq::tls::RootCerts, String> {
+    let TrustRoots::Pinned(pems) = roots else {
+        return Ok(ureq::tls::RootCerts::WebPki);
+    };
+    let mut certs = Vec::new();
+    for (i, pem) in pems.as_ref().iter().enumerate() {
+        let before = certs.len();
+        for item in ureq::tls::parse_pem(pem.as_str().as_bytes()) {
+            match item {
+                Ok(ureq::tls::PemItem::Certificate(cert)) => certs.push(cert),
+                Ok(_) => {}
+                Err(e) => return Err(format!("trusted root {i} does not parse: {e}")),
+            }
+        }
+        if certs.len() == before {
+            return Err(format!("trusted root {i} holds no certificate"));
+        }
+    }
+    Ok(ureq::tls::RootCerts::Specific(std::sync::Arc::new(certs)))
 }
 
 /// The agent behind an [`HttpClient`]: pooled per `config`, and resolving hosts
@@ -1269,7 +1354,11 @@ fn client_agent(
     resolver: impl ureq::unversioned::resolver::Resolver,
     fallback: FallbackAddresses,
 ) -> ureq::Agent {
-    let agent_config = agent_config(config.disable_tls_cert_verification)
+    // Roots that do not load trust nothing here; every request fails with why
+    // (`HttpClientInner::trust_error`).
+    let roots = root_certs_of(&config.trust_roots)
+        .unwrap_or_else(|_| ureq::tls::RootCerts::Specific(std::sync::Arc::new(Vec::new())));
+    let agent_config = agent_config_trusting(config.disable_tls_cert_verification, roots)
         .max_idle_connections(config.max_idle_connections as usize)
         .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
         .build();
@@ -1742,9 +1831,16 @@ pub fn http_request_with_config(
     // A pooled agent was built without this request's timeout, so every request
     // below sets it on itself; for a one-off agent that restates the same value.
     let agent = match &config.client {
-        OptionHttpClient::Some(client) => client.ptr.agent.clone(),
+        OptionHttpClient::Some(client) => {
+            if let Some(why) = &client.ptr.trust_error {
+                return Err(HttpError::tls_error(AzString::from(why.clone())));
+            }
+            client.ptr.agent.clone()
+        }
         OptionHttpClient::None => {
-            make_agent(config.timeout_secs, config.disable_tls_cert_verification)
+            let roots = root_certs_of(&config.trust_roots)
+                .map_err(|why| HttpError::tls_error(AzString::from(why)))?;
+            make_agent_trusting(config.timeout_secs, config.disable_tls_cert_verification, roots)
         }
     };
     let timeout = Some(std::time::Duration::from_secs(config.timeout_secs));
@@ -2820,6 +2916,7 @@ mod client_pool_tests {
                     port,
                     calls: Arc::clone(&calls),
                 }),
+                trust_error: None,
             })),
             run_destructor: true,
         };
@@ -2934,9 +3031,10 @@ mod client_pool_tests {
         let fallback = FallbackAddresses::default();
         let client = HttpClient {
             ptr: Box::new(Arc::new(HttpClientInner {
-                config,
                 agent: client_agent(&config, NoDns, fallback.clone()),
+                config,
                 fallback,
+                trust_error: None,
             })),
             run_destructor: true,
         };
@@ -3011,6 +3109,7 @@ mod client_pool_tests {
                 config,
                 agent: agent(fallback.clone()),
                 fallback,
+                trust_error: None,
             })),
             run_destructor: true,
         };
@@ -3061,7 +3160,7 @@ mod client_pool_tests {
             answers: 0,
             calls: Arc::clone(&calls),
         };
-        let request = client_over(config, |fallback| client_agent(&config, resolver, fallback));
+        let request = client_over(config.clone(), |fallback| client_agent(&config, resolver, fallback));
         match http_get_with_config("http://n2.azul.invalid:1/", &request) {
             Err(HttpError::DnsFailed(why)) => {
                 assert!(why.as_str().contains("n2.azul.invalid"), "{}", why.as_str())
