@@ -9797,21 +9797,19 @@ impl LayoutWindow {
         }
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes
-        // are visible on the next DL build. The returned restyle result is
-        // deliberately unused — the tier below already schedules the rebuild.
-        let _restyle_result = layout_result
-            .styled_dom
-            .restyle_user_property(&node_id, &props);
-        // Frame 0 of every seeded transition: hold the node at `from` so the
-        // change does not flash its target before the tween starts, exactly as
-        // the reconcile path does for the transitions IT captures.
-        for tr in &seeded {
-            drop(
-                layout_result
-                    .styled_dom
-                    .restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)),
-            );
-        }
+        // are visible on the next DL build. Frame 0 of every seeded
+        // transition holds the node at `from` (written after the new values,
+        // so it wins) so the change does not flash its target before the
+        // tween starts, exactly as the reconcile path does for the
+        // transitions IT captures. One batch, one rebuild of the cascade's
+        // tables. The returned restyle result is deliberately unused — the
+        // tier below already schedules the rebuild.
+        let writes: Vec<(NodeId, azul_css::props::property::CssProperty)> = props
+            .iter()
+            .map(|prop| (node_id, prop.clone()))
+            .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
+            .collect();
+        let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
         // Paint-only properties must not charge a layout pass
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
@@ -10034,13 +10032,14 @@ impl LayoutWindow {
                     continue;
                 }
                 // The cascade UNDER a transition's override: lift the
-                // override for the read, put it back after.
+                // override for the read, put it back after. The read below
+                // (`get_property`) looks at the override layer itself, not
+                // at the derived tables, and the layer is as it was once the
+                // override is back: nothing to rebuild.
                 if shown.is_some() {
-                    drop(
-                        result
-                            .styled_dom
-                            .restyle_user_property(&node, &[CssProperty::initial(*ty)]),
-                    );
+                    result
+                        .styled_dom
+                        .set_user_property_override_fast(&node, &[CssProperty::initial(*ty)]);
                 }
                 let endpoints = {
                     let cache = &result.styled_dom.css_property_cache.ptr;
@@ -10070,11 +10069,9 @@ impl LayoutWindow {
                     })
                 };
                 if let Some(s) = &shown {
-                    drop(
-                        result
-                            .styled_dom
-                            .restyle_user_property(&node, core::slice::from_ref(s)),
-                    );
+                    result
+                        .styled_dom
+                        .set_user_property_override_fast(&node, core::slice::from_ref(s));
                 }
                 let Some((from, to)) = endpoints else {
                     continue;
@@ -10093,21 +10090,15 @@ impl LayoutWindow {
             }
         }
         // Frame 0 holds `from`, so the change never flashes its target - the
-        // same hold the rebuild and the imperative path apply.
-        for tr in &seeded {
-            drop(
-                result
-                    .styled_dom
-                    .restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)),
-            );
-        }
-        for (node, ty) in &settled {
-            drop(
-                result
-                    .styled_dom
-                    .restyle_user_property(node, &[CssProperty::initial(*ty)]),
-            );
-        }
+        // same hold the rebuild and the imperative path apply. The fades that
+        // settled hand their property back to the cascade. One batch, one
+        // rebuild of the cascade's tables.
+        let holds: Vec<(NodeId, CssProperty)> = seeded
+            .iter()
+            .map(|tr| (tr.node, tr.from.clone()))
+            .chain(settled.iter().map(|(node, ty)| (*node, CssProperty::initial(*ty))))
+            .collect();
+        drop(result.styled_dom.restyle_user_properties(&holds));
         // One transition per (node, property): a retarget replaces the
         // record in flight.
         self.css_transitions.retain(|t| {
@@ -16076,9 +16067,11 @@ impl LayoutWindow {
         // its target. The override rides the same user-override channel that
         // `migrate_user_overrides_from` just migrated, and the per-tick driver
         // in `tick_animations` walks it to `to` and then removes it.
-        for tr in &captured_transitions {
-            drop(styled_dom.restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)));
-        }
+        let holds: Vec<(NodeId, azul_css::props::property::CssProperty)> = captured_transitions
+            .iter()
+            .map(|tr| (tr.node, tr.from.clone()))
+            .collect();
+        drop(styled_dom.restyle_user_properties(&holds));
         for tr in captured_transitions {
             // One transition per (node, property): a retarget replaces the
             // in-flight entry (its `from` already reads the current value).

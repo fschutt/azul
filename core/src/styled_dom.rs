@@ -3063,80 +3063,59 @@ impl StyledDom {
         node_id: &NodeId,
         new_properties: &[CssProperty],
     ) -> RestyleNodes {
-        let mut map = BTreeMap::default();
+        let overrides: Vec<(NodeId, CssProperty)> = new_properties
+            .iter()
+            .map(|prop| (*node_id, prop.clone()))
+            .collect();
+        self.restyle_user_properties(&overrides)
+    }
 
-        if new_properties.is_empty() {
-            return map;
-        }
-
+    /// [`Self::restyle_user_property`] for a batch of `(node, property)`
+    /// overrides, in order (a later one of the same node and property wins):
+    /// every override is written, then the cascade's derived tables are
+    /// rebuilt ONCE. A rebuild walks the whole DOM, so the restyles of one
+    /// change - the fades a hover or a rebuild starts, each holding its node
+    /// at its start value - pay it once instead of once per override. The
+    /// changes are measured against the cascade before the batch.
+    pub fn restyle_user_properties(&mut self, overrides: &[(NodeId, CssProperty)]) -> RestyleNodes {
+        let mut map: RestyleNodes = BTreeMap::default();
         let node_count = self.node_data.as_ref().len();
-        if node_id.index() >= node_count {
+        let overrides: Vec<&(NodeId, CssProperty)> = overrides
+            .iter()
+            .filter(|(node_id, _)| node_id.index() < node_count)
+            .collect();
+        if overrides.is_empty() {
             return map;
         }
 
-        let node_data = self.node_data.as_container();
-        let node_data = &node_data[*node_id];
-
-        let node_states = &self.styled_nodes.as_container();
-        let old_node_state = &node_states[*node_id].styled_node_state;
-
-        let changes: Vec<ChangedCssProperty> = {
+        {
             let css_property_cache = self.get_css_property_cache();
-
-            new_properties
-                .iter()
-                .filter_map(|new_prop| {
-                    let old_prop = css_property_cache.get_property_slow(
-                        node_data,
+            let node_data = self.node_data.as_container();
+            let node_states = self.styled_nodes.as_container();
+            for (node_id, new_prop) in &overrides {
+                let old_node_state = &node_states[*node_id].styled_node_state;
+                let old_prop = css_property_cache
+                    .get_property_slow(
+                        &node_data[*node_id],
                         node_id,
                         old_node_state,
                         &new_prop.get_type(),
-                    );
-
-                    let old_prop = old_prop
-                        .map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
-
-                    if old_prop == *new_prop {
-                        None
-                    } else {
-                        Some(ChangedCssProperty {
-                            previous_state: *old_node_state,
-                            previous_prop: old_prop,
-                            // overriding a user property does not change the state
-                            current_state: *old_node_state,
-                            current_prop: new_prop.clone(),
-                        })
-                    }
-                })
-                .collect()
-        };
-
-        let css_property_cache_mut = self.get_css_property_cache_mut();
-
-        // user_overridden_properties is built lazily (empty after StyledDom
-        // construction). Grow to cover this node_id before indexing so the
-        // override path works on any DOM, not just ones that already have
-        // overrides from a prior mutation.
-        if css_property_cache_mut.user_overridden_properties.len() < node_count {
-            css_property_cache_mut
-                .user_overridden_properties
-                .resize(node_count, Vec::new());
-        }
-
-        for new_prop in new_properties {
-            let prop_type = new_prop.get_type();
-            let vec = &mut css_property_cache_mut.user_overridden_properties[node_id.index()];
-            if new_prop.is_initial() {
-                // CssProperty::Initial = remove overridden property
-                if let Ok(idx) = vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    vec.remove(idx);
-                }
-            } else {
-                match vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    Ok(idx) => vec[idx].1 = new_prop.clone(),
-                    Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
+                    )
+                    .map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
+                if old_prop != *new_prop {
+                    map.entry(*node_id).or_default().push(ChangedCssProperty {
+                        previous_state: *old_node_state,
+                        previous_prop: old_prop,
+                        // overriding a user property does not change the state
+                        current_state: *old_node_state,
+                        current_prop: new_prop.clone(),
+                    });
                 }
             }
+        }
+
+        for (node_id, new_prop) in &overrides {
+            self.set_user_property_override_fast(node_id, core::slice::from_ref(new_prop));
         }
 
         // The compact cache is a precomputed per-node array that the layout
@@ -3187,9 +3166,9 @@ impl StyledDom {
         self.recompute_inheritance_and_compact_cache();
         // The font phase is the one consumer that is genuinely about
         // inheritance and geometry, so it keeps its narrower gate.
-        if new_properties
+        if overrides
             .iter()
-            .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
+            .any(|(_, p)| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
         {
             self.get_css_property_cache_mut()
                 .invalidate_resolved_font_sizes();
@@ -3200,10 +3179,6 @@ impl StyledDom {
         // changes what the display list paints without touching geometry.
         let cache = self.get_css_property_cache_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
-
-        if !changes.is_empty() {
-            map.insert(*node_id, changes);
-        }
 
         map
     }
