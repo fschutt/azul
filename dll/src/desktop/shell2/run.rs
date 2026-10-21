@@ -1121,6 +1121,9 @@ pub fn run(
                     "exit process"
                 };
 
+                // From here the loop runs and takes every wake on its next
+                // turn: a wake posts its event only while the loop blocks.
+                crate::desktop::loop_waker::loop_awake();
                 loop {
                     autoreleasepool(|_| {
                         // App-level events handled in the LAST iteration's
@@ -1184,6 +1187,7 @@ pub fn run(
                                         LogCategory::EventLoop,
                                         "[macOS] All windows closed, returning to main()"
                                     );
+                                    crate::desktop::loop_waker::loop_stopped();
                                     return;
                                 }
                                 AppTerminationBehavior::EndProcess => {
@@ -1310,14 +1314,21 @@ pub fn run(
                         // nextEventMatchingMask only dequeues NSEvents and ignores other
                         // run loop sources, which causes accessibility queries to time out
                         // with kAXErrorCannotComplete (-25204).
-                        let distant_future = objc2_foundation::NSDate::distantFuture();
-                        let run_loop = objc2_foundation::NSRunLoop::currentRunLoop();
-                        unsafe {
-                            run_loop.runMode_beforeDate(
-                                objc2_foundation::NSDefaultRunLoopMode,
-                                &distant_future,
-                            );
+                        //
+                        // A wake that came while the loop ran posted no event
+                        // (`loop_waker::loop_may_park`): it is owed now, and the
+                        // loop comes around again instead of blocking over it.
+                        if crate::desktop::loop_waker::loop_may_park() {
+                            let distant_future = objc2_foundation::NSDate::distantFuture();
+                            let run_loop = objc2_foundation::NSRunLoop::currentRunLoop();
+                            unsafe {
+                                run_loop.runMode_beforeDate(
+                                    objc2_foundation::NSDefaultRunLoopMode,
+                                    &distant_future,
+                                );
+                            }
                         }
+                        crate::desktop::loop_waker::loop_awake();
 
                         // After the run loop wakes, drain any pending NSEvents.
                         // SAME two steps as the drain at the top of the loop —

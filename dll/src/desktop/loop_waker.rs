@@ -45,7 +45,9 @@ static PENDING: AtomicBool = AtomicBool::new(false);
 /// Call it AFTER the work is in its mailbox (a fire parked, an event queued):
 /// the loop takes the mailboxes after it saw the wake, never before.
 pub fn wake() {
-    PENDING.store(true, Ordering::Release);
+    // SeqCst with `LOOP_AWAKE` (see `loop_may_park`): a wake and a loop going
+    // to park always see each other.
+    PENDING.store(true, Ordering::SeqCst);
     #[cfg(az_x11)]
     {
         let fd = wake_fd();
@@ -53,32 +55,62 @@ pub fn wake() {
             crate::desktop::shell2::linux::timer::signal_wake_fd(fd);
         }
     }
+    // The event only ends a park. A loop that runs takes the wake on its
+    // next turn without it; posted anyway, it is one more event for the
+    // loop's event drain, which runs until no event is left - and a WebRender
+    // frame finished on every turn of an animation wakes the loop again, so
+    // that drain never ended.
     #[cfg(target_os = "macos")]
-    {
+    if !LOOP_AWAKE.load(Ordering::SeqCst) {
         #[cfg(test)]
         WAKE_EVENTS_POSTED.fetch_add(1, Ordering::SeqCst);
         macos::post_wake_event();
     }
 }
 
+/// Whether the macOS event loop runs: from its [`loop_awake`] to the
+/// [`loop_may_park`] before it blocks. `false` for a loop that never says
+/// (`NSApplication.run()`), whose wakes keep posting the event.
+static LOOP_AWAKE: AtomicBool = AtomicBool::new(false);
+
 /// How many wake-up events [`wake`] posted: the tests' work counter.
 #[cfg(all(test, target_os = "macos"))]
 static WAKE_EVENTS_POSTED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-/// The macOS event loop runs: it comes around again by itself.
-pub fn loop_awake() {}
+/// The macOS event loop runs: it comes around again by itself, so a
+/// [`wake`] needs no event to reach it.
+pub fn loop_awake() {
+    LOOP_AWAKE.store(true, Ordering::SeqCst);
+}
 
-/// The macOS event loop is about to block in `runMode:beforeDate:`; `false`
-/// when it must not, because work arrived that no event announces.
+/// The macOS event loop returned: a later loop that does not say it runs
+/// gets its wakes as events again.
+pub fn loop_stopped() {
+    LOOP_AWAKE.store(false, Ordering::SeqCst);
+}
+
+/// The macOS event loop is about to block in `runMode:beforeDate:`: from
+/// here on a [`wake`] posts its event. `false` when it must not block,
+/// because a wake (or other work, [`must_not_park`]) arrived while it ran -
+/// it stays awake and comes around again.
+///
+/// The loop clears its flag before it looks for pending work, and a wake
+/// raises `PENDING` before it looks at the flag (both `SeqCst`): either the
+/// loop sees the wake, or the wake sees the loop parked and posts.
 #[must_use]
 pub fn loop_may_park() -> bool {
+    LOOP_AWAKE.store(false, Ordering::SeqCst);
+    if must_not_park() {
+        LOOP_AWAKE.store(true, Ordering::SeqCst);
+        return false;
+    }
     true
 }
 
 /// Has a [`wake`] arrived that no iteration has served yet?
 #[must_use]
 pub fn is_pending() -> bool {
-    PENDING.load(Ordering::Acquire)
+    PENDING.load(Ordering::SeqCst)
 }
 
 /// Clear the flag and report whether it was set. The collector calls this

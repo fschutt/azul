@@ -5599,8 +5599,9 @@ impl MacOSWindow {
         vsync_ticks::install();
 
         extern "C" fn mark_views_dirty_on_main(context: *mut std::ffi::c_void) {
-            // Runs on the MAIN queue. `context` is an NSWindow retained at
-            // enqueue time (the window may have been dropped in between).
+            // Runs on the main thread (`vsync_ticks`). `context` is an
+            // NSWindow retained at delivery (the window may have been dropped
+            // in between).
             //
             // THE VSYNC FRAME DRIVER: for years this called
             // `setViewsNeedDisplay:` on the WINDOW, which marks no view -
