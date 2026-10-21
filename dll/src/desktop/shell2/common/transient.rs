@@ -660,18 +660,38 @@ fn transient_has_titlebar(
     node: NodeId,
     anchor: TransientAnchor,
 ) -> bool {
-    let _ = (styled, node);
-    anchor == TransientAnchor::Dialog
+    use azul_core::dom::AttributeType;
+    styled
+        .node_data
+        .as_container()
+        .get(node)
+        .and_then(|nd| {
+            nd.attributes().as_ref().iter().find_map(|a| match a {
+                AttributeType::Titlebar(on) => Some(*on),
+                _ => None,
+            })
+        })
+        .unwrap_or(anchor == TransientAnchor::Dialog)
 }
 
 /// The window kind of a just-opened transient window: a window with a title
 /// bar is a dialog window (the system's title bar, movable by it, ordered
 /// with its parent); one without stays the borderless popup
 /// `popup_window_state` made it.
-fn style_transient_window(window_state: &mut FullWindowState, anchor: TransientAnchor, titled: bool, title: &str) {
-    let _ = titled;
-    if anchor == TransientAnchor::Dialog {
+fn style_transient_window(
+    window_state: &mut FullWindowState,
+    anchor: TransientAnchor,
+    titled: bool,
+    title: &str,
+) {
+    if titled {
         as_dialog_window(window_state, title);
+    } else if anchor == TransientAnchor::Dialog {
+        // A dialog window without its title bar: still the dialog kind (it
+        // orders with its parent, the content is its whole window), only
+        // borderless, as a popover is.
+        as_dialog_window(window_state, title);
+        window_state.flags.decorations = WindowDecorations::None;
     }
 }
 
