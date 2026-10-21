@@ -446,8 +446,6 @@ pub fn import_rows(subs: Vec<Subscription>, library: &Library) -> Vec<ImportRow>
         .collect()
 }
 
-/// What the right side shows.
-#[derive(Debug, Clone)]
 /// An article's full text (its web page's story), by article id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullText {
@@ -478,6 +476,8 @@ const EPISODE_TICK_MS: u64 = 250;
 /// An article shorter than this (words) offers its full text: the feed carries a summary.
 pub const SUMMARY_WORDS: usize = 150;
 
+/// What the right side shows.
+#[derive(Debug, Clone)]
 pub enum Reading {
     /// The article table and, under it, the selected article (or the empty state).
     Article,

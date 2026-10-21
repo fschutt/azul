@@ -935,7 +935,7 @@ extern "C" fn on_copy_code(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.add_timer(
             TimerId::unique(),
             Timer::create(
-                RefAny::new(CopiedCode(sheet.code.clone())),
+                RefAny::new(CopiedCode(sheet.code.to_string())),
                 on_clear_copied_code,
                 get_time,
             )
