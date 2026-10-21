@@ -5,8 +5,8 @@ use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
     AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
-    DeadlineKind, DriveId, FamilyId, IdempotencyKey, LogicalBytes, MemberId, Months, Rfc3339,
-    SemVer, StoredBytes, TierId, FIXTURES,
+    DeadlineKind, DriveId, FamilyId, IdempotencyKey, LogicalBytes, MemberId, Months,
+    RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
 };
 use azlin_contract::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,

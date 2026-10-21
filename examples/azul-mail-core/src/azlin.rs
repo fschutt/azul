@@ -18,7 +18,12 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use azcloud_kit::{bundle::DriveBundle, shared::SharedKeyring, token::DEFAULT_TIER};
+use azcloud_kit::{
+    bundle::DriveBundle,
+    shared::{Rotation, SharedKeyring, SpendOnce},
+    token::DEFAULT_TIER,
+    DriveToken,
+};
 use azul_storage::{
     ops,
     sigv4::{sha256_hex, uri_decode, uri_encode},
@@ -413,11 +418,14 @@ pub trait CloudAccount {
     /// A new drive named `name` and its first credentials (a development token server only:
     /// real sign-ups go through a checkout).
     fn create_drive(&self, name: &str) -> Result<AzlinSession, TokenError>;
-    /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
-    /// NEXT drive token: the one given is dead from then on, and reusing it makes the token
-    /// server revoke this device.
-    fn refresh_session(&self, drive_id: &str, drive_token: &str)
-        -> Result<AzlinSession, TokenError>;
+    /// Fresh credentials with the drive token of `spend` (taken out of the account's keyring
+    /// entry under its lock, [`refresh_shared`]): the session, and the answer to keep before
+    /// the lock is let go. The answer carries the NEXT drive token: the one spent is dead from
+    /// then on, and reusing it makes the token server revoke this device.
+    fn refresh_session<'k>(
+        &self,
+        spend: SpendOnce<'k>,
+    ) -> Result<(AzlinSession, Rotation<'k>), TokenError>;
 }
 
 impl CloudAccount for TokenServer<'_> {
@@ -425,12 +433,21 @@ impl CloudAccount for TokenServer<'_> {
         session_of(&self.create_dev_drive(name, DEFAULT_TIER)?)
     }
 
-    fn refresh_session(
+    fn refresh_session<'k>(
         &self,
-        drive_id: &str,
-        drive_token: &str,
-    ) -> Result<AzlinSession, TokenError> {
-        session_of(&TokenServer::refresh(self, drive_id, drive_token)?)
+        spend: SpendOnce<'k>,
+    ) -> Result<(AzlinSession, Rotation<'k>), TokenError> {
+        let rotation = TokenServer::refresh(self, spend, None).rotated()?;
+        match session_of(rotation.bundle()) {
+            Ok(session) => Ok((session, rotation)),
+            Err(e) => {
+                // The token is spent: its successor is kept, whatever else the answer lacks.
+                let bundle = rotation.bundle();
+                let bare = AzlinSession::with_token(bundle.drive_id(), &bundle.drive_token);
+                let _ = rotation.keep_text(&bare.to_secret());
+                Err(e)
+            }
+        }
     }
 }
 
@@ -523,43 +540,66 @@ pub fn refresh_shared(
     refused: Option<&str>,
     now: u64,
 ) -> Result<Refreshed, TokenError> {
-    let _lock = keyring.lock(key).map_err(|e| {
-        TokenError::Connect(format!(
-            "another AzMail is renewing this account's session ({e})"
-        ))
-    })?;
-    let mut spend = held.clone();
-    if let Ok(Some(text)) = keyring.get(key) {
-        let stored = AzlinSession::from_secret(&text, &held.drive_id);
+    let spend = spend_account(keyring, key, held)?;
+    if let Some(text) = spend.entry() {
+        let stored = AzlinSession::from_secret(text, &held.drive_id);
         let newer = stored.drive_id == held.drive_id
             && !stored.drive_token.is_empty()
             && stored.drive_token != held.drive_token;
-        if newer {
-            let usable = stored.has_credentials()
-                && match refused {
-                    Some(refused) => stored.access_key_id != refused,
-                    None => !stored.needs_refresh(now),
-                };
-            if usable {
-                return Ok(Refreshed {
-                    session: stored,
-                    adopted: true,
-                    saved: Ok(()),
-                });
-            }
-            // The token `held` carries is spent: the keyring's is the newest.
-            spend = stored;
+        let usable = newer
+            && stored.has_credentials()
+            && match refused {
+                Some(refused) => stored.access_key_id != refused,
+                None => !stored.needs_refresh(now),
+            };
+        if usable {
+            // Another process refreshed: nothing is spent.
+            drop(spend);
+            return Ok(Refreshed {
+                session: stored,
+                adopted: true,
+                saved: Ok(()),
+            });
         }
     }
-    let fresh = account.refresh_session(&spend.drive_id, &spend.drive_token)?;
-    let saved = keyring
-        .set(key, &fresh.to_secret())
-        .map_err(|e| e.to_string());
+    // The entry's token is the newest: the one `held` carries may be spent already.
+    let (fresh, rotation) = account.refresh_session(spend)?;
+    let saved = rotation.keep_text(&fresh.to_secret());
     Ok(Refreshed {
         session: fresh,
         adopted: false,
         saved,
     })
+}
+
+/// The drive token kept in the account's entry `key`, taken out under the entry's lock (every
+/// AzMail of this user shares it). An entry the keyring lacks or cannot give is `held` (the
+/// newest this process knows).
+fn spend_account<'k>(
+    keyring: &'k SharedKeyring,
+    key: &str,
+    held: &AzlinSession,
+) -> Result<SpendOnce<'k>, TokenError> {
+    let drive_id = held.drive_id.clone();
+    let token_of = |text: &str| {
+        let stored = AzlinSession::from_secret(text, &drive_id);
+        (stored.drive_id == drive_id && !stored.drive_token.is_empty())
+            .then(|| DriveToken::new(&stored.drive_token))
+    };
+    let busy = |e: azcloud_kit::CloudError| {
+        TokenError::Connect(format!(
+            "another AzMail is renewing this account's session ({e})"
+        ))
+    };
+    match keyring.spend_entry(key, &drive_id, token_of) {
+        Ok(spend) => Ok(spend),
+        Err(_) => {
+            keyring
+                .adopt_entry(key, &held.to_secret(), |text| token_of(text).is_some())
+                .map_err(busy)?;
+            keyring.spend_entry(key, &drive_id, token_of).map_err(busy)
+        }
+    }
 }
 
 /// The drive's status as the token server keeps it (`GET /v1/drives/{id}`: a ban, a pending
@@ -578,19 +618,9 @@ pub fn status_shared(
     key: &str,
     held: &AzlinSession,
 ) -> Result<azcloud_kit::DriveStatus, TokenError> {
-    let _lock = keyring.lock(key).map_err(|e| {
-        TokenError::Connect(format!(
-            "another AzMail is renewing this account's session ({e})"
-        ))
-    })?;
-    let mut token = held.drive_token.clone();
-    if let Ok(Some(text)) = keyring.get(key) {
-        let stored = AzlinSession::from_secret(&text, &held.drive_id);
-        if stored.drive_id == held.drive_id && !stored.drive_token.is_empty() {
-            token = stored.drive_token;
-        }
-    }
-    server.drive_status(&held.drive_id, &token)
+    // Taken out to be read with, not spent: dropped after the call, the token stays.
+    let spend = spend_account(keyring, key, held)?;
+    server.drive_status(&held.drive_id, spend.token().as_str())
 }
 
 // ==== Where the token server is ====
@@ -1026,16 +1056,36 @@ mod tests {
         let server = TokenServer::new("http://127.0.0.1:8081/", &fake).unwrap();
         let created = server.create_drive("AzMail").unwrap();
         assert_eq!(created.drive_token, "dt_f.0.first");
-        let refreshed = server
-            .refresh_session("d_42", &created.drive_token)
-            .unwrap();
+        // The account's entry holds the new drive's session; a refresh spends its token.
+        let dir = azul_storage::testing::TempDir::new("azmail-token-server");
+        let keyring = std::sync::Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let shared = azcloud_kit::SharedKeyring::with_lock_root(
+            keyring.clone(),
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            dir.path(),
+        );
+        let key = "AzMail/ada@example.org/azlin";
+        let keep = |session: &AzlinSession| {
+            use azul_storage::keyring::KeyringStore;
+            keyring.set(key, &session.to_secret()).unwrap();
+        };
+        let spend = || {
+            shared
+                .spend_entry(key, "d_42", |text| {
+                    let stored = AzlinSession::from_secret(text, "d_42");
+                    Some(azcloud_kit::DriveToken::new(&stored.drive_token))
+                })
+                .unwrap()
+        };
+        keep(&created);
+        let (refreshed, rotation) = server.refresh_session(spend()).unwrap();
         assert_eq!(
             refreshed.drive_token, "dt_f.1.second",
             "a new token with every refresh"
         );
-        let refused = server
-            .refresh_session("d_42", &created.drive_token)
-            .unwrap_err();
+        // Not kept: the entry still holds the spent token, which is a reuse now.
+        drop(rotation);
+        let refused = server.refresh_session(spend()).map(|_| ()).unwrap_err();
         assert!(
             matches!(&refused, TokenError::SignIn(why) if why.contains("token_reuse")),
             "{refused:?}"
@@ -1059,13 +1109,12 @@ mod tests {
             "a sign-up needs none"
         );
         drop(calls);
-        assert!(matches!(
-            server.refresh_session("d_42", ""),
-            Err(TokenError::SignIn(_))
-        ));
+        keep(&AzlinSession::with_token("d_42", ""));
+        assert!(shared.spend_entry(key, "d_42", |_| None).is_err(), "no token");
+        keep(&AzlinSession::with_token("d_42", "dt"));
         assert!(
             matches!(
-                server.refresh_session("d_42", "dt"),
+                server.refresh_session(spend()).map(|_| ()),
                 Err(TokenError::Connect(_))
             ),
             "no answers left"
@@ -1180,13 +1229,38 @@ mod tests {
 mod shared_refresh_tests {
     use std::sync::{Arc, Barrier, Mutex};
 
-    use azcloud_kit::{lock::LockDir, shared::SharedKeyring};
+    use azcloud_kit::{
+        shared::{Rotation, SharedKeyring, SpendOnce},
+        DriveBundle,
+    };
     use azul_storage::{
-        keyring::{KeyringError, KeyringStore, MemoryKeyring},
+        keyring::{KeyringError, KeyringNamespace, KeyringStore, MemoryKeyring},
         testing::TempDir,
     };
 
     use super::{refresh_shared, AzlinSession, CloudAccount, TokenError};
+
+    /// A keyring handle with its locks in `dir`, as each AzMail process makes its own.
+    fn shared_in(keyring: Arc<dyn KeyringStore>, dir: &TempDir) -> SharedKeyring {
+        SharedKeyring::with_lock_root(keyring, KeyringNamespace::azlin_shared(), dir.path())
+    }
+
+    /// The token server's answer of the family's `generation` ([`session_of`] as a bundle).
+    fn bundle_of(generation: u64) -> DriveBundle {
+        let s = session_of(generation);
+        let expires = azul_storage::time::iso8601(s.expires_at.unwrap_or(0));
+        DriveBundle::parse(&format!(
+            r#"{{"drive": {{"id": "d_42", "name": "AzMail",
+                  "location": {{"kind": "s3", "endpoint": "{}", "region": "{}",
+                                "bucket": "{}", "path_style": true,
+                                "auth": {{"type": "azlin", "drive_id": "d_42"}}}}}},
+                "credentials": {{"access_key_id": "{}", "secret_access_key": "{}",
+                                 "session_token": "st", "expires_at": "{expires}"}},
+                "drive_token": "{}"}}"#,
+            s.endpoint, s.region, s.bucket, s.access_key_id, s.secret_access_key, s.drive_token
+        ))
+        .unwrap()
+    }
 
     /// The account's keyring entry.
     const KEY: &str = "AzMail/ada@example.org/azlin";
@@ -1229,14 +1303,13 @@ mod shared_refresh_tests {
             Err(TokenError::Config(String::from("no sign-ups here")))
         }
 
-        fn refresh_session(
+        fn refresh_session<'k>(
             &self,
-            drive_id: &str,
-            drive_token: &str,
-        ) -> Result<AzlinSession, TokenError> {
+            spend: SpendOnce<'k>,
+        ) -> Result<(AzlinSession, Rotation<'k>), TokenError> {
             let mut family = self.0.lock().unwrap();
-            if family.revoked || drive_id != "d_42" || drive_token != token_of(family.generation)
-            {
+            let current = token_of(family.generation);
+            if family.revoked || spend.drive_id() != "d_42" || spend.token().as_str() != current {
                 family.revoked = true;
                 return Err(TokenError::SignIn(String::from(
                     "an old token was reused, token_reuse",
@@ -1244,7 +1317,8 @@ mod shared_refresh_tests {
             }
             family.generation += 1;
             family.refreshes += 1;
-            Ok(session_of(family.generation))
+            let generation = family.generation;
+            Ok((session_of(generation), spend.answered(bundle_of(generation))))
         }
     }
 
@@ -1273,7 +1347,7 @@ mod shared_refresh_tests {
                     let start = start.clone();
                     let account = account.clone();
                     // Each its own handle of the keyring and its own locks over one folder.
-                    let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+                    let shared = shared_in(keyring.clone(), &dir);
                     std::thread::spawn(move || {
                         let mine = held.lock().unwrap().clone();
                         assert!(mine.needs_refresh(now));
@@ -1318,7 +1392,7 @@ mod shared_refresh_tests {
         }));
         let keyring = Arc::new(MemoryKeyring::new());
         keyring.set(KEY, &session_of(1).to_secret()).unwrap();
-        let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+        let shared = shared_in(keyring.clone(), &dir);
         let now = FIRST_EXPIRES - 600;
         // Credentials running out: the other process's fresh session is taken as it is.
         let taken = refresh_shared(&account, &shared, KEY, &session_of(0), None, now).unwrap();
@@ -1357,7 +1431,7 @@ mod shared_refresh_tests {
     fn a_refreshed_session_the_keyring_does_not_take_comes_back_with_why() {
         let dir = TempDir::new("azmail-race");
         let account = Rotating(Mutex::new(Family::default()));
-        let shared = SharedKeyring::new(Arc::new(NoKeyring), LockDir::new(dir.path()));
+        let shared = shared_in(Arc::new(NoKeyring), &dir);
         let fresh = refresh_shared(
             &account,
             &shared,
@@ -1379,7 +1453,7 @@ mod shared_refresh_tests {
         // An old, revoked session in the keyring; the user types the drive token of a new token
         // family into the account's settings.
         keyring.set(KEY, &session_of(7).to_secret()).unwrap();
-        let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+        let shared = shared_in(keyring.clone(), &dir);
         let typed = AzlinSession::with_token("d_42", &token_of(0));
         super::store_shared(&shared, KEY, &typed).unwrap();
         assert_eq!(token_kept(&keyring), token_of(0), "the typed token replaced the old one");
@@ -1391,7 +1465,7 @@ mod shared_refresh_tests {
         assert_eq!(fresh.session.drive_token, token_of(1));
         assert!(!account.0.lock().unwrap().revoked);
         assert_eq!(token_kept(&keyring), token_of(1));
-        let refused = SharedKeyring::new(Arc::new(NoKeyring), LockDir::new(dir.path()));
+        let refused = shared_in(Arc::new(NoKeyring), &dir);
         let why = super::store_shared(&refused, KEY, &typed).unwrap_err();
         assert!(why.contains("no keyring"), "{why}");
     }

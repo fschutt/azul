@@ -489,7 +489,7 @@ pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring 
     let keyring = Arc::new(MemoryKeyring::new());
     let session = AzlinSession {
         drive_id: String::from("d_1"),
-        drive_token: token.to_string(),
+        drive_token: crate::DriveToken::new(token),
         access_key_id: String::from("AKID1"),
         secret_access_key: String::from("secret"),
         session_token: None,

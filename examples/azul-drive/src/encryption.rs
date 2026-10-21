@@ -2134,7 +2134,7 @@ pub(crate) fn recovery_lockdown(
     let _lock = keyring.lock(&entry).map_err(|e| e.to_string())?;
     let session = azcloud_kit::AzlinSession {
         drive_id: drive_id.to_string(),
-        drive_token: pending.drive_token.clone(),
+        drive_token: azcloud_kit::DriveToken::new(&pending.drive_token),
         access_key_id: String::new(),
         secret_access_key: String::new(),
         session_token: None,

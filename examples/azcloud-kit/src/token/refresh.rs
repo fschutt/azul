@@ -286,7 +286,7 @@ impl<'a> TokenServer<'a> {
                     .and_then(|value| DriveBundle::from_value(&value));
                 return match bundle {
                     Ok(bundle) if bundle.drive_id() == drive_id => {
-                        RefreshOutcome::Rotated(spend.rotated(bundle))
+                        RefreshOutcome::Rotated(spend.answered(bundle))
                     }
                     Ok(bundle) => {
                         let why = format!(

@@ -115,7 +115,7 @@ impl AzlinSession {
     /// The keyring entry's text read back.
     pub fn from_keyring_secret(text: &str) -> Result<AzlinSession, TokenError> {
         let session = Self::from_keyring_secret_without_credentials(text)?;
-        if session.drive_token.trim().is_empty() || session.access_key_id.trim().is_empty() {
+        if session.drive_token.is_empty() || session.access_key_id.trim().is_empty() {
             return Err(TokenError::Protocol(String::from(
                 "the keyring entry has no drive token or no credentials",
             )));

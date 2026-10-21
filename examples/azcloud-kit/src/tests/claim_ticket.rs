@@ -74,7 +74,11 @@ fn server(
 
 fn token_kept(keyring: &MemoryKeyring) -> String {
     let text = keyring.get(&keyring_key("d_1")).unwrap().unwrap();
-    AzlinSession::from_keyring_secret(&text).unwrap().drive_token
+    AzlinSession::from_keyring_secret(&text)
+        .unwrap()
+        .drive_token
+        .as_str()
+        .to_string()
 }
 
 #[test]

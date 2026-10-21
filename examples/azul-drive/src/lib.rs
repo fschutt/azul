@@ -360,8 +360,8 @@ const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0;
 /// window refreshed). The UI thread takes it as the drive's secret (`take_rotated`).
 pub(crate) struct Rotated {
     pub drive_id: String,
-    /// The keyring text of the session. Never printed.
-    pub secret: String,
+    /// The keyring text of the session. Never printed; wiped when dropped.
+    pub secret: azcloud_kit::Zeroizing<String>,
     /// Why the keyring did not take it: it lives in this process only.
     pub unsaved: Option<String>,
 }
@@ -450,7 +450,7 @@ impl Slot {
                         if let Ok(mut queue) = queue.lock() {
                             queue.push(Rotated {
                                 drive_id: id.clone(),
-                                secret: session.to_keyring_secret(),
+                                secret: azcloud_kit::Zeroizing::new(session.to_keyring_secret()),
                                 unsaved: saved.err(),
                             });
                         }
@@ -512,7 +512,7 @@ impl Slot {
                 if let Ok(mut queue) = queue.lock() {
                     queue.push(Rotated {
                         drive_id: id.clone(),
-                        secret,
+                        secret: azcloud_kit::Zeroizing::new(secret),
                         unsaved,
                     });
                 }
@@ -2277,7 +2277,7 @@ pub(crate) fn take_rotated(s: &mut DriveState) {
         let Some(index) = s.slot_index(&session.drive_id) else {
             continue;
         };
-        s.slots[index].secret = Some(session.secret);
+        s.slots[index].secret = Some(session.secret.to_string());
         if let Some(why) = session.unsaved {
             let name = s.slots[index].name();
             s.error(
@@ -3356,18 +3356,6 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// The folder of the locks every AzDrive of this user (and every Azlin app) shares: beside the
-/// drives file (`<config dir>/azul-storage/locks`), else in the temporary folder.
-fn lock_dir(drives_file: Option<&Path>) -> PathBuf {
-    drives_file
-        .and_then(Path::parent)
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .map_or_else(
-            || std::env::temp_dir().join("azul-storage-locks"),
-            |dir| dir.join("locks"),
-        )
-}
-
 /// The folder of the paid checkouts' period tokens (one 0600 file per drive): beside the drives
 /// file (`<config dir>/azul-storage/period-tokens`), else in the temporary folder.
 fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
@@ -3600,13 +3588,13 @@ pub fn start() {
         }
         _ => place,
     };
-    // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
-    // entries beside the drives file.
+    // The keyring as the worker threads use it (azul's blocking calls); the locks of its
+    // entries are the keyring's, shared by every Azlin app and profile of this user.
     let keyring = azcloud_kit::SharedKeyring::new(
         Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
             KeyringNamespace::azlin_shared(),
         )),
-        azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
+        KeyringNamespace::azlin_shared(),
     );
     let period_tokens =
         azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));

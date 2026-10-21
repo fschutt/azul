@@ -60,9 +60,9 @@ fn a_refresh_without_an_answer_is_unknown_and_goes_on_only_with_the_same_token()
     );
     let kept = rotation.keep();
     assert!(kept.saved.is_ok());
-    assert_eq!(kept.session.drive_token, "dt_f.1.bbb");
+    assert_eq!(kept.session.drive_token.as_str(), "dt_f.1.bbb");
     let next = shared.spend("d_1").unwrap();
-    assert_eq!(next.session().unwrap().drive_token, "dt_f.1.bbb");
+    assert_eq!(next.session().unwrap().drive_token.as_str(), "dt_f.1.bbb");
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn a_rotation_whose_answer_never_arrived_does_not_cost_the_device_its_drive() {
         &keyring.get(&keyring_key("d_1")).unwrap().unwrap(),
     )
     .unwrap();
-    assert_eq!(stored.drive_token, "dt_f.2.t2");
+    assert_eq!(stored.drive_token.as_str(), "dt_f.2.t2");
     assert_eq!(
         refreshes(&fake),
         vec!["Bearer dt_f.0.aaa", "Bearer dt_f.0.aaa"],

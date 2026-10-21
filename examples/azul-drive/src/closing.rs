@@ -12,7 +12,7 @@
 //!
 //! The transfer queue itself is not kept: a stopped copy or move is started again by the user.
 
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use azul::prelude::*;
 use azul_appkit::l10n::Phrase;
@@ -72,7 +72,10 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
     crate::picker::on_close(s);
     let work = work_running(s);
     match drive_close(work, s.closing) {
-        DriveClose::Close => Update::DoNothing,
+        DriveClose::Close => {
+            let_spends_land();
+            Update::DoNothing
+        }
         DriveClose::Wait => {
             s.closing = true;
             println!("AZDRIVE_CLOSE_WAITS {work}");
@@ -83,8 +86,21 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
         DriveClose::Stop => {
             stop_work(s);
             println!("AZDRIVE_CLOSE_STOPPED {work}");
+            let_spends_land();
             Update::DoNothing
         }
+    }
+}
+
+/// How long a close waits for a refresh that spent a drive token to keep its answer.
+const SPEND_WAIT: Duration = Duration::from_secs(10);
+
+/// Before the window goes: a refresh in flight on a worker thread keeps its new session in the
+/// keyring first (up to [`SPEND_WAIT`]); cut off, the keyring keeps the spent token, which the
+/// token server answers again at the next start while the new one was never used.
+fn let_spends_land() {
+    if !azcloud_kit::shared::wait_for_spends(SPEND_WAIT) {
+        println!("AZDRIVE_CLOSE_SPEND_CUT");
     }
 }
 

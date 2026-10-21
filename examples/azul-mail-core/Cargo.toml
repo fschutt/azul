@@ -59,6 +59,8 @@ encryption = ["azul-storage/encryption"]
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# Keyrings whose locks are in the test's folder (SharedKeyring::with_lock_root).
+azcloud-kit = { path = "../azcloud-kit", features = ["testing"] }
 
 [lib]
 name = "azmail_core"

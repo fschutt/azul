@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use azcloud_kit::{
     user_errors::{Code, Lang},
-    AzlinSession, RecoveryKey, RecoveryKeyInfo, SharedKeyring, TokenError, TokenServer, UserError,
+    RecoveryKey, RecoveryKeyInfo, SharedKeyring, TokenError, TokenServer, UserError,
 };
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
@@ -49,7 +49,7 @@ use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase};
 use azul_storage::{
     azul_keyring::AzulKeyring,
     azul_transport::AzulTransport,
-    config::{keyring_key, DriveEntry},
+    config::DriveEntry,
     crypto::{
         device,
         keys::{RecoveryCode, RecoveryKdf},
@@ -862,23 +862,19 @@ fn finish(
     token_url: &str,
     name: &str,
 ) -> Result<(DriveEntry, String), String> {
-    let entry_key = keyring_key(drive_id);
-    let _lock = keyring.lock(&entry_key).map_err(|e| e.to_string())?;
-    let session = keyring
-        .get(&entry_key)
-        .map_err(|e| e.to_string())?
-        // A drive being recovered holds its drive token alone until this trade.
-        .map(|text| AzlinSession::from_keyring_secret_without_credentials(&text))
-        .transpose()
-        .map_err(|e| e.to_string())?
-        .filter(|session| session.drive_id == drive_id && !session.drive_token.is_empty())
-        .ok_or_else(|| String::from("azdrive-keys-err-no-session"))?;
-    let bundle = server
-        .refresh(drive_id, &session.drive_token)
+    // A drive being recovered holds its drive token alone until this trade.
+    let spend = keyring
+        .spend(drive_id)
+        .map_err(|_| String::from("azdrive-keys-err-no-session"))?;
+    let rotation = server
+        .refresh(spend, None)
+        .rotated()
         .map_err(|e| token_text(&e))?;
-    let text = bundle.session().to_keyring_secret();
-    keyring.set(&entry_key, &text).map_err(|e| e.to_string())?;
-    Ok((bundle.entry_named(name, token_url), text))
+    let entry = rotation.bundle().entry_named(name, token_url);
+    // Kept before the lock is let go: the token just spent is dead.
+    let kept = rotation.keep();
+    kept.saved?;
+    Ok((entry, kept.session.to_keyring_secret()))
 }
 
 /// Runs on a worker thread.

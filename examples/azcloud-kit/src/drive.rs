@@ -303,10 +303,19 @@ impl AzlinDrive {
     /// server answers it while the new one was never used. Called with `current` held: one
     /// refresh at a time in this process too (`on_rotated` must not call back into this drive).
     fn refresh(&self, current: &mut Current, refused: Option<&str>) -> Result<(), DriveError> {
-        let spend = self
-            .keyring
-            .spend(&current.session.drive_id)
-            .map_err(|e| DriveError::Io(e.to_string()))?;
+        let spend = match self.keyring.spend(&current.session.drive_id) {
+            Ok(spend) => spend,
+            // The keyring has no session of the drive, or none can be read: the one this
+            // process holds is the newest it knows.
+            Err(_) => {
+                self.keyring
+                    .adopt(&current.session)
+                    .map_err(|e| DriveError::Io(e.to_string()))?;
+                self.keyring
+                    .spend(&current.session.drive_id)
+                    .map_err(|e| DriveError::Io(e.to_string()))?
+            }
+        };
         let newer = spend
             .entry()
             .and_then(|text| AzlinSession::from_keyring_secret(text).ok())
@@ -367,7 +376,7 @@ impl AzlinDrive {
             .map_err(|e| drive_error_of(&e))?;
         let bundle = DriveBundle::from_value(&answer).map_err(|e| drive_error_of(&e))?;
         self.learn_nodes(&bundle);
-        let kept = spend.rotated(bundle).keep();
+        let kept = spend.answered(bundle).keep();
         (self.on_rotated)(&kept.session, kept.saved);
         current.session = kept.session;
         current.drive = None;

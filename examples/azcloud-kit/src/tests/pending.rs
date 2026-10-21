@@ -73,7 +73,11 @@ fn approving(checkout_id: &'static str, claim: &ClaimKey) -> Arc<Fake> {
 }
 
 fn token_of(text: &str) -> String {
-    AzlinSession::from_keyring_secret(text).unwrap().drive_token
+    AzlinSession::from_keyring_secret(text)
+        .unwrap()
+        .drive_token
+        .as_str()
+        .to_string()
 }
 
 #[test]
@@ -197,7 +201,7 @@ fn an_approved_checkout_becomes_the_drive_and_its_session_is_kept_once_by_drive_
     // Meanwhile the drive refreshed and its token rotated: the next claim (another window, the
     // next start) keeps the rotated session - the sign-up's token is spent.
     let mut rotated = AzlinSession::from_keyring_secret(&kept).unwrap();
-    rotated.drive_token = String::from("dt_f.1.bbb");
+    rotated.drive_token = crate::DriveToken::new("dt_f.1.bbb");
     keyring
         .set(&keyring_key("d_1"), &rotated.to_keyring_secret())
         .unwrap();

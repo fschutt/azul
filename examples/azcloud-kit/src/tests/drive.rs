@@ -69,6 +69,22 @@ fn factory(fake: &Arc<Fake>) -> TransportFactory {
 /// What the drive handed the app: each session and whether the keyring has it.
 type Rotations = Arc<Mutex<Vec<(AzlinSession, Result<(), String>)>>>;
 
+/// A copy of `session` for the test to look at (a session has no `Clone`).
+fn copy(session: &AzlinSession) -> AzlinSession {
+    AzlinSession::from_keyring_secret_without_credentials(&session.to_keyring_secret()).unwrap()
+}
+
+/// What the drive handed over so far.
+fn handed(rotated: &Rotations) -> Vec<(AzlinSession, Result<(), String>)> {
+    let handed = rotated.lock().unwrap();
+    handed.iter().map(|(s, saved)| (copy(s), saved.clone())).collect()
+}
+
+/// The drive token the drive holds now.
+fn held_token(drive: &AzlinDrive) -> String {
+    drive.with_session(|s| s.drive_token.as_str().to_string())
+}
+
 /// The first bundle's session in a keyring of its own (what the app keeps when it opens the
 /// drive), with the locks in `dir`.
 fn keyring_with(first: &DriveBundle, dir: &TempDir) -> (SharedKeyring, Arc<MemoryKeyring>) {
@@ -98,7 +114,7 @@ fn drive(
         shared,
         factory(fake),
         Box::new(move |session: &AzlinSession, saved: Result<(), String>| {
-            keep.lock().unwrap().push((session.clone(), saved));
+            keep.lock().unwrap().push((copy(session), saved));
         }),
     )
     .unwrap()
@@ -114,7 +130,11 @@ fn refreshes(fake: &Fake) -> usize {
 }
 
 fn token_of(text: &str) -> String {
-    AzlinSession::from_keyring_secret(text).unwrap().drive_token
+    AzlinSession::from_keyring_secret(text)
+        .unwrap()
+        .drive_token
+        .as_str()
+        .to_string()
 }
 
 fn kept_token(keyring: &MemoryKeyring) -> String {
@@ -139,12 +159,12 @@ fn credentials_running_out_are_refreshed_once_and_the_new_token_is_in_the_keyrin
     drive.list(&ListRequest::folder("")).unwrap();
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(refreshes(&fake), 1, "{:?}", fake.calls());
-    let handed = rotated.lock().unwrap().clone();
+    let handed = handed(&rotated);
     assert_eq!(handed.len(), 1);
-    assert_eq!(handed[0].0.drive_token, "dt_f.1.bbb");
+    assert_eq!(handed[0].0.drive_token.as_str(), "dt_f.1.bbb");
     assert_eq!(handed[0].0.access_key_id, "AKID2");
     assert_eq!(handed[0].1, Ok(()), "the keyring has it");
-    assert_eq!(drive.session().drive_token, "dt_f.1.bbb");
+    assert_eq!(held_token(&drive), "dt_f.1.bbb");
     assert_eq!(kept_token(&keyring), "dt_f.1.bbb");
     // The bucket was listed with the NEW key.
     let listing = fake
@@ -184,8 +204,8 @@ fn a_session_another_process_refreshed_is_read_from_the_keyring_instead_of_spend
         .unwrap();
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(refreshes(&fake), 0, "the spent token is never sent again");
-    assert_eq!(drive.session().drive_token, "dt_f.1.bbb");
-    let handed = rotated.lock().unwrap().clone();
+    assert_eq!(held_token(&drive), "dt_f.1.bbb");
+    let handed = handed(&rotated);
     assert_eq!(handed.len(), 1);
     assert_eq!(handed[0].0.access_key_id, "AKID2");
     assert_eq!(handed[0].1, Ok(()));
@@ -202,7 +222,7 @@ fn a_refused_key_takes_the_newer_session_another_process_kept() {
         .unwrap();
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(refreshes(&fake), 0);
-    assert_eq!(drive.session().access_key_id, "AKID2");
+    assert_eq!(drive.with_session(|s| s.access_key_id.clone()), "AKID2");
 }
 
 /// A keyring that takes nothing (none on this system).
@@ -238,15 +258,15 @@ fn a_rotated_session_the_keyring_does_not_take_is_handed_over_with_why() {
         ),
         factory(&fake),
         Box::new(move |session: &AzlinSession, saved: Result<(), String>| {
-            keep.lock().unwrap().push((session.clone(), saved));
+            keep.lock().unwrap().push((copy(session), saved));
         }),
     )
     .unwrap()
     .with_clock(move || EXPIRES - 600);
     drive.list(&ListRequest::folder("")).unwrap();
-    let handed = rotated.lock().unwrap().clone();
+    let handed = handed(&rotated);
     assert_eq!(handed.len(), 1);
-    assert_eq!(handed[0].0.drive_token, "dt_f.1.bbb", "the drive goes on with it");
+    assert_eq!(handed[0].0.drive_token.as_str(), "dt_f.1.bbb", "the drive goes on with it");
     let why = handed[0].1.clone().unwrap_err();
     assert!(why.contains("no keyring"), "{why}");
 }
@@ -430,7 +450,7 @@ fn two_sessions_over_one_keyring_and_one_lock_race_a_refresh_and_neither_ends_wi
         }
         for (window, drive) in windows.iter().enumerate() {
             assert_eq!(
-                drive.session().drive_token,
+                held_token(&drive),
                 newest,
                 "round {round}: window {window} holds the newest token"
             );

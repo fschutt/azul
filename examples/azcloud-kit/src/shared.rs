@@ -10,8 +10,8 @@
 use std::{
     collections::BTreeMap,
     fmt,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    path::PathBuf,
+    sync::{Arc, Condvar, Mutex, PoisonError},
     time::Duration,
 };
 
@@ -147,7 +147,7 @@ impl SharedKeyring {
     pub fn with_lock_root(
         keyring: Arc<dyn KeyringStore>,
         namespace: KeyringNamespace,
-        root: &Path,
+        root: &std::path::Path,
     ) -> SharedKeyring {
         let locks = LockDir::new(root.join(namespace_folder(&namespace)));
         SharedKeyring {
@@ -220,6 +220,46 @@ impl SharedKeyring {
         }
     }
 
+    /// `held` (the session an app opened a drive with) as the entry of its drive when the
+    /// keyring has no session of the drive or cannot be read (a system without a keyring):
+    /// this process keeps it then, the next spend takes it and stores it where it can. A
+    /// session the keyring has stays the one spent.
+    ///
+    /// # Errors
+    ///
+    /// When the lock cannot be taken.
+    pub fn adopt(&self, held: &AzlinSession) -> CloudResult<()> {
+        let drive_id = held.drive_id.as_str();
+        self.adopt_entry(&keyring_key(drive_id), &held.to_keyring_secret(), |text| {
+            AzlinSession::from_keyring_secret_without_credentials(text)
+                .is_ok_and(|s| s.drive_id == drive_id && !s.drive_token.is_empty())
+        })
+    }
+
+    /// [`SharedKeyring::adopt`] of an entry in another format: `held` becomes the text of `key`
+    /// in this process unless the keyring has a text `ours` takes.
+    ///
+    /// # Errors
+    ///
+    /// When the lock cannot be taken.
+    pub fn adopt_entry(
+        &self,
+        key: &str,
+        held: &str,
+        ours: impl Fn(&str) -> bool,
+    ) -> CloudResult<()> {
+        let _lock = self.lock(key)?;
+        let file = self.locks.file_of(key);
+        if unsaved().contains_key(&file) {
+            return Ok(());
+        }
+        let has = self.keyring.get(key).ok().flatten().is_some_and(|text| ours(&text));
+        if !has && ours(held) {
+            unsaved().insert(file, Zeroizing::new(held.to_string()));
+        }
+        Ok(())
+    }
+
     /// The drive token of the drive `drive_id`'s session in the keyring, to spend once: under the
     /// drive's lock (the one every refresh and grant of the drive holds) until the spend's
     /// answer is kept or given up. The only way to a refresh.
@@ -269,7 +309,7 @@ impl SharedKeyring {
                 shared: self,
                 key: key.to_string(),
             },
-            lock: SpendLock(Box::new(lock)),
+            lock: SpendLock::new(lock),
         })
     }
 
@@ -281,7 +321,21 @@ impl SharedKeyring {
     ///
     /// When the keyring does not take it.
     pub fn set(&self, key: &str, text: &str) -> CloudResult<()> {
-        Ok(self.keyring.set(key, text)?)
+        let file = self.locks.file_of(key);
+        match self.keyring.set(key, text) {
+            Ok(()) => {
+                // the keyring has the newest text again
+                unsaved().remove(&file);
+                Ok(())
+            }
+            Err(e) => {
+                // an entry this process keeps already keeps this text instead
+                if let Some(kept) = unsaved().get_mut(&file) {
+                    *kept = Zeroizing::new(text.to_string());
+                }
+                Err(e.into())
+            }
+        }
     }
 
     /// Removes the entry `key`.
@@ -290,6 +344,7 @@ impl SharedKeyring {
     ///
     /// When the keyring cannot remove it.
     pub fn delete(&self, key: &str) -> CloudResult<()> {
+        unsaved().remove(&self.locks.file_of(key));
         Ok(self.keyring.delete(key)?)
     }
 
@@ -354,8 +409,54 @@ enum Home<'k> {
     Caller,
 }
 
+/// How many spends are out in this process (taken, their answer not kept or given up yet), and
+/// the waiters for none.
+static SPENDS_OUT: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// One spend out, counted in [`SPENDS_OUT`] while it lives.
+struct Out;
+
+impl Out {
+    fn new() -> Out {
+        *SPENDS_OUT.0.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        Out
+    }
+}
+
+impl Drop for Out {
+    fn drop(&mut self) {
+        let mut out = SPENDS_OUT.0.lock().unwrap_or_else(PoisonError::into_inner);
+        *out = out.saturating_sub(1);
+        SPENDS_OUT.1.notify_all();
+    }
+}
+
+/// Waits up to `limit` until no spend of this process is out (a refresh that spent a token
+/// and has not kept its answer yet): an app that quits calls it, so the session a refresh just
+/// rotated reaches the keyring. Whether none is out now.
+pub fn wait_for_spends(limit: Duration) -> bool {
+    let (out, none) = &SPENDS_OUT;
+    let guard = out.lock().unwrap_or_else(PoisonError::into_inner);
+    let (guard, _) = none
+        .wait_timeout_while(guard, limit, |n| *n > 0)
+        .unwrap_or_else(PoisonError::into_inner);
+    *guard == 0
+}
+
 /// The lock a spend holds (a keyring entry's, or the caller's): dropped, it is released.
-pub struct SpendLock(Box<dyn std::any::Any>);
+pub struct SpendLock {
+    _lock: Box<dyn std::any::Any>,
+    _out: Out,
+}
+
+impl SpendLock {
+    fn new(lock: impl std::any::Any) -> SpendLock {
+        SpendLock {
+            _lock: Box::new(lock),
+            _out: Out::new(),
+        }
+    }
+}
 
 impl fmt::Debug for SpendLock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -415,17 +516,20 @@ impl<'k> SpendOnce<'k> {
             token,
             entry: None,
             home: Home::Caller,
-            lock: SpendLock(Box::new(lock)),
+            lock: SpendLock::new(lock),
         }
     }
 
     /// The token, for the request that spends it.
-    pub(crate) fn token(&self) -> &DriveToken {
+    #[must_use]
+    pub fn token(&self) -> &DriveToken {
         &self.token
     }
 
-    /// The answer `bundle` of the spend, under the same lock.
-    pub(crate) fn rotated(self, bundle: DriveBundle) -> Rotation<'k> {
+    /// The answer `bundle` of the spend (a refresh's, or a lockdown's new grant), under the same
+    /// lock until it is kept. [`crate::TokenServer::refresh`] makes it; a test's token server
+    /// too.
+    pub fn answered(self, bundle: DriveBundle) -> Rotation<'k> {
         Rotation {
             bundle,
             spend: self,

@@ -364,13 +364,13 @@ impl MailApp {
         mail_drive::set_index_cache_root(
             user_cache_dir().map(|dir| dir.join("AzMail").join("drive-index")),
         );
-        // The locks of the account sessions beside the data root's own bookkeeping (`.azlin`
-        // is never synced): every AzMail on this data root takes turns there.
+        // The account sessions' locks are the keyring's: every AzMail and Azlin app of this
+        // user that reaches the same entries takes turns there.
         let shared_keyring = azcloud_kit::SharedKeyring::new(
             std::sync::Arc::new(azul_storage::azul_keyring::AzulKeyring::new(
                 azul_storage::keyring::KeyringNamespace::azlin_shared(),
             )),
-            azcloud_kit::LockDir::new(data_root.join(".azlin").join("locks")),
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
         );
         // Read once, before the window (as the kit reads settings.json).
         let todo = todo::load(&data_root);

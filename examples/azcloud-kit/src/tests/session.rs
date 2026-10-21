@@ -83,7 +83,7 @@ fn a_bundle_without_its_token_servers_address_gets_the_one_it_came_from() {
 fn the_session_round_trips_through_the_keyring_and_reads_as_plain_credentials() {
     let session = parsed().session();
     assert_eq!(session.drive_id, "d_1");
-    assert_eq!(session.drive_token, "dt_f.0.aaa");
+    assert_eq!(session.drive_token.as_str(), "dt_f.0.aaa");
     assert_eq!(session.expires_at, Some(EXPIRES));
     let secret = session.to_keyring_secret();
     assert_eq!(AzlinSession::from_keyring_secret(&secret).unwrap(), session);
@@ -127,7 +127,7 @@ fn long_lived_keys_never_need_a_refresh() {
 fn a_recovering_drives_entry_reads_back_its_drive_token_alone() {
     let pending = AzlinSession {
         drive_id: String::from("d_1"),
-        drive_token: String::from("dt_f.0.aaa"),
+        drive_token: crate::DriveToken::new("dt_f.0.aaa"),
         access_key_id: String::new(),
         secret_access_key: String::new(),
         session_token: None,

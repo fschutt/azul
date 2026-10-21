@@ -368,18 +368,30 @@ fn a_refresh_spends_the_drive_token_and_answers_the_next_one() {
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let fresh = server.refresh("d_1", "dt_f.0.aaa").unwrap();
-    assert_eq!(fresh.drive_token, "dt_f.1.bbb");
-    assert_eq!(fresh.credentials.access_key_id, "AKID2");
+    let dir = azul_storage::testing::TempDir::new("azcloud-token-refresh");
+    let shared = super::keyring_holding(&dir, "dt_f.0.aaa");
+    let fresh = server.refresh(shared.spend("d_1").unwrap(), None).rotated().unwrap();
+    assert_eq!(fresh.bundle().drive_token, "dt_f.1.bbb");
+    assert_eq!(fresh.bundle().credentials.access_key_id, "AKID2");
+    drop(fresh);
     let call = &fake.calls()[0];
     assert_eq!(call.method, Method::Post);
     assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/credentials"));
+    let old_dir = azul_storage::testing::TempDir::new("azcloud-token-refresh-old");
+    let old = super::keyring_holding(&old_dir, "dt_f.0.old");
     assert!(matches!(
-        server.refresh("d_1", "dt_f.0.old"),
+        server.refresh(old.spend("d_1").unwrap(), None).rotated(),
         Err(TokenError::SignIn(_))
     ));
-    assert!(matches!(server.refresh("d_1", " "), Err(TokenError::SignIn(_))));
-    assert!(matches!(server.refresh(" ", "dt_x"), Err(TokenError::Config(_))));
+    let blank_dir = azul_storage::testing::TempDir::new("azcloud-token-refresh-blank");
+    let blank = super::keyring_holding(&blank_dir, "dt_f.0.aaa");
+    let no_token = r#"{"drive_id": "d_1", "drive_token": " ", "access_key_id": "AKID1",
+                       "secret_access_key": "s"}"#;
+    blank
+        .set(&azul_storage::config::keyring_key("d_1"), no_token)
+        .unwrap();
+    assert!(blank.spend("d_1").is_err(), "no token to spend");
+    assert!(shared.spend(" ").is_err(), "no session of a blank drive");
 }
 
 #[test]
@@ -434,10 +446,13 @@ fn a_named_refresh_tells_the_token_server_what_this_device_calls_the_drive() {
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let dir = azul_storage::testing::TempDir::new("azcloud-token-refresh-named");
+    let shared = super::keyring_holding(&dir, "dt_f.0.aaa");
     let fresh = server
-        .refresh_named("d_1", "dt_f.0.aaa", " Ann's drive ")
+        .refresh(shared.spend("d_1").unwrap(), Some(" Ann's drive "))
+        .rotated()
         .unwrap();
-    assert_eq!(fresh.drive_token, "dt_f.1.bbb");
+    assert_eq!(fresh.bundle().drive_token, "dt_f.1.bbb");
     let call = &fake.calls()[0];
     assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/credentials"));
     assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.aaa"));
@@ -781,7 +796,9 @@ fn only_a_401_to_a_call_with_the_drive_token_means_signing_in_again() {
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     // A 403 to a call with the drive token: the token server refused this one call, the token
     // is not gone.
-    match server.refresh("d_1", "dt_f.0.aaa") {
+    let dir = azul_storage::testing::TempDir::new("azcloud-token-refresh-403");
+    let shared = super::keyring_holding(&dir, "dt_f.0.aaa");
+    match server.refresh(shared.spend("d_1").unwrap(), None).rotated() {
         Err(TokenError::Refused { status, code, .. }) => {
             assert_eq!(status, 403);
             assert_eq!(code, "forbidden");
@@ -815,8 +832,11 @@ fn a_refresh_answered_503_is_tried_again_with_the_same_token_and_never_drops_it(
     let server = TokenServer::new(TOKEN, &transport)
         .unwrap()
         .with_retry_pause(std::time::Duration::ZERO);
-    let bundle = server.refresh("d_1", "dt_f.0.aaa").unwrap();
-    assert_eq!(bundle.drive_token, "dt_f.1.bbb");
+    let dir = azul_storage::testing::TempDir::new("azcloud-token-refresh-503");
+    let shared = super::keyring_holding(&dir, "dt_f.0.aaa");
+    let rotation = server.refresh(shared.spend("d_1").unwrap(), None).rotated().unwrap();
+    assert_eq!(rotation.bundle().drive_token, "dt_f.1.bbb");
+    drop(rotation);
     let calls = fake.calls();
     assert_eq!(calls.len(), 3, "two 503s, then the answer");
     for call in &calls {
@@ -833,7 +853,10 @@ fn a_refresh_answered_503_is_tried_again_with_the_same_token_and_never_drops_it(
     let server = TokenServer::new(TOKEN, &transport)
         .unwrap()
         .with_retry_pause(std::time::Duration::ZERO);
-    let error = server.refresh("d_1", "dt_f.0.aaa").unwrap_err();
+    let error = server
+        .refresh(shared.spend("d_1").unwrap(), None)
+        .rotated()
+        .unwrap_err();
     assert!(
         matches!(&error, TokenError::Refused { status: 503, code, .. } if code == "not_verified"),
         "{error:?}"
