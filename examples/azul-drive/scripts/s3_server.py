@@ -369,10 +369,17 @@ class Store:
     def parts(self, folder):
         """(number, etag, size) of every part sent, by number."""
         out = []
-        for name in sorted(os.listdir(folder)):
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            return out  # completed or aborted meanwhile
+        for name in names:
             if name.startswith("part-"):
                 path = os.path.join(folder, name)
-                out.append((int(name[5:]), self.etag(path), os.path.getsize(path)))
+                try:
+                    out.append((int(name[5:]), self.etag(path), os.path.getsize(path)))
+                except OSError:
+                    pass
         return out
 
     def complete(self, folder, bucket, key, listed):
@@ -401,6 +408,31 @@ class Store:
 
     def abort(self, folder):
         shutil.rmtree(folder, ignore_errors=True)
+
+    def reserved_bytes(self, bucket, skip_folder=None, skip_part=None):
+        """The bytes the parts of `bucket`'s unfinished uploads hold (an Azlin node counts them
+        against the quota until the upload ends); without the upload `skip_folder`, or without
+        its part `skip_part` only (a part about to be sent again)."""
+        base = os.path.join(self.root, self.UPLOADS)
+        try:
+            names = os.listdir(base)
+        except OSError:
+            return 0
+        total = 0
+        for name in names:
+            folder = os.path.join(base, name)
+            try:
+                with open(os.path.join(folder, "meta.json"), encoding="utf-8") as f:
+                    if json.load(f).get("bucket") != bucket:
+                        continue
+            except (OSError, ValueError):
+                continue
+            if folder == skip_folder and skip_part is None:
+                continue
+            for number, _, size in self.parts(folder):
+                if folder != skip_folder or number != skip_part:
+                    total += size
+        return total
 
     def delete(self, bucket, key):
         path = self.path(bucket, key)
@@ -498,6 +530,15 @@ class S3Error(Exception):
         parts.append(element("Resource", resource))
         parts.append(element("RequestId", request_id))
         return ('<?xml version="1.0" encoding="UTF-8"?>\n<Error>%s</Error>' % "".join(parts)).encode("utf-8")
+
+
+class QuotaExceeded(S3Error):
+    """An Azlin node's refusal of a write past the drive's quota."""
+
+    headers = {"x-azlin-error": "quota_exceeded"}
+
+    def __init__(self):
+        super().__init__(403, "QuotaExceeded", "The drive is full.")
 
 
 def parse_range(header, size):
@@ -730,7 +771,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             record["op"] = record["op"] or "Refused"
             self.fail(S3Error(400, "InvalidArgument", str(e)), resource)
         except S3Error as e:
-            self.fail(e, resource)
+            self.fail(e, resource, getattr(e, "headers", None))
         except (ConnectionError, BrokenPipeError):
             self.status = 499
         finally:
@@ -813,13 +854,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                               BucketName=source_bucket)
             if not source_key or store.info(source_bucket, source_key) is None:
                 raise S3Error(404, "NoSuchKey", "The specified key does not exist.", Key=source_key)
-            etag = store.write(bucket, key, store.read(source_bucket, source_key))
+            with store.write_lock:
+                data = store.read(source_bucket, source_key)
+                old = store.info(bucket, key)
+                self.check_quota(bucket, len(data), old["size"] if old else 0)
+                etag = store.write(bucket, key, data)
             result = element("LastModified", iso8601(store.info(bucket, key)["mtime"])) + element("ETag", etag)
             self.respond(200, xml_document("CopyObjectResult", result), {"Content-Type": "application/xml"})
             return "CopyObject"
         if self.command == "PUT":
             with store.write_lock:
-                self.check_write_conditions(store.info(bucket, key))
+                old = store.info(bucket, key)
+                self.check_write_conditions(old)
+                self.check_quota(bucket, len(body), old["size"] if old else 0)
                 etag = store.write(bucket, key, body)
             self.respond(200, headers={"ETag": etag})
             return "PutObject"
@@ -874,6 +921,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                      {"Content-Type": "application/xml"})
         return "DeleteObjects"
 
+    def check_quota(self, bucket, adding, replacing=0, skip_folder=None, skip_part=None):
+        """QuotaExceeded when the bucket's stored bytes, its unfinished uploads' parts (less the
+        ones skipped) and `adding`, less `replacing`, pass its quota - when the server plays an
+        Azlin node's quota (`enforce_quota`) and knows the bucket's. Called under the store's
+        write lock, so two writes that each fit alone do not both land."""
+        if not self.server.enforce_quota or self.server.space_quota is None:
+            return
+        quota = self.server.space_quota(bucket)
+        if quota is None:
+            return
+        store = self.server.store
+        total = (store.stored_bytes(bucket) + store.reserved_bytes(bucket, skip_folder, skip_part)
+                 + adding - replacing)
+        if total > int(quota):
+            raise QuotaExceeded()
+
     def space_headers(self, bucket):
         """An Azlin node's HeadBucket headers (SRV17), when the server plays one
         (`Server.space_quota`): the bytes it stores for the bucket, the quota of its drive's
@@ -905,7 +968,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise S3Error(400, "InvalidArgument", "Part number must be an integer between 1 "
                               "and 10000, inclusive") from None
             self.server.gate("parts")
-            etag = store.write_part(folder, number, body)
+            with store.write_lock:
+                self.check_quota(bucket, len(body), skip_folder=folder, skip_part=number)
+                etag = store.write_part(folder, number, body)
             self.respond(200, headers={"ETag": etag})
             return "UploadPart"
         if self.command == "GET":
@@ -937,7 +1002,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except ValueError:
                     raise S3Error(400, "MalformedXML", "A part has no number") from None
             with store.write_lock:
-                self.check_write_conditions(store.info(bucket, key))
+                old = store.info(bucket, key)
+                self.check_write_conditions(old)
+                sizes = {n: size for n, _, size in store.parts(folder)}
+                self.check_quota(bucket, sum(sizes.get(n, 0) for n, _ in listed),
+                                 old["size"] if old else 0, skip_folder=folder)
                 etag = store.complete(folder, bucket, key, listed)
             self.respond(200, xml_document("CompleteMultipartUploadResult", element("Bucket", bucket)
                                            + element("Key", key) + element("ETag", etag)),
@@ -1035,6 +1104,8 @@ class Server(http.server.ThreadingHTTPServer):
         # An Azlin node's HeadBucket headers (SRV17: x-azlin-used-bytes, x-azlin-quota-bytes):
         # None for a plain S3, else a bucket's quota of stored bytes (None: not known).
         self.space_quota = None
+        # With it the writes keep to that quota as a node's do (check_quota).
+        self.enforce_quota = False
         # The kill switches: kind ("parts", "gets") -> how many pass before the rest wait.
         self._holds = {}
         self._counts = {}
