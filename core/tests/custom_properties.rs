@@ -377,7 +377,13 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
     let layers = CssPropertyType::BackgroundContent;
     assert_eq!(
         slow(&sd, 1, StyledNodeState::default(), layers),
-        parsed(layers, "none")
+        CssProperty::background_content(
+            vec![azul_css::props::style::StyleBackgroundContent::Color(
+                azul_css::props::basic::color::ColorU::TRANSPARENT,
+            )]
+            .into()
+        ),
+        "one layer without an image"
     );
 }
 
