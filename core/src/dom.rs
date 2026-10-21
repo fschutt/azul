@@ -1536,6 +1536,10 @@ pub enum AttributeType {
     Draggable(bool),
     /// Element is hidden (`hidden`)
     Hidden,
+    /// Whether the window a `<transient-window>` opens has a title bar
+    /// (`titlebar="true"` / `"false"`). Without it a popover has none and a
+    /// dialog window (`anchor="dialog"`) has one.
+    Titlebar(bool),
 
     /// Generic data attribute (`data-*="..."`)
     Data(AttributeNameValue),
@@ -1628,6 +1632,7 @@ impl AttributeType {
             Self::ContentEditable(_) => "contenteditable",
             Self::Draggable(_) => "draggable",
             Self::Hidden => "hidden",
+            Self::Titlebar(_) => "titlebar",
         }
     }
 
@@ -1673,7 +1678,7 @@ impl AttributeType {
             Self::Focusable => "0".into(),
             // Boolean attribute: present means true, as in HTML.
             Self::Autofocus => "true".into(),
-            Self::ContentEditable(b) | Self::Draggable(b) => {
+            Self::ContentEditable(b) | Self::Draggable(b) | Self::Titlebar(b) => {
                 if *b {
                     "true".into()
                 } else {
@@ -2978,7 +2983,8 @@ impl NodeData {
                 | ("rowspan", AttributeType::RowSpan(n))
                 | ("tabindex", AttributeType::TabIndex(n)) => Some(number(*n)),
                 ("contenteditable", AttributeType::ContentEditable(b))
-                | ("draggable", AttributeType::Draggable(b)) => Some(b.to_string().into()),
+                | ("draggable", AttributeType::Draggable(b))
+                | ("titlebar", AttributeType::Titlebar(b)) => Some(b.to_string().into()),
                 // A data attribute keeps its whole name (`data-id`), as the
                 // XML loaders and `AttributeType::name` spell it.
                 (_, AttributeType::Data(nv) | AttributeType::Custom(nv))

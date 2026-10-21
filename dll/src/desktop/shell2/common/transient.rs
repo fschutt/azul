@@ -652,6 +652,29 @@ pub fn as_dialog_window(window_state: &mut FullWindowState, title: &str) {
         .x11_override_redirect = false;
 }
 
+/// Whether the window of the `<transient-window>` at `node` has a title bar:
+/// its `titlebar` attribute, else a dialog window (`anchor="dialog"`) has
+/// one and a popover none.
+fn transient_has_titlebar(
+    styled: &azul_core::styled_dom::StyledDom,
+    node: NodeId,
+    anchor: TransientAnchor,
+) -> bool {
+    let _ = (styled, node);
+    anchor == TransientAnchor::Dialog
+}
+
+/// The window kind of a just-opened transient window: a window with a title
+/// bar is a dialog window (the system's title bar, movable by it, ordered
+/// with its parent); one without stays the borderless popup
+/// `popup_window_state` made it.
+fn style_transient_window(window_state: &mut FullWindowState, anchor: TransientAnchor, titled: bool, title: &str) {
+    let _ = titled;
+    if anchor == TransientAnchor::Dialog {
+        as_dialog_window(window_state, title);
+    }
+}
+
 /// What the parent's sync step wants the shell to do afterwards.
 #[derive(Debug, Default)]
 pub struct SyncOutcome {
@@ -853,8 +876,15 @@ pub fn sync_parent(
                     )
                 };
                 options.window_state.title = title.as_str().into();
-                if w.torn.is_none() && w.placement.anchor == TransientAnchor::Dialog {
-                    as_dialog_window(&mut options.window_state, &title);
+                if w.torn.is_none() {
+                    let titled =
+                        transient_has_titlebar(styled, w.source_node, w.placement.anchor);
+                    style_transient_window(
+                        &mut options.window_state,
+                        w.placement.anchor,
+                        titled,
+                        &title,
+                    );
                 }
                 // If this torn window is the panel of a live inline tear, it is
                 // born FOLLOWING — mouse-transparent from its first frame — so
@@ -1691,6 +1721,42 @@ mod tests {
             transient_window_title(&untitled, NodeId::new(1), "AzNotes"),
             "AzNotes",
             "an untitled dialog takes its parent window's title"
+        );
+    }
+
+    /// Whether a transient window has a title bar is its node's `titlebar`
+    /// attribute: a popover has none unless it asks, a dialog window one
+    /// unless it says `titlebar="false"` (AzDrive's Add drive is a popover).
+    #[test]
+    fn a_transient_windows_title_bar_is_its_nodes_choice() {
+        use azul_core::{dom::AttributeType, styled_dom::StyledDom};
+        let page = |titlebar: Option<bool>| {
+            let mut node = Dom::create_node(azul_core::dom::NodeType::TransientWindow(
+                azul_core::transient::TransientWindowConfig::opened(),
+            ));
+            if let Some(t) = titlebar {
+                node = node.with_attribute(AttributeType::Titlebar(t));
+            }
+            StyledDom::create_from_dom(Dom::create_body().with_child(node))
+        };
+        let decorations = |anchor: TransientAnchor, titlebar: Option<bool>| {
+            let styled = page(titlebar);
+            let titled = transient_has_titlebar(&styled, NodeId::new(1), anchor);
+            let mut st = popup_window_state("AzDrive", "azul-transient", LogicalSize::new(200.0, 100.0), LogicalPosition::zero());
+            style_transient_window(&mut st, anchor, titled, "Add drive");
+            st.flags.decorations
+        };
+        assert_eq!(decorations(TransientAnchor::Bottom, None), WindowDecorations::None, "a popover has no title bar");
+        assert_eq!(decorations(TransientAnchor::Dialog, None), WindowDecorations::Normal, "a dialog window has one");
+        assert_eq!(
+            decorations(TransientAnchor::Dialog, Some(false)),
+            WindowDecorations::None,
+            "titlebar=\"false\" takes the dialog window's title bar away"
+        );
+        assert_eq!(
+            decorations(TransientAnchor::Bottom, Some(true)),
+            WindowDecorations::Normal,
+            "titlebar=\"true\" gives a popover one"
         );
     }
 

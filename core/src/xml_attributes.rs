@@ -311,6 +311,14 @@ fn form_control(name: &str, value: &str) -> Option<NodeSetting> {
 }
 
 // A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+// Present means on, as HTML's boolean attributes; an explicit "false" off.
+#[allow(clippy::unnecessary_wraps)]
+fn titlebar(_: &str, value: &str) -> Option<NodeSetting> {
+    let on = !value.trim().eq_ignore_ascii_case("false");
+    Some(NodeSetting::Attribute(AttributeType::Titlebar(on)))
+}
+
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
 #[allow(clippy::unnecessary_wraps)]
 fn data(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Data(AttributeNameValue {
@@ -406,6 +414,7 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("inputmode", FormControls, 5, form_control),
     entry("dirname", FormControls, 5, form_control),
     entry("capture", FormControls, 5, form_control),
+    entry("titlebar", Tags(&["transient-window"]), 5, titlebar),
     entry("tabindex", AnyElement, 6, tabindex),
     entry("colspan", AnyElement, 7, span),
     entry("rowspan", AnyElement, 8, span),

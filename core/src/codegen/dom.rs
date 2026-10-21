@@ -2315,6 +2315,7 @@ fn attribute_expr(a: &AttributeType) -> Expr {
         AttributeType::ContentEditable(b) => v("ContentEditable", vec![Expr::Bool(*b)]),
         AttributeType::Draggable(b) => v("Draggable", vec![Expr::Bool(*b)]),
         AttributeType::Hidden => unit("Hidden"),
+        AttributeType::Titlebar(b) => v("Titlebar", vec![Expr::Bool(*b)]),
         AttributeType::Data(nv) => pair("Data", nv),
         AttributeType::Custom(nv) => pair("Custom", nv),
     }

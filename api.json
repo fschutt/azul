@@ -31075,6 +31075,9 @@
                                     "type": "bool"
                                 },
                                 "Hidden": {},
+                                "Titlebar": {
+                                    "type": "bool"
+                                },
                                 "Data": {
                                     "type": "AttributeNameValue"
                                 },
