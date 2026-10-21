@@ -381,6 +381,8 @@ impl App {
     /// `LSUIElement`): no Dock tile and no application menu bar, which also means
     /// an icon set via `set_app_icon` has nowhere to appear.
     pub fn run_tray_only(&self) {
+        // This thread runs the event loop: a blocking request here is refused.
+        azul_layout::http::mark_event_loop_thread();
         let Some(tray) = self.ptr.tray.clone() else {
             crate::plog_error!("[azul] run_tray_only() called without set_tray(); nothing to run");
             return;
@@ -419,6 +421,9 @@ impl App {
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
+        // This thread runs the event loop (and the callbacks): a blocking
+        // request here would stop the frames that deliver every other answer.
+        azul_layout::http::mark_event_loop_thread();
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::EventLoop,

@@ -202,6 +202,13 @@ pub struct HttpRequestConfig {
     pub timeout_secs: u64,
     /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
     pub max_response_size: u64,
+    /// Seconds the request body may take to send (0, the default: only the
+    /// overall timeout applies). An upload sets it from its size, so a big
+    /// body on a slow link gets the time it needs and a stalled one still ends.
+    pub send_timeout_secs: u64,
+    /// Seconds the response body may take to arrive (0, the default: only the
+    /// overall timeout applies). A ranged download sets it from its range.
+    pub recv_timeout_secs: u64,
     /// Disable TLS certificate verification (default: false).
     /// WARNING: This makes HTTPS connections vulnerable to MITM attacks.
     /// Use only for testing or when connecting to servers with self-signed
@@ -218,6 +225,8 @@ impl Default for HttpRequestConfig {
         Self {
             timeout_secs: 30,
             max_response_size: 100 * 1024 * 1024, // 100 MB
+            send_timeout_secs: 0,
+            recv_timeout_secs: 0,
             user_agent: AzString::from("azul-http/1.0".to_string()),
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
@@ -492,6 +501,49 @@ fn lost_get_result() -> HttpGetResult {
     }
 }
 
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Whether this thread runs the app's event loop ([`mark_event_loop_thread`]).
+    static EVENT_LOOP_THREAD: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Marks the calling thread as the one that runs the app's event loop: a
+/// blocking request there is refused ([`HttpRequestConfig::http_request_blocking`]),
+/// as the frames it would hold up are the ones that deliver every other
+/// answer. `App::run` calls it before its loop starts.
+#[cfg(feature = "std")]
+pub fn mark_event_loop_thread() {
+    EVENT_LOOP_THREAD.with(|marked| marked.set(true));
+}
+
+/// Whether the calling thread runs the app's event loop.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn is_event_loop_thread() -> bool {
+    EVENT_LOOP_THREAD.with(core::cell::Cell::get)
+}
+
+#[cfg(not(feature = "std"))]
+const fn is_event_loop_thread() -> bool {
+    false
+}
+
+/// The refusal of a blocking request on the event loop's thread: a debug build
+/// stops there, so the call is found; a release build answers at once.
+fn refused_on_event_loop_thread() -> Option<HttpError> {
+    if !is_event_loop_thread() {
+        return None;
+    }
+    debug_assert!(
+        false,
+        "a blocking HTTP request on the UI thread: it would stop the frames that deliver every \
+         other answer; send it from a worker thread or use http_request"
+    );
+    Some(HttpError::other(AzString::from(
+        "a blocking request was sent from the UI thread; it runs on worker threads only",
+    )))
+}
+
 /// Resumes `on_result` with the request's answer WITHOUT blocking the calling
 /// activation: the one way every resumable request of [`HttpRequestConfig`]
 /// runs.
@@ -562,10 +614,27 @@ impl HttpRequestConfig {
         self
     }
 
-    /// Set maximum response size (0 = unlimited)
+    /// Set maximum response size (0 = unlimited). A bigger answer is refused
+    /// with `HttpError::ResponseTooLarge`, never cut short.
     #[must_use]
     pub const fn with_max_size(mut self, max_bytes: u64) -> Self {
         self.max_response_size = max_bytes;
+        self
+    }
+
+    /// Set the seconds the request body may take to send (0 = only the overall
+    /// timeout applies)
+    #[must_use]
+    pub const fn with_send_timeout(mut self, secs: u64) -> Self {
+        self.send_timeout_secs = secs;
+        self
+    }
+
+    /// Set the seconds the response body may take to arrive (0 = only the
+    /// overall timeout applies)
+    #[must_use]
+    pub const fn with_recv_timeout(mut self, secs: u64) -> Self {
+        self.recv_timeout_secs = secs;
         self
     }
 
@@ -670,17 +739,39 @@ impl HttpRequestConfig {
             on_result,
             mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
             move || HttpGetResult {
-                result: config.http_request_blocking(method, url, body, content_type),
+                result: config.request_blocking(method, url, body, content_type),
             },
             lost_get_result,
         )
     }
 
-    /// The synchronous transport behind [`Self::http_request`]; see
-    /// [`Self::http_get_blocking`].
-    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    /// HTTP request with an arbitrary verb and an optional body, answered on
+    /// the calling thread: it blocks until the answer arrived (or the
+    /// timeouts ended it). For worker threads, whose answer then never depends
+    /// on the UI thread's pump. An EMPTY `body` sends no body; `content_type`
+    /// is only applied when a body is present.
+    ///
+    /// The thread that runs the app's event loop never waits here: a debug
+    /// build panics, a release build answers `HttpError::Other` at once
+    /// (a UI callback uses `http_request`, whose answer comes on a later frame).
     #[must_use]
     pub fn http_request_blocking(
+        &self,
+        method: HttpMethod,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        if let Some(refused) = refused_on_event_loop_thread() {
+            return ResultHttpResponseHttpError::Err(refused);
+        }
+        self.request_blocking(method, url, body, content_type)
+    }
+
+    /// The transfer behind [`Self::http_request`] and
+    /// [`Self::http_request_blocking`], on whatever thread calls it.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    fn request_blocking(
         &self,
         method: HttpMethod,
         url: AzString,
@@ -702,8 +793,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
-    #[must_use]
-    pub fn http_request_blocking(
+    fn request_blocking(
         &self,
         _method: HttpMethod,
         url: AzString,
@@ -1589,18 +1679,29 @@ fn decode_response(
         ));
     }
 
-    // Read body with size limit
+    // Read the body up to one byte past the limit: a body without a
+    // Content-Length (chunked) shows its size only here, and a longer one is
+    // refused rather than cut short (a cut range would be silent damage).
     let mut body = Vec::new();
-    let limit = if config.max_response_size > 0 {
-        config.max_response_size as usize
-    } else {
-        usize::MAX
-    };
     let mut body_reader = response.into_body();
-    let mut reader = body_reader.as_reader().take(limit as u64);
-    reader
-        .read_to_end(&mut body)
-        .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+    if config.max_response_size == 0 {
+        body_reader
+            .as_reader()
+            .read_to_end(&mut body)
+            .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+    } else {
+        body_reader
+            .as_reader()
+            .take(config.max_response_size.saturating_add(1))
+            .read_to_end(&mut body)
+            .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+        if body.len() as u64 > config.max_response_size {
+            return Err(HttpError::response_too_large(
+                config.max_response_size,
+                body.len() as u64,
+            ));
+        }
+    }
 
     Ok(HttpResponse {
         status_code,
@@ -1647,6 +1748,9 @@ pub fn http_request_with_config(
         }
     };
     let timeout = Some(std::time::Duration::from_secs(config.timeout_secs));
+    let phase = |secs: u64| (secs > 0).then(|| std::time::Duration::from_secs(secs));
+    let send_timeout = phase(config.send_timeout_secs);
+    let recv_timeout = phase(config.recv_timeout_secs);
 
     // One request through the http crate's builder, whatever the verb: ureq's
     // typed builders exist for the standard verbs only, and this way the
@@ -1678,6 +1782,8 @@ pub fn http_request_with_config(
         let request = agent
             .configure_request(request)
             .timeout_global(timeout)
+            .timeout_send_body(send_timeout)
+            .timeout_recv_body(recv_timeout)
             .max_redirects(max_redirects)
             .save_redirect_history(true)
             .allow_non_standard_methods(true)
@@ -1690,6 +1796,8 @@ pub fn http_request_with_config(
         let request = agent
             .configure_request(request)
             .timeout_global(timeout)
+            .timeout_send_body(send_timeout)
+            .timeout_recv_body(recv_timeout)
             .max_redirects(max_redirects)
             .save_redirect_history(true)
             .allow_non_standard_methods(true)
