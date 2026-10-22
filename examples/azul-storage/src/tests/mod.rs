@@ -3,6 +3,8 @@
 
 mod catalog;
 mod config;
+/// A folder read in batches, a listing page that stats only its own entries.
+mod dir_read;
 #[cfg(feature = "sql")]
 mod database;
 mod key;
