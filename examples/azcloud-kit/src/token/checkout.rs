@@ -337,7 +337,7 @@ fn checkout_of(value: &Value, months: u32) -> Checkout {
         amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
         currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
         mock: value["mock"].as_bool().unwrap_or(false),
-        ladder_version: value["lock"]["version"].as_u64(),
+        ladder_version: value["ladder_version"].as_u64(),
     }
 }
 
