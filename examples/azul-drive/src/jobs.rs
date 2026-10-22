@@ -3351,9 +3351,116 @@ mod tests {
             .collect();
         assert_eq!(all.len(), listing::FIRST_BATCH + 300 + 3);
         assert_eq!(all.iter().filter(|e| e.is_folder).count(), 3);
-        assert!(all.iter().all(|e| !e.known && e.size.is_none()));
+        if cfg!(target_os = "macos") {
+            // The folder read carries the sizes and dates with the names: no row waits for a
+            // stat.
+            assert!(all.iter().all(|e| e.known && e.modified.is_some()));
+            assert!(all.iter().filter(|e| !e.is_folder).all(|e| e.size == Some(0)));
+        } else {
+            assert!(all.iter().all(|e| !e.known && e.size.is_none()));
+        }
         assert!(all.iter().any(|e| e.key == "docs/sub-0/"));
         assert!(all.iter().any(|e| e.key == "docs/file-00000.txt"));
+    }
+
+    /// Opening a folder of 10,000 files: the first screen of rows is handed over long before
+    /// the folder is read, and the whole read costs a few batched calls, not a stat per file
+    /// (on macOS the sizes and dates come with the names; elsewhere the rows in view are
+    /// stat'ed later, by `Job::Stat`).
+    #[test]
+    fn a_folder_of_10000_files_shows_its_first_screen_at_once_without_a_stat_per_file() {
+        let dir = folder_with(10_000, 0);
+        let before = azul_storage::dir_read::calls_on_this_thread();
+        let started = Instant::now();
+        let mut first_after = None;
+        let mut batches = 0;
+        let last = scan_dir(dir.path(), "", 7, &AtomicBool::new(false), &mut |_| {
+            batches += 1;
+            first_after.get_or_insert_with(|| started.elapsed());
+        });
+        let whole = started.elapsed();
+        let after = azul_storage::dir_read::calls_on_this_thread();
+        let first = first_after.expect("a first batch before the end");
+        println!(
+            "AZDRIVE_SCAN_10000 first {first:?} whole {whole:?} batches {batches} \
+             batch_reads {} stats {}",
+            after.batch_reads - before.batch_reads,
+            after.stats - before.stats
+        );
+        assert!(matches!(last, Outcome::Scanned { done: true, error: None, .. }));
+        assert_eq!(after.stats - before.stats, 0, "no stat for any file");
+        if cfg!(target_os = "macos") {
+            assert!(
+                after.batch_reads - before.batch_reads <= 10_000 / 100 + 2,
+                "a few hundred entries per call"
+            );
+        }
+        assert!(first < whole, "the first screen did not wait for the folder");
+    }
+
+    /// A drive whose second page takes as long as the test wants.
+    struct Gated {
+        drive: LocalDrive,
+        /// Pages answered so far.
+        pages: AtomicUsize,
+        /// The second page waits for this.
+        open: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl Drive for Gated {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            if self.pages.fetch_add(1, Ordering::SeqCst) == 1 {
+                let _ = self.open.lock().map(|open| open.recv());
+            }
+            self.drive.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.drive.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.drive.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.drive.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.drive.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.drive.head(key)
+        }
+    }
+
+    /// A slow listing (a bucket whose next page takes its time) runs on its own thread and hands
+    /// over each page as it comes: the window has the first page's rows, and keeps drawing,
+    /// while the second page is still on its way.
+    #[test]
+    fn a_slow_listing_hands_over_its_first_page_while_the_next_is_still_read() {
+        let dir = folder_with(SCAN_PAGE as usize + 10, 0);
+        let (release, open) = std::sync::mpsc::channel();
+        let drive = Arc::new(Gated {
+            drive: LocalDrive::without_manifest(dir.path().to_path_buf()),
+            pages: AtomicUsize::new(0),
+            open: std::sync::Mutex::new(open),
+        });
+        let (sent, batches) = std::sync::mpsc::channel::<usize>();
+        let scanning = {
+            let drive = drive.clone();
+            std::thread::spawn(move || {
+                let mut emit = |outcome: Outcome| {
+                    let _ = sent.send(rows(&outcome).len());
+                };
+                let last = scan_bucket(&*drive, "", false, 7, &AtomicBool::new(false), &mut emit);
+                rows(&last).len()
+            })
+        };
+        let first = batches
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the first page's rows while the next page is read");
+        assert_eq!(first, SCAN_PAGE as usize);
+        assert!(!scanning.is_finished(), "the second page is still on its way");
+        release.send(()).expect("the listing waits");
+        assert_eq!(scanning.join().expect("the scan ends"), 10);
     }
 
     /// A cancelled scan (the window went elsewhere) stops and hands over nothing more.
