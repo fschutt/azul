@@ -158,6 +158,8 @@ impl Shape {
 struct Scene {
     shapes: Vec<Shape>,
     scroll_y: f32,
+    /// A second scroll box after the shapes (a panel that opens).
+    panel: bool,
 }
 
 impl Scene {
@@ -165,6 +167,7 @@ impl Scene {
         Self {
             shapes: (0..8).map(|_| Shape::random(r)).collect(),
             scroll_y: 0.0,
+            panel: false,
         }
     }
 
@@ -187,6 +190,19 @@ impl Scene {
         for shape in &self.shapes {
             body = body.with_child(shape.dom());
         }
+        if self.panel {
+            let mut panel = Dom::create_div().with_css(
+                "position: absolute; left: 20px; top: 160px; width: 140px; height: 60px; \
+                 overflow-y: scroll; background: #fafae0;",
+            );
+            for k in 0..6 {
+                let color = if k % 2 == 0 { "#88aa22" } else { "#aa8822" };
+                panel = panel.with_child(Dom::create_div().with_css(&format!(
+                    "height: 16px; margin: 2px; background: {color};"
+                )));
+            }
+            body = body.with_child(panel);
+        }
         Dom::create_html().with_child(body)
     }
 
@@ -194,7 +210,7 @@ impl Scene {
     fn mutate(&mut self, r: &mut Rng) -> String {
         let n = self.shapes.len();
         let i = r.below(n as u64) as usize;
-        match r.below(11) {
+        match r.below(12) {
             0 if n > 0 => {
                 let s = &mut self.shapes[i];
                 s.x += r.range(-25, 25);
@@ -244,6 +260,10 @@ impl Scene {
                 s.clips_child = !s.clips_child;
                 s.shadow = r.chance(50);
                 format!("toggled the clip and shadow of shape {i}")
+            }
+            10 => {
+                self.panel = !self.panel;
+                format!("{} the panel", if self.panel { "opened" } else { "closed" })
             }
             _ => {
                 // Whole device pixels at 1x and 2x: a scroll by a fraction of
@@ -585,6 +605,7 @@ fn one_change(change: impl Fn(&mut Scene), budget_px: f64, what: &str) {
             },
         ],
         scroll_y: 14.0,
+        panel: false,
     };
     for dpi in [96, 192] {
         let mut lw = window(dpi);
@@ -656,4 +677,12 @@ fn a_transformed_box_repaints_where_it_is_painted() {
 #[test]
 fn an_opacity_change_repaints_its_group() {
     one_change(|s| s.shapes[1].opacity = Some(35), 2.0 * 90.0 * 90.0, "an opacity");
+}
+
+/// A rebuilt page that gains a scroll box (a panel that opens) - or loses
+/// one - repaints the panel, not the window: the scroll box only one of the
+/// two lists has is in the changed part of the list, at its own offset.
+#[test]
+fn a_page_that_gains_or_loses_a_scroll_box_repaints_only_the_box() {
+    one_change(|s| s.panel = true, 2.0 * 160.0 * 80.0, "a panel opened");
 }
