@@ -608,6 +608,12 @@ def price_cents(tier, months, currency='EUR'):
     return (months // 12) * year + (months % 12) * month
 
 
+def month_worth(tier):
+    """A tier's month in euro cents, a twelfth of its year (blind.rs: what a tier change and
+    a month of another tier are credited by)."""
+    return max(price_cents(tier, 12) // 12, 1)
+
+
 def money_text(amount, currency):
     """`amount` minor units of `currency` as a fake provider's page writes it: `PLN 4.49`,
     `JPY 160` (the yen has no minor unit)."""
@@ -955,6 +961,7 @@ class TokenState:
         except ValueError as e:
             raise ApiError(400, 'bad_claim_key', str(e))
         amount = price_cents(tier, months, currency)
+        renewal = self.renewal_of(body, tier)
         with self.lock:
             checkout_id = random_id('ck_')
             provider_ref = random_id('pr_')
@@ -968,6 +975,8 @@ class TokenState:
                                            'surface': surface, 'currency': currency,
                                            'vat_country': body.get('vat_country'),
                                            'abandoned': False}
+            self.checkouts[checkout_id].update(renewal)
+            self.take_lock(checkout_id)
             self.by_ref[provider_ref] = checkout_id
         answer = {'checkout_id': checkout_id,
                   'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
@@ -979,6 +988,40 @@ class TokenState:
                            'return': self.returns(),
                            'expires_at': rfc3339(int(time.time()) + 3600)})
         return answer
+
+    def renewal_of(self, body, tier):
+        """What a checkout buys besides a new drive (payments.rs): `renews` names an earlier
+        paid checkout of the same tier by its issue key (its price lock, used once); `"grant":
+        "period_tokens"` buys period tokens only. A dict for the checkout's record (empty for a
+        new drive)."""
+        renews = body.get('renews')
+        if renews:
+            earlier_id = str(renews.get('checkout_id') or '')
+            with self.lock:
+                earlier = self.checkouts.get(earlier_id)
+                if earlier is None:
+                    raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+                if earlier.get('status') != 'approved':
+                    raise ApiError(409, 'not_paid', 'the earlier checkout was not paid')
+                key = str(renews.get('issue_key') or '')
+                if azlin_period.issue_key_hash(key) != earlier.get('issue_key_hash'):
+                    raise ApiError(403, 'lock_key_wrong', "not the earlier checkout's issue key")
+                if earlier['tier'] != tier:
+                    raise ApiError(400, 'lock_tier', 'a renewal keeps its tier')
+                used = earlier.get('renewed_by')
+                if used and self.checkouts.get(used, {}).get('status') == 'approved':
+                    raise ApiError(409, 'lock_used', "this checkout's price lock was used")
+            return {'renewal': True, 'renewal_of': earlier_id}
+        if body.get('grant') == 'period_tokens':
+            return {'renewal': True, 'renewal_of': None}
+        return {}
+
+    def take_lock(self, checkout_id):
+        """The renewal `checkout_id` takes its earlier checkout's lock. The caller holds the
+        lock of the stack."""
+        earlier = self.checkouts[checkout_id].get('renewal_of')
+        if earlier:
+            self.checkouts[earlier]['renewed_by'] = checkout_id
 
     def cash_checkout(self, body, tier):
         """POST /v1/checkout {"method": "cash"} (cash contract v1): a checkout awaiting its
@@ -1006,6 +1049,7 @@ class TokenState:
         except ValueError as e:
             raise ApiError(400, 'bad_claim_key', str(e))
         amount = price_cents(tier, months)
+        renewal = self.renewal_of(body, tier)
         with self.lock:
             checkout_id = random_id('ck_')
             code = azlin_cash.activation_code(checkout_id, amount, 'EUR', self.cash_key)
@@ -1017,6 +1061,8 @@ class TokenState:
                                            'provider_ref': None, 'activation_code': code,
                                            'expires_at': ends, 'abandoned': False,
                                            'vat_country': body.get('vat_country')}
+            self.checkouts[checkout_id].update(renewal)
+            self.take_lock(checkout_id)
         answer = {'checkout_id': checkout_id, 'status': 'awaiting_cash', 'tier': tier,
                   'method': 'cash', 'months': months, 'amount_cents': amount, 'currency': 'EUR',
                   'activation_code': code,
@@ -1530,10 +1576,25 @@ class TokenState:
             if checkout['status'] not in ('pending', 'awaiting_cash') or checkout.get('abandoned'):
                 return checkout['status']
             tier = checkout['tier']
+        issue_key, issue_key_hash = azlin_period.new_issue_key()
+        if checkout.get('renewal'):
+            # A renewal or a tokens-only checkout: months for a drive the app has, no drive.
+            signup = {'renewal_of': checkout.get('renewal_of'), 'grant': 'period_tokens',
+                      'tier': tier, 'period_tokens': {'checkout_id': checkout_id,
+                                                      'months': checkout['months'],
+                                                      'issue_key': issue_key}}
+            sealed = azlin_claim.seal(json.dumps(signup).encode('utf-8'), checkout['claim_key'],
+                                      checkout_id)
+            with self.lock:
+                checkout['status'] = 'approved'
+                checkout['sealed_signup'] = sealed
+                checkout['approved_at'] = self.now()
+                checkout['issue_key_hash'] = issue_key_hash
+                checkout['tokens_issued'] = 0
+            return 'approved'
         bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
         # The key the period tokens are issued against, sealed with the drive (F24); the
         # checkout keeps its hash only.
-        issue_key, issue_key_hash = azlin_period.new_issue_key()
         bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
                                    'issue_key': issue_key}
         # Each pick-up of the paid drive claims a token family of its own with this ticket
@@ -1685,7 +1746,7 @@ class TokenState:
             self.check_ban(drive, write=True)
             token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
                                                     'randomizer')}
-            if token['tier'] != drive['tier']:
+            if token['tier'] not in TIERS:
                 raise ApiError(400, 'wrong_tier', 'the token is for another tier')
             if not isinstance(token['year'], int) or not isinstance(token['nonce'], str) \
                     or not azlin_period.verify(n, e, token):
@@ -1698,10 +1759,41 @@ class TokenState:
                 if self.redeemed[used] != drive_id:
                     raise ApiError(409, 'token_used', 'this token was already redeemed')
                 return {'period_until': rfc3339(drive['period_until'])}
+            now = int(time.time())
+            tomorrow = (now // 86400 + 1) * 86400
+            answer = {}
+            if token['tier'] != drive['tier'] and body.get('change_tier'):
+                # decision 5: bigger at once, the remaining days credited at the new price;
+                # smaller at the period's end and only when the stored bytes fit
+                old, new = drive['tier'], token['tier']
+                if TIERS[new] > TIERS[old]:
+                    left = max(drive['period_until'] - tomorrow, 0)
+                    credited = left * month_worth(old) // month_worth(new)
+                    drive['period_until'] = tomorrow + credited + 30 * 86400
+                    answer['credited_days'] = credited // 86400
+                else:
+                    if drive['period_until'] - now > 7 * 86400:
+                        raise ApiError(409, 'change_not_due', 'a smaller tier at the period end',
+                                       {'from': rfc3339(drive['period_until'] - 7 * 86400)})
+                    stored = body.get('stored_bytes')
+                    if not isinstance(stored, int):
+                        raise ApiError(400, 'stored_bytes_required', 'the stored bytes')
+                    if stored > TIERS[new]:
+                        raise ApiError(409, 'does_not_fit', 'free space first',
+                                       {'stored': stored, 'quota': TIERS[new]})
+                    drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
+                drive['tier'] = new
+                drive['quota_bytes'] = TIERS[new]
+                answer['tier'] = new
+            elif token['tier'] != drive['tier']:
+                # a month of another tier (left from before a change): worth its price here
+                days = 30 * month_worth(token['tier']) // month_worth(drive['tier'])
+                drive['period_until'] = max(drive['period_until'], tomorrow) + max(days, 1) * 86400
+            else:
+                drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
             self.redeemed[used] = drive_id
-            tomorrow = (int(time.time()) // 86400 + 1) * 86400
-            drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
-            return {'period_until': rfc3339(drive['period_until'])}
+            answer['period_until'] = rfc3339(drive['period_until'])
+            return answer
 
     def info(self, drive_id, bearer):
         """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too): with the
