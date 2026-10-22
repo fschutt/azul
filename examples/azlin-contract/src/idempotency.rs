@@ -10,6 +10,70 @@ use crate::ids::InvalidValue;
 /// The header the key travels in, as base64url without padding.
 pub const IDEMPOTENCY_HEADER: &str = "x-azlin-idempotency";
 
+/// The error code of a repeated request whose first answer was used already (409): the grant
+/// reached the caller after all, so no second copy of it is handed out.
+pub const ALREADY_ANSWERED: &str = "already_answered";
+
+/// What kind of request a key names. A key counts within its scope and for its caller only, so
+/// one key sent to two routes is two requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdempotentScope {
+    /// "Lock down from this device", or by the recovery key.
+    Lockdown,
+    /// A picked-up drive's own token family, by the sign-up's claim ticket.
+    Claim,
+    /// A period token redeemed for a month.
+    Redeem,
+    /// A voucher redeemed.
+    Voucher,
+    /// A paid checkout's period tokens signed.
+    Issue,
+    /// A token family for another device.
+    AddMember,
+    /// A device removed.
+    RemoveMember,
+    /// A recovery key set, added or removed.
+    RecoveryKey,
+    /// A restore queued.
+    Restore,
+    /// A checkout's provider session given up.
+    Abandon,
+}
+
+impl IdempotentScope {
+    /// Every scope, in the order of its fixture.
+    pub const ALL: [IdempotentScope; 10] = [
+        IdempotentScope::Lockdown,
+        IdempotentScope::Claim,
+        IdempotentScope::Redeem,
+        IdempotentScope::Voucher,
+        IdempotentScope::Issue,
+        IdempotentScope::AddMember,
+        IdempotentScope::RemoveMember,
+        IdempotentScope::RecoveryKey,
+        IdempotentScope::Restore,
+        IdempotentScope::Abandon,
+    ];
+
+    /// Its name on the wire and in the services' tables: `add_member`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdempotentScope::Lockdown => "lockdown",
+            IdempotentScope::Claim => "claim",
+            IdempotentScope::Redeem => "redeem",
+            IdempotentScope::Voucher => "voucher",
+            IdempotentScope::Issue => "issue",
+            IdempotentScope::AddMember => "add_member",
+            IdempotentScope::RemoveMember => "remove_member",
+            IdempotentScope::RecoveryKey => "recovery_key",
+            IdempotentScope::Restore => "restore",
+            IdempotentScope::Abandon => "abandon",
+        }
+    }
+}
+
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /// 16 random bytes naming one logical request across its retries.

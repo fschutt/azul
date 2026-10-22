@@ -34,7 +34,7 @@ fn a_cancel_and_a_key_change_are_signed_with_the_current_recovery_code() {
     let sign = |message: &[u8]| Ok(format!("sig({})", String::from_utf8_lossy(message)));
     server.lockdown_cancel_signed("d_1", sign).unwrap();
     server
-        .replace_recovery_key("d_1", "dt_f.3.newest", "TkVX", sign)
+        .replace_recovery_key("d_1", "dt_f.3.newest", "TkVX", &super::grant_key(), sign)
         .unwrap();
     let calls = fake.calls();
     assert_eq!(calls.len(), 2);
@@ -88,8 +88,8 @@ fn a_recovery_key_lockdown_signs_a_fresh_nonce_every_time_and_a_replay_is_refuse
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let sign = |message: &[u8]| Ok(format!("sig({})", String::from_utf8_lossy(message)));
-    let first = server.recovery_lockdown("d_1", sign).unwrap();
-    let second = server.recovery_lockdown("d_1", sign).unwrap();
+    let first = server.recovery_lockdown("d_1", &super::grant_key(), sign).unwrap();
+    let second = server.recovery_lockdown("d_1", &super::grant_key(), sign).unwrap();
     for lockdown in [&first, &second] {
         assert!((16..=128).contains(&lockdown.nonce.len()), "{}", lockdown.nonce);
         assert!(lockdown.nonce.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -114,14 +114,14 @@ fn a_recovery_key_lockdown_signs_a_fresh_nonce_every_time_and_a_replay_is_refuse
         );
     }
     // A replayed request: refused with its code, not a sign-in.
-    match server.recovery_lockdown("d_1", sign) {
+    match server.recovery_lockdown("d_1", &super::grant_key(), sign) {
         Err(TokenError::Refused { status: 409, code, .. }) => assert_eq!(code, "nonce_used"),
         other => panic!("not refused as a replay: {other:?}"),
     }
     // No signature (the recovery key is not at hand): nothing is sent.
     let sent = fake.calls().len();
     assert!(matches!(
-        server.recovery_lockdown("d_1", |_| Err(String::from("no recovery key"))),
+        server.recovery_lockdown("d_1", &super::grant_key(), |_| Err(String::from("no recovery key"))),
         Err(TokenError::Config(_))
     ));
     assert_eq!(fake.calls().len(), sent);

@@ -6,6 +6,8 @@ the fault proxy, the mock stack and the chaos scripts keep no copies that could 
 - `azlin_errors()`: a node's codes (x-azlin-error) -> (HTTP status, S3 code, Retry-After or None)
 - `contract_version()`, `client_hello(app, version)`: the `x-azlin-client` header's value
 - `idempotency_key(raw=None)`: an `x-azlin-idempotency` value (base64url of 16 bytes, no padding)
+- `is_idempotency_key(text)`: whether a header value is one; `idempotent_scopes()` the scopes a
+  key counts in, `ALREADY_ANSWERED` the refusal of a repeat whose grant is in use
 
 Standard library only.
 """
@@ -61,3 +63,21 @@ def idempotency_key(raw=None):
     if len(raw) != 16:
         raise ValueError('an idempotency key is 16 bytes')
     return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+def is_idempotency_key(text):
+    """Whether `text` reads as an idempotency key (22 characters of base64url whose last 4 bits
+    are zero, as the crate's IdempotencyKey::parse takes them)."""
+    text = (text or '').strip()
+    if len(text) != 22 or not re.fullmatch(r'[A-Za-z0-9_-]{22}', text):
+        return False
+    raw = base64.urlsafe_b64decode(text + '==')
+    return len(raw) == 16 and idempotency_key(raw) == text
+
+
+def idempotent_scopes():
+    """The scopes an idempotency key counts in (`lockdown`, `claim`, ...)."""
+    return list(fixture('idempotent_scopes.json')['scopes'])
+
+
+ALREADY_ANSWERED = 'already_answered'

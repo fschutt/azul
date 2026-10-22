@@ -5,7 +5,8 @@
 //!   (`x-azlin-client: azdrive/0.3.0; contract=3`).
 //! - Ids and units ([`DriveId`], [`CheckoutId`], [`TierId`], [`Months`], [`StoredBytes`],
 //!   [`Cents`], ...): checked once when they are read, so the rest of the code can trust them.
-//! - [`IdempotencyKey`]: what makes a repeated request answer like the first one.
+//! - [`IdempotencyKey`]: what makes a repeated request answer like the first one, within its
+//!   [`IdempotentScope`]; a repeat whose first answer was used is refused [`ALREADY_ANSWERED`].
 //! - [`Rfc3339`] and [`Deadline`]: the times the services name, and what ends at them.
 //! - [`AzlinError`]: the codes a node sends in `x-azlin-error` and the token server in its
 //!   `{"error": ...}` body.
@@ -30,7 +31,7 @@ pub use checkout::{
 };
 pub use error::AzlinError;
 pub use hello::{AppName, ClientHello, SemVer, CLIENT_HEADER};
-pub use idempotency::{IdempotencyKey, IDEMPOTENCY_HEADER};
+pub use idempotency::{IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER};
 pub use refresh::{BanWire, RefreshRefusal};
 pub use ids::{
     BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,
@@ -52,6 +53,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("client_hello.json", include_str!("../fixtures/client_hello.json")),
     ("deadlines.json", include_str!("../fixtures/deadlines.json")),
     ("idempotency_key.json", include_str!("../fixtures/idempotency_key.json")),
+    ("idempotent_scopes.json", include_str!("../fixtures/idempotent_scopes.json")),
     ("ids.json", include_str!("../fixtures/ids.json")),
     ("refresh_refusals.json", include_str!("../fixtures/refresh_refusals.json")),
 ];

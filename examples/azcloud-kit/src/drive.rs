@@ -26,6 +26,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azlin_contract::IdempotentScope;
 use azul_storage::{
     config::DriveEntry,
     time::now_unix,
@@ -37,8 +38,9 @@ use azul_storage::{
 use crate::{
     bundle::DriveBundle,
     failover::{read_nodes, write_nodes, Failover, Node},
+    outbox,
     session::AzlinSession,
-    shared::SharedKeyring,
+    shared::{SharedKeyring, SpendOnce},
     token::{TokenError, TokenServer},
     transport::{IrohDialer, IrohLane},
 };
@@ -106,6 +108,12 @@ impl fmt::Debug for AzlinDrive {
             .field("token_url", &self.token_url)
             .finish_non_exhaustive()
     }
+}
+
+/// The family a drive token names (`dt_<family>.<generation>.<random>`): not secret, the
+/// random part is.
+fn family_of(token: &str) -> Option<&str> {
+    token.trim().strip_prefix("dt_")?.split('.').next()
 }
 
 /// A token server's refusal as the drive's error.
@@ -337,13 +345,26 @@ impl AzlinDrive {
                 return Ok(());
             }
         }
+        let family = family_of(spend.token().as_str()).unwrap_or_default().to_string();
         let transport = (self.transports)();
         let server =
             TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
-        let rotation = server
-            .refresh(spend, None)
-            .rotated()
-            .map_err(|e| drive_error_of(&e))?;
+        let rotation = match server.refresh(spend, None).rotated() {
+            Ok(rotation) => rotation,
+            // A lockdown of this device whose answer was lost revoked the token: asked again
+            // with its key it hands over its grant, where signing in again would be all that
+            // is left.
+            Err(TokenError::SignIn(_))
+                if self.lockdown_open(&current.session.drive_id, &family) =>
+            {
+                let spend = self
+                    .keyring
+                    .spend(&current.session.drive_id)
+                    .map_err(|e| DriveError::Io(e.to_string()))?;
+                return self.lock_down(current, spend);
+            }
+            Err(e) => return Err(drive_error_of(&e)),
+        };
         self.learn_nodes(rotation.bundle());
         // In the keyring BEFORE the lock is let go: the token just spent is dead, and the next
         // process to refresh must find this one.
@@ -357,7 +378,9 @@ impl AzlinDrive {
     /// Locks the drive down from this device ("I was hacked"): every other device, key and
     /// public link of the drive loses access at once; this drive continues with the new grant
     /// the answer carries - stored in the keyring and handed to `on_rotated` like a refresh's,
-    /// under the drive's lock (the drive token spent here is dead afterwards).
+    /// under the drive's lock (the drive token spent here is dead afterwards). A lockdown whose
+    /// answer was lost is asked again with the same idempotency key - within this call, by the
+    /// next one, after a restart or by the next refresh - and gets the grant it made.
     ///
     /// # Errors
     ///
@@ -368,15 +391,45 @@ impl AzlinDrive {
             .keyring
             .spend(&current.session.drive_id)
             .map_err(|e| DriveError::Io(e.to_string()))?;
+        self.lock_down(&mut current, spend)
+    }
+
+    /// Whether a lockdown sent with a token of `family` is open: its answer was never read.
+    fn lockdown_open(&self, drive_id: &str, family: &str) -> bool {
+        let open = self.keyring.outbox().pending(IdempotentScope::Lockdown, drive_id);
+        open.is_some_and(|(_, sent_by)| !family.is_empty() && sent_by == family)
+    }
+
+    /// The lockdown with the token of `spend`, named by the open lockdown call of that token's
+    /// family ([`crate::outbox`]): sent until its outcome is final, the grant kept like a
+    /// refresh's before the call is closed. Called with `current` held.
+    fn lock_down(&self, current: &mut Current, spend: SpendOnce<'_>) -> Result<(), DriveError> {
+        let family = family_of(spend.token().as_str()).unwrap_or_default().to_string();
+        let call = self
+            .keyring
+            .outbox()
+            .open(IdempotentScope::Lockdown, spend.drive_id(), &family)
+            .map_err(|e| drive_error_of(&e))?;
         let transport = (self.transports)();
         let server =
             TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
-        let answer = server
-            .lockdown(spend.drive_id(), spend.token().as_str())
-            .map_err(|e| drive_error_of(&e))?;
+        let outcome = server.until_final(|| {
+            server.lockdown(spend.drive_id(), spend.token().as_str(), call.key())
+        });
+        let answer = match outcome {
+            Ok(answer) => answer,
+            Err(e) => {
+                if outbox::is_final_error(&e) {
+                    call.close();
+                }
+                return Err(drive_error_of(&e));
+            }
+        };
+        // an answer that does not read leaves the call open: the grant is asked for again
         let bundle = DriveBundle::from_value(&answer).map_err(|e| drive_error_of(&e))?;
         self.learn_nodes(&bundle);
         let kept = spend.answered(bundle).keep();
+        call.close();
         (self.on_rotated)(&kept.session, kept.saved);
         current.session = kept.session;
         current.drive = None;

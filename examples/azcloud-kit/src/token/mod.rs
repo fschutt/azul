@@ -48,6 +48,7 @@
 
 use std::{fmt, time::Duration};
 
+use azlin_contract::{IdempotencyKey, IDEMPOTENCY_HEADER};
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
@@ -260,6 +261,24 @@ impl<'a> TokenServer<'a> {
         self
     }
 
+    /// Sends the grant call `call` until its outcome is final ([`crate::outbox::is_final`]): at
+    /// most [`REFRESH_TRIES`] times, the retry pause between. Safe for a grant only, whose every
+    /// try carries the same idempotency key.
+    pub fn until_final<T>(
+        &self,
+        mut call: impl FnMut() -> Result<T, TokenError>,
+    ) -> Result<T, TokenError> {
+        let mut tries = 1;
+        loop {
+            let outcome = call();
+            if crate::outbox::is_final(&outcome) || tries >= REFRESH_TRIES {
+                return outcome;
+            }
+            tries += 1;
+            std::thread::sleep(self.retry_pause);
+        }
+    }
+
     /// The base address, without a trailing slash.
     #[must_use]
     pub fn base(&self) -> &str {
@@ -303,11 +322,42 @@ impl<'a> TokenServer<'a> {
         bearer: Option<&str>,
         body: Option<&Value>,
     ) -> Result<HttpReply, TokenError> {
-        let reply = self.exchange(method, path, bearer, body)?;
+        self.send_keyed(method, path, bearer, body, None)
+    }
+
+    /// [`Self::send`] of a request named by the idempotency key `key`.
+    fn send_keyed(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+        key: Option<&IdempotencyKey>,
+    ) -> Result<HttpReply, TokenError> {
+        let reply = self.exchange_keyed(method, path, bearer, body, key)?;
         if !reply.is_success() {
             return Err(refusal(&reply, bearer.is_some()));
         }
         Ok(reply)
+    }
+
+    /// A call that grants something (a lockdown, a claim, a member, a restore, a recovery key),
+    /// named by `key`: the one key of the request across its retries ([`crate::outbox`]), so a
+    /// repeat after a lost answer gets the first answer. Its answer's JSON, `null` when empty.
+    fn grant(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+        key: &IdempotencyKey,
+    ) -> Result<Value, TokenError> {
+        let reply = self.send_keyed(method, path, bearer, body, Some(key))?;
+        if reply.body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Value::Null);
+        }
+        serde_json::from_slice(&reply.body)
+            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
     }
 
     /// One request and whatever it answers (a refusal too); only no answer is an error.
@@ -318,9 +368,24 @@ impl<'a> TokenServer<'a> {
         bearer: Option<&str>,
         body: Option<&Value>,
     ) -> Result<HttpReply, TokenError> {
+        self.exchange_keyed(method, path, bearer, body, None)
+    }
+
+    /// [`Self::exchange`] of a request named by the idempotency key `key`.
+    fn exchange_keyed(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+        key: Option<&IdempotencyKey>,
+    ) -> Result<HttpReply, TokenError> {
         let mut headers = vec![(String::from("accept"), String::from("application/json"))];
         if let Some(token) = bearer {
             headers.push((String::from("authorization"), format!("Bearer {token}")));
+        }
+        if let Some(key) = key {
+            headers.push((IDEMPOTENCY_HEADER.to_string(), key.header_value()));
         }
         crate::hello::stamp_headers(&mut headers);
         let (body, content_type) = match body {

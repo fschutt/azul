@@ -5,8 +5,8 @@ use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
     AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
-    DeadlineKind, DriveId, FamilyId, IdempotencyKey, LogicalBytes, MemberId, Months,
-    RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
+    DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
+    Months, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
 };
 use azlin_contract::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
@@ -110,6 +110,25 @@ fn the_idempotency_key_reads_and_writes_its_fixture() {
         *b = i as u8;
     }
     golden("idempotency_key.json", &IdempotencyKey::fresh(bytes));
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Scopes {
+    scopes: Vec<IdempotentScope>,
+    already_answered: String,
+}
+
+#[test]
+fn the_idempotent_scopes_read_and_write_their_fixture() {
+    for scope in IdempotentScope::ALL {
+        let wire = serde_json::to_value(scope).expect("serializes");
+        assert_eq!(wire, Value::from(scope.as_str()), "{scope:?}");
+    }
+    let scopes = Scopes {
+        scopes: IdempotentScope::ALL.to_vec(),
+        already_answered: azlin_contract::ALREADY_ANSWERED.to_string(),
+    };
+    golden("idempotent_scopes.json", &scopes);
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

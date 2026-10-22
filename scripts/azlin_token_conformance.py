@@ -80,7 +80,9 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     and an access key (POST /v1/drives/<id>/keys, 201, `AZK...`) made first - the drive's
     members (GET /v1/drives/<id>) name the new member, `you` the caller -, the owner's lockdown
     is 200 with a new drive token for the caller; the member's token and the caller's old one
-    are refused (401) and the new one refreshes.
+    are refused (401) and the new one refreshes. Both carry an idempotency key: the member asked
+    again with it is the same member (201, its family rotated), the lockdown asked again by the
+    old token after the new one was used is 409 `already_answered`.
 15. A restore as of a time (D38, D42): objects put, then rewritten, deleted and added after the
     time; POST /v1/drives/<id>/restore {"prefix", "as_of": RFC 3339} with the drive token is 202
     with a `request_id` and `queued`; GET /v1/drives/<id>/restore/<request> reaches `done` with
@@ -174,6 +176,7 @@ sys.path.insert(0, HERE)
 import azlin_cash  # noqa: E402
 import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
+import azlin_contract  # noqa: E402
 import azlin_ed25519  # noqa: E402
 import azlin_period  # noqa: E402
 
@@ -851,10 +854,19 @@ def lockdown_checks(suite, client):
     drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
     owner = bundle.get('drive_token') or ''
     path = '/v1/drives/%s' % drive_id
+    keyed = {azlin_contract.IDEMPOTENCY_HEADER: azlin_contract.idempotency_key()}
     status, member, _ = client.call('POST', path + '/members', {'member': 'conformance'},
-                                    bearer=owner)
+                                    bearer=owner, headers=keyed)
+    first_member = (member or {}).get('drive_token') or ''
+    suite.check('the owner adds a member family (201)', status == 201 and bool(first_member),
+                '(HTTP %d %r)' % (status, error_code(member)))
+    status, member, _ = client.call('POST', path + '/members', {'member': 'conformance'},
+                                    bearer=owner, headers=keyed)
     member_token = (member or {}).get('drive_token') or ''
-    suite.check('the owner adds a member family (201)', status == 201 and bool(member_token),
+    family = lambda token: token[3:].split('.')[0]  # noqa: E731
+    suite.check('the same member asked again with its key is that member, its family rotated',
+                status == 201 and (member or {}).get('member') == 'conformance'
+                and family(member_token) == family(first_member) and member_token != first_member,
                 '(HTTP %d %r)' % (status, error_code(member)))
     status, info, _ = client.call('GET', path, bearer=member_token)
     names = [m.get('member') for m in (info or {}).get('members') or [] if isinstance(m, dict)]
@@ -867,7 +879,8 @@ def lockdown_checks(suite, client):
     suite.check('the owner makes an access key (201, AZK...)',
                 status == 201 and str((key or {}).get('access_key_id') or '').startswith('AZK'),
                 '(HTTP %d %r)' % (status, error_code(key)))
-    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    keyed = {azlin_contract.IDEMPOTENCY_HEADER: azlin_contract.idempotency_key()}
+    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner, headers=keyed)
     new_token = (locked or {}).get('drive_token') or ''
     suite.check("the owner's lockdown is 200 with a new drive token",
                 status == 200 and bool(new_token) and new_token not in (owner, member_token),
@@ -880,6 +893,10 @@ def lockdown_checks(suite, client):
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.refresh(drive_id, new_token)
     suite.check('the new token refreshes', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown', {}, bearer=owner, headers=keyed)
+    suite.check('the lockdown asked again after its grant was used is 409 already_answered',
+                status == 409 and error_code(value) == azlin_contract.ALREADY_ANSWERED,
                 '(HTTP %d %r)' % (status, error_code(value)))
 
 

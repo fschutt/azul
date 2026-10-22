@@ -13,6 +13,7 @@
 //!   `updated_by`).
 //! - `transport.json`: the last transport decision ([`crate::transport`]).
 //! - `sync/`: one local index per synced folder ([`crate::sync`]).
+//! - `outbox/`: the grant calls whose answer was not read yet ([`crate::outbox`]).
 //!
 //! Files are written through a temporary file and a rename, so a crash never
 //! leaves half of one; the secrets and the drive token are flushed to disk
@@ -138,6 +139,12 @@ impl StateDir {
     #[must_use]
     pub fn sync_dir(&self) -> PathBuf {
         self.root.join(SYNC_DIR)
+    }
+
+    /// The open grant calls of this device's drives ([`crate::outbox`]).
+    #[must_use]
+    pub fn outbox(&self) -> crate::outbox::Outbox {
+        crate::outbox::Outbox::new(self.root.join(crate::outbox::OUTBOX_DIR))
     }
 
     /// The secrets file.

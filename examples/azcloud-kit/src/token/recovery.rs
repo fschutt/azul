@@ -124,16 +124,17 @@ impl<'a> TokenServer<'a> {
     /// Registers the drive's recovery key (`POST /v1/drives/{id}/recovery {"recovery_pubkey"}`,
     /// [`crate::recovery::RecoveryKey::public_base64`]): what a lockdown without a drive token
     /// is signed with. A grant: send it with the newest drive token
-    /// ([`crate::SharedKeyring::with_drive_token`]).
+    /// ([`crate::SharedKeyring::with_drive_token`]); `key` names it across its retries.
     pub fn set_recovery_key(
         &self,
         drive_id: &str,
         drive_token: &str,
         public_key_base64: &str,
+        key: &IdempotencyKey,
     ) -> Result<(), TokenError> {
         let path = format!("/v1/drives/{}/recovery", check_id(drive_id)?);
         let body = json!({ "recovery_pubkey": public_key_base64.trim() });
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+        self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
             .map(|_| ())
     }
 
@@ -141,7 +142,8 @@ impl<'a> TokenServer<'a> {
     /// "signature"}`): `sign` signs [`recovery_lockdown_message`] of a nonce made new for this
     /// request (the token server answers a request it saw before with 409 `nonce_used`) and
     /// answers the signature as the token server takes it (base64). It takes effect after 48 h
-    /// unless a device cancels it; no drive token is sent.
+    /// unless a device cancels it; no drive token is sent. `key` names the lockdown across its
+    /// retries: one asked again after a lost answer (signed anew) gets the same pending family.
     ///
     /// # Errors
     ///
@@ -151,6 +153,7 @@ impl<'a> TokenServer<'a> {
     pub fn recovery_lockdown(
         &self,
         drive_id: &str,
+        key: &IdempotencyKey,
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<RecoveryLockdown, TokenError> {
         let id = check_id(drive_id)?;
@@ -159,7 +162,7 @@ impl<'a> TokenServer<'a> {
             .map_err(|e| TokenError::Config(format!("The lockdown request is not signed: {e}")))?;
         let path = format!("/v1/drives/{id}/lockdown");
         let body = json!({ "nonce": nonce, "signature": signature });
-        let value = self.call(Method::Post, &path, None, Some(&body))?;
+        let value = self.grant(Method::Post, &path, None, Some(&body), key)?;
         Ok(RecoveryLockdown {
             nonce,
             pending_until: value["pending_until"]
@@ -244,6 +247,7 @@ impl<'a> TokenServer<'a> {
         drive_token: &str,
         public_key_base64: &str,
         label: &str,
+        key: &IdempotencyKey,
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<RecoveryKeyInfo, TokenError> {
         let id = check_id(drive_id)?;
@@ -259,7 +263,7 @@ impl<'a> TokenServer<'a> {
             "signature": signature,
         });
         let path = format!("/v1/drives/{id}/recovery_keys");
-        let value = self.call(Method::Post, &path, Some(token), Some(&body))?;
+        let value = self.grant(Method::Post, &path, Some(token), Some(&body), key)?;
         Ok(RecoveryKeyInfo::from_value(&value))
     }
 
@@ -276,17 +280,18 @@ impl<'a> TokenServer<'a> {
         drive_id: &str,
         drive_token: &str,
         key_id: &str,
+        key: &IdempotencyKey,
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<(), TokenError> {
         let id = check_id(drive_id)?;
-        let key = check_id(key_id)?;
+        let removed = check_id(key_id)?;
         let token = token_of(drive_token)?;
         let nonce = lockdown_nonce()?;
-        let signature = sign(recovery_remove_message(id, key, &nonce).as_bytes())
+        let signature = sign(recovery_remove_message(id, removed, &nonce).as_bytes())
             .map_err(|e| TokenError::Config(format!("The removal is not signed: {e}")))?;
         let body = json!({ "nonce": nonce, "signature": signature });
-        let path = format!("/v1/drives/{id}/recovery_keys/{key}");
-        self.call_or_null(Method::Delete, &path, Some(token), Some(&body))
+        let path = format!("/v1/drives/{id}/recovery_keys/{removed}");
+        self.grant(Method::Delete, &path, Some(token), Some(&body), key)
             .map(|_| ())
     }
 
@@ -330,6 +335,7 @@ impl<'a> TokenServer<'a> {
         drive_id: &str,
         drive_token: &str,
         public_key_base64: &str,
+        key: &IdempotencyKey,
         sign_with_current: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<(), TokenError> {
         let id = check_id(drive_id)?;
@@ -341,7 +347,7 @@ impl<'a> TokenServer<'a> {
             })?;
         let path = format!("/v1/drives/{id}/recovery");
         let body = json!({ "recovery_pubkey": new_key, "nonce": nonce, "signature": signature });
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+        self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
             .map(|_| ())
     }
 }

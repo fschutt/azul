@@ -24,6 +24,7 @@ mod hello;
 mod lane;
 mod lock;
 mod lockdown;
+mod outbox;
 /// Small files packed by an encrypted drive, through the sync (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod packing;
@@ -144,6 +145,11 @@ pub(crate) fn empty_listing() -> HttpReply {
                 </IsTruncated></ListBucketResult>"
             .to_vec(),
     }
+}
+
+/// The idempotency key the tests' grant calls carry.
+pub(crate) fn grant_key() -> azlin_contract::IdempotencyKey {
+    azlin_contract::IdempotencyKey::fresh([7; 16])
 }
 
 /// The header `name` of `call`.

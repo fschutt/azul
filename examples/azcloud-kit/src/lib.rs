@@ -95,6 +95,7 @@ pub mod error;
 pub mod failover;
 pub mod hello;
 pub mod lock;
+pub mod outbox;
 pub mod pending;
 pub mod period;
 pub mod recovery;
@@ -126,6 +127,7 @@ pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
+pub use outbox::{OpenCall, Outbox};
 pub use pending::{
     Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, Settled, Transient,
 };

@@ -487,7 +487,7 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let member = server
-        .add_member("d_1", "dt_f.0.aaa", Some("laptop"))
+        .add_member("d_1", "dt_f.0.aaa", Some("laptop"), &super::grant_key())
         .unwrap();
     assert_eq!(member["drive_token"], "dt_m.0.joins");
     assert_eq!(server.info("d_1", "dt_f.0.aaa").unwrap()["tier"], "100GB");
@@ -499,7 +499,7 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
         "an empty answer is no error"
     );
     let queued = server
-        .restore("d_1", "dt_f.0.aaa", "docs/", "2026-10-08T09:00:00Z")
+        .restore("d_1", "dt_f.0.aaa", "docs/", "2026-10-08T09:00:00Z", &super::grant_key())
         .unwrap();
     assert_eq!(queued["request_id"], "rs_1");
     assert_eq!(
@@ -510,6 +510,10 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
     );
     let calls = fake.calls();
     assert_eq!(calls.len(), 5);
+    // the grants carry their idempotency key, the reads none
+    let key = super::grant_key().header_value();
+    let keys: Vec<Option<&str>> = calls.iter().map(|c| header(c, "x-azlin-idempotency")).collect();
+    assert_eq!(keys, vec![Some(key.as_str()), None, None, Some(key.as_str()), None]);
     assert_eq!(calls[0].url, format!("{TOKEN}/v1/drives/d_1/members"));
     let body: serde_json::Value = serde_json::from_slice(&calls[0].body).unwrap();
     assert_eq!(body["member"], "laptop");
@@ -539,7 +543,7 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
         Err(TokenError::Config(_))
     ));
     assert!(matches!(
-        server.lockdown("d_1", " "),
+        server.lockdown("d_1", " ", &super::grant_key()),
         Err(TokenError::SignIn(_))
     ));
     assert_eq!(fake.calls().len(), 5, "a bad id or no token sends nothing");

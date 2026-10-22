@@ -311,6 +311,9 @@ SEALED_KEEP_SECS = 30 * 86400
 # How long a recovery-key lockdown waits for the recovery code to cancel it, and how long
 # deletes pause after a lockdown.
 LOCKDOWN_PENDING_SECS = 48 * 3600
+# How long the device a lockdown revoked may ask again for the grant whose answer it lost
+# (drives.rs LOCKDOWN_REPEAT_SECS).
+LOCKDOWN_REPEAT_SECS = 600
 # A drive's recovery keys (recovery.rs): at most ten, labels of 64 characters; the key from
 # before several keys, and the label it and a replacement without one get.
 RECOVERY_KEYS_MAX = 10
@@ -713,6 +716,9 @@ class TokenState:
         # The restore requests: id -> drive, bucket, prefix, as_of, status, objects, error,
         # done_at.
         self.restores = {}
+        # The first answers of the grants (idempotent.rs): (scope, key, caller) -> {'status',
+        # 'body'} and, for an answer with a drive token, the 'family' a repeat rotates once more.
+        self.kept_answers = {}
         # The fake payment providers offered (none: no payment options, the v1 checkout).
         self.providers = []
         # Checkout ids by their provider reference (what the providers see).
@@ -1718,32 +1724,54 @@ class TokenState:
         with self.lock:
             self.drives[drive_id]['read_only'] = bool(read_only)
 
-    def set_recovery(self, drive_id, bearer, body):
+    def set_recovery(self, drive_id, bearer, body, key=None):
         """POST /v1/drives/<id>/recovery (recovery.rs `set_only`, a grant): the drive's only
         recovery key from now on (an Ed25519 public key, standard base64) - once the drive has
         one, signed by a current key over recovery:<drive>:<new key>:<nonce> (F12 option C)."""
         with self.lock:
             drive = self.owner_call(drive_id, bearer, grant=True)
             self.check_ban(drive, write=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             public = self.pubkey_of(body)
             label = self.label_of(body, RECOVERY_KIT_LABEL)
             self.key_consent(drive, body, 'recovery:%s:%s'
                              % (drive_id, body.get('recovery_pubkey') or ''))
-            key = self.new_recovery_key(public, label)
-            drive['recovery_keys'] = [key]
+            made = self.new_recovery_key(public, label)
+            drive['recovery_keys'] = [made]
             drive.pop('recovery_pubkey', None)
-            return {'ok': True, 'key_id': key['key_id'], 'label': key['label']}
+            answer = {'ok': True, 'key_id': made['key_id'], 'label': made['label']}
+            self.keep('recovery_key', key, caller, {'status': 200, 'body': answer})
+            return answer
 
-    def lockdown(self, drive_id, bearer, body):
+    def lockdown(self, drive_id, bearer, body, key=None):
         """POST /v1/drives/<id>/lockdown (drives.rs `lockdown`): by the recovery key
         (`{"nonce", "signature"}` over `lockdown:<drive>:<nonce>`) the drive is frozen for 48 h
         and a new `recovery-pending` family made (202); by a drive token every other family is
-        revoked at once and the caller gets a new one (200, a bundle)."""
+        revoked at once and the caller gets a new one (200, a bundle). With the idempotency key
+        `key` a lockdown whose answer was lost is answered again: to the device it revoked
+        (its token, within 10 minutes), or signed anew by the recovery key - its family
+        rotated once more."""
         with self.lock:
             drive = self.drives.get(drive_id)
             if drive is None:
                 raise ApiError(404, 'no_such_drive', 'unknown drive')
             if 'signature' not in body:
+                asking = (bearer or '')[3:].split('.')[0] if (bearer or '').startswith('dt_') \
+                    else ''
+                kept = self.kept('lockdown', key, 'family:' + asking)
+                if kept is not None:
+                    state = self.families.get(asking)
+                    revoked_at = (state or {}).get('revoked_at')
+                    if state is None or token_hash(bearer) != state['current'] \
+                            or revoked_at is None \
+                            or self.now() - revoked_at > LOCKDOWN_REPEAT_SECS:
+                        raise ApiError(401, 'credentials_revoked',
+                                       'this device was removed from the drive')
+                    _, again = self.answer_again(drive_id, kept)
+                    return 200, self.bundle(drive, again['drive_token'])
                 _, state = self.family_of(drive_id, bearer)
                 # the pending device's token locks nothing down: that would hand it the drive
                 self.not_pending(drive, state)
@@ -1751,25 +1779,66 @@ class TokenState:
                 # but not a pending recovery-key lockdown's: the recovery key wins (F12), its
                 # 48 h and its freeze stay
                 self.revoke_all(drive, lambda family: family.get('member') != 'recovery-pending')
-                token = self.new_family(drive_id, state.get('member', 'owner'))
+                member = state.get('member', 'owner')
+                token = self.new_family(drive_id, member)
+                self.keep('lockdown', key, 'family:' + asking,
+                          {'family': token[3:].split('.')[0], 'generation': 0, 'status': 200,
+                           'body': {'member': member}})
                 return 200, self.bundle(drive, token)
             # signed by any of the drive's recovery keys (the one key_id names, when given)
-            self.find_signer(drive, body, 'lockdown:%s' % drive_id)
+            signer = self.find_signer(drive, body, 'lockdown:%s' % drive_id)
+            caller = 'recovery:%s:%s' % (drive_id, signer['key_id'])
+            kept = self.kept('lockdown', key, caller)
             self.nonce_once(drive, str(body.get('nonce') or ''))
+            if kept is not None:
+                return self.answer_again(drive_id, kept)
             token = self.new_family(drive_id, 'recovery-pending')
             drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
-            return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
-                         'drive_token': token,
-                         'note': 'the recovery code can cancel within 48 h; the drive is '
-                                 'read-only meanwhile'}
+            answer = {'pending_until': rfc3339(drive['lockdown_pending_until']),
+                      'note': 'the recovery code can cancel within 48 h; the drive is '
+                              'read-only meanwhile'}
+            self.keep('lockdown', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 202, 'body': answer})
+            return 202, dict(answer, drive_token=token)
+
+    def kept(self, scope, key, caller):
+        """idempotent.rs `Once::kept`: the first answer of the request `key` of `caller` in
+        `scope`, when it came before (none for a request without a key). The caller holds the
+        lock."""
+        return self.kept_answers.get((scope, key, caller)) if key else None
+
+    def keep(self, scope, key, caller, answer):
+        """Keeps `answer` as the first answer of the request (written with the grant)."""
+        if key:
+            self.kept_answers[(scope, key, caller)] = answer
+
+    def answer_again(self, drive_id, kept):
+        """drives.rs `answer_again`: (status, answer) of a grant asked again - an answer without
+        a token as it was, one with a token family as that family rotated once more (and kept at
+        its new generation): 401 when it was revoked meanwhile, 409 already_answered when its
+        token was used or refreshed (the first answer did arrive). The caller holds the lock."""
+        if 'family' not in kept:
+            return kept['status'], dict(kept['body'])
+        state = self.families.get(kept['family'])
+        if state is None or state['drive'] != drive_id or state['revoked']:
+            raise ApiError(401, 'credentials_revoked', 'the grant of this request was revoked')
+        if state.get('current_used', True) or state['generation'] != kept['generation']:
+            raise ApiError(409, azlin_contract.ALREADY_ANSWERED,
+                           'this request was answered before and its grant is in use')
+        state['used'] = (state['used'] + [state['current']])[-20:]
+        state['generation'] += 1
+        state['current_used'] = False
+        kept['generation'] = state['generation']
+        return kept['status'], dict(kept['body'], drive_token=self.new_token(kept['family']))
 
     def revoke_all(self, drive, which):
         """drives.rs's lockdown: the drive's families `which` takes, every access key and public
         link of its bucket revoked; deletes paused for a day. The caller holds the lock."""
         now = int(time.time())
         for family in self.families.values():
-            if family['drive'] == drive['id'] and which(family):
-                family['revoked'] = family['revoked'] or 'lockdown'
+            if family['drive'] == drive['id'] and which(family) and not family['revoked']:
+                family['revoked'] = 'lockdown'
+                family['revoked_at'] = self.now()
         for key in drive.setdefault('access_keys', {}).values():
             key['revoked_at'] = key['revoked_at'] or now
         for link in drive.setdefault('public_links', {}).values():
@@ -1803,7 +1872,7 @@ class TokenState:
         drive['lockdown_pending_until'] = None
         drive['lockdown_completed'] = now
 
-    def claim(self, drive_id, body):
+    def claim(self, drive_id, body, key=None):
         """POST /v1/drives/<id>/claim {"ticket"} (drives.rs `claim`, no drive token): a token
         family of the claiming computer's own for a paid drive, by the ticket of its sealed
         sign-up - 201 {member, drive_token, claims_left}; 401 another ticket or a drive without
@@ -1822,6 +1891,11 @@ class TokenState:
             if ban:
                 raise ApiError(403, 'drive_banned', 'this drive is banned',
                                {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])})
+            # the same pick-up asked again (its answer was lost): the same family, counted once
+            caller = 'ticket:' + claim['ticket_hash']
+            kept = self.kept('claim', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             if claim['claims'] >= CLAIMS_MAX:
                 raise ApiError(409, 'claims_used',
                                'this drive was picked up %d times already' % CLAIMS_MAX)
@@ -1833,17 +1907,28 @@ class TokenState:
             if claim['until'] is None:
                 claim['until'] = now // 86400 * 86400 + CLAIM_WINDOW_SECS
             token = self.new_family(drive_id, 'owner')
-            return {'member': 'owner', 'drive_token': token,
-                    'claims_left': CLAIMS_MAX - claim['claims']}
+            answer = {'member': 'owner', 'claims_left': CLAIMS_MAX - claim['claims']}
+            self.keep('claim', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201, 'body': answer})
+            return dict(answer, drive_token=token)
 
-    def add_member(self, drive_id, bearer, body):
-        """POST /v1/drives/<id>/members (a grant): a token family for another device."""
+    def add_member(self, drive_id, bearer, body, key=None):
+        """POST /v1/drives/<id>/members (a grant): a token family for another device; asked
+        again with the same key, the same member (its family rotated once more)."""
         with self.lock:
             drive, state = self.family_of(drive_id, bearer)
             self.not_pending(drive, state)
             self.check_ban(drive, write=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('add_member', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             member = body.get('member') or random_id('m_')
-            return {'member': member, 'drive_token': self.new_family(drive_id, member)}
+            token = self.new_family(drive_id, member)
+            self.keep('add_member', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201,
+                       'body': {'member': member}})
+            return {'member': member, 'drive_token': token}
 
     def create_key(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/keys (a grant): a long-lived access key of the bucket."""
@@ -1880,7 +1965,7 @@ class TokenState:
             self.drives[drive_id].setdefault('public_links', {})[link] = {'revoked_at': None}
             return link
 
-    def restore(self, drive_id, bearer, body):
+    def restore(self, drive_id, bearer, body, key=None):
         """POST /v1/drives/<id>/restore (drives.rs `restore`, a grant): the drive's objects under
         `prefix` as they were at `as_of` (RFC 3339, or seconds) - queued at the token server and
         applied by the node (here: at once, by the S3 store's versions); 202 `queued`."""
@@ -1902,7 +1987,14 @@ class TokenState:
         with self.lock:
             drive = self.authenticate(drive_id, bearer)
             self.check_ban(drive, write=True)
+            # the same request again (its answer was lost): queued once
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('restore', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             request = random_id('r_')
+            self.keep('restore', key, caller,
+                      {'status': 202, 'body': {'request_id': request, 'status': 'queued'}})
             self.restores[request] = {'drive': drive_id, 'bucket': drive['bucket'],
                                       'prefix': prefix, 'as_of': as_of, 'status': 'queued',
                                       'objects': None, 'error': None, 'done_at': None}
@@ -2072,11 +2164,16 @@ class TokenState:
             drive = self.owner_call(drive_id, bearer, grant=False)
             return {'keys': [self.key_json(k) for k in self.keys_of(drive)]}
 
-    def add_recovery_key(self, drive_id, bearer, body):
+    def add_recovery_key(self, drive_id, bearer, body, key=None):
         """POST /v1/drives/<id>/recovery_keys (a grant, signed over
-        recovery-add:<drive>:<recovery_pubkey>:<nonce>): 201 the key."""
+        recovery-add:<drive>:<recovery_pubkey>:<nonce>): 201 the key; asked again with the same
+        idempotency key, the same answer."""
         with self.lock:
             drive = self.owner_call(drive_id, bearer, grant=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             public = self.pubkey_of(body)
             label = self.label_of(body, '')
             keys = self.keys_of(drive)
@@ -2088,15 +2185,21 @@ class TokenState:
                                'a drive has at most 10 recovery keys; remove one first')
             self.key_consent(drive, body, 'recovery-add:%s:%s'
                              % (drive_id, body.get('recovery_pubkey') or ''))
-            key = self.new_recovery_key(public, label)
-            drive.setdefault('recovery_keys', []).append(key)
-            return self.key_json(key)
+            made = self.new_recovery_key(public, label)
+            drive.setdefault('recovery_keys', []).append(made)
+            self.keep('recovery_key', key, caller, {'status': 201, 'body': self.key_json(made)})
+            return self.key_json(made)
 
-    def remove_recovery_key(self, drive_id, bearer, key_id, body):
+    def remove_recovery_key(self, drive_id, bearer, key_id, body, key=None):
         """DELETE /v1/drives/<id>/recovery_keys/<key_id> (a grant, signed over
-        recovery-remove:<drive>:<key_id>:<nonce>): never the last key."""
+        recovery-remove:<drive>:<key_id>:<nonce>): never the last key; asked again with the
+        same idempotency key, the same answer."""
         with self.lock:
             drive = self.owner_call(drive_id, bearer, grant=True)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('recovery_key', key, caller)
+            if kept is not None:
+                return self.answer_again(drive_id, kept)[1]
             keys = self.keys_of(drive)
             target = next((k for k in keys if k['key_id'] == key_id), None)
             if target is None:
@@ -2110,6 +2213,7 @@ class TokenState:
             else:
                 drive['recovery_keys'] = [k for k in drive.get('recovery_keys', [])
                                           if k['key_id'] != key_id]
+            self.keep('recovery_key', key, caller, {'status': 200, 'body': {'removed': key_id}})
             return {'removed': key_id}
 
     def unverify_recovery_keys(self, drive_id):
@@ -2398,6 +2502,16 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return True
         return False
 
+    def idempotency(self):
+        """The call's idempotency key (`x-azlin-idempotency`), or None; 400 for one that is no
+        key (as the token server, idempotent.rs `Once::of`)."""
+        value = self.headers.get(azlin_contract.IDEMPOTENCY_HEADER)
+        if value is None:
+            return None
+        if not azlin_contract.is_idempotency_key(value):
+            raise ApiError(400, 'bad_request', 'x-azlin-idempotency: 22 characters of base64url')
+        return value.strip()
+
     def bearer(self):
         value = self.headers.get('Authorization') or ''
         for prefix in ('Bearer ', 'bearer '):
@@ -2487,11 +2601,13 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'recovery':
-            self.answer(200, state.set_recovery(segments[2], self.bearer(), self.body() or {}))
+            self.answer(200, state.set_recovery(segments[2], self.bearer(), self.body() or {},
+                                                self.idempotency()))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'lockdown':
-            self.answer(*state.lockdown(segments[2], self.bearer(), self.body() or {}))
+            self.answer(*state.lockdown(segments[2], self.bearer(), self.body() or {},
+                                        self.idempotency()))
             return
         if self.command == 'POST' and segments[:2] == ['v1', 'drives'] and len(segments) == 5 \
                 and segments[3:] == ['lockdown', 'cancel']:
@@ -2499,7 +2615,8 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
-            self.answer(202, state.restore(segments[2], self.bearer(), self.body() or {}))
+            self.answer(202, state.restore(segments[2], self.bearer(), self.body() or {},
+                                           self.idempotency()))
             return
         if self.command == 'GET' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
@@ -2507,11 +2624,12 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'claim':
-            self.answer(201, state.claim(segments[2], self.body() or {}))
+            self.answer(201, state.claim(segments[2], self.body() or {}, self.idempotency()))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'members':
-            self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {}))
+            self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {},
+                                              self.idempotency()))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'keys':
@@ -2528,12 +2646,12 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'recovery_keys':
             self.answer(201, state.add_recovery_key(segments[2], self.bearer(),
-                                                    self.body() or {}))
+                                                    self.body() or {}, self.idempotency()))
             return
         if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'recovery_keys':
             self.answer(200, state.remove_recovery_key(segments[2], self.bearer(), segments[4],
-                                                       self.body() or {}))
+                                                       self.body() or {}, self.idempotency()))
             return
         if self.command == 'POST' and segments in (['v1', 'recovery', 'challenge'],
                                                    ['v1', 'recovery', 'lookup']):

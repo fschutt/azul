@@ -76,10 +76,10 @@ fn the_recovery_key_is_registered_with_the_drive_token_and_signs_a_lockdown_with
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let key = RecoveryKey::derive(&CODE, "d_1");
     server
-        .set_recovery_key("d_1", "dt_f.3.newest", &key.public_base64())
+        .set_recovery_key("d_1", "dt_f.3.newest", &key.public_base64(), &super::grant_key())
         .unwrap();
     let pending = server
-        .recovery_lockdown("d_1", |message| Ok(key.sign_base64(message)))
+        .recovery_lockdown("d_1", &super::grant_key(), |message| Ok(key.sign_base64(message)))
         .unwrap();
     assert_eq!(pending.drive_token, "dt_r.0.new");
     assert_eq!(fake.calls().len(), 2);

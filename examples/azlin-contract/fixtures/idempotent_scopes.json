@@ -1,0 +1,15 @@
+{
+  "scopes": [
+    "lockdown",
+    "claim",
+    "redeem",
+    "voucher",
+    "issue",
+    "add_member",
+    "remove_member",
+    "recovery_key",
+    "restore",
+    "abandon"
+  ],
+  "already_answered": "already_answered"
+}

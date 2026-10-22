@@ -20,6 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use azlin_contract::IdempotentScope;
 use azul_storage::meta::{
     tree::walk, Bucket, Change, Commit, CommitOutcome, Conflict, MetaError, MetaRepo, Mode,
     ObjectId, Objects, Resolution, Sealer,
@@ -199,8 +200,12 @@ pub fn restore_bucket_as_of(
 ) -> CloudResult<BucketRestore> {
     let started = Instant::now();
     let as_of = crate::rfc3339(as_of);
+    // one key across the retries of this restore (crate::outbox): asked again, queued once
+    let what = format!("\n{as_of}");
     let queued = shared.with_drive_token(drive_id, |token| {
-        server.restore(drive_id, token, "", &as_of)
+        shared.outbox().send(IdempotentScope::Restore, drive_id, &what, |key| {
+            server.restore(drive_id, token, "", &as_of, key)
+        })
     })??;
     let request = queued["request_id"]
         .as_str()

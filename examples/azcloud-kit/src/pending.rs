@@ -28,7 +28,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use azlin_contract::AbandonAnswer;
+use azlin_contract::{AbandonAnswer, IdempotentScope};
 
 use crate::{
     bundle::{DriveBundle, PeriodTokens},
@@ -721,8 +721,24 @@ fn keep_picked_up(
             return Ok((bundle, text, true));
         }
     }
+    let mut claiming = None;
     if let Some(ticket) = bundle.claim.as_ref().map(|c| c.ticket.clone()) {
-        match server.claim_drive(bundle.drive_id(), &ticket) {
+        // One key names the pick-up across its retries (crate::outbox): a claim whose answer
+        // was lost is the same pick-up asked again - the same family, counted once.
+        let call = shared
+            .outbox()
+            .open(IdempotentScope::Claim, bundle.drive_id(), "")
+            .map_err(|e| {
+                Polled::Transient(Transient::Unread(format!("the drive was not picked up: {e}")))
+            })?;
+        let claimed = server.claim_drive(bundle.drive_id(), &ticket, call.key());
+        if claimed.is_ok() {
+            // closed once the keyring has the family: until then a repeat gets it again
+            claiming = Some(call);
+        } else if claimed.as_ref().err().is_some_and(crate::outbox::is_final_error) {
+            call.close();
+        }
+        match claimed {
             Ok(family) => bundle.drive_token = family.drive_token,
             // A drive from before the tickets: the sealed drive token is its only one.
             Err(TokenError::Refused { status: 401, .. }) => {}
@@ -742,6 +758,8 @@ fn keep_picked_up(
                     "no answer from the token server: {why}"
                 ))))
             }
+            // A final refusal closed the call (409 already_answered: the next claim is a pick-up
+            // of its own); a busy server left it open for the next poll.
             Err(e) => {
                 return Err(Polled::Transient(Transient::Unread(format!(
                     "the drive was not picked up: {e}"
@@ -751,6 +769,9 @@ fn keep_picked_up(
     }
     let text = bundle.session().to_keyring_secret();
     shared.set(&key, &text).map_err(not_kept)?;
+    if let Some(call) = claiming {
+        call.close();
+    }
     Ok((bundle, text, false))
 }
 

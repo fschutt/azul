@@ -15,7 +15,7 @@ use azul_storage::{
     config::keyring_key,
     keyring::{KeyringNamespace, KeyringStore, MemoryKeyring},
     testing::TempDir,
-    HttpReply, Transport,
+    Drive, HttpReply, Transport,
 };
 use serde_json::{json, Value};
 

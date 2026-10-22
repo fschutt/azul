@@ -30,14 +30,23 @@ impl<'a> TokenServer<'a> {
     /// a computer that picks the drive up by its claim code spends, so it and the buyer's
     /// computer never share a family.
     ///
+    /// `key` names the pick-up across its retries ([`crate::outbox`]): asked again after a lost
+    /// answer, it is the same pick-up (the same family, counted once).
+    ///
     /// # Errors
     ///
     /// The token server's refusal: 401 another ticket (or a drive from before the tickets), 409
-    /// `claims_used`, 410 `claim_expired`, 403 `drive_banned`; no answer.
-    pub fn claim_drive(&self, drive_id: &str, ticket: &str) -> Result<ClaimedFamily, TokenError> {
+    /// `claims_used`, 410 `claim_expired`, 403 `drive_banned`, 409 `already_answered` (the
+    /// pick-up's answer arrived and its token was used); no answer.
+    pub fn claim_drive(
+        &self,
+        drive_id: &str,
+        ticket: &str,
+        key: &IdempotencyKey,
+    ) -> Result<ClaimedFamily, TokenError> {
         let path = format!("/v1/drives/{}/claim", check_id(drive_id)?);
         let body = json!({ "ticket": ticket.trim() });
-        let value = self.call(Method::Post, &path, None, Some(&body))?;
+        let value = self.grant(Method::Post, &path, None, Some(&body), key)?;
         let drive_token = value["drive_token"]
             .as_str()
             .unwrap_or_default()
@@ -59,41 +68,51 @@ impl<'a> TokenServer<'a> {
 
     /// A new member token family of the drive (`POST /v1/drives/{id}/members`): what a second
     /// device joins with, `{"member", "drive_token"}`. `member` names it, else the token server
-    /// does.
+    /// does. `key` names the request across its retries: asked again, it is the same member.
     pub fn add_member(
         &self,
         drive_id: &str,
         drive_token: &str,
         member: Option<&str>,
+        key: &IdempotencyKey,
     ) -> Result<Value, TokenError> {
         let path = format!("/v1/drives/{}/members", check_id(drive_id)?);
         let body = match member {
             Some(member) => json!({ "member": member }),
             None => json!({}),
         };
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+        self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
     }
 
     /// The immediate lockdown by this device (`POST /v1/drives/{id}/lockdown`): every other
     /// token family, key and public link of the drive is revoked at once; the answer is this
-    /// device's new grant (a bundle).
-    pub fn lockdown(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
+    /// device's new grant (a bundle). The token sent is revoked by it: when the answer is lost,
+    /// the same token with the same `key` asks again (within ten minutes) and gets that grant.
+    pub fn lockdown(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        key: &IdempotencyKey,
+    ) -> Result<Value, TokenError> {
         let path = format!("/v1/drives/{}/lockdown", check_id(drive_id)?);
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+        let body = json!({});
+        self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
     }
 
     /// Queues a restore of `prefix` (a key or a folder) as it was at `as_of` (RFC 3339; `POST
-    /// /v1/drives/{id}/restore`): `{"request_id", "status"}`.
+    /// /v1/drives/{id}/restore`): `{"request_id", "status"}`. `key` names the request across its
+    /// retries: asked again, it is queued once.
     pub fn restore(
         &self,
         drive_id: &str,
         drive_token: &str,
         prefix: &str,
         as_of: &str,
+        key: &IdempotencyKey,
     ) -> Result<Value, TokenError> {
         let path = format!("/v1/drives/{}/restore", check_id(drive_id)?);
         let body = json!({ "prefix": prefix, "as_of": as_of });
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+        self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
     }
 
     /// A restore's progress (`GET /v1/drives/{id}/restore/{request}`).

@@ -247,13 +247,13 @@ fn the_drives_recovery_keys_are_listed_added_and_removed_with_a_keys_signature()
     );
     assert!(!keys[1].verified);
     let added = server
-        .add_recovery_key("d_1", "dt_f.3.x", "C=", "third kit", sign)
+        .add_recovery_key("d_1", "dt_f.3.x", "C=", "third kit", &super::grant_key(), sign)
         .unwrap();
     assert_eq!(added.key_id, "rk_c");
     server
-        .remove_recovery_key("d_1", "dt_f.3.x", "rk_b", sign)
+        .remove_recovery_key("d_1", "dt_f.3.x", "rk_b", &super::grant_key(), sign)
         .unwrap();
-    match server.remove_recovery_key("d_1", "dt_f.3.x", "rk_legacy", sign) {
+    match server.remove_recovery_key("d_1", "dt_f.3.x", "rk_legacy", &super::grant_key(), sign) {
         Err(TokenError::Refused {
             status: 409, code, ..
         }) => assert_eq!(code, "last_recovery_key"),
@@ -262,7 +262,7 @@ fn the_drives_recovery_keys_are_listed_added_and_removed_with_a_keys_signature()
     // A key id that is no path segment is refused before anything is sent.
     let sent = fake.calls().len();
     assert!(matches!(
-        server.remove_recovery_key("d_1", "dt_f.3.x", "../x", sign),
+        server.remove_recovery_key("d_1", "dt_f.3.x", "../x", &super::grant_key(), sign),
         Err(TokenError::Config(_))
     ));
     assert_eq!(fake.calls().len(), sent);

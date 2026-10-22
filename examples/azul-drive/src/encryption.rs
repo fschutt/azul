@@ -54,7 +54,7 @@ use azul::{
     sensor::{BatteryState, NetworkState, PowerState},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
-use azcloud_kit::{TokenError, TokenServer};
+use azcloud_kit::{azlin_contract::IdempotentScope, TokenError, TokenServer};
 use azul_appkit::{
     client_health::{client_health, Device},
     l10n::{t, t_args, t_label, Arg, Phrase, Text},
@@ -1898,17 +1898,31 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         } => {
             let transport = AzulTransport::new(crate::USER_AGENT);
             let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string());
+            // one key across the retries of each change (azcloud_kit::outbox): one whose
+            // answer was lost is answered like the first when asked again
+            let outbox = keyring.outbox();
+            let set = format!("set:{public_key}");
             let result = server.as_ref().map_err(Clone::clone).and_then(|server| {
                 keyring
-                    .with_drive_token(&drive_id, |token| match &previous {
-                        // F12 C: the code it replaces signs the change.
-                        Some(previous) => {
-                            let key = recovery_key_of(previous, &drive_id);
-                            server.replace_recovery_key(&drive_id, token, &public_key, |m| {
-                                Ok(key.sign_base64(m))
-                            })
-                        }
-                        None => server.set_recovery_key(&drive_id, token, &public_key),
+                    .with_drive_token(&drive_id, |token| {
+                        outbox.send(IdempotentScope::RecoveryKey, &drive_id, &set, |call| {
+                            match &previous {
+                                // F12 C: the code it replaces signs the change.
+                                Some(previous) => {
+                                    let key = recovery_key_of(previous, &drive_id);
+                                    server.replace_recovery_key(
+                                        &drive_id,
+                                        token,
+                                        &public_key,
+                                        call,
+                                        |m| Ok(key.sign_base64(m)),
+                                    )
+                                }
+                                None => {
+                                    server.set_recovery_key(&drive_id, token, &public_key, call)
+                                }
+                            }
+                        })
                     })
                     .map_err(|e| e.to_string())
                     .and_then(|answer| {
@@ -1925,13 +1939,17 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 (Ok(()), Ok(server), Some((public, signer))) => Some(
                     keyring
                         .with_drive_token(&drive_id, |token| {
-                            server.add_recovery_key(
-                                &drive_id,
-                                token,
-                                &public,
-                                crate::recovery_health::FINDABLE_LABEL,
-                                |message| Ok(signer.sign_base64(message)),
-                            )
+                            let add = format!("add:{public}");
+                            outbox.send(IdempotentScope::RecoveryKey, &drive_id, &add, |call| {
+                                server.add_recovery_key(
+                                    &drive_id,
+                                    token,
+                                    &public,
+                                    crate::recovery_health::FINDABLE_LABEL,
+                                    call,
+                                    |message| Ok(signer.sign_base64(message)),
+                                )
+                            })
                         })
                         .map_err(|e| e.to_string())
                         .and_then(|answer| {
@@ -2111,15 +2129,24 @@ pub(crate) fn recovery_lockdown(
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
     let findable = crate::recovery_keys::findable_key_of(code);
-    let pending = server
-        .recovery_lockdown(drive_id, |message| Ok(key.sign_base64(message)))
-        .or_else(|e| {
-            // Not the drive key: the code's findable key (a second kit registers only that).
-            if matches!(e, TokenError::Refused { status: 401, .. }) {
-                server.recovery_lockdown(drive_id, |message| Ok(findable.sign_base64(message)))
-            } else {
-                Err(e)
-            }
+    // one key across the retries of this lockdown (azcloud_kit::outbox): one whose answer was
+    // lost, signed anew, gets the same pending family
+    let pending = keyring
+        .outbox()
+        .send(IdempotentScope::Lockdown, drive_id, "recovery", |call| {
+            server
+                .recovery_lockdown(drive_id, call, |message| Ok(key.sign_base64(message)))
+                .or_else(|e| {
+                    // Not the drive key: the code's findable key (a second kit registers only
+                    // that).
+                    if matches!(e, TokenError::Refused { status: 401, .. }) {
+                        server.recovery_lockdown(drive_id, call, |message| {
+                            Ok(findable.sign_base64(message))
+                        })
+                    } else {
+                        Err(e)
+                    }
+                })
         })
         .map_err(|e| match &e {
             TokenError::Refused { status: 401, .. } => {

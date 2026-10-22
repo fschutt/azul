@@ -22,6 +22,7 @@
 
 use std::{path::Path, time::Duration};
 
+use azlin_contract::IdempotentScope;
 use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation, DrivesFile},
     Credentials,
@@ -688,7 +689,14 @@ impl Account {
         // A grant: the current token only - behind any refresh another azcloud runs.
         let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
-        let answer = self.server(|server| server.add_member(&self.record.id, &token, member))?;
+        // one key across the retries of this join (crate::outbox): asked again, the same member
+        let outbox = self.state.outbox();
+        let id = &self.record.id;
+        let answer = self.server(|server| {
+            outbox.send(IdempotentScope::AddMember, id, member.unwrap_or(""), |key| {
+                server.add_member(id, &token, member, key)
+            })
+        })?;
         let drive_token = answer["drive_token"]
             .as_str()
             .unwrap_or_default()
@@ -726,11 +734,35 @@ impl Account {
     pub fn lockdown(&mut self) -> CloudResult<Value> {
         let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
-        let answer = self.server(|server| server.lockdown(&self.record.id, &token))?;
+        // One key across the retries of this lockdown (crate::outbox), by this token's family:
+        // the lockdown revokes the token, and only with the key does the same token get the
+        // grant again whose answer was lost.
+        let family = token
+            .strip_prefix("dt_")
+            .and_then(|t| t.split('.').next())
+            .unwrap_or_default()
+            .to_string();
+        let outbox = self.state.outbox();
+        let call = outbox
+            .open(IdempotentScope::Lockdown, &self.record.id, &family)
+            .map_err(CloudError::from)?;
+        let outcome = self.server(|server| {
+            Ok(server.until_final(|| server.lockdown(&self.record.id, &token, call.key())))
+        })?;
+        let answer = match outcome {
+            Ok(answer) => answer,
+            Err(e) => {
+                if crate::outbox::is_final_error(&e) {
+                    call.close();
+                }
+                return Err(e.into());
+            }
+        };
         let mut grant = read_grant(&answer, &self.token_url, &self.record.member, now())
             .context("the lockdown answer (this device's new grant)")?;
         grant.record.name = self.record.name.clone();
         store_grant(&self.state, &grant)?;
+        call.close();
         self.record = grant.record;
         Ok(json!({
             "locked_down": true,
@@ -764,7 +796,15 @@ impl Account {
         }
         let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
-        self.server(|server| server.restore(&self.record.id, &token, prefix, as_of))
+        // one key across the retries of this restore (crate::outbox): asked again, queued once
+        let outbox = self.state.outbox();
+        let id = &self.record.id;
+        let what = format!("{prefix}\n{as_of}");
+        self.server(|server| {
+            outbox.send(IdempotentScope::Restore, id, &what, |key| {
+                server.restore(id, &token, prefix, as_of, key)
+            })
+        })
     }
 
     /// A restore's progress.

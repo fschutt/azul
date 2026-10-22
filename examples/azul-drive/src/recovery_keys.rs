@@ -36,6 +36,7 @@
 use std::sync::Arc;
 
 use azcloud_kit::{
+    azlin_contract::{IdempotencyKey, IdempotentScope},
     user_errors::{Code, Lang},
     RecoveryKey, RecoveryKeyInfo, SharedKeyring, TokenError, TokenServer, UserError,
 };
@@ -853,6 +854,20 @@ fn with_token<T>(
         .map_err(|e| TokenError::Config(e.to_string()))?
 }
 
+/// [`with_token`] of a change of the recovery keys (`what`: which), named by the key of its open
+/// call ([`azcloud_kit::outbox`]): asked again after a lost answer, it is answered like the first.
+fn with_token_keyed<T>(
+    keyring: &SharedKeyring,
+    drive_id: &str,
+    what: &str,
+    call: impl FnOnce(&str, &IdempotencyKey) -> Result<T, TokenError>,
+) -> Result<T, TokenError> {
+    let outbox = keyring.outbox();
+    with_token(keyring, drive_id, |token| {
+        outbox.send(IdempotentScope::RecoveryKey, drive_id, what, |key| call(token, key))
+    })
+}
+
 /// The drive's entry (named `name`) and session after the hand-over: the pending session's
 /// token refreshed.
 fn finish(
@@ -953,12 +968,15 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 )
                 .map_err(|e| e.to_string())?;
                 let findable = findable_key_of(&code);
-                let added = with_token(&keyring, &drive_id, |token| {
+                let public = findable.public_base64();
+                let what = format!("add:{public}");
+                let added = with_token_keyed(&keyring, &drive_id, &what, |token, key| {
                     server.add_recovery_key(
                         &drive_id,
                         token,
-                        &findable.public_base64(),
+                        &public,
                         SECOND_KIT_LABEL,
+                        key,
                         |message| Ok(signer.sign_base64(message)),
                     )
                 });
@@ -982,12 +1000,14 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
         } => {
             let result = TokenServer::new(&token_url, &transport)
                 .and_then(|server| {
-                    with_token(&keyring, &drive_id, |token| {
+                    let what = format!("add:{findable_public}");
+                    with_token_keyed(&keyring, &drive_id, &what, |token, key| {
                         server.add_recovery_key(
                             &drive_id,
                             token,
                             &findable_public,
                             FINDABLE_LABEL,
+                            key,
                             |message| Ok(signer.sign_base64(message)),
                         )
                     })
@@ -1010,8 +1030,9 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             keyring,
         } => {
             let result = TokenServer::new(&token_url, &transport).and_then(|server| {
-                with_token(&keyring, &drive_id, |token| {
-                    server.remove_recovery_key(&drive_id, token, &key_id, |message| {
+                let what = format!("remove:{key_id}");
+                with_token_keyed(&keyring, &drive_id, &what, |token, key| {
+                    server.remove_recovery_key(&drive_id, token, &key_id, key, |message| {
                         Ok(signer.sign_base64(message))
                     })
                 })

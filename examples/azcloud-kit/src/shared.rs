@@ -25,6 +25,7 @@ use crate::{
     bundle::DriveBundle,
     error::CloudResult,
     lock::{HeldLock, LockDir},
+    outbox::Outbox,
     session::{AzlinSession, DriveToken},
     token::TokenError,
 };
@@ -167,6 +168,13 @@ impl SharedKeyring {
     #[must_use]
     pub fn locks(&self) -> &LockDir {
         &self.locks
+    }
+
+    /// The open grant calls of this keyring's credentials ([`crate::outbox`]): with its locks,
+    /// so every app and profile that spends the same tokens asks again with the same keys.
+    #[must_use]
+    pub fn outbox(&self) -> Outbox {
+        Outbox::new(self.locks.path().join(crate::outbox::OUTBOX_DIR))
     }
 
     /// Takes the lock of the entry `key`: one holder in every process of this user at a time.
