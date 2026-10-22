@@ -2,7 +2,8 @@
 //! azcloud-kit) and the Azlin services (the token server, the storage nodes).
 //!
 //! - [`CONTRACT_VERSION`] and [`ClientHello`]: what every request says it speaks
-//!   (`x-azlin-client: azdrive/0.3.0; contract=3`).
+//!   (`x-azlin-client: azdrive/0.3.0; contract=3`); [`ClientMinimum`]: the oldest the services
+//!   answer, anything older gets `426` [`ClientTooOld`].
 //! - Ids and units ([`DriveId`], [`CheckoutId`], [`TierId`], [`Months`], [`StoredBytes`],
 //!   [`Cents`], ...): checked once when they are read, so the rest of the code can trust them.
 //! - [`IdempotencyKey`]: what makes a repeated request answer like the first one, within its
@@ -39,8 +40,13 @@ pub use checkout::{
     TierClosed, TierOffer, TierPriceWire, TiersAnswer,
 };
 pub use error::AzlinError;
-pub use hello::{AppName, ClientHello, SemVer, CLIENT_HEADER};
-pub use idempotency::{IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER};
+pub use hello::{
+    client_too_old, AppName, ClientHello, ClientMinimum, ClientTooOld, SemVer, CLIENT_HEADER,
+    MIN_CONTRACT, MIN_VERSIONS,
+};
+pub use idempotency::{
+    IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER, IDEMPOTENCY_REQUIRED,
+};
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
 pub use read_only::{map_epoch, ReadOnlyWhy, MAP_HEADER};
 pub use refresh::{BanWire, RefreshRefusal};
@@ -77,6 +83,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("redeem_answers.json", include_str!("../fixtures/redeem_answers.json")),
     ("redeem_refusals.json", include_str!("../fixtures/redeem_refusals.json")),
     ("renewal_signups.json", include_str!("../fixtures/renewal_signups.json")),
+    ("client_too_old.json", include_str!("../fixtures/client_too_old.json")),
 ];
 
 /// The digest of [`FIXTURES`] (`fnv1a64:<16 hex digits>`): the services keep the one they were

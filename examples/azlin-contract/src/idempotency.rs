@@ -14,6 +14,10 @@ pub const IDEMPOTENCY_HEADER: &str = "x-azlin-idempotency";
 /// reached the caller after all, so no second copy of it is handed out.
 pub const ALREADY_ANSWERED: &str = "already_answered";
 
+/// The error code of a grant an app sent without its key (400): an app names every grant, so
+/// a retry after a lost answer can never grant twice.
+pub const IDEMPOTENCY_REQUIRED: &str = "idempotency_required";
+
 /// What kind of request a key names. A key counts within its scope and for its caller only, so
 /// one key sent to two routes is two requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

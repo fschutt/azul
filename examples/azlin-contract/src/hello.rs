@@ -187,3 +187,74 @@ impl fmt::Display for ClientHello {
         write!(f, "{}/{}; contract={}", self.app, self.version, self.contract)
     }
 }
+
+/// The oldest contract the services answer: the first release's. It goes up only once every
+/// app in use speaks a newer one.
+pub const MIN_CONTRACT: u32 = 3;
+
+/// The oldest version of each app the services answer, besides [`MIN_CONTRACT`]: a release with
+/// a fault that harms the drive is shut out here. None yet.
+pub const MIN_VERSIONS: &[(&str, SemVer)] = &[];
+
+/// What a client too old for a service is told, with `426 client_too_old`: the contract to speak
+/// and, when its app has one, the version to reach.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientTooOld {
+    pub min_contract: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_version: Option<SemVer>,
+}
+
+/// The oldest clients a service answers: a contract, and per app a version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientMinimum {
+    pub contract: u32,
+    pub versions: Vec<(AppName, SemVer)>,
+}
+
+impl ClientMinimum {
+    /// [`MIN_CONTRACT`] and [`MIN_VERSIONS`], what the services enforce.
+    #[must_use]
+    pub fn current() -> ClientMinimum {
+        ClientMinimum {
+            contract: MIN_CONTRACT,
+            versions: MIN_VERSIONS
+                .iter()
+                .filter_map(|(app, version)| Some((AppName::parse(app).ok()?, *version)))
+                .collect(),
+        }
+    }
+
+    /// Whether a request whose `x-azlin-client` header says `header` is refused, and with what:
+    /// a hello that does not read (an app from before the hello's format), one of an older
+    /// contract, one below its app's version. No header is no app (a webhook, a page, an
+    /// operator's tool) and is answered.
+    #[must_use]
+    pub fn refuses(&self, header: Option<&str>) -> Option<ClientTooOld> {
+        let header = header?;
+        let too_old = |min_version| {
+            Some(ClientTooOld {
+                min_contract: self.contract,
+                min_version,
+            })
+        };
+        let Ok(hello) = ClientHello::parse(header) else {
+            return too_old(None);
+        };
+        let floor = self
+            .versions
+            .iter()
+            .find(|(app, _)| *app == hello.app)
+            .map(|(_, version)| *version);
+        if hello.contract < self.contract || floor.is_some_and(|min| hello.version < min) {
+            return too_old(floor);
+        }
+        None
+    }
+}
+
+/// [`ClientMinimum::refuses`] of the [`ClientMinimum::current`] minimum.
+#[must_use]
+pub fn client_too_old(header: Option<&str>) -> Option<ClientTooOld> {
+    ClientMinimum::current().refuses(header)
+}
