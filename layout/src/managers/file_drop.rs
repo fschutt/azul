@@ -409,23 +409,26 @@ mod autotest_generated {
 
         shim.set_hovered_file(Some(s("/p")));
         multi.set_hovered_files(vec![s("/p")]);
+        assert_eq!(shim, multi);
+        shim.set_hovered_file(None);
+        multi.set_hovered_files(Vec::new());
+        assert_eq!(shim, multi);
+        assert!(shim.hover_was_cancelled() && multi.hover_was_cancelled());
+
         shim.set_dropped_file(Some(s("/q")));
         multi.set_dropped_files(vec![s("/q")]);
         assert_eq!(shim, multi);
-
-        shim.set_hovered_file(None);
-        multi.set_hovered_files(Vec::new());
         shim.set_dropped_file(None);
         multi.set_dropped_files(Vec::new());
         assert_eq!(shim, multi);
-        assert!(shim.hover_was_cancelled() && multi.hover_was_cancelled());
     }
 
     #[test]
-    fn hovered_and_dropped_state_are_independent() {
+    fn the_drop_reset_leaves_the_next_drags_hover_alone() {
+        // A drop, and a new drag over the window before the platform reset the drop.
         let mut m = FileDropManager::new();
-        m.set_hovered_files(vec![s("/h1"), s("/h2")]);
         m.set_dropped_files(vec![s("/d1")]);
+        m.set_hovered_files(vec![s("/h1"), s("/h2")]);
         assert_eq!(m.get_hovered_files().len(), 2);
         assert_eq!(m.get_dropped_files().len(), 1);
 
@@ -472,8 +475,8 @@ mod autotest_generated {
         let files: Vec<AzString> = paths.iter().map(|p| s(p)).collect();
 
         let mut m = FileDropManager::new();
-        m.set_hovered_files(files.clone());
         m.set_dropped_files(files.clone());
+        m.set_hovered_files(files.clone());
         for (i, p) in paths.iter().enumerate() {
             assert_eq!(m.get_hovered_files()[i].as_str(), *p);
             assert_eq!(m.get_dropped_files()[i].as_str(), *p);
@@ -556,8 +559,8 @@ mod autotest_generated {
     #[test]
     fn clone_equals_original_and_is_independent() {
         let mut m = FileDropManager::new();
-        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.set_dropped_files(vec![s("/c")]);
+        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.set_hovered_files(Vec::new()); // latch the flag too
 
         let c = m.clone();
