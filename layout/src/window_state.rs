@@ -964,7 +964,7 @@ mod autotest_generated {
         assert!(some.is_some());
         assert!(!some.is_none());
         assert_eq!(some.as_ref(), Some(&opts));
-        assert_eq!(some.into_option(), Some(opts.clone()));
+        assert_eq!(some.to_option(), Some(opts.clone()));
         assert_eq!(some.clone().map(|o| o.parent_window_id), Some(0));
         assert_eq!(
             some.clone()
@@ -997,15 +997,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn option_into_option_hands_back_an_independent_clone() {
+    fn option_to_option_hands_back_an_independent_clone() {
         let mut o: OptionFullWindowState = Some(FullWindowState::default()).into();
 
-        let mut taken = o.into_option().expect("constructed as Some");
+        let mut taken = o.to_option().expect("constructed as Some");
         taken.title = AzString::from("changed");
         assert_eq!(
             o.as_ref().map(|s| s.title.as_str()),
             Some("Azul Window"),
-            "into_option must clone, not alias"
+            "to_option must clone, not alias"
         );
 
         if let Some(inner) = o.as_mut() {

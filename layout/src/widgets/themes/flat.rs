@@ -22,7 +22,7 @@ use azul_css::{
 };
 
 use super::system_palette;
-use crate::widgets::button::{Button, ButtonOnClick};
+use crate::widgets::button::{Button, ButtonOnClick, OptionButtonOnClick};
 
 // ---------------------------------------------------------------------------
 // The flat palette.
@@ -770,8 +770,10 @@ pub fn band_face_both() -> [CssPropertyWithConditions; 2] {
 }
 
 #[must_use]
-pub fn button(btn: Button) -> Dom {
-    let callbacks = match btn.on_click.into_option() {
+pub fn button(mut btn: Button) -> Dom {
+    // The click callback moves into the node; the rest of `btn` is read below.
+    let on_click = core::mem::replace(&mut btn.on_click, OptionButtonOnClick::None);
+    let callbacks = match on_click.into_option() {
         Some(ButtonOnClick {
             refany: data,
             callback,

@@ -361,7 +361,7 @@ impl App {
         let config = &self.ptr.config;
         self.ptr.global_hotkeys.set_app_declarations(
             config.global_hotkeys.clone().into_library_owned_vec(),
-            config.global_hotkeys_callback.into_option(),
+            config.global_hotkeys_callback.to_option(),
             self.ptr.data.clone(),
         );
         scope

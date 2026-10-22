@@ -21,7 +21,7 @@ use azul_css::{
     *,
 };
 
-use crate::widgets::button::{Button, ButtonOnClick};
+use crate::widgets::button::{Button, ButtonOnClick, OptionButtonOnClick};
 
 // Colors extracted from flora.css
 // Light mode colors
@@ -1929,8 +1929,10 @@ fn flora_disabled_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWit
 /// command over `--fl-dur-slow`, the face on `--fl-ease` and the edge and the
 /// glow on `ease` (`LIT_FACE`); a press over `--fl-dur-fast`.
 #[must_use]
-pub fn button(btn: Button) -> Dom {
-    let callbacks = match btn.on_click.into_option() {
+pub fn button(mut btn: Button) -> Dom {
+    // The click callback moves into the node; the rest of `btn` is read below.
+    let on_click = core::mem::replace(&mut btn.on_click, OptionButtonOnClick::None);
+    let callbacks = match on_click.into_option() {
         Some(ButtonOnClick {
             refany: data,
             callback,

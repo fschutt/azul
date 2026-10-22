@@ -1128,7 +1128,16 @@ macro_rules! impl_option {
         }
 
         impl $struct_name {
-            #[must_use] pub fn into_option(&self) -> Option<$struct_type> {
+            /// The value, moved out: no copy of it is made.
+            #[must_use] pub fn into_option(self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+
+            /// A copy of the value, for an option that stays where it is.
+            #[must_use] pub fn to_option(&self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
                     $struct_name::Some(t) => Some(t.clone()),
@@ -1151,7 +1160,16 @@ macro_rules! impl_option {
         }
 
         impl $struct_name {
-            #[must_use] pub fn into_option(&self) -> Option<$struct_type> {
+            /// The value, moved out: no copy of it is made.
+            #[must_use] pub fn into_option(self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+
+            /// A copy of the value, for an option that stays where it is.
+            #[must_use] pub fn to_option(&self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
                     $struct_name::Some(t) => Some(t.clone()),
