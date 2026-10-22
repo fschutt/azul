@@ -547,3 +547,59 @@ fn a_banned_drive_past_its_end_refuses_the_refresh_in_the_tables_words() {
         Some(Code::DriveBanned)
     );
 }
+
+/// PT3: credentials made while the drive took no writes stay read-only for 12 hours. Once the
+/// drive's grant changed (a month bought, a voucher) they are refreshed before the next request;
+/// a node that calls them stale (`credentials_stale`) has them refreshed and the request sent
+/// again.
+#[test]
+fn read_only_credentials_are_refreshed_once_the_grant_changed_or_the_node_calls_them_stale() {
+    let fake = cloud(None);
+    let dir = TempDir::new("azcloud-drive");
+    let text = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")
+        .replace(r#""read_only": false"#, r#""read_only": true"#);
+    let first = DriveBundle::parse(&text).unwrap();
+    assert_eq!(first.session().grant, crate::Grant::ReadOnly);
+    let (shared, _) = keyring_with(&first, &dir);
+    let drive = AzlinDrive::new(
+        &first.entry_named("Cloud", TOKEN),
+        first.session(),
+        TOKEN,
+        shared,
+        factory(&fake),
+        Box::new(|_: &AzlinSession, _: Result<(), String>| {}),
+    )
+    .unwrap()
+    .with_clock(|| EXPIRES - 6 * 3600);
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 0, "valid credentials are used as they are");
+    drive.apply(crate::period::GrantChanged::of("d_1"));
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 1, "refreshed before the request");
+    assert_eq!(held_token(&drive), "dt_f.1.bbb");
+    // A grant of another drive changes nothing here.
+    drive.apply(crate::period::GrantChanged::of("d_2"));
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 1);
+
+    // The node calls the credentials stale: refreshed, the request sent again.
+    let stale = Fake::new(|call, _| {
+        if call.url.starts_with(TOKEN) {
+            return Ok(json(200, &bundle("AKID2", "2026-10-09T09:15:00Z", "dt_f.1.bbb")));
+        }
+        let signed_with = header(call, "authorization").unwrap_or_default().to_string();
+        if signed_with.contains("Credential=AKID1/") {
+            return Ok(HttpReply {
+                status: 403,
+                headers: vec![(String::from("x-azlin-error"), String::from("credentials_stale"))],
+                body: b"<Error><Code>AccessDenied</Code><Message>refresh them</Message></Error>"
+                    .to_vec(),
+            });
+        }
+        Ok(empty_listing())
+    });
+    let dir = TempDir::new("azcloud-drive");
+    let (drive, _, _) = super::drive::drive(&stale, EXPIRES - 6 * 3600, &dir);
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&stale), 1);
+}

@@ -56,6 +56,9 @@ mod token;
 mod usage;
 mod transport;
 mod user_errors;
+/// A drive's period tokens kept with the drive itself (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod vault;
 mod voucher;
 
 use std::sync::{Arc, Mutex};

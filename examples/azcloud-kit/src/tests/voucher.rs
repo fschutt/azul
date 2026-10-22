@@ -3,7 +3,7 @@
 
 use azul_storage::Method;
 
-use super::{bundle, header, json, Fake, Shared, TOKEN};
+use super::{bundle, grant_key, header, json, Fake, Shared, TOKEN};
 use crate::token::{TokenError, TokenServer, VoucherRedeemed};
 
 #[test]
@@ -14,6 +14,11 @@ fn a_voucher_on_a_drive_answers_the_days_it_added() {
                 assert_eq!(call.method, Method::Post);
                 assert_eq!(call.url, format!("{TOKEN}/v1/vouchers/redeem"));
                 assert_eq!(header(call, "authorization"), Some("Bearer dt_a.1.x"));
+                // a lost answer is asked again with the same key: its first answer, not "invalid"
+                assert_eq!(
+                    header(call, azlin_contract::IDEMPOTENCY_HEADER),
+                    Some(grant_key().header_value().as_str())
+                );
                 let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
                 assert_eq!(body["code"], "AZ-TEST-1234");
                 assert_eq!(body["drive_id"], "d_1");
@@ -37,12 +42,16 @@ fn a_voucher_on_a_drive_answers_the_days_it_added() {
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let drive = Some(("d_1", "dt_a.1.x"));
+    let key = grant_key();
+    let drive = Some(("d_1", "dt_a.1.x", &key));
     match server.redeem_voucher("AZ-TEST-1234", drive, "").unwrap() {
         VoucherRedeemed::Extended {
             days_added,
             period_until,
+            grant,
         } => {
+            // PT3: the drive's credentials must follow the days bought
+            assert_eq!(grant.drive_id(), "d_1");
             assert_eq!(days_added, 45);
             assert_eq!(
                 period_until,

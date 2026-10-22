@@ -29,14 +29,14 @@ use sha2::Sha384;
 
 use super::{header, json, Fake, Shared, TOKEN};
 use crate::{
-    bundle::PeriodTokens,
     lock::LockDir,
     period::{
-        issue_tokens, look_at_drive, redeem_due, token_message, Issuer, PeriodToken,
+        issue_next, look_at_drive, redeem_due, token_message, Issued, Issuer, PeriodToken,
         PeriodTokenStore, Redeemed,
     },
     shared::SharedKeyring,
     token::{TokenError, TokenServer, RECOVERY_MEMBER},
+    vault::{DriveTokens, VaultGrant},
     AzlinSession,
 };
 
@@ -196,25 +196,32 @@ fn an_issuer_key_that_is_no_rsa_public_key_is_refused() {
     assert!(Issuer::new(" ", 2026, &pem(N1)).is_err(), "a tier");
 }
 
+/// When the tests' checkout `ck_1` (3 months) was approved: a day before [`NOW`].
+pub(crate) const APPROVED: u64 = NOW - DAY;
+/// A month's instalment (the contract's `INSTALMENT_SECS`).
+pub(crate) const MONTH: u64 = 30 * DAY;
+
 /// A token server that hands out `keys` and blind-signs every blinded message with `n`/`d` for
-/// the key `key_id` - the one the request must name.
+/// the key `key_id` - the one the request must name -, counting the months of `ck_1` it issued.
 pub(crate) fn issuing_server(
     keys: String,
     n: &'static str,
     d: &'static str,
     key_id: &'static str,
 ) -> Arc<Fake> {
+    let issued = Arc::new(AtomicU64::new(0));
     Fake::new(move |call, _| {
         if call.url.ends_with("/v1/tokens/keys") {
             assert_eq!(call.method, Method::Get);
             return Ok(json(200, &keys));
         }
-        Ok(signed(call, n, d, key_id))
+        Ok(signed(call, n, d, key_id, &issued))
     })
 }
 
-/// The token server's answer to an issue request `call` for `key_id`, signed with `n`/`d`.
-fn signed(call: &azul_storage::HttpCall, n: &str, d: &str, key_id: &str) -> HttpReply {
+/// The token server's answer to an issue request `call` for `key_id`, signed with `n`/`d`, with
+/// `ck_1`'s schedule after it (`issued` counts its months).
+fn signed(call: &azul_storage::HttpCall, n: &str, d: &str, key_id: &str, issued: &AtomicU64) -> HttpReply {
     assert_eq!(call.method, Method::Post);
     assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
     assert_eq!(header(call, "authorization"), None, "no drive token");
@@ -228,9 +235,14 @@ fn signed(call: &azul_storage::HttpCall, n: &str, d: &str, key_id: &str) -> Http
         .iter()
         .map(|b| blind_sign(n, d, b.as_str().unwrap()))
         .collect();
+    let after = issued.fetch_add(signatures.len() as u64, Ordering::SeqCst) + signatures.len() as u64;
+    let mut schedule = serde_json::json!({"months": 3, "issued": after});
+    if after < 3 {
+        schedule["next_issue_at"] = serde_json::json!(rfc3339(APPROVED + after * MONTH));
+    }
     let answer = serde_json::json!({
         "tier": "100GB", "key_id": key_id, "public_key_pem": pem(n),
-        "blind_signatures": signatures,
+        "blind_signatures": signatures, "schedule": schedule,
     });
     json(200, &answer.to_string())
 }
@@ -243,82 +255,86 @@ pub(crate) fn keys() -> String {
     .to_string()
 }
 
-fn grant(months: u32) -> PeriodTokens {
-    PeriodTokens {
-        checkout_id: String::from("ck_1"),
-        months,
-        issue_key: String::from(ISSUE_KEY),
-    }
-}
-
 fn store_in(dir: &TempDir) -> PeriodTokenStore {
     PeriodTokenStore::new(dir.path().join("period-tokens"))
 }
 
-#[test]
-fn a_paid_checkouts_months_of_period_tokens_are_blinded_issued_against_its_issue_key_and_kept(
-) {
-    let dir = TempDir::new("azcloud-period");
-    let store = store_in(&dir);
-    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
-    let transport = Shared(fake.clone());
-    let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let tokens = issue_tokens(&server, &store, &grant(3), "100GB", "d_1").unwrap();
-    assert_eq!(tokens.len(), 3, "one per paid month");
-    let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
-    for token in &tokens {
-        issuer.verify(token).unwrap();
-    }
-    assert_ne!(tokens[0].nonce, tokens[1].nonce);
-    assert_ne!(tokens[1].nonce, tokens[2].nonce);
-    let calls = fake.calls();
-    assert_eq!(calls.len(), 2, "the keys, then one issue");
-    let body: serde_json::Value = serde_json::from_slice(&calls[1].body).unwrap();
-    assert_eq!(body["blinded"].as_array().unwrap().len(), 3);
-    // Kept for the drive; the request they were issued for is gone.
-    assert_eq!(store.tokens("d_1").unwrap(), tokens);
-    assert!(store.issue_request("ck_1").unwrap().is_none());
+/// Drive `d_1`'s tokens on this computer, with `ck_1`'s grant of 3 months.
+fn granted(dir: &TempDir) -> DriveTokens {
+    let tokens = store_in(dir).on_this_device("d_1").unwrap();
+    tokens.keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY)).unwrap();
+    tokens
 }
 
 #[test]
-fn a_lost_answer_is_asked_for_again_with_the_identical_request_and_its_signatures_kept() {
-    // AZDRIVE-INTEGRATION §4: the token server answers the same request (key, messages, order)
-    // with the same signatures, counted once - so the request is kept before it is sent.
+fn a_paid_checkouts_first_month_is_issued_against_its_issue_key_and_kept_with_its_schedule() {
     let dir = TempDir::new("azcloud-period");
-    let store = store_in(&dir);
+    let tokens = granted(&dir);
+    let fake = issuing_server(keys(), N1, D1, "100GB/2026");
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let issued = match issue_next(&server, &tokens, "ck_1", NOW).unwrap() {
+        Issued::Tokens(issued) => issued,
+        other => panic!("not issued: {other:?}"),
+    };
+    assert_eq!(issued.len(), 1, "one month at a time");
+    let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
+    issuer.verify(&issued[0]).unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2, "the keys, then one issue");
+    let body: serde_json::Value = serde_json::from_slice(&calls[1].body).unwrap();
+    assert_eq!(body["blinded"].as_array().unwrap().len(), 1);
+    // Kept for the drive with the grant's schedule; the request they were issued for is done.
+    let state = tokens.state().unwrap();
+    assert_eq!(state.tokens, issued);
+    let grant = state.grant("ck_1").unwrap();
+    assert_eq!((grant.issued, grant.next_issue_at), (1, Some(APPROVED + MONTH)));
+    assert!(state.issues.is_empty());
+    // The next month is not due: nothing is asked.
+    assert_eq!(
+        issue_next(&server, &tokens, "ck_1", NOW).unwrap(),
+        Issued::NotDue {
+            next_issue_at: Some(APPROVED + MONTH)
+        }
+    );
+    assert_eq!(fake.calls().len(), 2);
+}
+
+#[test]
+fn a_lost_answer_is_asked_for_again_with_the_identical_request_however_late() {
+    // The token server answers the same request (key, messages, order) with the same
+    // signatures, counted once, as long as its tokens can be redeemed - so the request is kept
+    // before it is sent, with the drive.
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
     let keys = keys();
+    let issued = AtomicU64::new(0);
     let fake = Fake::new(move |call, n| match n {
         0 => Ok(json(200, &keys)),
         1 => Err(String::from("connection reset")),
-        _ => Ok(signed(call, N1, D1, "100GB/2026")),
+        _ => Ok(signed(call, N1, D1, "100GB/2026", &issued)),
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        issue_tokens(&server, &store, &grant(3), "100GB", "d_1"),
+        issue_next(&server, &tokens, "ck_1", NOW),
         Err(TokenError::Connect(_))
     ));
-    let kept = store.issue_request("ck_1").unwrap().expect("the request, kept");
-    assert_eq!((kept.checkout_id(), kept.key_id()), ("ck_1", "100GB/2026"));
-    assert_eq!(kept.messages().len(), 3);
-    let shown = format!("{kept:?}");
-    assert!(!shown.contains(&kept.messages()[0]), "Debug shows no blinding: {shown}");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let path = store.issue_request_path("ck_1").unwrap();
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    let state = tokens.state().unwrap();
+    let kept = state.open_issues("ck_1");
+    assert_eq!(kept.len(), 1, "the request, kept");
+    assert_eq!((kept[0].checkout_id(), kept[0].key_id()), ("ck_1", "100GB/2026"));
+    let shown = format!("{:?}", kept[0]);
+    assert!(!shown.contains(&kept[0].messages()[0]), "Debug shows no blinding: {shown}");
+    // A month later (the app was not started): the very same request.
+    match issue_next(&server, &tokens, "ck_1", NOW + 31 * DAY).unwrap() {
+        Issued::Tokens(issued) => assert_eq!(issued.len(), 1),
+        other => panic!("not issued: {other:?}"),
     }
-    // The next try (another round, the next start) sends the very same request.
-    let tokens = issue_tokens(&server, &store, &grant(3), "100GB", "d_1").unwrap();
     let calls = fake.calls();
     assert_eq!(calls.len(), 3, "no new keys, no new blinding");
     assert_eq!(calls[1].body, calls[2].body, "the identical request");
-    let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
-    assert!(tokens.iter().all(|token| issuer.verify(token).is_ok()));
-    assert_eq!(store.tokens("d_1").unwrap().len(), 3);
-    assert!(store.issue_request("ck_1").unwrap().is_none());
+    assert!(tokens.state().unwrap().issues.is_empty());
 }
 
 #[test]
@@ -327,13 +343,14 @@ fn a_key_that_changed_since_the_keys_were_read_is_blinded_for_again_before_anyth
     // current key (with it, when the token server holds it) and nothing is signed or counted.
     for with_key in [true, false] {
         let dir = TempDir::new("azcloud-period");
-        let store = store_in(&dir);
+        let tokens = granted(&dir);
         let old = keys();
         let new = serde_json::json!({"keys": [
             {"tier": "100GB", "year": 2027, "key_id": "100GB/2027", "public_key_pem": pem(N2)},
         ]})
         .to_string();
         let reads = AtomicUsize::new(0);
+        let issued = AtomicU64::new(0);
         let fake = Fake::new(move |call, _| {
             if call.url.ends_with("/v1/tokens/keys") {
                 let first = reads.fetch_add(1, Ordering::SeqCst) == 0;
@@ -347,14 +364,16 @@ fn a_key_that_changed_since_the_keys_were_read_is_blinded_for_again_before_anyth
                 });
                 return Ok(json(409, &answer.to_string()));
             }
-            Ok(signed(call, N2, D2, "100GB/2027"))
+            Ok(signed(call, N2, D2, "100GB/2027", &issued))
         });
         let transport = Shared(fake.clone());
         let server = TokenServer::new(TOKEN, &transport).unwrap();
-        let tokens = issue_tokens(&server, &store, &grant(2), "100GB", "d_1").unwrap();
+        let issued = match issue_next(&server, &tokens, "ck_1", NOW).unwrap() {
+            Issued::Tokens(issued) => issued,
+            other => panic!("not issued: {other:?}"),
+        };
         let issuer = Issuer::new("100GB", 2027, &pem(N2)).unwrap();
-        assert_eq!(tokens.len(), 2);
-        assert!(tokens.iter().all(|t| t.year == 2027 && issuer.verify(t).is_ok()));
+        assert!(issued.iter().all(|t| t.year == 2027 && issuer.verify(t).is_ok()));
         let calls = fake.calls();
         let reads = calls.iter().filter(|c| c.url.ends_with("/v1/tokens/keys")).count();
         assert_eq!(reads, if with_key { 1 } else { 2 }, "the keys again only without the key");
@@ -364,14 +383,14 @@ fn a_key_that_changed_since_the_keys_were_read_is_blinded_for_again_before_anyth
             .collect();
         assert_eq!(issues.len(), 2);
         assert_ne!(issues[0].body, issues[1].body, "blinded anew for the new key");
-        assert!(store.issue_request("ck_1").unwrap().is_none());
+        assert!(tokens.state().unwrap().issues.is_empty());
     }
 }
 
 #[test]
 fn period_tokens_signed_by_another_key_than_the_one_asked_for_are_refused() {
     let dir = TempDir::new("azcloud-period");
-    let store = store_in(&dir);
+    let tokens = granted(&dir);
     // The answer names another key than the request did.
     let listed = keys();
     let fake = Fake::new(move |call, _| {
@@ -381,37 +400,57 @@ fn period_tokens_signed_by_another_key_than_the_one_asked_for_are_refused() {
         let answer = serde_json::json!({
             "tier": "100GB", "key_id": "100GB/2025", "public_key_pem": pem(N2),
             "blind_signatures": [blind_sign(N2, D2, &STANDARD.encode([1_u8; 256]))],
+            "schedule": {"months": 3, "issued": 1},
         });
         Ok(json(200, &answer.to_string()))
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        issue_tokens(&server, &store, &grant(1), "100GB", "d_1"),
+        issue_next(&server, &tokens, "ck_1", NOW),
         Err(TokenError::Protocol(_))
     ));
-    assert!(store.tokens("d_1").unwrap().is_empty());
+    assert!(tokens.state().unwrap().tokens.is_empty());
     // No key for the tier: nothing is issued.
+    let dir = TempDir::new("azcloud-period");
+    let tokens = store_in(&dir).on_this_device("d_2").unwrap();
+    tokens.keep_grant(VaultGrant::new("ck_1", "10TB", 3, ISSUE_KEY)).unwrap();
     let fake = issuing_server(keys(), N1, D1, "100GB/2026");
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        issue_tokens(&server, &store_in(&dir), &grant(1), "10TB", "d_2"),
+        issue_next(&server, &tokens, "ck_1", NOW),
         Err(TokenError::Protocol(_))
     ));
     assert_eq!(fake.calls().len(), 1, "only the keys were asked for");
-    // No months, more than one call takes: nothing is sent.
-    let dir = TempDir::new("azcloud-period");
-    for months in [0, 25] {
-        assert!(matches!(
-            issue_tokens(&server, &store_in(&dir), &grant(months), "100GB", "d_1"),
-            Err(TokenError::Config(_))
-        ));
-    }
-    assert_eq!(fake.calls().len(), 1);
 }
 
-fn stored(nonce: &str) -> PeriodToken {
+/// PT4: a payment taken back after the approval (a refund, a chargeback) ends the grant: said
+/// once, never asked again.
+#[test]
+fn a_refusal_that_can_never_pass_ends_the_grant() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let keys = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &keys));
+        }
+        Ok(json(409, r#"{"error": "not_paid", "message": "the checkout is not approved"}"#))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match issue_next(&server, &tokens, "ck_1", NOW).unwrap() {
+        Issued::Ended(why) => assert!(why.contains("taken back"), "{why}"),
+        other => panic!("not ended: {other:?}"),
+    }
+    assert!(tokens.state().unwrap().grant("ck_1").unwrap().ended.is_some());
+    let calls = fake.calls().len();
+    assert!(matches!(issue_next(&server, &tokens, "ck_1", NOW), Ok(Issued::Ended(_))));
+    assert_eq!(fake.calls().len(), calls, "never asked again");
+}
+
+pub(crate) fn stored(nonce: &str) -> PeriodToken {
     PeriodToken {
         tier: String::from("100GB"),
         year: 2026,
@@ -481,8 +520,8 @@ fn a_period_token_buys_its_drive_a_month_with_the_drive_token_and_only_once() {
 
 // ==== Redeeming: under the drive's lock, with its newest token ====
 
-const NOW: u64 = 1_791_450_000;
-const DAY: u64 = 86_400;
+pub(crate) const NOW: u64 = 1_791_450_000;
+pub(crate) const DAY: u64 = 86_400;
 
 /// A keyring with drive `d_1`'s session (its drive token `token`), and its locks.
 pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
@@ -508,7 +547,7 @@ pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring 
 /// A token server whose drive `d_1` (100 GB) is paid until `until` (seconds since 1970, moved
 /// on by 30 days with every redemption answered by `redeem(nonce)`), that checks every call
 /// carries `token` and comes while the drive's lock is held.
-fn redeeming_server(
+pub(crate) fn redeeming_server(
     locks: LockDir,
     token: &'static str,
     until: u64,
@@ -552,7 +591,7 @@ fn a_period_token_is_redeemed_under_the_drives_lock_with_its_newest_token_when_t
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     // Two days left: one token, a month more.
-    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+    match redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW) {
         Redeemed::Extended {
             count,
             period_until,
@@ -565,7 +604,7 @@ fn a_period_token_is_redeemed_under_the_drives_lock_with_its_newest_token_when_t
     let body: serde_json::Value = serde_json::from_slice(&calls[1].body).unwrap();
     assert_eq!(body["nonce"], "aa".repeat(32));
     // A month ahead: nothing to redeem yet; the token waits.
-    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+    match redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW) {
         Redeemed::NotDue { period_until } => assert_eq!(period_until, Some(NOW + 32 * DAY)),
         other => panic!("redeemed too early: {other:?}"),
     }
@@ -597,7 +636,7 @@ fn a_used_or_useless_period_token_is_dropped_and_the_next_one_redeemed() {
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+    match redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW) {
         Redeemed::Extended { count, .. } => assert_eq!(count, 1),
         other => panic!("not redeemed: {other:?}"),
     }
@@ -609,7 +648,7 @@ fn a_used_or_useless_period_token_is_dropped_and_the_next_one_redeemed() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        redeem_due(&server, &shared, &store, "d_1", NOW),
+        redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW),
         Redeemed::Kept(_)
     ));
     assert_eq!(store.tokens("d_1").unwrap(), vec![stored("dd")]);
@@ -624,13 +663,13 @@ fn a_drive_without_kept_tokens_or_a_session_asks_the_token_server_nothing() {
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let shared = keyring_with_session(&dir, "dt_f.0.first");
     assert!(matches!(
-        redeem_due(&server, &shared, &store, "d_1", NOW),
+        redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW),
         Redeemed::Nothing
     ));
     // Tokens, but this device has no session of the drive: kept, nothing sent.
     store.add("d_2", &[stored("aa")]).unwrap();
     assert!(matches!(
-        redeem_due(&server, &shared, &store, "d_2", NOW),
+        redeem_due(&server, &shared, &store.on_this_device("d_2").unwrap(), NOW),
         Redeemed::Kept(_)
     ));
     assert_eq!(store.tokens("d_2").unwrap().len(), 1);
@@ -674,18 +713,18 @@ fn a_look_names_the_members_this_device_had_not_seen_before() {
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
     assert!(look.new_members.is_empty(), "the first look learns them");
-    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
     assert_eq!(
         look.new_members,
         vec![String::from("m_laptop")],
         "this device itself is no news"
     );
-    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
     assert!(look.new_members.is_empty(), "seen");
     // Kept on disk: another store on the same folder (AzDrive started again) knows them.
-    let look = look_at_drive(&server, &shared, &store_in(&dir), "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store_in(&dir), &store.on_this_device("d_1").unwrap(), NOW);
     assert_eq!(look.new_members, vec![String::from(RECOVERY_MEMBER)]);
 }
 
@@ -707,7 +746,7 @@ fn a_look_at_a_drive_reads_its_status_even_without_kept_tokens_and_redeems_when_
     });
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
     assert_eq!(look.redeemed, Redeemed::Nothing);
     let status = look.status.expect("the drive's status");
     assert_eq!(status.lockdown_pending_until, Some(NOW + 2 * DAY));
@@ -717,7 +756,7 @@ fn a_look_at_a_drive_reads_its_status_even_without_kept_tokens_and_redeems_when_
     let fake = redeeming_server(shared.locks().clone(), "dt_f.3.newest", NOW + 2 * DAY, |_| None);
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
     assert!(
         matches!(look.redeemed, Redeemed::Extended { count: 1, .. }),
         "{:?}",
@@ -725,6 +764,86 @@ fn a_look_at_a_drive_reads_its_status_even_without_kept_tokens_and_redeems_when_
     );
     assert_eq!(look.status.unwrap().period_until, Some(NOW + 32 * DAY));
     // No session of the drive: no status, kept for the next look.
-    let look = look_at_drive(&server, &shared, &store, "d_2", NOW);
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_2").unwrap(), NOW);
     assert!(look.status.is_none() && matches!(look.redeemed, Redeemed::Kept(_)));
+}
+
+/// D3: a banned drive cannot use a month - its look buys none, and its tokens stay.
+#[test]
+fn a_banned_drive_buys_no_month() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    store.add("d_1", &[stored("aa")]).unwrap();
+    let fake = Fake::new(|call, _| {
+        assert_eq!(call.method, Method::Get, "nothing is redeemed: {}", call.url);
+        let answer = serde_json::json!({
+            "id": "d_1", "tier": "100GB", "period_until": rfc3339(NOW + DAY),
+            "status": "banned", "ban_reason": "spam distribution", "ban_until": rfc3339(NOW + 2 * DAY),
+        });
+        Ok(json(200, &answer.to_string()))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
+    assert_eq!(look.redeemed, Redeemed::Banned);
+    assert!(look.grant_changed.is_none());
+    assert_eq!(store.tokens("d_1").unwrap(), vec![stored("aa")], "the token stays");
+}
+
+/// PT3: a month bought says the drive's grant changed - what makes its read-only credentials
+/// refresh before the next write.
+#[test]
+fn a_month_bought_says_the_grant_changed() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    store.add("d_1", &[stored("aa")]).unwrap();
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.3.newest", NOW + 2 * DAY, |_| None);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, &store.on_this_device("d_1").unwrap(), NOW);
+    assert!(matches!(look.redeemed, Redeemed::Extended { count: 1, .. }), "{:?}", look.redeemed);
+    assert_eq!(look.grant_changed.as_ref().map(|g| g.drive_id()), Some("d_1"));
+}
+
+/// Decision 6: a drive that needs a month and holds no token gets its grant's next month issued
+/// in the same look, and redeemed.
+#[test]
+fn a_drive_that_needs_a_month_and_holds_none_gets_its_grants_next_month() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    let mut grant = VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY);
+    grant.issued = 1;
+    grant.next_issue_at = Some(NOW - 60);
+    tokens.keep_grant(grant).unwrap();
+    let keys = keys();
+    let issued = AtomicU64::new(1);
+    let until = AtomicU64::new(NOW + 2 * DAY);
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &keys));
+        }
+        if call.url.ends_with("/v1/tokens/issue") {
+            return Ok(signed(call, N1, D1, "100GB/2026", &issued));
+        }
+        if call.method == Method::Get {
+            let answer = serde_json::json!({
+                "id": "d_1", "tier": "100GB", "period_until": rfc3339(until.load(Ordering::SeqCst)),
+            });
+            return Ok(json(200, &answer.to_string()));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/redeem"));
+        let later = until.fetch_add(30 * DAY, Ordering::SeqCst) + 30 * DAY;
+        Ok(json(200, &serde_json::json!({"period_until": rfc3339(later)}).to_string()))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW);
+    assert!(matches!(look.redeemed, Redeemed::Extended { count: 1, .. }), "{:?}", look.redeemed);
+    let state = tokens.state().unwrap();
+    assert!(state.tokens.is_empty(), "issued and redeemed");
+    assert_eq!(state.grant("ck_1").unwrap().issued, 2);
 }

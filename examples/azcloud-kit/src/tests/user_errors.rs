@@ -494,3 +494,18 @@ fn a_refused_order_is_said_in_the_buyers_language_never_as_the_servers_sentence(
         assert_eq!(code.row().code, code, "{refusal:?}");
     }
 }
+
+/// A grant asked again whose first answer was used (`already_answered`): said in the user's
+/// language as what happened - the request went through before - never as the server's sentence.
+#[test]
+fn a_grant_answered_before_is_said_as_done_already() {
+    let refused = TokenError::Refused {
+        status: 409,
+        code: String::from(azlin_contract::ALREADY_ANSWERED),
+        message: String::from("this request was answered before and its grant is in use"),
+    };
+    let user = UserError::from_token_error(&refused).unwrap();
+    assert_eq!((user.code, user.class()), (Code::AlreadyAnswered, Class::Fatal));
+    assert!(user.message(Lang::En).contains("already"), "{}", user.message(Lang::En));
+    assert!(user.message(Lang::De).contains("bereits"), "{}", user.message(Lang::De));
+}

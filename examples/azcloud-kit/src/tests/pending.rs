@@ -13,7 +13,7 @@ use azul_storage::{
 
 use super::{
     bundle, json,
-    period::{issuing_server, keys, pem, D1, ISSUE_KEY, N1},
+    period::{issuing_server, keys, pem, D1, ISSUE_KEY, N1, NOW},
     Fake, Shared, TOKEN,
 };
 use crate::{
@@ -475,18 +475,18 @@ fn grant(months: u32) -> PeriodTokens {
 }
 
 #[test]
-fn a_claimed_checkout_keeps_its_issue_key_with_its_claim_secret_until_its_period_tokens_are_kept(
+fn a_claimed_checkout_keeps_its_issue_key_with_its_claim_secret_until_its_grant_is_kept_with_the_drive(
 ) {
-    // AZDRIVE-INTEGRATION §4: the claim secret stays until the drive is saved AND the period
-    // tokens are issued; the issue key is kept with it (the sealed sign-up is purged after 30
-    // days) and goes with every issue; then both are gone.
+    // AZDRIVE-INTEGRATION §4: the claim secret stays until the drive is saved AND its period
+    // grant is kept with the drive (where every device of it issues the months, one a month);
+    // the issue key is kept with it until then; then both leave the keyring.
     let dir = TempDir::new("azcloud-pending");
     let (shared, keyring) = shared(&dir);
     let claim = ClaimKey::generate().unwrap();
     pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
     pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
     let listed = pending::list(&shared).unwrap();
-    assert_eq!(listed.len(), 1, "a claimed checkout stays until its tokens are kept");
+    assert_eq!(listed.len(), 1, "a claimed checkout stays until its grant is kept");
     let ck = listed[0].clone();
     assert_eq!(ck.claim_secret, claim.to_base64(), "the claim secret stays");
     let owed = ck.period.clone().expect("what the issue needs");
@@ -500,23 +500,24 @@ fn a_claimed_checkout_keeps_its_issue_key_with_its_claim_secret_until_its_period
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
-    match pending::finish(&server, &shared, &store, &ck, &owed) {
-        Finished::Issued { drive_id, count } => assert_eq!((drive_id.as_str(), count), ("d_1", 3)),
+    let tokens = store.on_this_device("d_1").unwrap();
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Issued { drive_id, count } => assert_eq!((drive_id.as_str(), count), ("d_1", 1)),
         other => panic!("not issued: {other:?}"),
     }
-    let kept = store.tokens("d_1").unwrap();
-    assert_eq!(kept.len(), 3);
+    let state = tokens.state().unwrap();
+    assert_eq!(state.tokens.len(), 1, "the first month");
     let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
-    assert!(kept.iter().all(|token| issuer.verify(token).is_ok()));
-    // Off the list: no claim secret, no issue key is left in the keyring, and the issue request
-    // (kept for an identical resend) is gone too.
+    assert!(state.tokens.iter().all(|token| issuer.verify(token).is_ok()));
+    let kept = state.grant("ck_1").expect("the grant, with the drive");
+    assert_eq!((kept.months, kept.issued, kept.issue_key.as_str()), (3, 1, ISSUE_KEY));
+    // Off the list: no claim secret, no issue key is left in the keyring.
     assert!(pending::list(&shared).unwrap().is_empty());
     assert!(keyring.get(pending::PENDING_KEY).unwrap().is_none());
-    assert!(store.issue_request("ck_1").unwrap().is_none());
     // Another window finishing the same checkout afterwards issues nothing.
     let calls = fake.calls().len();
     assert!(matches!(
-        pending::finish(&server, &shared, &store, &ck, &owed),
+        pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW),
         Finished::Settled
     ));
     assert_eq!(fake.calls().len(), calls);
@@ -534,9 +535,11 @@ fn a_drive_without_period_tokens_takes_its_checkout_off_the_list_once_it_is_save
     assert!(keyring.get(pending::PENDING_KEY).unwrap().is_none());
 }
 
+/// PT4: a first month without an answer waits with the drive (the grant is kept there, the
+/// checkout leaves the list); a payment taken back after the approval, or a checkout from before
+/// period tokens, is said once with its words and never asked again.
 #[test]
-fn period_tokens_issued_before_or_refused_for_their_issue_key_drop_the_checkout_and_a_failed_issue_keeps_it(
-) {
+fn a_first_month_without_an_answer_waits_with_the_drive_and_a_reversed_payment_is_said_once() {
     let dir = TempDir::new("azcloud-pending");
     let (shared, _) = shared(&dir);
     let claim = ClaimKey::generate().unwrap();
@@ -545,13 +548,11 @@ fn period_tokens_issued_before_or_refused_for_their_issue_key_drop_the_checkout_
         if call.url.ends_with("/v1/tokens/keys") {
             return Ok(json(200, &keys));
         }
-        // The keys once (call 0); the request kept after the first try is sent again as it is.
         match n {
             1 => Err(String::from("connection refused")),
-            2 => Ok(json(503, r#"{"error": "busy", "message": "try later"}"#)),
-            3 => Ok(json(
+            _ if call.body.windows(4).any(|w| w == b"ck_2") => Ok(json(
                 409,
-                r#"{"error": "already_issued", "message": "3 of 3 tokens already issued"}"#,
+                r#"{"error": "not_paid", "message": "the checkout is not approved"}"#,
             )),
             _ => Ok(json(
                 403,
@@ -562,36 +563,41 @@ fn period_tokens_issued_before_or_refused_for_their_issue_key_drop_the_checkout_
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
-    pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
-    pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
-    let ck = pending::list(&shared).unwrap().remove(0);
-    let owed = ck.period.clone().unwrap();
-    // No answer, a busy server: kept, issue key and all, for the next try.
-    for _ in 0..2 {
-        assert!(matches!(
-            pending::finish(&server, &shared, &store, &ck, &owed),
-            Finished::Kept(_)
-        ));
-        let listed = pending::list(&shared).unwrap();
-        assert_eq!(listed[0].period.as_ref(), Some(&owed));
-        assert!(store.issue_request("ck_1").unwrap().is_some(), "for the identical resend");
+    let tokens = store.on_this_device("d_1").unwrap();
+    let claimed = |id: &str| {
+        pending::add(&shared, &checkout(id, &claim)).unwrap();
+        let mut grant = grant(3);
+        grant.checkout_id = id.to_string();
+        pending::claimed(&shared, id, "d_1", Some(&grant)).unwrap();
+        let ck = pending::list(&shared).unwrap().into_iter().find(|c| c.checkout_id == id).unwrap();
+        let owed = ck.period.clone().unwrap();
+        (ck, owed)
+    };
+    // No answer: the grant waits with the drive, its request kept for the identical resend.
+    let (ck, owed) = claimed("ck_1");
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Granted { drive_id, .. } => assert_eq!(drive_id, "d_1"),
+        other => panic!("not granted: {other:?}"),
     }
-    // Issued before (and its answer purged): nothing to wait for any more - said once.
-    match pending::finish(&server, &shared, &store, &ck, &owed) {
-        Finished::Dropped(why) => assert!(why.contains("issued"), "{why}"),
+    assert!(pending::list(&shared).unwrap().is_empty());
+    let state = tokens.state().unwrap();
+    assert!(state.grant("ck_1").is_some_and(|g| g.is_open()));
+    assert_eq!(state.open_issues("ck_1").len(), 1);
+    // A payment taken back: said once, in its words.
+    let (ck, owed) = claimed("ck_2");
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Dropped(why) => assert!(why.contains("taken back"), "{why}"),
         other => panic!("not dropped: {other:?}"),
     }
     assert!(pending::list(&shared).unwrap().is_empty());
-    assert!(store.issue_request("ck_1").unwrap().is_none());
+    assert!(tokens.state().unwrap().grant("ck_2").is_some_and(|g| !g.is_open()));
     // A checkout from before period tokens has no issue key the token server takes.
-    pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
-    pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();
-    match pending::finish(&server, &shared, &store, &ck, &owed) {
+    let (ck, owed) = claimed("ck_3");
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
         Finished::Dropped(why) => assert!(why.contains("support"), "{why}"),
         other => panic!("not dropped: {other:?}"),
     }
-    assert!(pending::list(&shared).unwrap().is_empty());
-    assert!(store.tokens("d_1").unwrap().is_empty());
+    assert!(tokens.state().unwrap().tokens.is_empty());
 }
 
 #[test]
