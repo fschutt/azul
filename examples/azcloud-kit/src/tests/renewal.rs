@@ -338,6 +338,7 @@ fn the_reminders_come_before_each_deadline_once_and_not_while_months_are_kept() 
         quota_bytes: None,
         used_bytes: None,
         ban: None,
+        read_only_why: None,
     };
     let kept = tokens.state().unwrap();
     let first = reminder_due(&status, &kept, NOW).expect("within 30 days of the end");
