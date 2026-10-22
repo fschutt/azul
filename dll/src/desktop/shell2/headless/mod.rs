@@ -6523,17 +6523,27 @@ mod tests {
         let damage = window.cpu_backend.last_frame_damage.clone();
         println!("[harness] sibling shift: damage={:?}", damage);
 
-        // HONEST: box2 moved from y≈58..108 to y≈108..158. The damage MUST reach
-        // box2's new bottom (~158) — otherwise box2 leaves a ghost at its old
-        // position / never paints at its new one. If damage stops at the grown
-        // box1 (~108), that's the bug.
-        let max_y = damage_max_y(&damage);
+        // HONEST: box2 moved from y≈58..108 to y≈108..158. What reaches the
+        // screen MUST reach box2's new bottom (~158) — otherwise box2 leaves a
+        // ghost at its old position / never shows at its new one. Its pixels
+        // may be MOVED there (the layout move is presented as a blit: the
+        // PRESENT damage covers it, the paint damage only the strips), so the
+        // frame itself must also equal a full repaint.
+        let present = window.cpu_backend.last_present_damage.clone();
+        let max_y = damage_max_y(&present);
         assert!(
             max_y >= 140.0,
-            "reflow-shift damage must reach the shifted sibling (bottom ~158), got max_y={} \
-             damage={:?} — box2 would ghost/not repaint",
+            "reflow-shift present damage must reach the shifted sibling (bottom ~158), got \
+             max_y={} present={:?} paint={:?} — box2 would ghost/not show",
             max_y,
+            present,
             damage
+        );
+        let (diffs, first) = incremental_vs_full(&mut window);
+        assert_eq!(
+            diffs, 0,
+            "the reflow frame differs from a full repaint in {diffs} px, first at {first:?} \
+             (paint {damage:?}, present {present:?})"
         );
     }
 
