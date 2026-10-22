@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    dir_read::{self, DirItem, ItemKind},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
     ops::check_folder,
@@ -40,6 +41,9 @@ pub struct LocalDrive {
 enum Entry {
     Folder(String),
     Object(ObjectInfo),
+    /// A file whose size and date the folder read did not carry: only the entries that make
+    /// it onto the page are stat'ed for them.
+    File(String),
 }
 
 impl Entry {
@@ -47,7 +51,21 @@ impl Entry {
         match self {
             Entry::Folder(prefix) => prefix,
             Entry::Object(info) => &info.key,
+            Entry::File(key) => key,
         }
+    }
+}
+
+/// The entry of a file the folder read named.
+fn file_entry(key: String, item: &DirItem) -> Entry {
+    match (item.size, item.modified) {
+        (Some(size), Some(modified)) => Entry::Object(ObjectInfo {
+            key,
+            size,
+            modified: Some(modified),
+            etag: None,
+        }),
+        _ => Entry::File(key),
     }
 }
 
@@ -272,6 +290,21 @@ impl LocalDrive {
         }
     }
 
+    /// The entries of `folder`'s directory a listing shows (no temporary files, not the
+    /// bookkeeping at the root), read in batches (`dir_read`: the names and kinds, and on macOS
+    /// the sizes and dates, without a stat per entry; a symbolic link is followed).
+    fn read_items(&self, folder: &str) -> Result<Vec<DirItem>, DriveError> {
+        let dir = self.dir_of(folder);
+        if !dir.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut items = dir_read::read_dir_all(&dir)?;
+        items.retain(|item| {
+            !is_temp_name(&item.name) && !(folder.is_empty() && item.name == MANIFEST_DIR)
+        });
+        Ok(items)
+    }
+
     /// The folders and files directly in `folder` whose keys start with `prefix`.
     fn read_level(
         &self,
@@ -279,63 +312,46 @@ impl LocalDrive {
         prefix: &str,
         out: &mut Vec<Entry>,
     ) -> Result<(), DriveError> {
-        let dir = self.dir_of(folder);
-        if !dir.is_dir() {
-            return Ok(());
-        }
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue; // not UTF-8: no key can name it
-            };
-            if is_temp_name(&name) || (folder.is_empty() && name == MANIFEST_DIR) {
-                continue;
-            }
-            let key = format!("{folder}{name}");
+        for item in self.read_items(folder)? {
+            let key = format!("{folder}{}", item.name);
             if !key.starts_with(prefix) {
                 continue;
             }
-            // Follows a symbolic link; a broken one is left out.
-            let Ok(meta) = fs::metadata(entry.path()) else {
-                continue;
-            };
-            if meta.is_dir() {
-                out.push(Entry::Folder(format!("{key}/")));
-            } else if meta.is_file() {
-                out.push(Entry::Object(object_info(key, &meta)));
+            match item.kind {
+                ItemKind::Folder => out.push(Entry::Folder(format!("{key}/"))),
+                ItemKind::File => out.push(file_entry(key, &item)),
             }
         }
         Ok(())
     }
 
     /// Every file under `folder`, at any depth (symbolic links to folders are not
-    /// followed).
-    fn walk(&self, folder: &str, out: &mut Vec<ObjectInfo>) -> Result<(), DriveError> {
-        let dir = self.dir_of(folder);
-        if !dir.is_dir() {
-            return Ok(());
-        }
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            if is_temp_name(&name) || (folder.is_empty() && name == MANIFEST_DIR) {
-                continue;
-            }
-            let key = format!("{folder}{name}");
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            if kind.is_dir() {
-                self.walk(&format!("{key}/"), out)?;
-            } else if let Ok(meta) = fs::metadata(entry.path()) {
-                if meta.is_file() {
-                    out.push(object_info(key, &meta));
-                }
+    /// followed: no loops), as [`Entry::Object`] or [`Entry::File`].
+    fn walk(&self, folder: &str, out: &mut Vec<Entry>) -> Result<(), DriveError> {
+        for item in self.read_items(folder)? {
+            let key = format!("{folder}{}", item.name);
+            match item.kind {
+                ItemKind::Folder if item.link => {}
+                ItemKind::Folder => self.walk(&format!("{key}/"), out)?,
+                ItemKind::File => out.push(file_entry(key, &item)),
             }
         }
         Ok(())
+    }
+
+    /// A page's file whose size and date the folder read did not carry: one stat. `None` when
+    /// it is gone since, or no file any more.
+    fn stat_file(&self, key: &str) -> Option<ObjectInfo> {
+        let path = self.path_of(key).ok()?;
+        match dir_read::stat_item(&path)? {
+            (ItemKind::File, size, modified) => Some(ObjectInfo {
+                key: key.to_string(),
+                size: size.unwrap_or(0),
+                modified,
+                etag: None,
+            }),
+            (ItemKind::Folder, ..) => None,
+        }
     }
 }
 
@@ -351,16 +367,16 @@ impl Drive for LocalDrive {
         match request.delimiter.as_deref() {
             Some("/") => self.read_level(folder, prefix, &mut entries)?,
             delimiter => {
-                let mut objects = Vec::new();
-                self.walk(folder, &mut objects)?;
-                for info in objects.into_iter().filter(|o| o.key.starts_with(prefix)) {
-                    let rest = &info.key[prefix.len()..];
+                let mut files = Vec::new();
+                self.walk(folder, &mut files)?;
+                for file in files.into_iter().filter(|o| o.key().starts_with(prefix)) {
+                    let rest = &file.key()[prefix.len()..];
                     match delimiter.filter(|d| !d.is_empty()).and_then(|d| {
                         rest.find(d)
                             .map(|i| format!("{prefix}{}", &rest[..i + d.len()]))
                     }) {
                         Some(common) => entries.push(Entry::Folder(common)),
-                        None => entries.push(Entry::Object(info)),
+                        None => entries.push(file),
                     }
                 }
             }
@@ -386,6 +402,9 @@ impl Drive for LocalDrive {
             match entry {
                 Entry::Folder(prefix) => page.folders.push(prefix),
                 Entry::Object(info) => page.objects.push(info),
+                // Stat'ed now that it is on the page: a listing in pages of a large folder
+                // stats each file once, not the whole folder for every page.
+                Entry::File(key) => page.objects.extend(self.stat_file(&key)),
             }
         }
         Ok(page)

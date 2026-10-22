@@ -49,6 +49,9 @@ pub mod base32;
 pub mod catalog;
 pub mod checked;
 pub mod config;
+/// One folder on disk read in batches: names, kinds and (where the platform has them with the
+/// names) sizes, dates and inodes, without a stat per entry.
+pub mod dir_read;
 pub mod ids;
 pub mod key;
 pub mod keyring;
