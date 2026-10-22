@@ -33,6 +33,7 @@ mod pending;
 mod period;
 mod recovery;
 mod recovery_keys;
+mod renewal;
 mod restore;
 mod secrets;
 mod session;
