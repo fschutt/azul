@@ -165,7 +165,22 @@ pub struct SplitPaneStateWrapper {
     pub ratio_at_drag_start: f32,
 }
 
-/// State of a [`SplitPane`]: the orientation and the first pane's size fraction.
+/// Which pane of a [`SplitPane`] keeps a size of its own while the container
+/// resizes (Explorer's navigation pane, a preview pane): the other one takes
+/// every change.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+#[repr(C)]
+pub enum SplitPaneFixed {
+    /// Neither: the panes share the container by `ratio`.
+    #[default]
+    None,
+    /// The first pane is `fixed_size` px along the split.
+    First,
+    /// The second pane is `fixed_size` px along the split.
+    Second,
+}
+
+/// State of a [`SplitPane`]: the orientation and how the two panes share it.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct SplitPaneState {
@@ -173,7 +188,13 @@ pub struct SplitPaneState {
     pub direction: SplitDirection,
     /// Fraction `[0, 1]` of the container's main-axis size taken by the FIRST
     /// pane. Clamped to `[MIN_RATIO, MAX_RATIO]` so a pane never fully collapses.
+    /// Not read while a pane is `fixed`.
     pub ratio: f32,
+    /// The pane that keeps its own size, if any.
+    pub fixed: SplitPaneFixed,
+    /// That pane's size along the split, in logical px (dragging the divider
+    /// changes it).
+    pub fixed_size: f32,
 }
 
 impl Default for SplitPaneState {
@@ -181,6 +202,8 @@ impl Default for SplitPaneState {
         Self {
             direction: SplitDirection::Horizontal,
             ratio: 0.5,
+            fixed: SplitPaneFixed::None,
+            fixed_size: 0.0,
         }
     }
 }
@@ -468,6 +491,8 @@ impl SplitPane {
                 inner: SplitPaneState {
                     direction,
                     ratio: 0.5,
+                    fixed: SplitPaneFixed::None,
+                    fixed_size: 0.0,
                 },
                 ..Default::default()
             },
@@ -506,6 +531,38 @@ impl SplitPane {
     #[must_use]
     pub const fn with_ratio(mut self, ratio: f32) -> Self {
         self.set_ratio(ratio);
+        self
+    }
+
+    /// The first pane keeps `px` along the split while the container
+    /// resizes; the second takes the rest.
+    #[inline]
+    pub const fn set_fixed_first(&mut self, px: f32) {
+        self.split_pane_state.inner.fixed = SplitPaneFixed::First;
+        self.split_pane_state.inner.fixed_size = px;
+    }
+
+    /// [`Self::set_fixed_first`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_fixed_first(mut self, px: f32) -> Self {
+        self.set_fixed_first(px);
+        self
+    }
+
+    /// The second pane keeps `px` along the split while the container
+    /// resizes; the first takes the rest.
+    #[inline]
+    pub const fn set_fixed_second(&mut self, px: f32) {
+        self.split_pane_state.inner.fixed = SplitPaneFixed::Second;
+        self.split_pane_state.inner.fixed_size = px;
+    }
+
+    /// [`Self::set_fixed_second`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_fixed_second(mut self, px: f32) -> Self {
+        self.set_fixed_second(px);
         self
     }
 

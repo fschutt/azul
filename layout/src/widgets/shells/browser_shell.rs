@@ -76,6 +76,12 @@ pub struct BrowserShell {
     pub content_ratio: f32,
     /// The details pane's share of the height (default 0.22).
     pub details_ratio: f32,
+    /// The tree's width in px, kept while the window resizes; `0.0` (the
+    /// default) = its share, `tree_ratio`.
+    pub tree_width: f32,
+    /// The preview pane's width in px, kept while the window resizes; `0.0`
+    /// (the default) = the content's share, `content_ratio`.
+    pub preview_width: f32,
     /// Whether the navigation tree is shown (default); hidden, the content
     /// takes its place and F6 skips it (Explorer's View > Navigation pane).
     pub tree_visible: bool,
@@ -95,8 +101,35 @@ impl BrowserShell {
             tree_ratio: 0.22,
             content_ratio: 0.7,
             details_ratio: 0.22,
+            tree_width: 0.0,
+            preview_width: 0.0,
             tree_visible: true,
         }
+    }
+
+    /// The tree keeps `px` while the window resizes (see [`Self::tree_width`]).
+    pub const fn set_tree_width(&mut self, px: f32) {
+        self.tree_width = px;
+    }
+
+    /// [`Self::set_tree_width`] for the builder chain.
+    #[must_use]
+    pub const fn with_tree_width(mut self, px: f32) -> Self {
+        self.set_tree_width(px);
+        self
+    }
+
+    /// The preview pane keeps `px` while the window resizes (see
+    /// [`Self::preview_width`]).
+    pub const fn set_preview_width(&mut self, px: f32) {
+        self.preview_width = px;
+    }
+
+    /// [`Self::set_preview_width`] for the builder chain.
+    #[must_use]
+    pub const fn with_preview_width(mut self, px: f32) -> Self {
+        self.set_preview_width(px);
+        self
     }
 
     /// The ribbon.
@@ -205,8 +238,11 @@ impl BrowserShell {
             tree_ratio,
             content_ratio,
             details_ratio,
+            tree_width,
+            preview_width,
             tree_visible,
         } = self;
+        let _ = (tree_width, preview_width);
         // The ribbon row: the ribbon (if any) over the address bar.
         let address_row = Dom::create_div()
             .with_ids_and_classes(id_and_class(

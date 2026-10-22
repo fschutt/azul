@@ -200,6 +200,11 @@ pub struct ShellPane {
     /// A fixed width in px makes the pane a RAIL that stands outside the
     /// splits (a tool palette, an activity bar); `0.0` = a flexible pane.
     pub width: f32,
+    /// A size in px the pane keeps while the window resizes, still on its
+    /// splitter (dragging the divider changes it): the navigation pane of a
+    /// file browser. `0.0` = it shares by `ratio`. Read for the first pane of
+    /// a splitter and for the last pane of the row.
+    pub size: f32,
     /// The element the pane is built as.
     pub kind: ShellPaneKind,
     /// A hidden pane is left out of the tree and of the F6 cycle (a view
@@ -232,6 +237,7 @@ impl ShellPane {
             id,
             ratio: 0.0,
             width: 0.0,
+            size: 0.0,
             kind: ShellPaneKind::Region,
             visible: true,
         }
@@ -276,6 +282,18 @@ impl ShellPane {
     /// A fixed width: the pane becomes a rail (see [`Self::width`]).
     pub const fn set_width(&mut self, width: f32) {
         self.width = width;
+    }
+
+    /// The size the pane keeps on its splitter (see [`Self::size`]).
+    pub const fn set_size(&mut self, size: f32) {
+        self.size = size;
+    }
+
+    /// [`Self::set_size`] for the builder chain.
+    #[must_use]
+    pub const fn with_size(mut self, size: f32) -> Self {
+        self.set_size(size);
+        self
     }
 
     /// [`Self::set_width`] for the builder chain.

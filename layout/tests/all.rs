@@ -1277,3 +1277,5 @@ mod an_incremental_cpu_frame_matches_a_full_redraw;
 mod a_card_leaving_a_transformed_column_starts_where_it_was_painted;
 #[path = "a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is.rs"]
 mod a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is;
+#[path = "a_fixed_size_pane_keeps_its_width_through_a_resize.rs"]
+mod a_fixed_size_pane_keeps_its_width_through_a_resize;
