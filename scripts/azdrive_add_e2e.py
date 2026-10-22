@@ -1911,7 +1911,7 @@ def run(args, logs):
             raise Failure("the error ID %r is none of the node's request IDs %r"
                           % (problem.split()[-1], sorted(refusals)))
         app.until("the table's text with the error ID", lambda: app.shows(
-            "Your last payment didn't go through") and app.shows(
+            "Your paid period has ended") and app.shows(
             "Error ID: %s" % refused.get("request_id")))
         # The notification: AzDrive says on stdout that it posted it (once).
         app.until("the notification", lambda: app.printed(

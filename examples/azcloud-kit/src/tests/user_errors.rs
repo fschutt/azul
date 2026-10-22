@@ -231,10 +231,11 @@ fn the_message_is_in_the_users_language_and_names_the_error_id() {
         .unwrap();
     assert_eq!(unpaid.request_id.as_deref(), Some("n2-81723"));
     let en = unpaid.message(Lang::En);
-    assert!(en.starts_with("Your last payment didn't go through."), "{en}");
+    // A prepaid period that ran out had no payment to go wrong (R1).
+    assert!(en.starts_with("Your paid period has ended."), "{en}");
     assert!(en.ends_with("Error ID: n2-81723"), "{en}");
     let de = unpaid.message(Lang::De);
-    assert!(de.starts_with("Deine letzte Zahlung"), "{de}");
+    assert!(de.starts_with("Dein bezahlter Zeitraum ist abgelaufen."), "{de}");
     assert!(de.ends_with("Fehler-ID: n2-81723"), "{de}");
     // No request ID (no answer at all): no error ID.
     let offline = UserError::from_drive_error(&DriveError::Transport(String::from("refused")))
@@ -323,8 +324,8 @@ fn the_table_is_a_fluent_resource_in_english_and_german() {
         let id = format!("azlin-error-{} = ", row.code.as_str().replace('_', "-"));
         assert!(en.contains(&id) && de.contains(&id), "{id}");
     }
-    assert!(en.contains("azlin-error-read-only-unpaid = Your last payment didn't go through."));
-    assert!(de.contains("azlin-error-read-only-unpaid = Deine letzte Zahlung"));
+    assert!(en.contains("azlin-error-read-only-unpaid = Your paid period has ended."));
+    assert!(de.contains("azlin-error-read-only-unpaid = Dein bezahlter Zeitraum ist abgelaufen."));
     assert!(en.contains("{ $detail }"), "the placeholders as Fluent variables");
     assert_eq!(en.lines().filter(|l| l.starts_with("azlin-error-")).count(), ROWS.len());
 }
