@@ -1269,3 +1269,5 @@ mod a_change_inside_a_transformed_box_is_damaged_where_it_is_painted;
 mod a_box_that_pushes_a_list_down_sends_assistive_technology_one_node;
 #[path = "a_background_colour_fade_is_a_property_not_a_display_list.rs"]
 mod a_background_colour_fade_is_a_property_not_a_display_list;
+#[path = "an_incremental_cpu_frame_matches_a_full_redraw.rs"]
+mod an_incremental_cpu_frame_matches_a_full_redraw;
