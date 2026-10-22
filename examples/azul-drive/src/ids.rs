@@ -452,6 +452,11 @@ pub const fn layout_class(layout: ViewLayout) -> AzString {
 pub const KIT_PRINT: AzString = AzString::from_const_str("__azdrive_kit_print");
 pub const KIT_SAVE: AzString = AzString::from_const_str("__azdrive_kit_save");
 pub const KIT_USB: AzString = AzString::from_const_str("__azdrive_kit_usb");
+/// "Add a device": the join code's text and its Save button.
+pub const INVITE_CODE: AzString = AzString::from_const_str("__azdrive_invite_code");
+pub const INVITE_SAVE: AzString = AzString::from_const_str("__azdrive_invite_save");
+/// The line in place of the kit while the token server does not have the code yet.
+pub const KIT_NOT_ACTIVE: AzString = AzString::from_const_str("__azdrive_kit_not_active");
 /// The recovery sheet's boxes of the groups typed back: `__azdrive_sheet_group_<n>` (0-based,
 /// in the order asked).
 #[must_use]

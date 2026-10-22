@@ -1750,6 +1750,24 @@ fn pick_up(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     if d.busy() {
         return;
     }
+    // a join code from another device of the drive goes in the same field
+    if let Ok(code) = azcloud_kit::JoinCode::decode(&d.claim_code) {
+        d.step = BuyStep::Creating;
+        d.notice = t("azdrive-add-joining");
+        let serial = d.serial;
+        spawn(
+            info,
+            app,
+            s,
+            Job::Join {
+                serial,
+                code,
+                token_url,
+                keyring,
+            },
+        );
+        return;
+    }
     match crate::cash::picked_up(&d.claim_code, &token_url, &d.buy_name) {
         Err(why) => d.notice = why,
         Ok(checkout) => {
@@ -1799,6 +1817,54 @@ pub(crate) fn picked_up_answered(
     println!("AZDRIVE_PICKED_UP {}", checkout.checkout_id);
     crate::cash::upsert(s, checkout);
     start_claims(info, app, s);
+}
+
+/// A join code's drive is on this device (or why not): it joins the source list and opens; an
+/// encrypted drive takes its key from the code's seal.
+pub(crate) fn joined(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    code: &azcloud_kit::JoinCode,
+    result: Result<azcloud_kit::Joined, String>,
+) {
+    let joined = match result {
+        Ok(joined) => joined,
+        Err(why) => {
+            if let Some(d) = dialog_of(s, serial) {
+                d.step = BuyStep::Idle;
+                d.notice = t_args(
+                    "azdrive-add-not-joined",
+                    &[("why", Arg::from(l10n::t_label(&why)))],
+                );
+            }
+            return;
+        }
+    };
+    let drive_id = joined.drive_id().to_string();
+    println!("AZDRIVE_JOINED {drive_id}");
+    let token_url = s.token.url.clone().unwrap_or_else(|| code.token_url.clone());
+    let name = dialog_of(s, serial)
+        .map(|d| d.buy_name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| code.name.clone());
+    let entry = joined.bundle.entry_named(&name, &token_url);
+    let saved = save_entry(s.drives_file.as_deref(), &entry);
+    let from_dialog = dialog_of(s, serial).is_some();
+    let in_keyring = joined.saved.is_ok();
+    let secret = joined.session.to_keyring_secret();
+    add_slot(info, app, s, entry, Some(secret), from_dialog, in_keyring);
+    if let Err(problem) = saved {
+        s.error(Phrase::new("azdrive-add-unsaved").arg("problem", problem));
+    }
+    // the drive key rides in the code, sealed: this device enrols itself with it
+    #[cfg(feature = "encryption")]
+    {
+        if let Some(seal) = code.key_seal.clone() {
+            crate::encryption::adopt_join_key(info, app, s, &drive_id, seal);
+        }
+    }
 }
 
 /// The background claims ended.

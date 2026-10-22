@@ -1128,6 +1128,9 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
             Ok(keys) => {
                 println!("AZDRIVE_RECOVERY_KEYS {drive_id} {}", keys.len());
                 let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
+                // a code whose registration was never recorded: the list says
+                let listed: Vec<String> = keys.iter().map(|k| k.recovery_pubkey.clone()).collect();
+                state.keys_listed(&listed);
                 state.server_keys = keys
                     .into_iter()
                     .map(|key| ServerKey {

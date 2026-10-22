@@ -124,6 +124,80 @@ pub struct RecoveryState {
     pub keys_checked: Option<u64>,
     /// The further recovery codes (second kits) this computer added: their keys and wraps.
     pub extra_codes: Vec<ExtraCode>,
+    /// Whether the token server knows the code: until it does, the code locks nothing down
+    /// and finds nothing, so the health is red and no emergency kit is offered.
+    pub registration: Registration,
+}
+
+/// Whether a drive's recovery code is registered at its token server.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "state")]
+pub enum Registration {
+    /// Not known: a code from before AzDrive kept this; the token server's list of the drive's
+    /// keys tells ([`RecoveryState::keys_listed`]).
+    #[default]
+    Unknown,
+    /// Asked for and not answered yet: the request, signed while the code was shown, sent
+    /// again at every start and with the daily look.
+    Pending(PendingRegistration),
+    /// The token server has it (or the drive has no token server: the bucket's wrap is all).
+    Registered,
+    /// The token server does not have it and never will from this request: a new code is
+    /// needed.
+    Missing,
+}
+
+/// A recovery code's registration, made while the code was at hand: its public key, the
+/// replacement's signature by the code before (none for a drive's first code) and the findable
+/// key with its signature by the code's drive key. No secret: each signature allows only this
+/// change, and only with a drive token.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PendingRegistration {
+    pub public_key: String,
+    pub replace: Option<Signed>,
+    pub findable: Option<FindableSigned>,
+    /// The key is set already: only the findable one is left.
+    pub key_set: bool,
+}
+
+/// A request's nonce and its signature.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Signed {
+    pub nonce: String,
+    pub signature: String,
+}
+
+/// The findable key and its signed request.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FindableSigned {
+    pub public: String,
+    pub signed: Signed,
+}
+
+/// What the token server answered a registration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistrationAnswer {
+    /// Everything it asked for is there (`findable`: the findable key's public half).
+    Done { findable: Option<String> },
+    /// The key is set, the findable key not (`last`: it never will be with this request).
+    KeySetOnly { last: bool },
+    /// Nothing changed (`last`: the request is refused for good).
+    NotSet { last: bool },
+}
+
+/// The registrations to send again (a start, the daily look): each drive's that is pending.
+#[must_use]
+pub fn registrations_to_retry(states: &[RecoveryState]) -> Vec<(String, PendingRegistration)> {
+    states
+        .iter()
+        .filter_map(|state| match &state.registration {
+            Registration::Pending(pending) => Some((state.drive_id.clone(), pending.clone())),
+            _ => None,
+        })
+        .collect()
 }
 
 /// One of a drive's recovery keys at the token server (public halves only).
@@ -204,6 +278,68 @@ impl RecoveryState {
         // new code's (set by whoever registers it)
         self.extra_codes.clear();
         self.findable_key = None;
+        self.registration = Registration::Unknown;
+    }
+
+    /// The new code's registration is sent: pending until the token server has it.
+    pub fn registration_started(&mut self, pending: PendingRegistration) {
+        self.registration = Registration::Pending(pending);
+    }
+
+    /// The drive has no token server: the code is all there is, nothing to register.
+    pub fn nothing_to_register(&mut self) {
+        self.registration = Registration::Registered;
+    }
+
+    /// The token server's answer to the registration of the code whose key is `public_key`
+    /// (an answer for an older code changes nothing).
+    pub fn registration_answered(&mut self, public_key: &str, answer: RegistrationAnswer) {
+        let Registration::Pending(pending) = &mut self.registration else {
+            return;
+        };
+        if pending.public_key != public_key {
+            return;
+        }
+        match answer {
+            RegistrationAnswer::Done { findable } => {
+                if findable.is_some() {
+                    self.findable_key = findable;
+                }
+                self.registration = Registration::Registered;
+            }
+            // the key locks the drive down already; the health page says the kit cannot find it
+            RegistrationAnswer::KeySetOnly { last: true } => {
+                self.registration = Registration::Registered;
+            }
+            RegistrationAnswer::KeySetOnly { last: false } => pending.key_set = true,
+            RegistrationAnswer::NotSet { last: true } => self.registration = Registration::Missing,
+            RegistrationAnswer::NotSet { last: false } => {}
+        }
+    }
+
+    /// The token server listed the drive's recovery keys (their public halves): a code whose
+    /// registration was never recorded is registered when its key is among them, else missing.
+    pub fn keys_listed(&mut self, public_keys: &[String]) {
+        if self.registration != Registration::Unknown {
+            return;
+        }
+        let Some(key) = self.recovery_key.as_deref() else {
+            return;
+        };
+        self.registration = if public_keys.iter().any(|listed| listed == key) {
+            Registration::Registered
+        } else {
+            Registration::Missing
+        };
+    }
+
+    /// Whether the token server is known to lack the code (pending or missing).
+    #[must_use]
+    pub fn code_unregistered(&self) -> bool {
+        matches!(
+            self.registration,
+            Registration::Pending(_) | Registration::Missing
+        )
     }
 
     /// The setup's check passed: the code was typed back right `now`.
@@ -280,7 +416,7 @@ impl RecoveryState {
     #[must_use]
     pub fn methods(&self) -> Vec<Method> {
         let mut methods = Vec::new();
-        if self.code_checked.is_some() {
+        if self.code_checked.is_some() && !self.code_unregistered() {
             methods.push(Method::Code);
         }
         if self.shares_handed(None) >= SHARES_NEEDED {
@@ -296,7 +432,7 @@ impl RecoveryState {
     #[must_use]
     pub fn health(&self, now: u64) -> Health {
         let methods = self.methods();
-        if methods.is_empty() {
+        if methods.is_empty() || self.code_unregistered() {
             return Health::Red;
         }
         let fresh = self
@@ -449,6 +585,9 @@ pub fn health_line(states: &[RecoveryState], drive_id: &str, now: u64) -> Option
         Health::Green => None,
         Health::Yellow if methods < 2 => Some("azdrive-health-add-method"),
         Health::Yellow => Some("azdrive-health-check-code"),
+        Health::Red if matches!(state.registration, Registration::Pending(_)) => {
+            Some("azdrive-health-not-registered")
+        }
         Health::Red => Some("azdrive-health-new-code"),
     };
     Some(match advice {

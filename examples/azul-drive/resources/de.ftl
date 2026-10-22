@@ -979,7 +979,7 @@ azdrive-keyring-unavailable = Auf diesem System ist kein Schlüsselbund verfügb
 azdrive-keyring-failed = Der Schlüsselbund hat einen Fehler gemeldet.
 azdrive-keyring-unreadable = Die Schlüssel von „{ $name }“ können nicht gelesen werden: { $detail }.
 azdrive-keyring-cannot-open = „{ $name }“ kann nicht geöffnet werden:
-azdrive-keyring-token-gone = Sein Laufwerkstoken ist weg; entferne das Laufwerk und füge es erneut hinzu.
+azdrive-keyring-token-gone = Sein Laufwerkstoken ist weg: Auf einem Gerät mit dem Laufwerk erstellt Optionen > Laufwerke > Ein anderes Gerät > Hinzufügen… einen Beitrittscode; füge ihn hier unter Laufwerk hinzufügen > Bezahltes Laufwerk abholen ein. Oder entferne das Laufwerk und füge es erneut hinzu.
 azdrive-keyring-enter-keys = Gib seine Schlüssel erneut ein.
 azdrive-keyring-saved = „{ $name }“ ist gespeichert; seine Schlüssel liegen im Schlüsselbund des Systems.
 azdrive-keyring-not-saved = Die Schlüssel von „{ $name }“ konnten nicht gespeichert werden:
@@ -1065,6 +1065,18 @@ azdrive-health-line = { $health ->
 azdrive-health-add-method = füge eine zweite Methode hinzu
 azdrive-health-check-code = prüfe den Code (Optionen > Laufwerke > Testen)
 azdrive-health-new-code = erstelle einen neuen Wiederherstellungscode
+azdrive-health-not-registered = der Tokenserver hat den Wiederherstellungscode noch nicht: AzDrive sendet ihn bei jedem Start erneut
+azdrive-kit-not-active-yet = Das Notfall-Kit kommt, sobald der Tokenserver diesen Code hat (AzDrive registriert ihn und versucht es bei jedem Start erneut): Bis dahin kann der Code das Laufwerk weder sperren noch finden.
+azdrive-enc-key-refused = Der Tokenserver hat den Wiederherstellungscode von „{ $name }“ abgelehnt ({ $why }): Erstelle einen neuen Code (das Menü des Laufwerks: Ich wurde gehackt: neue Schlüssel) und drucke sein Kit.
+azdrive-invite-title = Ein Gerät hinzufügen
+azdrive-invite-making = Ein Beitrittscode wird erstellt…
+azdrive-invite-what = Auf dem anderen Gerät: AzDrive, Laufwerk hinzufügen, Bezahltes Laufwerk abholen, dann diesen Beitrittscode für „{ $name }“ einfügen (oder den QR-Code scannen oder die Datei öffnen). Er enthält den Schlüssel des Laufwerks und funktioniert einmal: Gib ihn nur an dein eigenes Gerät weiter, nie per E-Mail.
+azdrive-invite-save = In eine Datei speichern…
+azdrive-invite-file-name = AzDrive Beitrittscode.txt
+azdrive-invite-not-made = Es wurde kein Beitrittscode erstellt: { $why }
+azdrive-invite-seal-damaged = Das Schlüsselsiegel des Beitrittscodes ist beschädigt: Bitte um einen neuen Code.
+azdrive-add-joining = Dem Laufwerk wird beigetreten…
+azdrive-add-not-joined = Dem Laufwerk wurde nicht beigetreten: { $why }
 azdrive-method-code-checked = Geprüft am { $on }
 azdrive-method-code-no-checks = keine weiteren Prüfungen
 azdrive-method-code-next = nächste Prüfung am { $on }
@@ -1126,7 +1138,7 @@ azdrive-method-count-again = Erneut zählen
 azdrive-recovery-none = Noch kein verschlüsseltes Laufwerk: Das Menü eines Azlin-Laufwerks in der Navigationsleiste bietet „Dieses Laufwerk verschlüsseln“.
 azdrive-recovery-section = Wiederherstellung
 azdrive-recovery-held-section = Anteile, die du für andere aufbewahrst
-azdrive-method-device-how = Ein Telefon oder ein zweiter Computer mit dem Schlüssel des Laufwerks ist ein Weg zurück, wenn dieser verloren ist: Verbinde es mit einem Beitrittscode von diesem Computer (azcloud invite), gib den Code per Datei oder QR-Code weiter und tippe dann hier auf „Erneut zählen“. Am besten zählt ein Gerät anderer Art – ein Telefon neben einem Computer –, da beide zusammen verloren gehen können.
+
 azdrive-devices-not-counted = Die anderen Geräte wurden nicht gezählt: { $why }
 
 ## Trusted contacts
@@ -1289,7 +1301,7 @@ azdrive-enc-reencrypt-damaged = { $count ->
        *[other] { $count } beschädigte Dateien blieben,
     } wie sie waren.
 azdrive-enc-reencrypt-stopped = Das Neuverschlüsseln von „{ $name }“ wurde angehalten: { $why }. Es macht beim nächsten Mal dort weiter, wo es aufgehört hat.
-azdrive-enc-key-not-registered = Der Wiederherstellungscode von „{ $name }“ konnte nicht für eine Sperrung registriert werden ({ $why }): Er entsperrt die Dateien des Laufwerks weiterhin.
+azdrive-enc-key-not-registered = Der Wiederherstellungscode von „{ $name }“ ist noch nicht registriert ({ $why }): AzDrive sendet ihn beim nächsten Start und jeden Tag erneut. Bis dahin entsperrt er die Dateien des Laufwerks, kann es aber nicht sperren, und der Zustand des Laufwerks ist rot.
 azdrive-enc-locked-title = „{ $name }“ ist gesperrt
 azdrive-enc-locked = Die Sperrung mit dem Wiederherstellungscode ist{ $until ->
         [none] { "" }
@@ -1434,7 +1446,7 @@ azdrive-cash-orders = Barzahlungen
 ## Add a drive
 
 azdrive-add-drive-paid-cash-by = Ein per Post bar bezahltes Laufwerk wird mit dem Abholcode auf der Kopie des Käufers abgeholt: Tippe ihn so ein, wie die Kopie ihn druckt, oder füge den Text ihres QR-Codes ein.
-azdrive-add-claim-code = Der Abholcode
+azdrive-add-claim-code = Der Abholcode oder ein Beitrittscode von einem anderen Gerät
 azdrive-add-claim-own-key = Jeder Computer, der das Laufwerk mit dem Code abholt, bekommt einen eigenen Schlüssel (höchstens drei, innerhalb von 30 Tagen nach der ersten Abholung); der Computer, der es gekauft hat, behält seinen.
 azdrive-add-storage-azdrive-azmail-every = Speicher für AzDrive, AzMail und jede Azlin-App, monatlich oder jährlich bezahlt. Der erste Monat ist kostenlos.
 azdrive-add-every-file-compressed-encrypted = Jede Datei wird auf diesem Computer komprimiert und verschlüsselt, bevor sie ihn verlässt, und eine Stufe zählt die gespeicherten Bytes: Mit 1,6-facher Komprimierung passen in 100 GB etwa 160 GB deiner Dateien.
@@ -1460,7 +1472,7 @@ azdrive-add-connect = { $name } verbinden
 azdrive-add-buy-detail = Azlin-Cloudspeicher ab 100 GB – der erste Monat ist kostenlos
 azdrive-add-connect-title = Datenquelle verbinden
 azdrive-add-connect-detail = S3, WebDAV, FTP, Google Drive, Dropbox, GitHub, Datenbanken …
-azdrive-add-claim-button = Ein bezahltes Laufwerk mit einem Abholcode abholen
+azdrive-add-claim-button = Ein bezahltes Laufwerk mit einem Abholcode abholen oder mit einem Beitrittscode beitreten
 azdrive-add-pick-up = Abholen
 azdrive-add-azlin-storage = Azlin-Cloudspeicher
 azdrive-add-tiers-failed = Die Speicherstufen konnten nicht geladen werden: { $why }

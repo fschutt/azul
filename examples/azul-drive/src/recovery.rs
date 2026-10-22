@@ -45,13 +45,13 @@ use azul_storage::{
 // pages too); `Paper` and `forget_print_copies` keep their old paths for the recovery's callers.
 pub(crate) use crate::paper::{forget_print_copies, Paper};
 use crate::{
-    encryption::{Dialog, EncryptionJob},
+    encryption::{Dialog, EncryptionJob, Sheet},
     ids,
     jobs::Job,
     paper::{paper_pdf, print_copy, write_private},
     recovery_health::{
         health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
-        RecoveryState,
+        RecoveryState, Registration,
     },
     save_settings, spawn,
     ui_dialogs::line,
@@ -174,6 +174,32 @@ impl Kit {
     }
 }
 
+/// A recovery code its drive's token server knows (or of a drive without one): the only code
+/// the recovery sheet makes an emergency kit of - a kit whose code locks nothing down and finds
+/// nothing would be a false way back in.
+pub(crate) struct RegisteredCode<'a> {
+    drive_id: &'a str,
+    code: &'a str,
+}
+
+impl<'a> RegisteredCode<'a> {
+    /// The sheet's code when `state` (the drive's recovery) says it is registered; a further
+    /// code's sheet is (its key is registered before the sheet shows).
+    pub(crate) fn of(state: Option<&RecoveryState>, sheet: &'a Sheet) -> Option<RegisteredCode<'a>> {
+        let registered = sheet.extra
+            || state.is_some_and(|state| state.registration == Registration::Registered);
+        registered.then_some(RegisteredCode {
+            drive_id: sheet.drive_id.as_str(),
+            code: sheet.code.as_str(),
+        })
+    }
+
+    /// Its emergency kit.
+    pub(crate) fn kit(&self, s: &DriveState) -> Kit {
+        kit_of(s, self.drive_id, self.code)
+    }
+}
+
 /// The kit of `code` for the drive `drive_id` (AzDrive's id of it): its name from the drives
 /// list, its ids and bucket kept off the paper.
 pub(crate) fn kit_of(s: &DriveState, drive_id: &str, code: &str) -> Kit {
@@ -235,7 +261,8 @@ fn paper_ref(data: &mut RefAny) -> Option<(RefAny, Which)> {
 fn shown_paper(s: &DriveState, which: Which) -> Option<Paper> {
     match (s.popup.as_ref()?, which) {
         (Popup::Encryption(Dialog::Sheet(sheet)), Which::Shown) => {
-            Some(kit_of(s, &sheet.drive_id, &sheet.code).paper())
+            let state = state_of(&s.settings.recovery.drives, &sheet.drive_id);
+            Some(RegisteredCode::of(state, sheet)?.kit(s).paper())
         }
         (Popup::Encryption(Dialog::Contacts(page)), which) => {
             crate::recovery_contacts::paper_of(s, page, which)
@@ -857,13 +884,7 @@ extern "C" fn on_method(mut data: RefAny, mut info: CallbackInfo) -> Update {
             crate::encryption::count_devices(info, app, s, &drive_id);
         }
         (Method::OtherDevice, MethodAction::Add) => {
-            if s.popup.is_none() {
-                s.popups_opened += 1;
-                s.popup = Some(Popup::Encryption(Dialog::Message {
-                    title: t("azdrive-method-device"),
-                    text: t("azdrive-method-device-how"),
-                }));
-            }
+            crate::encryption::invite_device(info, app, s, &drive_id);
         }
         _ => {}
     })

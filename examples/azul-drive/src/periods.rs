@@ -205,6 +205,12 @@ pub(crate) fn start_redemptions(
     }
     if only.is_none() {
         s.redemptions.running = true;
+        // the daily look sends a recovery code's registration the token server did not take
+        #[cfg(feature = "encryption")]
+        {
+            let due: Vec<String> = drives.iter().map(|(id, _)| id.clone()).collect();
+            crate::encryption::retry_registrations(info, app, s, Some(&due));
+        }
     }
     let open = azlin_drives(s);
     let drives = drives

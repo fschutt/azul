@@ -2453,7 +2453,8 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                     }
                     s.tree.pending.retain(|node| node.0 != drive_id);
                     if s.slots[index].entry.azlin().is_some() {
-                        // A drive token cannot be typed in: the drive is bought (or joined) again.
+                        // A drive token cannot be typed in: a join code from another device of
+                        // the drive brings it back (Add a drive), else it is added again.
                         s.error(keyring_text(
                             Phrase::new("azdrive-keyring-cannot-open").arg("name", name.as_str()),
                             other,
@@ -3134,6 +3135,11 @@ pub(crate) extern "C" fn on_job_done(
             checkout,
             result,
         } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
+        Outcome::Joined {
+            serial,
+            code,
+            result,
+        } => add_flow::joined(&mut info, &handle, s, serial, &code, result),
     }
     let popups = s.popups_opened;
     #[cfg(feature = "encryption")]
@@ -3412,6 +3418,10 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         // then once a day while AzDrive runs.
         periods::start_redemptions(info, app, s, None);
         periods::start_timer(info, app, s);
+        // A recovery code the token server did not take yet is sent again (and a code from
+        // before the registration was kept is looked up in the server's list).
+        #[cfg(feature = "encryption")]
+        encryption::retry_registrations(info, app, s, None);
         // Encrypted drives get smaller while the computer is idle on mains power.
         #[cfg(feature = "encryption")]
         encryption::start_recompression(info, app);

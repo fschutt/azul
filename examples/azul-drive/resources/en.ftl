@@ -981,7 +981,7 @@ azdrive-keyring-unavailable = No keyring is available on this system.
 azdrive-keyring-failed = The keyring reported an error.
 azdrive-keyring-unreadable = The keys of "{ $name }" cannot be read: { $detail }.
 azdrive-keyring-cannot-open = "{ $name }" cannot be opened:
-azdrive-keyring-token-gone = Its drive token is gone; remove the drive and add it again.
+azdrive-keyring-token-gone = Its drive token is gone: on a device that has the drive, Options > Drives > Another device > Add… makes a join code; paste it here under Add a drive > Pick up a paid drive. Or remove the drive and add it again.
 azdrive-keyring-enter-keys = Enter its keys again.
 azdrive-keyring-saved = "{ $name }" is saved; its keys are in the system keyring.
 azdrive-keyring-not-saved = The keys of "{ $name }" could not be saved:
@@ -1067,6 +1067,18 @@ azdrive-health-line = { $health ->
 azdrive-health-add-method = add a second method
 azdrive-health-check-code = check the code (Options > Drives > Test)
 azdrive-health-new-code = make a new recovery code
+azdrive-health-not-registered = the token server does not have the recovery code yet: AzDrive sends it again at every start
+azdrive-kit-not-active-yet = The emergency kit comes once the token server has this code (AzDrive is registering it, and tries again at every start): until then the code cannot lock the drive down or find it.
+azdrive-enc-key-refused = The token server refused the recovery code of "{ $name }" ({ $why }): make a new code (the drive's menu: I was hacked: new keys) and print its kit.
+azdrive-invite-title = Add a device
+azdrive-invite-making = Making a join code…
+azdrive-invite-what = On the other device: AzDrive, Add a drive, Pick up a paid drive, then paste this join code for "{ $name }" (or scan the QR code, or open the file). It holds the drive's key and works once: pass it only to your own device, never by e-mail.
+azdrive-invite-save = Save to a file…
+azdrive-invite-file-name = AzDrive join code.txt
+azdrive-invite-not-made = No join code was made: { $why }
+azdrive-invite-seal-damaged = The join code's key seal is damaged: ask for a new code.
+azdrive-add-joining = Joining the drive…
+azdrive-add-not-joined = The drive was not joined: { $why }
 azdrive-method-code-checked = Checked on { $on }
 azdrive-method-code-no-checks = no more checks
 azdrive-method-code-next = next check on { $on }
@@ -1128,7 +1140,7 @@ azdrive-method-count-again = Count again
 azdrive-recovery-none = No encrypted drive yet: an Azlin drive's menu in the source list offers "Encrypt this drive".
 azdrive-recovery-section = Recovery
 azdrive-recovery-held-section = Shares you hold for others
-azdrive-method-device-how = A phone or a second computer that has the drive's key is a way back in when this one is lost: join it with a join code from this computer (azcloud invite), pass the code by a file or a QR code, then Count again here. It counts best as a device of another kind - a phone beside a computer - since both can be lost together.
+
 azdrive-devices-not-counted = The other devices were not counted: { $why }
 
 ## Trusted contacts
@@ -1291,7 +1303,7 @@ azdrive-enc-reencrypt-damaged = { $count ->
        *[other] { $count } damaged files were
     } left as they were.
 azdrive-enc-reencrypt-stopped = Re-encrypting "{ $name }" stopped: { $why }. It continues where it stopped the next time.
-azdrive-enc-key-not-registered = The recovery code of "{ $name }" could not be registered for a lockdown ({ $why }): it still unlocks the drive's files.
+azdrive-enc-key-not-registered = The recovery code of "{ $name }" is not registered yet ({ $why }): AzDrive sends it again at the next start and every day. Until then it unlocks the drive's files but cannot lock the drive down, and the drive's health is red.
 azdrive-enc-locked-title = "{ $name }" is locked down
 azdrive-enc-locked = The lockdown with the recovery code is pending{ $until ->
         [none] { "" }
@@ -1436,7 +1448,7 @@ azdrive-cash-orders = Cash orders
 ## Add a drive
 
 azdrive-add-drive-paid-cash-by = A drive paid in cash by post is picked up with the claim code on the buyer's copy: type it as the copy prints it, or scan its QR code. AzDrive asks for the drive now and then once a day until the money arrived.
-azdrive-add-claim-code = The claim code
+azdrive-add-claim-code = The claim code, or a join code from another device
 azdrive-add-claim-own-key = Each computer that picks the drive up with the code gets a key of its own (three at most, within 30 days of the first pick-up); the computer that bought it keeps its own.
 azdrive-add-storage-azdrive-azmail-every = Storage for AzDrive, AzMail and every Azlin app, paid monthly or yearly. The first month is free.
 azdrive-add-every-file-compressed-encrypted = Every file is compressed and encrypted on this computer before it leaves it, and a tier counts the bytes stored: what compresses well - text, documents, mail - takes less of it than its size.
@@ -1462,7 +1474,7 @@ azdrive-add-connect = Connect { $name }
 azdrive-add-buy-detail = Azlin cloud storage from 100 GB - the first month is free
 azdrive-add-connect-title = Connect data source
 azdrive-add-connect-detail = S3, WebDAV, FTP, Google Drive, Dropbox, GitHub, databases …
-azdrive-add-claim-button = Pick up a paid drive with a claim code
+azdrive-add-claim-button = Pick up a paid drive with a claim code, or join one with a join code
 azdrive-add-pick-up = Pick up
 azdrive-add-azlin-storage = Azlin cloud storage
 azdrive-add-tiers-failed = The storage tiers could not be loaded: { $why }

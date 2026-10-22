@@ -475,6 +475,15 @@ pub(crate) enum Job {
         checkout: PendingCheckout,
         keyring: SharedKeyring,
     },
+    /// "Join with a code": the join code's token spent once into `keyring` (this device's own
+    /// session of the drive), at the token server `token_url`, for the Add drive dialog
+    /// `serial`.
+    Join {
+        serial: u64,
+        code: azcloud_kit::JoinCode,
+        token_url: String,
+        keyring: SharedKeyring,
+    },
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -730,6 +739,12 @@ pub(crate) enum Outcome {
         serial: u64,
         checkout: PendingCheckout,
         result: Result<(), String>,
+    },
+    /// A join code's drive on this device (its first answer and session), or why not.
+    Joined {
+        serial: u64,
+        code: azcloud_kit::JoinCode,
+        result: Result<azcloud_kit::Joined, String>,
     },
 }
 
@@ -3221,7 +3236,34 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: pick_up(&keyring, &checkout),
             checkout,
         },
+        Job::Join {
+            serial,
+            code,
+            token_url,
+            keyring,
+        } => Outcome::Joined {
+            serial,
+            result: join(&keyring, &token_url, &code),
+            code,
+        },
     }
+}
+
+/// A join code's token spent once for this device's session of the drive (kept in the keyring
+/// under the drive's lock), at the configured token server - or the code's when there is none.
+fn join(
+    keyring: &SharedKeyring,
+    token_url: &str,
+    code: &azcloud_kit::JoinCode,
+) -> Result<azcloud_kit::Joined, String> {
+    let url = if token_url.trim().is_empty() {
+        code.token_url.as_str()
+    } else {
+        token_url
+    };
+    let transport = AzulTransport::new(crate::USER_AGENT);
+    let server = TokenServer::new(url, &transport).map_err(|e| e.to_string())?;
+    keyring.join(&server, code).map_err(|e| e.to_string())
 }
 
 /// A voucher: on `drive` the days it adds (under its keyring lock, with its newest token);

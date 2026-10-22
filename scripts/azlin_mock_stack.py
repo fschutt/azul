@@ -1704,9 +1704,8 @@ class TokenState:
             return {'period_until': rfc3339(drive['period_until'])}
 
     def info(self, drive_id, bearer):
-        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too): with every
-        member the drive was given (drive_members keeps them past a revocation) and `you`, the
-        caller's."""
+        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too): with the
+        members that have a live family (drives.rs `members`) and `you`, the caller's."""
         with self.lock:
             self.finish_pending_lockdowns_locked(self.now())
             drive, state = self.family_of(drive_id, bearer, previous_ok=True)
@@ -1718,12 +1717,15 @@ class TokenState:
                         'you': state['member']}
             read_only = pending is not None or bool(drive.get('read_only'))
             added = {}
+            live = {}
             for family in self.families.values():
-                if family['drive'] == drive_id:
+                if family['drive'] == drive_id and not family['revoked']:
                     member = family.get('member', 'owner')
                     added[member] = min(added.get(member, family.get('added_at', 0)),
                                         family.get('added_at', 0))
-            members = [{'member': member, 'role': 'member', 'added_at': rfc3339(added[member])}
+                    live[member] = live.get(member, 0) + 1
+            members = [{'member': member, 'role': 'member', 'added_at': rfc3339(added[member]),
+                        'state': 'active', 'devices': live[member]}
                        for member in sorted(added)]
             return {'id': drive['id'], 'tier': drive['tier'],
                     'quota_bytes': drive['quota_bytes'], 'read_only': read_only,
@@ -1952,6 +1954,33 @@ class TokenState:
                       {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201,
                        'body': {'member': member}})
             return {'member': member, 'drive_token': token}
+
+    def remove_member(self, drive_id, bearer, member, key=None):
+        """DELETE /v1/drives/<id>/members/<member> (a grant, drives.rs `remove_member`): the
+        member's families revoked; never the caller's own (409 own_member), 404 no_such_member
+        for one without a live family. Asked again with the same key, the same answer."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
+            caller = 'family:' + bearer[3:].split('.')[0]
+            kept = self.kept('remove_member', key, caller)
+            if kept is not None:
+                return kept['body']
+            if member == state.get('member', 'owner'):
+                raise ApiError(409, 'own_member', "this device's own member: remove it from "
+                               'another device, or lock the drive down')
+            families = [f for f in self.families.values()
+                        if f['drive'] == drive_id and f.get('member') == member
+                        and not f['revoked']]
+            if not families:
+                raise ApiError(404, 'no_such_member', 'the drive has no such device')
+            now = self.now()
+            for family in families:
+                family['revoked'] = 'removed'
+                family['revoked_at'] = now
+            body = {'removed': member, 'removed_at': rfc3339(now)}
+            self.keep('remove_member', key, caller, {'status': 200, 'body': body})
+            return body
 
     def create_key(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/keys (a grant): a long-lived access key of the bucket."""
@@ -2658,6 +2687,11 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
                 and segments[3] == 'members':
             self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {},
                                               self.idempotency()))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'members':
+            self.answer(200, state.remove_member(segments[2], self.bearer(), segments[4],
+                                                 self.idempotency()))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'keys':

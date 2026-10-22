@@ -526,6 +526,7 @@ def hand_back(app, popover, view, url, redirect=False):
 # The recovery code as the sheet shows it, and the groups the sheet asks for.
 CODE_RE = re.compile(r"\b[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{6}\b")
 ASKED_RE = re.compile(r"type groups ([0-9, and]+) of the code")
+JOIN_RE = re.compile(r"azlin-join:[A-Za-z0-9_-]+")
 SHARE_RE = re.compile(r"\bS[123]-[0-9A-F]{8}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-"
                       r"[0-9A-Z]{6}\b")
 
@@ -1067,6 +1068,50 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
 # A claim code as the dialog shows it (AZK1, base32 in blocks of four).
 CLAIM_CODE_RE = re.compile(r"\bAZK1(?:-[A-Z2-7]{1,4})+\b")
 WAITING = "Waiting for your letter: postal cash takes a while, AzDrive checks once a day."
+
+
+def join_steps(app, args, logs, out, binary, switches, env, drive_id):
+    """13j. "Add a device" (D1), long after any claim window: Options > Drives > Another device
+    > Add... makes a join code with the drive key sealed in it; a fresh profile pastes it where
+    a claim code goes, joins with a token family of its own, takes the key from the seal and
+    lists the encrypted drive."""
+    app.tab("View")
+    app.ribbon("Options")
+    app.click(text="Drives")
+    add = method_button(drive_id, "devices", "add")
+    app.until("the other devices' Add", lambda: app.has(add))
+    app.after("the join code", "AZDRIVE_INVITED", re.escape(drive_id),
+              lambda: app.click(selector=add))
+    popup = e2e.modal_window(app)
+    popup.until("the join code's text", lambda: popup.has("#__azdrive_invite_code"))
+    join = found(popup.texts(), JOIN_RE)
+    if not join:
+        raise Failure("the dialog shows no join code: %r" % popup.texts()[:20])
+    join = join.group(0)
+    popup.click_exact("Close")
+    wait_closed(app)
+    other_switches, other_env = other_profile(logs, "join-other", switches, env)
+    second = Drive("azdrive-join-other", binary, other_switches, args.debug_port + 1, logs,
+                   args.timeout, extra_env=other_env)
+    try:
+        second.until("the This PC view", lambda: second.printed("AZDRIVE_PLACE", r"this-pc"))
+        second.until("the debug server", lambda: second.op("get_dom_tree"))
+        picker = open_dialog(second, "the source list",
+                             lambda: second.click(selector="#" + I("side-add-drive")))
+        picker.page("claim-code", lambda: picker.click("choice_claim"))
+        picker.type_into("claim_code", join)
+        second.after("the drive joined", "AZDRIVE_JOINED", re.escape(drive_id),
+                     lambda: picker.click("pick_up"))
+        second.until("the key from the code's seal",
+                     lambda: second.shows("is unlocked on this computer"))
+        second.until("the joined drive's bucket", lambda: second.printed(
+            "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id)))
+        second.screenshot(os.path.join(out, "13j-joined.png"))
+    finally:
+        second.stop()
+    log("13j. Another device > Add... made a join code for %s; a fresh profile pasted it under "
+        "Pick up a paid drive, joined (AZDRIVE_JOINED), took the key from its seal and listed "
+        "the encrypted drive" % drive_id)
 
 
 def other_profile(logs, name, switches, env):
@@ -2314,6 +2359,7 @@ def run(args, logs):
 
         # 13. The recovery methods of an encrypted drive (C14): AzDrive with `encryption`.
         if args.recovery:
+            join_steps(app, args, logs, out, binary, switches, env, bought)
             recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file,
                            keyring_file, bought, code)
         else:
