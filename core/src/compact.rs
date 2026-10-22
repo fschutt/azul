@@ -1057,6 +1057,10 @@ impl CssPropertyCache {
                         }
                         non_pseudo => {
                             result.has_dynamic_conditions = true;
+                            result.inline_viewport_shape |=
+                                azul_css::dynamic_selector::depends_on_viewport_shape(
+                                    core::slice::from_ref(non_pseudo),
+                                );
                             // Harvest the thresholds this condition can flip
                             // at — the resize decision regenerates when the
                             // window crosses one (dedup/sort happens once,

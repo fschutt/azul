@@ -1793,6 +1793,10 @@ pub struct CompactLayoutCache {
     pub inline_viewport_w: Vec<u32>,
     /// Viewport HEIGHT thresholds, same contract as `inline_viewport_w`.
     pub inline_viewport_h: Vec<u32>,
+    /// An inline conditional property's condition can change with the
+    /// viewport's shape alone (an aspect ratio, an orientation, a container
+    /// size): a resize that crosses no threshold may still flip it.
+    pub inline_viewport_shape: bool,
 }
 
 impl CompactLayoutCache {
@@ -1812,6 +1816,7 @@ impl CompactLayoutCache {
             has_dynamic_conditions: false,
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
+            inline_viewport_shape: false,
         }
     }
 
@@ -1831,6 +1836,7 @@ impl CompactLayoutCache {
             has_dynamic_conditions: false,
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
+            inline_viewport_shape: false,
         }
     }
 

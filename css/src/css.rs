@@ -159,6 +159,16 @@ impl Css {
         (w, h)
     }
 
+    /// Whether a rule's condition can change with the viewport's shape alone
+    /// ([`crate::dynamic_selector::depends_on_viewport_shape`]).
+    #[must_use]
+    pub fn depends_on_viewport_shape(&self) -> bool {
+        self.rules
+            .as_ref()
+            .iter()
+            .any(|rule| crate::dynamic_selector::depends_on_viewport_shape(rule.conditions.as_ref()))
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.rules.as_ref().is_empty()

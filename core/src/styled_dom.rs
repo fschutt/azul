@@ -3222,6 +3222,16 @@ impl StyledDom {
         // re-run can tell whether the real context agrees.
         let theme_changed;
         let activation_changed;
+        // A resize that flips no condition: every condition answers as it
+        // did, so the cascade would select what it selected (`vw` / `%`
+        // lengths are layout's, resolved against the new size there).
+        let unflipped_resize = self
+            .get_css_property_cache()
+            .dynamic_context
+            .as_deref()
+            .is_some_and(|old| {
+                old.differs_only_in_viewport(&context) && !self.resize_flips_a_condition(old, &context)
+            });
         {
             let cache = self.get_css_property_cache_mut();
             let same = cache.dynamic_context.as_deref() == Some(&context);
@@ -3241,6 +3251,9 @@ impl StyledDom {
             // A new generation even when nothing below re-runs: a context
             // change is a cascade input, and the DL cache keys on this.
             cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        }
+        if unflipped_resize {
+            return;
         }
         // Author-css @-rule conditions are baked at CASCADE time (restyle
         // drops non-matching rule blocks), so a context change must re-run
@@ -3289,6 +3302,44 @@ impl StyledDom {
         // The window's activation is part of this context: `:backdrop`
         // follows it (a (de)activation alone re-runs nothing above).
         self.sync_backdrop_state();
+    }
+
+    /// Whether a resize from `old` to `new` (contexts that differ only in the
+    /// viewport, [`DynamicSelectorContext::differs_only_in_viewport`]) can
+    /// change a condition's answer in this DOM: it crosses one of the DOM's
+    /// viewport thresholds ([`Self::viewport_breakpoints`]), or the DOM has a
+    /// condition on the viewport's shape and the shape changed. A custom
+    /// property defined under a condition counts as flipped, as its
+    /// conditions are not harvested.
+    fn resize_flips_a_condition(
+        &self,
+        old: &azul_css::dynamic_selector::DynamicSelectorContext,
+        new: &azul_css::dynamic_selector::DynamicSelectorContext,
+    ) -> bool {
+        use azul_css::dynamic_selector::viewport_threshold_crossed;
+        let cache = self.get_css_property_cache();
+        if cache.variables_depend_on_context {
+            return true;
+        }
+        let Some((widths, heights)) = self.viewport_breakpoints() else {
+            return true;
+        };
+        if viewport_threshold_crossed(&widths, old.viewport_width, new.viewport_width)
+            || viewport_threshold_crossed(&heights, old.viewport_height, new.viewport_height)
+        {
+            return true;
+        }
+        let shape_conditions = cache.retained_author_css.depends_on_viewport_shape()
+            || cache
+                .compact_cache
+                .as_ref()
+                .is_some_and(|cc| cc.inline_viewport_shape);
+        shape_conditions
+            && (old.viewport_width.to_bits() != new.viewport_width.to_bits()
+                || old.viewport_height.to_bits() != new.viewport_height.to_bits()
+                || old.orientation != new.orientation
+                || old.container_width.to_bits() != new.container_width.to_bits()
+                || old.container_height.to_bits() != new.container_height.to_bits())
     }
 
     /// The viewport-size thresholds (widths, heights, logical px) at which

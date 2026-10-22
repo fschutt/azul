@@ -1843,6 +1843,20 @@ impl DynamicSelectorContext {
         ctx
     }
 
+    /// Whether `other` differs from this context only in what a resize
+    /// changes: the viewport's size and the orientation and root container
+    /// size that follow it.
+    #[must_use]
+    pub fn differs_only_in_viewport(&self, other: &Self) -> bool {
+        let mut same_view = other.clone();
+        same_view.viewport_width = self.viewport_width;
+        same_view.viewport_height = self.viewport_height;
+        same_view.orientation = self.orientation;
+        same_view.container_width = self.container_width;
+        same_view.container_height = self.container_height;
+        same_view == *self
+    }
+
     /// Update container dimensions (for @container queries)
     #[must_use]
     pub fn with_container(&self, width: f32, height: f32, name: Option<AzString>) -> Self {
@@ -2284,6 +2298,32 @@ impl Eq for CssPropertyWithConditions {}
 /// skipped). The engine's resize decision regenerates the DOM when the
 /// window crosses one of these, so the set of HARVESTED thresholds — not a
 /// hardcoded guess list — defines where a resize must re-run the cascade.
+/// Whether a condition's answer can change with the viewport's shape alone,
+/// without crossing a width or height threshold: an aspect ratio, an
+/// orientation, a container's size.
+#[must_use]
+pub fn depends_on_viewport_shape(conds: &[DynamicSelector]) -> bool {
+    conds.iter().any(|c| {
+        matches!(
+            c,
+            DynamicSelector::AspectRatio(_)
+                | DynamicSelector::Orientation(_)
+                | DynamicSelector::ContainerWidth(_)
+                | DynamicSelector::ContainerHeight(_)
+        )
+    })
+}
+
+/// Whether going from `old` to `new` crosses one of `thresholds` (the
+/// bounds of a min/max condition): a condition's answer can only change at
+/// one of its bounds.
+#[must_use]
+pub fn viewport_threshold_crossed(thresholds: &[f32], old: f32, new: f32) -> bool {
+    thresholds
+        .iter()
+        .any(|&t| (old < t) != (new < t) || (old > t) != (new > t))
+}
+
 pub fn collect_viewport_thresholds(
     conds: &[DynamicSelector],
     widths: &mut Vec<f32>,
