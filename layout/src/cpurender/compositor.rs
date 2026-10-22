@@ -3842,6 +3842,42 @@ fn painted_over_mover(
 ///
 /// `None` (keep the full repaint) when any scroll offset changed between the
 /// frames — a scrolled frame moves items the equality scan would misjudge.
+/// The reference frames (CSS transforms) open at a display-list item, as the
+/// rasteriser draws through them: each a matrix about its frame's origin in
+/// the coordinates of the frames around it. A damage rect found in item
+/// coordinates is painted where these map it.
+#[derive(Clone, Default)]
+struct FrameStack {
+    /// `(origin, matrix)`, outermost first; identity frames are kept (a Pop
+    /// pops exactly one).
+    frames: Vec<(LogicalPosition, azul_core::transform::ComputedTransform3D)>,
+}
+
+impl FrameStack {
+    /// A `PushReferenceFrame`'s matrix about its origin, in the scrolled
+    /// coordinates the items around it are damaged in.
+    fn push(
+        &mut self,
+        origin: LogicalPosition,
+        matrix: azul_core::transform::ComputedTransform3D,
+    ) {
+        self.frames.push((origin, matrix));
+    }
+
+    fn pop(&mut self) {
+        self.frames.pop();
+    }
+
+    /// Where `r` is painted, through every open frame from the innermost
+    /// out; `None` for a matrix with perspective, whose image is no rect.
+    fn map(&self, r: LogicalRect) -> Option<LogicalRect> {
+        self.frames
+            .iter()
+            .rev()
+            .try_fold(r, |r, (origin, m)| affine_rect_about(m, *origin, r))
+    }
+}
+
 fn windowed_structural_damage(
     old: &DisplayList,
     new: &DisplayList,
@@ -3870,6 +3906,9 @@ fn windowed_structural_damage(
     // The accumulated scroll offset at the prefix boundary (offsets are equal
     // between the frames, so one walk over the new list serves both).
     let mut stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    // The reference frames open at the prefix boundary (the prefix items are
+    // equal in both lists, so one walk serves both).
+    let mut frames = FrameStack::default();
     for item in &n[..prefix] {
         match item {
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -3882,6 +3921,16 @@ fn windowed_structural_damage(
                     stack.pop();
                 }
             }
+            DisplayListItem::PushReferenceFrame {
+                bounds,
+                initial_transform,
+                ..
+            } => {
+                let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
+                let o = bounds.inner().origin;
+                frames.push(LogicalPosition { x: o.x - ax, y: o.y - ay }, *initial_transform);
+            }
+            DisplayListItem::PopReferenceFrame => frames.pop(),
             _ => {}
         }
     }
@@ -3912,10 +3961,23 @@ fn windowed_structural_damage(
     let refine = dl_diff_refinements_enabled();
     let mut damage: Vec<LogicalRect> = Vec::new();
     let mut skipped_nonpainting = false;
+    // A window item under a perspective transform: no rect covers its image.
+    let mut unmappable = false;
     let mut collect_window = |items: &[DisplayListItem], offsets: &ScrollOffsetMap| {
         let mut stack = stack.clone();
+        let mut frames = frames.clone();
         for item in items {
             match item {
+                DisplayListItem::PushReferenceFrame {
+                    bounds,
+                    initial_transform,
+                    ..
+                } => {
+                    let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
+                    let o = bounds.inner().origin;
+                    frames.push(LogicalPosition { x: o.x - ax, y: o.y - ay }, *initial_transform);
+                }
+                DisplayListItem::PopReferenceFrame => frames.pop(),
                 DisplayListItem::PushScrollFrame { scroll_id, .. } => {
                     let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
                     let (sx, sy) = offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
@@ -3981,12 +4043,18 @@ fn windowed_structural_damage(
                 visual.size.width += 2.0;
                 visual.size.height += 2.0;
             }
-            damage.push(visual);
+            match frames.map(visual) {
+                Some(painted) => damage.push(painted),
+                None => unmappable = true,
+            }
         }
     };
 
     collect_window(&o[prefix..o.len() - suffix], old_offsets);
     collect_window(&n[prefix..n.len() - suffix], new_offsets);
+    if unmappable {
+        return None;
+    }
 
     if damage.is_empty() {
         // Every window item was a non-painting one (hit areas, metadata):
@@ -4003,6 +4071,36 @@ fn windowed_structural_damage(
     }
     coalesce_damage_rects(&mut damage);
     Some(damage)
+}
+
+/// Map the damage rects `damage[*mapped..]`, found in the coordinates of the
+/// items inside the open frames, to where they are painted: through the new
+/// list's frames, and through the old list's where they differ (a rect then
+/// covers both places). `false` for a frame with perspective (no rect image:
+/// the caller repaints whole).
+fn map_through_frames(
+    damage: &mut Vec<LogicalRect>,
+    mapped: &mut usize,
+    frames_old: &FrameStack,
+    frames_new: &FrameStack,
+) -> bool {
+    if frames_new.frames.is_empty() && frames_old.frames.is_empty() {
+        *mapped = damage.len();
+        return true;
+    }
+    let mut extra = Vec::new();
+    for r in &mut damage[*mapped..] {
+        let (Some(n), Some(o)) = (frames_new.map(*r), frames_old.map(*r)) else {
+            return false;
+        };
+        *r = n;
+        if o != n {
+            extra.push(o);
+        }
+    }
+    damage.extend(extra);
+    *mapped = damage.len();
+    true
 }
 
 #[must_use]
@@ -4055,14 +4153,73 @@ fn compute_display_list_damage_impl(
     // lists are structurally identical (discriminants checked below), so one
     // stack driven by the new list tracks both.
     let mut offset_stack: Vec<((f32, f32), (f32, f32))> = vec![((0.0, 0.0), (0.0, 0.0))];
+    // The reference frames open in each list. An item's damage is found in
+    // its own coordinates and leaves its iteration through these (`mapped`
+    // counts the rects already in window space): the next iteration maps
+    // what this one added before it pushes or pops a frame of its own.
+    let mut frames_old = FrameStack::default();
+    let mut frames_new = FrameStack::default();
+    let mut mapped = 0usize;
 
-    for (old_item, new_item) in old.items.iter().zip(new.items.iter()) {
+    for (idx, (old_item, new_item)) in old.items.iter().zip(new.items.iter()).enumerate() {
         // Compare discriminant first (cheap)
         if std::mem::discriminant(old_item) != std::mem::discriminant(new_item) {
             // Structural change with equal counts — same windowed fallback as
             // the count-mismatch case above.
             return windowed_structural_damage(old, new, old_offsets, new_offsets)
                 .map(|damage| (damage, None));
+        }
+        if !map_through_frames(&mut damage, &mut mapped, &frames_old, &frames_new) {
+            return None;
+        }
+        match (old_item, new_item) {
+            (
+                DisplayListItem::PushReferenceFrame {
+                    bounds: ob,
+                    initial_transform: ot,
+                    ..
+                },
+                DisplayListItem::PushReferenceFrame {
+                    bounds: nb,
+                    initial_transform: nt,
+                    ..
+                },
+            ) => {
+                let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+                let at = |b: LogicalPosition, acc: (f32, f32)| LogicalPosition {
+                    x: b.x - acc.0,
+                    y: b.y - acc.1,
+                };
+                frames_old.push(at(ob.inner().origin, acc_old), *ot);
+                frames_new.push(at(nb.inner().origin, acc_new), *nt);
+                if !old_item.is_visually_equal(new_item) {
+                    // A transform that changed moves the frame's whole
+                    // content: damaged where it was and where it is.
+                    let content = |items: &[DisplayListItem], b: &LogicalRect, acc: (f32, f32)| {
+                        let c = reference_frame_content(items, idx).unwrap_or(*b);
+                        LogicalRect {
+                            origin: at(c.origin, acc),
+                            size: c.size,
+                        }
+                    };
+                    let (Some(a), Some(b)) = (
+                        frames_old.map(content(&old.items, ob.inner(), acc_old)),
+                        frames_new.map(content(&new.items, nb.inner(), acc_new)),
+                    ) else {
+                        return None;
+                    };
+                    damage.push(a);
+                    damage.push(b);
+                    mapped = damage.len();
+                }
+                continue;
+            }
+            (DisplayListItem::PopReferenceFrame, _) => {
+                frames_old.pop();
+                frames_new.pop();
+                continue;
+            }
+            _ => {}
         }
 
         match new_item {
@@ -4382,6 +4539,9 @@ fn compute_display_list_damage_impl(
                 }));
             }
         }
+    }
+    if !map_through_frames(&mut damage, &mut mapped, &frames_old, &frames_new) {
+        return None;
     }
 
     // Coalesce overlapping rects
