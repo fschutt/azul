@@ -786,10 +786,12 @@ impl UserError {
     }
 }
 
-/// A service without Azlin codes: busy (503, 429) or something else.
+/// A service without Azlin codes: busy (503, 429), too new for this app (426, "upgrade
+/// required", also from a proxy that drops the body) or something else.
 fn busy_or_other(status: u16) -> Code {
     match status {
         503 | 429 => Code::Unavailable,
+        426 => Code::UpdateApp,
         _ => Code::Other,
     }
 }
