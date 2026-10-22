@@ -375,6 +375,8 @@ struct Presented {
     opacities: std::collections::HashMap<usize, f32>,
     colors: cpurender::GpuColors,
     glyphs: GlyphCache,
+    /// Frames presented with a move of pixels (`execute_translate_blit`).
+    blits: usize,
 }
 
 impl Presented {
@@ -389,6 +391,7 @@ impl Presented {
             opacities,
             colors: cpurender::extract_gpu_colors(cache),
             glyphs: GlyphCache::new(),
+            blits: 0,
         }
     }
 }
@@ -421,14 +424,46 @@ fn present(lw: &LayoutWindow, last: &mut Presented) -> Frame {
     let colour = cpurender::color_value_damage(&dl, &last.colors, &colors, &transforms, &new_offsets);
     gpu.rects.extend(colour.rects);
     gpu.needs_full |= colour.needs_full;
+    // The layout pass's move hint: the movers it found, blitted where the
+    // diff finds their items translated by the dominant delta.
+    let hint = cpurender::translate_hint_for_patch(
+        lw.layout_cache.last_patch_move.as_ref(),
+        s,
+        true,
+        false,
+        lw.scroll_manager.any_nonzero_offset(),
+    );
+    let mut moved_union = None;
     let diff = if Arc::ptr_eq(&dl, &last.list) {
         Some(Vec::new())
     } else {
-        cpurender::compute_display_list_damage(&last.list, &dl, &last.offsets, &new_offsets)
+        cpurender::compute_display_list_damage_translated(
+            &last.list,
+            &dl,
+            &last.offsets,
+            &new_offsets,
+            hint.as_ref().map(|(h, _)| h),
+        )
+        .map(|(damage, moved)| {
+            moved_union = moved;
+            damage
+        })
     };
     let frame = match diff {
         Some(mut damage) if !gpu.needs_full => {
             damage.extend(gpu.rects);
+            if let (Some((h, exceptions)), Some(_)) = (hint.as_ref(), moved_union) {
+                let movers = lw
+                    .layout_cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| m.mover_rects_old.clone())
+                    .unwrap_or_default();
+                let blit =
+                    cpurender::execute_translate_blit(&mut last.pixels, h, exceptions, &movers, &dl, s);
+                damage.extend(blit.damage);
+                last.blits += 1;
+            }
             for (scroll_id, clip, delta, offset) in
                 cpurender::collect_scroll_shifts(&dl, &new_offsets, &last.offsets, s)
             {
@@ -685,4 +720,110 @@ fn an_opacity_change_repaints_its_group() {
 #[test]
 fn a_page_that_gains_or_loses_a_scroll_box_repaints_only_the_box() {
     one_change(|s| s.panel = true, 2.0 * 160.0 * 80.0, "a panel opened");
+}
+
+/// A box whose height tweens over a column of rows (a ribbon's content
+/// growing over the page) moves the rows by whole device pixels per frame,
+/// and the CPU frame presents that as a move of their pixels: each frame
+/// equals a full redraw and repaints far less than the rows it moved.
+#[test]
+fn a_height_tween_moves_what_it_pushes_by_a_blit() {
+    for dpi in [96u32, 192] {
+        let mut rows = Dom::create_div().with_css("display: flex; flex-direction: column;");
+        for k in 0..14 {
+            let color = if k % 2 == 0 { "#e8eef8" } else { "#ffffff" };
+            rows = rows.with_child(Dom::create_div().with_css(&format!(
+                "height: 14px; background: {color}; border-bottom: 1px solid #c0c8d8;"
+            )));
+        }
+        let page = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_css("margin: 0; display: flex; flex-direction: column; background: #ffffff;")
+                .with_child(
+                    Dom::create_div()
+                        .with_class("grow".into())
+                        .with_css("height: 10px; background: #446688; animation: height 260ms ease-out;"),
+                )
+                .with_child(rows),
+        );
+        let mut lw = window(dpi);
+        let ws = lw.current_window_state.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(page),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let _ = lw.prepare_frame_cpu();
+        let mut last = Presented::first(&lw);
+        let grow = NodeId::new(2);
+        let _ = lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+            dom_id: DomId::ROOT_ID,
+            node_id: grow,
+            props: vec![azul_css::props::property::CssProperty::const_height(
+                azul_css::props::layout::LayoutHeight::const_px(70),
+            )],
+            override_only: false,
+        });
+        assert_eq!(lw.css_transitions.len(), 1, "harness: the height tweens");
+        let s = dpi_factor(&lw);
+        let mut frames = 0;
+        let mut painted_total = 0.0f64;
+        while !lw.css_transitions.is_empty() && frames < 60 {
+            frames += 1;
+            let _ = lw.tick_animations(0.016);
+            if lw.take_transition_relayout() {
+                let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
+                let ws = lw.current_window_state.clone();
+                lw.layout_and_generate_display_list(
+                    result.styled_dom,
+                    &ws,
+                    &RendererResources::default(),
+                    &ExternalSystemCallbacks::rust_internal(),
+                    &mut None,
+                )
+                .expect("the frame lays out");
+            }
+            let _ = lw.take_animation_frame_work();
+            let _ = lw.prepare_frame_cpu();
+            let height = lw.layout_results[&DomId::ROOT_ID]
+                .layout_tree
+                .dom_to_layout
+                .get(&grow)
+                .and_then(|l| l.first())
+                .and_then(|l| lw.layout_results[&DomId::ROOT_ID].layout_tree.get(*l))
+                .and_then(|n| n.used_size)
+                .expect("the box is laid out")
+                .height;
+            assert!(
+                ((height * s) - (height * s).round()).abs() < 1e-3,
+                "{dpi} dpi, frame {frames}: the tween's height {height} is off the device pixel grid"
+            );
+            let frame = present(&lw, &mut last);
+            let truth = full_redraw(&lw);
+            assert!(
+                first_difference(&last.pixels, &truth).is_none(),
+                "{dpi} dpi, frame {frames}: the frame differs from a full redraw in {} pixels",
+                differing_pixels(&last.pixels, &truth)
+            );
+            painted_total += frame.painted_px.unwrap_or(f64::from(W * H) * f64::from(s * s));
+        }
+        assert!(frames >= 8, "harness: the tween ran {frames} frames");
+        assert!(
+            last.blits * 2 >= frames,
+            "{dpi} dpi: {} of {frames} frames moved the rows by a blit",
+            last.blits
+        );
+        // The rows are 14 x 15 px tall over the window's width: what a
+        // frame without a move repaints. With the move a frame repaints the
+        // box's new strip and the exposed rows.
+        let rows_area = f64::from(W) * 15.0 * 14.0 * f64::from(s * s);
+        assert!(
+            painted_total / (frames as f64) < rows_area / 3.0,
+            "{dpi} dpi: a frame repainted {} px on average, the moved rows are {rows_area} px",
+            painted_total / (frames as f64)
+        );
+    }
 }
