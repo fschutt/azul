@@ -2166,6 +2166,7 @@ pub(crate) fn recovery_lockdown(
         secret_access_key: String::new(),
         session_token: None,
         expires_at: Some(0),
+        grant: azcloud_kit::Grant::ReadWrite,
     };
     keyring
         .set(&entry, &session.to_keyring_secret())

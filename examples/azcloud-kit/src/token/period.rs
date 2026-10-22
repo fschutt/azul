@@ -1,9 +1,10 @@
 //! A paid checkout's period tokens: the issuer keys, the blind issue, the redemption.
 
 use super::*;
+use azlin_contract::{IssueAnswer as ContractIssueAnswer, IssueRefusal, IssueSchedule};
 
 /// What `POST /v1/tokens/issue` answers: one blind signature per blinded message, by the
-/// issuer key of the tier and year.
+/// issuer key of the tier and year, and where the checkout's instalments stand after it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlindSignatures {
     /// `100GB`.
@@ -14,6 +15,8 @@ pub struct BlindSignatures {
     pub public_key_pem: String,
     /// Standard base64, in the order of the blinded messages.
     pub signatures: Vec<String>,
+    /// The checkout's months, how many are issued, and from when the next may be asked for.
+    pub schedule: IssueSchedule,
 }
 
 /// The most blinded messages one `POST /v1/tokens/issue` takes (24 months, prepaid).
@@ -24,14 +27,10 @@ pub const MAX_BLINDED: usize = 24;
 pub enum IssueAnswer {
     /// The blind signatures, by the key the request named.
     Signed(BlindSignatures),
-    /// 409 `key_changed`: the request named a key the token server no longer signs with
-    /// (the year turned since `GET /v1/tokens/keys`); nothing was signed or counted. Blind the
-    /// messages again for `key_id` - with `public_key_pem` when the server sent it, else from
-    /// the keys read again.
-    KeyChanged {
-        key_id: String,
-        public_key_pem: Option<String>,
-    },
+    /// Refused as the contract words it: `key_changed` (blind the messages again for the key it
+    /// names), `not_due` (the next month comes later), a final one ([`IssueRefusal::is_final`]),
+    /// a busy server. Nothing was signed or counted.
+    Refused(IssueRefusal),
 }
 
 impl<'a> TokenServer<'a> {
@@ -63,21 +62,18 @@ impl<'a> TokenServer<'a> {
     }
 
     /// Blind signatures of a paid checkout's period tokens (`POST /v1/tokens/issue`): one per
-    /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), up to the checkout's
-    /// months in all. Only with `issue_key`, the key its sealed sign-up carries
-    /// ([`crate::bundle::PeriodTokens`]): the checkout id alone, which the payment provider sees,
-    /// issues nothing. `key_id` names the issuer key the messages were blinded for
-    /// (`GET /v1/tokens/keys`); when it is no longer the one the token server signs with, the
-    /// answer is [`IssueAnswer::KeyChanged`] and nothing is signed or counted. The same request
-    /// again (same key, same messages, same order) is answered the same, counted once: what to
-    /// send when an answer was lost.
+    /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), as many as its
+    /// instalments due allow (one a month from its approval). Only with `issue_key`, the key its
+    /// sealed sign-up carries ([`crate::bundle::PeriodTokens`]): the checkout id alone, which the
+    /// payment provider sees, issues nothing. `key_id` names the issuer key the messages were
+    /// blinded for (`GET /v1/tokens/keys`). The same request again (same key, same messages,
+    /// same order) is answered the same, counted once: what to send when an answer was lost.
     ///
     /// # Errors
     ///
-    /// [`TokenError::Config`] without an issue key, a key id or messages (nothing is sent); the
-    /// token server's refusals with their codes - `issue_key_required`, `key_id_required`,
-    /// `issue_key_wrong` (403, no sign-in matter), `already_issued`, `not_paid`,
-    /// `mandate_stopped`; an answer whose signatures do not match the messages.
+    /// [`TokenError::Config`] without an issue key, a key id or messages (nothing is sent); no
+    /// answer; an answer that does not read, or whose signatures do not match the messages; a
+    /// refusal without the contract's words (a proxy's).
     pub fn issue_period_tokens(
         &self,
         checkout_id: &str,
@@ -112,42 +108,27 @@ impl<'a> TokenServer<'a> {
         });
         let reply = self.exchange(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
         if !reply.is_success() {
-            let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
-            if reply.status == 409 && value["error"] == "key_changed" {
-                return Ok(IssueAnswer::KeyChanged {
-                    key_id: value["key_id"].as_str().unwrap_or_default().trim().to_string(),
-                    public_key_pem: value["public_key_pem"]
-                        .as_str()
-                        .filter(|pem| !pem.trim().is_empty())
-                        .map(str::to_string),
-                });
-            }
-            return Err(refusal(&reply, false));
+            return match serde_json::from_slice::<IssueRefusal>(&reply.body) {
+                Ok(refusal) => Ok(IssueAnswer::Refused(refusal)),
+                Err(_) => Err(refusal(&reply, false)),
+            };
         }
-        let value: Value = serde_json::from_slice(&reply.body)
-            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))?;
-        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
-        let signatures: Vec<String> = value["blind_signatures"]
-            .as_array()
-            .map(|list| {
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if signatures.len() != blinded.len() {
+        let answer: ContractIssueAnswer = serde_json::from_slice(&reply.body).map_err(|e| {
+            TokenError::Protocol(format!("the issue's answer does not read: {e}"))
+        })?;
+        if answer.blind_signatures.len() != blinded.len() {
             return Err(TokenError::Protocol(format!(
                 "{} blind signatures for {} blinded messages",
-                signatures.len(),
+                answer.blind_signatures.len(),
                 blinded.len()
             )));
         }
         Ok(IssueAnswer::Signed(BlindSignatures {
-            tier: text("tier"),
-            key_id: text("key_id"),
-            public_key_pem: text("public_key_pem"),
-            signatures,
+            tier: answer.tier,
+            key_id: answer.key_id,
+            public_key_pem: answer.public_key_pem.unwrap_or_default(),
+            signatures: answer.blind_signatures,
+            schedule: answer.schedule,
         }))
     }
 

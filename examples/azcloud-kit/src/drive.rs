@@ -23,7 +23,10 @@ use std::{
     fmt,
     io::Read,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use azlin_contract::IdempotentScope;
@@ -39,7 +42,8 @@ use crate::{
     bundle::DriveBundle,
     failover::{read_nodes, write_nodes, Failover, Node},
     outbox,
-    session::AzlinSession,
+    period::GrantChanged,
+    session::{AzlinSession, Grant},
     shared::{SharedKeyring, SpendOnce},
     token::{TokenError, TokenServer},
     transport::{IrohDialer, IrohLane},
@@ -86,6 +90,20 @@ pub struct AzlinDrive {
     /// such a refusal could be expired credentials, or anything else - asked once in a while,
     /// never on every request.
     bodyless_refresh: Mutex<Option<u64>>,
+    /// The token server changed the drive's grant (a month bought, a voucher): read-only
+    /// credentials are refreshed before the next request ([`AzlinDrive::apply`]).
+    grant_changed: AtomicBool,
+}
+
+/// Why credentials are refreshed: what makes another process's newer session good enough.
+#[derive(Clone, Copy)]
+enum Why<'a> {
+    /// They run out soon.
+    Expiring,
+    /// The bucket refused the credentials of this access key.
+    Refused(&'a str),
+    /// The drive's grant changed: read-only ones are of before.
+    GrantChanged,
 }
 
 /// How long a refusal without a body waits before it makes the drive ask for fresh
@@ -150,12 +168,16 @@ fn drive_error_of(e: &TokenError) -> DriveError {
     }
 }
 
-/// Whether `e` says the credentials no longer work: an S3 code for it, or a node's
-/// `session_expired` (all a HEAD's answer can say is its header).
+/// Whether `e` says the credentials no longer work: an S3 code for it, a node's
+/// `session_expired` (all a HEAD's answer can say is its header), or its `credentials_stale`
+/// (read-only credentials of before the drive took writes again).
 fn refused_credentials(e: &DriveError) -> bool {
     matches!(e, DriveError::Service(service)
         if REFUSED_CREDENTIALS.contains(&service.code.as_str())
-            || service.azlin_error == Some(AzlinError::SessionExpired))
+            || matches!(
+                service.azlin_error,
+                Some(AzlinError::SessionExpired | AzlinError::CredentialsStale)
+            ))
 }
 
 impl AzlinDrive {
@@ -202,6 +224,7 @@ impl AzlinDrive {
             failover: Arc::new(Failover::new(&config.endpoint)),
             nodes_file: None,
             bodyless_refresh: Mutex::new(None),
+            grant_changed: AtomicBool::new(false),
         })
     }
 
@@ -274,12 +297,34 @@ impl AzlinDrive {
         self.current.lock()
     }
 
-    /// The bucket with credentials that work now (refreshed first when they run out), and the
-    /// access key it signs with.
+    /// The token server changed the drive's grant (`changed`: a month bought, a voucher's
+    /// days): credentials made while the drive took no writes are refreshed before the next
+    /// request, so the writes that follow a payment are not refused. Sends nothing; a grant of
+    /// another drive changes nothing here.
+    pub fn apply(&self, changed: GrantChanged) {
+        let ours = self
+            .entry
+            .azlin()
+            .map_or(self.entry.id.as_str(), |(drive_id, _)| drive_id);
+        if changed.drive_id() == ours {
+            self.grant_changed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// The bucket with credentials that work now (refreshed first when they run out, or when
+    /// they are read-only ones from before the drive's grant changed), and the access key it
+    /// signs with.
     fn bucket(&self) -> Result<(Arc<S3Drive>, String), DriveError> {
         let mut current = self.lock();
-        if current.session.needs_refresh((self.clock)()) {
-            self.refresh(&mut current, None)?;
+        let changed = self.grant_changed.swap(false, Ordering::SeqCst);
+        if changed && current.session.grant == Grant::ReadOnly {
+            if let Err(e) = self.refresh(&mut current, Why::GrantChanged) {
+                // asked again by the next request
+                self.grant_changed.store(true, Ordering::SeqCst);
+                return Err(e);
+            }
+        } else if current.session.needs_refresh((self.clock)()) {
+            self.refresh(&mut current, Why::Expiring)?;
         }
         let drive = self.opened(&mut current)?;
         Ok((drive, current.session.access_key_id.clone()))
@@ -310,7 +355,7 @@ impl AzlinDrive {
     /// answer), the keyring keeps the token and the next refresh sends it again: the token
     /// server answers it while the new one was never used. Called with `current` held: one
     /// refresh at a time in this process too (`on_rotated` must not call back into this drive).
-    fn refresh(&self, current: &mut Current, refused: Option<&str>) -> Result<(), DriveError> {
+    fn refresh(&self, current: &mut Current, why: Why<'_>) -> Result<(), DriveError> {
         let spend = match self.keyring.spend(&current.session.drive_id) {
             Ok(spend) => spend,
             // The keyring has no session of the drive, or none can be read: the one this
@@ -332,9 +377,12 @@ impl AzlinDrive {
                     && stored.drive_token != current.session.drive_token
             });
         if let Some(newer) = newer {
-            let usable = match refused {
-                Some(refused) => newer.access_key_id != refused,
-                None => !newer.needs_refresh((self.clock)()),
+            let usable = match why {
+                Why::Refused(refused) => newer.access_key_id != refused,
+                Why::Expiring => !newer.needs_refresh((self.clock)()),
+                Why::GrantChanged => {
+                    newer.grant == Grant::ReadWrite && !newer.needs_refresh((self.clock)())
+                }
             };
             if usable {
                 // Another process refreshed: its session is the newest, nothing is spent.
@@ -441,7 +489,7 @@ impl AzlinDrive {
     fn after_refusal(&self, refused: &str) -> Result<Arc<S3Drive>, DriveError> {
         let mut current = self.lock();
         if current.session.access_key_id == refused {
-            self.refresh(&mut current, Some(refused))?;
+            self.refresh(&mut current, Why::Refused(refused))?;
         }
         self.opened(&mut current)
     }

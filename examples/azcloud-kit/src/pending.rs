@@ -18,7 +18,8 @@
 //! session that rotated since is never replaced by the sign-up's spent token) - and the app
 //! tells the list once the drive is in its drives file ([`claimed`]): a checkout without period
 //! tokens is done then; a paid one stays, its claim secret and now its issue key with it, until
-//! [`finish`] has issued its period tokens and kept them (AZDRIVE-INTEGRATION §4). What a poll
+//! [`finish`] has kept its period grant with the drive, where every device of it issues the
+//! months (AZDRIVE-INTEGRATION §4). What a poll
 //! found is [`Polled`]: an answer that ends the checkout ([`Final`], said by the one poll that
 //! took it off) or one that keeps it for the next poll ([`Transient`]).
 //!
@@ -34,9 +35,10 @@ use crate::{
     bundle::{DriveBundle, PeriodTokens},
     claim::{ClaimError, ClaimKey},
     error::{fail, CloudError, CloudResult},
-    period::{issue_tokens, PeriodTokenStore},
+    period::{issue_next, Issued, PeriodTokenStore},
     shared::SharedKeyring,
     token::{CheckoutStatus, TokenError, TokenServer, MAX_BLINDED},
+    vault::{DriveTokens, VaultGrant, VaultState},
 };
 
 /// The keyring entry of the unfinished checkouts.
@@ -327,7 +329,7 @@ pub struct Settled(SettledBy);
 enum SettledBy {
     /// Its drive is in the drives file and nothing more is owed for it.
     Claimed,
-    /// Its period tokens are issued and kept, or the token server will never issue them.
+    /// Its period grant is kept with its drive, or the token server will never issue it.
     Finished,
     /// The payment did not go through, or went back.
     Declined,
@@ -344,7 +346,7 @@ impl Settled {
     fn what(&self) -> String {
         let why = match &self.0 {
             SettledBy::Claimed => "its drive is saved",
-            SettledBy::Finished => "its period tokens are dealt with",
+            SettledBy::Finished => "its period grant is kept with its drive",
             SettledBy::Declined => "its payment did not go through",
             SettledBy::Gone => "the token server no longer has it",
             SettledBy::Abandoned(answer) => {
@@ -791,7 +793,7 @@ fn end(shared: &SharedKeyring, checkout: &PendingCheckout, by: SettledBy, said: 
 /// Without `grant` (a development sign-up, a checkout from before period tokens) the checkout
 /// is done: off the list. With it, it stays - its claim secret, and now what the period
 /// tokens' issue needs ([`PendingTokens`]: the drive, the months, the issue key) - until
-/// [`finish`] has kept them.
+/// [`finish`] has kept them with the drive.
 ///
 /// # Errors
 ///
@@ -834,13 +836,18 @@ pub fn claimed(
 /// What became of a claimed checkout's period tokens ([`finish`]).
 #[derive(Debug)]
 pub enum Finished {
-    /// Issued, checked and kept in the drive's store; the checkout is off the list.
+    /// Its grant is kept with the drive and its first month issued, checked and kept; the
+    /// checkout is off the list.
     Issued { drive_id: String, count: usize },
-    /// Off the list without tokens: why - to be said once (they were issued before and the
-    /// answer was lost, the token server takes no issue key of a checkout from before period
-    /// tokens, the payment mandate was stopped).
+    /// Its grant is kept with the drive; its first month comes with the drive's next look
+    /// (why it did not come now). The checkout is off the list.
+    Granted { drive_id: String, why: String },
+    /// Off the list without tokens: why - to be said once (a payment taken back, the token
+    /// server takes no issue key of a checkout from before period tokens, the payment mandate
+    /// was stopped, every month issued to a request this computer does not hold).
     Dropped(String),
-    /// It stays on the list, issue key and all, for the next try: why.
+    /// It stays on the list, issue key and all, for the next try: why (its grant could not be
+    /// kept with the drive).
     Kept(String),
     /// Off the list already: another window finished it.
     Settled,
@@ -852,18 +859,21 @@ fn finish_lock(checkout_id: &str) -> String {
     format!("{PENDING_KEY}/{checkout_id}/tokens")
 }
 
-/// Issues the period tokens `owed` for the claimed `checkout` at `server` (its own token server)
-/// against their issue key, keeps them in `store` under their drive and then takes the
-/// checkout off the list - its claim secret and issue key with it. A try whose answer was lost
-/// left its request kept in `store`: the next one sends it again as it is
-/// ([`crate::period::issue_tokens`]). See [`Finished`].
+/// Hands the claimed `checkout`'s period grant (`owed`: its drive, its months, its issue key)
+/// to its drive's vaults `tokens` - from then on any device of the drive issues its months, one
+/// a month - then takes the checkout off the list, its claim secret with it, and asks
+/// `server` (its own token server) for its first month. An issue request an older version kept
+/// in `store` moves into the vaults with the grant (it is sent again as it is). See
+/// [`Finished`].
 #[must_use]
 pub fn finish(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
     store: &PeriodTokenStore,
+    tokens: &DriveTokens,
     checkout: &PendingCheckout,
     owed: &PendingTokens,
+    now: u64,
 ) -> Finished {
     let id = checkout.checkout_id.as_str();
     let _lock = match shared.lock(&finish_lock(id)) {
@@ -875,13 +885,9 @@ pub fn finish(
         Ok(_) => {}
         Err(e) => return Finished::Kept(e.to_string()),
     }
-    // Done: its kept issue request goes, then the checkout leaves the list.
-    let done = |finished: Finished| {
-        let _ = store.forget_issue_request(id);
-        match settle(shared, id, Settled(SettledBy::Finished)) {
-            Ok(_) => finished,
-            Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
-        }
+    let done = |finished: Finished| match settle(shared, id, Settled(SettledBy::Finished)) {
+        Ok(_) => finished,
+        Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
     };
     // A grant no token server issues: nothing to wait for.
     let months_ok = usize::try_from(owed.months).is_ok_and(|m| (1..=MAX_BLINDED).contains(&m));
@@ -892,27 +898,45 @@ pub fn finish(
             owed.months
         )));
     }
-    match issue_tokens(server, store, &owed.grant(id), &checkout.tier, &owed.drive_id) {
-        Ok(tokens) => done(Finished::Issued {
-            drive_id: owed.drive_id.clone(),
-            count: tokens.len(),
+    if tokens.drive_id() != owed.drive_id {
+        return Finished::Kept(format!(
+            "its period tokens are for the drive {}, not {}",
+            owed.drive_id,
+            tokens.drive_id()
+        ));
+    }
+    let mut grant = VaultState::with_grant(VaultGrant::new(
+        id,
+        &checkout.tier,
+        owed.months,
+        &owed.issue_key,
+    ));
+    if let Ok(Some(older)) = store.issue_request(id) {
+        grant.issues.push(older);
+    }
+    if let Err(e) = tokens.join(&grant) {
+        return Finished::Kept(format!("its period grant could not be kept with the drive: {e}"));
+    }
+    // In the vaults now; a file left behind is joined in again, harmlessly.
+    let _ = store.forget_issue_request(id);
+    let drive_id = owed.drive_id.clone();
+    match issue_next(server, tokens, id, now) {
+        Ok(Issued::Tokens(issued)) => done(Finished::Issued {
+            drive_id,
+            count: issued.len(),
         }),
-        Err(TokenError::Refused { status, code, .. }) if code == "already_issued" => {
-            done(Finished::Dropped(format!(
-                "its period tokens were issued before (HTTP {status}): this device has none of \
-                 them - support can help"
-            )))
-        }
-        Err(TokenError::Refused { status: 403, .. }) => done(Finished::Dropped(String::from(
-            "the token server takes no issue key of this checkout (one from before period \
-             tokens): support can help with its months",
-        ))),
-        Err(TokenError::Refused { code, message, .. }) if code == "mandate_stopped" => {
-            done(Finished::Dropped(message))
-        }
-        Err(TokenError::Connect(why)) => {
-            Finished::Kept(format!("no answer from the token server: {why}"))
-        }
-        Err(e) => Finished::Kept(e.to_string()),
+        Ok(Issued::Ended(why)) => done(Finished::Dropped(why)),
+        Ok(Issued::NotDue { .. }) => done(Finished::Granted {
+            drive_id,
+            why: String::from("its first month is not due yet"),
+        }),
+        Err(TokenError::Connect(why)) => done(Finished::Granted {
+            drive_id,
+            why: format!("no answer from the token server: {why}"),
+        }),
+        Err(e) => done(Finished::Granted {
+            drive_id,
+            why: e.to_string(),
+        }),
     }
 }

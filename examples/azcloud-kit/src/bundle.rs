@@ -312,6 +312,11 @@ impl DriveBundle {
             secret_access_key: self.credentials.secret_access_key.clone(),
             session_token: self.credentials.session_token.clone(),
             expires_at: self.credentials.expires_at,
+            grant: if self.read_only || self.ban.is_some() {
+                crate::session::Grant::ReadOnly
+            } else {
+                crate::session::Grant::ReadWrite
+            },
         }
     }
 }

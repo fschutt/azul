@@ -18,8 +18,10 @@
 //! - [`cash`]: cash by post - the activation code a slip carries to the operator, the claim
 //!   code (AZK1) that picks a cash checkout's drive up on another computer.
 //! - [`period`]: a paid checkout's months as blind-signed period tokens (RFC 9474) - blinded
-//!   here, issued against the sealed sign-up's issue key, finalized, kept per drive until each
-//!   buys the drive a month.
+//!   here, issued against the sealed sign-up's issue key one month at a time, finalized, kept
+//!   per drive until each buys the drive a month.
+//! - [`vault`]: where a drive's period tokens and grants are kept - on this computer and in the
+//!   drive itself, encrypted with the drive key, so any device of the drive redeems them.
 //! - [`session`]: what an app keeps in the OS keyring for an Azlin drive (the drive token and
 //!   the current credentials, one JSON text that azul-storage also reads as plain
 //!   credentials).
@@ -112,6 +114,7 @@ pub mod token;
 pub mod transport;
 pub mod usage;
 pub mod user_errors;
+pub mod vault;
 
 #[cfg(test)]
 mod tests;
@@ -132,12 +135,12 @@ pub use pending::{
     Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, Settled, Transient,
 };
 pub use period::{
-    issue_tokens, look_at_drive, redeem_due, IssueRequest, Issuer, IssuerKey, Look, PeriodToken,
-    PeriodTokenStore, Redeemed,
+    issue_next, look_at_drive, redeem_due, Active, GrantChanged, IssueRequest, Issued, Issuer,
+    IssuerKey, Look, PeriodToken, PeriodTokenStore, Redeemed,
 };
 pub use recovery::RecoveryKey;
 pub use restore::{restore_bucket_as_of, restore_drive_as_of, BucketRestore, DriveRestore};
-pub use session::{AzlinSession, DriveToken};
+pub use session::{AzlinSession, DriveToken, Grant};
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::{
     Kept, PendingSpend, RefreshOutcome, Rotation, SharedKeyring, SpendLock, SpendOnce,
@@ -151,6 +154,9 @@ pub use token::{
 };
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
+pub use vault::{DriveTokens, TokenVault, VaultGrant, VaultState};
+#[cfg(feature = "encryption")]
+pub use vault::{DriveVault, UnlockedDrive};
 /// The secrets the kit hands out (a claim code's text) wipe their memory when dropped.
 pub use zeroize::Zeroizing;
 

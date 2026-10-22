@@ -126,11 +126,14 @@ pub enum Code {
     PayerRequired,
     /// The checkout was paid already (`checkout_paid`): its drive comes, nothing to cancel.
     CheckoutPaid,
+    /// A grant asked again whose first answer was used (`already_answered`): the request went
+    /// through before, nothing more to do.
+    AlreadyAnswered,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 30] = [
+    pub const ALL: [Code; 31] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -161,6 +164,7 @@ impl Code {
         Code::TierUnavailable,
         Code::PayerRequired,
         Code::CheckoutPaid,
+        Code::AlreadyAnswered,
     ];
 
     /// `quota_exceeded`, ...
@@ -195,6 +199,7 @@ impl Code {
             Code::TierUnavailable => "tier_unavailable",
             Code::PayerRequired => "payer_required",
             Code::CheckoutPaid => "checkout_paid",
+            Code::AlreadyAnswered => azlin_contract::ALREADY_ANSWERED,
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -533,6 +538,13 @@ pub const ROWS: &[Row] = &[
              bestelle noch einmal.",
     },
     Row {
+        code: Code::AlreadyAnswered,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This was already done: the earlier request went through.",
+        de: "Das wurde bereits erledigt: Die frühere Anfrage ist durchgegangen.",
+    },
+    Row {
         code: Code::CheckoutPaid,
         class: Class::Retry,
         behaviour: Behaviour::Nothing,
@@ -665,6 +677,7 @@ impl UserError {
                 let known = AzlinError::parse(code)
                     .map(Code::from)
                     .or_else(|| CheckoutRefusal::parse(code).map(|r| Code::from(&r)))
+                    .or_else(|| (code == azlin_contract::ALREADY_ANSWERED).then_some(Code::AlreadyAnswered))
                     .filter(|code| *code != Code::Other);
                 UserError::new(known.unwrap_or_else(|| busy_or_other(*status)), e.to_string())
             }

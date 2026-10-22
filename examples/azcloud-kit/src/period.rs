@@ -1,6 +1,7 @@
 //! A paid checkout's period tokens (AZLINSEC17 F24): the months it pays for, as blind-signed
 //! tokens the drive redeems one per month - the token server signs them without seeing them,
-//! so a redemption names no payment.
+//! so a redemption names no payment. A prepay's months are issued one a month (the contract's
+//! `IssueSchedule`), so a refund stops the months not issued yet.
 //!
 //! RFC 9474 RSABSSA-SHA384-PSS-Randomized, as the token server's `blind-rsa-signatures` does
 //! it: one issuer key per tier and year (`GET /v1/tokens/keys`, SPKI PEM, 2048 to 4096 bits).
@@ -11,13 +12,16 @@
 //!    salt) into `m`;
 //! 2. blinds `m` with a random `r` coprime to the modulus: `m * r^e mod n`, as many bytes as
 //!    the modulus, standard base64 - what `POST /v1/tokens/issue` takes, with the sealed
-//!    sign-up's issue key and the id of the key it was blinded for ([`issue_tokens`]); the
-//!    request is kept ([`IssueRequest`]) before it is sent: the token server answers the same
-//!    request with the same signatures, counted once, so a lost answer is asked for again;
+//!    sign-up's issue key and the id of the key it was blinded for ([`issue_next`]); the
+//!    request is kept ([`IssueRequest`], in the drive's vaults) before it is sent: the token
+//!    server answers the same request with the same signatures, counted once, so a lost answer
+//!    is asked for again - by any device of the drive;
 //! 3. finalizes each blind signature `z` into `z * r^-1 mod n` and checks it as an RSASSA-PSS
 //!    signature of `randomizer || message` ([`Issuer::finalize`]);
-//! 4. keeps the token ([`PeriodTokenStore`], one 0600 file per drive) until
-//!    `POST /v1/drives/{id}/redeem` takes it ([`TokenServer::redeem_period_token`]).
+//! 4. keeps the token in the drive's vaults ([`crate::vault`]: this computer's and the
+//!    drive's own) until `POST /v1/drives/{id}/redeem` takes it
+//!    ([`TokenServer::redeem_period_token`]) - a week before the period ends, from whichever
+//!    device looks first ([`look_at_drive`]).
 //!
 //! The token server counts what it signed: tokens that do not verify are months the app does
 //! not get (support: a voucher).
@@ -42,12 +46,14 @@ use rsa::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha384};
 
+use azlin_contract::{IssueRefusal, IssueSchedule};
+
 use crate::{
-    bundle::PeriodTokens,
     error::{CloudError, CloudResult, Context},
     shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
     token::{check_id, DriveStatus, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
+    vault::{DriveTokens, LocalVault, TokenVault, VaultGrant, VaultState},
 };
 
 /// What every token message starts with.
@@ -317,7 +323,7 @@ impl Issuer {
 }
 
 /// One blinded message of a kept [`IssueRequest`]: everything its finalization needs.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct KeptBlinding {
     nonce: String,
     /// Standard base64.
@@ -364,7 +370,7 @@ const ISSUE_REQUEST_FORMAT: u32 = 1;
 /// sent until its tokens are: the token server answers the same request (same key, messages and
 /// order) with the same signatures, counted once, so a lost answer is asked for again with it
 /// (AZDRIVE-INTEGRATION §4). `Debug` shows no blinding.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueRequest {
     format: u32,
     checkout_id: String,
@@ -416,6 +422,14 @@ impl IssueRequest {
         &self.checkout_id
     }
 
+    /// What names the request across devices: a hash of its checkout, its key and its blinded
+    /// messages in order - what the token server keeps its answer by.
+    #[must_use]
+    pub fn id(&self) -> String {
+        let what = format!("{}\n{}\n{}", self.checkout_id, self.key_id, self.messages().join(","));
+        hex(blake3::hash(what.as_bytes()).as_bytes())
+    }
+
     /// The issuer key the messages are blinded for (`<tier>/<year>`).
     #[must_use]
     pub fn key_id(&self) -> &str {
@@ -454,86 +468,226 @@ impl IssueRequest {
 /// How often one issue follows a changed issuer key before it gives up.
 const KEY_CHANGES: usize = 3;
 
-/// The period tokens a paid checkout's sign-up grants (`grant`), for the drive `drive_id` of
-/// `tier`, kept in `store` under the drive: the tier's issuer key (`GET /v1/tokens/keys`), one
-/// blinded message per month, kept as an [`IssueRequest`] BEFORE it is sent, then
-/// `POST /v1/tokens/issue` with the grant's issue key and the key's id, every signature
-/// finalized and checked, the tokens kept and the request forgotten. A request kept by an
-/// earlier try whose answer was lost is sent again as it is (no new keys, no new blinding): the
-/// token server answers it with the same signatures, counted once. A key that changed since the
-/// keys were read (`409 key_changed`, the year turned) gets the messages blinded anew.
+/// What [`issue_next`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Issued {
+    /// The next month's token, checked and kept in the drive's vaults (with the grant's new
+    /// schedule).
+    Tokens(Vec<PeriodToken>),
+    /// Nothing is due: the grant's next month comes from `next_issue_at` on (seconds since 1970;
+    /// `None`: every month is issued, or the grant ended).
+    NotDue { next_issue_at: Option<u64> },
+    /// The token server will never issue the rest (a reversed payment, a wrong issue key, every
+    /// month issued elsewhere): why, to be said once. The grant is marked ended in the vaults.
+    Ended(String),
+}
+
+/// What a final refusal of an issue means for the months not issued yet, in the user's words.
+#[must_use]
+pub fn ended_words(refusal: &IssueRefusal) -> String {
+    match refusal {
+        IssueRefusal::NotPaid => String::from(
+            "its payment was taken back (a refund or a chargeback): the months not issued yet \
+             end with it",
+        ),
+        IssueRefusal::MandateStopped => String::from(
+            "its payment mandate was stopped after payments went back: no more months come from it",
+        ),
+        IssueRefusal::AlreadyIssued => String::from(
+            "every month it paid for was issued already, to a request this computer does not \
+             hold - support can help",
+        ),
+        IssueRefusal::IssueKeyWrong => String::from(
+            "the token server takes no issue key of this checkout (one from before period \
+             tokens): support can help with its months",
+        ),
+        IssueRefusal::NoSuchCheckout => {
+            String::from("the token server no longer knows its checkout: support can help")
+        }
+        other => format!(
+            "the token server refuses its months ({}): support can help",
+            other.as_str()
+        ),
+    }
+}
+
+/// The next month of the grant of `checkout_id` kept in `tokens` (its drive's vaults), issued
+/// at `server` and kept there: an issue request of the grant kept in a vault - by this device or
+/// another one whose answer was lost, however long ago - is sent again as it is first (the
+/// token server answers it with the same signatures, counted once); else, when the grant's next
+/// month is due at `now`, one token message is blinded for the tier's issuer key, the request
+/// kept in the vaults BEFORE it is sent, and sent. A key that changed since the keys were read
+/// (`key_changed`, the year turned) gets the message blinded anew; `not_due` moves the grant's
+/// schedule; a final refusal ends the grant ([`Issued::Ended`]).
 ///
 /// # Errors
 ///
-/// [`TokenError::Config`] for no months or more than one call takes ([`MAX_BLINDED`]; nothing
-/// is sent), or a request or tokens that could not be kept; no answer (the request stays kept
-/// for the next try); the token server's refusals (`issue_key_wrong`, `already_issued`, ...);
-/// [`TokenError::Protocol`] when it names no key for the tier, answers with another key than
-/// the request named, or with something that does not verify.
-pub fn issue_tokens(
+/// No answer, a busy server, an answer that does not verify (the request stays kept for the
+/// next try); the vaults could not keep the request or the tokens ([`TokenError::Config`]);
+/// no such grant, or no issuer key named for its tier ([`TokenError::Protocol`]).
+pub fn issue_next(
     server: &TokenServer<'_>,
-    store: &PeriodTokenStore,
-    grant: &PeriodTokens,
-    tier: &str,
-    drive_id: &str,
-) -> Result<Vec<PeriodToken>, TokenError> {
-    let months = usize::try_from(grant.months).unwrap_or(usize::MAX);
-    if months == 0 || months > MAX_BLINDED {
-        return Err(TokenError::Config(format!(
-            "A checkout's period tokens are 1 to {MAX_BLINDED} months, not {}.",
-            grant.months
+    tokens: &DriveTokens,
+    checkout_id: &str,
+    now: u64,
+) -> Result<Issued, TokenError> {
+    let state = tokens.state().map_err(not_kept)?;
+    let Some(grant) = state.grant(checkout_id).cloned() else {
+        return Err(TokenError::Protocol(format!(
+            "the drive {} keeps no grant of the checkout {checkout_id}",
+            tokens.drive_id()
         )));
+    };
+    if let Some(why) = &grant.ended {
+        return Ok(Issued::Ended(why.clone()));
     }
-    let tier = tier.trim();
-    let fresh = |key: &IssuerKey| {
-        let request = IssueRequest::new(key, &grant.checkout_id, months)?;
-        store.keep_issue_request(&request).map_err(not_kept)?;
-        Ok::<IssueRequest, TokenError>(request)
-    };
-    let mut request = match store.issue_request(&grant.checkout_id) {
-        Ok(Some(kept)) if kept.blindings.len() == months && kept.tier == tier => kept,
-        _ => fresh(&issuer_key(server, tier, None)?)?,
-    };
+    // A request kept before its answer came: sent again as it is, whatever the schedule says.
+    for kept in state.open_issues(checkout_id) {
+        match send_kept(server, tokens, &grant, kept)? {
+            Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
+            Sent::Ended(why) => return Ok(Issued::Ended(why)),
+            // never signed (not due, a key that changed): given up, a fresh one below
+            Sent::NotDue | Sent::KeyChanged { .. } => {}
+        }
+    }
+    let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
+    if !grant.may_ask(now) {
+        return Ok(Issued::NotDue {
+            next_issue_at: grant.is_open().then_some(grant.next_issue_at).flatten(),
+        });
+    }
+    let mut key = issuer_key(server, &grant.tier, None)?;
     for _ in 0..KEY_CHANGES {
+        let request = IssueRequest::new(&key, checkout_id, 1)?;
+        let keep = VaultState {
+            issues: vec![request.clone()],
+            ..VaultState::default()
+        };
+        tokens.join(&keep).map_err(not_kept)?;
         let answer = server.issue_period_tokens(
-            &grant.checkout_id,
+            checkout_id,
             &grant.issue_key,
-            &request.key_id,
+            request.key_id(),
             &request.messages(),
         )?;
-        match answer {
-            IssueAnswer::Signed(signed) => {
-                if signed.key_id != request.key_id {
-                    return Err(TokenError::Protocol(format!(
-                        "the token server signed the period tokens with the issuer key {}, not \
-                         with {} they were blinded for",
-                        signed.key_id, request.key_id
-                    )));
-                }
-                let tokens = request.finalize(&signed.signatures)?;
-                store.add(drive_id, &tokens).map_err(not_kept)?;
-                // A request left behind is harmless: its checkout is done.
-                let _ = store.forget_issue_request(&grant.checkout_id);
-                return Ok(tokens);
+        match answered(tokens, &grant, &request, answer)? {
+            Sent::Tokens(issued) => return Ok(Issued::Tokens(issued)),
+            Sent::Ended(why) => return Ok(Issued::Ended(why)),
+            Sent::NotDue => {
+                let moved = tokens.state().map_err(not_kept)?;
+                let moved = moved.grant(checkout_id).unwrap_or(&grant);
+                return Ok(Issued::NotDue {
+                    next_issue_at: moved.is_open().then_some(moved.next_issue_at).flatten(),
+                });
             }
-            IssueAnswer::KeyChanged {
-                key_id,
-                public_key_pem,
-            } => {
-                let key = match public_key_pem {
-                    Some(pem) => issuer_key_named(tier, &key_id, pem)?,
-                    None => issuer_key(server, tier, Some(&key_id))?,
+            Sent::KeyChanged { key_id, key: named } => {
+                key = match named {
+                    Some(named) => named,
+                    None => issuer_key(server, &grant.tier, Some(&key_id))?,
                 };
-                request = fresh(&key)?;
             }
         }
     }
     Err(TokenError::Protocol(format!(
-        "the token server's issuer key for {tier} changed {KEY_CHANGES} times in one issue"
+        "the token server's issuer key for {} changed {KEY_CHANGES} times in one issue",
+        grant.tier
     )))
 }
 
-/// A request or tokens the store did not keep.
+/// What one sent issue request came to.
+enum Sent {
+    Tokens(Vec<PeriodToken>),
+    Ended(String),
+    /// Not signed, nothing counted: the month is not due (the grant's schedule moved on).
+    NotDue,
+    /// Not signed: the messages must be blinded for the key `key_id` (`key`: with its public
+    /// key, when the token server sent it).
+    KeyChanged { key_id: String, key: Option<IssuerKey> },
+}
+
+/// The kept issue request `kept` of `grant` sent again as it is.
+fn send_kept(
+    server: &TokenServer<'_>,
+    tokens: &DriveTokens,
+    grant: &VaultGrant,
+    kept: &IssueRequest,
+) -> Result<Sent, TokenError> {
+    let answer =
+        server.issue_period_tokens(&grant.checkout_id, &grant.issue_key, kept.key_id(), &kept.messages())?;
+    answered(tokens, grant, kept, answer)
+}
+
+/// Acts on `answer` to `request` of `grant`: the tokens finalized, checked and kept with the
+/// grant's new schedule and the request marked done; a refusal recorded (`not_due` moves the
+/// schedule, a final one ends the grant, an unsigned request is marked done); a busy server
+/// keeps the request for the next try (an error).
+fn answered(
+    tokens: &DriveTokens,
+    grant: &VaultGrant,
+    request: &IssueRequest,
+    answer: IssueAnswer,
+) -> Result<Sent, TokenError> {
+    let done = |grant: Option<VaultGrant>| VaultState {
+        grants: grant.into_iter().collect(),
+        done: vec![request.id()],
+        ..VaultState::default()
+    };
+    let scheduled = |schedule: &IssueSchedule| {
+        let mut moved = grant.clone();
+        moved.issued = schedule.issued;
+        moved.months = schedule.months;
+        moved.next_issue_at = schedule
+            .next_issue_at
+            .as_ref()
+            .and_then(|at| u64::try_from(at.unix()).ok());
+        moved
+    };
+    match answer {
+        IssueAnswer::Signed(signed) => {
+            if signed.key_id != request.key_id() {
+                return Err(TokenError::Protocol(format!(
+                    "the token server signed the period tokens with the issuer key {}, not with \
+                     {} they were blinded for",
+                    signed.key_id,
+                    request.key_id()
+                )));
+            }
+            let issued = request.finalize(&signed.signatures)?;
+            let mut change = done(Some(scheduled(&signed.schedule)));
+            change.tokens.clone_from(&issued);
+            tokens.join(&change).map_err(not_kept)?;
+            Ok(Sent::Tokens(issued))
+        }
+        IssueAnswer::Refused(IssueRefusal::NotDue { schedule }) => {
+            tokens.join(&done(Some(scheduled(&schedule)))).map_err(not_kept)?;
+            Ok(Sent::NotDue)
+        }
+        IssueAnswer::Refused(IssueRefusal::KeyChanged {
+            key_id,
+            public_key_pem,
+        }) => {
+            tokens.join(&done(None)).map_err(not_kept)?;
+            let key = public_key_pem
+                .map(|pem| issuer_key_named(&grant.tier, &key_id, pem))
+                .transpose()?;
+            Ok(Sent::KeyChanged { key_id, key })
+        }
+        IssueAnswer::Refused(refusal) if refusal.is_final() => {
+            let why = ended_words(&refusal);
+            let mut ended = grant.clone();
+            ended.ended = Some(why.clone());
+            tokens.join(&done(Some(ended))).map_err(not_kept)?;
+            Ok(Sent::Ended(why))
+        }
+        IssueAnswer::Refused(refusal) => Err(TokenError::Refused {
+            status: refusal.status(),
+            code: refusal.as_str().to_string(),
+            message: String::from("the token server could not issue the month now"),
+        }),
+    }
+}
+
+/// A request or tokens the vaults did not keep.
 fn not_kept(e: CloudError) -> TokenError {
     TokenError::Config(format!(
         "The period tokens' issue request or tokens could not be kept: {e}"
@@ -588,60 +742,127 @@ fn issuer_key_named(
 /// 30 days to the end - to tomorrow's start for a lapsed drive - so nothing is lost by it).
 pub const REDEEM_AHEAD_SECS: u64 = 7 * 86_400;
 
-/// The token server's refusals of a token that can never buy a month: it was redeemed before,
-/// it does not verify, it is too old, or its issuer key is gone. It is dropped.
+/// The token server's refusals of a token that can never buy a month: it was redeemed before
+/// (by another drive), it does not verify, it is too old, or its issuer key is gone. It is
+/// spent in the vaults.
 const USELESS: [&str; 4] = ["token_used", "bad_token", "token_expired", "unknown_issuer"];
+
+/// The most tokens one look redeems and the most months it issues: more than any period needs
+/// at once (a lapsed drive is bought a month from tomorrow, one token at a time).
+const MAX_ROUNDS: usize = 2 * MAX_BLINDED + 2;
 
 /// What [`redeem_due`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Redeemed {
-    /// No period token of the drive's tier is kept for it.
+    /// No period token of the drive's tier is kept for it, and no grant has a month due.
     Nothing,
     /// The period ends more than [`REDEEM_AHEAD_SECS`] from now (or the token server named no
     /// end, in seconds since 1970): the tokens wait.
     NotDue { period_until: Option<u64> },
-    /// `count` tokens bought a month each (used or useless ones were dropped on the way); the
+    /// `count` tokens bought a month each (used or useless ones were spent on the way); the
     /// period now ends at `period_until`.
     Extended {
         count: usize,
         period_until: Option<u64>,
     },
-    /// Nothing bought this time: why (no answer, a refusal, no session of the drive, the store).
-    /// The tokens stay for the next try.
+    /// The drive is banned: it cannot use a month, so none is bought (the tokens stay).
+    Banned,
+    /// Nothing bought this time: why (no answer, a refusal, no session of the drive, the
+    /// vaults). The tokens stay for the next try.
     Kept(String),
 }
 
-/// Buys `drive_id` its next month when its period nears its end: under the drive's lock, with
-/// its newest drive token ([`SharedKeyring::with_drive_token`]), the period's end is asked
+/// The drive is in good standing as its status says: the only state a month is bought in. A
+/// banned drive has none ([`Active::of`]).
+#[derive(Debug, Clone, Copy)]
+pub struct Active<'a> {
+    status: &'a DriveStatus,
+}
+
+impl<'a> Active<'a> {
+    /// `status` when the drive is not banned.
+    #[must_use]
+    pub fn of(status: &'a DriveStatus) -> Option<Active<'a>> {
+        status.ban.is_none().then_some(Active { status })
+    }
+
+    /// Its tier (`100GB`; empty when the token server named none).
+    #[must_use]
+    pub fn tier(&self) -> &'a str {
+        self.status.tier.as_deref().unwrap_or_default()
+    }
+
+    /// Paid until, in seconds since 1970.
+    #[must_use]
+    pub fn period_until(&self) -> Option<u64> {
+        self.status.period_until
+    }
+}
+
+/// Buys `tokens`' drive its next month when its period nears its end: under the drive's lock,
+/// with its newest drive token ([`SharedKeyring::with_drive_token`]), the period's end is asked
 /// (`GET /v1/drives/{id}`) and, within [`REDEEM_AHEAD_SECS`] of `now`, the oldest kept token of
-/// the drive's tier redeemed (`POST /v1/drives/{id}/redeem`) and taken out of `store` - again
-/// until the end is far enough. A token the server calls used or useless is dropped and the
-/// next one tried. Asks nothing when no token is kept for the drive.
+/// the drive's tier redeemed (`POST /v1/drives/{id}/redeem`) and spent in the vaults - again
+/// until the end is far enough. A drive that holds no token then gets the next month of a grant
+/// whose month is due ([`issue_next`]). A token the server calls used or useless is spent and
+/// the next one tried. Asks nothing when nothing is kept for the drive.
 #[must_use]
 pub fn redeem_due(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
-    store: &PeriodTokenStore,
-    drive_id: &str,
+    tokens: &DriveTokens,
     now: u64,
 ) -> Redeemed {
-    let kept = match store.tokens(drive_id) {
+    let kept = match tokens.state() {
         Ok(kept) => kept,
         Err(e) => return Redeemed::Kept(e.to_string()),
     };
-    if kept.is_empty() {
+    if !holds_months(&kept) {
         return Redeemed::Nothing;
     }
+    let drive_id = tokens.drive_id();
     shared
         .with_drive_token(drive_id, |token| match server.drive_status(drive_id, token) {
-            Ok(status) => redeem_with(server, store, drive_id, token, &kept, &status, now),
+            Ok(status) => match Active::of(&status) {
+                Some(active) => redeem_with(server, tokens, token, active, now),
+                None => Redeemed::Banned,
+            },
             Err(e) => Redeemed::Kept(e.to_string()),
         })
         .unwrap_or_else(|e| Redeemed::Kept(e.to_string()))
 }
 
+/// Whether a vault holds anything a month can come from: a token, or an open grant.
+fn holds_months(state: &VaultState) -> bool {
+    !state.tokens.is_empty() || state.grants.iter().any(VaultGrant::is_open)
+}
+
+/// The grant a month buys was changed by the token server (a redemption, a voucher): the
+/// drive's credentials may be read-only ones from before. [`crate::AzlinDrive::apply`] takes it
+/// and refreshes them before the next request; nothing else can make it, so a month bought is
+/// never followed by writes the node refuses.
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "the drive must refresh its credentials: AzlinDrive::apply"]
+pub struct GrantChanged {
+    drive_id: String,
+}
+
+impl GrantChanged {
+    /// The grant of `drive_id` changed (a voucher's answer, a redemption).
+    pub(crate) fn of(drive_id: &str) -> GrantChanged {
+        GrantChanged {
+            drive_id: drive_id.to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn drive_id(&self) -> &str {
+        &self.drive_id
+    }
+}
+
 /// What a look at a drive found ([`look_at_drive`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Look {
     /// The drive as the token server keeps it (after a redemption: with the new end); `None`
     /// when it could not be asked.
@@ -651,21 +872,25 @@ pub struct Look {
     /// [`crate::token::RECOVERY_MEMBER`] for a use of the recovery code), never itself; none at
     /// the first look, which learns them ([`PeriodTokenStore::see_members`]).
     pub new_members: Vec<String>,
+    /// A month was bought: the drive's credentials must follow ([`crate::AzlinDrive::apply`]).
+    pub grant_changed: Option<GrantChanged>,
 }
 
-/// A look at `drive_id`: under the drive's lock with its newest drive token, its status
-/// (`GET /v1/drives/{id}`: the period, a pending recovery-key lockdown, the members) whether or
-/// not tokens are kept for it, the members it had not seen, and - with kept tokens and the
-/// period due - [`redeem_due`]'s redemption in the same look.
+/// A look at `tokens`' drive: under the drive's lock with its newest drive token, its status
+/// (`GET /v1/drives/{id}`: the period, a pending recovery-key lockdown, the members, a ban)
+/// whether or not anything is kept for it, the members it had not seen (kept in `store`), and -
+/// with tokens or a grant kept, the period due and the drive in good standing - [`redeem_due`]'s
+/// redemption in the same look.
 #[must_use]
 pub fn look_at_drive(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
     store: &PeriodTokenStore,
-    drive_id: &str,
+    tokens: &DriveTokens,
     now: u64,
 ) -> Look {
-    let kept = store.tokens(drive_id).unwrap_or_default();
+    let drive_id = tokens.drive_id();
+    let kept = tokens.state();
     let looked = shared.with_drive_token(drive_id, |token| {
         let mut status = match server.drive_status(drive_id, token) {
             Ok(status) => status,
@@ -674,68 +899,101 @@ pub fn look_at_drive(
                     status: None,
                     redeemed: Redeemed::Kept(e.to_string()),
                     new_members: Vec::new(),
+                    grant_changed: None,
                 }
             }
         };
-        let redeemed = if kept.is_empty() {
-            Redeemed::Nothing
-        } else {
-            redeem_with(server, store, drive_id, token, &kept, &status, now)
+        let redeemed = match (&kept, Active::of(&status)) {
+            (Err(e), _) => Redeemed::Kept(e.to_string()),
+            (Ok(kept), _) if !holds_months(kept) => Redeemed::Nothing,
+            (Ok(_), None) => Redeemed::Banned,
+            (Ok(_), Some(active)) => redeem_with(server, tokens, token, active, now),
         };
-        if let Redeemed::Extended {
-            period_until: Some(until),
-            ..
-        } = &redeemed
-        {
-            status.period_until = Some(*until);
-        }
+        let grant_changed = match &redeemed {
+            Redeemed::Extended { period_until, .. } => {
+                if let Some(until) = period_until {
+                    status.period_until = Some(*until);
+                }
+                Some(GrantChanged::of(drive_id))
+            }
+            _ => None,
+        };
         // A members file that cannot be written names them again at the next look.
         let new_members = store.see_members(drive_id, &status).unwrap_or_default();
         Look {
             status: Some(status),
             redeemed,
             new_members,
+            grant_changed,
         }
     });
     looked.unwrap_or_else(|e| Look {
         status: None,
         redeemed: Redeemed::Kept(e.to_string()),
         new_members: Vec::new(),
+        grant_changed: None,
     })
 }
 
-/// [`redeem_due`] with the drive token `token` and the drive's `status`, the drive's lock
-/// held.
+/// [`redeem_due`] with the drive token `token` and the drive in good standing `active`, the
+/// drive's lock held: while the period is due, the oldest unspent token of the drive's tier is
+/// redeemed; with none left, the next month of a grant of the tier whose month is due is issued
+/// first.
 fn redeem_with(
     server: &TokenServer<'_>,
-    store: &PeriodTokenStore,
-    drive_id: &str,
+    tokens: &DriveTokens,
     token: &str,
-    kept: &[PeriodToken],
-    status: &DriveStatus,
+    active: Active<'_>,
     now: u64,
 ) -> Redeemed {
-    let tier = status.tier.as_deref().unwrap_or_default();
-    let mut period_until = status.period_until;
+    let drive_id = tokens.drive_id();
+    let tier = active.tier();
+    let mut period_until = active.period_until();
     let due =
         |until: Option<u64>| until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS));
     let mut count = 0;
-    for candidate in kept.iter().filter(|t| tier.is_empty() || t.tier == tier) {
+    let mut failed: Option<String> = None;
+    for _ in 0..MAX_ROUNDS {
         if !due(period_until) {
             break;
         }
-        match server.redeem_period_token(drive_id, token, candidate) {
+        let state = match tokens.state() {
+            Ok(state) => state,
+            Err(e) => {
+                failed = Some(e.to_string());
+                break;
+            }
+        };
+        let candidate = state
+            .tokens
+            .iter()
+            .find(|t| tier.is_empty() || t.tier == tier)
+            .cloned();
+        let Some(candidate) = candidate else {
+            // none kept: the next month of a grant of this tier, when one is due
+            match issue_for(server, tokens, &state, tier, now) {
+                Ok(true) => continue,
+                Ok(false) => break,
+                Err(e) => {
+                    failed = Some(e.to_string());
+                    break;
+                }
+            }
+        };
+        match server.redeem_period_token(drive_id, token, &candidate) {
             Ok(until) => {
-                // A token left behind is refused as used next time, and dropped then.
-                let _ = store.remove(drive_id, &candidate.nonce);
+                // A token not marked spent is answered again (the same month) and spent then.
+                let _ = tokens.spend(&candidate.nonce);
                 count += 1;
                 period_until = until;
             }
             Err(TokenError::Refused { code, .. }) if USELESS.contains(&code.as_str()) => {
-                let _ = store.remove(drive_id, &candidate.nonce);
+                let _ = tokens.spend(&candidate.nonce);
             }
-            Err(e) if count == 0 => return Redeemed::Kept(e.to_string()),
-            Err(_) => break,
+            Err(e) => {
+                failed = Some(e.to_string());
+                break;
+            }
         }
     }
     if count > 0 {
@@ -743,11 +1001,35 @@ fn redeem_with(
             count,
             period_until,
         }
+    } else if let Some(why) = failed {
+        Redeemed::Kept(why)
     } else if due(period_until) {
         Redeemed::Nothing
     } else {
         Redeemed::NotDue { period_until }
     }
+}
+
+/// Issues the next month of the first grant of `tier` (any tier when the server named none)
+/// whose month is due or that has a request waiting: whether a token came.
+fn issue_for(
+    server: &TokenServer<'_>,
+    tokens: &DriveTokens,
+    state: &VaultState,
+    tier: &str,
+    now: u64,
+) -> Result<bool, TokenError> {
+    let candidates = state.grants.iter().filter(|g| {
+        (tier.is_empty() || g.tier == tier)
+            && (g.may_ask(now) || (g.ended.is_none() && !state.open_issues(&g.checkout_id).is_empty()))
+    });
+    for grant in candidates {
+        match issue_next(server, tokens, &grant.checkout_id, now)? {
+            Issued::Tokens(issued) if !issued.is_empty() => return Ok(true),
+            Issued::Tokens(_) | Issued::NotDue { .. } | Issued::Ended(_) => {}
+        }
+    }
+    Ok(false)
 }
 
 // ==== RFC 9474 / RFC 8017 pieces ====
@@ -851,19 +1133,11 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 
 // ==== The tokens a device keeps ====
 
-/// What a drive's file holds.
-#[derive(Serialize, Deserialize)]
-struct StoredTokens {
-    format: u32,
-    tokens: Vec<PeriodToken>,
-}
-
-/// The format of a drive's file.
-const STORE_FORMAT: u32 = 1;
-
-/// The period tokens a device keeps until they are redeemed: one JSON file per drive
-/// (`<dir>/<drive id>.json`, readable by this user only, in a folder of its own). Not locked:
-/// the caller changes one drive's tokens from one place at a time.
+/// The period tokens a device keeps, in one folder (readable by this user only): each drive's
+/// vault on this computer (`<dir>/<drive id>.json`, [`LocalVault`]), the members it saw, and -
+/// from an older version - the issue requests it kept per checkout (`<dir>/issues/`). A drive's
+/// tokens are reached through [`PeriodTokenStore::for_drive`] (here and in the drive) or, for a
+/// drive whose key this device does not hold, [`PeriodTokenStore::on_this_device`].
 #[derive(Debug, Clone)]
 pub struct PeriodTokenStore {
     dir: PathBuf,
@@ -881,64 +1155,66 @@ impl PeriodTokenStore {
         &self.dir
     }
 
-    /// The file of `drive_id`'s tokens; refused for an id that is no drive id (it would name
-    /// another path).
+    /// The file of `drive_id`'s vault on this computer; refused for an id that is no drive id
+    /// (it would name another path).
     pub fn path_of(&self, drive_id: &str) -> CloudResult<PathBuf> {
         Ok(self.dir.join(format!("{}.json", check_id(drive_id)?)))
     }
 
-    /// `drive_id`'s tokens, oldest first; none without a file.
+    /// `drive_id`'s vault on this computer.
+    pub fn local(&self, drive_id: &str) -> CloudResult<LocalVault> {
+        Ok(LocalVault::new(&self.dir, self.path_of(drive_id)?, drive_id))
+    }
+
+    /// `drive`'s period tokens, kept on this computer and in the drive itself (encrypted with
+    /// its key): any device of the drive that holds the key redeems them and issues its next
+    /// months, whichever looks first. Tokens this computer kept before are joined into the
+    /// drive at the first look.
+    ///
+    /// # Errors
+    ///
+    /// An id that is no drive id.
+    #[cfg(feature = "encryption")]
+    pub fn for_drive(&self, drive: &crate::vault::UnlockedDrive) -> CloudResult<DriveTokens> {
+        let local = self.local(drive.drive_id())?;
+        let in_drive: std::sync::Arc<dyn TokenVault> =
+            std::sync::Arc::new(crate::vault::DriveVault::new(drive));
+        Ok(DriveTokens::new(drive.drive_id(), local, Some(in_drive)))
+    }
+
+    /// `drive_id`'s period tokens kept on this computer only: for a drive this device holds no
+    /// key of (a plain drive, one waiting for its join code). No other device can redeem them -
+    /// a drive with its key here goes through [`Self::for_drive`].
+    ///
+    /// # Errors
+    ///
+    /// An id that is no drive id.
+    pub fn on_this_device(&self, drive_id: &str) -> CloudResult<DriveTokens> {
+        Ok(DriveTokens::new(drive_id, self.local(drive_id)?, None))
+    }
+
+    /// `drive_id`'s tokens on this computer not spent, oldest first.
     pub fn tokens(&self, drive_id: &str) -> CloudResult<Vec<PeriodToken>> {
-        let path = self.path_of(drive_id)?;
-        Ok(read_json::<StoredTokens>(&path)?
-            .map(|stored| stored.tokens)
-            .unwrap_or_default())
+        Ok(self.local(drive_id)?.read()?.tokens)
     }
 
-    /// Adds `tokens` to `drive_id`'s (each nonce once); how many it keeps then.
+    /// Adds `tokens` to `drive_id`'s on this computer (each nonce once); how many it keeps then.
     pub fn add(&self, drive_id: &str, tokens: &[PeriodToken]) -> CloudResult<usize> {
-        let mut kept = self.tokens(drive_id)?;
-        for token in tokens {
-            if !kept.iter().any(|k| k.nonce == token.nonce) {
-                kept.push(token.clone());
-            }
-        }
-        self.write(drive_id, kept)
+        let kept = self.local(drive_id)?.join(&VaultState::with_tokens(tokens))?;
+        Ok(kept.tokens.len())
     }
 
-    /// Removes `drive_id`'s token with `nonce` (redeemed, or refused as used); whether it was
-    /// there. The file goes with the last one.
+    /// Spends `drive_id`'s token with `nonce` on this computer (redeemed, or refused as used);
+    /// whether it was kept unspent.
     pub fn remove(&self, drive_id: &str, nonce: &str) -> CloudResult<bool> {
-        let mut kept = self.tokens(drive_id)?;
-        let before = kept.len();
-        kept.retain(|k| k.nonce != nonce);
-        if kept.len() == before {
-            return Ok(false);
-        }
-        self.write(drive_id, kept)?;
-        Ok(true)
+        let local = self.local(drive_id)?;
+        let was = local.read()?.tokens.iter().any(|t| t.nonce == nonce);
+        local.join(&VaultState::with_spent(nonce))?;
+        Ok(was)
     }
 
-    fn write(&self, drive_id: &str, tokens: Vec<PeriodToken>) -> CloudResult<usize> {
-        let path = self.path_of(drive_id)?;
-        if tokens.is_empty() {
-            return match fs::remove_file(&path) {
-                Ok(()) => Ok(0),
-                Err(e) if e.kind() == ErrorKind::NotFound => Ok(0),
-                Err(e) => Err(e).context(path.display()),
-            };
-        }
-        create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
-        let count = tokens.len();
-        let stored = StoredTokens {
-            format: STORE_FORMAT,
-            tokens,
-        };
-        write_json(&path, &stored, true)?;
-        Ok(count)
-    }
-
-    /// The file of the checkout `checkout_id`'s kept issue request (`<dir>/issues/<id>.json`).
+    /// Where an older version kept the checkout `checkout_id`'s issue request
+    /// (`<dir>/issues/<id>.json`).
     pub fn issue_request_path(&self, checkout_id: &str) -> CloudResult<PathBuf> {
         Ok(self
             .dir
@@ -946,25 +1222,17 @@ impl PeriodTokenStore {
             .join(format!("{}.json", check_id(checkout_id)?)))
     }
 
-    /// The checkout `checkout_id`'s kept issue request; none without one (or of another format).
+    /// The issue request an older version kept for the checkout `checkout_id`; none without
+    /// one (or of another format). It moves into the drive's vaults when its checkout's grant
+    /// does ([`crate::pending::finish`]).
     pub fn issue_request(&self, checkout_id: &str) -> CloudResult<Option<IssueRequest>> {
         let path = self.issue_request_path(checkout_id)?;
         Ok(read_json::<IssueRequest>(&path)?
             .filter(|request| request.format == ISSUE_REQUEST_FORMAT))
     }
 
-    /// Keeps `request` (readable by this user only) until [`Self::forget_issue_request`].
-    pub fn keep_issue_request(&self, request: &IssueRequest) -> CloudResult<()> {
-        let path = self.issue_request_path(&request.checkout_id)?;
-        create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
-        if let Some(dir) = path.parent() {
-            create_private_dir(dir).with_context(|| dir.display().to_string())?;
-        }
-        write_json(&path, request, true)
-    }
-
-    /// Forgets the checkout `checkout_id`'s kept issue request (its tokens are kept, or it is
-    /// done without them).
+    /// Forgets the issue request an older version kept for `checkout_id` (it is in the drive's
+    /// vaults now).
     pub fn forget_issue_request(&self, checkout_id: &str) -> CloudResult<()> {
         let path = self.issue_request_path(checkout_id)?;
         match fs::remove_file(&path) {

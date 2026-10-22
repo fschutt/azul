@@ -533,6 +533,7 @@ pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring 
         secret_access_key: String::from("secret"),
         session_token: None,
         expires_at: Some(NOW + 3600),
+        grant: crate::Grant::ReadWrite,
     };
     keyring
         .set(&keyring_key("d_1"), &session.to_keyring_secret())

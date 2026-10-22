@@ -78,6 +78,26 @@ impl<'de> Deserialize<'de> for DriveToken {
     }
 }
 
+/// What a session's credentials allow, as the refresh that made them said. Credentials made
+/// while the drive took no writes stay read-only for their 12 hours, also after a payment made
+/// the drive writable again: a [`crate::GrantChanged`] makes the drive refresh them first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Grant {
+    #[default]
+    ReadWrite,
+    /// The drive took no writes when they were made (unpaid past its grace, a pending
+    /// recovery lockdown, a ban).
+    ReadOnly,
+}
+
+impl Grant {
+    #[must_use]
+    pub fn is_read_write(&self) -> bool {
+        *self == Grant::ReadWrite
+    }
+}
+
 /// The keyring's text of an Azlin drive. `Debug` shows no secret; no `Clone` (its drive token
 /// has none): read it again from the keyring.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +112,9 @@ pub struct AzlinSession {
     /// expire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
+    /// What the credentials allow (an entry of an older version: read-write).
+    #[serde(default, skip_serializing_if = "Grant::is_read_write")]
+    pub grant: Grant,
 }
 
 impl fmt::Debug for AzlinSession {
@@ -101,6 +124,7 @@ impl fmt::Debug for AzlinSession {
             .field("drive_token", &"<hidden>")
             .field("credentials", &"<hidden>")
             .field("expires_at", &self.expires_at)
+            .field("grant", &self.grant)
             .finish()
     }
 }

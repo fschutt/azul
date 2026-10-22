@@ -132,6 +132,7 @@ fn a_recovering_drives_entry_reads_back_its_drive_token_alone() {
         secret_access_key: String::new(),
         session_token: None,
         expires_at: Some(0),
+        grant: crate::Grant::ReadWrite,
     };
     let secret = pending.to_keyring_secret();
     assert!(
