@@ -3122,6 +3122,63 @@ mod auto_dismiss_and_stack_tests {
             .all(|cb| cb.event != EventFilter::Component(ComponentEventFilter::AfterMount))));
     }
 
+    /// How many auto-dismissing cards mount (and start their clock) when a
+    /// window's stack goes from `old` to `new` toasts.
+    fn clocks_started(old: &[(&str, ToastKind)], new: &[(&str, ToastKind)]) -> usize {
+        use azul_core::{
+            diff::reconcile_dom, events::EventType, styled_dom::NodeHierarchyItem,
+            task::Instant, OrderedMap,
+        };
+        let stack = |toasts: &[(&str, ToastKind)]| {
+            let mut stack = ToastStack::create();
+            for (text, kind) in toasts {
+                stack.add_toast(Toast::with_kind(AzString::from(*text), *kind).with_auto_dismiss(3200));
+            }
+            StyledDom::create_from_dom(stack.dom())
+        };
+        let (old, new) = (stack(old), stack(new));
+        let old_h: Vec<NodeHierarchyItem> = old.node_hierarchy.as_ref().to_vec();
+        let new_h: Vec<NodeHierarchyItem> = new.node_hierarchy.as_ref().to_vec();
+        let diff = reconcile_dom(
+            old.node_data.as_ref(),
+            new.node_data.as_ref(),
+            &old_h,
+            &new_h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        diff.events
+            .iter()
+            .filter(|e| e.event_type == EventType::Mount)
+            .count()
+    }
+
+    /// A card's clock follows what it says: a toast whose words changed in
+    /// place ("Copying" became "Copied") starts its own time on screen, a new
+    /// toast that takes a leaving one's place starts its clock, and a rebuild
+    /// that changed no toast starts none.
+    #[test]
+    fn a_toast_that_changed_or_took_another_ones_place_starts_its_clock() {
+        use ToastKind::{Info, Success};
+        assert_eq!(
+            clocks_started(&[("Copying a.txt", Info)], &[("Copied 1 item", Success)]),
+            1,
+            "the notice that changed in place"
+        );
+        assert_eq!(
+            clocks_started(&[("a", Info), ("b", Info), ("c", Info)], &[("b", Info), ("c", Info), ("d", Info)]),
+            1,
+            "the newest toast, though the stack's three places were all taken before"
+        );
+        assert_eq!(
+            clocks_started(&[("a", Info), ("b", Info)], &[("a", Info), ("b", Info)]),
+            0,
+            "an unchanged stack"
+        );
+    }
+
     /// The messages of the toasts a stack shows, top to bottom.
     fn shown(stack: ToastStack) -> Vec<String> {
         let dom = stack.dom();
