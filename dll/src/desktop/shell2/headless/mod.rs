@@ -13328,6 +13328,10 @@ mod tests {
     // A click that rebuilds the page lays it out once (`tests/click_cost.rs`).
     mod click_cost;
 
+    // A file drop is one event, a drag move one hover, however many passes they cost
+    // (`tests/file_drop.rs`).
+    mod file_drop;
+
     // A layout pass rebuilds the CPU hit tester once (`tests/one_hit_tester.rs`).
     mod one_hit_tester;
 
