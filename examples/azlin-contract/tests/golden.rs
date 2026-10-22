@@ -417,3 +417,75 @@ fn every_checkout_refusal_reads_and_writes_its_fixture() {
         .collect();
     golden("checkout_refusals.json", &rows);
 }
+
+mod period {
+    use azlin_contract::{IssueAnswer, IssueRefusal, IssueSchedule, Rfc3339};
+
+    use super::golden;
+
+    fn at(text: &str) -> Rfc3339 {
+        Rfc3339::parse(text).expect("time")
+    }
+
+    #[test]
+    fn the_issue_answers_read_and_write_their_fixture() {
+        let answers = vec![
+            IssueAnswer {
+                tier: "100GB".into(),
+                key_id: "100GB/2026".into(),
+                public_key_pem: Some("-----BEGIN PUBLIC KEY-----\n...\n".into()),
+                blind_signatures: vec!["c2ln".into()],
+                schedule: IssueSchedule {
+                    months: 12,
+                    issued: 1,
+                    next_issue_at: Some(at("2026-11-21T08:00:00Z")),
+                },
+            },
+            IssueAnswer {
+                tier: "1TB".into(),
+                key_id: "1TB/2026".into(),
+                public_key_pem: None,
+                blind_signatures: vec!["c2ln".into()],
+                schedule: IssueSchedule {
+                    months: 1,
+                    issued: 1,
+                    next_issue_at: None,
+                },
+            },
+        ];
+        golden("issue_answers.json", &answers);
+    }
+
+    #[test]
+    fn every_issue_refusal_reads_and_writes_its_fixture() {
+        let refusals = vec![
+            IssueRefusal::BadRequest,
+            IssueRefusal::IssueKeyRequired,
+            IssueRefusal::KeyIdRequired,
+            IssueRefusal::IssueKeyWrong,
+            IssueRefusal::NoSuchCheckout,
+            IssueRefusal::NotPaid,
+            IssueRefusal::MandateStopped,
+            IssueRefusal::AlreadyIssued,
+            IssueRefusal::NotDue {
+                schedule: IssueSchedule {
+                    months: 3,
+                    issued: 1,
+                    next_issue_at: Some(at("2026-11-21T08:00:00Z")),
+                },
+            },
+            IssueRefusal::KeyChanged {
+                key_id: "100GB/2027".into(),
+                public_key_pem: Some("-----BEGIN PUBLIC KEY-----\n...\n".into()),
+            },
+            IssueRefusal::KeyChanged {
+                key_id: "100GB/2027".into(),
+                public_key_pem: None,
+            },
+            IssueRefusal::IssuerKeyMissing,
+            IssueRefusal::TryAgain,
+            IssueRefusal::Unavailable,
+        ];
+        golden("issue_refusals.json", &refusals);
+    }
+}

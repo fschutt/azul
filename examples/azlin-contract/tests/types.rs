@@ -310,3 +310,66 @@ mod checkout {
         assert_eq!(answer.months_paid, Some(12));
     }
 }
+
+mod period {
+    use azlin_contract::{IssueRefusal, IssueSchedule, Rfc3339, INSTALMENT_SECS};
+
+    const APPROVED: i64 = 1_791_255_600;
+
+    #[test]
+    fn a_prepay_is_issued_one_month_at_a_time_from_its_approval() {
+        assert_eq!(INSTALMENT_SECS, 30 * 86_400);
+        assert_eq!(IssueSchedule::due_by(12, APPROVED, APPROVED), 1, "the first at once");
+        let day = 86_400;
+        assert_eq!(IssueSchedule::due_by(12, APPROVED, APPROVED + 29 * day), 1);
+        assert_eq!(IssueSchedule::due_by(12, APPROVED, APPROVED + 30 * day), 2);
+        assert_eq!(IssueSchedule::due_by(12, APPROVED, APPROVED + 95 * day), 4);
+        assert_eq!(IssueSchedule::due_by(3, APPROVED, APPROVED + 400 * day), 3, "never more than paid");
+        assert_eq!(IssueSchedule::due_by(3, APPROVED, APPROVED - day), 1, "a clock behind");
+        let mid = IssueSchedule::at(12, 2, APPROVED);
+        assert_eq!(mid.next_issue_at, Some(Rfc3339::from_unix(APPROVED + 2 * INSTALMENT_SECS)));
+        assert!(!mid.is_complete());
+        assert!(mid.may_ask(APPROVED + 2 * INSTALMENT_SECS));
+        assert!(!mid.may_ask(APPROVED + 2 * INSTALMENT_SECS - 1));
+        let done = IssueSchedule::at(3, 3, APPROVED);
+        assert_eq!(done.next_issue_at, None);
+        assert!(done.is_complete());
+        assert!(!done.may_ask(APPROVED + 400 * day));
+    }
+
+    #[test]
+    fn an_issue_refusal_says_whether_asking_again_can_ever_help() {
+        let read = |body: &str| -> IssueRefusal { serde_json::from_str(body).expect("reads") };
+        // a reversed payment, a wrong key, a checkout gone, all months out: never
+        for word in [
+            "not_paid",
+            "issue_key_wrong",
+            "no_such_checkout",
+            "already_issued",
+            "mandate_stopped",
+            "issue_key_required",
+            "key_id_required",
+            "bad_request",
+        ] {
+            let refusal = read(&format!(r#"{{"error":"{word}","message":"why"}}"#));
+            assert!(refusal.is_final(), "{word} ends the grant");
+            assert_eq!(refusal.as_str(), word);
+        }
+        // later, blinded anew, or a server that is busy or newer: asked again
+        let not_due = read(
+            r#"{"error":"not_due","message":"m","schedule":{"months":3,"issued":1,"next_issue_at":"2026-11-21T08:00:00Z"}}"#,
+        );
+        assert!(!not_due.is_final());
+        assert_eq!(not_due.status(), 409);
+        let changed = read(r#"{"error":"key_changed","key_id":"100GB/2027","public_key_pem":null}"#);
+        assert!(!changed.is_final());
+        for word in ["issuer_key_missing", "try_again", "unavailable", "a_new_word"] {
+            assert!(!read(&format!(r#"{{"error":"{word}"}}"#)).is_final(), "{word}");
+        }
+        assert_eq!(read(r#"{"error":"a_new_word"}"#), IssueRefusal::Unknown);
+        assert_eq!(IssueRefusal::NotPaid.status(), 409);
+        assert_eq!(IssueRefusal::IssueKeyWrong.status(), 403);
+        assert_eq!(IssueRefusal::NoSuchCheckout.status(), 404);
+        assert_eq!(IssueRefusal::TryAgain.status(), 503);
+    }
+}
