@@ -82,6 +82,10 @@ static TOAST_STACK_CLASS: &[IdOrClass] =
 /// The room between two stacked toasts, in px.
 const TOAST_STACK_GAP: isize = 6;
 
+/// The first part of a toast card's reconciliation key (the rest is what the
+/// toast says), so it never equals another widget's key.
+const TOAST_CARD_KEY: &str = "azul-toast-card";
+
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 pub(crate) const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
@@ -1046,6 +1050,13 @@ impl Toast {
             None => (skin.container)(self.kind),
         };
 
+        // The card's identity across rebuilds is what it says: a toast whose
+        // words or kind changed in place (an app's "Copying..." that became
+        // "Copied") is a new card, mounts and starts its own clock, while an
+        // unchanged toast keeps its card and its clock. Without the key the
+        // reconciler paired cards by their place in the stack, so a new toast
+        // that took an old one's place never mounted and never left.
+        let identity = (TOAST_CARD_KEY, self.message.clone(), self.kind as u8, self.auto_dismiss_ms);
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
             .with_css_props(skin.message);
@@ -1118,7 +1129,8 @@ impl Toast {
         let card = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
-            .with_children(children.into());
+            .with_children(children.into())
+            .with_key(identity);
         if self.auto_dismiss_ms == 0 {
             return card;
         }
