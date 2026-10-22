@@ -145,14 +145,16 @@ fn main() {
         // --release -p azul-dll --features build-dll` puts libazul there).
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let workspace_root = Path::new(&manifest_dir).parent().unwrap().to_path_buf();
-        configure_dynamic_linking(
-            &target,
-            &workspace_root,
-            &[
-                workspace_root.join("target/release"),
-                workspace_root.join("target/debug"),
-            ],
-        );
+        // `target/azul-lib` is where the README copies a built library for apps to
+        // link; with a shared CARGO_TARGET_DIR (worktrees) that folder lives there,
+        // not under this checkout.
+        let mut candidates = vec![workspace_root.join("target/azul-lib")];
+        if let Ok(shared) = env::var("CARGO_TARGET_DIR") {
+            candidates.push(workspace_root.join(shared).join("azul-lib"));
+        }
+        candidates.push(workspace_root.join("target/release"));
+        candidates.push(workspace_root.join("target/debug"));
+        configure_dynamic_linking(&target, &workspace_root, &candidates);
     }
 
     // Restrict the cdylib's exported symbols to the azul C API. Without this
