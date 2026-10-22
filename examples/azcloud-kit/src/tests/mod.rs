@@ -18,6 +18,8 @@ mod encryption;
 mod endpoints;
 mod failover;
 mod fake_s3;
+/// Grants whose answer was lost: the lockdown and a pick-up's claim asked again.
+mod grants;
 mod hello;
 mod lane;
 mod lock;
