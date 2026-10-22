@@ -283,7 +283,7 @@ fn a_cash_checkout_names_its_method_and_claim_key_and_no_provider() {
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let claim = ClaimKey::generate().unwrap();
-    let (checkout, answer) = server.checkout_cash("100GB", 12, "de", true, &claim).unwrap();
+    let (checkout, answer) = server.checkout_cash("100GB", 12, "de", true, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(checkout.checkout_id, CODE_CHECKOUT);
     assert_eq!(checkout.amount_cents, 1188);
     assert_eq!(answer["status"], "awaiting_cash");

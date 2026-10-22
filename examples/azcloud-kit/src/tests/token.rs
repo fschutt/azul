@@ -193,7 +193,7 @@ fn a_checkout_names_its_claim_key_and_its_status_opens_the_sealed_signup_every_t
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
 
-    let started = server.checkout("100GB", 12, "sepa", &claim).unwrap();
+    let started = server.checkout("100GB", 12, "sepa", &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_1");
     assert_eq!(started.pay_url, "http://127.0.0.1:18081/v1/pay/ck_1");
     assert_eq!(started.amount_cents, 990);
@@ -655,7 +655,7 @@ fn a_checkout_through_a_provider_names_it_and_answers_its_surface() {
         withdrawal_consent: true,
         payer: &[],
     };
-    let (started, answer) = server.checkout_via("1TB", 12, &via, &claim).unwrap();
+    let (started, answer) = server.checkout_via("1TB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_9");
     assert_eq!(started.amount_cents, 4990);
     assert_eq!(started.months, 12);
@@ -698,14 +698,14 @@ fn a_checkout_sends_the_payers_details_only_for_a_method_that_asks_the_app() {
         withdrawal_consent: true,
         payer: &asked,
     };
-    server.checkout_via("100GB", 1, &via, &claim).unwrap();
+    server.checkout_via("100GB", 1, &via, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     let body: serde_json::Value = serde_json::from_slice(&fake.calls()[0].body).unwrap();
     assert_eq!(
         body["payer"],
         serde_json::json!({"name": "Ana Souza", "national_id": "123.456.789-09"})
     );
     let anonymous = CheckoutVia { payer: &[], ..via };
-    server.checkout_via("100GB", 1, &anonymous, &claim).unwrap();
+    server.checkout_via("100GB", 1, &anonymous, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     let body: serde_json::Value = serde_json::from_slice(&fake.calls()[1].body).unwrap();
     assert!(body.get("payer").is_none(), "nothing of the payer for a method that asks nothing");
 }
@@ -730,14 +730,14 @@ fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
     });
     let transport = Shared(without_page);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let (started, _) = server.checkout_via("100GB", 12, &via, &claim).unwrap();
+    let (started, _) = server.checkout_via("100GB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive).unwrap();
     assert_eq!(started.checkout_id, "ck_10");
     assert_eq!(started.months, 12, "the months asked for when the answer names none");
     let without_id = Fake::new(|_, _| Ok(json(201, r#"{"surface": {"kind": "browser"}}"#)));
     let transport = Shared(without_id);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        server.checkout_via("100GB", 12, &via, &claim),
+        server.checkout_via("100GB", 12, &via, &claim, crate::token::CheckoutFor::NewDrive),
         Err(TokenError::Protocol(_))
     ));
 }

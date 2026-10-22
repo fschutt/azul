@@ -66,7 +66,8 @@ mod recovery;
 mod refresh;
 
 pub use checkout::{
-    Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, Tiers, VoucherRedeemed,
+    Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, Tiers,
+    VoucherRedeemed,
 };
 pub use members::ClaimedFamily;
 pub use period::{BlindSignatures, IssueAnswer, MAX_BLINDED};

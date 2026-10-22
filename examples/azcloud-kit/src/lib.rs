@@ -135,8 +135,9 @@ pub use pending::{
     Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, Settled, Transient,
 };
 pub use period::{
-    issue_next, look_at_drive, redeem_due, Active, GrantChanged, IssueRequest, Issued, Issuer,
-    IssuerKey, Look, PeriodToken, PeriodTokenStore, Redeemed,
+    change_due, issue_next, look_at_drive, redeem_due, reminder_due, Active, GrantChanged,
+    IssueRequest, Issued, Issuer, IssuerKey, Look, PeriodToken, PeriodTokenStore, Redeemed,
+    Reminder, TierChanged,
 };
 pub use recovery::RecoveryKey;
 pub use restore::{restore_bucket_as_of, restore_drive_as_of, BucketRestore, DriveRestore};
@@ -148,13 +149,14 @@ pub use shared::{
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    Ban, BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, ClaimedFamily, DriveStatus,
+    Ban, BlindSignatures, Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, ClaimedFamily,
+    DriveStatus,
     FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
     TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
-pub use vault::{DriveTokens, TokenVault, VaultGrant, VaultState};
+pub use vault::{DriveTokens, RenewalLock, TokenVault, VaultGrant, VaultState};
 #[cfg(feature = "encryption")]
 pub use vault::{DriveVault, UnlockedDrive};
 /// The secrets the kit hands out (a claim code's text) wipe their memory when dropped.

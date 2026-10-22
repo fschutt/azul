@@ -176,6 +176,37 @@ pub struct Checkout {
     pub currency: String,
     /// The token server's own test provider takes the payment (a development server).
     pub mock: bool,
+    /// The signed price ladder version it locks (the answer's `lock.version`), when said.
+    pub ladder_version: Option<u64>,
+}
+
+/// What a checkout buys: a new drive, the next months of a drive under its price lock, or
+/// period tokens only - for a drive without a lock, or to move a drive to another tier
+/// (`upgrade`: a bigger one, which the token server sells only while its capacity has room).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckoutFor<'a> {
+    NewDrive,
+    Renewal(&'a crate::vault::RenewalLock),
+    PeriodTokens { upgrade: bool },
+}
+
+impl CheckoutFor<'_> {
+    /// Its fields of the checkout's body.
+    fn add_to(&self, body: &mut Value) {
+        match self {
+            CheckoutFor::NewDrive => {}
+            CheckoutFor::Renewal(lock) => {
+                body["renews"] = json!({
+                    "checkout_id": lock.checkout_id.trim(),
+                    "issue_key": lock.issue_key.trim(),
+                });
+            }
+            CheckoutFor::PeriodTokens { upgrade } => {
+                body["grant"] = json!("period_tokens");
+                body["upgrade"] = json!(upgrade);
+            }
+        }
+    }
 }
 
 /// What `GET /v1/checkout/options` is asked for (CHECKOUT-PLAN §3.11): the tier, the months
@@ -238,9 +269,9 @@ pub enum CheckoutStatus {
     /// Paid, and the sealed sign-up does not open with the claim key (sealed to another key,
     /// or for another checkout) or holds no drive: why.
     Unopenable(String),
-    /// Paid, and the sign-up is a renewal's (months for a drive that exists, no new drive):
-    /// claimed by the renewal, not here.
-    Renewal,
+    /// Paid, and the sign-up holds months for a drive that exists, no new drive (a renewal, a
+    /// tier change): claimed for the drive its checkout was made for.
+    Renewal(Box<azlin_contract::RenewalSignup>),
     /// A status this app does not know (a newer token server): the status word.
     Unknown(String),
 }
@@ -275,6 +306,7 @@ fn checkout_of(value: &Value, months: u32) -> Checkout {
         amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
         currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
         mock: value["mock"].as_bool().unwrap_or(false),
+        ladder_version: value["lock"]["version"].as_u64(),
     }
 }
 
@@ -315,13 +347,15 @@ impl<'a> TokenServer<'a> {
         months: u32,
         method: &str,
         claim: &ClaimKey,
+        grant: CheckoutFor<'_>,
     ) -> Result<Checkout, TokenError> {
-        let body = json!({
+        let mut body = json!({
             "tier": tier.trim(),
             "months": months,
             "method": method.trim(),
             "claim_key": claim.public_base64(),
         });
+        grant.add_to(&mut body);
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() || checkout.pay_url.is_empty() {
@@ -366,6 +400,7 @@ impl<'a> TokenServer<'a> {
         months: u32,
         via: &CheckoutVia<'_>,
         claim: &ClaimKey,
+        grant: CheckoutFor<'_>,
     ) -> Result<(Checkout, Value), TokenError> {
         let mut body = json!({
             "tier": tier.trim(),
@@ -387,6 +422,7 @@ impl<'a> TokenServer<'a> {
                 .collect();
             body["payer"] = Value::Object(payer);
         }
+        grant.add_to(&mut body);
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() {
@@ -411,8 +447,9 @@ impl<'a> TokenServer<'a> {
         vat_country: &str,
         withdrawal_consent: bool,
         claim: &ClaimKey,
+        grant: CheckoutFor<'_>,
     ) -> Result<(Checkout, Value), TokenError> {
-        let body = json!({
+        let mut body = json!({
             "tier": tier.trim(),
             "months": months,
             "method": crate::cash::CASH_METHOD,
@@ -420,12 +457,27 @@ impl<'a> TokenServer<'a> {
             "withdrawal_consent": withdrawal_consent,
             "claim_key": claim.public_base64(),
         });
+        grant.add_to(&mut body);
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
         let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
         }
         Ok((checkout, value))
+    }
+
+    /// Ends the monthly plan of `checkout_id` (`POST /v1/checkout/{id}/cancel {"issue_key"}`,
+    /// the cancel button of § 312k BGB): no more payments; the months paid stay and are still
+    /// issued.
+    ///
+    /// # Errors
+    ///
+    /// No answer, or the token server's refusal (`not_recurring`, `issue_key_wrong`).
+    pub fn cancel_plan(&self, checkout_id: &str, issue_key: &str) -> Result<(), TokenError> {
+        let path = format!("/v1/checkout/{}/cancel", check_id(checkout_id.trim())?);
+        let body = json!({ "issue_key": issue_key.trim() });
+        self.call_or_null(Method::Post, &path, None, Some(&body))?;
+        Ok(())
     }
 
     /// The checkout `checkout_id` on another surface (`POST /v1/checkout/{id}/surface`, the
@@ -607,11 +659,10 @@ fn opened(claim: &ClaimKey, checkout_id: &str, sealed: &str) -> CheckoutStatus {
         Ok(signup) => signup,
         Err(e) => return CheckoutStatus::Unopenable(e.to_string()),
     };
-    // A renewal's sign-up adds months to a drive that exists: it holds no drive to open.
-    let renewal = serde_json::from_str::<Value>(&signup)
-        .is_ok_and(|v| v.get("renewal_of").is_some_and(|r| !r.is_null()));
-    if renewal {
-        return CheckoutStatus::Renewal;
+    // A renewal's or a tier change's sign-up adds months to a drive that exists: it holds no
+    // drive to open.
+    if let Ok(renewal) = serde_json::from_str::<azlin_contract::RenewalSignup>(&signup) {
+        return CheckoutStatus::Renewal(Box::new(renewal));
     }
     match DriveBundle::parse(&signup) {
         Ok(bundle) => CheckoutStatus::Approved(Box::new(bundle)),

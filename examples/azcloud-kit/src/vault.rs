@@ -55,6 +55,15 @@ pub struct VaultGrant {
     /// Why the token server issues no more of it (a final refusal), once it said so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<String>,
+    /// A monthly plan: each payment adds a month to `months`, issued with the same key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recurring: bool,
+    /// Bought to move the drive to its tier ([`crate::period::change_due`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub change_tier: bool,
+    /// The drive was moved to its tier: its months are the drive's like any other.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub changed: bool,
 }
 
 impl fmt::Debug for VaultGrant {
@@ -67,6 +76,9 @@ impl fmt::Debug for VaultGrant {
             .field("issued", &self.issued)
             .field("next_issue_at", &self.next_issue_at)
             .field("ended", &self.ended)
+            .field("recurring", &self.recurring)
+            .field("change_tier", &self.change_tier)
+            .field("changed", &self.changed)
             .finish()
     }
 }
@@ -83,13 +95,23 @@ impl VaultGrant {
             issued: 0,
             next_issue_at: None,
             ended: None,
+            recurring: false,
+            change_tier: false,
+            changed: false,
         }
     }
 
-    /// Months may still come: not every one issued, and no final refusal.
+    /// Months may still come: no final refusal, and a month not issued yet or a next one
+    /// scheduled (a monthly plan paid up waits for its next payment).
     #[must_use]
     pub fn is_open(&self) -> bool {
-        self.ended.is_none() && self.issued < self.months
+        self.ended.is_none() && (self.issued < self.months || self.next_issue_at.is_some())
+    }
+
+    /// A move to its tier that has not happened yet.
+    #[must_use]
+    pub fn changes_tier(&self) -> bool {
+        self.change_tier && !self.changed
     }
 
     /// Whether its next month may be asked for at `now`.
@@ -98,7 +120,8 @@ impl VaultGrant {
         self.is_open() && self.next_issue_at.is_none_or(|at| at <= now)
     }
 
-    /// `other`'s word on the same grant joined in: the furthest schedule, an end either saw.
+    /// `other`'s word on the same grant joined in: the furthest schedule, the most months (a
+    /// monthly plan's grow), an end or a change either saw.
     fn join(&mut self, other: &VaultGrant) {
         if other.issued > self.issued
             || (other.issued == self.issued && other.next_issue_at > self.next_issue_at)
@@ -106,9 +129,46 @@ impl VaultGrant {
             self.issued = other.issued;
             self.next_issue_at = other.next_issue_at;
         }
+        self.months = self.months.max(other.months);
         if self.ended.is_none() {
             self.ended.clone_from(&other.ended);
         }
+        self.recurring |= other.recurring;
+        self.change_tier |= other.change_tier;
+        self.changed |= other.changed;
+    }
+}
+
+/// A paid checkout of the drive as the price lock of its next renewal (`renews`: the token
+/// server keeps that checkout's price for one renewal). Kept with the drive's period tokens,
+/// so any device of the drive renews it; `used_by` names the renewal that took it, which is
+/// the drive's lock after it. `Debug` shows no issue key.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenewalLock {
+    pub checkout_id: String,
+    pub tier: String,
+    /// The checkout's issue key: what proves the lock is the drive's.
+    pub issue_key: String,
+    /// The signed price ladder version it was paid under, when the token server said it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ladder_version: Option<u64>,
+    /// When it was kept (seconds since 1970): the newest unused lock of a tier is the one.
+    #[serde(default)]
+    pub kept_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_by: Option<String>,
+}
+
+impl fmt::Debug for RenewalLock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RenewalLock")
+            .field("checkout_id", &self.checkout_id)
+            .field("tier", &self.tier)
+            .field("issue_key", &"<hidden>")
+            .field("ladder_version", &self.ladder_version)
+            .field("kept_at", &self.kept_at)
+            .field("used_by", &self.used_by)
+            .finish()
     }
 }
 
@@ -133,6 +193,9 @@ pub struct VaultState {
     /// The ids of the issue requests answered or given up ([`IssueRequest::id`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done: Vec<String>,
+    /// The drive's paid checkouts as price locks for its renewals.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locks: Vec<RenewalLock>,
 }
 
 impl fmt::Debug for VaultState {
@@ -143,6 +206,7 @@ impl fmt::Debug for VaultState {
             .field("grants", &self.grants)
             .field("issues", &self.issues)
             .field("done", &self.done.len())
+            .field("locks", &self.locks)
             .finish()
     }
 }
@@ -203,6 +267,17 @@ impl VaultState {
                 self.done.push(id.clone());
             }
         }
+        for lock in &other.locks {
+            match self.locks.iter_mut().find(|l| l.checkout_id == lock.checkout_id) {
+                Some(kept) => {
+                    if kept.used_by.is_none() {
+                        kept.used_by.clone_from(&lock.used_by);
+                    }
+                    kept.ladder_version = kept.ladder_version.or(lock.ladder_version);
+                }
+                None => self.locks.push(lock.clone()),
+            }
+        }
         let spent = &self.spent;
         self.tokens.retain(|t| !spent.contains(&t.nonce));
         let done = &self.done;
@@ -227,6 +302,15 @@ impl VaultState {
     #[must_use]
     pub fn grant(&self, checkout_id: &str) -> Option<&VaultGrant> {
         self.grants.iter().find(|g| g.checkout_id == checkout_id)
+    }
+
+    /// The lock the drive's next renewal of `tier` names: the newest one no renewal took.
+    #[must_use]
+    pub fn renewal_lock(&self, tier: &str) -> Option<&RenewalLock> {
+        self.locks
+            .iter()
+            .filter(|l| l.tier == tier && l.used_by.is_none())
+            .max_by_key(|l| l.kept_at)
     }
 
     /// The issue requests of `checkout_id` still waiting for their answer.

@@ -50,6 +50,10 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         picked_up: false,
         in_flight_since: None,
         open_failures: 0,
+        for_drive: String::new(),
+        renews: String::new(),
+        change_tier: false,
+        ladder_version: None,
     }
 }
 
@@ -471,6 +475,7 @@ fn grant(months: u32) -> PeriodTokens {
         checkout_id: String::from("ck_1"),
         months,
         issue_key: String::from(ISSUE_KEY),
+        recurring: false,
     }
 }
 

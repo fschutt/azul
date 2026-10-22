@@ -62,6 +62,8 @@ pub struct PeriodTokens {
     pub months: u32,
     /// base64url of 32 bytes. A secret until the tokens are issued.
     pub issue_key: String,
+    /// A monthly plan: each payment adds a month, issued with the same key.
+    pub recurring: bool,
 }
 
 impl fmt::Debug for PeriodTokens {
@@ -70,6 +72,7 @@ impl fmt::Debug for PeriodTokens {
             .field("checkout_id", &self.checkout_id)
             .field("months", &self.months)
             .field("issue_key", &"<hidden>")
+            .field("recurring", &self.recurring)
             .finish()
     }
 }
@@ -77,7 +80,7 @@ impl fmt::Debug for PeriodTokens {
 impl PeriodTokens {
     /// The `period_tokens` object of a sign-up; `None` without one (a development sign-up, a
     /// checkout from before F24) or with a part missing.
-    fn from_value(value: &Value) -> Option<PeriodTokens> {
+    pub(crate) fn from_value(value: &Value) -> Option<PeriodTokens> {
         let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
         let tokens = PeriodTokens {
             checkout_id: text("checkout_id"),
@@ -86,6 +89,7 @@ impl PeriodTokens {
                 .and_then(|m| u32::try_from(m).ok())
                 .unwrap_or(0),
             issue_key: text("issue_key"),
+            recurring: value["recurring"].as_bool().unwrap_or(false),
         };
         (!tokens.checkout_id.is_empty() && tokens.months > 0 && !tokens.issue_key.is_empty())
             .then_some(tokens)

@@ -21,7 +21,7 @@ use crate::{
     claim::seal,
     pending::{self, Final, Finished, PendingCheckout, Polled},
     period::{change_due, issue_next, reminder_due, Issued, PeriodToken, PeriodTokenStore, TierChanged},
-    token::{Grant, TokenServer},
+    token::{CheckoutFor, TokenServer},
     vault::VaultGrant,
     ClaimKey,
 };
@@ -137,7 +137,7 @@ fn a_finished_checkout_is_the_drives_price_lock_and_its_renewal_takes_it_over() 
     let ordering_transport = Shared(ordering);
     let ordering_server = TokenServer::new(TOKEN, &ordering_transport).unwrap();
     ordering_server
-        .checkout("100GB", 1, "sepa", &claim, Grant::Renewal(&lock))
+        .checkout("100GB", 1, "sepa", &claim, CheckoutFor::Renewal(&lock))
         .unwrap();
 
     // Paid and finished: the old lock is used, the renewal is the drive's lock now.
@@ -162,7 +162,7 @@ fn a_drive_without_a_lock_is_renewed_by_a_tokens_only_order() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     server
-        .checkout("1TB", 1, "sepa", &claim, Grant::PeriodTokens { upgrade: true })
+        .checkout("1TB", 1, "sepa", &claim, CheckoutFor::PeriodTokens { upgrade: true })
         .unwrap();
 }
 

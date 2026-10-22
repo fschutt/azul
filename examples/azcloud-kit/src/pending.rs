@@ -38,7 +38,7 @@ use crate::{
     period::{issue_next, Issued, PeriodTokenStore},
     shared::SharedKeyring,
     token::{CheckoutStatus, TokenError, TokenServer, MAX_BLINDED},
-    vault::{DriveTokens, VaultGrant, VaultState},
+    vault::{DriveTokens, RenewalLock, VaultGrant, VaultState},
 };
 
 /// The keyring entry of the unfinished checkouts.
@@ -95,6 +95,19 @@ pub struct PendingCheckout {
     /// given up ([`Final::Unopenable`]), the first may have been a damaged answer.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub open_failures: u32,
+    /// The drive whose next months (or new tier) it buys; empty for a new drive. Its sealed
+    /// sign-up holds no drive: its months are claimed for this one ([`poll`]).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub for_drive: String,
+    /// The earlier checkout whose price lock it renews under; empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub renews: String,
+    /// Bought to move `for_drive` to its tier.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub change_tier: bool,
+    /// The signed price ladder version the checkout's answer named: its drive's lock keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ladder_version: Option<u64>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -137,6 +150,10 @@ impl fmt::Debug for PendingCheckout {
             .field("picked_up", &self.picked_up)
             .field("in_flight_since", &self.in_flight_since)
             .field("open_failures", &self.open_failures)
+            .field("for_drive", &self.for_drive)
+            .field("renews", &self.renews)
+            .field("change_tier", &self.change_tier)
+            .field("ladder_version", &self.ladder_version)
             .finish()
     }
 }
@@ -149,6 +166,9 @@ pub struct PendingTokens {
     pub drive_id: String,
     pub months: u32,
     pub issue_key: String,
+    /// A monthly plan's: each payment adds a month.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recurring: bool,
 }
 
 impl fmt::Debug for PendingTokens {
@@ -157,6 +177,7 @@ impl fmt::Debug for PendingTokens {
             .field("drive_id", &self.drive_id)
             .field("months", &self.months)
             .field("issue_key", &"<hidden>")
+            .field("recurring", &self.recurring)
             .finish()
     }
 }
@@ -169,6 +190,7 @@ impl PendingTokens {
             checkout_id: checkout_id.to_string(),
             months: self.months,
             issue_key: self.issue_key.clone(),
+            recurring: self.recurring,
         }
     }
 }
@@ -197,6 +219,10 @@ impl PendingCheckout {
             picked_up: false,
             in_flight_since: None,
             open_failures: 0,
+            for_drive: String::new(),
+            renews: String::new(),
+            change_tier: false,
+            ladder_version: None,
         }
     }
 
@@ -495,6 +521,9 @@ pub enum Final {
     /// Paid: the drive. The app adds it (its drives file, its window) and then tells the list
     /// ([`claimed`]).
     Claimed(Box<Claimed>),
+    /// A renewal's (or a tier change's) months, claimed for the drive its checkout was made
+    /// for: they wait with it until [`finish`] keeps the grant with the drive.
+    Renewed { drive_id: String, months: u32 },
     /// Off the list: the payment did not go through (declined, taken back, the cash refused).
     Declined(String),
     /// Off the list: the token server no longer has it (expired, unknown), the drive can no
@@ -511,7 +540,7 @@ impl Final {
     #[must_use]
     pub fn why(&self) -> String {
         match self {
-            Final::Claimed(_) => String::new(),
+            Final::Claimed(_) | Final::Renewed { .. } => String::new(),
             Final::Declined(why) | Final::Gone(why) => why.clone(),
             Final::Unopenable { error_id, why } => format!(
                 "its drive's sign-up does not open with this computer's key ({why}): support \
@@ -607,9 +636,7 @@ pub fn poll(
             )),
         ),
         Ok(CheckoutStatus::Unopenable(why)) => unopenable(shared, checkout, why),
-        Ok(CheckoutStatus::Renewal) => Polled::Transient(Transient::Unread(String::from(
-            "its sign-up is a renewal's: the months are added to their drive by the renewal",
-        ))),
+        Ok(CheckoutStatus::Renewal(signup)) => claim_months(shared, checkout, &signup),
         Ok(CheckoutStatus::Unknown(why)) => Polled::Transient(Transient::Unread(why)),
         Err(TokenError::Connect(why)) => Polled::Transient(Transient::NoAnswer(format!(
             "no answer from the token server: {why}"
@@ -659,6 +686,45 @@ fn claim_drive(
 
 /// A sealed sign-up of `checkout` that did not open, `why`: counted on the list, given up the
 /// [`UNOPENABLE_AFTER`]th time.
+/// A sign-up without a drive (a renewal, a tier change): its months for the drive the checkout
+/// was made for, kept on the list until [`finish`] has the grant with that drive. A checkout
+/// that names no drive stays unclaimed: no drive is guessed for months someone paid.
+fn claim_months(
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    signup: &azlin_contract::RenewalSignup,
+) -> Polled {
+    let drive_id = checkout.for_drive.trim();
+    if drive_id.is_empty() {
+        return Polled::Transient(Transient::Unread(String::from(
+            "its sign-up adds months to a drive, and this computer did not keep which one",
+        )));
+    }
+    let wire = &signup.period_tokens;
+    let grant = PeriodTokens {
+        checkout_id: wire.checkout_id.trim().to_string(),
+        months: wire.months,
+        issue_key: wire.issue_key.trim().to_string(),
+        recurring: wire.recurring,
+    };
+    if grant.checkout_id != checkout.checkout_id || grant.months == 0 || grant.issue_key.is_empty() {
+        return unopenable(
+            shared,
+            checkout,
+            String::from("its sign-up grants months of another checkout, or none"),
+        );
+    }
+    match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {
+        Ok(()) => Polled::Final(Final::Renewed {
+            drive_id: drive_id.to_string(),
+            months: grant.months,
+        }),
+        Err(e) => Polled::Transient(Transient::NotKept(format!(
+            "its months could not be kept for the drive {drive_id}: {e}"
+        ))),
+    }
+}
+
 fn unopenable(shared: &SharedKeyring, checkout: &PendingCheckout, why: String) -> Polled {
     let counted = change(shared, &checkout.checkout_id, |c| {
         c.open_failures = c.open_failures.saturating_add(1);
@@ -819,6 +885,7 @@ pub fn claimed(
         drive_id: drive_id.trim().to_string(),
         months: grant.months,
         issue_key: grant.issue_key.trim().to_string(),
+        recurring: grant.recurring,
     });
     // Claimed: neither in flight nor unopened any more, and their room is the tokens' now.
     checkout.in_flight_since = None;
@@ -905,12 +972,29 @@ pub fn finish(
             tokens.drive_id()
         ));
     }
-    let mut grant = VaultState::with_grant(VaultGrant::new(
-        id,
-        &checkout.tier,
-        owed.months,
-        &owed.issue_key,
-    ));
+    let mut kept = VaultGrant::new(id, &checkout.tier, owed.months, &owed.issue_key);
+    kept.recurring = owed.recurring;
+    kept.change_tier = checkout.change_tier;
+    let mut grant = VaultState::with_grant(kept);
+    // The paid checkout is the drive's price lock for its next renewal; the lock it renewed
+    // under is used by it.
+    grant.locks.push(RenewalLock {
+        checkout_id: id.to_string(),
+        tier: checkout.tier.clone(),
+        issue_key: owed.issue_key.clone(),
+        ladder_version: checkout.ladder_version,
+        kept_at: now,
+        used_by: None,
+    });
+    if !checkout.renews.trim().is_empty() {
+        if let Ok(state) = tokens.state() {
+            if let Some(old) = state.locks.iter().find(|l| l.checkout_id == checkout.renews.trim()) {
+                let mut used = old.clone();
+                used.used_by = Some(id.to_string());
+                grant.locks.push(used);
+            }
+        }
+    }
     if let Ok(Some(older)) = store.issue_request(id) {
         grant.issues.push(older);
     }

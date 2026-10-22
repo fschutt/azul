@@ -46,7 +46,7 @@ use rsa::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha384};
 
-use azlin_contract::{IssueRefusal, IssueSchedule};
+use azlin_contract::{DeadlineKind, IssueRefusal, IssueSchedule, RedeemRefusal, REMIND_BEFORE_DAYS};
 
 use crate::{
     error::{CloudError, CloudResult, Context},
@@ -991,10 +991,24 @@ fn redeem_with(
                 break;
             }
         };
+        // The drive's tier first; then a token of another tier (left from before a change of
+        // tier), which the token server credits at its worth - not one a change waits for.
+        let changing: Vec<&str> = state
+            .grants
+            .iter()
+            .filter(|g| g.changes_tier())
+            .map(|g| g.tier.as_str())
+            .collect();
         let candidate = state
             .tokens
             .iter()
             .find(|t| tier.is_empty() || t.tier == tier)
+            .or_else(|| {
+                state
+                    .tokens
+                    .iter()
+                    .find(|t| !tier.is_empty() && !changing.contains(&t.tier.as_str()))
+            })
             .cloned();
         let Some(candidate) = candidate else {
             // none kept: the next month of a grant of this tier, when one is due
@@ -1037,6 +1051,188 @@ fn redeem_with(
     }
 }
 
+/// What [`change_due`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum TierChanged {
+    /// No change of tier is bought for the drive (or it happened already).
+    Nothing,
+    /// The drive is on `tier` now, paid until `period_until`; `credited_days` the days its
+    /// remaining period was worth in the new tier. Its credentials must follow.
+    Changed {
+        tier: String,
+        period_until: Option<u64>,
+        credited_days: Option<u32>,
+        grant: GrantChanged,
+    },
+    /// A smaller tier is taken at the period's end: from `from` on (seconds since 1970). The
+    /// token waits.
+    Waits { from: u64 },
+    /// The drive's stored bytes do not fit the smaller tier: free `stored - quota` first. The
+    /// token waits.
+    DoesNotFit { stored: u64, quota: u64 },
+    /// The drive is banned: it changes nothing.
+    Banned,
+    /// Nothing changed this time: why (no answer, no month issued yet, the vaults). Tried again
+    /// at the next look.
+    Kept(String),
+}
+
+/// Moves `tokens`' drive to the tier a checkout bought for it (decision 5): under the drive's
+/// lock with its newest drive token, the drive's status is asked and a token of the change's
+/// tier - issued first when none is kept - redeemed as a change of tier, with the drive's
+/// `stored` bytes when known. The token server takes a bigger tier at once (the remaining days
+/// credited) and a smaller one from [`azlin_contract::CHANGE_AHEAD_SECS`] before the period
+/// ends, when the stored bytes fit; until then the token waits unspent. A change the drive
+/// already has is marked done.
+#[must_use]
+pub fn change_due(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    tokens: &DriveTokens,
+    stored: Option<u64>,
+    now: u64,
+) -> TierChanged {
+    let state = match tokens.state() {
+        Ok(state) => state,
+        Err(e) => return TierChanged::Kept(e.to_string()),
+    };
+    let Some(change) = state.grants.iter().find(|g| g.changes_tier()).cloned() else {
+        return TierChanged::Nothing;
+    };
+    let drive_id = tokens.drive_id();
+    shared
+        .with_drive_token(drive_id, |token| {
+            let status = match server.drive_status(drive_id, token) {
+                Ok(status) => status,
+                Err(e) => return TierChanged::Kept(e.to_string()),
+            };
+            let Some(active) = Active::of(&status) else {
+                return TierChanged::Banned;
+            };
+            if active.tier() == change.tier {
+                return match mark_changed(tokens, &change) {
+                    Ok(()) => TierChanged::Nothing,
+                    Err(why) => TierChanged::Kept(why),
+                };
+            }
+            change_with(server, tokens, token, &change, stored, now)
+        })
+        .unwrap_or_else(|e| TierChanged::Kept(e.to_string()))
+}
+
+fn mark_changed(tokens: &DriveTokens, change: &VaultGrant) -> Result<(), String> {
+    let mut done = change.clone();
+    done.changed = true;
+    tokens.keep_grant(done).map_err(|e| e.to_string())
+}
+
+/// [`change_due`] with the drive token `token`, the drive's lock held.
+fn change_with(
+    server: &TokenServer<'_>,
+    tokens: &DriveTokens,
+    token: &str,
+    change: &VaultGrant,
+    stored: Option<u64>,
+    now: u64,
+) -> TierChanged {
+    let drive_id = tokens.drive_id();
+    for _ in 0..MAX_ROUNDS {
+        let candidate = match tokens.unspent(&change.tier) {
+            Ok(kept) => kept.into_iter().next(),
+            Err(e) => return TierChanged::Kept(e.to_string()),
+        };
+        let Some(candidate) = candidate else {
+            match issue_next(server, tokens, &change.checkout_id, now) {
+                Ok(Issued::Tokens(issued)) if !issued.is_empty() => continue,
+                Ok(Issued::Tokens(_) | Issued::NotDue { .. }) => {
+                    return TierChanged::Kept(String::from("the new tier's first month is not issued yet"))
+                }
+                Ok(Issued::Ended(why)) => return TierChanged::Kept(why),
+                Err(e) => return TierChanged::Kept(e.to_string()),
+            }
+        };
+        match server.redeem_as(drive_id, token, &candidate, Some(stored)) {
+            Ok(Ok(answer)) => {
+                let _ = tokens.spend(&candidate.nonce);
+                if let Err(why) = mark_changed(tokens, change) {
+                    return TierChanged::Kept(why);
+                }
+                return TierChanged::Changed {
+                    tier: answer.tier.unwrap_or_else(|| change.tier.clone()),
+                    period_until: u64::try_from(answer.period_until.unix()).ok(),
+                    credited_days: answer.credited_days,
+                    grant: GrantChanged::of(drive_id),
+                };
+            }
+            Ok(Err(RedeemRefusal::ChangeNotDue { from })) => {
+                return TierChanged::Waits {
+                    from: u64::try_from(from.unix()).unwrap_or(0),
+                }
+            }
+            Ok(Err(RedeemRefusal::DoesNotFit { stored, quota })) => {
+                return TierChanged::DoesNotFit {
+                    stored: stored.0,
+                    quota: quota.0,
+                }
+            }
+            Ok(Err(refused)) if refused.is_useless() => {
+                let _ = tokens.spend(&candidate.nonce);
+            }
+            Ok(Err(RedeemRefusal::StoredBytesRequired)) => {
+                return TierChanged::Kept(String::from(
+                    "the drive's stored bytes are not known yet: a smaller tier needs them",
+                ))
+            }
+            Ok(Err(refused)) => return TierChanged::Kept(refused.as_str().to_string()),
+            Err(e) => return TierChanged::Kept(e.to_string()),
+        }
+    }
+    TierChanged::Kept(String::from("no token of the new tier could be redeemed"))
+}
+
+/// A reminder of what ends at `at` (seconds since 1970), `days_before` days (or less) ahead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reminder {
+    pub kind: DeadlineKind,
+    pub at: u64,
+    pub days_before: i64,
+}
+
+impl Reminder {
+    /// What names it among the reminders said: its deadline and its step.
+    fn key(&self) -> String {
+        format!("{:?}/{}/{}", self.kind, self.at, self.days_before)
+    }
+}
+
+/// The reminder due for a drive with `status` at `now`: of the deadlines an unpaid drive meets
+/// ([`azlin_contract::expiry`]: the period's end, the drive turning read-only, its closing),
+/// the next one within 30, 7 or 1 days, at its nearest step. None while the drive's vaults keep
+/// a month for it (`kept`: a token or an open grant - the next look buys it), for a drive
+/// without a period, and for a banned one (its banner says what ends).
+#[must_use]
+pub fn reminder_due(status: &DriveStatus, kept: &VaultState, now: u64) -> Option<Reminder> {
+    let until = status.period_until?;
+    if holds_months(kept) || status.ban.is_some() {
+        return None;
+    }
+    let now = i64::try_from(now).ok()?;
+    let deadline = azlin_contract::expiry(i64::try_from(until).ok()?)
+        .into_iter()
+        .find(|d| d.at.unix() > now)?;
+    let left = deadline.at.unix() - now;
+    let days_before = REMIND_BEFORE_DAYS
+        .iter()
+        .copied()
+        .filter(|days| left <= days * 86_400)
+        .min()?;
+    Some(Reminder {
+        kind: deadline.kind,
+        at: u64::try_from(deadline.at.unix()).ok()?,
+        days_before,
+    })
+}
+
 /// Issues the next month of the first grant of `tier` (any tier when the server named none)
 /// whose month is due or that has a request waiting: whether a token came.
 fn issue_for(
@@ -1046,11 +1242,22 @@ fn issue_for(
     tier: &str,
     now: u64,
 ) -> Result<bool, TokenError> {
-    let candidates = state.grants.iter().filter(|g| {
-        (tier.is_empty() || g.tier == tier)
-            && (g.may_ask(now) || (g.ended.is_none() && !state.open_issues(&g.checkout_id).is_empty()))
-    });
-    for grant in candidates {
+    let asks = |g: &&VaultGrant| {
+        g.may_ask(now) || (g.ended.is_none() && !state.open_issues(&g.checkout_id).is_empty())
+    };
+    let ours = state
+        .grants
+        .iter()
+        .filter(|g| tier.is_empty() || g.tier == tier)
+        .filter(asks);
+    // A grant of another tier (bought before a change of tier) still brings its months: the
+    // token server credits them at their worth. A change's own grant waits for the change.
+    let others = state
+        .grants
+        .iter()
+        .filter(|g| !tier.is_empty() && g.tier != tier && !g.changes_tier())
+        .filter(asks);
+    for grant in ours.chain(others) {
         match issue_next(server, tokens, &grant.checkout_id, now)? {
             Issued::Tokens(issued) if !issued.is_empty() => return Ok(true),
             Issued::Tokens(_) | Issued::NotDue { .. } | Issued::Ended(_) => {}
@@ -1291,6 +1498,32 @@ impl PeriodTokenStore {
             write_json(&path, &SeenMembers { members }, true)?;
         }
         Ok(new)
+    }
+}
+
+/// The reminders said for a drive (their keys), so each comes once.
+#[derive(Default, Serialize, Deserialize)]
+struct SaidReminders {
+    #[serde(default)]
+    said: Vec<String>,
+}
+
+impl PeriodTokenStore {
+    /// Whether `reminder` of `drive_id` is to be said now: the first time it comes. What was
+    /// said is kept in `<dir>/<drive id>.reminders.json`, so a restart does not say it again.
+    pub fn remind_once(&self, drive_id: &str, reminder: &Reminder) -> CloudResult<bool> {
+        let path = self
+            .dir
+            .join(format!("{}.reminders.json", check_id(drive_id)?));
+        let mut said = read_json::<SaidReminders>(&path)?.unwrap_or_default();
+        let key = reminder.key();
+        if said.said.contains(&key) {
+            return Ok(false);
+        }
+        said.said.push(key);
+        create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
+        write_json(&path, &said, true)?;
+        Ok(true)
     }
 }
 

@@ -1,7 +1,9 @@
 //! A paid checkout's period tokens: the issuer keys, the blind issue, the redemption.
 
 use super::*;
-use azlin_contract::{IssueAnswer as ContractIssueAnswer, IssueRefusal, IssueSchedule};
+use azlin_contract::{
+    IssueAnswer as ContractIssueAnswer, IssueRefusal, IssueSchedule, RedeemAnswer, RedeemRefusal,
+};
 
 /// What `POST /v1/tokens/issue` answers: one blind signature per blinded message, by the
 /// issuer key of the tier and year, and where the checkout's instalments stand after it.
@@ -159,5 +161,47 @@ impl<'a> TokenServer<'a> {
         Ok(value["period_until"]
             .as_str()
             .and_then(azul_storage::time::parse_iso8601))
+    }
+
+    /// Redeems `token` on `drive_id` as [`Self::redeem_period_token`] does, or - `change` set -
+    /// as the move of the drive to the token's tier (`"change_tier": true`, with the drive's
+    /// stored bytes when known: a smaller tier is taken only when they fit). The token server's
+    /// refusal is read as the contract's: a change that waits or does not fit keeps the token.
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal that is no redeem refusal (401, 403 `drive_banned`), an answer that
+    /// does not read.
+    pub fn redeem_as(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        token: &PeriodToken,
+        change: Option<Option<u64>>,
+    ) -> Result<Result<RedeemAnswer, RedeemRefusal>, TokenError> {
+        let path = format!("/v1/drives/{}/redeem", check_id(drive_id)?);
+        let mut body = json!({
+            "tier": token.tier,
+            "year": token.year,
+            "nonce": token.nonce,
+            "signature": token.signature,
+            "randomizer": token.randomizer,
+        });
+        if let Some(stored) = change {
+            body["change_tier"] = json!(true);
+            if let Some(stored) = stored {
+                body["stored_bytes"] = json!(stored);
+            }
+        }
+        let reply = self.exchange(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;
+        if !reply.is_success() {
+            return match serde_json::from_slice::<RedeemRefusal>(&reply.body) {
+                Ok(RedeemRefusal::Unknown) | Err(_) => Err(refusal(&reply, true)),
+                Ok(refused) => Ok(Err(refused)),
+            };
+        }
+        serde_json::from_slice(&reply.body)
+            .map(Ok)
+            .map_err(|e| TokenError::Protocol(format!("the redemption's answer does not read: {e}")))
     }
 }
