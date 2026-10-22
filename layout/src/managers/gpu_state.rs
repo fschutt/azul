@@ -259,10 +259,10 @@ impl GpuStateManager {
     }
 
     /// `WebRender` received these lists, one per DOM.
-    pub fn note_display_lists_submitted<'a>(
+    pub fn note_display_lists_submitted(
         &mut self,
         lists: impl IntoIterator<
-            Item = (DomId, &'a alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
+            Item = (DomId, &'_ alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
         >,
     ) {
         self.submitted_display_lists = lists
@@ -277,10 +277,10 @@ impl GpuStateManager {
     /// list: a fade patched into the list in place reached the CPU renderer
     /// and never the GPU one, which showed the colour the fade started from.
     #[must_use]
-    pub fn display_lists_unsubmitted<'a>(
+    pub fn display_lists_unsubmitted(
         &self,
         lists: impl IntoIterator<
-            Item = (DomId, &'a alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
+            Item = (DomId, &'_ alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
         >,
     ) -> bool {
         let mut count = 0usize;

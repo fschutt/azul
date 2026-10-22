@@ -272,8 +272,7 @@ fn a_relayout_that_changes_nothing_sends_assistive_technology_nothing() {
 #[test]
 fn a_frame_that_moves_one_box_sends_only_that_box() {
     let mut lw = window(page(6));
-    let before = lw
-        .a11y_manager
+    lw.a11y_manager
         .take_pending()
         .expect("the first layouts publish the tree");
     let knob = with_class(&lw, "knob");

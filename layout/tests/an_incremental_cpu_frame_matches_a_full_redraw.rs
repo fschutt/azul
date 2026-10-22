@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    geom::{LogicalPosition, LogicalSize},
     resources::RendererResources,
     styled_dom::StyledDom,
     task::Instant,

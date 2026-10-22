@@ -127,7 +127,6 @@ fn a_virtual_view_item_whose_content_offset_moved_is_not_visually_equal() {
 #[test]
 fn a_virtual_view_scrolled_on_the_lightweight_path_is_repainted_where_its_content_moved() {
     let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
-    let empty = ScrollOffsetMap::new();
     let mut raster = Raster::new();
     // Forward, back, a fractional step, the end: every step is one frame.
     let steps = [
