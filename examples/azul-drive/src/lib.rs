@@ -3106,7 +3106,17 @@ pub(crate) extern "C" fn on_job_done(
             // Writes while the ask ran: once more.
             usage_view::request_space(&mut info, &handle, s);
         }
-        Outcome::VoucherRedeemed { drive_id, result } => {
+        Outcome::VoucherRedeemed {
+            drive_id,
+            result,
+            grant,
+        } => {
+            // the days bought: read-only credentials are refreshed before the next write
+            if let Some(changed) = grant {
+                if let Some(azlin) = periods::azlin_drives(s).get(&drive_id) {
+                    azlin.apply(changed);
+                }
+            }
             vouchers::redeemed(s, &drive_id, result);
         }
         Outcome::Sync(outcome) => {

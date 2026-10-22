@@ -3,8 +3,9 @@
 //! start, once a day while it runs, an hour after a look that failed, at the moment a period
 //! becomes due when that comes before the next daily look, and as soon as a paid checkout's
 //! tokens are kept - each look a [`Job::RedeemPeriods`], under the drive's keyring lock with
-//! its newest drive token ([`azcloud_kit::redeem_due`]). A drive without kept tokens asks the
-//! token server nothing.
+//! its newest drive token ([`azcloud_kit::redeem_due`]). The tokens and the grants they come
+//! from are kept with the drive (its vault, encrypted with the drive key) when its key is on
+//! this computer, so any device of the drive buys its months; a banned drive buys none.
 //!
 //! A look also tells the owner (D42) of every device the drive was given since the last look
 //! (`AZDRIVE_NEW_DEVICE <drive id> <member>`, a notification) and of a use of the recovery code:
@@ -15,7 +16,7 @@
 //! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
 //! for a test run.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use azcloud_kit::{period::REDEEM_AHEAD_SECS, token::RECOVERY_MEMBER, Look, Redeemed};
 use azul::{
@@ -110,6 +111,7 @@ impl Schedule {
                 ..
             } => daily.min(until.saturating_sub(REDEEM_AHEAD_SECS)).max(now + 1),
             Redeemed::Nothing
+            | Redeemed::Banned
             | Redeemed::NotDue { period_until: None }
             | Redeemed::Extended {
                 period_until: None, ..
@@ -162,6 +164,18 @@ pub(crate) fn azlin_drive(
     Some((drive_id.clone(), url))
 }
 
+/// The open Azlin drives by their id at the token server: their period tokens are kept in
+/// their vaults, and a month bought refreshes their read-only credentials.
+pub(crate) fn azlin_drives(s: &DriveState) -> HashMap<String, Arc<azcloud_kit::AzlinDrive>> {
+    s.slots
+        .iter()
+        .filter_map(|slot| {
+            let (drive_id, _) = slot.entry.azlin()?;
+            Some((drive_id.to_string(), slot.azlin.clone()?))
+        })
+        .collect()
+}
+
 /// Looks at the periods of the Azlin drives of the source list - `only` that drive (at once,
 /// whatever the schedule says: its paid checkout's tokens were just kept), else those the
 /// schedule has due (all of them at the start). Nothing runs without one.
@@ -192,6 +206,14 @@ pub(crate) fn start_redemptions(
     if only.is_none() {
         s.redemptions.running = true;
     }
+    let open = azlin_drives(s);
+    let drives = drives
+        .into_iter()
+        .map(|(id, url)| {
+            let azlin = open.get(&id).cloned();
+            (id, url, azlin)
+        })
+        .collect();
     let job = Job::RedeemPeriods {
         keyring: s.keyring.clone(),
         store: s.period_tokens.clone(),
@@ -210,8 +232,14 @@ pub(crate) fn periods_redeemed(
 ) {
     s.redemptions.running = false;
     let now = now_secs();
-    for (drive_id, look) in results {
+    for (drive_id, mut look) in results {
         s.redemptions.looked(&drive_id, &look.redeemed, now);
+        // a month bought: read-only credentials are refreshed before the next write
+        if let Some(changed) = look.grant_changed.take() {
+            if let Some(azlin) = azlin_drives(s).get(&drive_id) {
+                azlin.apply(changed);
+            }
+        }
         if let Some(status) = &look.status {
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
             // A ban (ban contract v1): the banner and the refusals, or none any more.
@@ -240,6 +268,9 @@ pub(crate) fn periods_redeemed(
             }
             Redeemed::Kept(why) => {
                 eprintln!("[azdrive] the period of {drive_id} waits for the next try: {why}");
+            }
+            Redeemed::Banned => {
+                println!("AZDRIVE_PERIOD_BANNED {drive_id}");
             }
             Redeemed::Nothing | Redeemed::NotDue { .. } => {}
         }

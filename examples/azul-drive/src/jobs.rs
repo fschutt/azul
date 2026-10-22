@@ -25,7 +25,7 @@ use std::{
 use azcloud_kit::{
     pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled},
     look_at_drive, ActivationCode, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle,
-    OptionsQuery,
+    DriveTokens, GrantChanged, OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
@@ -366,6 +366,8 @@ pub(crate) enum Job {
         keyring: SharedKeyring,
         token_url: Option<String>,
         store: PeriodTokenStore,
+        /// The open Azlin drives by id: a claimed checkout's grant goes into its drive's vault.
+        drives: HashMap<String, Arc<azcloud_kit::AzlinDrive>>,
         cash_every: u64,
     },
     /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
@@ -374,6 +376,8 @@ pub(crate) enum Job {
     FinishCheckout {
         keyring: SharedKeyring,
         store: PeriodTokenStore,
+        /// The drive, when it is open already: its grant goes into its vault.
+        azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
         checkout: PendingCheckout,
         drive_id: String,
         grant: Option<PeriodTokens>,
@@ -386,7 +390,9 @@ pub(crate) enum Job {
     RedeemPeriods {
         keyring: SharedKeyring,
         store: PeriodTokenStore,
-        drives: Vec<(String, String)>,
+        /// Each drive's id, its token server and, when it is open, the drive itself (its
+        /// period tokens are kept in its vault then).
+        drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)>,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -702,6 +708,8 @@ pub(crate) enum Outcome {
     VoucherRedeemed {
         drive_id: String,
         result: Result<(u32, Option<u64>), Text>,
+        /// The days bought: the drive's credentials follow ([`azcloud_kit::AzlinDrive::apply`]).
+        grant: Option<GrantChanged>,
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
@@ -2468,6 +2476,7 @@ fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
     store: &PeriodTokenStore,
+    drives: &HashMap<String, Arc<azcloud_kit::AzlinDrive>>,
     cash_every: u64,
     sender: &mut ThreadSender,
 ) -> Outcome {
@@ -2523,7 +2532,13 @@ fn claim_pending(
             };
             asked += 1;
             if let Some(owed) = &checkout.period {
-                let finished = pending::finish(&server, keyring, store, &checkout, owed);
+                let tokens = match drive_tokens(store, &owed.drive_id, drives.get(&owed.drive_id)) {
+                    Ok(tokens) => tokens,
+                    // tried again next round, quietly
+                    Err(_) => continue,
+                };
+                let now = crate::actions::now_secs();
+                let finished = pending::finish(&server, keyring, store, &tokens, &checkout, owed, now);
                 // A try that failed is tried again next round, quietly.
                 if !matches!(finished, Finished::Kept(_)) {
                     send(
@@ -2585,24 +2600,51 @@ fn claim_pending(
     }
 }
 
-/// A look at each of `drives` (its id and token server): its status - the period, a pending
-/// recovery-key lockdown - and, when its period nears its end, its next month from a period
-/// token kept in `store` ([`look_at_drive`]: under the drive's keyring lock, with its newest
-/// drive token).
+/// A drive's period tokens: kept with the drive when its key is on this computer (every device
+/// of the drive redeems them and issues its next months), else on this computer only.
+fn drive_tokens(
+    store: &PeriodTokenStore,
+    drive_id: &str,
+    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+) -> Result<DriveTokens, String> {
+    #[cfg(feature = "encryption")]
+    if let Some(azlin) = azlin {
+        let bucket: Arc<dyn Drive> = azlin.clone();
+        let keyring = azul_storage::azul_keyring::AzulKeyring::new(
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+        );
+        match azcloud_kit::UnlockedDrive::open(drive_id, bucket, &keyring) {
+            Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
+            // a plain drive, or its key not here yet: this computer's vault, joined into the
+            // drive's at a look that has the key
+            Ok(None) => {}
+            Err(e) => eprintln!("[azdrive] the period vault of {drive_id} is not reachable: {e}"),
+        }
+    }
+    #[cfg(not(feature = "encryption"))]
+    let _ = azlin;
+    store.on_this_device(drive_id).map_err(|e| e.to_string())
+}
+
+/// A look at each of `drives` (its id, token server and the drive when it is open): its status
+/// - the period, a pending recovery-key lockdown, a ban - and, when its period nears its end,
+/// its next month from a period token kept in its vaults, or its grant's next month
+/// ([`look_at_drive`]: under the drive's keyring lock, with its newest drive token).
 fn redeem_periods(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
-    drives: &[(String, String)],
+    drives: &[(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)],
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let now = crate::actions::now_secs();
     let results = drives
         .iter()
-        .filter_map(|(drive_id, token_url)| {
+        .filter_map(|(drive_id, token_url, azlin)| {
             let server = TokenServer::new(token_url, &transport).ok()?;
+            let tokens = drive_tokens(store, drive_id, azlin.as_ref()).ok()?;
             Some((
                 drive_id.clone(),
-                look_at_drive(&server, keyring, store, drive_id, now),
+                look_at_drive(&server, keyring, store, &tokens, now),
             ))
         })
         .collect();
@@ -2611,11 +2653,12 @@ fn redeem_periods(
 
 /// The claimed `checkout`'s drive `drive_id` is in the drives file (AZDRIVE-INTEGRATION §4):
 /// without a `grant` its checkout leaves the keyring's list; with one the list keeps its issue
-/// key with its claim secret ([`pending::claimed`]) and its period tokens are issued at
-/// `token_url` and kept in `store` - only then does it leave the list ([`pending::finish`]).
+/// key with its claim secret ([`pending::claimed`]) until the grant is kept with the drive and
+/// its first month asked for at `token_url` ([`pending::finish`]).
 fn finish_checkout(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
+    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
     checkout: &PendingCheckout,
     drive_id: &str,
     grant: Option<&PeriodTokens>,
@@ -2639,9 +2682,13 @@ fn finish_checkout(
         issue_key: grant.issue_key.clone(),
     };
     let transport = AzulTransport::new(USER_AGENT);
-    let finished = match TokenServer::new(token_url, &transport) {
-        Ok(server) => pending::finish(&server, keyring, store, checkout, &owed),
-        Err(e) => Finished::Kept(e.to_string()),
+    let finished = match (TokenServer::new(token_url, &transport), drive_tokens(store, drive_id, azlin)) {
+        (Ok(server), Ok(tokens)) => {
+            let now = crate::actions::now_secs();
+            pending::finish(&server, keyring, store, &tokens, checkout, &owed, now)
+        }
+        (Err(e), _) => Finished::Kept(e.to_string()),
+        (_, Err(why)) => Finished::Kept(why),
     };
     outcome(Ok(Some(finished)))
 }
@@ -3022,11 +3069,13 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             token_url,
             store,
+            drives,
             cash_every,
-        } => claim_pending(&keyring, token_url.as_deref(), &store, cash_every, sender),
+        } => claim_pending(&keyring, token_url.as_deref(), &store, &drives, cash_every, sender),
         Job::FinishCheckout {
             keyring,
             store,
+            azlin,
             checkout,
             drive_id,
             grant,
@@ -3034,6 +3083,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         } => finish_checkout(
             &keyring,
             &store,
+            azlin.as_ref(),
             &checkout,
             &drive_id,
             grant.as_ref(),
@@ -3193,6 +3243,7 @@ fn redeem_voucher(
                 Some(drive_id) => Outcome::VoucherRedeemed {
                     drive_id,
                     result: Err(token_error_text(&e)),
+                    grant: None,
                 },
                 None => Outcome::Bought {
                     serial,
@@ -3202,21 +3253,23 @@ fn redeem_voucher(
         }
     };
     if let Some(drive_id) = drive {
-        let redeemed = keyring
-            .with_drive_token(&drive_id, |token| {
-                server.redeem_voucher(code, Some((drive_id.as_str(), token)), "")
-            })
+        let redeemed = azcloud_kit::period::redeem_voucher_on_drive(&server, keyring, &drive_id, code)
             .map_err(|e| cloud_error_text(&e))
             .and_then(|answer| answer.map_err(|e| token_error_text(&e)));
-        let result = match redeemed {
+        let (result, grant) = match redeemed {
             Ok(VoucherRedeemed::Extended {
                 days_added,
                 period_until,
-            }) => Ok((days_added, period_until)),
-            Ok(VoucherRedeemed::NewDrive(_)) => Err(Text::key("azdrive-voucher-made-new-drive")),
-            Err(why) => Err(why),
+                grant,
+            }) => (Ok((days_added, period_until)), Some(grant)),
+            Ok(VoucherRedeemed::NewDrive(_)) => (Err(Text::key("azdrive-voucher-made-new-drive")), None),
+            Err(why) => (Err(why), None),
         };
-        return Outcome::VoucherRedeemed { drive_id, result };
+        return Outcome::VoucherRedeemed {
+            drive_id,
+            result,
+            grant,
+        };
     }
     let result = match server.redeem_voucher(code, None, tier) {
         Ok(VoucherRedeemed::NewDrive(bundle)) => {

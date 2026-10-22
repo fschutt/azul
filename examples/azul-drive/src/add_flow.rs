@@ -1622,6 +1622,7 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             keyring,
             token_url,
             store,
+            drives: crate::periods::azlin_drives(s),
             cash_every,
         },
     );
@@ -1694,9 +1695,11 @@ pub(crate) fn claimed(
         }
     };
     if in_drives_file {
+        let azlin = crate::periods::azlin_drives(s).remove(&drive_id);
         let job = Job::FinishCheckout {
             keyring: s.keyring.clone(),
             store: s.period_tokens.clone(),
+            azlin,
             checkout: checkout.clone(),
             drive_id,
             grant: claimed.bundle.period_tokens.clone(),
@@ -1820,6 +1823,14 @@ pub(crate) fn checkout_finished(
         Ok(Some(Finished::Issued { drive_id, count })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
             // A drive whose free month is nearly gone gets its first paid one at once.
+            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
+        }
+        Ok(Some(Finished::Granted { drive_id, why })) => {
+            println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} 0");
+            eprintln!(
+                "[azdrive] the first month of the checkout {checkout_id} comes with the drive's \
+                 next look: {why}"
+            );
             crate::periods::start_redemptions(info, app, s, Some(&drive_id));
         }
         Ok(Some(Finished::Dropped(why))) => s.warn(

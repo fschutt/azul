@@ -861,6 +861,33 @@ impl GrantChanged {
     }
 }
 
+/// A voucher `code` on `drive_id` (`POST /v1/vouchers/redeem`): under the drive's lock with its
+/// newest drive token, named by an idempotency key the keyring's outbox keeps until a final
+/// answer came - a lost answer is asked again with the same key and answers the same days, not
+/// "not valid". The outbox names the code only by its hash (the code is a bearer secret). The
+/// answer's [`GrantChanged`] goes to the drive.
+///
+/// # Errors
+///
+/// The outer one: the drive's lock or its session in the keyring; the inner one: the token
+/// server's answer.
+pub fn redeem_voucher_on_drive(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    drive_id: &str,
+    code: &str,
+) -> CloudResult<Result<crate::token::VoucherRedeemed, TokenError>> {
+    let named = hex(&blake3::hash(code.trim().as_bytes()).as_bytes()[..8]);
+    shared.with_drive_token(drive_id, |token| {
+        shared.outbox().send(
+            azlin_contract::IdempotentScope::Voucher,
+            drive_id,
+            &named,
+            |key| server.redeem_voucher(code, Some((drive_id, token, key)), ""),
+        )
+    })
+}
+
 /// What a look at a drive found ([`look_at_drive`]).
 #[derive(Debug, PartialEq, Eq)]
 pub struct Look {
