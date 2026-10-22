@@ -5,6 +5,7 @@ use azlin_contract::{
     DeadlineKind, DriveId, IdempotencyKey, Months, RefreshRefusal, Rfc3339, SemVer, TierId,
     CONTRACT_VERSION,
 };
+use azlin_contract::{client_too_old, ClientMinimum, ClientTooOld, MIN_CONTRACT};
 
 #[test]
 fn a_path_id_takes_only_what_a_url_path_can_hold() {
@@ -159,6 +160,41 @@ fn the_hello_reads_its_header_and_skips_parameters_it_does_not_know() {
     assert!(SemVer::parse("0.3").is_err());
     assert!(SemVer::parse("0.3.0.1").is_err());
     assert!(SemVer::parse("0.10.0").expect("ok") > SemVer::parse("0.9.9").expect("ok"));
+}
+
+#[test]
+fn a_client_below_the_minimum_is_told_what_to_reach_and_one_without_a_hello_is_no_app() {
+    assert!(MIN_CONTRACT <= CONTRACT_VERSION, "the services speak the contract they demand");
+    let floor = SemVer::parse("0.3.1").expect("version");
+    let minimum = ClientMinimum {
+        contract: 3,
+        versions: vec![(AppName::parse("azdrive").expect("app"), floor)],
+    };
+    let refused = |min_version| {
+        Some(ClientTooOld {
+            min_contract: 3,
+            min_version,
+        })
+    };
+    // From before the hello's format, or an older contract.
+    assert_eq!(minimum.refuses(Some("azdrive/0.1")), refused(None));
+    assert_eq!(minimum.refuses(Some("AzDrive/0.2")), refused(None));
+    assert_eq!(minimum.refuses(Some("azmail/0.9.0; contract=2")), refused(None));
+    // Below its app's version, with the version to reach.
+    assert_eq!(minimum.refuses(Some("azdrive/0.3.0; contract=3")), refused(Some(floor)));
+    assert_eq!(minimum.refuses(Some("azdrive/0.9.0; contract=2")), refused(Some(floor)));
+    // At or above the minimum, a newer contract, another app's version, no hello at all.
+    for header in ["azdrive/0.3.1; contract=3", "azdrive/1.0.0; contract=4", "azmail/0.1.0; contract=3"] {
+        assert_eq!(minimum.refuses(Some(header)), None, "{header}");
+    }
+    assert_eq!(minimum.refuses(None), None);
+    // The services' minimum answers this build's own hello.
+    let ours = ClientHello::new(
+        AppName::parse("azdrive").expect("app"),
+        SemVer::parse("0.3.0").expect("version"),
+    );
+    assert_eq!(client_too_old(Some(&ours.header_value())), None);
+    assert_eq!(client_too_old(Some("azdrive/0.1")), refused(None).map(|r| ClientTooOld { min_contract: MIN_CONTRACT, ..r }));
 }
 
 #[test]

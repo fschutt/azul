@@ -4,7 +4,8 @@
 use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
-    AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
+    AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, ClientTooOld,
+    Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
     Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
 };
@@ -79,6 +80,21 @@ fn the_client_hello_reads_and_writes_its_fixture() {
         "client_hello.json",
         &vec![hello("azdrive", "0.3.0"), hello("azmail", "0.1.0"), hello("azcloud", "1.2.3")],
     );
+}
+
+#[test]
+fn the_answer_to_a_client_too_old_reads_and_writes_its_fixture() {
+    let answers = vec![
+        ClientTooOld {
+            min_contract: 3,
+            min_version: None,
+        },
+        ClientTooOld {
+            min_contract: 3,
+            min_version: Some(SemVer::parse("0.3.1").expect("version")),
+        },
+    ];
+    golden("client_too_old.json", &answers);
 }
 
 #[test]
