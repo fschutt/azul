@@ -146,11 +146,11 @@ fn buy_storage_shows_the_chosen_tier_and_its_price() {
     assert!(matches!(dialog.tiers, TiersState::NotLoaded));
     dialog.tiers = TiersState::Loaded(tiers());
     assert_eq!(dialog.chosen_tier().map(|t| t.id.as_str()), Some("100GB"));
-    assert_eq!(dialog.buy_label(), "Buy 100 GB - EUR 0.99 a month");
+    assert_eq!(dialog.buy_label(), "Buy 100 GB - EUR 0.99 for 1 month");
     assert_eq!(dialog.months(), 1);
     dialog.yearly = true;
     dialog.tier = 1;
-    assert_eq!(dialog.buy_label(), "Buy 1 TB - EUR 49.90 a year");
+    assert_eq!(dialog.buy_label(), "Buy 1 TB - EUR 49.90 for 12 months");
     assert_eq!(dialog.months(), 12);
     dialog.tier = 9;
     assert_eq!(dialog.chosen_tier(), None);
@@ -795,7 +795,7 @@ fn a_tier_sold_only_by_the_year_is_offered_and_ordered_by_the_year_only() {
     assert!(!dialog.yearly);
     assert_eq!(dialog.periods(), crate::add_drive::Periods::YearOnly);
     assert_eq!(dialog.months(), 12, "never a month the token server refuses");
-    assert_eq!(dialog.buy_label(), "Buy 12 TB - EUR 349.90 a year");
+    assert_eq!(dialog.buy_label(), "Buy 12 TB - EUR 349.90 for 12 months");
     // A tier sold both ways keeps the switch.
     dialog.tier = 0;
     assert_eq!(dialog.periods(), crate::add_drive::Periods::MonthOrYear);
