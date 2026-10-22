@@ -29,7 +29,7 @@ use std::{
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
     multipart::in_parallel,
-    s3::parse_listing,
+    s3::{parse_listing, Idempotency},
     transfer, ByteRange, Credentials, DriveError, HttpReply, ListPage, Method, ObjectInfo,
     S3Config, S3Drive,
 };
@@ -260,8 +260,8 @@ impl Bucket {
         &self.drive
     }
 
-    /// One request through the failover. A key S3 cannot take is refused before anything is
-    /// sent.
+    /// One request through the failover that may be sent twice (a read, a whole PUT, a
+    /// delete). A key S3 cannot take is refused before anything is sent.
     fn send(
         &self,
         method: Method,
@@ -271,8 +271,23 @@ impl Bucket {
         body: &[u8],
         content_type: &str,
     ) -> Result<HttpReply, DriveError> {
+        self.send_as(Idempotency::Safe, method, key, query, extra, body, content_type)
+    }
+
+    /// [`Bucket::send`] of a request that says whether it may be sent twice.
+    #[allow(clippy::too_many_arguments)]
+    fn send_as(
+        &self,
+        idempotency: Idempotency,
+        method: Method,
+        key: Option<&str>,
+        query: Vec<(String, String)>,
+        extra: Vec<(String, String)>,
+        body: &[u8],
+        content_type: &str,
+    ) -> Result<HttpReply, DriveError> {
         self.drive
-            .send_raw(method, key, query, extra, body.to_vec(), content_type)
+            .send_raw(idempotency, method, key, query, extra, body.to_vec(), content_type)
     }
 
     /// The error of a failed answer about `key` (an Azlin node's own code, pause and request ID
@@ -363,7 +378,15 @@ impl Bucket {
             Some(etag) => vec![pair("if-match", etag)],
             None => vec![pair("if-none-match", "*")],
         };
-        let reply = self.send(Method::Put, Some(key), Vec::new(), extra, data, OCTETS)?;
+        let reply = self.send_as(
+            Idempotency::Conditional,
+            Method::Put,
+            Some(key),
+            Vec::new(),
+            extra,
+            data,
+            OCTETS,
+        )?;
         match reply.status {
             200..=299 => Ok(Some(reply.header("etag").unwrap_or_default().to_string())),
             412 => Ok(None),
@@ -471,7 +494,7 @@ impl Bucket {
         let mut hello = Vec::new();
         crate::hello::stamp_headers(&mut hello);
         self.direct
-            .send_raw(Method::Head, Some(key), Vec::new(), hello, Vec::new(), "")
+            .send_raw(Idempotency::Safe, Method::Head, Some(key), Vec::new(), hello, Vec::new(), "")
             .map(|_| ())
             .map_err(|e| e.to_string())
     }

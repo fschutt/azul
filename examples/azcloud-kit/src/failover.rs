@@ -8,7 +8,11 @@
 //! 1. **The block endpoint** - the drive's own (its DNS name balances over the healthy nodes).
 //! 2. **The hint**: a node that cannot serve (draining, no majority, overloaded) answers `503`
 //!    with `x-azlin-alt-endpoints`; the SAME request goes to the nodes it names at once (with
-//!    `Retry-After: 0` there is no pause), and they are remembered for the next requests.
+//!    `Retry-After: 0` there is no pause), and they are remembered for the next requests. Only
+//!    a [`TrustedEndpoint`] is followed - one the token server's last answer listed - and never
+//!    plain http for an https drive: a node cannot send a drive's requests, their bodies and
+//!    the session token to a host of its choice. A hint or a move to an endpoint nobody listed
+//!    asks the drive for a fresh view ([`Failover::take_view_refresh`]) instead.
 //! 3. **The node list** of the last credential refresh ([`Node::list`]: ready nodes first, in
 //!    the server's order), then the refresh's failover URLs. The endpoint that answered stays
 //!    first for [`STICKY_SECS`].
@@ -30,6 +34,12 @@
 //! a device signed out, a conflict) and every ordinary answer (404, 412, ...) is returned as it
 //! is. A request no endpoint answered fails with the last endpoint's reason.
 //!
+//! Every request names the epoch of the cluster map the last refresh brought (`x-azlin-map`);
+//! a node with a newer map answers 409 `map_stale` with its epoch, and the request goes to it
+//! once more with that one (the drive takes the token server's view before its next request).
+//! A request that may not be sent twice ([`Idempotency::Unsafe`]) whose outcome is unknown is
+//! checked first: a completed multipart upload by the key's ETag.
+//!
 //! [`Failover`] is the [`Router`] the kit's [`crate::bucket::Bucket`] and
 //! [`crate::drive::AzlinDrive`] hand their S3 drive: every request - each part of an upload, each
 //! range of a download - goes through it on its own.
@@ -39,11 +49,12 @@ use std::{
     time::Duration,
 };
 
+use azlin_contract::{map_epoch, AzlinError, MAP_HEADER};
 use azul_storage::{
-    s3::{Routed, Router},
+    s3::{Idempotency, Routed, Router, Verify},
     time::now_unix,
     transport::is_dns_failure,
-    DriveError, HttpReply, S3Drive, Transport,
+    DriveError, HttpCall, HttpReply, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,6 +82,38 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// An endpoint as the failover compares it: trimmed, without a trailing `/`.
 fn normal(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
+}
+
+/// Whether `url` would take a request of the drive at `block` from https to plain http.
+fn downgrades(block: &str, url: &str) -> bool {
+    let https = |u: &str| u.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"));
+    https(block) && !https(url)
+}
+
+/// An endpoint the token server named for the drive: its block endpoint, a node of its list, a
+/// failover URL. Only these are followed when an answer names an endpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedEndpoint(String);
+
+impl TrustedEndpoint {
+    /// The endpoints of a token server's answer: the drive's block endpoint, its nodes' URLs
+    /// and its failover URLs.
+    #[must_use]
+    pub fn from_bundle(bundle: &crate::DriveBundle) -> Vec<TrustedEndpoint> {
+        let block = bundle.entry.s3_config().map(|c| c.endpoint);
+        block
+            .into_iter()
+            .chain(bundle.node_urls())
+            .map(|url| TrustedEndpoint(normal(&url)))
+            .filter(|t| !t.0.is_empty())
+            .collect()
+    }
+
+    /// The URL.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.0
+    }
 }
 
 /// The host of a URL (`n2.example`, an IPv6 address without its brackets), without its port.
@@ -280,6 +323,13 @@ struct State {
     learned: Vec<String>,
     /// The endpoint that answered last, and when.
     sticky: Option<(String, u64)>,
+    /// What the token server's answers named besides the block, the nodes and the failover URLs
+    /// (a moved drive's new block endpoint).
+    trusted: Vec<TrustedEndpoint>,
+    /// The epoch of the cluster map the requests name (`x-azlin-map`); none: no header.
+    map_epoch: Option<u64>,
+    /// An answer named an endpoint or a map the drive's view does not have.
+    view_stale: bool,
 }
 
 /// The endpoints of one drive and how its requests move between them. Shared by every request
@@ -373,6 +423,41 @@ impl Failover {
         Self::add(&self.block, &mut state.alternatives, urls);
     }
 
+    /// Follows the endpoints of a token server's answer when an answer names them.
+    pub fn trust(&self, endpoints: Vec<TrustedEndpoint>) {
+        lock(&self.state).trusted = endpoints;
+    }
+
+    /// The cluster map epoch every request names in `x-azlin-map` (of the last refresh);
+    /// `None`: no header.
+    pub fn set_map_epoch(&self, epoch: Option<u64>) {
+        lock(&self.state).map_epoch = epoch;
+    }
+
+    /// The cluster map epoch the requests name.
+    #[must_use]
+    pub fn map_epoch(&self) -> Option<u64> {
+        lock(&self.state).map_epoch
+    }
+
+    /// Whether an answer named an endpoint or a newer map than the drive's view has, since the
+    /// last time this was asked: the drive then asks the token server for its view again.
+    #[must_use]
+    pub fn take_view_refresh(&self) -> bool {
+        std::mem::take(&mut lock(&self.state).view_stale)
+    }
+
+    /// Whether `url` is one the token server named for the drive (and no step down to http).
+    fn is_trusted(&self, state: &State, url: &str) -> bool {
+        if downgrades(&self.block, url) {
+            return false;
+        }
+        url == self.block
+            || state.nodes.iter().any(|node| normal(&node.url) == url)
+            || state.alternatives.iter().any(|known| known == url)
+            || state.trusted.iter().any(|known| known.0 == url)
+    }
+
     /// Asks `urls` too, after the node list, in their order.
     pub fn add_alternatives(&self, urls: Vec<String>) {
         let mut state = lock(&self.state);
@@ -432,9 +517,10 @@ impl Failover {
         let now = self.now();
         let state = lock(&self.state);
         let mut route: Vec<String> = Vec::new();
+        let block = self.block.as_str();
         let mut push = |url: &str| {
             let url = normal(url);
-            if !url.is_empty() && !route.contains(&url) {
+            if !url.is_empty() && !route.contains(&url) && !downgrades(block, &url) {
                 route.push(url);
             }
         };
@@ -453,11 +539,16 @@ impl Failover {
         route
     }
 
-    /// Remembers the endpoints an answer's `x-azlin-alt-endpoints` names; they, in order.
+    /// Remembers the endpoints an answer's `x-azlin-alt-endpoints` names that the token server
+    /// listed; they, in order. One it did not list is left out and asks for a fresh view.
     fn learn(&self, named: &str) -> Vec<String> {
         let mut state = lock(&self.state);
         let mut out = Vec::new();
         for url in named.split(',').map(normal).filter(|u| !u.is_empty()) {
+            if !self.is_trusted(&state, &url) {
+                state.view_stale = true;
+                continue;
+            }
             if url != self.block
                 && !state.learned.contains(&url)
                 && !state.alternatives.contains(&url)
@@ -478,17 +569,79 @@ impl Failover {
         state.sticky = (endpoint != self.block).then(|| (endpoint.to_string(), now));
     }
 
-    /// The endpoint a moved drive's answer names (a bare host gets the block endpoint's scheme).
+    /// The endpoint a moved drive's answer names (a bare host gets the block endpoint's
+    /// scheme), when the token server listed it; one it did not is the next refresh's to
+    /// confirm.
     fn endpoint_named(&self, named: &str) -> Option<String> {
         let named = named.trim();
         if named.is_empty() {
             return None;
         }
-        if named.contains("://") {
-            return Some(normal(named));
+        let url = if named.contains("://") {
+            normal(named)
+        } else {
+            let scheme = self.block.split_once("://").map_or("https", |(s, _)| s);
+            normal(&format!("{scheme}://{named}"))
+        };
+        let mut state = lock(&self.state);
+        if self.is_trusted(&state, &url) {
+            Some(url)
+        } else {
+            state.view_stale = true;
+            None
         }
-        let scheme = self.block.split_once("://").map_or("https", |(s, _)| s);
-        Some(normal(&format!("{scheme}://{named}")))
+    }
+
+    /// Names the map epoch of the drive's view in `call` (none known: no header); that epoch.
+    fn stamp_map(&self, call: &mut HttpCall) -> Option<u64> {
+        call.headers.retain(|(name, _)| !name.eq_ignore_ascii_case(MAP_HEADER));
+        let epoch = self.map_epoch()?;
+        call.headers.push((MAP_HEADER.to_string(), epoch.to_string()));
+        Some(epoch)
+    }
+
+    /// A node's 409 `map_stale` naming a newer epoch than the request named (`sent`): the drive
+    /// takes that epoch and asks for a fresh view; whether it did.
+    fn newer_map(&self, reply: &HttpReply, sent: Option<u64>) -> bool {
+        let stale = reply.status == 409
+            && reply
+                .header("x-azlin-error")
+                .is_some_and(|code| AzlinError::from_wire(code) == AzlinError::MapStale);
+        let named = reply.header(MAP_HEADER).and_then(map_epoch);
+        let (true, Some(sent), Some(named)) = (stale, sent, named) else {
+            return false;
+        };
+        if named <= sent {
+            return false;
+        }
+        let mut state = lock(&self.state);
+        state.map_epoch = Some(state.map_epoch.map_or(named, |known| known.max(named)));
+        state.view_stale = true;
+        true
+    }
+
+    /// A request whose outcome at `endpoint` is unknown, when it may not be sent twice: the
+    /// answer it would have had when what it does is found done.
+    fn verified(
+        &self,
+        request: &Routed<'_>,
+        transport: &dyn Transport,
+        endpoint: &str,
+    ) -> Option<HttpReply> {
+        let Idempotency::Unsafe(Verify::Completion { etag: Some(etag) }) = request.idempotency()
+        else {
+            return None;
+        };
+        let mut head = request.probe_for(endpoint, request.key()?).ok()?;
+        crate::hello::stamp(&mut head);
+        self.stamp_map(&mut head);
+        let reply = transport.send(&head).ok()?;
+        let found = reply.header("etag")?.trim().trim_matches('"');
+        (reply.is_success() && found.eq_ignore_ascii_case(etag)).then(|| HttpReply {
+            status: 200,
+            headers: vec![(String::from("etag"), format!("\"{etag}\""))],
+            body: Vec::new(),
+        })
     }
 
     /// Tells `transport` the addresses of the node at `endpoint` (layer 4); whether it took them.
@@ -584,6 +737,8 @@ impl Router for Failover {
         let mut last_reply: Option<HttpReply> = None;
         let mut last_error: Option<DriveError> = None;
         let mut reread = false;
+        // a node's newer map gets the request once more, not in a loop
+        let mut map_resent = false;
         for round in 1..=rounds {
             let mut route = self.route();
             // The longest pause a node asked for in this round.
@@ -600,6 +755,7 @@ impl Router for Failover {
                     }
                 };
                 crate::hello::stamp(&mut call);
+                let epoch = self.stamp_map(&mut call);
                 let sent = match transport.send(&call) {
                     Err(why)
                         if is_dns_failure(&why)
@@ -612,16 +768,26 @@ impl Router for Failover {
                 let reply = match sent {
                     Ok(reply) => reply,
                     Err(why) => {
+                        // no answer: a request that may not be sent twice is checked first
+                        if let Some(done) = self.verified(request, transport, &endpoint) {
+                            self.answered(&endpoint);
+                            return Ok(done);
+                        }
                         last_error = Some(DriveError::Transport(format!("{endpoint}: {why}")));
                         continue;
                     }
                 };
+                if !map_resent && self.newer_map(&reply, epoch) {
+                    // the same node again, naming its epoch
+                    map_resent = true;
+                    i -= 1;
+                    continue;
+                }
                 if let Some(named) = reply.header("x-azlin-alt-endpoints") {
                     // Layer 2: the nodes the answer names come next, in this request.
                     let mut at = i;
                     for url in self.learn(named) {
-                        if !route.contains(&url) {
-                            route.insert(at, url);
+                        if next_in(&mut route, at, url) {
                             at += 1;
                         }
                     }
@@ -632,15 +798,19 @@ impl Router for Failover {
                         return Ok(reply);
                     }
                     Verdict::Again(pause) => {
+                        if outcome_unknown(&reply) {
+                            if let Some(done) = self.verified(request, transport, &endpoint) {
+                                self.answered(&endpoint);
+                                return Ok(done);
+                            }
+                        }
                         if let Some(pause) = pause {
                             asked = Some(asked.map_or(pause, |a| a.max(pause)));
                         }
                         last_reply = Some(reply);
                     }
                     Verdict::Moved(moved) => {
-                        if !route.contains(&moved) {
-                            route.insert(i, moved);
-                        }
+                        next_in(&mut route, i, moved);
                         last_reply = Some(reply);
                     }
                 }
@@ -663,6 +833,35 @@ impl Router for Failover {
                 .unwrap_or_else(|| DriveError::Transport(String::from("no endpoint to ask")))),
         }
     }
+}
+
+/// Puts `url` at `at` of `route` (moved there when it comes later); whether it is there now. One
+/// tried already (before `at`) stays where it was.
+fn next_in(route: &mut Vec<String>, at: usize, url: String) -> bool {
+    match route.iter().position(|known| *known == url) {
+        Some(found) if found < at => false,
+        Some(found) => {
+            let url = route.remove(found);
+            route.insert(at, url);
+            true
+        }
+        None => {
+            route.insert(at, url);
+            true
+        }
+    }
+}
+
+/// Whether `reply` leaves open whether the request was done: a 5xx that is no refusal before
+/// the work (a node that is busy, draining or being updated says so and did nothing).
+fn outcome_unknown(reply: &HttpReply) -> bool {
+    let refused_first = reply.header("x-azlin-error").is_some_and(|code| {
+        matches!(
+            AzlinError::from_wire(code),
+            AzlinError::Unavailable | AzlinError::Maintenance | AzlinError::DeletePaused
+        )
+    });
+    reply.status >= 500 && !refused_first
 }
 
 /// Reads a node list kept in `path` (a JSON array of [`Node`]s); empty when there is none.

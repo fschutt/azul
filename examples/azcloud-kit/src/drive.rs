@@ -40,7 +40,7 @@ use azul_storage::{
 
 use crate::{
     bundle::DriveBundle,
-    failover::{read_nodes, write_nodes, Failover, Node},
+    failover::{read_nodes, write_nodes, Failover, Node, TrustedEndpoint},
     outbox,
     period::GrantChanged,
     session::{AzlinSession, Grant},
@@ -93,6 +93,9 @@ pub struct AzlinDrive {
     /// The token server changed the drive's grant (a month bought, a voucher): read-only
     /// credentials are refreshed before the next request ([`AzlinDrive::apply`]).
     grant_changed: AtomicBool,
+    /// When (by `clock`) an answer naming an endpoint or a map the drive's view lacks last made
+    /// it ask the token server for its view.
+    view_refresh: Mutex<Option<u64>>,
 }
 
 /// Why credentials are refreshed: what makes another process's newer session good enough.
@@ -104,7 +107,14 @@ enum Why<'a> {
     Refused(&'a str),
     /// The drive's grant changed: read-only ones are of before.
     GrantChanged,
+    /// An answer named an endpoint or a map the view lacks: the token server's view (nodes,
+    /// map) is wanted, so the token is spent even when another process refreshed.
+    View,
 }
+
+/// How long the drive waits before an answer may make it ask for its view again (seconds): a
+/// node that names strangers on every answer does not make every request spend a token.
+const VIEW_REFRESH_EVERY: u64 = 300;
 
 /// How long a refusal without a body waits before it makes the drive ask for fresh
 /// credentials again (seconds).
@@ -225,6 +235,7 @@ impl AzlinDrive {
             nodes_file: None,
             bodyless_refresh: Mutex::new(None),
             grant_changed: AtomicBool::new(false),
+            view_refresh: Mutex::new(None),
         })
     }
 
@@ -270,7 +281,8 @@ impl AzlinDrive {
         self.failover.lane()
     }
 
-    /// Takes a bundle's node list and failover URLs (and keeps the list in the nodes file).
+    /// Takes a bundle's view: its node list and failover URLs (the list kept in the nodes file),
+    /// the endpoints an answer may send the requests to, the cluster map's epoch.
     fn learn_nodes(&self, bundle: &DriveBundle) {
         let nodes = Node::list(&bundle.nodes);
         if let Some(path) = &self.nodes_file {
@@ -278,6 +290,8 @@ impl AzlinDrive {
         }
         self.failover.set_nodes(nodes);
         self.failover.set_alternatives(bundle.failover.clone());
+        self.failover.trust(TrustedEndpoint::from_bundle(bundle));
+        self.failover.set_map_epoch(bundle.map_epoch);
     }
 
     /// Reads the time from `clock` (seconds since 1970) instead of the system's.
@@ -325,9 +339,28 @@ impl AzlinDrive {
             }
         } else if current.session.needs_refresh((self.clock)()) {
             self.refresh(&mut current, Why::Expiring)?;
+        } else if self.failover.take_view_refresh() && self.view_refresh_due() {
+            // An answer named an endpoint or a map the view lacks: the token server's view
+            // first. Without an answer the request goes on with the view the drive has.
+            let _ = self.refresh(&mut current, Why::View);
         }
         let drive = self.opened(&mut current)?;
         Ok((drive, current.session.access_key_id.clone()))
+    }
+
+    /// Whether an answer may make the drive ask for its view now (not within
+    /// [`VIEW_REFRESH_EVERY`] of the last time); takes the turn when it may.
+    fn view_refresh_due(&self) -> bool {
+        let now = (self.clock)();
+        let mut last = self
+            .view_refresh
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if last.is_some_and(|at| now < at.saturating_add(VIEW_REFRESH_EVERY)) {
+            return false;
+        }
+        *last = Some(now);
+        true
     }
 
     /// The bucket of the session `current` holds, opened on first use.
@@ -383,6 +416,7 @@ impl AzlinDrive {
                 Why::GrantChanged => {
                     newer.grant == Grant::ReadWrite && !newer.needs_refresh((self.clock)())
                 }
+                Why::View => false,
             };
             if usable {
                 // Another process refreshed: its session is the newest, nothing is spent.

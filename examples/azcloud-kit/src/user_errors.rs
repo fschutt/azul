@@ -129,11 +129,16 @@ pub enum Code {
     /// A grant asked again whose first answer was used (`already_answered`): the request went
     /// through before, nothing more to do.
     AlreadyAnswered,
+    /// Someone used the drive's recovery code: it takes no changes until the notice ends or a
+    /// device of the owner cancels the lockdown (a node's `read_only_lockdown`).
+    ReadOnlyLockdown,
+    /// Azlin Storage made the drive read-only for now (`read_only_operator`).
+    ReadOnlyOperator,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 31] = [
+    pub const ALL: [Code; 33] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -165,6 +170,8 @@ impl Code {
         Code::PayerRequired,
         Code::CheckoutPaid,
         Code::AlreadyAnswered,
+        Code::ReadOnlyLockdown,
+        Code::ReadOnlyOperator,
     ];
 
     /// `quota_exceeded`, ...
@@ -200,6 +207,8 @@ impl Code {
             Code::PayerRequired => "payer_required",
             Code::CheckoutPaid => "checkout_paid",
             Code::AlreadyAnswered => azlin_contract::ALREADY_ANSWERED,
+            Code::ReadOnlyLockdown => "read_only_lockdown",
+            Code::ReadOnlyOperator => "read_only_operator",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -261,6 +270,8 @@ impl From<AzlinError> for Code {
             AzlinError::RecoveryKeyRequired => Code::RecoveryKeyRequired,
             AzlinError::LastRecoveryKey => Code::LastRecoveryKey,
             AzlinError::BadChallenge => Code::BadChallenge,
+            AzlinError::ReadOnlyLockdown => Code::ReadOnlyLockdown,
+            AzlinError::ReadOnlyOperator => Code::ReadOnlyOperator,
         }
     }
 }
@@ -420,8 +431,8 @@ pub const ROWS: &[Row] = &[
         code: Code::DeletePaused,
         class: Class::Retry,
         behaviour: Behaviour::RetryAfterPause,
-        en: "Deleting is paused on this drive for a moment - we'll try again.",
-        de: "Löschen ist auf diesem Laufwerk kurz angehalten - wir versuchen es gleich noch \
+        en: "Deleting is paused on this drive for now - we'll try again later.",
+        de: "Löschen ist auf diesem Laufwerk gerade angehalten - wir versuchen es später noch \
              einmal.",
     },
     Row {
@@ -551,6 +562,27 @@ pub const ROWS: &[Row] = &[
         en: "This order is paid already: the drive arrives as soon as the payment is confirmed.",
         de: "Diese Bestellung ist schon bezahlt: Das Laufwerk kommt, sobald die Zahlung \
              bestätigt ist.",
+    },
+    Row {
+        code: Code::ReadOnlyLockdown,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "Someone used this drive's recovery code: it takes no changes until the 48-hour \
+             notice ends. If it wasn't you, cancel the lockdown with your recovery code - your \
+             files are safe.",
+        de: "Jemand hat den Wiederherstellungscode dieses Laufwerks benutzt: Es nimmt keine \
+             Änderungen an, bis die 48-Stunden-Frist endet. Wenn du das nicht warst, brich die \
+             Sperrung mit deinem Wiederherstellungscode ab - deine Dateien sind sicher.",
+    },
+    Row {
+        code: Code::ReadOnlyOperator,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "Azlin Storage made this drive read-only for now. Your files are safe and readable; \
+             syncing goes on when it takes changes again.",
+        de: "Azlin Storage hat dieses Laufwerk vorübergehend schreibgeschützt. Deine Dateien \
+             sind sicher und lesbar; die Synchronisierung geht weiter, sobald es wieder \
+             Änderungen annimmt.",
     },
     Row {
         code: Code::BadChallenge,

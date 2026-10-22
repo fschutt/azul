@@ -163,6 +163,11 @@ pub struct DriveBundle {
     /// When this device's token family stops working unless it refreshes before (a refresh's
     /// answer says it; a paid drive's family does not run out idle).
     pub family_expires_at: Option<azlin_contract::Deadline>,
+    /// The epoch of the cluster map the token server trusts (`map.epoch`): what the requests
+    /// name in `x-azlin-map`; `None` while it trusts no map.
+    pub map_epoch: Option<u64>,
+    /// Why the drive takes no writes, when the server says it (`read_only_reason`).
+    pub read_only_why: Option<azlin_contract::ReadOnlyWhy>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -266,6 +271,10 @@ impl DriveBundle {
             ban: Ban::of(value),
             claim: ClaimTicket::from_value(&value["claim"]),
             family_expires_at: serde_json::from_value(value["family_expires_at"].clone()).ok(),
+            map_epoch: value["map"]["epoch"].as_u64(),
+            read_only_why: value["read_only_reason"]
+                .as_str()
+                .map(azlin_contract::ReadOnlyWhy::from_wire),
         })
     }
 

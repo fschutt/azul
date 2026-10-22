@@ -244,8 +244,9 @@ pub(crate) fn periods_redeemed(
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
             // A ban (ban contract v1): the banner and the refusals, or none any more.
             crate::ban::seen(s, &drive_id, status.ban.clone());
-            // A synced drive's status line says "Read-only (payment due)" by this word.
-            crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
+            // A synced drive's status line says "Read-only (payment due)" by this word: only
+            // for a payment, not a recovery's freeze or an operator's.
+            crate::sync_jobs::drive_status_seen(s, &drive_id, status.payment_due());
             // Its space: the quota and the stored bytes the token server counts.
             crate::usage_view::status_seen(s, &drive_id, status);
         }

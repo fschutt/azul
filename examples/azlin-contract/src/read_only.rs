@@ -49,6 +49,13 @@ impl ReadOnlyWhy {
         ReadOnlyWhy::ALL.into_iter().find(|why| why.as_str() == text)
     }
 
+    /// The reason of a received answer or row: [`ReadOnlyWhy::Unknown`] for one this build does
+    /// not know.
+    #[must_use]
+    pub fn from_wire(text: &str) -> ReadOnlyWhy {
+        ReadOnlyWhy::parse(text).unwrap_or(ReadOnlyWhy::Unknown)
+    }
+
     /// The code a node refuses a write with: each reason its own words for the user. A reason
     /// this build does not know is "read-only for now", never a payment.
     #[must_use]

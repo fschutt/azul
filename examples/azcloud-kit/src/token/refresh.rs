@@ -29,6 +29,20 @@ pub struct DriveStatus {
     pub used_bytes: Option<u64>,
     /// The drive is banned (ban contract v1): why, and until when it may still be read.
     pub ban: Option<Ban>,
+    /// Why it takes no writes, when the server says it (`read_only_reason`; a server of
+    /// before names none, and then read-only was a payment due).
+    pub read_only_why: Option<azlin_contract::ReadOnlyWhy>,
+}
+
+impl DriveStatus {
+    /// Whether the drive takes no writes because a payment is due (not a recovery's freeze, an
+    /// operator's, a ban).
+    #[must_use]
+    pub fn payment_due(&self) -> bool {
+        self.read_only
+            && self.ban.is_none()
+            && matches!(self.read_only_why, None | Some(azlin_contract::ReadOnlyWhy::Unpaid))
+    }
 }
 
 /// The error code of a banned drive's refusals: its writes during the grace period, everything
@@ -396,6 +410,9 @@ impl<'a> TokenServer<'a> {
                 .as_u64()
                 .or_else(|| info["stored_bytes"].as_u64()),
             ban: Ban::of(&info),
+            read_only_why: info["read_only_reason"]
+                .as_str()
+                .map(azlin_contract::ReadOnlyWhy::from_wire),
         })
     }
 }
