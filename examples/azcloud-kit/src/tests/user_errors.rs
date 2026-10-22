@@ -459,6 +459,26 @@ fn a_client_too_old_for_the_service_is_asked_to_update() {
     );
 }
 
+/// 426 is "upgrade required" whatever carries it: a proxy's answer without the service's body
+/// asks for an update too. A code this build does not know is not taken for one: it stays
+/// something that went wrong, with the error ID, since no newer app may exist for it.
+#[test]
+fn an_answer_426_asks_for_an_update_even_without_its_code() {
+    let bare = TokenError::Refused {
+        status: 426,
+        code: String::new(),
+        message: String::new(),
+    };
+    assert_eq!(UserError::from_token_error(&bare).map(|u| u.code), Some(Code::UpdateApp));
+    assert_eq!(code_of(&azlin(426, "UpgradeRequired", None)), Some(Code::UpdateApp));
+    let unknown = TokenError::Refused {
+        status: 400,
+        code: String::from("a_new_word"),
+        message: String::new(),
+    };
+    assert_eq!(UserError::from_token_error(&unknown).map(|u| u.code), Some(Code::Other));
+}
+
 #[test]
 fn a_refused_order_is_said_in_the_buyers_language_never_as_the_servers_sentence() {
     let refused = |status: u16, code: &str| {
