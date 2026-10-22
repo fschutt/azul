@@ -9686,6 +9686,24 @@ impl Drop for MacOSWindow {
     }
 }
 
+#[cfg(test)]
+mod first_frame_tests {
+    use super::{shown_after_draw, BLANK_DRAWS_BEFORE_SHOWN};
+
+    #[test]
+    fn a_new_window_is_shown_by_the_first_draw_that_showed_its_document() {
+        assert!(!shown_after_draw(false, 0), "a draw without the document keeps it invisible");
+        assert!(shown_after_draw(true, 0));
+        assert!(shown_after_draw(true, 3));
+    }
+
+    #[test]
+    fn a_window_whose_document_never_comes_is_shown_anyway() {
+        assert!(!shown_after_draw(false, BLANK_DRAWS_BEFORE_SHOWN - 1));
+        assert!(shown_after_draw(false, BLANK_DRAWS_BEFORE_SHOWN));
+    }
+}
+
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl MacOSWindow {
     /// Drain the per-window loop work that does NOT involve pumping NSEvents:

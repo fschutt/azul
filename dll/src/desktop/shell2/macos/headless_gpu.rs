@@ -588,3 +588,88 @@ pub(crate) fn keep(name: &str, frames: &Frames) {
         }
     }
 }
+
+#[cfg(test)]
+mod document_shown_tests {
+    use super::*;
+    use crate::desktop::wr_translate2::renderer_shows_document;
+
+    /// WebRender builds a frame after the pass that sent its display list,
+    /// so a render shows a window's document only once a later update took
+    /// that frame in; before, the window shows its bare background, which
+    /// is what a new window must not be shown with.
+    #[test]
+    fn the_renderer_shows_a_document_only_once_its_frame_was_taken_in() {
+        let Some(context) = OffscreenContext::new() else {
+            return; // no OpenGL here
+        };
+        let Ok(gl_functions) = GlFunctions::initialize() else {
+            return;
+        };
+        let gl = gl_functions.get_context();
+        let device_size = DeviceIntSize::new(64, 64);
+        let Some(framebuffer) = Framebuffer::new(gl.clone(), 64, 64) else {
+            return;
+        };
+        let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let notifier = Notifier {
+            new_frame_ready: new_frame_ready.clone(),
+            wake: None,
+        };
+        let options = default_renderer_options(&WindowCreateOptions::default(), None, None);
+        let (mut renderer, sender) =
+            webrender::create_webrender_instance(gl.clone(), Box::new(notifier), options, None)
+                .expect("a renderer");
+        let mut render_api = sender.create_api();
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a window");
+        window.document_id = translate_document_id_wr(render_api.add_document(device_size));
+        window.id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(64.0, 64.0);
+        window.current_window_state = state.clone();
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(Dom::create_body()),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("laid out");
+        framebuffer.bind();
+
+        renderer.update();
+        assert!(
+            !renderer_shows_document(&renderer, window.document_id),
+            "nothing was sent yet"
+        );
+
+        let mut txn = Transaction::new();
+        generate_frame(&mut txn, &mut window, &mut render_api, true, &OptionGlContextPtr::None);
+        render_api.send_transaction(wr_translate_document_id(window.document_id), txn);
+        {
+            let (ready, signal) = &*new_frame_ready;
+            let mut ready = ready.lock().expect("the signal");
+            while !*ready {
+                let (next, timeout) = signal
+                    .wait_timeout(ready, Duration::from_secs(20))
+                    .expect("the signal");
+                ready = next;
+                assert!(!timeout.timed_out(), "WebRender built no frame");
+            }
+        }
+        assert!(
+            !renderer_shows_document(&renderer, window.document_id),
+            "built, but not taken in yet"
+        );
+        renderer.update();
+        assert!(
+            renderer_shows_document(&renderer, window.document_id),
+            "the frame taken in holds the document"
+        );
+        renderer.render(device_size, 0).expect("rendered");
+        drop(framebuffer);
+        renderer.deinit();
+        drop(context);
+    }
+}
