@@ -87,6 +87,30 @@ fn state(children: &BTreeMap<DomId, Arc<DisplayList>>) -> CpuRenderState {
     CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(children.clone())
 }
 
+/// The backends' recipe for the frame after `previous`: the parent item
+/// diff, the child diff and the views' scroll moves, then a damage-only
+/// repaint of the frame that is on screen. Returns the damage.
+fn present(
+    raster: &mut Raster,
+    previous: &DisplayList,
+    current: &DisplayList,
+    children: &BTreeMap<DomId, Arc<DisplayList>>,
+    frame: &mut cpurender::AzulPixmap,
+) -> Vec<LogicalRect> {
+    let empty = ScrollOffsetMap::new();
+    let mut damage = cpurender::compute_display_list_damage(previous, current, &empty, &empty)
+        .expect("the two lists hold the same items");
+    damage.extend(cpurender::compute_virtual_view_damage(
+        current, children, children, &empty,
+    ));
+    for shift in cpurender::collect_virtual_view_shifts(previous, current, &empty, &empty) {
+        let out = cpurender::execute_virtual_view_shift(frame, current, children, &shift, 1.0, &empty);
+        damage.extend(out.damage);
+    }
+    raster.repaint_state(current, frame, &state(children), &damage);
+    damage
+}
+
 #[test]
 fn a_virtual_view_item_whose_content_offset_moved_is_not_visually_equal() {
     assert!(
@@ -114,15 +138,7 @@ fn a_virtual_view_scrolled_on_the_lightweight_path_is_repainted_where_its_conten
     let mut frame = raster.full_state(&previous, &state(&children));
     for (i, x) in steps.iter().enumerate().skip(1) {
         let current = parent(*x);
-        // The backends' recipe: the parent item diff and the child diff,
-        // then a damage-only repaint of the frame that is on screen.
-        let mut damage =
-            cpurender::compute_display_list_damage(&previous, &current, &empty, &empty)
-                .expect("the two lists hold the same items");
-        damage.extend(cpurender::compute_virtual_view_damage(
-            &current, &children, &children, &empty,
-        ));
-        raster.repaint_state(&current, &mut frame, &state(&children), &damage);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
 
         let expected = raster.full_state(&current, &state(&children));
         assert_eq!(
@@ -130,6 +146,37 @@ fn a_virtual_view_scrolled_on_the_lightweight_path_is_repainted_where_its_conten
             None,
             "step {i}: the view scrolled to x={x}, so the presented frame must equal a full \
              render there - the content moved with the scroll (damage {damage:?})"
+        );
+        previous = current;
+    }
+}
+
+/// A whole-pixel scroll step of a view moves the view's pixels and repaints
+/// the strip that came into view - a 120px box scrolled by 8px repaints 8px
+/// of it, not the box. (The fractional step above lands off the pixel grid
+/// and repaints the box; every frame still equals a full render.)
+#[test]
+fn a_scrolled_view_moves_its_pixels_and_repaints_only_the_strip() {
+    let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let mut raster = Raster::new();
+    let mut previous = parent(0.0);
+    let mut frame = raster.full_state(&previous, &state(&children));
+    for (i, x) in [8.0f32, 16.0, 40.0, 33.0, 0.0].iter().enumerate() {
+        let current = parent(*x);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
+        let expected = raster.full_state(&current, &state(&children));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "step {i}: the frame of the view scrolled to x={x} equals a full render there"
+        );
+        let area: f32 = damage.iter().map(|r| r.size.width * r.size.height).sum();
+        let step = (x - if i == 0 { 0.0 } else { [8.0f32, 16.0, 40.0, 33.0, 0.0][i - 1] }).abs();
+        assert!(
+            area <= (step + 2.0) * view_box().size.height,
+            "step {i}: a {step}px scroll of the view repainted {area} px^2 - the strip is \
+             {step} x {} (damage {damage:?})",
+            view_box().size.height
         );
         previous = current;
     }
