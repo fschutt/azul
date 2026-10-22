@@ -189,7 +189,7 @@ pub enum DeadlineKind {
     FamilyIdle,
     /// The paid period ends: the drive turns read-only after it.
     PeriodEnd,
-    /// The read-only grace after the period ends: the drive closes after it.
+    /// The read-only time of an unpaid drive ends: it is closed and its data deleted then.
     ReadOnlyEnd,
     /// A paid drive can be picked up until then.
     ClaimWindow,
@@ -197,6 +197,8 @@ pub enum DeadlineKind {
     HandoffPurge,
     /// A recovery lockdown's notice ends: the drive is handed over then.
     LockdownEnd,
+    /// The writable grace after the period ends: the drive turns read-only then.
+    ReadOnlyStart,
     /// A kind this build does not know: a newer service sent it.
     #[serde(other)]
     Unknown,

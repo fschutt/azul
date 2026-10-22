@@ -26,5 +26,9 @@
   {
     "at": "2026-10-27T00:00:00Z",
     "kind": "lockdown_end"
+  },
+  {
+    "at": "2026-10-28T00:00:00Z",
+    "kind": "read_only_start"
   }
 ]

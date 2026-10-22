@@ -44,10 +44,26 @@ impl IssueSchedule {
         due.min(months)
     }
 
-    /// Every month is issued.
+    /// The schedule of a running monthly plan: like [`IssueSchedule::at`] while a paid month is
+    /// not issued; paid up, the next month is asked for when its payment is due (a payment that
+    /// is late: a day from `now`), so the plan never reads as complete.
+    #[must_use]
+    pub fn recurring_at(months: u32, issued: u32, approved_at: i64, now: i64) -> IssueSchedule {
+        if issued < months {
+            return IssueSchedule::at(months, issued, approved_at);
+        }
+        let due = approved_at + i64::from(issued) * INSTALMENT_SECS;
+        IssueSchedule {
+            months,
+            issued,
+            next_issue_at: Some(Rfc3339::from_unix(due.max(now + 86_400))),
+        }
+    }
+
+    /// Every month is issued and no more come.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.issued >= self.months
+        self.issued >= self.months && self.next_issue_at.is_none()
     }
 
     /// Whether the next instalment may be asked for at `now`.

@@ -30,6 +30,7 @@ mod idempotency;
 mod period;
 mod read_only;
 mod refresh;
+mod renewal;
 mod time;
 
 pub use checkout::{
@@ -43,6 +44,10 @@ pub use idempotency::{IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOT
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
 pub use read_only::{map_epoch, ReadOnlyWhy, MAP_HEADER};
 pub use refresh::{BanWire, RefreshRefusal};
+pub use renewal::{
+    expiry, GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup, CHANGE_AHEAD_SECS,
+    READ_ONLY_SECS, REMIND_BEFORE_DAYS, WRITABLE_GRACE_SECS,
+};
 pub use ids::{
     BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,
     MemberId, Months, StoredBytes, TierId,
@@ -69,6 +74,9 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("issue_refusals.json", include_str!("../fixtures/issue_refusals.json")),
     ("refresh_refusals.json", include_str!("../fixtures/refresh_refusals.json")),
     ("read_only_why.json", include_str!("../fixtures/read_only_why.json")),
+    ("redeem_answers.json", include_str!("../fixtures/redeem_answers.json")),
+    ("redeem_refusals.json", include_str!("../fixtures/redeem_refusals.json")),
+    ("renewal_signups.json", include_str!("../fixtures/renewal_signups.json")),
 ];
 
 /// The digest of [`FIXTURES`] (`fnv1a64:<16 hex digits>`): the services keep the one they were
