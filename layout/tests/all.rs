@@ -1261,3 +1261,7 @@ mod background_origin_places_the_image_in_its_box;
 mod a_scrolling_view_keeps_its_rows_when_its_box_gets_shorter;
 #[path = "a_restyle_that_starts_many_fades_rebuilds_the_cascade_once.rs"]
 mod a_restyle_that_starts_many_fades_rebuilds_the_cascade_once;
+#[path = "a_resize_that_crosses_no_breakpoint_restyles_nothing.rs"]
+mod a_resize_that_crosses_no_breakpoint_restyles_nothing;
+#[path = "a_change_inside_a_transformed_box_is_damaged_where_it_is_painted.rs"]
+mod a_change_inside_a_transformed_box_is_damaged_where_it_is_painted;
