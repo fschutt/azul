@@ -84,6 +84,30 @@ impl<'a> TokenServer<'a> {
         self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
     }
 
+    /// One device out (`DELETE /v1/drives/{id}/members/{member}`), from another device of the
+    /// drive: the member's token families and the credentials made for it stop working.
+    /// `member` is a name the token server gave ([`check_id`]'s letters only). `key` names the
+    /// request across its retries.
+    ///
+    /// # Errors
+    ///
+    /// A member name that is no path segment (nothing is sent); the token server's refusal:
+    /// 409 `own_member` (this device's own: a lockdown is for that), 404 `no_such_member`.
+    pub fn remove_member(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        member: &str,
+        key: &IdempotencyKey,
+    ) -> Result<Value, TokenError> {
+        let path = format!(
+            "/v1/drives/{}/members/{}",
+            check_id(drive_id)?,
+            check_id(member)?
+        );
+        self.grant(Method::Delete, &path, Some(token_of(drive_token)?), None, key)
+    }
+
     /// The immediate lockdown by this device (`POST /v1/drives/{id}/lockdown`): every other
     /// token family, key and public link of the drive is revoked at once; the answer is this
     /// device's new grant (a bundle). The token sent is revoked by it: when the answer is lost,

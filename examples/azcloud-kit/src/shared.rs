@@ -21,13 +21,16 @@ use azul_storage::{
 };
 use zeroize::Zeroizing;
 
+use azlin_contract::IdempotentScope;
+
 use crate::{
+    account::JoinCode,
     bundle::DriveBundle,
-    error::CloudResult,
+    error::{CloudError, CloudResult},
     lock::{HeldLock, LockDir},
     outbox::Outbox,
     session::{AzlinSession, DriveToken},
-    token::TokenError,
+    token::{check_id, TokenError, TokenServer},
 };
 
 /// How long a change waits for another process's change of the same entry: a refresh holds the
@@ -406,6 +409,131 @@ impl SharedKeyring {
         let text = bundle.session().to_keyring_secret();
         self.set(&key, &text)?;
         Ok((text, false))
+    }
+}
+
+/// A drive this device joined with a join code: the first refresh's answer, and the session
+/// it made, kept in the keyring (`saved`: whether the keyring took it).
+pub struct Joined {
+    pub bundle: DriveBundle,
+    pub session: AzlinSession,
+    pub saved: Result<(), String>,
+}
+
+impl Joined {
+    /// The drive joined.
+    #[must_use]
+    pub fn drive_id(&self) -> &str {
+        self.bundle.drive_id()
+    }
+}
+
+impl SharedKeyring {
+    /// A join code for another device of the drive `drive_id` (`name`: the drive's name there):
+    /// a new member family made with the keyring's newest drive token, under the drive's lock
+    /// like every grant, with one idempotency key across the retries ([`Outbox::send`]): asked
+    /// again after a lost answer it is the same member. `member` names it, else the token
+    /// server does. Without a key seal: the caller adds one for an encrypted drive.
+    ///
+    /// # Errors
+    ///
+    /// The lock, no session of the drive, the token server's refusal or no answer.
+    pub fn invite(
+        &self,
+        server: &TokenServer<'_>,
+        drive_id: &str,
+        name: &str,
+        member: Option<&str>,
+    ) -> CloudResult<JoinCode> {
+        let outbox = self.outbox();
+        let answer = self.with_drive_token(drive_id, |token| {
+            outbox.send(IdempotentScope::AddMember, drive_id, member.unwrap_or(""), |key| {
+                server.until_final(|| server.add_member(drive_id, token, member, key))
+            })
+        })??;
+        let drive_token = answer["drive_token"].as_str().unwrap_or_default().trim();
+        if drive_token.is_empty() {
+            return Err(CloudError::failed(
+                "the token server's member answer has no drive token",
+            ));
+        }
+        Ok(JoinCode {
+            drive_id: drive_id.trim().to_string(),
+            drive_token: drive_token.to_string(),
+            member: answer["member"].as_str().unwrap_or("member").to_string(),
+            name: name.trim().to_string(),
+            token_url: server.base().to_string(),
+            key_seal: None,
+        })
+    }
+
+    /// Joins the drive of `code` on this device: the code's token spent once for this
+    /// device's first session, kept in the drive's keyring entry before its lock is let go.
+    /// When the answer is lost the code is used again as it is: the token server answers the
+    /// same token while the one it rotated to was never used.
+    ///
+    /// # Errors
+    ///
+    /// The keyring holds a session of the drive already (nothing is spent), the lock, the
+    /// token server's refusal or no answer, an answer for another drive.
+    pub fn join(&self, server: &TokenServer<'_>, code: &JoinCode) -> CloudResult<Joined> {
+        let drive_id = code.drive_id.trim();
+        check_id(drive_id)?;
+        let key = keyring_key(drive_id);
+        let lock = self.lock(&key)?;
+        if let Some(text) = self.read_locked(&key)? {
+            let held = AzlinSession::from_keyring_secret_without_credentials(&text)
+                .is_ok_and(|s| s.drive_id == drive_id && !s.drive_token.is_empty());
+            if held {
+                return Err(CloudError::failed(format!(
+                    "this device has the drive {drive_id} already"
+                )));
+            }
+        }
+        let spend = SpendOnce {
+            drive_id: drive_id.to_string(),
+            token: DriveToken::new(&code.drive_token),
+            entry: None,
+            home: Home::Keyring { shared: self, key },
+            lock: SpendLock::new(lock),
+        };
+        let rotation = server.refresh(spend, Some(&code.name)).rotated()?;
+        if rotation.bundle().drive_id() != drive_id {
+            return Err(CloudError::failed(format!(
+                "the token server answered for drive {} instead of {drive_id}",
+                rotation.bundle().drive_id()
+            )));
+        }
+        let bundle = rotation.bundle().clone();
+        let kept = rotation.keep();
+        Ok(Joined {
+            bundle,
+            session: kept.session,
+            saved: kept.saved,
+        })
+    }
+
+    /// Removes the device `member` from the drive `drive_id` (from this device, with the
+    /// keyring's newest token under the drive's lock, one key across the retries).
+    ///
+    /// # Errors
+    ///
+    /// A member name that is no path segment (nothing is sent), the lock, no session of the
+    /// drive, the token server's refusal or no answer.
+    pub fn remove_member(
+        &self,
+        server: &TokenServer<'_>,
+        drive_id: &str,
+        member: &str,
+    ) -> CloudResult<()> {
+        check_id(member)?;
+        let outbox = self.outbox();
+        self.with_drive_token(drive_id, |token| {
+            outbox.send(IdempotentScope::RemoveMember, drive_id, member, |key| {
+                server.until_final(|| server.remove_member(drive_id, token, member, key))
+            })
+        })??;
+        Ok(())
     }
 }
 

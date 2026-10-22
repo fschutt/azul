@@ -143,7 +143,7 @@ pub use restore::{restore_bucket_as_of, restore_drive_as_of, BucketRestore, Driv
 pub use session::{AzlinSession, DriveToken, Grant};
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::{
-    Kept, PendingSpend, RefreshOutcome, Rotation, SharedKeyring, SpendLock, SpendOnce,
+    Joined, Kept, PendingSpend, RefreshOutcome, Rotation, SharedKeyring, SpendLock, SpendOnce,
 };
 pub use state::StateDir;
 pub use store::RemoteStore;

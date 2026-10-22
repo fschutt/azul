@@ -73,7 +73,7 @@ pub use period::{BlindSignatures, IssueAnswer, MAX_BLINDED};
 pub use recovery::{
     lockdown_cancel_message, recovery_add_message, recovery_key_message,
     recovery_lockdown_message, recovery_lookup_message, recovery_remove_message, FoundDrive,
-    RecoveryKeyInfo, RecoveryLockdown, RECOVERY_MEMBER,
+    Presigned, RecoveryKeyInfo, RecoveryLockdown, RECOVERY_MEMBER,
 };
 pub use refresh::{
     ban_fluent_source, ban_reason_arg, banner_phrase, banner_text, closed_phrase, closed_text,

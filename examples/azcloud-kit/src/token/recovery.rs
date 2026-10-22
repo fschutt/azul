@@ -118,6 +118,53 @@ fn lockdown_nonce() -> Result<String, TokenError> {
     Ok(crate::period::hex(&bytes))
 }
 
+/// A signed recovery-key request kept for its retries: the nonce and the signature over its
+/// message, made once while the recovery code is at hand, so the request goes again later (a
+/// start, the daily look) without the code. Neither is a secret: the signature allows only
+/// this one change, and only with a drive token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Presigned {
+    pub nonce: String,
+    pub signature: String,
+}
+
+impl Presigned {
+    /// The replacement of the drive's recovery key by `new_key`, signed by `sign` (the current
+    /// key) over [`recovery_key_message`].
+    ///
+    /// # Errors
+    ///
+    /// No random source, or `sign` cannot sign.
+    pub fn replace(
+        drive_id: &str,
+        new_key: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Presigned, TokenError> {
+        let nonce = lockdown_nonce()?;
+        let signature = sign(recovery_key_message(drive_id, new_key.trim(), &nonce).as_bytes())
+            .map_err(|e| TokenError::Config(format!("The new recovery key is not signed: {e}")))?;
+        Ok(Presigned { nonce, signature })
+    }
+
+    /// One recovery key more (`public_key_base64`), signed by `sign` (a current key) over
+    /// [`recovery_add_message`].
+    ///
+    /// # Errors
+    ///
+    /// No random source, or `sign` cannot sign.
+    pub fn add(
+        drive_id: &str,
+        public_key_base64: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Presigned, TokenError> {
+        let nonce = lockdown_nonce()?;
+        let message = recovery_add_message(drive_id, public_key_base64.trim(), &nonce);
+        let signature = sign(message.as_bytes())
+            .map_err(|e| TokenError::Config(format!("The new key is not signed: {e}")))?;
+        Ok(Presigned { nonce, signature })
+    }
+}
+
 // ==== The client ====
 
 impl<'a> TokenServer<'a> {
@@ -251,16 +298,32 @@ impl<'a> TokenServer<'a> {
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<RecoveryKeyInfo, TokenError> {
         let id = check_id(drive_id)?;
+        let signed = Presigned::add(id, public_key_base64, sign)?;
+        self.add_recovery_key_presigned(id, drive_token, public_key_base64, label, key, &signed)
+    }
+
+    /// [`Self::add_recovery_key`] with its signature made before ([`Presigned::add`]): the same
+    /// request again, after a restart too.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusals, as [`Self::add_recovery_key`]'s.
+    pub fn add_recovery_key_presigned(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+        label: &str,
+        key: &IdempotencyKey,
+        signed: &Presigned,
+    ) -> Result<RecoveryKeyInfo, TokenError> {
+        let id = check_id(drive_id)?;
         let token = token_of(drive_token)?;
-        let public = public_key_base64.trim();
-        let nonce = lockdown_nonce()?;
-        let signature = sign(recovery_add_message(id, public, &nonce).as_bytes())
-            .map_err(|e| TokenError::Config(format!("The new key is not signed: {e}")))?;
         let body = json!({
-            "recovery_pubkey": public,
+            "recovery_pubkey": public_key_base64.trim(),
             "label": label.trim(),
-            "nonce": nonce,
-            "signature": signature,
+            "nonce": signed.nonce,
+            "signature": signed.signature,
         });
         let path = format!("/v1/drives/{id}/recovery_keys");
         let value = self.grant(Method::Post, &path, Some(token), Some(&body), key)?;
@@ -339,14 +402,31 @@ impl<'a> TokenServer<'a> {
         sign_with_current: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<(), TokenError> {
         let id = check_id(drive_id)?;
-        let new_key = public_key_base64.trim();
-        let nonce = lockdown_nonce()?;
-        let signature = sign_with_current(recovery_key_message(id, new_key, &nonce).as_bytes())
-            .map_err(|e| {
-                TokenError::Config(format!("The new recovery key is not signed: {e}"))
-            })?;
+        let signed = Presigned::replace(id, public_key_base64, sign_with_current)?;
+        self.replace_recovery_key_presigned(id, drive_token, public_key_base64, key, &signed)
+    }
+
+    /// [`Self::replace_recovery_key`] with its signature made before ([`Presigned::replace`]):
+    /// the same request again, after a restart too.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusals, as [`Self::replace_recovery_key`]'s.
+    pub fn replace_recovery_key_presigned(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+        key: &IdempotencyKey,
+        signed: &Presigned,
+    ) -> Result<(), TokenError> {
+        let id = check_id(drive_id)?;
         let path = format!("/v1/drives/{id}/recovery");
-        let body = json!({ "recovery_pubkey": new_key, "nonce": nonce, "signature": signature });
+        let body = json!({
+            "recovery_pubkey": public_key_base64.trim(),
+            "nonce": signed.nonce,
+            "signature": signed.signature,
+        });
         self.grant(Method::Post, &path, Some(token_of(drive_token)?), Some(&body), key)
             .map(|_| ())
     }
