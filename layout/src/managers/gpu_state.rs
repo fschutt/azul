@@ -261,13 +261,11 @@ impl GpuStateManager {
     /// `WebRender` received these lists, one per DOM.
     pub fn note_display_lists_submitted(
         &mut self,
-        lists: impl IntoIterator<
-            Item = (DomId, &'_ alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
-        >,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
     ) {
-        self.submitted_display_lists = lists
-            .into_iter()
-            .map(|(dom, list)| (dom, alloc::sync::Arc::downgrade(list)))
+        self.submitted_display_lists = layout_results
+            .iter()
+            .map(|(dom, r)| (*dom, alloc::sync::Arc::downgrade(&r.display_list)))
             .collect();
     }
 
@@ -279,16 +277,15 @@ impl GpuStateManager {
     #[must_use]
     pub fn display_lists_unsubmitted(
         &self,
-        lists: impl IntoIterator<
-            Item = (DomId, &'_ alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
-        >,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
     ) -> bool {
         let mut count = 0usize;
-        for (dom, list) in lists {
+        for (dom, result) in layout_results {
             count += 1;
+            let list = &result.display_list;
             let submitted = self
                 .submitted_display_lists
-                .get(&dom)
+                .get(dom)
                 .is_some_and(|weak| core::ptr::eq(weak.as_ptr(), alloc::sync::Arc::as_ptr(list)));
             if !submitted {
                 return true;

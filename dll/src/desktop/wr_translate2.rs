@@ -2876,9 +2876,7 @@ fn set_display_lists(
         ref mut gpu_state_manager,
         ..
     } = *layout_window;
-    gpu_state_manager.note_display_lists_submitted(
-        layout_results.iter().map(|(dom, r)| (*dom, &r.display_list)),
-    );
+    gpu_state_manager.note_display_lists_submitted(layout_results);
     Ok(())
 }
 
@@ -3075,12 +3073,9 @@ pub fn build_image_only_transaction(
     // A list patched in place since the last submission (a colour or a
     // gradient fade, a content patch) goes too: nothing else tells the
     // renderer, which kept drawing the list as it was.
-    let lists_unsubmitted = layout_window.gpu_state_manager.display_lists_unsubmitted(
-        layout_window
-            .layout_results
-            .iter()
-            .map(|(dom, r)| (*dom, &r.display_list)),
-    );
+    let lists_unsubmitted = layout_window
+        .gpu_state_manager
+        .display_lists_unsubmitted(&layout_window.layout_results);
     if overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted {
         set_display_lists(txn, layout_window)?;
         layout_window.epoch.increment();

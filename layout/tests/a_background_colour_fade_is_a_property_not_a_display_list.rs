@@ -125,21 +125,17 @@ fn frame_work(lw: &mut LayoutWindow) -> ProcessEventResult {
 
 /// WebRender receives the lists, as `set_display_lists` records them.
 fn submit(lw: &mut LayoutWindow) {
-    let lists: Vec<(DomId, Arc<DisplayList>)> = lw
-        .layout_results
-        .iter()
-        .map(|(d, r)| (*d, r.display_list.clone()))
-        .collect();
-    lw.gpu_state_manager
-        .note_display_lists_submitted(lists.iter().map(|(d, l)| (*d, l)));
+    let LayoutWindow {
+        ref layout_results,
+        ref mut gpu_state_manager,
+        ..
+    } = *lw;
+    gpu_state_manager.note_display_lists_submitted(layout_results);
 }
 
 fn unsubmitted(lw: &LayoutWindow) -> bool {
-    lw.gpu_state_manager.display_lists_unsubmitted(
-        lw.layout_results
-            .iter()
-            .map(|(d, r)| (*d, &r.display_list)),
-    )
+    lw.gpu_state_manager
+        .display_lists_unsubmitted(&lw.layout_results)
 }
 
 /// An N-frame fade of a solid background sends WebRender one display list
