@@ -10,6 +10,7 @@ mod cash;
 mod claim;
 mod claim_ticket;
 mod cloud_drive;
+mod devices;
 mod drive;
 /// An Azlin drive under answers that say too little (a HEAD's refusal has no body).
 mod drive_chaos;

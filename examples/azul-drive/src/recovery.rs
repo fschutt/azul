@@ -975,6 +975,30 @@ mod tests {
     }
 
     #[test]
+    fn the_kit_is_offered_only_for_a_code_the_token_server_knows() {
+        use crate::recovery_health::{PendingRegistration, RegistrationAnswer};
+        let sheet = crate::encryption::Sheet::new("d_1", code());
+        let mut state = RecoveryState::new("d_1");
+        state.code_made(1, Some(String::from("key")));
+        state.registration_started(PendingRegistration {
+            public_key: String::from("key"),
+            replace: None,
+            findable: None,
+            key_set: false,
+        });
+        assert!(RegisteredCode::of(Some(&state), &sheet).is_none(), "not active yet");
+        state.registration_answered("key", RegistrationAnswer::NotSet { last: false });
+        assert!(RegisteredCode::of(Some(&state), &sheet).is_none(), "failed: still not");
+        state.registration_answered("key", RegistrationAnswer::Done { findable: None });
+        assert!(RegisteredCode::of(Some(&state), &sheet).is_some());
+        let extra = crate::encryption::Sheet::new("d_1", code()).extra();
+        assert!(
+            RegisteredCode::of(None, &extra).is_some(),
+            "a second kit's key is at the token server before its sheet shows"
+        );
+    }
+
+    #[test]
     fn the_kits_file_name_is_a_safe_name_of_the_drive() {
         crate::l10n::in_english();
         let kit = Kit::new(

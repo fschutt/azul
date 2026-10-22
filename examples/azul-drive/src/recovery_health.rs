@@ -918,4 +918,86 @@ mod tests {
             "a file from before"
         );
     }
+
+    /// A registration signed while the code `key` was shown: the key replaced (signed by the
+    /// code before) and the findable key added.
+    fn pending(key: &str) -> PendingRegistration {
+        PendingRegistration {
+            public_key: key.to_string(),
+            replace: Some(Signed {
+                nonce: String::from("n1"),
+                signature: String::from("s1"),
+            }),
+            findable: Some(FindableSigned {
+                public: String::from("findable"),
+                signed: Signed {
+                    nonce: String::from("n2"),
+                    signature: String::from("s2"),
+                },
+            }),
+            key_set: false,
+        }
+    }
+
+    #[test]
+    fn a_failed_registration_is_kept_as_not_registered_and_asked_again_at_the_next_start() {
+        let mut settings = crate::model::Settings::default();
+        let state = state_mut(&mut settings.recovery.drives, "d_1");
+        state.code_made(NOW, Some(String::from("key")));
+        state.setup_verified(NOW);
+        state.registration_started(pending("key"));
+        state.registration_answered("key", RegistrationAnswer::NotSet { last: false });
+        assert!(matches!(state.registration, Registration::Pending(_)));
+        assert_eq!(state.health(NOW), Health::Red, "red until the server knows the code");
+        assert!(!state.methods().contains(&Method::Code));
+        // the settings file keeps it: the next start finds the request and sends it again
+        let back = crate::model::Settings::from_json(&settings.to_json());
+        let retry = registrations_to_retry(&back.recovery.drives);
+        assert_eq!(retry.len(), 1);
+        assert_eq!(retry[0].0, "d_1");
+        assert_eq!(retry[0].1, pending("key"));
+    }
+
+    #[test]
+    fn a_registration_ends_registered_only_when_both_keys_are_at_the_token_server() {
+        let mut state = checked();
+        state.registration_started(pending("key"));
+        state.registration_answered("key", RegistrationAnswer::KeySetOnly { last: false });
+        let Registration::Pending(left) = &state.registration else {
+            panic!("the findable key is still asked for: {:?}", state.registration);
+        };
+        assert!(left.key_set, "the set key is not sent again");
+        // an answer for an older code changes nothing
+        state.registration_answered("old", RegistrationAnswer::Done { findable: None });
+        assert!(matches!(state.registration, Registration::Pending(_)));
+        state.registration_answered(
+            "key",
+            RegistrationAnswer::Done {
+                findable: Some(String::from("findable")),
+            },
+        );
+        assert_eq!(state.registration, Registration::Registered);
+        assert_eq!(state.findable_key.as_deref(), Some("findable"));
+        assert!(registrations_to_retry(std::slice::from_ref(&state)).is_empty());
+        assert_ne!(state.health(NOW), Health::Red);
+    }
+
+    #[test]
+    fn a_refused_registration_needs_a_new_code_and_an_old_code_is_checked_against_the_server() {
+        let mut state = checked();
+        state.registration_started(pending("key"));
+        state.registration_answered("key", RegistrationAnswer::NotSet { last: true });
+        assert_eq!(state.registration, Registration::Missing);
+        assert_eq!(state.health(NOW), Health::Red);
+        assert!(registrations_to_retry(std::slice::from_ref(&state)).is_empty());
+        // a code from before the registration was kept: the server's list tells
+        let mut old = checked();
+        assert_eq!(old.registration, Registration::Unknown);
+        assert_ne!(old.health(NOW), Health::Red, "not red before the server was asked");
+        old.keys_listed(&[String::from("other")]);
+        assert_eq!(old.registration, Registration::Missing);
+        let mut known = checked();
+        known.keys_listed(&[String::from("key")]);
+        assert_eq!(known.registration, Registration::Registered);
+    }
 }
