@@ -361,7 +361,8 @@ def lost_redeem(world):
     status, value = world.call('GET', '/v1/tokens/keys')
     key = next((k for k in (value or {}).get('keys') or [] if k.get('tier') == '100GB'), {})
     n, e = azlin_period.parse_public_key_pem(key.get('public_key_pem') or '')
-    blinded = [azlin_period.blind(n, e, '100GB', key['year']) for _ in range(2)]
+    # one month at a time: the first is due at the approval
+    blinded = [azlin_period.blind(n, e, '100GB', key['year'])]
     status, value = world.call('POST', '/v1/tokens/issue', {
         'checkout_id': checkout, 'blinded': [b for _, b in blinded],
         'issue_key': grant.get('issue_key'), 'key_id': key.get('key_id')}, key=idempotency_key())

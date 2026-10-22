@@ -46,11 +46,14 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     the tier's issuer key; POST /v1/tokens/issue without the issue key is 400
     `issue_key_required`, with another one 403 `issue_key_wrong`, without the `key_id` the
     messages were blinded for 400 `key_id_required`, with a key the server no longer signs with
-    409 `key_changed` naming the current one (nothing counted), with the key and the key id 200
-    and one blind signature per month that finalizes into a token the issuer key verifies; the
-    identical request again answers the same signatures (counted once); one more is 409
-    `already_issued`; POST /v1/drives/<id>/redeem with the drive token takes a token for a month
-    more, and the same token again is 409 `token_used`.
+    409 `key_changed` naming the current one (nothing counted); a prepay's months come one a
+    month: the whole prepay at once is 409 `not_due` with the schedule, the first month with the
+    key and the key id 200 with one blind signature that finalizes into a token the issuer key
+    verifies and the schedule (`issued` 1 of the months, `next_issue_at` while months remain);
+    the identical request again answers the same signatures (counted once); one more at once is
+    409 `not_due` (`already_issued` for a single month); POST /v1/drives/<id>/redeem with the
+    drive token takes a token for a month more, and the same token again from the same drive
+    answers the same 200 (a lost answer asked again).
 11. The token just replaced still reads (F37): after a refresh, the previous drive token redeems
     a period token and reads the drive (GET /v1/drives/<id>) without revoking the family - the
     new token refreshes after that; a token older than the previous one is a reuse on a read
@@ -1433,7 +1436,8 @@ def ticket_checks(suite, client, bundle):
 
 def period_checks(suite, client, checkout_id, order, bundle):
     """10. The period tokens of the paid checkout: issued against the sealed sign-up's issue key
-    only, finalized, redeemed once."""
+    only, one month a month from the approval (the schedule in the answer), finalized, redeemed
+    once - the same token again from the same drive answers the same 200."""
     grant = bundle.get('period_tokens') or {}
     issue_key = grant.get('issue_key') or ''
     months, tier = order['months'], order['tier']
@@ -1453,7 +1457,8 @@ def period_checks(suite, client, checkout_id, order, bundle):
     suite.check("GET /v1/tokens/keys names the tier's issuer key (RSA, 2048 bits or more)",
                 status == 200 and key.get('key_id') == '%s/%s' % (tier, key.get('year'))
                 and n.bit_length() >= 2048, '(HTTP %d, %r)' % (status, key.get('key_id')))
-    blindings = [azlin_period.blind(n, e, tier, key['year']) for _ in range(months)]
+    # one month at a time: the first is due at the approval
+    blindings = [azlin_period.blind(n, e, tier, key['year'])]
     request = {'checkout_id': checkout_id, 'blinded': [blinded for _, blinded in blindings]}
     status, value, _ = client.call('POST', '/v1/tokens/issue', request)
     suite.check('period tokens without the issue key are 400 issue_key_required',
@@ -1477,14 +1482,24 @@ def period_checks(suite, client, checkout_id, order, bundle):
                 and (value or {}).get('key_id') == key.get('key_id'),
                 '(HTTP %d %r %r)' % (status, error_code(value), (value or {}).get('key_id')))
     request = dict(request, issue_key=issue_key, key_id=key.get('key_id'))
+    if months > 1:
+        whole = [azlin_period.blind(n, e, tier, key['year'])[1] for _ in range(months)]
+        status, value, _ = client.call('POST', '/v1/tokens/issue', dict(request, blinded=whole))
+        suite.check('the whole prepay at once is 409 not_due naming the schedule (one month a '
+                    'month)', status == 409 and error_code(value) == 'not_due'
+                    and ((value or {}).get('schedule') or {}).get('issued') == 0,
+                    '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('POST', '/v1/tokens/issue', request)
     signatures = (value or {}).get('blind_signatures') or []
-    if not suite.check('period tokens with the issue key and the key id are 200, one blind '
-                       'signature a month (nothing was counted for key_changed)',
-                       status == 200 and len(signatures) == months
-                       and (value or {}).get('key_id') == key.get('key_id'),
-                       '(HTTP %d %r, %d signatures)' % (status, error_code(value),
-                                                         len(signatures))):
+    schedule = (value or {}).get('schedule') or {}
+    if not suite.check('the first month with the issue key and the key id is 200, its schedule '
+                       'says one of the months is issued (nothing was counted for key_changed)',
+                       status == 200 and len(signatures) == 1
+                       and (value or {}).get('key_id') == key.get('key_id')
+                       and schedule.get('months') == months and schedule.get('issued') == 1
+                       and (months == 1) == (schedule.get('next_issue_at') is None),
+                       '(HTTP %d %r, %d signatures, %r)' % (status, error_code(value),
+                                                             len(signatures), schedule)):
         return
     status, again, _ = client.call('POST', '/v1/tokens/issue', request)
     suite.check('the identical request again (its answer lost) answers the same signatures',
@@ -1502,8 +1517,9 @@ def period_checks(suite, client, checkout_id, order, bundle):
     status, value, _ = client.call('POST', '/v1/tokens/issue',
                                    {'checkout_id': checkout_id, 'blinded': [one_more],
                                     'issue_key': issue_key, 'key_id': key.get('key_id')})
-    suite.check('a token past the paid months (counted once) is 409 already_issued',
-                status == 409 and error_code(value) == 'already_issued',
+    expected = 'not_due' if months > 1 else 'already_issued'
+    suite.check('the next month at once (counted once) is 409 %s' % expected,
+                status == 409 and error_code(value) == expected,
                 '(HTTP %d %r)' % (status, error_code(value)))
     drive_id = (bundle.get('drive') or {}).get('id') or ''
     path = '/v1/drives/%s/redeem' % drive_id
@@ -1513,11 +1529,12 @@ def period_checks(suite, client, checkout_id, order, bundle):
     suite.check('a period token redeemed with the drive token makes the period longer',
                 status == 200 and until is not None and before is not None and until > before,
                 '(HTTP %d %r)' % (status, error_code(value)))
-    status, value, _ = client.call('POST', path, tokens[0], bearer=bundle.get('drive_token'))
-    suite.check('the same period token again is 409 token_used',
-                status == 409 and error_code(value) == 'token_used',
-                '(HTTP %d %r)' % (status, error_code(value)))
-    previous_token_checks(suite, client, drive_id, bundle.get('drive_token') or '', tokens[1])
+    status, again, _ = client.call('POST', path, tokens[0], bearer=bundle.get('drive_token'))
+    suite.check('the same period token again from the same drive (its answer lost) answers the '
+                'same 200, the period as it stands',
+                status == 200 and unix_of((again or {}).get('period_until')) == until,
+                '(HTTP %d %r)' % (status, error_code(again)))
+    previous_token_checks(suite, client, drive_id, bundle.get('drive_token') or '', tokens[0])
 
 
 def previous_token_checks(suite, client, drive_id, first, token):

@@ -323,20 +323,33 @@ def pending_checkouts(path):
 
 
 def check_period_tokens(stack, drives_file, checkout, drive_id, redeemed=0):
-    """AZLINSEC17 F24: the paid checkout's period tokens were issued (against the issue key of
-    its sealed sign-up) and AzDrive keeps those not `redeemed` yet - one 0600 file per drive
-    beside the drives file, none once all are spent - each one a token the mock's issuer key
-    verifies. How many were issued."""
+    """AZLINSEC17 F24 and decision 6: the paid checkout's period tokens are issued one month at a
+    time (against the issue key of its sealed sign-up) - the first at once, the rest as their
+    instalments come due - and AzDrive keeps those not `redeemed` yet with the checkout's grant
+    in the drive's vault (on this computer: one 0600 file per drive beside the drives file; in
+    the drive itself when its key is here), each one a token the mock's issuer key verifies.
+    How many were issued."""
     record = stack.token.state.checkouts.get(checkout) or {}
-    months = record.get("months")
-    if not months or record.get("tokens_issued") != months:
+    months, issued = record.get("months"), record.get("tokens_issued")
+    if not months or not issued or issued > months:
         raise Failure("the checkout %s's period tokens were not issued: %s of %r"
-                      % (checkout, record.get("tokens_issued"), months))
+                      % (checkout, issued, months))
     path = os.path.join(os.path.dirname(drives_file), "period-tokens", drive_id + ".json")
-    if months == redeemed:
-        if os.path.exists(path):
-            raise Failure("every period token of %s is spent, but %s is left" % (drive_id, path))
-        return months
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            kept = json.load(f)
+    except (OSError, ValueError) as e:
+        raise Failure("AzDrive keeps no period tokens of %s at %s: %s" % (drive_id, path, e))
+    if os.name == "posix" and os.stat(path).st_mode & 0o077:
+        raise Failure("the period tokens file is readable by others: %o" % os.stat(path).st_mode)
+    if not any(g.get("checkout_id") == checkout for g in kept.get("grants") or []):
+        raise Failure("the grant of %s is not kept with %s" % (checkout, drive_id))
+    tokens = kept.get("tokens") or []
+    n, e, _ = stack.token.state.issuer
+    if len(tokens) != issued - redeemed or not all(azlin_period.verify(n, e, t) for t in tokens):
+        raise Failure("the kept period tokens of %s are %d, not %d that verify"
+                      % (drive_id, len(tokens), issued - redeemed))
+    return issued
     try:
         with open(path, "r", encoding="utf-8") as f:
             tokens = json.load(f).get("tokens") or []

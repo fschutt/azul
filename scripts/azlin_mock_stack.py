@@ -59,18 +59,21 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     GET /v1/pay/<id>                                200 the payment page (HTML)
     GET /v1/tokens/keys                             200 the period tokens' issuer keys: one per
                                                     tier, of this year (SPKI PEM)
-    POST /v1/tokens/issue {"checkout_id",           200 one blind signature per blinded message,
-        "issue_key", "key_id",                      up to the checkout's months in all (400
-        "blinded": ["<base64>"]}                    issue_key_required / key_id_required, 403
-                                                    issue_key_wrong, 404 no_such_checkout, 409
-                                                    not_paid / already_issued; 409 key_changed
-                                                    with the current key_id and its key for a
-                                                    key other than this or last year's, nothing
-                                                    counted); the identical request again (same
-                                                    key_id, messages, order) the same answer,
-                                                    counted once
-    POST /v1/drives/<id>/redeem {"tier", "year",    200 the drive's period a month longer (400
-        "nonce", "signature", "randomizer"}         bad_token / wrong_tier, 409 token_used); the
+    POST /v1/tokens/issue {"checkout_id",           200 one blind signature per blinded message
+        "issue_key", "key_id",                      and the schedule, one month a month from the
+        "blinded": ["<base64>"]}                    approval (400 issue_key_required /
+                                                    key_id_required, 403 issue_key_wrong, 404
+                                                    no_such_checkout, 409 not_paid /
+                                                    already_issued / not_due with the schedule;
+                                                    409 key_changed with the current key_id and
+                                                    its key for a key other than this or last
+                                                    year's, nothing counted); the identical
+                                                    request again (same key_id, messages, order)
+                                                    the same answer, counted once
+    POST /v1/drives/<id>/redeem {"tier", "year",    200 the drive's period a month longer, the
+        "nonce", "signature", "randomizer"}         same token again from the same drive the
+                                                    same 200 (400 bad_token / wrong_tier, 409
+                                                    token_used from another drive); the
         Authorization: Bearer <drive token>         drive token is checked, not spent - the one
                                                     the family rotated from last counts too
     GET /v1/drives/<id>                             200 the drive's tier, quota and period and a
@@ -329,6 +332,8 @@ LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
 # first.
 CLAIMS_MAX = 3
 CLAIM_WINDOW_SECS = 30 * 86400
+# A prepay's months are issued one a month from its approval (azlin_contract::INSTALMENT_SECS).
+INSTALMENT_SECS = 30 * 86400
 # Cash by post (cash contract v1): how long a cash checkout waits for its letter, and the address
 # its slip names - a made-up test operator's.
 CASH_KEEP_SECS = 60 * 86400
@@ -707,7 +712,7 @@ class TokenState:
         # The period tokens' issuer key (one test key for every tier and year) and the hashes of
         # the redeemed tokens' messages.
         self.issuer = (azlin_period.MOCK_N, azlin_period.MOCK_E, azlin_period.MOCK_D)
-        self.redeemed = set()
+        self.redeemed = {}
         # The answers of POST /v1/tokens/issue by checkout and request hash: the identical
         # request again gets the same signatures, counted once (F37).
         self.issue_answers = {}
@@ -1544,7 +1549,7 @@ class TokenState:
         with self.lock:
             checkout['status'] = 'approved'
             checkout['sealed_signup'] = sealed
-            checkout['approved_at'] = time.time()
+            checkout['approved_at'] = self.now()
             checkout['issue_key_hash'] = issue_key_hash
             checkout['tokens_issued'] = 0
         return 'approved'
@@ -1569,7 +1574,8 @@ class TokenState:
         """POST /v1/tokens/issue (blind.rs `issue`): blind signatures of a paid checkout's period
         tokens, against the issue key of its sealed sign-up, for the `key_id` the messages were
         blinded for (this year's or last year's; another: 409 key_changed, nothing counted), up
-        to its months in all; the identical request again gets the same answer, counted once."""
+        to its months in all, one a month from its approval (more than is due: 409 not_due with the
+        schedule); the identical request again gets the same answer, counted once."""
         checkout_id = body.get('checkout_id')
         if not isinstance(checkout_id, str):
             raise ApiError(400, 'bad_request', 'checkout_id required')
@@ -1598,13 +1604,25 @@ class TokenState:
             request = hashlib.sha256(('%s\n%s\n%s' % (checkout_id, key_id, ','.join(blinded)))
                                      .encode('utf-8')).hexdigest()
             earlier = self.issue_answers.get((checkout_id, request))
+            issued, months = checkout['tokens_issued'], checkout['months']
+            approved_at = int(checkout.get('approved_at') or self.now())
+
+            def schedule(count):
+                # azlin_contract::IssueSchedule: one month a month from the approval
+                out = {'months': months, 'issued': count}
+                if count < months:
+                    out['next_issue_at'] = rfc3339(approved_at + count * INSTALMENT_SECS)
+                return out
             if earlier is not None:
                 return {'tier': tier, 'key_id': earlier[0], 'public_key_pem': pem,
-                        'blind_signatures': earlier[1]}
-            issued, months = checkout['tokens_issued'], checkout['months']
+                        'blind_signatures': earlier[1], 'schedule': schedule(issued)}
             if issued + len(blinded) > months:
                 raise ApiError(409, 'already_issued',
                                '%d of %d tokens already issued' % (issued, months))
+            due = min(months, 1 + max(0, self.now() - approved_at) // INSTALMENT_SECS)
+            if issued + len(blinded) > due:
+                raise ApiError(409, 'not_due', 'the next month is not due yet',
+                               {'schedule': schedule(issued)})
             year = time.gmtime().tm_year
             if key_id not in ('%s/%d' % (tier, year), '%s/%d' % (tier, year - 1)):
                 raise ApiError(409, 'key_changed', 'blind the messages for this key '
@@ -1616,8 +1634,9 @@ class TokenState:
                 raise ApiError(400, 'bad_request', 'blind sign: %s' % err)
             checkout['tokens_issued'] = issued + len(signatures)
             self.issue_answers[(checkout_id, request)] = (key_id, signatures)
-        return {'tier': tier, 'key_id': key_id, 'public_key_pem': pem,
-                'blind_signatures': signatures}
+            answer = {'tier': tier, 'key_id': key_id, 'public_key_pem': pem,
+                      'blind_signatures': signatures, 'schedule': schedule(issued + len(signatures))}
+        return answer
 
     def authenticate(self, drive_id, bearer, previous_ok=False):
         """drives.rs `authenticate`: the drive and its family's CURRENT token, not spent (a
@@ -1674,8 +1693,12 @@ class TokenState:
             used = hashlib.sha256(azlin_period.token_message(
                 token['tier'], token['year'], token['nonce']).encode('utf-8')).hexdigest()
             if used in self.redeemed:
-                raise ApiError(409, 'token_used', 'this token was already redeemed')
-            self.redeemed.add(used)
+                # blind.rs: the drive that redeemed it gets the same 200 (a lost answer asked
+                # again), any other drive 409
+                if self.redeemed[used] != drive_id:
+                    raise ApiError(409, 'token_used', 'this token was already redeemed')
+                return {'period_until': rfc3339(drive['period_until'])}
+            self.redeemed[used] = drive_id
             tomorrow = (int(time.time()) // 86400 + 1) * 86400
             drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
             return {'period_until': rfc3339(drive['period_until'])}
@@ -2306,7 +2329,7 @@ class TokenState:
             self.vouchers[code.strip().upper()] = {'months': months, 'value_cents': value_cents,
                                                    'tier': tier}
 
-    def redeem_voucher(self, bearer, body):
+    def redeem_voucher(self, bearer, body, key=None):
         """POST /v1/vouchers/redeem (payments.rs `redeem_voucher`): on a drive (`drive_id`, its
         token - a read) the days it adds (its months, its value pro rata); without one a new
         drive of its tier (201, the sign-up). Redeemed once."""
@@ -2319,6 +2342,10 @@ class TokenState:
             if drive_id:
                 drive, state = self.family_of(drive_id, bearer, previous_ok=True)
                 self.not_pending(drive, state)
+            caller = 'family:' + (bearer or '')[3:].split('.')[0] if drive is not None else None
+            kept = self.kept('voucher', key, caller) if drive is not None else None
+            if kept is not None:
+                return 200, dict(kept['body'], period_until=rfc3339(drive['period_until']))
             if drive is not None:
                 self.check_ban(drive, write=True)
             # Codes in any case (payments.rs normalizes them); a development server's test
@@ -2340,8 +2367,9 @@ class TokenState:
             if drive is not None:
                 tomorrow = (int(time.time()) // 86400 + 1) * 86400
                 drive['period_until'] = max(drive['period_until'], tomorrow) + days * 86400
-                return 200, {'months_added': days // 30, 'days_added': days,
-                             'period_until': rfc3339(drive['period_until'])}
+                added = {'months_added': days // 30, 'days_added': days}
+                self.keep('voucher', key, caller, {'status': 200, 'body': added})
+                return 200, dict(added, period_until=rfc3339(drive['period_until']))
         bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
         with self.lock:
             made = self.drives[bundle['drive']['id']]
@@ -2664,7 +2692,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
                 self.answer(200, state.recovery_lookup(body))
             return
         if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
-            self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}))
+            self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}, self.idempotency()))
             return
         if self.command == 'POST' and len(segments) == 3 and segments[0] == 'oauth' \
                 and segments[2] == 'token':
