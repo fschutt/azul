@@ -178,7 +178,7 @@ impl Keys {
 
     pub fn ebanx_default() -> Keys {
         Keys {
-            secret_key: "ebanx_sandbox_integration_key".into(),
+            secret_key: "ebanx_sandbox_key".into(),
             webhook_secret: "ebanx_sandbox_notification_token".into(),
             publishable_key: String::new(),
             login: String::new(),

@@ -108,7 +108,7 @@ dLocal's shape checks every request's `X-Login`, `X-Trans-Key`, `X-Date` and sig
 keys `dlocal_sandbox_login`, `dlocal_sandbox_trans_key`, `dlocal_sandbox_secret`); payments read
 back (`GET /payments/{id}`), cancel (`POST /payments/{id}/cancel`) and refund (`POST /refunds`:
 PENDING, then SUCCESS with its own notification). EBANX's shape wants its integration key in
-every body (default `ebanx_sandbox_integration_key`) and answers with HTTP 200 and its own
+every body (default `ebanx_sandbox_key`) and answers with HTTP 200 and its own
 `status`; `/ws/query`, `/ws/cancel` (an open page only) and `/ws/refund` (RE, then CO with a
 `refund` notification) behave as EBANX documents. Its notifications go to the webhook URL with
 `?token=ebanx_sandbox_notification_token`, the token a backend checks.
