@@ -16,6 +16,8 @@ members = [
     "examples/azlin-contract", # azlin-contract: what the Azlin apps and services say to each other (contract version, client hello, ids and units, idempotency key, deadlines, error codes, golden fixtures); serde only
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-pay", # azul-pay: the checkout's client half - the provider registry, the offer filter, the pills, the surfaces, the navigation bridge, the checkout state machine
+    "examples/azul-pay-methods", # azul-pay-methods: the payment methods registry by country (methods, providers, routes, the providers' documented test data); data plus a checked parser
+    "examples/azul-pay-sandbox", # azul-pay-sandbox: a loopback-only test stand-in for payment providers (Stripe-, GoCardless-, dLocal-, EBANX-, KOMOJU-shaped APIs, test pages, signed webhooks); test data only, never in a release
     "examples/azul-search", # azul-search: the one fast search (ripgrep's ignore / grep-searcher): names, contents, filters; AzDrive's search box, AzCode's find in files
     "examples/azul-search-index", # azul-search-index: a drive's full-text index (tantivy) with the text of plain files, office documents, mail and PDFs
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)

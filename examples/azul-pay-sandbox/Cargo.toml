@@ -1,0 +1,27 @@
+[package]
+name = "azul-pay-sandbox"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "A local, loopback-only test stand-in for payment providers: Stripe-, GoCardless-, dLocal- and EBANX-shaped APIs, small test pages and signed webhooks, so an app's purchase flow can be tested without a provider account. Refuses real payment data; never part of a release."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "azul-pay-sandbox"
+path = "src/main.rs"
+
+# Only std and crates azul's lockfile already has (the services that drive it build it from here).
+[dependencies]
+# which local payment methods exist, their flows and the providers' documented test data: the
+# sandbox fakes exactly what the registry documents
+azul-pay-methods = { path = "../azul-pay-methods" }
+serde_json = "1"
+hmac = "0.12"
+sha2 = { version = "0.10", features = ["oid"] }
+# EBANX's notifications are signed RSA-SHA1 and its requests RS256 (JWS): the stand-in signs and checks
+# with the test keys of fixtures/rsa
+rsa = "0.9"
+sha1 = { version = "0.10", features = ["oid"] }

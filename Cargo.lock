@@ -1544,6 +1544,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-pay-methods"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "azul-pay-sandbox"
+version = "0.1.0"
+dependencies = [
+ "azul-pay-methods",
+ "hmac 0.12.1",
+ "rsa",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "azul-pim"
 version = "0.1.0"
 dependencies = [
