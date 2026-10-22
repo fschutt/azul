@@ -1296,3 +1296,37 @@ macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
         }
     }
 )}
+
+#[cfg(test)]
+mod option_move_tests {
+    use std::cell::Cell;
+
+    std::thread_local! {
+        static CLONES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// A payload that counts its copies.
+    #[derive(Debug, PartialEq)]
+    struct Counted(u32);
+
+    impl Clone for Counted {
+        fn clone(&self) -> Self {
+            CLONES.with(|n| n.set(n.get() + 1));
+            Self(self.0)
+        }
+    }
+
+    crate::impl_option!(Counted, OptionCounted, copy = false, [Debug, Clone]);
+
+    /// Unwrapping an option the caller owns moves its value out. A widget
+    /// that unwrapped its optional child DOM this way deep-copied the whole
+    /// subtree and dropped the original: most of the window, several times
+    /// per rebuild of AzDrive's window (40 % of its layout callback).
+    #[test]
+    fn an_owned_option_is_unwrapped_without_a_copy() {
+        let before = CLONES.with(Cell::get);
+        let option = OptionCounted::Some(Counted(7));
+        assert_eq!(option.into_option(), Some(Counted(7)));
+        assert_eq!(CLONES.with(Cell::get) - before, 0, "into_option copied the value");
+    }
+}
