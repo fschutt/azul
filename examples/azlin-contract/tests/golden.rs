@@ -91,6 +91,7 @@ fn every_deadline_kind_reads_and_writes_its_fixture() {
         DeadlineKind::ClaimWindow,
         DeadlineKind::HandoffPurge,
         DeadlineKind::LockdownEnd,
+        DeadlineKind::ReadOnlyStart,
     ];
     let deadlines: Vec<Deadline> = kinds
         .into_iter()
@@ -501,4 +502,79 @@ fn every_read_only_reason_reads_and_writes_its_fixture() {
         .map(|why| ReadOnlyRow { why, code: why.code() })
         .collect();
     golden("read_only_why.json", &rows);
+}
+
+mod renewal {
+    use azlin_contract::{
+        GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup, Rfc3339, StoredBytes,
+    };
+
+    use super::golden;
+
+    fn grant(recurring: bool) -> GrantWire {
+        GrantWire {
+            checkout_id: "ck_renew".into(),
+            months: 1,
+            issue_key: "a2V5".into(),
+            recurring,
+        }
+    }
+
+    #[test]
+    fn the_renewal_signups_read_and_write_their_fixture() {
+        let signups = vec![
+            RenewalSignup {
+                renewal_of: Some("ck_first".into()),
+                grant: GrantKind::PeriodTokens,
+                tier: "100GB".into(),
+                period_tokens: grant(false),
+            },
+            RenewalSignup {
+                renewal_of: None,
+                grant: GrantKind::PeriodTokens,
+                tier: "1TB".into(),
+                period_tokens: grant(true),
+            },
+        ];
+        golden("renewal_signups.json", &signups);
+    }
+
+    #[test]
+    fn the_redeem_answers_read_and_write_their_fixture() {
+        let answers = vec![
+            RedeemAnswer {
+                period_until: Rfc3339::parse("2026-11-21T00:00:00Z").expect("time"),
+                tier: None,
+                credited_days: None,
+            },
+            RedeemAnswer {
+                period_until: Rfc3339::parse("2026-12-05T00:00:00Z").expect("time"),
+                tier: Some("1TB".into()),
+                credited_days: Some(14),
+            },
+        ];
+        golden("redeem_answers.json", &answers);
+    }
+
+    #[test]
+    fn every_redeem_refusal_reads_and_writes_its_fixture() {
+        let refusals = vec![
+            RedeemRefusal::BadRequest,
+            RedeemRefusal::WrongTier,
+            RedeemRefusal::TokenExpired,
+            RedeemRefusal::UnknownIssuer,
+            RedeemRefusal::BadToken,
+            RedeemRefusal::TokenUsed,
+            RedeemRefusal::ChangeNotDue {
+                from: Rfc3339::parse("2026-11-14T00:00:00Z").expect("time"),
+            },
+            RedeemRefusal::DoesNotFit {
+                stored: StoredBytes(150_000_000_000),
+                quota: StoredBytes(100_000_000_000),
+            },
+            RedeemRefusal::StoredBytesRequired,
+            RedeemRefusal::TryAgain,
+        ];
+        golden("redeem_refusals.json", &refusals);
+    }
 }

@@ -416,3 +416,76 @@ mod read_only_and_map {
         assert_eq!(map_epoch("-1 00"), None);
     }
 }
+
+mod renewal {
+    use azlin_contract::{
+        expiry, DeadlineKind, IssueSchedule, RedeemRefusal, RenewalSignup, Rfc3339,
+        INSTALMENT_SECS, READ_ONLY_SECS, WRITABLE_GRACE_SECS,
+    };
+
+    const APPROVED: i64 = 1_791_255_600;
+    const DAY: i64 = 86_400;
+
+    #[test]
+    fn a_monthly_plan_paid_up_waits_for_its_next_payment_instead_of_ending() {
+        let paid_up = IssueSchedule::recurring_at(2, 2, APPROVED, APPROVED + 40 * DAY);
+        assert!(!paid_up.is_complete(), "a running monthly plan is never complete");
+        assert_eq!(
+            paid_up.next_issue_at,
+            Some(Rfc3339::from_unix(APPROVED + 2 * INSTALMENT_SECS))
+        );
+        assert!(paid_up.may_ask(APPROVED + 2 * INSTALMENT_SECS));
+        // a payment that is late: asked again a day later, not at once in a loop
+        let late = IssueSchedule::recurring_at(2, 2, APPROVED, APPROVED + 90 * DAY);
+        assert_eq!(late.next_issue_at, Some(Rfc3339::from_unix(APPROVED + 91 * DAY)));
+        // a month paid and not issued yet is due as with a prepay
+        let owed = IssueSchedule::recurring_at(3, 2, APPROVED, APPROVED + 70 * DAY);
+        assert_eq!(owed, IssueSchedule::at(3, 2, APPROVED));
+    }
+
+    #[test]
+    fn an_unpaid_drive_turns_read_only_then_closes() {
+        let until = APPROVED;
+        let [end, read_only, closed] = expiry(until);
+        assert_eq!(end.kind, DeadlineKind::PeriodEnd);
+        assert_eq!(end.at.unix(), until);
+        assert_eq!(read_only.kind, DeadlineKind::ReadOnlyStart);
+        assert_eq!(read_only.at.unix(), until + WRITABLE_GRACE_SECS);
+        assert_eq!(WRITABLE_GRACE_SECS, 14 * DAY);
+        assert_eq!(closed.kind, DeadlineKind::ReadOnlyEnd);
+        assert_eq!(closed.at.unix(), until + WRITABLE_GRACE_SECS + READ_ONLY_SECS);
+    }
+
+    #[test]
+    fn a_signup_with_a_drive_is_no_renewal() {
+        let drive = r#"{"drive":{"id":"d1"},"tier":"100GB","period_tokens":{"checkout_id":"ck","months":1,"issue_key":"k"}}"#;
+        assert!(serde_json::from_str::<RenewalSignup>(drive).is_err());
+        let renewal = r#"{"renewal_of":null,"grant":"period_tokens","tier":"100GB","period_tokens":{"checkout_id":"ck","months":1,"issue_key":"k","recurring":true}}"#;
+        let read: RenewalSignup = serde_json::from_str(renewal).expect("a renewal");
+        assert!(read.period_tokens.recurring);
+        assert_eq!(read.renewal_of, None);
+    }
+
+    #[test]
+    fn a_refused_tier_change_keeps_the_token() {
+        let not_due: RedeemRefusal = serde_json::from_str(
+            r#"{"error":"change_not_due","message":"m","from":"2026-11-14T00:00:00Z"}"#,
+        )
+        .expect("reads");
+        assert_eq!(not_due.status(), 409);
+        assert!(!not_due.is_useless());
+        let full: RedeemRefusal = serde_json::from_str(
+            r#"{"error":"does_not_fit","stored":5,"quota":4}"#,
+        )
+        .expect("reads");
+        assert!(!full.is_useless());
+        for word in ["token_used", "bad_token", "token_expired", "unknown_issuer"] {
+            let refusal: RedeemRefusal =
+                serde_json::from_str(&format!(r#"{{"error":"{word}"}}"#)).expect("reads");
+            assert!(refusal.is_useless(), "{word}");
+        }
+        let newer: RedeemRefusal =
+            serde_json::from_str(r#"{"error":"a_new_word"}"#).expect("reads");
+        assert_eq!(newer, RedeemRefusal::Unknown);
+    }
+}
