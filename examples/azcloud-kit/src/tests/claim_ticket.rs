@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
-    pending::{self, PendingCheckout, Polled},
+    pending::{self, Final, PendingCheckout, Polled},
     shared::SharedKeyring,
     AzlinSession, ClaimCode, ClaimKey, DriveBundle, TokenServer,
 };

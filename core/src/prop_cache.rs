@@ -6016,21 +6016,10 @@ impl CssPropertyCache {
         for p in self.cascaded_props.get_slice(index) {
             note(&p.property);
         }
-        for p in &self.global_css_props {
-            note(p);
-        }
-        self.inline_properties(&node_data[index], index)
-            .for_each(|(p, _)| note(p));
-        self.css_props
-            .get_slice(index)
-            .iter()
-            .for_each(|p| note(&p.property));
-        self.cascaded_props
-            .get_slice(index)
-            .iter()
-            .for_each(|p| note(&p.property));
         if star_selects(&node_data[index]) {
-            self.global_css_props.iter().for_each(&mut note);
+            for p in &self.global_css_props {
+                note(p);
+            }
         }
         declared
             .into_iter()

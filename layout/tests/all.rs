@@ -1245,6 +1245,10 @@ mod a_flex_gap_in_em_is_that_many_font_sizes;
 mod one_counter_property_names_several_counters;
 #[path = "the_quotes_property_picks_the_quotation_marks.rs"]
 mod the_quotes_property_picks_the_quotation_marks;
+#[path = "the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme.rs"]
+mod the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme;
+#[path = "a_narrow_settings_window_keeps_every_control_whole_and_inside.rs"]
+mod a_narrow_settings_window_keeps_every_control_whole_and_inside;
 #[path = "a_string_list_style_type_is_the_marker.rs"]
 mod a_string_list_style_type_is_the_marker;
 #[path = "a_node_inserted_at_runtime_gets_its_generated_content.rs"]

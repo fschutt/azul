@@ -13,7 +13,7 @@ use super::{bundle, json, Fake, Shared, TOKEN};
 use crate::{
     cash::{ActivationCode, ClaimCode, ACTIVATION_PREFIX, CLAIM_CODE_PREFIX},
     claim::seal,
-    pending::{self, CashKept, PendingCheckout, Polled},
+    pending::{self, Final, CashKept, PendingCheckout, Polled},
     shared::SharedKeyring,
     token::{CheckoutStatus, Tiers, TokenServer},
     ClaimKey,

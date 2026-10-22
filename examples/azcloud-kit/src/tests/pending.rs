@@ -19,7 +19,7 @@ use super::{
 use crate::{
     bundle::PeriodTokens,
     claim::seal,
-    pending::{self, Finished, PendingCheckout, Polled},
+    pending::{self, Abandoned, Final, Finished, PendingCheckout, Polled, Settled, Transient},
     period::{Issuer, PeriodTokenStore},
     shared::SharedKeyring,
     AzlinSession, ClaimKey, TokenServer,

@@ -10,6 +10,8 @@
 //! - [`Rfc3339`] and [`Deadline`]: the times the services name, and what ends at them.
 //! - [`AzlinError`]: the codes a node sends in `x-azlin-error` and the token server in its
 //!   `{"error": ...}` body.
+//! - Buying a drive: [`TiersAnswer`] and its [`TierOffer`]s, [`CheckoutAnswer`] with its
+//!   [`CheckoutStatusWire`], [`AbandonAnswer`] and [`CheckoutRefusal`].
 //! - [`RefreshRefusal`]: how the token server refuses a refresh, and whether the token was spent.
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
