@@ -2409,7 +2409,10 @@ fn backdrop_drags_invisibly(
     let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
     let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
     let mut backdrop_color: Option<ColorU> = None;
-    for &(it, at) in backdrop {
+    // From the TOP down: once flat fills of one colour cover the clip,
+    // nothing painted under them shows (a scroll box's own background over
+    // the page's: two colours in the list, one on screen).
+    for &(it, at) in backdrop.iter().rev() {
         if it.is_state_management() {
             continue;
         }
@@ -2441,6 +2444,9 @@ fn backdrop_drags_invisibly(
                     Some(_) => return false, // ≥2 distinct backdrop colours → visible
                 }
                 backdrop_fills.push(b);
+                if rect_covered_by(clip_bounds, &backdrop_fills) {
+                    return true; // what is under this cover never shows
+                }
             }
             DisplayListItem::Rect { .. } => {} // translucent / rounded — let it drag
             DisplayListItem::Image { .. }
