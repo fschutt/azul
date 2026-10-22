@@ -103,6 +103,7 @@ pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
 pub mod vsync_ticks;
+pub mod after_turn;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
 
@@ -4953,20 +4954,12 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn flush_a11y_tree_update(&mut self) {
-        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
-        // parked in last_tree_update by the event pass; previously they only
-        // reached VoiceOver on the next full relayout / a11y rebuild.
+        // The parked update (text edits, caret moves, a layout pass's patch)
+        // reaches the adapter after this run-loop turn, once
+        // (`schedule_a11y_delivery`): this is called from the draw path and
+        // after every event of a burst.
         #[cfg(feature = "a11y")]
-        {
-            let pending = self
-                .common
-                .layout_window
-                .as_mut()
-                .and_then(|lw| lw.a11y_manager.take_pending());
-            if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
-                adapter.update_tree(update);
-            }
-        }
+        self.schedule_a11y_delivery();
     }
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
@@ -8664,18 +8657,10 @@ impl MacOSWindow {
         #[cfg(feature = "a11y")]
         self.process_accessibility_actions();
 
-        // Only update accessibility tree when something changed — not on every mouse move
+        // The tree update of this event, with every other one of the burst,
+        // after this run-loop turn (`schedule_a11y_delivery`).
         #[cfg(feature = "a11y")]
-        if self.common.a11y_dirty {
-            self.update_accessibility();
-            self.common.a11y_dirty = false;
-        } else {
-            // Scroll moved the content: throttled full rebuild (bounds +
-            // scroll_x/y), then hand it over like any other parked update.
-            use super::common::event::PlatformWindow;
-            self.rebuild_a11y_after_scroll_if_due();
-            self.flush_a11y_tree_update();
-        }
+        self.schedule_a11y_delivery();
     }
 
     /// Set the mouse cursor to a specific system cursor
@@ -9075,27 +9060,14 @@ impl MacOSWindow {
             display_list_needs_rebuild
         };
 
-        // Push the a11y tree from THIS frame's relayout to the OS now.
-        // regenerate_layout_inner() raises a11y_dirty, but the only other flush
-        // site is process_event() — which runs per NSEvent in the MANUAL event
-        // loop only. Under NSApplication.run() (RunForever) it never executes,
-        // and VoiceOver-initiated actions arrive over the accessibility Mach
-        // port without generating any NSEvent, so after the initial tree the
-        // adapter's update_if_active → QueuedEvents::raise() (the
-        // NSAccessibility notification post) never ran again: screen readers
-        // saw the FIRST window state forever. The frame path is the one place
-        // every mode and backend passes through after a relayout.
+        // The a11y tree of THIS frame's relayout reaches the OS from here, in
+        // every run mode: under NSApplication.run() process_event() never
+        // runs, and VoiceOver's actions arrive without an NSEvent, so the
+        // frame path is the one place every mode passes through after a
+        // relayout. Not in the draw call itself: after this run-loop turn
+        // (`schedule_a11y_delivery`).
         #[cfg(feature = "a11y")]
-        if self.common.a11y_dirty {
-            self.update_accessibility();
-            self.common.a11y_dirty = false;
-        } else {
-            // Scroll moved the content: throttled full rebuild (bounds +
-            // scroll_x/y), then hand it over like any other parked update.
-            use super::common::event::PlatformWindow;
-            self.rebuild_a11y_after_scroll_if_due();
-            self.flush_a11y_tree_update();
-        }
+        self.schedule_a11y_delivery();
 
         // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
         // is an `&self` method on CommonWindowState, so calling it while
@@ -10387,6 +10359,44 @@ impl MacOSWindow {
         }
     }
 
+    /// Hand this window's parked accessibility work to the adapter after
+    /// the current run-loop turn, once however often it is asked for in the
+    /// turn ([`after_turn::a11y_delivery`] runs [`Self::deliver_a11y_now`]).
+    ///
+    /// The adapter diffs an update and posts its notifications per changed
+    /// node on the main thread. Inside the draw call, and once per event of
+    /// a burst, that work landed in the frame (15 % of the main thread while
+    /// the ribbon of AzDrive animated with an assistive client attached).
+    #[cfg(feature = "a11y")]
+    fn schedule_a11y_delivery(&mut self) {
+        if self.accessibility_adapter.is_none() {
+            return;
+        }
+        after_turn::a11y_delivery().request(core::ptr::addr_of_mut!(*self) as usize);
+    }
+
+    /// The parked accessibility work, now: a rebuild when the tree is
+    /// dirty, the throttled rebuild after a scroll, then the one parked
+    /// update to the adapter.
+    #[cfg(feature = "a11y")]
+    pub(crate) fn deliver_a11y_now(&mut self) {
+        use super::common::event::PlatformWindow;
+        if self.common.a11y_dirty {
+            self.update_accessibility();
+            self.common.a11y_dirty = false;
+            return;
+        }
+        self.rebuild_a11y_after_scroll_if_due();
+        let pending = self
+            .common
+            .layout_window
+            .as_mut()
+            .and_then(|lw| lw.a11y_manager.take_pending());
+        if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
+            adapter.update_tree(update);
+        }
+    }
+
     /// Process accessibility actions from VoiceOver / screen readers.
     /// Polls the accesskit action channel and dispatches each action through
     /// `LayoutWindow::process_accessibility_action()` — the comprehensive handler
@@ -10443,6 +10453,24 @@ impl MacOSWindow {
         self.window.backingScaleFactor()
     }
 }
+
+/// [`after_turn::a11y_delivery`]'s hand-over: the window at `token` (a
+/// `MacOSWindow` address) delivers its parked accessibility work, if it is
+/// still open.
+#[cfg(feature = "a11y")]
+fn deliver_parked_a11y(token: usize) {
+    let window = token as *mut MacOSWindow;
+    if registry::get_all_window_ptrs().contains(&window) {
+        // SAFETY: a registered window is alive, and this runs on the main
+        // thread at the start of a run-loop turn, where no other borrow of
+        // it is live (the vsync tick's precedent).
+        unsafe { (*window).deliver_a11y_now() };
+    }
+}
+
+/// Without the `a11y` feature nothing is parked.
+#[cfg(not(feature = "a11y"))]
+fn deliver_parked_a11y(_token: usize) {}
 
 /// Position window on requested monitor, or center on primary monitor
 /// Resolve a parent window's CONTENT-area top-left in global top-down
