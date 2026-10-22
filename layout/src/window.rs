@@ -15829,11 +15829,16 @@ impl LayoutWindow {
             .filter(|id| is_root(*id, &old_hierarchy, &unmatched_old))
             .collect();
 
-        // Departing geometry, captured before the old arena goes.
+        // Departing geometry, captured before the old arena goes: where each
+        // node is PAINTED, the rect an exit cuts out of the retained frame's
+        // picture and starts its motion from. The laid-out rect (and a
+        // whole-pixel one at that) is not where a box under a transform is
+        // drawn: a toast card in its column (`translateX(-50%)`) was cut half
+        // a column to the right of its picture and left on screen half.
         let mut exit_rects = BTreeMap::new();
         for node in &unmounted {
-            if let Some(r) = self.get_node_bounds(dom_id, *node) {
-                exit_rects.insert(*node, layout_rect_to_logical(r));
+            if let Some(r) = self.get_node_painted_bounds(dom_id, *node) {
+                exit_rects.insert(*node, r);
             }
         }
 
@@ -25957,6 +25962,25 @@ impl LayoutWindow {
     }
 
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    /// Where `node_id` of `dom_id` is painted now: its laid-out border box
+    /// (unrounded) through the scroll offsets and the reference frames
+    /// around it (`node_rect_to_screen`, the raster's own rule).
+    #[must_use]
+    pub fn get_node_painted_bounds(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let idx = *layout_result.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+        let size = layout_result.layout_tree.get(idx)?.used_size?;
+        let position = *layout_result.calculated_positions.get(idx.index())?;
+        Some(crate::headless::node_rect_to_screen(
+            layout_result,
+            dom_id,
+            idx.index(),
+            LogicalRect::new(position, size),
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        ))
+    }
+
     pub fn get_node_bounds(
         &self,
         dom_id: DomId,
