@@ -907,7 +907,9 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
                     200,
                     r#"{"tier": "100GB", "key_id": "100GB/2026",
                         "public_key_pem": "-----BEGIN PUBLIC KEY-----",
-                        "blind_signatures": ["c2ln", "bmVk"]}"#,
+                        "blind_signatures": ["c2ln", "bmVk"],
+                        "schedule": {"months": 3, "issued": 2,
+                                     "next_issue_at": "2026-11-21T08:00:00Z"}}"#,
                 )
             }
             1 => json(
@@ -936,7 +938,7 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
             _ => json(
                 200,
                 r#"{"tier": "100GB", "key_id": "100GB/2026", "public_key_pem": "",
-                    "blind_signatures": ["c2ln"]}"#,
+                    "blind_signatures": ["c2ln"], "schedule": {"months": 3, "issued": 3}}"#,
             ),
         })
     });
@@ -953,6 +955,7 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
     assert_eq!(issued.tier, "100GB");
     assert_eq!(issued.key_id, "100GB/2026");
     assert_eq!(issued.signatures, vec!["c2ln", "bmVk"]);
+    assert_eq!((issued.schedule.months, issued.schedule.issued), (3, 2), "the schedule after it");
     let call = &fake.calls()[0];
     assert_eq!(call.method, Method::Post);
     assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
@@ -962,28 +965,29 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
         assert!(matches!(issue(issue_key, key_id), Err(TokenError::Config(_))));
     }
     assert_eq!(fake.calls().len(), 1);
-    // The token server's refusals, as refusals with their codes.
-    for code in ["issue_key_required", "issue_key_wrong", "key_id_required"] {
-        match issue(ISSUE_KEY, "100GB/2026") {
-            Err(TokenError::Refused { code: got, .. }) => assert_eq!(got, code),
-            other => panic!("not refused with {code}: {other:?}"),
-        }
+    // The token server's refusals, as the contract words them.
+    for refusal in [
+        azlin_contract::IssueRefusal::IssueKeyRequired,
+        azlin_contract::IssueRefusal::IssueKeyWrong,
+        azlin_contract::IssueRefusal::KeyIdRequired,
+    ] {
+        assert_eq!(issue(ISSUE_KEY, "100GB/2026").unwrap(), IssueAnswer::Refused(refusal));
     }
     // Another key than the one the messages were blinded for: its id, and its key when the token
     // server holds it - no refusal, the messages are blinded again.
     assert_eq!(
         issue(ISSUE_KEY, "100GB/2026").unwrap(),
-        IssueAnswer::KeyChanged {
+        IssueAnswer::Refused(azlin_contract::IssueRefusal::KeyChanged {
             key_id: String::from("100GB/2027"),
             public_key_pem: Some(String::from("-----BEGIN PUBLIC KEY-----")),
-        }
+        })
     );
     assert_eq!(
         issue(ISSUE_KEY, "100GB/2026").unwrap(),
-        IssueAnswer::KeyChanged {
+        IssueAnswer::Refused(azlin_contract::IssueRefusal::KeyChanged {
             key_id: String::from("100GB/2027"),
             public_key_pem: None,
-        }
+        })
     );
     // One signature for two blinded messages: an answer that makes no sense.
     assert!(matches!(
