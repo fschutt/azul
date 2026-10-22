@@ -1265,3 +1265,5 @@ mod a_restyle_that_starts_many_fades_rebuilds_the_cascade_once;
 mod a_resize_that_crosses_no_breakpoint_restyles_nothing;
 #[path = "a_change_inside_a_transformed_box_is_damaged_where_it_is_painted.rs"]
 mod a_change_inside_a_transformed_box_is_damaged_where_it_is_painted;
+#[path = "a_box_that_pushes_a_list_down_sends_assistive_technology_one_node.rs"]
+mod a_box_that_pushes_a_list_down_sends_assistive_technology_one_node;
