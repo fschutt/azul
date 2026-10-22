@@ -136,3 +136,35 @@ fn a_listing_page_of_a_large_folder_stats_at_most_its_own_entries() {
     assert_eq!(listed, 3002);
     assert_eq!(pages, 7);
 }
+
+/// The numbers for the notes (`--ignored --nocapture`): a folder of 10,000 files read the old
+/// way (read_dir and a stat per entry, what every listing page did) and the batched way.
+#[test]
+#[ignore = "a measurement, not a law"]
+fn measure_a_folder_of_10000_files() {
+    let tmp = TempDir::new("dir-read-measure");
+    folder_of(&tmp, 10_000);
+    let started = std::time::Instant::now();
+    let mut stats = 0;
+    for entry in fs::read_dir(tmp.path()).unwrap() {
+        let _ = fs::metadata(entry.unwrap().path());
+        stats += 1;
+    }
+    let old = started.elapsed();
+    let started = std::time::Instant::now();
+    let mut first = None;
+    let mut items = 0;
+    let calls = calls_of(|| {
+        dir_read::read_dir_items(tmp.path(), &mut |batch| {
+            first.get_or_insert_with(|| started.elapsed());
+            items += batch.len();
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    });
+    let new = started.elapsed();
+    println!(
+        "DIR_READ_10000 old: read_dir + {stats} stats {old:?}; batched: {items} items in \
+         {new:?} (first batch after {first:?}), {calls:?}"
+    );
+}
