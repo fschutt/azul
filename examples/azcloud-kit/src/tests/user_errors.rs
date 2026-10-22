@@ -508,4 +508,51 @@ fn a_grant_answered_before_is_said_as_done_already() {
     assert_eq!((user.code, user.class()), (Code::AlreadyAnswered, Class::Fatal));
     assert!(user.message(Lang::En).contains("already"), "{}", user.message(Lang::En));
     assert!(user.message(Lang::De).contains("bereits"), "{}", user.message(Lang::De));
+#[test]
+fn a_read_only_drive_says_why_and_only_an_unpaid_one_speaks_of_a_payment() {
+    let unpaid = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("read_only_unpaid")))
+        .unwrap();
+    let frozen = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("read_only_lockdown")))
+        .unwrap();
+    let operator = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("read_only_operator")))
+        .unwrap();
+    assert_eq!(frozen.code, Code::ReadOnlyLockdown);
+    assert_eq!(operator.code, Code::ReadOnlyOperator);
+    for user in [&unpaid, &frozen, &operator] {
+        assert_eq!(
+            (user.class(), user.behaviour()),
+            (Class::ReadOnly, Behaviour::ReadsOnly),
+            "{:?}",
+            user.code
+        );
+    }
+    assert!(unpaid.message(Lang::En).contains("payment"));
+    for user in [&frozen, &operator] {
+        for lang in Lang::ALL {
+            let text = user.message(lang).to_lowercase();
+            assert!(!text.contains("payment") && !text.contains("zahlung"), "{text}");
+        }
+    }
+    assert!(frozen.message(Lang::En).contains("recovery code"), "the owner's warning");
+    // the token server's lockdown_pending is the recovering computer's: it waits
+    let waiting = UserError::from_token_error(&TokenError::Refused {
+        status: 403,
+        code: String::from("lockdown_pending"),
+        message: String::new(),
+    })
+    .unwrap();
+    assert_eq!(waiting.code, Code::LockdownPending);
+}
+
+#[test]
+fn a_lockdowns_delete_pause_waits_as_long_as_the_node_says_and_does_not_promise_a_moment() {
+    let mut paused = azlin(503, "SlowDown", Some("delete_paused"));
+    if let DriveError::Service(service) = &mut paused {
+        service.retry_after = Some(86_000);
+    }
+    let user = UserError::from_drive_error(&paused).unwrap();
+    assert_eq!(user.code, Code::DeletePaused);
+    assert_eq!(user.retry_after, Some(86_000));
+    assert_eq!(user.behaviour(), Behaviour::RetryAfterPause);
+    assert!(!user.message(Lang::En).contains("moment"), "{}", user.message(Lang::En));
 }

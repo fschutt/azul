@@ -371,5 +371,48 @@ mod period {
         assert_eq!(IssueRefusal::IssueKeyWrong.status(), 403);
         assert_eq!(IssueRefusal::NoSuchCheckout.status(), 404);
         assert_eq!(IssueRefusal::TryAgain.status(), 503);
+mod read_only_and_map {
+    use azlin_contract::{map_epoch, AzlinError, ReadOnlyWhy, MAP_HEADER};
+
+    #[test]
+    fn each_reason_a_bucket_is_read_only_has_its_own_node_code() {
+        assert_eq!(ReadOnlyWhy::Unpaid.code(), AzlinError::ReadOnlyUnpaid);
+        // not the token server's lockdown_pending: that one tells the recovering computer to
+        // wait, this one warns the owner's devices
+        assert_eq!(ReadOnlyWhy::LockdownPending.code(), AzlinError::ReadOnlyLockdown);
+        assert_eq!(ReadOnlyWhy::Operator.code(), AzlinError::ReadOnlyOperator);
+        for why in ReadOnlyWhy::ALL {
+            assert_eq!(ReadOnlyWhy::parse(why.as_str()), Some(why));
+        }
+        // a row written before the reason existed is a payment that did not come
+        assert_eq!(ReadOnlyWhy::default(), ReadOnlyWhy::Unpaid);
+        assert_eq!(ReadOnlyWhy::parse("frozen_by_a_newer_server"), None);
+        let read: ReadOnlyWhy = serde_json::from_str("\"frozen_by_a_newer_server\"").expect("reads");
+        assert_eq!(read, ReadOnlyWhy::Unknown);
+        assert_eq!(ReadOnlyWhy::Unknown.code(), AzlinError::ReadOnlyOperator);
+    }
+
+    #[test]
+    fn the_new_read_only_codes_come_after_the_old_ones() {
+        let n = AzlinError::ALL.len();
+        let newest = [AzlinError::ReadOnlyLockdown, AzlinError::ReadOnlyOperator];
+        assert_eq!(&AzlinError::ALL[n - 2..], &newest[..]);
+        for code in [AzlinError::ReadOnlyLockdown, AzlinError::ReadOnlyOperator] {
+            assert_eq!(code.s3(), (403, "AccessDenied"), "{code}");
+            assert_eq!(code.retry_after(), None, "{code}");
+            assert_eq!(AzlinError::parse(code.as_str()), Some(code));
+        }
+        assert_eq!(AzlinError::ReadOnlyLockdown.as_str(), "read_only_lockdown");
+        assert_eq!(AzlinError::ReadOnlyOperator.as_str(), "read_only_operator");
+    }
+
+    #[test]
+    fn the_map_header_names_an_epoch_and_a_nodes_answer_its_epoch_with_its_hash() {
+        assert_eq!(MAP_HEADER, "x-azlin-map");
+        assert_eq!(map_epoch("7"), Some(7));
+        assert_eq!(map_epoch(" 8 9f86d081884c7d65 "), Some(8));
+        assert_eq!(map_epoch(""), None);
+        assert_eq!(map_epoch("seven"), None);
+        assert_eq!(map_epoch("-1 00"), None);
     }
 }

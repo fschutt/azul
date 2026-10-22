@@ -27,7 +27,7 @@ use azul_storage::{
     config::keyring_key,
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, S3Config, Transport,
+    Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, Method, S3Config, Transport,
 };
 
 use super::{bundle, empty_listing, fake_s3::FakeS3, header, json, Fake, Shared, S3, TOKEN};
@@ -132,7 +132,8 @@ fn a_node_that_cannot_serve_hands_the_same_request_to_the_node_it_names() {
         Ok(service.answer(call))
     });
     let (bucket, pauses) = bucket_with(factory(&fake), clock());
-    let bucket = bucket.with_nodes(vec![node("n1", N1, true)]);
+    // the hint names a node of the drive's list, the last one to ask by the list's order
+    let bucket = bucket.with_nodes(vec![node("n1", N1, true), node("n2", N2, false)]);
     assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
     assert_eq!(
         hosts(&fake),
@@ -420,7 +421,7 @@ fn an_expired_session_is_not_asked_again_at_another_node_or_after_a_pause() {
 }
 
 #[test]
-fn a_drive_that_moved_is_followed_to_the_endpoint_the_answer_names() {
+fn a_drive_that_moved_is_followed_to_the_endpoint_the_answer_names_when_its_node_list_does() {
     let s3 = FakeS3::new();
     s3.write("a.txt", b"alpha".to_vec());
     let service = s3.clone();
@@ -438,6 +439,7 @@ fn a_drive_that_moved_is_followed_to_the_endpoint_the_answer_names() {
         Ok(service.answer(call))
     });
     let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_nodes(vec![node("n1", N1, true), node("n5", MOVED, false)]);
     assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
     assert_eq!(hosts(&fake), vec![S3.to_string(), MOVED.to_string()]);
 }
@@ -657,4 +659,220 @@ fn the_node_list_reads_each_nodes_iroh_id_and_iroh_sockets() {
     let older: Vec<Node> =
         serde_json::from_str(r#"[{"name": "n1", "url": "http://n1", "ready": true}]"#).unwrap();
     assert_eq!(older[0].iroh_id, None, "a nodes file of before reads");
+}
+
+/// A 503 of the block endpoint whose hint names `named`.
+fn draining_naming(named: &'static str) -> Arc<Fake> {
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    Fake::new(move |call, _| {
+        if call.url.starts_with(S3) || call.url.starts_with("https://b1.nodes.test") {
+            return Ok(reply(
+                503,
+                &[
+                    ("x-azlin-error", "unavailable"),
+                    ("x-azlin-alt-endpoints", named),
+                    ("Retry-After", "0"),
+                ],
+                "<Error><Code>ServiceUnavailable</Code><Message>draining</Message></Error>",
+            ));
+        }
+        Ok(s3.answer(call))
+    })
+}
+
+#[test]
+fn a_hint_naming_an_endpoint_outside_the_node_list_is_not_followed_and_asks_for_a_refresh() {
+    // One node (or the iroh-reached one) must not move a drive's traffic, its bodies and its
+    // session token to a host of its choice: only the token server's list is followed.
+    let fake = draining_naming("http://evil.example:19009");
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket
+        .with_nodes(vec![node("n2", N2, true)])
+        .with_retry(Retry::once());
+    let _ = bucket.get("a.txt");
+    assert!(
+        !hosts(&fake).iter().any(|h| h.contains("evil.example")),
+        "{:?}",
+        hosts(&fake)
+    );
+    assert_eq!(hosts(&fake), vec![S3.to_string(), N2.to_string()]);
+    assert!(
+        bucket.failover().take_view_refresh(),
+        "a node the list does not know: the drive asks the token server for its list again"
+    );
+    assert!(!bucket.failover().take_view_refresh(), "asked once");
+    assert!(
+        !bucket.failover().alternatives().iter().any(|a| a.contains("evil")),
+        "nothing of it is remembered"
+    );
+}
+
+#[test]
+fn a_hint_to_plain_http_is_not_followed_for_an_https_block_even_when_listed() {
+    let fake = draining_naming("http://n2.nodes.test:19002");
+    let pauses: Pauses = Arc::new(Mutex::new(Vec::new()));
+    let heard = pauses.clone();
+    let bucket = Bucket::new(
+        S3Config {
+            endpoint: String::from("https://b1.nodes.test"),
+            ..config()
+        },
+        Credentials::new("AKID1", "secret-of-AKID1"),
+        factory(&fake),
+    )
+    .unwrap()
+    .with_sleep(Arc::new(move |pause| heard.lock().unwrap().push(pause)))
+    .with_retry(Retry::once())
+    .with_nodes(vec![node("n2", "http://n2.nodes.test:19002", true)]);
+    let _ = bucket.get("a.txt");
+    let calls = fake.calls();
+    assert!(
+        calls.iter().all(|c| c.url.starts_with("https://")),
+        "no request of an https drive goes out as plain http: {:?}",
+        calls.iter().map(|c| c.url.clone()).collect::<Vec<_>>()
+    );
+    assert!(!calls.is_empty());
+}
+
+#[test]
+fn a_drive_moved_to_an_endpoint_nobody_listed_is_not_followed_and_asks_for_a_refresh() {
+    let fake = Fake::new(move |call, _| {
+        if call.url.starts_with(S3) {
+            return Ok(reply(
+                301,
+                &[("x-azlin-error", "wrong_block")],
+                &format!(
+                    "<Error><Code>PermanentRedirect</Code><Message>moved</Message>\
+                     <Endpoint>{MOVED}</Endpoint></Error>"
+                ),
+            ));
+        }
+        Ok(empty_listing())
+    });
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_retry(Retry::once());
+    assert!(bucket.get("a.txt").is_err(), "the move is the refresh's to confirm");
+    assert_eq!(hosts(&fake), vec![S3.to_string()]);
+    assert!(bucket.failover().take_view_refresh());
+}
+
+#[test]
+fn every_request_names_the_map_epoch_of_the_last_refresh() {
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    let service = s3.clone();
+    let fake = Fake::new(move |call, _| Ok(service.answer(call)));
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    bucket.get("a.txt").unwrap();
+    assert_eq!(
+        header(&fake.calls()[0], "x-azlin-map"),
+        None,
+        "no map known yet: no header (a node serves such a request)"
+    );
+    bucket.failover().set_map_epoch(Some(7));
+    bucket.get("a.txt").unwrap();
+    assert_eq!(header(&fake.calls()[1], "x-azlin-map"), Some("7"));
+}
+
+/// A node at map epoch 8: a request naming an older epoch is answered 409 `map_stale` with the
+/// node's epoch and hash, one naming 8 is served.
+fn node_at_epoch_8() -> Arc<Fake> {
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    Fake::new(move |call, _| match header(call, "x-azlin-map") {
+        Some(epoch) if epoch != "8" => Ok(reply(
+            409,
+            &[("x-azlin-error", "map_stale"), ("x-azlin-map", "8 9f86d081884c7d65")],
+            "<Error><Code>AzlinMapStale</Code><Message>the map is at epoch 8</Message></Error>",
+        )),
+        _ => Ok(s3.answer(call)),
+    })
+}
+
+#[test]
+fn a_node_with_a_newer_map_gets_the_same_request_again_with_its_epoch() {
+    let fake = node_at_epoch_8();
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    bucket.failover().set_map_epoch(Some(7));
+    assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2, "{:?}", hosts(&fake));
+    assert_eq!(header(&calls[0], "x-azlin-map"), Some("7"));
+    assert_eq!(header(&calls[1], "x-azlin-map"), Some("8"));
+    assert_eq!(hosts(&fake), vec![S3.to_string(), S3.to_string()], "the same node");
+    assert_eq!(bucket.failover().map_epoch(), Some(8));
+    assert!(
+        bucket.failover().take_view_refresh(),
+        "the map moved on: the drive takes the token server's view of it"
+    );
+    bucket.get("a.txt").unwrap();
+    assert_eq!(fake.calls().len(), 3, "the next request names 8 at once");
+}
+
+#[test]
+fn a_map_stale_answer_that_names_no_newer_epoch_is_handed_up() {
+    let fake = Fake::new(|_, _| {
+        Ok(reply(
+            409,
+            &[("x-azlin-error", "map_stale"), ("x-azlin-map", "7 00")],
+            "<Error><Code>AzlinMapStale</Code><Message>stale</Message></Error>",
+        ))
+    });
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_retry(Retry::once());
+    bucket.failover().set_map_epoch(Some(7));
+    assert!(bucket.get("a.txt").is_err());
+    assert_eq!(fake.calls().len(), 1, "never the same request in a loop");
+    assert_eq!(bucket.failover().map_epoch(), Some(7));
+}
+
+/// md5("a"): one part of an upload, as the node names it.
+const PART_A: &str = "0cc175b9c0f1b6a831c399e269772661";
+
+/// The ETag of a completed upload of the one part [`PART_A`]: the MD5 of its MD5, `-1`.
+fn completed_a() -> String {
+    azul_storage::s3::multipart_etag(&[(1, format!("\"{PART_A}\""))]).expect("an MD5 part")
+}
+
+#[test]
+fn a_completion_whose_answer_was_lost_is_checked_by_its_etag_not_sent_again() {
+    let done = completed_a();
+    let etag = format!("\"{done}\"");
+    let fake = Fake::new(move |call, _| match call.method {
+        // the node completed the upload, the answer never arrived
+        Method::Post => Err(String::from("connection reset")),
+        Method::Head => Ok(reply(200, &[("etag", etag.as_str())], "")),
+        _ => Ok(reply(500, &[], "")),
+    });
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_nodes(vec![node("n2", N2, true)]);
+    let parts = [(1, format!("\"{PART_A}\""))];
+    let completed = bucket.drive().complete_multipart("big.bin", "up-1", &parts, None);
+    assert_eq!(completed.unwrap(), Some(done));
+    let posts = fake.calls().iter().filter(|c| c.method == Method::Post).count();
+    assert_eq!(posts, 1, "the completion was not sent blind a second time");
+}
+
+#[test]
+fn a_completion_without_an_answer_that_did_not_happen_is_sent_again() {
+    let done = completed_a();
+    let etag = format!("\"{done}\"");
+    let fake = Fake::new(move |call, n| match call.method {
+        Method::Post if n == 0 => Err(String::from("connection reset")),
+        Method::Post => Ok(reply(200, &[("etag", etag.as_str())], "")),
+        Method::Head => Ok(reply(
+            404,
+            &[],
+            "<Error><Code>NoSuchKey</Code><Message>no</Message></Error>",
+        )),
+        _ => Ok(reply(500, &[], "")),
+    });
+    let (bucket, _) = bucket_with(factory(&fake), clock());
+    let bucket = bucket.with_nodes(vec![node("n2", N2, true)]);
+    let parts = [(1, format!("\"{PART_A}\""))];
+    let completed = bucket.drive().complete_multipart("big.bin", "up-1", &parts, None);
+    assert_eq!(completed.unwrap(), Some(done));
+    let posts = fake.calls().iter().filter(|c| c.method == Method::Post).count();
+    assert_eq!(posts, 2, "the object is not there: the completion goes to the next node");
 }

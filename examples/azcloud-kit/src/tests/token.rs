@@ -995,3 +995,21 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
         Err(TokenError::Protocol(_))
     ));
 }
+
+#[test]
+fn a_bundle_reads_the_cluster_maps_epoch_and_why_the_drive_is_read_only() {
+    let text = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").replace(
+        r#""nodes": []"#,
+        r#""nodes": [], "map": {"cluster": "c1", "epoch": 12, "hash": "9f86"},
+           "read_only_reason": "lockdown_pending""#,
+    );
+    let read = DriveBundle::parse(&text).unwrap();
+    assert_eq!(read.map_epoch, Some(12));
+    assert_eq!(read.read_only_why, Some(azlin_contract::ReadOnlyWhy::LockdownPending));
+    let plain = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    assert_eq!(plain.map_epoch, None, "a server that trusts no map names none");
+    assert_eq!(plain.read_only_why, None);
+    let null_map = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")
+        .replace(r#""nodes": []"#, r#""nodes": [], "map": null"#);
+    assert_eq!(DriveBundle::parse(&null_map).unwrap().map_epoch, None);
+}

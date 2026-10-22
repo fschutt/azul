@@ -32,6 +32,8 @@ mod checked_upload;
 mod clock_skew;
 /// An S3 drive's requests through a router (the endpoint failover's seam).
 mod router;
+/// Whether a request may be sent twice, and a completion whose answer was lost.
+mod idempotency;
 /// A request and its answer as HTTP/1.1 bytes (S3 over iroh).
 mod http1;
 /// The UI thread never waits for a network answer (debug assertions).

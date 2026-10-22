@@ -603,3 +603,43 @@ fn read_only_credentials_are_refreshed_once_the_grant_changed_or_the_node_calls_
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(refreshes(&stale), 1);
 }
+
+#[test]
+fn a_newer_map_a_node_names_makes_the_drive_take_the_token_servers_view_before_its_next_request() {
+    let dir = TempDir::new("azcloud-drive");
+    let fake = Fake::new(|call, _| {
+        if call.url.starts_with(TOKEN) {
+            return Ok(match header(call, "authorization") {
+                Some("Bearer dt_f.0.aaa") => json(
+                    200,
+                    &bundle("AKID2", "2026-10-09T09:15:00Z", "dt_f.1.bbb").replace(
+                        r#""nodes": []"#,
+                        r#""nodes": [], "map": {"cluster": "c1", "epoch": 2, "hash": "9f86"}"#,
+                    ),
+                ),
+                _ => json(401, r#"{"error": "token_reuse", "message": "reused"}"#),
+            });
+        }
+        match header(call, "x-azlin-map") {
+            Some("1") => Ok(HttpReply {
+                status: 409,
+                headers: vec![
+                    (String::from("x-azlin-error"), String::from("map_stale")),
+                    (String::from("x-azlin-map"), String::from("2 9f86")),
+                ],
+                body: b"<Error><Code>AzlinMapStale</Code><Message>epoch 2</Message></Error>"
+                    .to_vec(),
+            }),
+            _ => Ok(empty_listing()),
+        }
+    });
+    let (drive, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    drive.failover().set_map_epoch(Some(1));
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 0, "the request itself went on with the node's epoch");
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 1, "the node list and the map came from the token server");
+    assert_eq!(drive.failover().map_epoch(), Some(2));
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(refreshes(&fake), 1, "once");
+}

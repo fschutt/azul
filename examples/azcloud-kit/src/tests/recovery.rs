@@ -127,6 +127,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             quota_bytes: Some(100_000_000_000),
             used_bytes: Some(62_000_000_000),
             ban: None,
+            read_only_why: None,
         }
     );
     assert_eq!(
@@ -141,6 +142,35 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             quota_bytes: None,
             used_bytes: None,
             ban: None,
+            read_only_why: None,
         }
     );
+}
+
+#[test]
+fn the_drives_status_says_why_it_takes_no_writes_and_only_unpaid_is_a_payment_due() {
+    let fake = Fake::new(|_, n| {
+        Ok(json(
+            200,
+            match n {
+                0 => r#"{"id": "d_1", "read_only": true, "read_only_reason": "lockdown_pending"}"#,
+                1 => r#"{"id": "d_1", "read_only": true, "read_only_reason": "operator"}"#,
+                2 => r#"{"id": "d_1", "read_only": true, "read_only_reason": "unpaid"}"#,
+                // a server of before names no reason: read-only was always a payment
+                _ => r#"{"id": "d_1", "read_only": true}"#,
+            },
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let frozen = server.drive_status("d_1", "dt_f.0.a").unwrap();
+    assert_eq!(frozen.read_only_why, Some(azlin_contract::ReadOnlyWhy::LockdownPending));
+    assert!(!frozen.payment_due(), "a recovery's freeze is no payment due");
+    let operator = server.drive_status("d_1", "dt_f.0.a").unwrap();
+    assert_eq!(operator.read_only_why, Some(azlin_contract::ReadOnlyWhy::Operator));
+    assert!(!operator.payment_due());
+    assert!(server.drive_status("d_1", "dt_f.0.a").unwrap().payment_due());
+    let older = server.drive_status("d_1", "dt_f.0.a").unwrap();
+    assert_eq!(older.read_only_why, None);
+    assert!(older.payment_due());
 }

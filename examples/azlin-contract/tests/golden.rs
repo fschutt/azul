@@ -6,7 +6,7 @@ use std::{fmt::Debug, path::PathBuf};
 use azlin_contract::{
     AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
-    Months, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
+    Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
 };
 use azlin_contract::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
@@ -488,4 +488,17 @@ mod period {
         ];
         golden("issue_refusals.json", &refusals);
     }
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct ReadOnlyRow {
+    why: ReadOnlyWhy,
+    code: AzlinError,
+}
+
+#[test]
+fn every_read_only_reason_reads_and_writes_its_fixture() {
+    let rows: Vec<ReadOnlyRow> = ReadOnlyWhy::ALL
+        .into_iter()
+        .map(|why| ReadOnlyRow { why, code: why.code() })
+        .collect();
+    golden("read_only_why.json", &rows);
 }
