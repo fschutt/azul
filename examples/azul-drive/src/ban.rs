@@ -312,6 +312,7 @@ pub(crate) fn copy_everything(
         is_folder: true,
         size: None,
     };
+    let action = s.actions.begin();
     crate::actions::enqueue_routed(
         info,
         app,
@@ -324,6 +325,7 @@ pub(crate) fn copy_everything(
             target_prefix: prefix,
             target_name: folder.display().to_string(),
             auto: Some(ConflictChoice::KeepBoth),
+            action,
         },
     );
 }

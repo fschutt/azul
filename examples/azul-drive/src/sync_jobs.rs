@@ -975,6 +975,8 @@ pub(crate) struct Transfer {
     pub target_prefix: String,
     pub target_name: String,
     pub auto: Option<crate::fileops::ConflictChoice>,
+    /// The user action it is part of: its notice says what the transfer does.
+    pub action: u64,
 }
 
 /// The synced folder of synced drive `drive_id`.
@@ -1025,7 +1027,16 @@ pub(crate) fn route_transfer(
                 let Some(work) = work_of(info, s, &drive_id) else {
                     return None;
                 };
-                s.info(Phrase::new("azdrive-sync-downloading-first").arg("count", cloud.len()));
+                // The action's notice says why it waits.
+                s.toasts.report(
+                    t.action,
+                    crate::Message {
+                        kind: crate::MessageKind::Info,
+                        text: Phrase::new("azdrive-sync-downloading-first")
+                            .arg("count", cloud.len())
+                            .into(),
+                    },
+                );
                 s.sync_view.waiting_transfer = Some(t);
                 spawn(info, app, s, Job::Sync(SyncJob::Fetch { work, keys: cloud }));
                 return None;
@@ -1444,13 +1455,14 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                 }
                 (SyncChange::Fetched, Ok(text)) => {
                     println!("AZDRIVE_SYNC_FETCHED {drive_id}");
-                    s.info(text);
                     // The preview of a file whose bytes came down shows them now.
                     s.clear_preview();
                     crate::actions::request_preview(info, app, s);
-                    // The copy, move or download that waited for them.
-                    if let Some(waiting) = s.sync_view.waiting_transfer.take() {
-                        crate::actions::enqueue_routed(info, app, s, waiting);
+                    // The copy, move or download that waited for them: its own notice goes on
+                    // with what it does now, so the fetch raises none of its own.
+                    match s.sync_view.waiting_transfer.take() {
+                        Some(waiting) => crate::actions::enqueue_routed(info, app, s, waiting),
+                        None => s.info(text),
                     }
                 }
                 (SyncChange::Answered, Ok(what)) => {

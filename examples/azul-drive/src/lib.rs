@@ -150,6 +150,8 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// One notice per user action that moves files: what it does, then how it went.
+mod transfer_actions;
 /// The window's close while transfers, sync passes or an encryption run.
 mod closing;
 /// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
@@ -630,6 +632,9 @@ pub(crate) struct Notice {
     pub id: u64,
     /// What it says, in which colours.
     pub message: Message,
+    /// The user action it reports (`transfer_actions`), whose later words take its place;
+    /// `None` for a notice of its own.
+    pub action: Option<u64>,
 }
 
 /// The toast stack's notices, oldest first.
@@ -645,15 +650,51 @@ impl Notices {
     /// Adds `message` as the newest notice and returns its id. Only the newest few are kept:
     /// the stack shows three, and older ones would have left by themselves anyway.
     pub fn push(&mut self, message: Message) -> u64 {
+        self.push_for(None, message)
+    }
+
+    fn push_for(&mut self, action: Option<u64>, message: Message) -> u64 {
         self.last_id += 1;
         self.list.push(Notice {
             id: self.last_id,
             message,
+            action,
         });
         if self.list.len() > MAX_TOASTS {
             self.list.remove(0);
         }
         self.last_id
+    }
+
+    /// Shows `message` as the notice of user action `action`: in the place of the action's
+    /// notice while it still shows, else as the newest. The words take a new id, as the old
+    /// toast's clock may still run out and must take out only its own words.
+    pub fn report(&mut self, action: u64, message: Message) -> u64 {
+        match self.list.iter().position(|n| n.action == Some(action)) {
+            Some(at) => {
+                self.last_id += 1;
+                self.list[at] = Notice {
+                    id: self.last_id,
+                    message,
+                    action: Some(action),
+                };
+                self.last_id
+            }
+            None => self.push_for(Some(action), message),
+        }
+    }
+
+    /// What the transfers of `action` say now (`TransferActions::ended`).
+    pub fn apply(&mut self, action: u64, change: transfer_actions::NoticeChange) {
+        match change {
+            transfer_actions::NoticeChange::Show(message) => {
+                self.report(action, message);
+            }
+            transfer_actions::NoticeChange::Keep => {}
+            transfer_actions::NoticeChange::Remove => {
+                self.list.retain(|n| n.action != Some(action));
+            }
+        }
     }
 
     /// Takes the notice `id` out (its toast left); an id already gone changes nothing.
@@ -765,6 +806,8 @@ pub(crate) struct TransferJob {
     pub cancel: Arc<AtomicBool>,
     /// Decides every conflict without asking (downloads keep both).
     pub auto: Option<ConflictChoice>,
+    /// The user action it is part of (`transfer_actions`): its end updates that action's notice.
+    pub action: u64,
 }
 
 /// The preview pane's file and what it shows (`None` while it is fetched).
@@ -996,6 +1039,8 @@ pub(crate) struct DriveState {
     pub closing: bool,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
+    /// The user actions with transfers still open: each has one notice in `toasts`.
+    pub actions: transfer_actions::TransferActions,
     pub undo: Vec<UndoOp>,
     pub preview: Option<PreviewState>,
     /// One file's metadata for the details pane, by key.
@@ -3705,6 +3750,7 @@ pub fn start() {
         closing: false,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
+        actions: transfer_actions::TransferActions::default(),
         undo: Vec::new(),
         preview: None,
         metadata: HashMap::new(),

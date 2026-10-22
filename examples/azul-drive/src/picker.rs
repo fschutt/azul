@@ -635,11 +635,12 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
             root: root.clone(),
         });
     }
-    s.info(Phrase::new("azdrive-pick-fetching"));
+    let action = s.actions.begin();
     crate::actions::enqueue_with(
         info,
         app,
         s,
+        action,
         TransferKind::Download,
         (drive_id.to_string(), source),
         items,
@@ -648,6 +649,17 @@ fn start_copy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_i
         &root.display().to_string(),
         Some(ConflictChoice::Replace),
     );
+    // The fetch's notice says it in the picker's words (the copy folder is no place the
+    // user chose).
+    if s.actions.is_open(action) {
+        s.toasts.report(
+            action,
+            crate::Message {
+                kind: crate::MessageKind::Info,
+                text: Phrase::new("azdrive-pick-fetching").into(),
+            },
+        );
+    }
 }
 
 /// The picker's fetch ended (`done`: every object arrived): the answer, with each copy's path.

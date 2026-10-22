@@ -40,6 +40,7 @@ use crate::{
     open_current, open_drive, place_up, preview, refresh, save_settings, spawn, ui_view,
     with_state, ClipboardItems, DriveState, KeyringCall, KeyringOp, Popup, PreviewState,
     PropertiesState, Renaming, Slot, TransferJob, UndoOp,
+    transfer_actions,
 };
 
 // ==== Actions ====
@@ -2049,10 +2050,12 @@ pub(crate) fn enqueue_transfer(
         return;
     };
     let target_name = s.place_title(&Place::folder(target_id, target_prefix));
+    let action = s.actions.begin();
     enqueue_with(
         info,
         app,
         s,
+        action,
         kind,
         (source_id.to_string(), source),
         items,
@@ -2070,6 +2073,7 @@ pub(crate) fn enqueue_with(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
+    action: u64,
     kind: TransferKind,
     source: (String, Arc<dyn Drive>),
     items: Vec<SourceItem>,
@@ -2093,6 +2097,7 @@ pub(crate) fn enqueue_with(
             target_prefix: target_prefix.to_string(),
             target_name: target_name.to_string(),
             auto,
+            action,
         },
     );
 }
@@ -2126,6 +2131,7 @@ pub(crate) fn enqueue_routed(
         target_prefix,
         target_name,
         auto,
+        action,
     }) = crate::sync_jobs::route_transfer(info, app, s, transfer)
     else {
         return;
@@ -2133,7 +2139,8 @@ pub(crate) fn enqueue_routed(
     let target_prefix = target_prefix.as_str();
     let target_name = target_name.as_str();
     let label = transfer_label(kind, &items, target_name);
-    let id = s.queue.push(label.clone());
+    let notice = s.actions.queued(action, kind, &items, target_name);
+    let id = s.queue.push(label);
     let same_drive = source.0 == target.0;
     s.transfers.insert(
         id,
@@ -2149,10 +2156,18 @@ pub(crate) fn enqueue_routed(
             plan: None,
             cancel: Arc::new(AtomicBool::new(false)),
             auto,
+            action,
         },
     );
-    s.info(label.then("…"));
+    s.toasts.report(action, notice);
     pump_queue(info, app, s);
+}
+
+/// A transfer of user action `action` ended `how`: the action's notice says so once its
+/// last transfer ended.
+fn action_ended(s: &mut DriveState, action: u64, how: transfer_actions::Ended) {
+    let change = s.actions.ended(action, how);
+    s.toasts.apply(action, change);
 }
 
 /// Starts the next transfer when none runs: its plan first.
@@ -2202,11 +2217,14 @@ pub(crate) fn transfer_planned(
     let mut plan = match result {
         Ok(plan) => plan,
         Err(e) => {
-            s.transfers.remove(&id);
+            let job = s.transfers.remove(&id);
             let why = drive_error_text(&e);
             s.queue.finish(id, Some(why.clone()));
             println!("AZDRIVE_TRANSFER {id} failed 0");
             s.error(Text::key("azdrive-transfer-cannot-start").then(" ").then(why));
+            if let Some(job) = job {
+                action_ended(s, job.action, transfer_actions::Ended::Failed);
+            }
             pump_queue(info, app, s);
             return;
         }
@@ -2227,10 +2245,11 @@ pub(crate) fn transfer_planned(
     let conflicts = plan.unresolved_count();
     job.plan = Some(plan);
     if empty {
+        let action = job.action;
         s.transfers.remove(&id);
         s.queue.finish(id, None);
         println!("AZDRIVE_TRANSFER {id} done 0");
-        s.info(Text::key("azdrive-transfer-nothing-to-do"));
+        action_ended(s, action, transfer_actions::Ended::NothingToDo);
         pump_queue(info, app, s);
     } else if conflicts > 0 {
         println!("AZDRIVE_TRANSFER {id} conflict {conflicts}");
@@ -2313,9 +2332,11 @@ pub(crate) fn cancel_transfer(
         if asking {
             s.popup = None;
         }
-        s.transfers.remove(&id);
+        let job = s.transfers.remove(&id);
         println!("AZDRIVE_TRANSFER {id} cancelled 0");
-        s.info(Text::key("azdrive-transfer-cancelled"));
+        if let Some(job) = job {
+            action_ended(s, job.action, transfer_actions::Ended::Cancelled);
+        }
         pump_queue(info, app, s);
     }
 }
@@ -2362,17 +2383,20 @@ pub(crate) fn transfer_ran(
     {
         crate::picker::copy_finished(info, s, state == "done");
     }
-    match (&failed, report.cancelled) {
-        (_, true) => {
-            s.info(Phrase::new("azdrive-transfer-cancelled-after").arg("count", report.done))
-        }
-        (Some(text), _) => s.error(text.clone()),
-        (None, _) if report.skipped > 0 => s.success(
-            Phrase::new("azdrive-transfer-done-skipped")
-                .arg("count", report.done)
-                .arg("skipped", report.skipped),
-        ),
-        (None, _) => s.success(Phrase::new("azdrive-transfer-done").arg("count", report.done)),
+    if let (Some(text), false) = (&failed, report.cancelled) {
+        s.error(text.clone());
+    }
+    if let Some(job) = &job {
+        action_ended(
+            s,
+            job.action,
+            transfer_actions::Ended::Ran {
+                done: report.done,
+                skipped: report.skipped,
+                cancelled: report.cancelled,
+                failed: failed.is_some() && !report.cancelled,
+            },
+        );
     }
     if let Some(job) = job {
         crate::changed(info, app, s, &job.target_id, &job.target_prefix);
@@ -2405,14 +2429,6 @@ pub(crate) fn transfer_ran(
                         .collect(),
                 });
             }
-        }
-        if job.kind == TransferKind::Download && !report.cancelled && failed.is_none() {
-            let folder = s.downloads.display().to_string();
-            s.success(
-                Phrase::new("azdrive-downloaded")
-                    .arg("count", report.done)
-                    .arg("folder", folder.as_str()),
-            );
         }
     }
     if s.queue.is_idle() && s.queue.failed().is_empty() {
@@ -2620,6 +2636,8 @@ pub(crate) fn upload_paths(
             None => groups.push((parent, vec![item])),
         }
     }
+    // One action, however many folders the files come from: one notice for all of them.
+    let action = s.actions.begin();
     for (parent, items) in groups {
         // An OS folder, not the data tree: no `.azlin/` bookkeeping there.
         let source: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(parent.clone()));
@@ -2627,6 +2645,7 @@ pub(crate) fn upload_paths(
             info,
             app,
             s,
+            action,
             TransferKind::Upload,
             (format!("os:{}", parent.display()), source),
             items,
@@ -2685,10 +2704,12 @@ fn download_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
     let items = s.selected_items();
     let folder = s.downloads.clone();
     let target: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(folder.clone()));
+    let action = s.actions.begin();
     enqueue_with(
         info,
         app,
         s,
+        action,
         TransferKind::Download,
         (source_id, source),
         items,
