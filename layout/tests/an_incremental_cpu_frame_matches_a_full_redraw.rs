@@ -400,6 +400,8 @@ impl Presented {
 struct Frame {
     /// `None`: the frame fell back to a full repaint.
     painted_px: Option<f64>,
+    /// The rects the frame repainted (empty for a full repaint).
+    damage: Vec<azul_core::geom::LogicalRect>,
 }
 
 /// The next frame, presented the way the backends present it
@@ -499,11 +501,15 @@ fn present(lw: &LayoutWindow, last: &mut Presented) -> Frame {
                 * f64::from(s);
             Frame {
                 painted_px: Some(px),
+                damage: painted,
             }
         }
         _ => {
             last.pixels = full_redraw(lw);
-            Frame { painted_px: None }
+            Frame {
+                painted_px: None,
+                damage: Vec::new(),
+            }
         }
     };
     last.list = dl;
@@ -547,15 +553,17 @@ fn run(seed: u64, dpi: u32, frames: usize) {
         let what = scene.mutate(&mut r);
         history.push(what.clone());
         lay_out(&mut lw, &scene);
-        let _ = present(&lw, &mut last);
+        let presented = present(&lw, &mut last);
         let truth = full_redraw(&lw);
         if let Some((x, y, painted, full)) = first_difference(&last.pixels, &truth) {
             let recent: Vec<&String> = history.iter().rev().take(4).collect();
             panic!(
                 "seed {seed} at {dpi} dpi, frame {frame} ({what}): the incremental frame differs \
                  from a full redraw in {} pixels, the first at ({x}, {y}): painted {painted:?}, \
-                 full redraw {full:?}; the last changes, newest first: {recent:?}",
-                differing_pixels(&last.pixels, &truth)
+                 full redraw {full:?}; the last changes, newest first: {recent:?}; the frame \
+                 repainted {:?} (None: in full)",
+                differing_pixels(&last.pixels, &truth),
+                presented.painted_px.map(|_| presented.damage.clone())
             );
         }
 
@@ -651,11 +659,15 @@ fn one_change(change: impl Fn(&mut Scene), budget_px: f64, what: &str) {
         lay_out(&mut lw, &scene);
         let frame = present(&lw, &mut last);
         let truth = full_redraw(&lw);
-        assert!(
-            first_difference(&last.pixels, &truth).is_none(),
-            "{what} at {dpi} dpi: the incremental frame differs from a full redraw in {} pixels",
-            differing_pixels(&last.pixels, &truth)
-        );
+        if let Some((x, y, painted, full)) = first_difference(&last.pixels, &truth) {
+            panic!(
+                "{what} at {dpi} dpi: the incremental frame differs from a full redraw in {} \
+                 pixels, the first at ({x}, {y}): painted {painted:?}, full {full:?}; the frame \
+                 repainted {:?}",
+                differing_pixels(&last.pixels, &truth),
+                frame.damage
+            );
+        }
         let s = f64::from(dpi) / 96.0;
         let painted = frame
             .painted_px
@@ -807,6 +819,10 @@ fn a_height_tween_moves_what_it_pushes_by_a_blit() {
                 first_difference(&last.pixels, &truth).is_none(),
                 "{dpi} dpi, frame {frames}: the frame differs from a full redraw in {} pixels",
                 differing_pixels(&last.pixels, &truth)
+            );
+            eprintln!(
+                "[height tween] {dpi} dpi frame {frames}: height {height}, painted {:?} px, blits {}",
+                frame.painted_px, last.blits
             );
             painted_total += frame.painted_px.unwrap_or(f64::from(W * H) * f64::from(s * s));
         }
