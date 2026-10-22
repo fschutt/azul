@@ -658,6 +658,8 @@ def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, 
                   lambda: popup.click(selector="#__azdrive_sheet_copy"))
         popup.until("the copy's note", lambda: popup.shows("cleared in a minute"))
         app.op("mock", set={"save_bytes": {"accept": True}})
+        # the kit comes once the token server has the code (registered while the sheet shows)
+        popup.until("the kit of the registered code", lambda: popup.has("#__azdrive_kit_save"))
         app.after("the kit saved", "AZDRIVE_KIT_SAVED", r"\d+",
                   lambda: popup.click(selector="#__azdrive_kit_save"))
         saved_pdf(app, "the emergency kit")
