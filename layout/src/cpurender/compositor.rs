@@ -3899,19 +3899,6 @@ fn painted_over_mover(
         .collect()
 }
 
-/// [`compute_display_list_damage`] + the translate hint. Returns
-/// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
-/// the hint (caller falls back to plain damage).
-/// Damage for a STRUCTURALLY changed display list (item count or item kinds
-/// differ): the visually-equal PREFIX and SUFFIX are unchanged, so everything
-/// that changed lies in the middle window — damage is the union of the OLD
-/// and NEW middle windows' bounds, mapped to visual space through the scroll
-/// stack. Sound for any localized insertion / removal / replacement; a change
-/// that touches everything degrades to a full-window rect, which is what the
-/// bail produced anyway.
-///
-/// `None` (keep the full repaint) when any scroll offset changed between the
-/// frames — a scrolled frame moves items the equality scan would misjudge.
 /// The reference frames (CSS transforms) open at a display-list item, as the
 /// rasteriser draws through them: each a matrix about its frame's origin in
 /// the coordinates of the frames around it. A damage rect found in item
@@ -3948,13 +3935,34 @@ impl FrameStack {
     }
 }
 
+/// [`compute_display_list_damage`] + the translate hint. Returns
+/// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
+/// the hint (caller falls back to plain damage).
+/// Damage for a STRUCTURALLY changed display list (item count or item kinds
+/// differ): the visually-equal PREFIX and SUFFIX are unchanged, so everything
+/// that changed lies in the middle window — damage is the union of the OLD
+/// and NEW middle windows' bounds, mapped to visual space through the scroll
+/// stack. Sound for any localized insertion / removal / replacement; a change
+/// that touches everything degrades to a full-window rect, which is what the
+/// bail produced anyway.
+///
+/// `None` (keep the full repaint) when a scroll frame of both frames moved
+/// between them - a scrolled frame moves items the equality scan would
+/// misjudge. A frame only one of the lists has (a scroll box that came or
+/// went with the change) is no such frame: its items are in that list's
+/// changed window and are damaged at its own offset. Comparing the whole
+/// maps sent every rebuild that added or dropped a scroll box (a ribbon
+/// tab's content, a popover) to a full repaint.
 fn windowed_structural_damage(
     old: &DisplayList,
     new: &DisplayList,
     old_offsets: &ScrollOffsetMap,
     new_offsets: &ScrollOffsetMap,
 ) -> Option<Vec<LogicalRect>> {
-    if old_offsets != new_offsets {
+    let a_shared_frame_moved = old_offsets
+        .iter()
+        .any(|(id, offset)| new_offsets.get(id).is_some_and(|now| now != offset));
+    if a_shared_frame_moved {
         return None;
     }
 
