@@ -997,9 +997,11 @@ fn entry_kind(entry: &fs::DirEntry) -> Option<bool> {
 
 /// The scan of the folder `dir` on this computer (the drive's `prefix`): its rows in batches,
 /// the first as soon as it holds [`listing::FIRST_BATCH`] rows (the first screen shows at
-/// once), then one every [`listing::BATCH_MS`]; the answer is the last batch, `done`. Names and
-/// kinds only - the sizes and dates of the rows in view come from [`Job::Stat`]. A set `cancel`
-/// (the window went elsewhere) ends it between two entries.
+/// once), then one every [`listing::BATCH_MS`]; the answer is the last batch, `done`. The
+/// folder is read in batches without a stat per entry (`azul_storage::dir_read`): on macOS the
+/// rows come with their sizes and dates, elsewhere with names and kinds only and the sizes and
+/// dates of the rows in view come from [`Job::Stat`]. A set `cancel` (the window went
+/// elsewhere) ends it between two batches of the read.
 fn scan_dir(
     dir: &Path,
     prefix: &str,
@@ -1007,65 +1009,47 @@ fn scan_dir(
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) => {
-            return Outcome::Scanned {
-                serial,
-                batch: Vec::new(),
-                done: true,
-                error: Some(e.to_string().into()),
-            }
-        }
-    };
     let at_root = prefix.is_empty();
     let mut batch = Vec::with_capacity(listing::FIRST_BATCH);
     let mut sent_first = false;
     let mut last = Instant::now();
-    for entry in entries {
+    let mut cancelled = false;
+    let read = azul_storage::dir_read::read_dir_items(dir, &mut |items| {
         if cancel.load(Ordering::Relaxed) {
-            return Outcome::Scanned {
-                serial,
-                batch: Vec::new(),
-                done: true,
-                error: None,
+            cancelled = true;
+            return std::ops::ControlFlow::Break(());
+        }
+        for item in items {
+            if !listing::listed_name(&item.name, at_root) {
+                continue;
+            }
+            batch.push(listing::scanned_item(prefix, &item));
+            let due = if sent_first {
+                last.elapsed() >= Duration::from_millis(listing::BATCH_MS)
+            } else {
+                batch.len() >= listing::FIRST_BATCH
             };
+            if due {
+                sent_first = true;
+                last = Instant::now();
+                emit(Outcome::Scanned {
+                    serial,
+                    batch: std::mem::take(&mut batch),
+                    done: false,
+                    error: None,
+                });
+            }
         }
-        let Ok(entry) = entry else {
-            continue;
-        };
-        // A name that is not UTF-8 has no key that could name it.
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-            continue;
-        };
-        if !listing::listed_name(&name, at_root) {
-            continue;
-        }
-        let Some(is_folder) = entry_kind(&entry) else {
-            continue;
-        };
-        batch.push(listing::scanned_entry(prefix, &name, is_folder));
-        let due = if sent_first {
-            last.elapsed() >= Duration::from_millis(listing::BATCH_MS)
-        } else {
-            batch.len() >= listing::FIRST_BATCH
-        };
-        if due {
-            sent_first = true;
-            last = Instant::now();
-            emit(Outcome::Scanned {
-                serial,
-                batch: std::mem::take(&mut batch),
-                done: false,
-                error: None,
-            });
-        }
+        std::ops::ControlFlow::Continue(())
+    });
+    if cancelled {
+        batch.clear();
     }
     Outcome::Scanned {
         serial,
         batch,
         done: true,
-        error: None,
+        error: read.err().map(|e| e.to_string().into()),
     }
 }
 

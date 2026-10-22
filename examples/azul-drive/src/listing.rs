@@ -61,6 +61,20 @@ pub fn listed_name(name: &str, at_root: bool) -> bool {
     !temporary && !(at_root && name == azul_storage::manifest::MANIFEST_DIR)
 }
 
+/// The row of an entry the folder read gave (`azul_storage::dir_read`): known at once when the
+/// read carried its size and date (macOS), else as [`scanned_entry`].
+#[must_use]
+pub fn scanned_item(prefix: &str, item: &azul_storage::dir_read::DirItem) -> Entry {
+    let is_folder = item.kind == azul_storage::dir_read::ItemKind::Folder;
+    let mut row = scanned_entry(prefix, &item.name, is_folder);
+    if item.has_stat() {
+        row.size = item.size;
+        row.modified = item.modified;
+        row.known = true;
+    }
+    row
+}
+
 /// The row of a directory entry the scan read: its key under `prefix`, its name, whether it is
 /// a folder - its size and date unknown until a stat of the rows in view.
 #[must_use]
