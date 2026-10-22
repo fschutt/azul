@@ -733,3 +733,11 @@ title = "Observability"
 maturity = "wip"
 guide_order = 233
 prerequisites = ["hello-world", "deploying/signing-updates"]
+
+[[group.outputs]]
+slug = "deploying/payment-sandbox"
+path = "doc/guide/en/deploying/payment-sandbox.md"
+title = "Testing Purchases"
+maturity = "wip"
+guide_order = 234
+prerequisites = ["hello-world"]
