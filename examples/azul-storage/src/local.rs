@@ -342,8 +342,8 @@ impl LocalDrive {
     /// A page's file whose size and date the folder read did not carry: one stat. `None` when
     /// it is gone since, or no file any more.
     fn stat_file(&self, key: &str) -> Option<ObjectInfo> {
-        let path = self.path_of(key).ok()?;
-        match dir_read::stat_item(&path)? {
+        // The key was made of the directory's own names: no check, as when it was listed.
+        match dir_read::stat_item(&self.dir_of(key))? {
             (ItemKind::File, size, modified) => Some(ObjectInfo {
                 key: key.to_string(),
                 size: size.unwrap_or(0),
