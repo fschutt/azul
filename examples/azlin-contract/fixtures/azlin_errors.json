@@ -130,5 +130,17 @@
     "status": 401,
     "s3": "AccessDenied",
     "retry_after": null
+  },
+  {
+    "code": "read_only_lockdown",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
+  },
+  {
+    "code": "read_only_operator",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
   }
 ]

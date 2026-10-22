@@ -375,6 +375,57 @@ pub fn parse_listing(xml: &str) -> Result<ListPage, DriveError> {
     xml::parse_list(xml)
 }
 
+/// Whether a request may be sent again after its first try got no answer, or an answer that
+/// does not say whether it was done (a 5xx that is no refusal). Every request of an
+/// [`S3Drive`] says it ([`Routed::idempotency`]), so a router never repeats a write blind.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Idempotency {
+    /// Sent twice it does what it does once: a read, a PUT of a whole body, a part, a delete,
+    /// a copy.
+    #[default]
+    Safe,
+    /// A conditional write (`If-Match`, `If-None-Match: *`): sent again after it was done it
+    /// is refused 412, which the caller takes as the conflict it resolves anyway.
+    Conditional,
+    /// Not to be repeated blind: what the first try did is found out as [`Verify`] says.
+    Unsafe(Verify),
+}
+
+/// How the outcome of an [`Idempotency::Unsafe`] request is found out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verify {
+    /// CompleteMultipartUpload: done when the key's ETag is the upload's ([`multipart_etag`]).
+    /// `None` when the parts' ETags are no MD5s: nothing can be checked, it is sent again.
+    Completion { etag: Option<String> },
+    /// CreateMultipartUpload: sent again, an upload the first try created stays empty and the
+    /// node expires it after a week; nothing is lost and nothing can be found out.
+    LeavesEmptyUpload,
+}
+
+/// The ETag a node names an upload of `parts` (number, ETag) by once it is complete: the MD5
+/// of the parts' MD5s, then `-<count>` (as S3 and the Azlin nodes answer). `None` when a part's
+/// ETag is no MD5 (a service may name parts otherwise): then it says nothing of the whole.
+#[must_use]
+pub fn multipart_etag(parts: &[(usize, String)]) -> Option<String> {
+    use md5::{Digest, Md5};
+    if parts.is_empty() {
+        return None;
+    }
+    let mut md5s: Vec<u8> = Vec::with_capacity(parts.len() * 16);
+    for (_, etag) in parts {
+        let hex = xml::strip_quotes(etag);
+        if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        for i in (0..32).step_by(2) {
+            md5s.push(u8::from_str_radix(&hex[i..i + 2], 16).ok()?);
+        }
+    }
+    let digest = Md5::digest(&md5s);
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    Some(format!("{hex}-{}", parts.len()))
+}
+
 /// One request of an [`S3Drive`] as its [`Router`] sends it: what it is about, and how to sign
 /// it for an endpoint (SigV4 signs the host, so every endpoint tried gets its own signature).
 pub struct Routed<'a> {
@@ -384,6 +435,8 @@ pub struct Routed<'a> {
     sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
     /// Signs a HEAD of another key for an endpoint ([`Routed::probe_for`]).
     probe: Option<&'a dyn Fn(&str, &str) -> Result<HttpCall, DriveError>>,
+    /// Whether it may be sent again ([`Idempotency::Safe`] unless the drive says otherwise).
+    idempotency: Idempotency,
 }
 
 impl<'a> Routed<'a> {
@@ -401,7 +454,21 @@ impl<'a> Routed<'a> {
             endpoint,
             sign,
             probe: None,
+            idempotency: Idempotency::Safe,
         }
+    }
+
+    /// The same request, saying whether it may be sent twice.
+    #[must_use]
+    pub fn with_idempotency(mut self, idempotency: Idempotency) -> Self {
+        self.idempotency = idempotency;
+        self
+    }
+
+    /// Whether it may be sent again when its outcome is not known.
+    #[must_use]
+    pub fn idempotency(&self) -> &Idempotency {
+        &self.idempotency
     }
 
     /// The same request, able to sign a probe: `probe(endpoint, key)` makes a HEAD of `key` for
@@ -690,6 +757,7 @@ impl S3Drive {
             Vec::new(),
             "",
             CallLimits::json(),
+            Idempotency::Safe,
         )?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
@@ -832,6 +900,7 @@ impl S3Drive {
         body: Vec<u8>,
         content_type: &str,
         limits: CallLimits,
+        idempotency: Idempotency,
     ) -> Result<HttpReply, DriveError> {
         let payload_hash = if body.is_empty() {
             EMPTY_SHA256.to_string()
@@ -887,7 +956,9 @@ impl S3Drive {
                 CallLimits::json(),
             ))
         };
-        let routed = Routed::new(method, key, &self.config.endpoint, &sign).with_probe(&probe);
+        let routed = Routed::new(method, key, &self.config.endpoint, &sign)
+            .with_probe(&probe)
+            .with_idempotency(idempotency);
         router.send(&routed, self.transport.as_ref())
     }
 
@@ -957,9 +1028,12 @@ impl S3Drive {
     /// S3 cannot take or a request that got no answer at all.
     ///
     /// Its limits ([`CallLimits`]): an upload's with a body, an object's read whole for a GET,
-    /// a document's otherwise; [`S3Drive::send_with`] names them.
+    /// a document's otherwise; [`S3Drive::send_with`] names them. `idempotency` says whether
+    /// the drive's router may send it again when its outcome is not known.
+    #[allow(clippy::too_many_arguments)]
     pub fn send_raw(
         &self,
+        idempotency: Idempotency,
         method: Method,
         key: Option<&str>,
         query: Vec<(String, String)>,
@@ -968,7 +1042,7 @@ impl S3Drive {
         content_type: &str,
     ) -> Result<HttpReply, DriveError> {
         let limits = CallLimits::for_request(method, body.len());
-        self.send_with(limits, method, key, query, extra, body, content_type)
+        self.send_with(limits, idempotency, method, key, query, extra, body, content_type)
     }
 
     /// [`S3Drive::send_raw`] with the limits the caller knows (a listing's, a range's).
@@ -976,6 +1050,7 @@ impl S3Drive {
     pub fn send_with(
         &self,
         limits: CallLimits,
+        idempotency: Idempotency,
         method: Method,
         key: Option<&str>,
         query: Vec<(String, String)>,
@@ -986,7 +1061,7 @@ impl S3Drive {
         if let Some(key) = key {
             check_s3_key(key)?;
         }
-        self.request(method, key, query, extra, body, content_type, limits)
+        self.request(method, key, query, extra, body, content_type, limits, idempotency)
     }
 
     /// The error of a failed answer to a request on `key` (`None`: on the bucket itself): a
@@ -1014,6 +1089,7 @@ impl S3Drive {
         body.push_str("</Delete>");
         let md5 = content_md5(body.as_bytes());
         let reply = match self.send_raw(
+            Idempotency::Safe,
             Method::Post,
             None,
             vec![(String::from("delete"), String::new())],
@@ -1064,7 +1140,14 @@ impl S3Drive {
     ) -> Result<Option<String>, DriveError> {
         let len = bytes.len();
         let reply = self.timed_upload(len, || {
-            self.object_call(Method::Put, key, Vec::new(), bytes, CallLimits::upload())
+            self.object_call(
+                Method::Put,
+                key,
+                Vec::new(),
+                bytes,
+                CallLimits::upload(),
+                Idempotency::Safe,
+            )
         })?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
@@ -1078,6 +1161,7 @@ impl S3Drive {
     /// CreateMultipartUpload: the upload's id.
     pub fn start_multipart(&self, key: &str) -> Result<String, DriveError> {
         let reply = self.send_raw(
+            Idempotency::Unsafe(Verify::LeavesEmptyUpload),
             Method::Post,
             Some(key),
             vec![(String::from("uploads"), String::new())],
@@ -1113,6 +1197,7 @@ impl S3Drive {
         let len = bytes.len();
         let reply = self.timed_upload(len, || {
             self.send_raw(
+                Idempotency::Safe,
                 Method::Put,
                 Some(key),
                 query,
@@ -1137,7 +1222,9 @@ impl S3Drive {
     /// CompleteMultipartUpload of `parts` (number, ETag), only when `condition` holds when it is
     /// asked (S3 checks `If-None-Match: *` / `If-Match` on the completion): the new version's
     /// ETag when the service says it; [`DriveError::Conflict`] for a 412 (nothing was written;
-    /// the parts are still there - abort them).
+    /// the parts are still there - abort them). A completion whose earlier answer was lost is
+    /// answered `NoSuchUpload` or 412 when asked again: the key holding the upload's own ETag
+    /// ([`multipart_etag`]) says it was done, so it is.
     pub fn complete_multipart(
         &self,
         key: &str,
@@ -1154,9 +1241,18 @@ impl S3Drive {
         }
         manifest.push_str("</CompleteMultipartUpload>");
         let extra: Vec<(String, String)> = condition.map(condition_header).into_iter().collect();
+        let expected = multipart_etag(parts);
+        let done_before = || {
+            expected
+                .as_deref()
+                .is_some_and(|etag| self.holds_version(key, etag))
+        };
         let mut attempt = 1;
         let reply = loop {
             let reply = self.send_raw(
+                Idempotency::Unsafe(Verify::Completion {
+                    etag: expected.clone(),
+                }),
                 Method::Post,
                 Some(key),
                 vec![(String::from("uploadId"), upload.to_string())],
@@ -1165,9 +1261,15 @@ impl S3Drive {
                 "application/xml",
             )?;
             if reply.status == 412 {
+                if done_before() {
+                    return Ok(expected.clone());
+                }
                 return Err(DriveError::Conflict {
                     key: key.to_string(),
                 });
+            }
+            if reply.status == 404 && done_before() {
+                return Ok(expected.clone());
             }
             // Another conditional write in flight (409): nothing was written; ask again.
             if reply.status == 409 && condition.is_some() && attempt < CONDITIONAL_TRIES {
@@ -1185,6 +1287,9 @@ impl S3Drive {
         if done.contains("<Error>") {
             let error = xml::parse_error(500, &done);
             if error.code == "PreconditionFailed" {
+                if done_before() {
+                    return Ok(expected.clone());
+                }
                 return Err(DriveError::Conflict {
                     key: key.to_string(),
                 });
@@ -1199,9 +1304,16 @@ impl S3Drive {
             .filter(|e| !e.is_empty()))
     }
 
+    /// Whether `key` is now the version with the entity tag `etag` (one HEAD; no answer is no).
+    fn holds_version(&self, key: &str, etag: &str) -> bool {
+        matches!(Drive::head(self, key), Ok(info)
+            if info.etag.as_deref().is_some_and(|found| found.eq_ignore_ascii_case(etag)))
+    }
+
     /// AbortMultipartUpload: the parts sent so far are not left (and billed) behind.
     pub fn abort_multipart(&self, key: &str, upload: &str) -> Result<(), DriveError> {
         let reply = self.send_raw(
+            Idempotency::Safe,
             Method::Delete,
             Some(key),
             vec![(String::from("uploadId"), upload.to_string())],
@@ -1231,6 +1343,7 @@ impl S3Drive {
             }
             let reply = self.send_with(
                 CallLimits::listing(),
+                Idempotency::Safe,
                 Method::Get,
                 Some(key),
                 query,
@@ -1262,6 +1375,7 @@ impl S3Drive {
         extra: Vec<(String, String)>,
         body: Vec<u8>,
         limits: CallLimits,
+        idempotency: Idempotency,
     ) -> Result<HttpReply, DriveError> {
         check_s3_key(key)?;
         self.request(
@@ -1272,6 +1386,7 @@ impl S3Drive {
             body,
             content_type_for(key),
             limits,
+            idempotency,
         )
     }
 }
@@ -1297,6 +1412,7 @@ impl Drive for S3Drive {
             Vec::new(),
             "",
             CallLimits::listing(),
+            Idempotency::Safe,
         )?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
@@ -1313,6 +1429,7 @@ impl Drive for S3Drive {
             Vec::new(),
             Vec::new(),
             CallLimits::whole_object(),
+            Idempotency::Safe,
         )?;
         if reply.is_success() {
             Ok(reply.body)
@@ -1328,6 +1445,7 @@ impl Drive for S3Drive {
             vec![(String::from("range"), range.header_value())],
             Vec::new(),
             CallLimits::range(range),
+            Idempotency::Safe,
         )?;
         match reply.status {
             206 => Ok(reply.body),
@@ -1420,6 +1538,7 @@ impl Drive for S3Drive {
                 vec![header.clone()],
                 bytes.to_vec(),
                 CallLimits::upload(),
+                Idempotency::Conditional,
             )?;
             if reply.is_success() {
                 return Ok(reply
@@ -1442,7 +1561,14 @@ impl Drive for S3Drive {
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
-        let reply = self.object_call(Method::Delete, key, Vec::new(), Vec::new(), CallLimits::json())?;
+        let reply = self.object_call(
+            Method::Delete,
+            key,
+            Vec::new(),
+            Vec::new(),
+            CallLimits::json(),
+            Idempotency::Safe,
+        )?;
         if reply.is_success() {
             return Ok(());
         }
@@ -1505,7 +1631,14 @@ impl Drive for S3Drive {
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new(), CallLimits::json())?;
+        let reply = self.object_call(
+            Method::Head,
+            key,
+            Vec::new(),
+            Vec::new(),
+            CallLimits::json(),
+            Idempotency::Safe,
+        )?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }
@@ -1540,6 +1673,7 @@ impl Drive for S3Drive {
             vec![(String::from("x-amz-copy-source"), source)],
             Vec::new(),
             CallLimits::json(),
+            Idempotency::Safe,
         )?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(from)));
@@ -1560,7 +1694,14 @@ impl Drive for S3Drive {
     /// One HEAD: the headers that describe the object (not the request), by
     /// readable names; `x-amz-meta-<name>` as `<name>`.
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new(), CallLimits::json())?;
+        let reply = self.object_call(
+            Method::Head,
+            key,
+            Vec::new(),
+            Vec::new(),
+            CallLimits::json(),
+            Idempotency::Safe,
+        )?;
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }

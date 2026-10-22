@@ -51,6 +51,11 @@ pub enum AzlinError {
     LastRecoveryKey,
     /// A recovery lookup's challenge ran out or is not the server's.
     BadChallenge,
+    /// A node refuses a write: someone used the drive's recovery code, and the drive takes no
+    /// changes until the lockdown's notice ends or an owner's device cancels it.
+    ReadOnlyLockdown,
+    /// A node refuses a write: the operator made the drive read-only for now.
+    ReadOnlyOperator,
     /// A code this build does not know: a newer service sent it. Never sent.
     #[serde(other)]
     Unknown,
@@ -58,7 +63,7 @@ pub enum AzlinError {
 
 impl AzlinError {
     /// Every code a service sends ([`AzlinError::Unknown`] is not one).
-    pub const ALL: [AzlinError; 22] = [
+    pub const ALL: [AzlinError; 24] = [
         AzlinError::Unavailable,
         AzlinError::Maintenance,
         AzlinError::QuotaExceeded,
@@ -81,6 +86,8 @@ impl AzlinError {
         AzlinError::RecoveryKeyRequired,
         AzlinError::LastRecoveryKey,
         AzlinError::BadChallenge,
+        AzlinError::ReadOnlyLockdown,
+        AzlinError::ReadOnlyOperator,
     ];
 
     /// The code as the wire writes it (`quota_exceeded`).
@@ -109,6 +116,8 @@ impl AzlinError {
             AzlinError::RecoveryKeyRequired => "recovery_key_required",
             AzlinError::LastRecoveryKey => "last_recovery_key",
             AzlinError::BadChallenge => "bad_challenge",
+            AzlinError::ReadOnlyLockdown => "read_only_lockdown",
+            AzlinError::ReadOnlyOperator => "read_only_operator",
             AzlinError::Unknown => "unknown",
         }
     }
@@ -154,6 +163,8 @@ impl AzlinError {
             AzlinError::RecoveryKeyRequired => (403, "AccessDenied"),
             AzlinError::LastRecoveryKey => (409, "OperationAborted"),
             AzlinError::BadChallenge => (401, "AccessDenied"),
+            AzlinError::ReadOnlyLockdown => (403, "AccessDenied"),
+            AzlinError::ReadOnlyOperator => (403, "AccessDenied"),
             AzlinError::Unknown => (500, "InternalError"),
         }
     }

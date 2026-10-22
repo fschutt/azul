@@ -15,6 +15,8 @@
 //! - [`RefreshRefusal`]: how the token server refuses a refresh, and whether the token was spent.
 //! - A paid checkout's period tokens: their [`IssueSchedule`] (one instalment a month,
 //!   [`INSTALMENT_SECS`]), the [`IssueAnswer`] and the [`IssueRefusal`]s, final or not.
+//! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; the cluster
+//!   map's epoch in [`MAP_HEADER`].
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
 //! exactly them, and the services check [`fixtures_digest`] against the digest they were built
@@ -26,6 +28,7 @@ mod hello;
 mod ids;
 mod idempotency;
 mod period;
+mod read_only;
 mod refresh;
 mod time;
 
@@ -38,6 +41,7 @@ pub use error::AzlinError;
 pub use hello::{AppName, ClientHello, SemVer, CLIENT_HEADER};
 pub use idempotency::{IdempotencyKey, IdempotentScope, ALREADY_ANSWERED, IDEMPOTENCY_HEADER};
 pub use period::{IssueAnswer, IssueRefusal, IssueSchedule, INSTALMENT_SECS};
+pub use read_only::{map_epoch, ReadOnlyWhy, MAP_HEADER};
 pub use refresh::{BanWire, RefreshRefusal};
 pub use ids::{
     BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,
@@ -64,6 +68,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("issue_answers.json", include_str!("../fixtures/issue_answers.json")),
     ("issue_refusals.json", include_str!("../fixtures/issue_refusals.json")),
     ("refresh_refusals.json", include_str!("../fixtures/refresh_refusals.json")),
+    ("read_only_why.json", include_str!("../fixtures/read_only_why.json")),
 ];
 
 /// The digest of [`FIXTURES`] (`fnv1a64:<16 hex digits>`): the services keep the one they were

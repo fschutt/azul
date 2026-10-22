@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    s3::Idempotency,
     sigv4, AzlinError, BucketSpace, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply,
     ListRequest, Method, Precondition, S3Config, S3Drive, Transport,
 };
@@ -726,6 +727,7 @@ fn a_raw_get_signs_exactly_like_the_drives_own_get() {
     fake.answer(200, &[], "hello");
     let reply = local_drive(&fake)
         .send_raw(
+            Idempotency::Safe,
             Method::Get,
             Some("mail/inbox/0001.eml"),
             Vec::new(),
@@ -758,6 +760,7 @@ fn a_raw_request_signs_its_extra_headers_and_hands_back_any_status() {
     );
     let reply = local_drive(&fake)
         .send_raw(
+            Idempotency::Conditional,
             Method::Put,
             Some("sync/.azlin/index.json"),
             Vec::new(),
@@ -799,6 +802,7 @@ fn a_raw_request_carries_its_query_and_reaches_the_bucket_without_a_key() {
     let drive = local_drive(&fake);
     drive
         .send_raw(
+            Idempotency::Unsafe(crate::s3::Verify::LeavesEmptyUpload),
             Method::Post,
             Some("big.bin"),
             vec![(String::from("uploads"), String::new())],
@@ -810,6 +814,7 @@ fn a_raw_request_carries_its_query_and_reaches_the_bucket_without_a_key() {
     assert_eq!(fake.last().url, "http://127.0.0.1:9000/azdrive/big.bin?uploads=");
     let reply = drive
         .send_raw(
+            Idempotency::Safe,
             Method::Get,
             None,
             vec![
@@ -829,7 +834,7 @@ fn a_raw_request_carries_its_query_and_reaches_the_bucket_without_a_key() {
     assert!(page.objects.is_empty() && page.next.is_none());
     assert!(
         drive
-            .send_raw(Method::Get, Some(""), Vec::new(), Vec::new(), Vec::new(), "")
+            .send_raw(Idempotency::Safe, Method::Get, Some(""), Vec::new(), Vec::new(), Vec::new(), "")
             .is_err(),
         "an empty key is refused before anything is sent"
     );
