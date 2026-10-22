@@ -1855,8 +1855,6 @@ impl StyledDom {
     /// compact cache from scratch on the composed tree.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
         cascade_trace(|| "compact cache REBUILT from css_props".to_string());
-        #[cfg(feature = "std")]
-        COMPACT_CACHE_REBUILDS.with(|n| n.set(n.get() + 1));
         // Use the _with_inheritance variant: it does inheritance inline (via
         // parent-compact-field copy) AND populates hot_flags via
         // apply_css_property_to_compact.  The plain build_compact_cache would
@@ -4225,11 +4223,18 @@ std::thread_local! {
     static COMPACT_CACHE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// How many times this thread rebuilt a DOM's compact cache and inheritance
-/// tables ([`StyledDom::recompute_inheritance_and_compact_cache`]). Each
-/// rebuild walks the whole DOM, so a restyle pays it once, however many
-/// overrides it writes; the tests that keep it so read this count. Always 0
-/// without `std`.
+/// Count one build of a DOM's compact cache (the compact builder calls it).
+pub(crate) fn count_compact_cache_rebuild() {
+    #[cfg(feature = "std")]
+    COMPACT_CACHE_REBUILDS.with(|n| n.set(n.get() + 1));
+}
+
+/// How many times this thread built a DOM's compact cache (with its
+/// inheritance tables): every cascade, restyle and override refresh ends in
+/// one ([`StyledDom::recompute_inheritance_and_compact_cache`],
+/// `StyledDom::restyle`). Each walks the whole DOM, so a change pays it once
+/// at most, and a change no style depends on not at all; the tests that keep
+/// it so read this count. Always 0 without `std`.
 #[must_use]
 pub fn compact_cache_rebuilds_on_this_thread() -> usize {
     #[cfg(feature = "std")]

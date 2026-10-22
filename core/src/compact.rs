@@ -59,6 +59,7 @@ impl CssPropertyCache {
         node_data: &[NodeData],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
+        crate::styled_dom::count_compact_cache_rebuild();
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -530,6 +531,7 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
+        crate::styled_dom::count_compact_cache_rebuild();
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
