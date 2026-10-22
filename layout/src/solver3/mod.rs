@@ -2012,9 +2012,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             patch_damage_pending = Some((changed, rects));
         }
+        // The nodes are the ones of the last pass, index for index: the
+        // retained tree, or a reconcile that kept the structure.
+        let same_nodes = (cache.last_reconcile_was_skipped
+            || cache.last_reconcile_structure_preserved)
+            && cache.previous_sizes.len() == new_tree.nodes.len()
+            && cache.calculated_positions.len() == calculated_positions.len();
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
-            // Round-3 presentation hint from the SAME inputs the patch used.
+        }
+        if patch.is_some() || same_nodes {
+            // Round-3 presentation hint from the SAME inputs the patch used,
+            // and on a pass that built its list in full from the same nodes
+            // too: the CPU frame blits the movers by the dominant delta only
+            // where the list diff finds their items translated by it
+            // (`compute_display_list_damage_translated`), so a list built
+            // from scratch is presented as a move just as a patched one is.
+            // A layout tween (a ribbon's content growing over the page) was
+            // never patched, and every frame repainted all it pushed.
             // The re-emit set must match PatchState's exactly: reflowed IFCs
             // PLUS size-changed nodes — a size-changed node re-emitted its
             // items, so blitting its old pixels without repainting is stale.

@@ -17185,6 +17185,7 @@ impl LayoutWindow {
         if !self.css_transitions.is_empty() {
             let _tick_span = crate::probe::Probe::span("css_transition_tick");
             let rects = transition_rects;
+            let hidpi_factor = self.current_window_state.size.get_hidpi_factor().inner.get();
             let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
             let mut needs_relayout = false;
             // (node, from-colour, to-colour, is_text) — executed after the
@@ -17273,7 +17274,15 @@ impl LayoutWindow {
                     // itself); the override written is Initial at t=1 so the
                     // cascaded target shows through afterwards - unless the
                     // target IS the override (`keeps_target`).
-                    let shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
+                    let mut shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
+                    // A size between the ends of a layout tween lands on the
+                    // device pixel grid: what it pushes moves by whole
+                    // device pixels, which a CPU frame presents as a move of
+                    // pixels (a sub-pixel move must be painted again). The
+                    // end value is the declared one.
+                    if tr.t < 1.0 && tr.scope != azul_css::props::property::RelayoutScope::None {
+                        snap_length_to_device_pixels(&mut shown, hidpi_factor);
+                    }
                     let over = if tr.t >= 1.0 && !tr.keeps_target {
                         azul_css::props::property::CssProperty::initial(tr.prop_type)
                     } else {
@@ -33113,6 +33122,42 @@ fn background_transition_start(
 /// `border-*-color`s are the patchable set. A background of gradients or of
 /// several layers is [`transition_patch_layers`]'; anything else (images,
 /// shadows) falls back to the DL rebuild.
+/// Round a size a layout tween shows between its ends to whole device
+/// pixels (`hidpi_factor` device px per logical px): `width`, `height` and
+/// their `min-` / `max-` bounds given in px. Anything else (another unit, a
+/// keyword, another property) is left as it is.
+fn snap_length_to_device_pixels(
+    prop: &mut azul_css::props::property::CssProperty,
+    hidpi_factor: f32,
+) {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::{length::SizeMetric, pixel::PixelValue, FloatValue},
+            layout::dimensions::{LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    if !(hidpi_factor.is_finite() && hidpi_factor > 0.0) {
+        return;
+    }
+    let snap = |v: &mut PixelValue| {
+        if v.metric == SizeMetric::Px {
+            let n = v.number.get();
+            v.number = FloatValue::new((n * hidpi_factor).round() / hidpi_factor);
+        }
+    };
+    match prop {
+        CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(v)))
+        | CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(v))) => snap(v),
+        CssProperty::MinHeight(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MaxHeight(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MinWidth(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        CssProperty::MaxWidth(CssPropertyValue::Exact(v)) => snap(&mut v.inner),
+        _ => {}
+    }
+}
+
 fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
 ) -> Option<(
