@@ -1272,14 +1272,18 @@ pub fn determine_all_events(
     // falls back to the root when nothing is hovered). Targeting the root
     // unconditionally made per-node drop targets impossible — a DroppedFile
     // callback registered on any non-root node could never fire.
+    // Each drag move and each drop is ONE event: a re-run of the pass after a
+    // callback rebuilt the DOM finds them delivered (`mark_events_delivered`).
     if file_drop_manager.get_hovered_file().is_some() {
-        events.push(SyntheticEvent::new(
-            EventType::FileHover,
-            EventSource::User,
-            mouse_target,
-            timestamp.clone(),
-            EventData::None,
-        ));
+        if file_drop_manager.hover_is_undelivered() {
+            events.push(SyntheticEvent::new(
+                EventType::FileHover,
+                EventSource::User,
+                mouse_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
     } else if file_drop_manager.hover_was_cancelled() {
         events.push(SyntheticEvent::new(
             EventType::FileHoverCancel,
@@ -1290,7 +1294,7 @@ pub fn determine_all_events(
         ));
     }
 
-    if file_drop_manager.get_dropped_file().is_some() {
+    if file_drop_manager.drop_is_undelivered() && file_drop_manager.get_dropped_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,
@@ -3650,6 +3654,28 @@ mod autotest_generated {
         );
         let events = run_with_file_drop(&fd);
         assert_eq!(count(&events, EventType::FileDrop), 1);
+    }
+
+    /// A drop handler that rebuilds the page makes the pass run again for the
+    /// new DOM; that re-run reads the same manager and must not see the drop
+    /// (or the drag move) a second time.
+    #[test]
+    fn a_re_run_of_the_pass_emits_no_second_drop_or_hover() {
+        let mut fd = FileDropManager::new();
+        fd.set_hovered_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 1);
+        fd.mark_events_delivered();
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 0);
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHoverCancel), 0);
+
+        fd.set_dropped_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        let first = run_with_file_drop(&fd);
+        assert_eq!(count(&first, EventType::FileDrop), 1);
+        assert_eq!(count(&first, EventType::FileHover), 0, "the drop ended the drag");
+        fd.mark_events_delivered();
+        let again = run_with_file_drop(&fd);
+        assert_eq!(count(&again, EventType::FileDrop), 0);
+        assert_eq!(count(&again, EventType::FileHoverCancel), 0);
     }
 
     #[test]

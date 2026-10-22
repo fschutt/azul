@@ -1225,6 +1225,7 @@ impl Runner {
         // does this at the same point, right after determination).
         {
             let lw = &mut self.layout_window;
+            lw.file_drop_manager.mark_events_delivered();
             lw.sensor_manager.clear_pending_event();
             lw.gamepad_manager.clear_pending_event();
             lw.geolocation_manager.clear_pending_event();

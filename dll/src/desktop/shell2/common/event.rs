@@ -11981,6 +11981,10 @@ pub trait PlatformWindow {
             {
                 w.mark_document_edit_notified();
             }
+            // A drag move, a drop and a cancelled drag are one event each: the
+            // re-runs of this pass (a callback rebuilt the DOM) must not emit
+            // them again. The dropped files stay readable for the callbacks.
+            w.file_drop_manager.mark_events_delivered();
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
             w.media_session_manager.clear_pending_requests();

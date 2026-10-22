@@ -1867,12 +1867,10 @@ impl HeadlessWindow {
                     if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                         events_need_redraw = true;
                     }
-                    // Post-pass cleanup, mirroring the OS backends: the
-                    // drop is a one-shot; hover state ends with it.
+                    // Post-pass cleanup, as the OS backends do it: the drop
+                    // is a one-shot (the drop itself ended the hover).
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.file_drop_manager.set_dropped_file(None);
-                        lw.file_drop_manager.set_hovered_file(None);
-                        lw.file_drop_manager.clear_hover_cancelled();
                     }
                 }
                 HeadlessEvent::FileHoverCancel => {
