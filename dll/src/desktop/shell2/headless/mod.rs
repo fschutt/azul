@@ -1293,6 +1293,27 @@ impl CpuBackend {
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
             }
+            // A view whose content scrolled moves the same way: its pixels, the
+            // strip that came into view, what is painted over it.
+            if let Some(old_dl) = self.previous_display_list.as_ref() {
+                for shift in cpurender::collect_virtual_view_shifts(
+                    old_dl,
+                    display_list,
+                    &self.previous_scroll_offsets,
+                    &scroll_offsets,
+                ) {
+                    let out = cpurender::execute_virtual_view_shift(
+                        &mut output,
+                        display_list,
+                        &vview_dls,
+                        &shift,
+                        dpi_factor,
+                        &scroll_offsets,
+                    );
+                    all_damage.extend(out.damage);
+                    present_extra.extend(out.present_extra);
+                }
+            }
 
             // #32 pool-order target (a native ARGB8888 slot the commit swizzle
             // converts in place): everything MOVED above came from a committed

@@ -2384,6 +2384,18 @@ pub fn scroll_fast_path_eligible_in(
         return true;
     }
 
+    backdrop_drags_invisibly(&backdrop, clip_bounds)
+}
+
+/// Whether what is painted BEHIND a moved region (`backdrop`: each item with
+/// the offset of the frames around it) drags invisibly when the region's
+/// pixels are moved inside `clip_bounds` - the second chance of a scroll
+/// move ([`scroll_fast_path_eligible_in`]) and of a view's move
+/// ([`execute_virtual_view_shift`]) whose content has gaps.
+fn backdrop_drags_invisibly(
+    backdrop: &[(&DisplayListItem, (f32, f32))],
+    clip_bounds: &LogicalRect,
+) -> bool {
     // (b) Content has gaps. The drag is only VISIBLE if a NON-UNIFORM backdrop
     // shows through. Scan items behind the frame for SIGNIFICANT backdrop fills
     // (≥10% of the clip) — borders, text, shadows, thin/small decorations smear
@@ -2397,7 +2409,7 @@ pub fn scroll_fast_path_eligible_in(
     let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
     let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
     let mut backdrop_color: Option<ColorU> = None;
-    for &(it, at) in &backdrop {
+    for &(it, at) in backdrop {
         if it.is_state_management() {
             continue;
         }
@@ -3118,6 +3130,246 @@ pub fn execute_scroll_shift(
     ScrollShiftOutcome {
         damage,
         present_extra,
+    }
+}
+
+/// A view (`DisplayListItem::VirtualView`) whose content scrolled between
+/// two frames and nothing else about it changed: the same child, box and
+/// clip, at the same place on screen, outside any reference frame - only its
+/// `content_offset` moved. Its pixels move like a scroll frame's
+/// ([`execute_virtual_view_shift`]) and the list diff leaves the item to
+/// this shift ([`view_only_scrolled`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewShift {
+    /// The view's item in the new list.
+    pub index: usize,
+    /// The view's clip on screen.
+    pub clip: LogicalRect,
+    /// The move as a scroll delta (the old content offset minus the new):
+    /// the content moved by its negative, like a scroll by `delta`.
+    pub delta: (f32, f32),
+    /// The new content offset as a scroll offset, for the shift's
+    /// drift-free rounding.
+    pub offset: (f32, f32),
+}
+
+/// Whether `new` is `old` with only its content scrolled: two views of one
+/// child, box and clip whose `content_offset` differs, painted at the same
+/// place (`same_place`) and in no reference frame. The rule the list diff and
+/// [`collect_virtual_view_shifts`] share, so a view the diff does not damage
+/// is one the shift moves (or damages).
+#[must_use]
+pub fn view_only_scrolled(
+    old: &DisplayListItem,
+    new: &DisplayListItem,
+    same_place: bool,
+    in_reference_frame: bool,
+) -> bool {
+    match (old, new) {
+        (
+            DisplayListItem::VirtualView {
+                child_dom_id: oc,
+                bounds: ob,
+                clip_rect: oclip,
+                content_offset: ooff,
+            },
+            DisplayListItem::VirtualView {
+                child_dom_id: nc,
+                bounds: nb,
+                clip_rect: nclip,
+                content_offset: noff,
+            },
+        ) => {
+            same_place
+                && !in_reference_frame
+                && oc == nc
+                && same_rect(ob.inner(), nb.inner())
+                && same_rect(oclip.inner(), nclip.inner())
+                && (ooff.x != noff.x || ooff.y != noff.y)
+        }
+        _ => false,
+    }
+}
+
+/// Every view of two paired lists (same length, item by item) whose content
+/// scrolled and nothing else ([`view_only_scrolled`]), with its clip on
+/// screen. Lists of different lengths pair nothing: their changed views are
+/// in the structural diff's window, which damages them.
+#[must_use]
+pub fn collect_virtual_view_shifts(
+    old: &DisplayList,
+    new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+) -> Vec<ViewShift> {
+    let mut out = Vec::new();
+    if old.items.len() != new.items.len() {
+        return out;
+    }
+    let mut old_stack = ScrollStack::new(old_offsets);
+    let mut new_stack = ScrollStack::new(new_offsets);
+    let mut frames = 0usize;
+    for (index, (o, n)) in old.items.iter().zip(&new.items).enumerate() {
+        let (old_at, new_at) = (old_stack.scrolled(), new_stack.scrolled());
+        let visible = new_stack.visible();
+        old_stack.step(o);
+        new_stack.step(n);
+        match n {
+            DisplayListItem::PushReferenceFrame { .. } => frames += 1,
+            DisplayListItem::PopReferenceFrame => frames = frames.saturating_sub(1),
+            _ => {}
+        }
+        let same_place = old_at == new_at;
+        if !view_only_scrolled(o, n, same_place, frames > 0) {
+            continue;
+        }
+        let (
+            DisplayListItem::VirtualView { content_offset: ooff, .. },
+            DisplayListItem::VirtualView {
+                content_offset: noff,
+                clip_rect,
+                ..
+            },
+        ) = (o, n)
+        else {
+            continue;
+        };
+        let own = moved_by(*clip_rect.inner(), new_at);
+        let clip = visible.map_or(own, |outer| intersect_logical_rects(own, outer));
+        if clip.size.width <= 0.0 || clip.size.height <= 0.0 {
+            continue;
+        }
+        out.push(ViewShift {
+            index,
+            clip,
+            delta: (ooff.x - noff.x, ooff.y - noff.y),
+            offset: (-noff.x, -noff.y),
+        });
+    }
+    out
+}
+
+/// Present a view's scroll ([`ViewShift`]) in `pixmap`, which holds the
+/// frame before: move the pixels still visible and damage the strip that
+/// came into view, plus whatever is painted over the view (the move dragged
+/// it). Without a move - a delta of a fraction of a device pixel (the moved
+/// content would land off its pixel grid), or a view whose content has gaps
+/// over a backdrop that would show the drag - the view's whole clip is
+/// damaged instead.
+///
+/// `views` are the child lists by `child_dom_id`
+/// (`CpuRenderState::virtual_view_display_lists`).
+#[must_use]
+pub fn execute_virtual_view_shift(
+    pixmap: &mut AzulPixmap,
+    display_list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    shift: &ViewShift,
+    dpi_factor: f32,
+    scroll_offsets: &ScrollOffsetMap,
+) -> ScrollShiftOutcome {
+    let whole = ScrollShiftOutcome {
+        damage: vec![shift.clip],
+        present_extra: Vec::new(),
+    };
+    let device = |v: f32| v * dpi_factor;
+    let integral = |v: f32| (device(v) - device(v).round()).abs() < 1e-3;
+    if !integral(shift.delta.0) || !integral(shift.delta.1) || !integral(shift.offset.0)
+        || !integral(shift.offset.1)
+    {
+        return whole;
+    }
+    let items = &display_list.items;
+    let Some(DisplayListItem::VirtualView {
+        child_dom_id,
+        bounds,
+        ..
+    }) = items.get(shift.index)
+    else {
+        return whole;
+    };
+    // Where the view's item is painted from: the frames around it.
+    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
+    for it in &items[..shift.index] {
+        backdrop.push((it, stack.scrolled()));
+        stack.step(it);
+    }
+    let around = stack.scrolled();
+    // (a) The content covers the clip opaquely at both offsets: nothing
+    // behind it can show. A child item is painted at its own rect + the
+    // view's origin - the content's scroll offset (`offset`).
+    let covered = views.get(child_dom_id).is_some_and(|child| {
+        let covered_at = |scroll: (f32, f32)| {
+            let fills: Vec<LogicalRect> = child
+                .items
+                .iter()
+                .filter_map(opaque_fill_rect)
+                .map(|r| {
+                    moved_by(
+                        r,
+                        (
+                            around.0 - bounds.inner().origin.x + scroll.0,
+                            around.1 - bounds.inner().origin.y + scroll.1,
+                        ),
+                    )
+                })
+                .collect();
+            rect_covered_by(&shift.clip, &fills)
+        };
+        let prev = (
+            shift.offset.0 - shift.delta.0,
+            shift.offset.1 - shift.delta.1,
+        );
+        covered_at(shift.offset) && covered_at(prev)
+    });
+    if !covered && !backdrop_drags_invisibly(&backdrop, &shift.clip) {
+        return whole;
+    }
+    let strips = scroll_shift_region(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
+    if strips.is_empty() {
+        // The delta rounded to no device pixel: nothing moved.
+        return ScrollShiftOutcome {
+            damage: Vec::new(),
+            present_extra: Vec::new(),
+        };
+    }
+    let mut damage = strips;
+    // Painted over the view after its item: dragged by the move. Repainted
+    // where it is and where the move left it.
+    let (cx1, cy1) = (
+        shift.clip.origin.x + shift.clip.size.width,
+        shift.clip.origin.y + shift.clip.size.height,
+    );
+    for it in &items[shift.index + 1..] {
+        let at = stack.scrolled();
+        stack.step(it);
+        if it.is_state_management() {
+            continue;
+        }
+        let Some(b) = it.visual_bounds().or_else(|| it.bounds()) else {
+            continue;
+        };
+        let b = moved_by(b, at);
+        let ix = b.origin.x.max(shift.clip.origin.x);
+        let iy = b.origin.y.max(shift.clip.origin.y);
+        let ix1 = (b.origin.x + b.size.width).min(cx1);
+        let iy1 = (b.origin.y + b.size.height).min(cy1);
+        if ix1 > ix && iy1 > iy {
+            let over = LogicalRect::new(
+                LogicalPosition::new(ix, iy),
+                LogicalSize::new(ix1 - ix, iy1 - iy),
+            );
+            damage.push(over);
+            damage.push(intersect_logical_rects(
+                moved_by(over, shift.delta),
+                shift.clip,
+            ));
+        }
+    }
+    ScrollShiftOutcome {
+        damage,
+        present_extra: vec![shift.clip],
     }
 }
 
@@ -4322,6 +4574,19 @@ fn compute_display_list_damage_impl(
         // change within the same bounds must still produce a damage rect.
         // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
+            // A view whose content only scrolled is moved (or damaged) by
+            // its shift (`collect_virtual_view_shifts`), not repainted
+            // whole here: the folder view of a file browser damaged its
+            // whole box on every wheel step.
+            let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+            if view_only_scrolled(
+                old_item,
+                new_item,
+                acc_old == acc_new,
+                !frames_new.frames.is_empty(),
+            ) {
+                continue;
+            }
             let refine = dl_diff_refinements_enabled();
             // Items that never RASTERIZE must never produce PAINT damage.
             // The root's HitTestArea resizes with the window (640→680 =
