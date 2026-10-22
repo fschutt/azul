@@ -234,6 +234,12 @@ fn token_of_tier(tier: &str, nonce: &str) -> PeriodToken {
     }
 }
 
+/// A node's signed statement that `d_1`'s bucket holds `held` bytes (HeadBucket's
+/// `x-azlin-usage-proof`; the kit passes it on unread).
+fn proof_of(held: u64) -> String {
+    format!("3.{NOW}.{held}.c2lnbmF0dXJl")
+}
+
 /// The token server of drive `d_1` (100 GB, paid until `NOW + 20 days`) answering each tier
 /// change with `answer(body)`.
 fn changing_server(answer: impl Fn(&serde_json::Value) -> HttpReply + Send + Sync + 'static) -> Arc<Fake> {
@@ -271,7 +277,7 @@ fn a_tier_bought_for_a_drive_is_taken_when_the_token_server_allows_it() {
     });
     let transport = Shared(waits);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    match change_due(&server, &shared, &tokens, Some(5), NOW) {
+    match change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW) {
         TierChanged::Waits { from } => assert_eq!(rfc3339(from), "2026-10-28T00:00:00Z"),
         other => panic!("not waiting: {other:?}"),
     }
@@ -279,12 +285,14 @@ fn a_tier_bought_for_a_drive_is_taken_when_the_token_server_allows_it() {
 
     // The data does not fit: said with how much is stored, the token kept.
     let full = changing_server(|body| {
-        assert_eq!(body["stored_bytes"], 150);
+        // the node's signed count goes as it came, the app names no figure of its own
+        assert_eq!(body["usage_proof"], proof_of(150));
+        assert!(body.get("stored_bytes").is_none(), "{body}");
         json(409, r#"{"error": "does_not_fit", "stored": 150, "quota": 100}"#)
     });
     let transport = Shared(full);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    match change_due(&server, &shared, &tokens, Some(150), NOW) {
+    match change_due(&server, &shared, &tokens, || Some(proof_of(150)), NOW) {
         TierChanged::DoesNotFit { stored, quota } => assert_eq!((stored, quota), (150, 100)),
         other => panic!("not refused: {other:?}"),
     }
@@ -298,7 +306,7 @@ fn a_tier_bought_for_a_drive_is_taken_when_the_token_server_allows_it() {
     });
     let transport = Shared(taken.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    match change_due(&server, &shared, &tokens, Some(5), NOW) {
+    match change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW) {
         TierChanged::Changed {
             tier,
             period_until,
@@ -316,7 +324,13 @@ fn a_tier_bought_for_a_drive_is_taken_when_the_token_server_allows_it() {
     assert!(tokens.state().unwrap().grant("ck_up").is_some_and(|g| g.changed));
     // Done once: the next look changes nothing.
     let calls = taken.calls().len();
-    assert!(matches!(change_due(&server, &shared, &tokens, Some(5), NOW), TierChanged::Nothing));
+    let asked = std::cell::Cell::new(false);
+    let ask = || {
+        asked.set(true);
+        Some(proof_of(5))
+    };
+    assert!(matches!(change_due(&server, &shared, &tokens, ask, NOW), TierChanged::Nothing));
+    assert!(!asked.get(), "no node asked for a change already made");
     assert_eq!(taken.calls().len(), calls);
 }
 

@@ -138,6 +138,27 @@ fn a_head_bucket_reads_the_nodes_count_of_stored_bytes_and_its_quota() {
     assert!(local_drive(&fake).space().is_err());
 }
 
+/// An Azlin node signs what it counts of the bucket (`x-azlin-usage-proof`): the drive hands the
+/// statement on as it came, for the token server to judge a move to a smaller tier by.
+#[test]
+fn a_head_bucket_hands_on_the_nodes_signed_count_as_it_came() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[
+            ("x-azlin-used-bytes", "1600"),
+            ("X-Azlin-Usage-Proof", "3.1791255600.1600.c2ln"),
+        ],
+        "",
+    );
+    let proof = local_drive(&fake).usage_proof().unwrap();
+    assert_eq!(proof.as_deref(), Some("3.1791255600.1600.c2ln"));
+    assert_eq!(fake.last().method, Method::Head);
+    // Another S3, or an older node: no statement.
+    fake.answer(200, &[("x-azlin-used-bytes", "1600")], "");
+    assert_eq!(local_drive(&fake).usage_proof().unwrap(), None);
+}
+
 #[test]
 fn a_path_style_listing_asks_list_objects_v2_under_the_bucket_path() {
     let fake = Fake::default();
