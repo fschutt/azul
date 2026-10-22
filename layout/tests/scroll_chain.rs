@@ -548,10 +548,7 @@ fn a_fixed_box_is_reported_to_assistive_technology_where_it_is_painted() {
     lw.update_a11y_tree();
     // A11y ids are `(dom << 32) | (node + 1)`.
     let id = accesskit::NodeId(FIXED_BOX.index() as u64 + 1);
-    let bounds = lw
-        .a11y_manager
-        .published_node(id)
-        .and_then(|node| node.bounds())
+    let bounds = azul_layout::managers::a11y::window_bounds_of(&lw.a11y_manager.full_tree(), id)
         .expect("the fixed box has bounds");
     assert!(
         bounds.y0.abs() < 0.5,

@@ -408,7 +408,7 @@ fn a_virtual_views_content_is_read_where_the_view_sits_and_drawn_where_it_shows(
             .nodes
             .iter()
             .find(|(_, n)| n.role() == Role::Paragraph && n.label() == Some(label))
-            .and_then(|(_, n)| n.bounds())
+            .and_then(|(id, _)| azul_layout::managers::a11y::window_bounds_of(&update, *id))
             .map(|r| (r.y0, r.y1))
     };
     let (_, before_y1) = y0_of("before").expect("the paragraph before the view has bounds");

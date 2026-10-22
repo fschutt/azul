@@ -163,13 +163,11 @@ fn a11y_id(node: NodeId) -> A11yNodeId {
     A11yNodeId(node.index() as u64 + 1)
 }
 
-fn bounds_x0(update: &TreeUpdate, id: A11yNodeId) -> Option<f64> {
-    update
-        .nodes
-        .iter()
-        .find(|(i, _)| *i == id)
-        .and_then(|(_, n)| n.bounds())
-        .map(|r| r.x0)
+/// Where a screen reader draws node `id` now: its window-space left edge in
+/// the tree as published so far (a node's own bounds are in its parent's
+/// space).
+fn bounds_x0(lw: &LayoutWindow, id: A11yNodeId) -> Option<f64> {
+    azul_layout::managers::a11y::window_bounds_of(&lw.a11y_manager.full_tree(), id).map(|r| r.x0)
 }
 
 /// The tree a FRESH full build makes of the window as it is now - no retained
@@ -280,7 +278,7 @@ fn a_frame_that_moves_one_box_sends_only_that_box() {
         .expect("the first layouts publish the tree");
     let knob = with_class(&lw, "knob");
     let knob_id = a11y_id(knob);
-    let x0_before = bounds_x0(&before, knob_id).expect("harness: the knob has bounds");
+    let x0_before = bounds_x0(&lw, knob_id).expect("harness: the knob has bounds");
 
     restyle(
         &mut lw,
@@ -303,7 +301,7 @@ fn a_frame_that_moves_one_box_sends_only_that_box() {
         vec![knob_id],
         "a frame that moved only the knob must send only the knob"
     );
-    let x0_after = bounds_x0(&update, knob_id).expect("the knob still has bounds");
+    let x0_after = bounds_x0(&lw, knob_id).expect("the knob still has bounds");
     assert!(
         (x0_after - x0_before - 8.0).abs() < 0.5,
         "the knob's bounds move with it: {x0_before} -> {x0_after}"

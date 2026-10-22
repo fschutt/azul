@@ -11519,7 +11519,9 @@ fn accessibility_tree_json(lw: &crate::window::LayoutWindow) -> serde_json::Valu
                 "focusable": n.supports_action(Action::Focus),
                 "clickable": n.supports_action(Action::Click),
                 "clips_children": n.clips_children(),
-                "bounds": n.bounds().map(|r| [r.x0, r.y0, r.x1, r.y1]),
+                // Window space: a node's own bounds are in its parent's space.
+                "bounds": crate::managers::a11y::window_bounds_of(&update, *id)
+                    .map(|r| [r.x0, r.y0, r.x1, r.y1]),
                 "children": n.children().iter().map(|c| c.0).collect::<Vec<_>>(),
                 "parent": parents.get(&id.0),
             })

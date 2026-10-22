@@ -174,13 +174,11 @@ impl Harness {
     }
 }
 
-fn bounds_y1(update: &TreeUpdate, id: A11yNodeId) -> Option<f64> {
-    update
-        .nodes
-        .iter()
-        .find(|(i, _)| *i == id)
-        .and_then(|(_, n)| n.bounds())
-        .map(|r| r.y1)
+/// Where a screen reader draws node `id` now: its window-space bottom edge
+/// in the tree as published so far (a node's own bounds are in its parent's
+/// space).
+fn bounds_y1(lw: &LayoutWindow, id: A11yNodeId) -> Option<f64> {
+    azul_layout::managers::a11y::window_bounds_of(&lw.a11y_manager.full_tree(), id).map(|r| r.y1)
 }
 
 const TEN_LINES: &str = "line one\nline two\nline three\nline four\nline five\nline six\nline \
@@ -302,9 +300,9 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
     let mut h = Harness::new_with_text_area(400.0, 300.0, TEN_LINES);
     h.register_scroll_nodes();
     let mut tree = None;
-    let before = h.deliver(&mut tree).expect("full tree");
+    h.deliver(&mut tree).expect("full tree");
     let label = a11y_id(0, LABEL_P as u64);
-    let y1_before = bounds_y1(&before, label).expect("the label has bounds");
+    let y1_before = bounds_y1(&h.lw, label).expect("the label has bounds");
 
     h.lw.scroll_manager.set_scroll_position(
         DomId::ROOT_ID,
@@ -324,7 +322,7 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
         .deliver(&mut tree)
         .expect("the scroll rebuild parks the nodes the scroll moved");
 
-    let y1_after = bounds_y1(&after, label).expect("the label still has bounds");
+    let y1_after = bounds_y1(&h.lw, label).expect("the label still has bounds");
     assert!(
         (y1_before - y1_after - 40.0).abs() < 0.5,
         "the label must move up by the scroll offset: before y1={y1_before}, after y1={y1_after}"
