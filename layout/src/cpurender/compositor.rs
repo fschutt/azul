@@ -3227,14 +3227,17 @@ pub fn collect_virtual_view_shifts(
             DisplayListItem::VirtualView { content_offset: ooff, .. },
             DisplayListItem::VirtualView {
                 content_offset: noff,
-                clip_rect,
+                bounds,
                 ..
             },
         ) = (o, n)
         else {
             continue;
         };
-        let own = moved_by(*clip_rect.inner(), new_at);
+        // The raster clips a view's content to its box (`bounds`), not to
+        // its `clip_rect`: moving pixels in a wider rect would drag what is
+        // around the view.
+        let own = moved_by(*bounds.inner(), new_at);
         let clip = visible.map_or(own, |outer| intersect_logical_rects(own, outer));
         if clip.size.width <= 0.0 || clip.size.height <= 0.0 {
             continue;

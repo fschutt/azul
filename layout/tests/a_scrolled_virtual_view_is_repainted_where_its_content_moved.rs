@@ -180,3 +180,40 @@ fn a_scrolled_view_moves_its_pixels_and_repaints_only_the_strip() {
         previous = current;
     }
 }
+
+/// A view whose item clips wider than its box (`clip_rect` the window's,
+/// as a view inside a page carries it) moves only the pixels of its box: the
+/// raster clips the view's content to `bounds`, and what sits beside the box
+/// stays where it is.
+#[test]
+fn a_scrolled_view_moves_only_the_pixels_of_its_box() {
+    let children: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let with_neighbour = |x: f32| DisplayList {
+        items: vec![
+            fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128)),
+            fill(rect(0.0, 20.0, 18.0, 60.0), rgb(20, 20, 120)),
+            fill(rect(142.0, 20.0, 18.0, 60.0), rgb(120, 20, 20)),
+            DisplayListItem::VirtualView {
+                child_dom_id: CHILD,
+                bounds: WindowLogicalRect(view_box()),
+                clip_rect: WindowLogicalRect(rect(0.0, 0.0, 200.0, 200.0)),
+                content_offset: LogicalPosition::new(-x, 0.0),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut raster = Raster::new();
+    let mut previous = with_neighbour(0.0);
+    let mut frame = raster.full_state(&previous, &state(&children));
+    for x in [8.0f32, 40.0, 16.0] {
+        let current = with_neighbour(x);
+        let damage = present(&mut raster, &previous, &current, &children, &mut frame);
+        let expected = raster.full_state(&current, &state(&children));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "the view scrolled to x={x}: the boxes beside it must stay put (damage {damage:?})"
+        );
+        previous = current;
+    }
+}
