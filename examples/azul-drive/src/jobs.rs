@@ -24,7 +24,8 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled},
-    look_at_drive, ActivationCode, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle,
+    change_due, look_at_drive, reminder_due, ActivationCode, Checkout, CheckoutFor, CheckoutVia,
+    ClaimKey, CloudError, DriveBundle, TierChanged,
     DriveTokens, GrantChanged, OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
@@ -143,6 +144,13 @@ pub(crate) struct Started {
     pub kept: PendingCheckout,
     pub created: Option<Created>,
     pub cash: Option<CashSlip>,
+}
+
+/// A Renew checkout's order and the drive's vaults, where its price lock is read.
+pub(crate) struct RenewJob {
+    pub order: crate::renewals::RenewOrder,
+    pub store: PeriodTokenStore,
+    pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
 }
 
 /// A folder's size, counted for the Properties dialog.
@@ -318,6 +326,8 @@ pub(crate) enum Job {
         name: String,
         keyring: SharedKeyring,
         via: Option<Box<PayVia>>,
+        /// Renew: the drive the months are for (its price lock read from its vaults).
+        renew: Option<Box<RenewJob>>,
     },
     /// Buy storage's payment options (`GET /v1/checkout/options`) for `tier`, `months`, the
     /// payer's `country` and `currency`; `asked` the dialog's key of that order (its answer is
@@ -383,6 +393,20 @@ pub(crate) enum Job {
         grant: Option<PeriodTokens>,
         token_url: String,
     },
+    /// Ends the drive `drive_id`'s monthly plan `checkout_id` with the issue key its vaults keep.
+    CancelPlan {
+        token_url: String,
+        store: PeriodTokenStore,
+        azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+        drive_id: String,
+        checkout_id: String,
+    },
+    /// A notice saved as a document in the drive (a price change: the durable medium).
+    SaveNotice {
+        azlin: Arc<azcloud_kit::AzlinDrive>,
+        key: String,
+        text: String,
+    },
     /// A look at the Azlin drives `drives` (each one's id and token server): their status (a
     /// pending recovery-key lockdown) and, when their periods near their ends, their next month
     /// from a period token kept in `store` - each under its drive's keyring lock, with its
@@ -393,6 +417,8 @@ pub(crate) enum Job {
         /// Each drive's id, its token server and, when it is open, the drive itself (its
         /// period tokens are kept in its vault then).
         drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)>,
+        /// Each drive's stored bytes as last counted: a move to a smaller tier needs them.
+        stored: HashMap<String, u64>,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -613,6 +639,8 @@ pub(crate) enum Outcome {
         serial: u64,
         country: String,
         result: Result<Tiers, TiersFailed>,
+        /// The tiers closed for now.
+        closed: Vec<String>,
     },
     /// A development server's test drive (or why there is none).
     Bought {
@@ -665,7 +693,22 @@ pub(crate) enum Outcome {
         from_claims: bool,
     },
     /// What each drive's look found (drive id, its status and redemption).
-    PeriodsRedeemed { results: Vec<(String, azcloud_kit::Look)> },
+    PeriodsRedeemed {
+        results: Vec<(String, azcloud_kit::Look)>,
+        /// Each drive's next months as the look saw them.
+        renewals: Vec<(String, crate::renewals::RenewalSeen)>,
+        /// The tier list of the looks' token server.
+        news: Option<azcloud_kit::TierNews>,
+    },
+    /// A renewal's (or a tier change's) months were claimed for the drive `drive_id`.
+    Renewed {
+        serial: Option<u64>,
+        checkout_id: String,
+        drive_id: String,
+        months: u32,
+    },
+    PlanCancelled { drive_id: String, result: Result<(), String> },
+    NoticeSaved { key: String, result: Result<(), DriveError> },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
@@ -2245,6 +2288,7 @@ const CLAIM_WAIT_SECS: u64 = 3600;
 /// its tier, the drive's `name`, its token server) goes on the keyring's list of unfinished
 /// checkouts BEFORE its payment page opens - a drive paid after this window stopped waiting, or
 /// after AzDrive closed, is claimed with it.
+#[allow(clippy::too_many_arguments)]
 fn start_checkout(
     token_url: &str,
     tier: &str,
@@ -2253,25 +2297,78 @@ fn start_checkout(
     name: &str,
     keyring: &SharedKeyring,
     via: Option<&PayVia>,
+    renew: Option<&RenewJob>,
 ) -> Result<Started, String> {
     let transport = AzulTransport::new(USER_AGENT);
-    let claim = ClaimKey::generate().map_err(|e| e.to_string())?;
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    // A renewal names the drive's price lock; without one (or with one the token server no
+    // longer takes) it buys period tokens only, at today's price - the price the dialog shows.
+    let lock = renew
+        .filter(|r| !r.order.change_tier)
+        .and_then(|r| {
+            let tokens = drive_tokens(&r.store, &r.order.drive_id, r.azlin.as_ref()).ok()?;
+            tokens.state().ok()?.renewal_lock(&r.order.tier).cloned()
+        });
+    let started = checkout_for(&server, tier, months, method, via, order_of(renew, lock.as_ref()));
+    let lock_refused = |e: &TokenError| {
+        matches!(e, TokenError::Refused { code, .. }
+            if ["lock_used", "lock_key_wrong", "lock_tier", "no_lock", "not_paid"].contains(&code.as_str()))
+    };
+    let (claim, checkout, answer, renews) = match started {
+        Err(e) if lock.is_some() && lock_refused(&e) => {
+            let (claim, checkout, answer) =
+                checkout_for(&server, tier, months, method, via, order_of(renew, None))
+                    .map_err(|e| e.to_string())?;
+            (claim, checkout, answer, None)
+        }
+        Err(e) => return Err(e.to_string()),
+        Ok((claim, checkout, answer)) => (claim, checkout, answer, lock.map(|l| l.checkout_id)),
+    };
+    let mut kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    kept.ladder_version = checkout.ladder_version;
+    if let Some(r) = renew {
+        kept.for_drive = r.order.drive_id.clone();
+        kept.change_tier = r.order.change_tier;
+        kept.renews = renews.unwrap_or_default();
+    }
+    finish_start(&server, keyring, tier, months, via, checkout, answer, kept)
+}
+
+/// What a checkout buys: a new drive, or for a Renew order the drive's next months under
+/// `lock`, else period tokens only (an upgrade's sold only while the capacity has room).
+fn order_of<'a>(
+    renew: Option<&RenewJob>,
+    lock: Option<&'a azcloud_kit::RenewalLock>,
+) -> CheckoutFor<'a> {
+    match (renew, lock) {
+        (None, _) => CheckoutFor::NewDrive,
+        (Some(r), Some(lock)) if !r.order.change_tier => CheckoutFor::Renewal(lock),
+        (Some(r), _) => CheckoutFor::PeriodTokens {
+            upgrade: r.order.upgrade,
+        },
+    }
+}
+
+/// The checkout of `tier` for `months` through `via` (else the v1 checkout by `method`) for
+/// `what`, its sign-up sealed to a new claim key.
+fn checkout_for(
+    server: &TokenServer<'_>,
+    tier: &str,
+    months: u32,
+    method: &str,
+    via: Option<&PayVia>,
+    what: CheckoutFor<'_>,
+) -> Result<(ClaimKey, Checkout, Option<serde_json::Value>), TokenError> {
+    let claim = ClaimKey::generate().map_err(|e| TokenError::Config(e.to_string()))?;
     let (checkout, answer) = match via {
         // Cash by post: the method alone (the token server takes it with or without payment
         // options).
         Some(via) if via.surface == SurfaceKind::Paper => {
-            let (checkout, answer) = server
-                .checkout_cash(tier, months, &via.country, via.consent, &claim)
-                .map_err(|e| e.to_string())?;
+            let (checkout, answer) =
+                server.checkout_cash(tier, months, &via.country, via.consent, &claim, what)?;
             (checkout, Some(answer))
         }
-        None => (
-            server
-                .checkout(tier, months, method, &claim)
-                .map_err(|e| e.to_string())?,
-            None,
-        ),
+        None => (server.checkout(tier, months, method, &claim, what)?, None),
         Some(via) => {
             // Only the details the method's provider wants from the app, only for this request.
             let payer: Vec<(&str, &str)> = via
@@ -2293,13 +2390,26 @@ fn start_checkout(
                 withdrawal_consent: via.consent,
                 payer: &payer,
             };
-            let (checkout, answer) = server
-                .checkout_via(tier, months, &through, &claim)
-                .map_err(|e| e.to_string())?;
+            let (checkout, answer) = server.checkout_via(tier, months, &through, &claim, what)?;
             (checkout, Some(answer))
         }
     };
-    let mut kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    Ok((claim, checkout, answer))
+}
+
+/// A checkout made: onto the keyring's list as `kept` before anything shows it (cash by post
+/// with its slip), and its surface read.
+#[allow(clippy::too_many_arguments)]
+fn finish_start(
+    server: &TokenServer<'_>,
+    keyring: &SharedKeyring,
+    tier: &str,
+    months: u32,
+    via: Option<&PayVia>,
+    checkout: Checkout,
+    answer: Option<serde_json::Value>,
+    mut kept: PendingCheckout,
+) -> Result<Started, String> {
     // Cash by post: the slip, checked, waits in the list with its checkout (it is printed
     // again from there); one that is not this order's is never printed.
     let cash = match (via, &answer) {
@@ -2321,7 +2431,7 @@ fn start_checkout(
             Err(refused) => {
                 // Nothing of it is shown: nobody may pay it. It leaves the list only when the
                 // token server ended it.
-                let _ = pending::abandon(&server, keyring, &checkout.checkout_id);
+                let _ = pending::abandon(server, keyring, &checkout.checkout_id);
                 return Err(refused.to_string());
             }
         },
@@ -2450,6 +2560,14 @@ fn await_payment(
                     serial: Some(serial),
                     checkout: checkout.clone(),
                     claimed,
+                }
+            }
+            Polled::Final(Final::Renewed { drive_id, months }) => {
+                return Outcome::Renewed {
+                    serial: Some(serial),
+                    checkout_id: checkout.checkout_id.clone(),
+                    drive_id,
+                    months,
                 }
             }
             Polled::Final(end) => {
@@ -2593,6 +2711,16 @@ fn claim_pending(
                         },
                     );
                 }
+                // Its months wait with it for the drive: the next round finishes it.
+                Polled::Final(Final::Renewed { drive_id, months }) => send(
+                    sender,
+                    Outcome::Renewed {
+                        serial: None,
+                        checkout_id: checkout.checkout_id.clone(),
+                        drive_id,
+                        months,
+                    },
+                ),
                 Polled::Final(end) => send(
                     sender,
                     Outcome::CheckoutDropped {
@@ -2649,21 +2777,118 @@ fn redeem_periods(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
     drives: &[(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)],
+    stored: &HashMap<String, u64>,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let now = crate::actions::now_secs();
-    let results = drives
+    let mut results = Vec::new();
+    let mut renewals = Vec::new();
+    let mut news = None;
+    for (drive_id, token_url, azlin) in drives {
+        let Ok(server) = TokenServer::new(token_url, &transport) else {
+            continue;
+        };
+        let Ok(tokens) = drive_tokens(store, drive_id, azlin.as_ref()) else {
+            continue;
+        };
+        let look = look_at_drive(&server, keyring, store, &tokens, now);
+        renewals.push((
+            drive_id.clone(),
+            renewal_seen(&server, keyring, store, &tokens, &look, azlin.as_ref(), stored.get(drive_id).copied(), now),
+        ));
+        // The tier list once a look (its news: a full drive's offer, the price notices).
+        if news.is_none() {
+            news = server.tier_news().ok();
+        }
+        results.push((drive_id.clone(), look));
+    }
+    Outcome::PeriodsRedeemed {
+        results,
+        renewals,
+        news,
+    }
+}
+
+/// What a look at `tokens`' drive saw of its next months: a change of tier bought for it
+/// (taken when the token server allows: its credentials follow at once), the reminder due
+/// (said once as a notification), a running monthly plan, its price lock.
+#[allow(clippy::too_many_arguments)]
+fn renewal_seen(
+    server: &TokenServer<'_>,
+    keyring: &SharedKeyring,
+    store: &PeriodTokenStore,
+    tokens: &DriveTokens,
+    look: &azcloud_kit::Look,
+    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    stored: Option<u64>,
+    now: u64,
+) -> crate::renewals::RenewalSeen {
+    use crate::renewals::{ChangeSeen, RenewalSeen};
+    let change = match change_due(server, keyring, tokens, stored, now) {
+        TierChanged::Changed {
+            tier,
+            credited_days,
+            grant,
+            ..
+        } => {
+            if let Some(azlin) = azlin {
+                azlin.apply(grant);
+            }
+            Some(ChangeSeen::Changed { tier, credited_days })
+        }
+        TierChanged::Waits { from } => Some(ChangeSeen::Waits { from }),
+        TierChanged::DoesNotFit { stored, quota } => Some(ChangeSeen::DoesNotFit { stored, quota }),
+        TierChanged::Kept(why) => {
+            eprintln!("[azdrive] the change of tier of {} waits: {why}", tokens.drive_id());
+            None
+        }
+        TierChanged::Nothing | TierChanged::Banned => None,
+    };
+    let kept = tokens.state().unwrap_or_default();
+    let status = look.status.as_ref();
+    let reminder = status.and_then(|s| reminder_due(s, &kept, now));
+    let notify = reminder
+        .as_ref()
+        .is_some_and(|r| store.remind_once(tokens.drive_id(), r).unwrap_or(false));
+    let tier = status.and_then(|s| s.tier.clone());
+    let plan = kept
+        .grants
         .iter()
-        .filter_map(|(drive_id, token_url, azlin)| {
-            let server = TokenServer::new(token_url, &transport).ok()?;
-            let tokens = drive_tokens(store, drive_id, azlin.as_ref()).ok()?;
-            Some((
-                drive_id.clone(),
-                look_at_drive(&server, keyring, store, &tokens, now),
-            ))
-        })
-        .collect();
-    Outcome::PeriodsRedeemed { results }
+        .find(|g| g.recurring && g.is_open())
+        .map(|g| g.checkout_id.clone());
+    let lock = tier
+        .as_deref()
+        .and_then(|t| kept.renewal_lock(t))
+        .map(|l| (l.tier.clone(), l.ladder_version));
+    RenewalSeen {
+        quota_bytes: status.and_then(|s| s.quota_bytes),
+        tier,
+        reminder,
+        notify,
+        change,
+        plan,
+        lock,
+    }
+}
+
+/// Ends the monthly plan `checkout_id` of `drive_id` with the issue key its vaults keep.
+fn cancel_plan(
+    token_url: &str,
+    store: &PeriodTokenStore,
+    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    drive_id: &str,
+    checkout_id: &str,
+) -> Result<(), String> {
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let tokens = drive_tokens(store, drive_id, azlin)?;
+    let state = tokens.state().map_err(|e| e.to_string())?;
+    let grant = state
+        .grant(checkout_id)
+        .ok_or_else(|| format!("the drive keeps no plan {checkout_id}"))?;
+    server
+        .cancel_plan(checkout_id, &grant.issue_key)
+        .map_err(|e| e.to_string())
 }
 
 /// The claimed `checkout`'s drive `drive_id` is in the drives file (AZDRIVE-INTEGRATION §4):
@@ -2695,6 +2920,7 @@ fn finish_checkout(
         drive_id: drive_id.to_string(),
         months: grant.months,
         issue_key: grant.issue_key.clone(),
+        recurring: grant.recurring,
     };
     let transport = AzulTransport::new(USER_AGENT);
     let finished = match (TokenServer::new(token_url, &transport), drive_tokens(store, drive_id, azlin)) {
@@ -2955,16 +3181,18 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             country,
         } => {
             let transport = AzulTransport::new(USER_AGENT);
-            let result = TokenServer::new(&token_url, &transport)
-                .and_then(|server| server.tiers_in(&country))
+            let news = TokenServer::new(&token_url, &transport)
+                .and_then(|server| server.tier_news_in(&country))
                 .map_err(|e| match buyer_refused(&e) {
                     Some(said) => TiersFailed::Refused(said),
                     None => TiersFailed::Failed(e.to_string()),
                 });
+            let closed = news.as_ref().map(|n| n.closed.clone()).unwrap_or_default();
             Outcome::Tiers {
                 serial,
                 country,
-                result,
+                result: news.map(|n| n.tiers),
+                closed,
             }
         }
         Job::CreateTestDrive {
@@ -3009,6 +3237,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             name,
             keyring,
             via,
+            renew,
         } => Outcome::CheckoutStarted {
             serial,
             result: start_checkout(
@@ -3019,7 +3248,22 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &name,
                 &keyring,
                 via.as_deref(),
+                renew.as_deref(),
             ),
+        },
+        Job::CancelPlan {
+            token_url,
+            store,
+            azlin,
+            drive_id,
+            checkout_id,
+        } => Outcome::PlanCancelled {
+            result: cancel_plan(&token_url, &store, azlin.as_ref(), &drive_id, &checkout_id),
+            drive_id,
+        },
+        Job::SaveNotice { azlin, key, text } => Outcome::NoticeSaved {
+            result: azlin.put(&key, text.as_bytes()),
+            key,
         },
         Job::Options {
             serial,
@@ -3108,7 +3352,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             store,
             drives,
-        } => redeem_periods(&keyring, &store, &drives),
+            stored,
+        } => redeem_periods(&keyring, &store, &drives, &stored),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },

@@ -218,8 +218,13 @@ pub(crate) fn usage_text(usage: &Usage) -> String {
     text
 }
 
-/// A warning for a drive that is nearly full or full, in the window's language.
-fn usage_warning(name: &str, usage: &Usage) -> Option<azul_appkit::l10n::Phrase> {
+/// A warning for a drive that is nearly full or full, in the window's language: free space,
+/// and the bigger tier `bigger` only when one is sold (Q2: no promise of what does not exist).
+pub(crate) fn usage_warning(
+    name: &str,
+    usage: &Usage,
+    bigger: Option<&str>,
+) -> Option<azul_appkit::l10n::Phrase> {
     let said = match usage.level() {
         Level::Fine => return None,
         Level::NearlyFull => "azdrive-usage-nearly-full",
@@ -230,7 +235,8 @@ fn usage_warning(name: &str, usage: &Usage) -> Option<azul_appkit::l10n::Phrase>
             .arg("name", name)
             .arg("used", size_text(usage.used))
             .arg("quota", size_text(usage.quota))
-            .arg("about", yes(usage.estimate)),
+            .arg("about", yes(usage.estimate))
+            .arg("bigger", bigger.unwrap_or("none")),
     )
 }
 
@@ -243,7 +249,11 @@ fn store(s: &mut DriveState, azlin_id: &str, mut seen: DriveUsage) {
             &slot_id_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string()),
             "",
         ));
-        if let Some(warning) = usage_warning(&name, &usage) {
+        let bigger = crate::renewals::space_offer(
+            usage.quota,
+            s.tier_news.as_ref().map(|news| &news.tiers),
+        );
+        if let Some(warning) = usage_warning(&name, &usage, bigger.as_deref()) {
             println!("AZDRIVE_DRIVE_NEARLY_FULL {azlin_id}");
             s.warn(warning);
         }

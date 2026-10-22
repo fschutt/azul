@@ -1395,11 +1395,17 @@ azdrive-usage-original = your files are { $size } before compression
 azdrive-usage-nearly-full = "{ $name }": The drive is nearly full ({ $about ->
         [yes] about { $used } of { $quota } used, counted after compression, estimated on this computer
        *[no] { $used } of { $quota } used, counted after compression
-    }): free up space or choose a bigger tier.
+    }): free up space{ $bigger ->
+        [none] .
+       *[other] or move it to { $bigger } (Renew, then choose it).
+    }
 azdrive-usage-full = "{ $name }": The drive is full ({ $about ->
         [yes] about { $used } of { $quota } used, counted after compression, estimated on this computer
        *[no] { $used } of { $quota } used, counted after compression
-    }): new files are refused until space is freed or the tier is bigger.
+    }): new files are refused until space is freed{ $bigger ->
+        [none] .
+       *[other] or the drive moves to { $bigger } (Renew, then choose it).
+    }
 
 ## Cash by post
 
@@ -1551,6 +1557,33 @@ azdrive-add-no-sign-in-waits = No sign-in waits for an answer.
 azdrive-add-buy-tier-price = Buy { $quota } - { $price }
 azdrive-add-buy-tier = Buy { $quota }
 azdrive-add-buy = Buy
+azdrive-add-renew-tier-price = Renew { $quota } - { $price }
+azdrive-add-move-tier-price = Move to { $quota } - { $price }
+azdrive-tier-wait = Tell me when it is back
+azdrive-add-tier-closed = { $tier } is sold out for now.
+azdrive-renew = Renew
+azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep writing to it after that.
+azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
+azdrive-renew-closing = "{ $drive }" is closed on { $at } and its files are deleted unless it is renewed. Copy what you need, or renew it now.
+azdrive-months-renewed = { $months ->
+        [one] 1 month was
+       *[other] { $months } months were
+    } added to "{ $drive }".
+azdrive-tier-change-waits = "{ $drive }" moves to its smaller tier at the end of its paid period, from { $at }.
+azdrive-tier-change-too-full = "{ $drive }" does not fit its smaller tier yet: free { $free } first. The new tier waits.
+azdrive-tier-changed = "{ $drive }" is on { $tier } now{ $days ->
+        [0] .
+       *[other] ; its remaining paid time counts { $days } days of it.
+    }
+azdrive-plan-cancel = Cancel the monthly plan
+azdrive-plan-cancelled = The monthly plan is cancelled: no more payments. The months paid stay.
+azdrive-plan-not-cancelled = The monthly plan was not cancelled: { $why }
+azdrive-price-notice-new = Price notice from Azlin: from { $at } your { $tier } costs { $price } at its next renewal. You may renew before then at your current price, or end it. { $note }
+azdrive-price-notice-ends = Price notice from Azlin: the sale of { $tier } ends on { $at }. Choose another tier at your next renewal. { $note }
+azdrive-tier-back = { $tier } is on sale again.
+azdrive-tier-waitlisted = AzDrive tells you when { $tier } is on sale again.
+azdrive-tier-not-waitlisted = The tier could not be noted: { $why }
+azdrive-notice-not-saved = The price notice could not be saved in the drive:
 azdrive-country-ad = Andorra
 azdrive-country-ae = United Arab Emirates
 azdrive-country-af = Afghanistan
@@ -2009,6 +2042,10 @@ azdrive-pay-price-incl-vat = { $amount }, incl. { $rate } % VAT ({ $vat })
 azdrive-pay-price-plus-vat = { $amount }, plus { $rate } % VAT ({ $vat })
 azdrive-pay-a-month = { $price } a month
 azdrive-pay-a-year = { $price } a year
+azdrive-pay-for-months = { $price } for { $months ->
+        [one] 1 month
+       *[other] { $months } months
+    }
 azdrive-pay-what = { $quota }, { $months ->
     [one] 1 month
    *[other] { $months } months

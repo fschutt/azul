@@ -57,7 +57,7 @@ fn switching_the_language_changes_a_label_of_azdrive() {
     assert_eq!(t("azdrive-tab-home"), "Home");
     set_locale("de-DE");
     assert_eq!(t("azdrive-tab-home"), "Start");
-    assert!(t(&Code::ReadOnlyUnpaid.message_id()).starts_with("Deine letzte Zahlung"));
+    assert!(t(&Code::ReadOnlyUnpaid.message_id()).starts_with("Dein bezahlter Zeitraum"));
     set_locale("en-US");
 }
 

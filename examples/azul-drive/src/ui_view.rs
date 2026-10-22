@@ -224,6 +224,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if let Some(bar) = crate::periods::lockdown_bar(s, app) {
         area.add_child(bar);
     }
+    // The drive in view's next months: a reminder or a change of tier, Renew.
+    if let Some(bar) = crate::renewals::renewal_bar(s, app) {
+        area.add_child(bar);
+    }
     // A banned drive in view: why, the hours left, Copy everything to this computer.
     if let Some(bar) = crate::ban::banner(s, app) {
         area.add_child(bar);

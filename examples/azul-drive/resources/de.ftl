@@ -1393,11 +1393,17 @@ azdrive-usage-original = deine Dateien sind vor der Komprimierung { $size } gro�
 azdrive-usage-nearly-full = „{ $name }“: Das Laufwerk ist fast voll ({ $about ->
         [yes] etwa { $used } von { $quota } belegt, nach der Komprimierung gezählt, auf diesem Computer geschätzt
        *[no] { $used } von { $quota } belegt, nach der Komprimierung gezählt
-    }): Gib Speicherplatz frei oder wähle eine größere Stufe.
+    }): Gib Speicherplatz frei{ $bigger ->
+        [none] .
+       *[other] oder stelle es auf { $bigger } um (Verlängern, dann die Stufe wählen).
+    }
 azdrive-usage-full = „{ $name }“: Das Laufwerk ist voll ({ $about ->
         [yes] etwa { $used } von { $quota } belegt, nach der Komprimierung gezählt, auf diesem Computer geschätzt
        *[no] { $used } von { $quota } belegt, nach der Komprimierung gezählt
-    }): Neue Dateien werden abgelehnt, bis Speicherplatz frei wird oder die Stufe größer ist.
+    }): Neue Dateien werden abgelehnt, bis Speicherplatz frei wird{ $bigger ->
+        [none] .
+       *[other] oder das Laufwerk auf { $bigger } umgestellt ist (Verlängern, dann die Stufe wählen).
+    }
 
 ## Cash by post
 
@@ -1549,6 +1555,33 @@ azdrive-add-no-sign-in-waits = Keine Anmeldung wartet auf eine Antwort.
 azdrive-add-buy-tier-price = { $quota } kaufen – { $price }
 azdrive-add-buy-tier = { $quota } kaufen
 azdrive-add-buy = Kaufen
+azdrive-add-renew-tier-price = { $quota } verlängern – { $price }
+azdrive-add-move-tier-price = Auf { $quota } umstellen – { $price }
+azdrive-tier-wait = Sag mir, wenn es wieder da ist
+azdrive-add-tier-closed = { $tier } ist zurzeit ausverkauft.
+azdrive-renew = Verlängern
+azdrive-renew-period-end = „{ $drive }“ ist bis { $at } bezahlt. Verlängere es, um danach weiter darauf zu schreiben.
+azdrive-renew-read-only = „{ $drive }“ wird am { $at } schreibgeschützt, wenn es nicht verlängert wird. Seine Dateien bleiben lesbar.
+azdrive-renew-closing = „{ $drive }“ wird am { $at } geschlossen und seine Dateien werden gelöscht, wenn es nicht verlängert wird. Kopiere, was du brauchst, oder verlängere es jetzt.
+azdrive-months-renewed = { $months ->
+        [one] 1 Monat wurde
+       *[other] { $months } Monate wurden
+    } zu „{ $drive }“ hinzugefügt.
+azdrive-tier-change-waits = „{ $drive }“ wechselt am Ende seines bezahlten Zeitraums auf die kleinere Stufe, ab { $at }.
+azdrive-tier-change-too-full = „{ $drive }“ passt noch nicht in die kleinere Stufe: gib zuerst { $free } frei. Die neue Stufe wartet.
+azdrive-tier-changed = „{ $drive }“ ist jetzt auf { $tier }{ $days ->
+        [0] .
+       *[other] ; seine restliche bezahlte Zeit zählt { $days } Tage davon.
+    }
+azdrive-plan-cancel = Monatsplan kündigen
+azdrive-plan-cancelled = Der Monatsplan ist gekündigt: keine weiteren Zahlungen. Die bezahlten Monate bleiben.
+azdrive-plan-not-cancelled = Der Monatsplan wurde nicht gekündigt: { $why }
+azdrive-price-notice-new = Preishinweis von Azlin: ab { $at } kostet deine Stufe { $tier } bei der nächsten Verlängerung { $price }. Du kannst vorher zum jetzigen Preis verlängern oder sie beenden. { $note }
+azdrive-price-notice-ends = Preishinweis von Azlin: der Verkauf von { $tier } endet am { $at }. Wähle bei der nächsten Verlängerung eine andere Stufe. { $note }
+azdrive-tier-back = { $tier } ist wieder erhältlich.
+azdrive-tier-waitlisted = AzDrive sagt dir, wenn { $tier } wieder erhältlich ist.
+azdrive-tier-not-waitlisted = Die Stufe konnte nicht vorgemerkt werden: { $why }
+azdrive-notice-not-saved = Der Preishinweis konnte nicht im Laufwerk gespeichert werden:
 azdrive-country-ad = Andorra
 azdrive-country-ae = Vereinigte Arabische Emirate
 azdrive-country-af = Afghanistan
@@ -2007,6 +2040,10 @@ azdrive-pay-price-incl-vat = { $amount }, inkl. { $rate } % MwSt. ({ $vat })
 azdrive-pay-price-plus-vat = { $amount }, zzgl. { $rate } % MwSt. ({ $vat })
 azdrive-pay-a-month = { $price } im Monat
 azdrive-pay-a-year = { $price } im Jahr
+azdrive-pay-for-months = { $price } für { $months ->
+        [one] 1 Monat
+       *[other] { $months } Monate
+    }
 azdrive-pay-what = { $quota }, { $months ->
     [one] 1 Monat
    *[other] { $months } Monate

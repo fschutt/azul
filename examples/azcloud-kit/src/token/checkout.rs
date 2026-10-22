@@ -162,6 +162,37 @@ impl Tiers {
     }
 }
 
+/// What the tier list says besides the tiers on sale: the tiers closed for now (their ids) and
+/// the announced price changes (PRICES.md section 7).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TierNews {
+    pub tiers: Tiers,
+    pub closed: Vec<String>,
+    pub changes: Vec<azlin_contract::ScheduledChange>,
+}
+
+impl TierNews {
+    /// The tier list `text` (`GET /v1/tiers`).
+    ///
+    /// # Errors
+    ///
+    /// It does not read as one, or a tier without a size.
+    pub fn parse(text: &str) -> Result<TierNews, TokenError> {
+        let answer: TiersAnswer = serde_json::from_str(text).map_err(|e| {
+            TokenError::Protocol(format!("the tier list does not read as one: {e}"))
+        })?;
+        Ok(TierNews {
+            tiers: Tiers::parse(text)?,
+            closed: answer
+                .unavailable
+                .iter()
+                .map(|t| t.id.as_str().to_string())
+                .collect(),
+            changes: answer.scheduled_changes,
+        })
+    }
+}
+
 // ==== The checkout ====
 
 /// A checkout: where the browser pays for a tier.
@@ -328,6 +359,31 @@ impl<'a> TokenServer<'a> {
         let path = format!("/v1/tiers?country={}", uri_encode(&country, true));
         let value = self.call(Method::Get, &path, None, None)?;
         Tiers::parse(&value.to_string())
+    }
+
+    /// The tier list with its news ([`TierNews`]).
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal, an answer that does not read.
+    pub fn tier_news(&self) -> Result<TierNews, TokenError> {
+        self.tier_news_in("")
+    }
+
+    /// [`Self::tier_news`] priced for a buyer in `country` (empty: the ladder as it is).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::tier_news`].
+    pub fn tier_news_in(&self, country: &str) -> Result<TierNews, TokenError> {
+        let country = country.trim().to_ascii_uppercase();
+        let path = if country.is_empty() {
+            String::from("/v1/tiers")
+        } else {
+            format!("/v1/tiers?country={}", uri_encode(&country, true))
+        };
+        let value = self.call(Method::Get, &path, None, None)?;
+        TierNews::parse(&value.to_string())
     }
 
     /// A drive named `name` of tier `tier` without payment - a development token server only;

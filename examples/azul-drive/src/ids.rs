@@ -193,6 +193,12 @@ pub fn add_choose(key: &str) -> AzString {
     AzString::from(format!("__azdrive_add_choose_{}", id_part(key)))
 }
 
+/// "Tell me when it is back" of a closed tier of Buy storage: `__azdrive_add_tier_wait_0`.
+#[must_use]
+pub fn add_tier_wait(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_add_tier_wait_{index}"))
+}
+
 /// A tier of Buy storage: `__azdrive_add_tier_0`.
 #[must_use]
 pub fn add_tier(index: usize) -> AzString {
@@ -266,6 +272,9 @@ pub const LOCATION_PATH: AzString = AzString::from_const_str("__azdrive_location
 /// The bar over the drive in view while a recovery-key lockdown of it is pending, and its
 /// Cancel.
 pub const LOCKDOWN_BAR: AzString = AzString::from_const_str("__azdrive_lockdown_bar");
+pub const RENEWAL_BAR: AzString = AzString::from_const_str("__azdrive_renewal_bar");
+pub const RENEWAL_RENEW: AzString = AzString::from_const_str("__azdrive_renewal_renew");
+pub const RENEWAL_CANCEL_PLAN: AzString = AzString::from_const_str("__azdrive_renewal_cancel_plan");
 pub const LOCKDOWN_CANCEL: AzString = AzString::from_const_str("__azdrive_lockdown_cancel");
 /// The cancel dialog's recovery code and its "Cancel the lockdown" (F12: the code signs).
 pub const LOCKDOWN_CANCEL_CODE: AzString =

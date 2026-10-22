@@ -150,9 +150,8 @@ pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
     Ban, BlindSignatures, Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, ClaimedFamily,
-    DriveStatus,
-    FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
-    TokenServer, VoucherRedeemed,
+    DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier,
+    TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};

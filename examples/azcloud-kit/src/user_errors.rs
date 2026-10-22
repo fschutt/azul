@@ -365,8 +365,8 @@ pub const ROWS: &[Row] = &[
         code: Code::ReadOnlyUnpaid,
         class: Class::ReadOnly,
         behaviour: Behaviour::ReadsOnly,
-        en: "Your last payment didn't go through. Your files are safe and readable.",
-        de: "Deine letzte Zahlung ist nicht durchgegangen. Deine Dateien sind sicher und lesbar.",
+        en: "Your paid period has ended. Your files are safe and readable - renew the drive to write again.",
+        de: "Dein bezahlter Zeitraum ist abgelaufen. Deine Dateien sind sicher und lesbar - verlängere das Laufwerk, um wieder zu schreiben.",
     },
     Row {
         code: Code::CredentialsRevoked,

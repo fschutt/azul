@@ -213,6 +213,15 @@ pub(crate) fn start_redemptions(
         }
     }
     let open = azlin_drives(s);
+    // The stored bytes the storage node counted (no estimate): a smaller tier is taken only
+    // when they fit.
+    let stored = drives
+        .iter()
+        .filter_map(|(id, _)| {
+            let usage = s.usage.get(id)?.usage();
+            (!usage.estimate).then(|| (id.clone(), usage.used))
+        })
+        .collect();
     let drives = drives
         .into_iter()
         .map(|(id, url)| {
@@ -224,6 +233,7 @@ pub(crate) fn start_redemptions(
         keyring: s.keyring.clone(),
         store: s.period_tokens.clone(),
         drives,
+        stored,
     };
     spawn(info, app, s, job);
 }

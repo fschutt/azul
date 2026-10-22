@@ -202,6 +202,7 @@ mod chaos_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
+mod renewals;
 /// The Azlin drives' iroh dialer: iroh to the nodes first, HTTPS as the fallback.
 mod iroh_lane;
 /// A drive's errors as the user sees them: the table's words, the error ID, notifications.
@@ -1126,6 +1127,11 @@ pub(crate) struct DriveState {
     /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
     /// the bar with Cancel over the drive in view.
     pub pending_lockdowns: HashMap<String, u64>,
+    /// What the looks saw of each Azlin drive's next months (a reminder, a change of tier,
+    /// a monthly plan): the bar with Renew over the drive in view.
+    pub renewals: HashMap<String, renewals::RenewalSeen>,
+    /// The tier list the last look read: a full drive's offer, the price notices.
+    pub tier_news: Option<azcloud_kit::TierNews>,
     /// The synced drives' states, passes and status lines in this window.
     pub sync_view: sync_view::SyncView,
     /// The OAuth clients of Connect data source's sign-ins (Google Drive, Dropbox, OneDrive):
@@ -2950,8 +2956,9 @@ pub(crate) extern "C" fn on_job_done(
             serial,
             country,
             result,
+            closed,
         } => {
-            add_flow::tiers_answered(&mut info, &handle, s, serial, &country, result);
+            add_flow::tiers_answered(&mut info, &handle, s, serial, &country, result, closed);
         }
         Outcome::Options {
             serial,
@@ -2979,6 +2986,19 @@ pub(crate) extern "C" fn on_job_done(
             checkout,
             claimed,
         } => add_flow::claimed(&mut info, &handle, s, serial, &checkout, &claimed),
+        Outcome::Renewed {
+            serial,
+            checkout_id,
+            drive_id,
+            months,
+        } => add_flow::renewed(&mut info, &handle, s, serial, &checkout_id, &drive_id, months),
+        Outcome::PlanCancelled { drive_id, result } => {
+            renewals::plan_cancelled(s, &drive_id, result);
+        }
+        Outcome::NoticeSaved { key, result } => match result {
+            Ok(()) => println!("AZDRIVE_NOTICE_SAVED {key}"),
+            Err(e) => s.error(failed("azdrive-notice-not-saved", &e)),
+        },
         Outcome::CheckoutDropped { checkout_id, why } => {
             add_flow::checkout_dropped(s, &checkout_id, &why);
         }
@@ -2988,8 +3008,16 @@ pub(crate) extern "C" fn on_job_done(
             result,
             ..
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
-        Outcome::PeriodsRedeemed { results } => {
+        Outcome::PeriodsRedeemed {
+            results,
+            renewals,
+            news,
+        } => {
             periods::periods_redeemed(&mut info, s, results);
+            if let Some(news) = news {
+                renewals::tier_news_seen(&mut info, s, news);
+            }
+            renewals::renewals_seen(&mut info, &handle, s, renewals);
             // Each drive's space as its node counts it.
             usage_view::request_space(&mut info, &handle, s);
             // An encrypted drive's files' size before compression, for its usage line.
@@ -3812,6 +3840,8 @@ pub fn start() {
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
+        renewals: HashMap::new(),
+        tier_news: None,
         sync_view: sync_view::SyncView::default(),
         sign_in_settings,
         cash_waits: Vec::new(),

@@ -66,7 +66,7 @@ mod recovery;
 mod refresh;
 
 pub use checkout::{
-    Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, Tiers,
+    Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, TierNews, Tiers,
     VoucherRedeemed,
 };
 pub use members::ClaimedFamily;

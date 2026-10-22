@@ -138,6 +138,24 @@ pub(crate) fn tier_price(tier: &Tier, yearly: bool) -> Option<String> {
     ))
 }
 
+/// What a prepay of `tier` costs at once: `EUR 0.99 for 1 month`, with `yearly` `EUR 9.90 for
+/// 12 months` - the months paid, never a rate; `None` when the server names no price.
+#[must_use]
+pub(crate) fn prepay_price(tier: &Tier, yearly: bool) -> Option<String> {
+    let (cents, months) = if yearly {
+        (tier.price_cents_year?, 12_u32)
+    } else {
+        (tier.price_cents_month?, 1_u32)
+    };
+    Some(t_args(
+        "azdrive-pay-for-months",
+        &[
+            ("price", Arg::from(l10n::money(cents, &tier.currency))),
+            ("months", Arg::from(months)),
+        ],
+    ))
+}
+
 /// The payer details a method asks for, joined as the window's language joins a list: `name
 /// and email address`, `Name und E-Mail-Adresse`.
 #[must_use]

@@ -88,6 +88,8 @@ pub(crate) enum AddEvent {
     Yearly,
     /// "Try again" after the tier list failed.
     RetryTiers,
+    /// "Tell me when it is back" for the closed tier of the list at this index.
+    WaitForTier(usize),
     Test,
     /// A consumer cloud's "Sign in".
     SignIn,
@@ -136,6 +138,14 @@ fn dialog(s: &mut DriveState) -> Option<&mut AddDialog> {
     }
 }
 
+/// The open dialog, to read.
+fn dialog_ref(s: &DriveState) -> Option<&AddDialog> {
+    match s.popup.as_ref() {
+        Some(Popup::AddDrive(dialog)) => Some(dialog),
+        _ => None,
+    }
+}
+
 /// The open dialog with the serial `serial` (a job's answer for an older one finds none).
 fn dialog_of(s: &mut DriveState, serial: u64) -> Option<&mut AddDialog> {
     dialog(s).filter(|d| d.serial == serial)
@@ -169,6 +179,44 @@ pub(crate) fn open(s: &mut DriveState) {
     }
     print_page(&d);
     s.popup = Some(Popup::AddDrive(d));
+}
+
+/// Opens Buy storage for the next months of the drive `renew` (Renew): on its tier, any other
+/// tier a change of its tier; the payer's country as a new order has it.
+pub(crate) fn open_renewing(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    renew: crate::renewals::RenewFor,
+) {
+    open(s);
+    let Some(Popup::AddDrive(d)) = s.popup.take() else {
+        return;
+    };
+    let mut renewing = AddDialog::renewing(d.serial, renew);
+    renewing.country = d.country;
+    renewing.country_pick = d.country_pick;
+    renewing.pay = d.pay;
+    renewing.kept = d.kept;
+    renewing.choose_buy();
+    print_page(&renewing);
+    let on_buy = renewing.page == AddPage::Buy;
+    s.popup = Some(Popup::AddDrive(renewing));
+    if on_buy {
+        load_tiers(info, app, s, false);
+    }
+}
+
+/// What a Renew dialog's checkout carries to the job: its order and the drive's vaults, where
+/// the job reads the drive's price lock.
+fn renew_job(s: &DriveState, d: &AddDialog) -> Option<Box<crate::jobs::RenewJob>> {
+    let order = d.renew_order()?;
+    let azlin = crate::periods::azlin_drives(s).get(&order.drive_id).cloned();
+    Some(Box::new(crate::jobs::RenewJob {
+        order,
+        store: s.period_tokens.clone(),
+        azlin,
+    }))
 }
 
 /// Opens the form of drive `index` again (its keyring entry is gone): its settings filled in,
@@ -234,6 +282,11 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
+        AddEvent::WaitForTier(index) => {
+            if let Some(tier) = d.closed.get(index).cloned() {
+                crate::renewals::wait_for_tier(s, &tier);
+            }
+        }
         AddEvent::Test => test(info, app, s),
         AddEvent::SignIn => start_sign_in(info, app, s),
         AddEvent::Save => save(info, app, s),
@@ -725,6 +778,7 @@ pub(crate) fn tiers_answered(
     serial: u64,
     country: &str,
     result: Result<Tiers, TiersFailed>,
+    closed: Vec<String>,
 ) {
     // A list for the country declared before is not this one's (its prices are in another
     // currency): the list asked for since answers.
@@ -733,10 +787,8 @@ pub(crate) fn tiers_answered(
     };
     match result {
         Ok(tiers) => {
-            if d.tier >= tiers.tiers.len() {
-                d.tier = 0;
-            }
-            d.tiers = TiersState::Loaded(tiers);
+            d.tiers_loaded(tiers);
+            d.closed = closed;
             load_options(info, app, s);
         }
         Err(TiersFailed::Refused(said)) => {
@@ -1029,6 +1081,7 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         None => return,
     };
     let keyring = s.keyring.clone();
+    let renew = dialog_ref(s).and_then(|d| renew_job(s, d));
     spawn(
         info,
         app,
@@ -1042,6 +1095,7 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             name,
             keyring,
             via: None,
+            renew,
         },
     );
 }
@@ -1209,6 +1263,7 @@ fn start_pay_checkout(
 ) {
     let token_url = s.token.url.clone();
     let keyring = s.keyring.clone();
+    let renew = dialog_ref(s).and_then(|d| renew_job(s, d));
     let Some(d) = dialog(s) else {
         return;
     };
@@ -1247,6 +1302,7 @@ fn start_pay_checkout(
         name: d.buy_name.trim().to_string(),
         keyring,
         via: Some(Box::new(via)),
+        renew,
     };
     spawn(info, app, s, job);
 }
@@ -1706,6 +1762,33 @@ pub(crate) fn claimed(
             token_url,
         };
         spawn(info, app, s, job);
+    }
+}
+
+/// A renewal's (or a change of tier's) months were claimed for the drive `drive_id`: said, and
+/// a dialog that waited for them closes; the background claims keep their grant with the
+/// drive and issue the first month ([`azcloud_kit::pending::finish`]).
+pub(crate) fn renewed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: Option<u64>,
+    checkout_id: &str,
+    drive_id: &str,
+    months: u32,
+) {
+    println!("AZDRIVE_RENEWED {checkout_id} {drive_id} {months}");
+    s.in_flight.retain(|c| c.checkout_id != checkout_id);
+    crate::cash::claimed(s, checkout_id);
+    let name = s.drive_name(&Place::folder(drive_id, ""));
+    s.success(
+        Phrase::new("azdrive-months-renewed")
+            .arg("months", months)
+            .arg("drive", name),
+    );
+    if serial.is_some_and(|serial| dialog_of(s, serial).is_some()) {
+        cancel(s);
+        start_claims(info, app, s);
     }
 }
 

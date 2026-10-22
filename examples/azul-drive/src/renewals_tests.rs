@@ -171,3 +171,19 @@ fn a_waitlisted_tier_is_said_once_when_it_is_sold_again() {
     assert_eq!(list.back_on_sale(&open).unwrap(), vec![String::from("10TB")]);
     assert!(list.back_on_sale(&open).unwrap().is_empty(), "said once");
 }
+
+/// Q2: the full drive's warning names the bigger tier only when one is sold.
+#[test]
+fn the_full_drive_warning_offers_only_what_exists() {
+    let usage = azcloud_kit::usage::Usage {
+        used: 100_000_000_000,
+        quota: 100_000_000_000,
+        original: None,
+        estimate: false,
+    };
+    let offered = crate::usage_view::usage_warning("Photos", &usage, Some("1TB")).unwrap();
+    assert_eq!(offered.get("bigger"), Some(&Arg::from("1TB")));
+    let none = crate::usage_view::usage_warning("Photos", &usage, None).unwrap();
+    assert_eq!(none.get("bigger"), Some(&Arg::from("none")));
+    assert!(crate::l10n::EN.contains("[none] ."), "no bigger tier: free space only");
+}

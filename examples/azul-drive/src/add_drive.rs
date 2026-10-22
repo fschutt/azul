@@ -187,6 +187,11 @@ pub(crate) struct AddDialog {
     /// The token endpoint the drive keeps when it was signed in at another one than its
     /// provider's (a test's); `None`: the provider's own.
     pub token_url: Option<String>,
+    /// Renew: the drive whose next months (or another tier) Buy storage orders; `None` for a
+    /// new drive.
+    pub renew: Option<crate::renewals::RenewFor>,
+    /// The tiers closed for now (the list's `unavailable`): each with "Tell me when it is back".
+    pub closed: Vec<String>,
 }
 
 /// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
@@ -260,6 +265,7 @@ impl fmt::Debug for AddDialog {
             .field("sign_in", &self.sign_in)
             .field("pending_sign_in", &self.pending_sign_in)
             .field("token_url", &self.token_url)
+            .field("renew", &self.renew)
             .finish_non_exhaustive()
     }
 }
@@ -302,7 +308,49 @@ impl AddDialog {
             sign_in: SignInStep::Idle,
             pending_sign_in: None,
             token_url: None,
+            renew: None,
+            closed: Vec::new(),
         }
+    }
+
+    /// Buy storage for the next months of the drive `renew` (Renew): on its tier once the list
+    /// is in, any other tier a change of its tier.
+    #[must_use]
+    pub(crate) fn renewing(serial: u64, renew: crate::renewals::RenewFor) -> Self {
+        let mut dialog = AddDialog::new(serial);
+        dialog.buy_name = renew.name.clone();
+        dialog.renew = Some(renew);
+        dialog.choose_buy();
+        dialog
+    }
+
+    /// The tier list is in: a Renew dialog chooses the drive's tier when it is on sale.
+    pub(crate) fn tiers_loaded(&mut self, tiers: Tiers) {
+        let own = self
+            .renew
+            .as_ref()
+            .and_then(|r| tiers.tiers.iter().position(|t| t.id == r.tier));
+        if let Some(own) = own {
+            self.tier = own;
+        } else if self.tier >= tiers.tiers.len() {
+            self.tier = 0;
+        }
+        self.tiers = TiersState::Loaded(tiers);
+    }
+
+    /// What a Renew dialog's checkout buys for its drive: its next months on its tier, or the
+    /// chosen tier for it (bigger: an upgrade, taken at once). `None` for a new drive.
+    #[must_use]
+    pub(crate) fn renew_order(&self) -> Option<crate::renewals::RenewOrder> {
+        let renew = self.renew.as_ref()?;
+        let chosen = self.chosen_tier()?;
+        let change_tier = chosen.id != renew.tier;
+        Some(crate::renewals::RenewOrder {
+            drive_id: renew.drive_id.clone(),
+            tier: renew.tier.clone(),
+            change_tier,
+            upgrade: change_tier && chosen.quota_bytes > renew.quota_bytes,
+        })
     }
 
     /// The form of the drive `entry` again (its keyring entry is gone): its settings filled
@@ -594,13 +642,20 @@ impl AddDialog {
         }
     }
 
-    /// The Buy button's words: `Buy 100 GB - EUR 0.99 a month` (in the window's language).
+    /// The Buy button's words: `Buy 100 GB - EUR 0.99 for 1 month`, `Renew ...`, `Move to ...`
+    /// (in the window's language).
     #[must_use]
     pub(crate) fn buy_label(&self) -> String {
+        // What is paid at once, never a rate: a prepay is no subscription.
+        let key = match self.renew_order() {
+            Some(order) if order.change_tier => "azdrive-add-move-tier-price",
+            Some(_) => "azdrive-add-renew-tier-price",
+            None => "azdrive-add-buy-tier-price",
+        };
         match self.chosen_tier() {
-            Some(tier) => match crate::pay_words::tier_price(tier, self.yearly_for(tier)) {
+            Some(tier) => match crate::pay_words::prepay_price(tier, self.yearly_for(tier)) {
                 Some(price) => t_args(
-                    "azdrive-add-buy-tier-price",
+                    key,
                     &[
                         ("quota", Arg::from(crate::pay_words::quota(tier))),
                         ("price", Arg::from(price)),

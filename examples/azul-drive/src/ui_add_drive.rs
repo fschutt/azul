@@ -481,6 +481,25 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                     )
                     .with_children(DomVec::from(cells)),
             );
+            // A tier closed for now: "Tell me when it is back", kept on this computer.
+            for (index, closed) in d.closed.iter().enumerate() {
+                children.push(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: row; align-items: center;")
+                        .with_child(line(&t_args(
+                            "azdrive-add-tier-closed",
+                            &[("tier", Arg::from(closed.as_str()))],
+                        )))
+                        .with_child(button(
+                            app,
+                            "azdrive-tier-wait",
+                            ButtonType::Default,
+                            AddEvent::WaitForTier(index),
+                            ids::add_tier_wait(index),
+                            None,
+                        )),
+                );
+            }
             // The switch only where the tier is sold both ways; a tier sold by the year only
             // says so (its tile shows the year's price).
             match d.periods() {
