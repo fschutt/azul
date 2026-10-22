@@ -58,14 +58,21 @@ fn tracks(lw: &LayoutWindow) -> Vec<NodeId> {
         .collect()
 }
 
-/// The solid colour the current display list fills `node`'s box with.
+/// The solid colour the renderers fill `node`'s box with: the display
+/// list's rect, in its bound colour while its background fades
+/// (`DisplayList::color_bindings`).
 fn painted_fill(lw: &LayoutWindow, node: NodeId) -> Option<ColorU> {
     let dl = &lw.layout_results[&DomId::ROOT_ID].display_list;
+    let state = azul_layout::cpurender::CpuRenderState::from_gpu_cache(
+        lw.gpu_state_manager.get_cache(DomId::ROOT_ID),
+        DomId::ROOT_ID,
+        &azul_layout::cpurender::ScrollOffsetMap::new(),
+    );
     dl.items.iter().enumerate().find_map(|(i, item)| {
         if dl.node_mapping.get(i).copied().flatten() != Some(node) {
             return None;
         }
-        match item {
+        match &*azul_layout::cpurender::item_with_bound_color(item, dl.color_binding(i), &state) {
             DisplayListItem::Rect { color, .. } => Some(*color),
             _ => None,
         }

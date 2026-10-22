@@ -29,7 +29,7 @@ use azul_css::props::style::StyleTransformOrigin;
 
 use crate::{
     dom::{DomId, NodeId},
-    resources::{OpacityKey, TransformKey},
+    resources::{ColorKey, OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
@@ -94,6 +94,16 @@ pub struct GpuValueCache {
     /// is in the emission fingerprint: a new colour is a new list). `None`
     /// until the layout window sets it: the default light's.
     pub sheen_light: Option<(azul_css::props::basic::ColorU, f32)>,
+    /// BACKGROUND COLOUR keys (keyed by node ID): one per node whose solid
+    /// `background` colour fades. The display list binds the node's
+    /// background rect to it (`DisplayList::color_bindings`), so each frame
+    /// of the fade is a property value - `WebRender`'s colour binding of a
+    /// rect, the CPU renderer's bound colour - instead of a new list. Kept
+    /// by the layout window: minted when a fade starts, released by the
+    /// display-list build after it settled.
+    pub color_keys: HashMap<NodeId, ColorKey>,
+    /// The colour each bound background shows now.
+    pub current_color_values: HashMap<NodeId, azul_css::props::basic::ColorU>,
     /// Animation opacity keys (keyed by node ID).
     pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
@@ -292,6 +302,11 @@ impl GpuValueCache {
         for (n, k) in &self.sheen_opacity_keys {
             entries.push((14, n.index() as u64, k.id as u64));
         }
+        // A background rect is bound to a colour key exactly when its node
+        // has one (`color_keys`).
+        for (n, k) in &self.color_keys {
+            entries.push((16, n.index() as u64, k.id as u64));
+        }
         // ...in the colour of the window's light, baked into its stops.
         if let Some((c, intensity)) = self.sheen_light {
             let rgba = u64::from(u32::from_be_bytes([c.r, c.g, c.b, c.a]));
@@ -391,6 +406,17 @@ impl GpuValueCache {
                 if let Some(&value) = self.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
                     on_opacity(key.id, value);
                 }
+            }
+        }
+    }
+
+    /// Every bound background colour, by key id: `on_color` for each colour
+    /// key with a value ([`Self::color_keys`]) - the colour twin of
+    /// [`Self::for_each_bound_value`], read by both renderers.
+    pub fn for_each_bound_color(&self, mut on_color: impl FnMut(usize, azul_css::props::basic::ColorU)) {
+        for (node_id, key) in &self.color_keys {
+            if let Some(&value) = self.current_color_values.get(node_id) {
+                on_color(key.id, value);
             }
         }
     }

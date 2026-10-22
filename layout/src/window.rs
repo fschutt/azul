@@ -7911,6 +7911,9 @@ impl LayoutWindow {
         if !self.skip_gpu_sync {
             let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
         }
+        if dom_id == DomId::ROOT_ID {
+            self.retain_running_color_keys();
+        }
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
@@ -17200,6 +17203,14 @@ impl LayoutWindow {
                 Vec<azul_css::props::style::StyleBackgroundContent>,
                 Vec<azul_css::props::style::StyleBackgroundContent>,
             )> = Vec::new();
+            // (node, the colour its background rect shows after this
+            // frame's patch, its new colour key): the rects bound in the
+            // patched list after the loop (the colour property path).
+            let mut bind_jobs: Vec<(
+                NodeId,
+                azul_css::props::basic::color::ColorU,
+                azul_core::resources::ColorKey,
+            )> = Vec::new();
             // A `transform` tween stepped by publishing its matrix alone (the
             // GPU property path below): a repaint, like a patched colour.
             let mut gpu_values_moved = false;
@@ -17375,6 +17386,61 @@ impl LayoutWindow {
                         &tr.node,
                         core::slice::from_ref(&over),
                     );
+
+                    // THE COLOUR PROPERTY PATH: a solid background whose rect
+                    // the list binds to the node's colour key
+                    // (`DisplayList::color_bindings`) steps by publishing the
+                    // colour, like an opacity: `WebRender` takes it as the
+                    // rect's colour binding, the CPU renderer paints the
+                    // bound rect in it, and the list stays as it is. A node
+                    // with no bound rect yet gets its key here and takes the
+                    // patch path once and its rect is bound in the patched
+                    // list (`bind_jobs`); every later frame of the fade is
+                    // a value.
+                    if let (true, Some((_, to_c, solver3::display_list::PaintColorSlot::Background))) =
+                        (patchable, colors)
+                    {
+                        let bound_key = cache.color_keys.get(&tr.node).copied().filter(|key| {
+                            result.display_list.color_bindings.contains(&Some(*key))
+                        });
+                        if let Some(key) = bound_key {
+                            cache.current_color_values.insert(tr.node, to_c);
+                            gpu_values_moved = true;
+                            // The last frame releases the key once the list
+                            // already shows the final colour (renderers fall
+                            // back to the rect's own colour); else the next
+                            // list build drops it (`retain_running_color_keys`).
+                            if tr.t >= 1.0 {
+                                let list_shows_target = result
+                                    .display_list
+                                    .items
+                                    .iter()
+                                    .zip(&result.display_list.color_bindings)
+                                    .all(|(item, binding)| match (item, binding) {
+                                        (
+                                            solver3::display_list::DisplayListItem::Rect {
+                                                color, ..
+                                            },
+                                            Some(k),
+                                        ) if *k == key => *color == to_c,
+                                        _ => true,
+                                    });
+                                if list_shows_target {
+                                    cache.color_keys.remove(&tr.node);
+                                    cache.current_color_values.remove(&tr.node);
+                                }
+                            }
+                            continue;
+                        }
+                        if tr.t < 1.0 {
+                            let key = *cache
+                                .color_keys
+                                .entry(tr.node)
+                                .or_insert_with(azul_core::resources::ColorKey::unique);
+                            cache.current_color_values.insert(tr.node, to_c);
+                            bind_jobs.push((tr.node, to_c, key));
+                        }
+                    }
                     if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
                         // A border colour is ALSO served from the compact
                         // cache - the display-list builder reads it there,
@@ -17474,6 +17540,16 @@ impl LayoutWindow {
                     }
                 }
 
+                if !bind_jobs.is_empty() {
+                    let dl = Arc::make_mut(&mut result.display_list);
+                    for (node, shown, key) in &bind_jobs {
+                        // Nothing to bind (no rect of that colour - a fade in
+                        // from transparent): the key stays, and the next
+                        // build binds the rect it pushes for it.
+                        let _ = dl.bind_background_color(*node, *shown, *key);
+                    }
+                }
+
                 if !layer_jobs.is_empty() {
                     let dl = Arc::make_mut(&mut result.display_list);
                     for (node, from_layers, to_layers) in &layer_jobs {
@@ -17510,7 +17586,7 @@ impl LayoutWindow {
                     cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
                 }
             }
-            if !patch_jobs.is_empty() || !layer_jobs.is_empty() {
+            if !patch_jobs.is_empty() || !layer_jobs.is_empty() || !bind_jobs.is_empty() {
                 // The solver's structural-identity DL cache holds the
                 // PRE-PATCH arc (make_mut cloned): swap in the patched one or
                 // the next cache hit resurrects the stale colours.
@@ -17554,7 +17630,10 @@ impl LayoutWindow {
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
             // one: a mixed tick (patchable + unpatchable) rebuilds.
-            if (!patch_jobs.is_empty() || !layer_jobs.is_empty() || gpu_values_moved)
+            if (!patch_jobs.is_empty()
+                || !layer_jobs.is_empty()
+                || !bind_jobs.is_empty()
+                || gpu_values_moved)
                 && dirty_empty
                 && self.pending_css_dirty.is_none()
             {
@@ -17616,6 +17695,34 @@ impl LayoutWindow {
         self.release_undriven_animation_values();
 
         !self.animations.is_empty() || self.has_track_work()
+    }
+
+    /// Keeps a colour key ([`GpuValueCache::color_keys`]) only for a node
+    /// whose solid background fades now. Run before every build of the root
+    /// display list: the build binds a node's background to its key, and a
+    /// key a fade no longer drives - the fade settled, or a rebuilt DOM
+    /// renumbered the nodes - would bind another node's background to a
+    /// colour it does not have. The list built without it paints the
+    /// cascade's colour, which is where a settled fade ends.
+    pub fn retain_running_color_keys(&mut self) {
+        let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) else {
+            return;
+        };
+        if cache.color_keys.is_empty() && cache.current_color_values.is_empty() {
+            return;
+        }
+        let running: BTreeSet<NodeId> = self
+            .css_transitions
+            .iter()
+            .filter(|tr| tr.t < 1.0 && transition_patch_color(&tr.to).is_some_and(|(_, slot)| {
+                slot == solver3::display_list::PaintColorSlot::Background
+            }))
+            .map(|tr| tr.node)
+            .collect();
+        cache.color_keys.retain(|node, _| running.contains(node));
+        cache
+            .current_color_values
+            .retain(|node, _| running.contains(node));
     }
 
     /// Releases every ANIMATION-channel value (transform and opacity, key
@@ -25050,6 +25157,9 @@ impl LayoutWindow {
         // (over-damage from rects that describe a different list).
         self.layout_cache.record_full_emission();
         self.layout_cache.last_patch_move = None;
+        if dom_id == DomId::ROOT_ID {
+            self.retain_running_color_keys();
+        }
 
         // Get all the data we need from the layout result
         let Some(layout_result) = self.layout_results.get(&dom_id) else {

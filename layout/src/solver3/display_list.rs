@@ -23,7 +23,9 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::GpuValueCache,
     hit_test::{CursorType, ScrollPosition, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE},
-    resources::{IdNamespace, ImageRef, ImageRefHash, OpacityKey, RendererResources, TransformKey},
+    resources::{
+        ColorKey, IdNamespace, ImageRef, ImageRefHash, OpacityKey, RendererResources, TransformKey,
+    },
     selection::{Selection, SelectionRange, TextSelection},
     styled_dom::StyledDom,
     transform::ComputedTransform3D,
@@ -787,9 +789,25 @@ pub struct DisplayList {
     /// (scroll-frame hit areas, clips, scrollbars — those always re-emit
     /// fresh). Parallel to `items`, like `node_mapping`.
     pub layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
+    /// Per-item colour key of a `Rect` that is a node's solid background
+    /// while its colour fades (`GpuValueCache::color_keys`), `None`
+    /// elsewhere. Parallel to `items`. Both renderers paint a bound rect in
+    /// the key's current value (`WebRender` as a colour binding of the
+    /// rect), so a fade frame changes a property, not the list; the item's
+    /// own `color` is the colour when the list was built, which a renderer
+    /// shows while the key has no value. A table on the list, like
+    /// `uniform_text_bgs`, so the `Rect` variant stays unchanged.
+    pub color_bindings: Vec<Option<ColorKey>>,
 }
 
 impl DisplayList {
+    /// The colour key item `index` is bound to (see
+    /// [`Self::color_bindings`]).
+    #[must_use]
+    pub fn color_binding(&self, index: usize) -> Option<ColorKey> {
+        self.color_bindings.get(index).copied().flatten()
+    }
+
     /// Insert one item at `at`, keeping EVERY parallel array and index range
     /// consistent.
     ///
@@ -815,6 +833,7 @@ impl DisplayList {
         Self::insert_parallel(&mut self.uniform_text_bgs, at, None);
         Self::insert_parallel(&mut self.text_selection_colors, at, None);
         Self::insert_parallel(&mut self.layout_node_mapping, at, None);
+        Self::insert_parallel(&mut self.color_bindings, at, None);
         for (start, end) in &mut self.fixed_position_item_ranges {
             // A range that CONTAINS the insertion point grows; one entirely
             // after it slides. `end` is exclusive, so `at == *end` is "after".
@@ -857,6 +876,7 @@ impl DisplayList {
         let node = self.node_mapping.get(at).copied().flatten();
         let layout = self.layout_node_mapping.get(at).copied().flatten();
         let colors = self.text_selection_colors.get(at).copied().flatten();
+        let binding = self.color_binding(at);
         // Side tables may be shorter than `items`; pad before splicing.
         let len = self.items.len();
         if self.node_mapping.len() < len {
@@ -871,6 +891,9 @@ impl DisplayList {
         if self.layout_node_mapping.len() < len {
             self.layout_node_mapping.resize(len, None);
         }
+        if self.color_bindings.len() < len {
+            self.color_bindings.resize(len, None);
+        }
         let (items, bgs): (Vec<DisplayListItem>, Vec<Option<(ColorU, WindowLogicalRect)>>) =
             replacement.into_iter().unzip();
         self.items.splice(at..=at, items);
@@ -880,6 +903,8 @@ impl DisplayList {
             .splice(at..=at, core::iter::repeat_n(colors, n));
         self.layout_node_mapping
             .splice(at..=at, core::iter::repeat_n(layout, n));
+        self.color_bindings
+            .splice(at..=at, core::iter::repeat_n(binding, n));
         // One item became `n`: ranges after it slide by n - 1, a range
         // containing it grows (or shrinks) by the same amount.
         let grow = n as isize - 1;
@@ -915,7 +940,8 @@ impl DisplayList {
             + self.fixed_position_item_ranges.capacity() * size_of::<(usize, usize)>()
             + self.uniform_text_bgs.capacity() * size_of::<Option<(ColorU, WindowLogicalRect)>>()
             + self.text_selection_colors.capacity() * size_of::<Option<(ColorU, ColorU)>>()
-            + self.layout_node_mapping.capacity() * size_of::<Option<(usize, EmitPhase)>>();
+            + self.layout_node_mapping.capacity() * size_of::<Option<(usize, EmitPhase)>>()
+            + self.color_bindings.capacity() * size_of::<Option<ColorKey>>();
         let mut text_instances = 0usize;
         for item in &self.items {
             bytes += Self::item_heap_bytes(item, &mut text_instances);
@@ -1428,6 +1454,28 @@ impl DisplayList {
         }
 
         damage
+    }
+
+    /// Bind the solid background rects of `node` that show `shown` to the
+    /// colour `key` ([`Self::color_bindings`]): from now on both renderers
+    /// paint them in the key's current value. The first frame of a
+    /// background fade binds the list it patched, so every later frame is a
+    /// property value. Returns how many rects were bound.
+    pub fn bind_background_color(&mut self, node: NodeId, shown: ColorU, key: ColorKey) -> usize {
+        if self.color_bindings.len() < self.items.len() {
+            self.color_bindings.resize(self.items.len(), None);
+        }
+        let mut bound = 0usize;
+        for (idx, item) in self.items.iter().enumerate() {
+            if self.node_mapping.get(idx).copied().flatten() != Some(node) {
+                continue;
+            }
+            if matches!(item, DisplayListItem::Rect { color, .. } if *color == shown) {
+                self.color_bindings[idx] = Some(key);
+                bound += 1;
+            }
+        }
+        bound
     }
 
     /// Rewrite the `ImageRef` of every `Image` item generated by `node`
@@ -3323,6 +3371,13 @@ struct DisplayListBuilder {
     /// item — see [`DisplayList::text_selection_colors`].
     pub(crate) next_text_selection_colors: Option<(ColorU, ColorU)>,
     text_selection_colors: Vec<Option<(ColorU, ColorU)>>,
+    /// The nodes whose solid background is bound to a colour key while it
+    /// fades (`GpuValueCache::color_keys` of the DOM being built): their
+    /// background rect carries the key ([`DisplayList::color_bindings`]).
+    bound_colors: BTreeMap<NodeId, ColorKey>,
+    /// One-shot: the colour key of the NEXT pushed item.
+    next_color_binding: Option<ColorKey>,
+    color_bindings: Vec<Option<ColorKey>>,
 }
 
 impl DisplayListBuilder {
@@ -3346,6 +3401,9 @@ impl DisplayListBuilder {
             uniform_text_bgs: Vec::new(),
             next_text_selection_colors: None,
             text_selection_colors: Vec::new(),
+            bound_colors: BTreeMap::new(),
+            next_color_binding: None,
+            color_bindings: Vec::new(),
         }
     }
 
@@ -3373,6 +3431,7 @@ impl DisplayListBuilder {
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
             text_selection_colors: self.text_selection_colors,
+            color_bindings: self.color_bindings,
         }
     }
 
@@ -3529,6 +3588,7 @@ impl DisplayListBuilder {
         self.uniform_text_bgs.push(self.next_text_bg.take());
         self.text_selection_colors
             .push(self.next_text_selection_colors.take());
+        self.color_bindings.push(self.next_color_binding.take());
     }
 
     pub(crate) fn build(self) -> DisplayList {
@@ -3540,6 +3600,7 @@ impl DisplayListBuilder {
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
             text_selection_colors: self.text_selection_colors,
+            color_bindings: self.color_bindings,
         }
     }
 
@@ -3613,7 +3674,20 @@ impl DisplayListBuilder {
 
         match layer {
             StyleBackgroundContent::Color(color) => {
-                self.push_rect(bounds, *color, border_radius);
+                // A background whose colour fades is bound to its key, and
+                // pushed even while transparent: a fade in from transparent
+                // has a rect to bind from its first frame.
+                match self.current_node.and_then(|n| self.bound_colors.get(&n).copied()) {
+                    Some(key) => {
+                        self.next_color_binding = Some(key);
+                        self.push_item(DisplayListItem::Rect {
+                            bounds: bounds.into(),
+                            color: *color,
+                            border_radius,
+                        });
+                    }
+                    None => self.push_rect(bounds, *color, border_radius),
+                }
             }
             StyleBackgroundContent::LinearGradient(gradient) => {
                 self.push_linear_gradient(bounds, gradient.clone(), border_radius);
@@ -4297,6 +4371,9 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     // Create builder with debug enabled if ctx has debug messages
     let debug_enabled = generator.ctx.debug_messages.is_some();
     let mut builder = DisplayListBuilder::with_debug(debug_enabled);
+    if let Some(cache) = gpu_value_cache {
+        builder.bound_colors = cache.color_keys.iter().map(|(n, k)| (*n, *k)).collect();
+    }
 
     // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
     //    becomes the background of the canvas." If the root (html) has a transparent background,
@@ -4970,6 +5047,11 @@ where
             builder.next_text_bg = patch.prev.uniform_text_bgs.get(i).copied().flatten();
             builder.next_text_selection_colors =
                 patch.prev.text_selection_colors.get(i).copied().flatten();
+            // A copied rect stays bound while its key does.
+            builder.next_color_binding = patch
+                .prev
+                .color_binding(i)
+                .filter(|key| builder.bound_colors.values().any(|k| k == key));
             let item = translate_item(patch.prev.items[i].clone(), delta);
             builder.push_item(item);
         }
@@ -12678,6 +12760,7 @@ fn paginate_pages_impl(
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
             text_selection_colors: Vec::new(),
+            color_bindings: Vec::new(),
         });
     }
 

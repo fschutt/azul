@@ -110,6 +110,16 @@ pub struct GpuStateManager {
     /// Digest of the scroll offsets last handed to the renderer.
     /// See [`GpuStateManager::submitted_digest_changed`].
     pub last_scroll_digest: Option<u64>,
+    /// The display list of each DOM as `WebRender` last received it
+    /// ([`Self::note_display_lists_submitted`]). A list changed since - an
+    /// in-place patch of a colour or gradient fade, a content patch - is
+    /// owed to the renderer even on a frame that rebuilt nothing
+    /// ([`Self::display_lists_unsubmitted`]). Weak: the renderer's copy is
+    /// its own, and a held `Arc` would make every in-place patch clone the
+    /// list. A weak reference keeps the allocation, so a new list never
+    /// reuses the address of the one it replaces.
+    pub submitted_display_lists:
+        BTreeMap<DomId, alloc::sync::Weak<crate::solver3::display_list::DisplayList>>,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -150,6 +160,18 @@ impl GpuStateManager {
         floats: &[(u64, f32)],
         transforms: &[(u64, [f32; 16])],
     ) -> bool {
+        self.gpu_values_changed_with_colors(floats, transforms, &[])
+    }
+
+    /// [`Self::gpu_values_changed`] for a set that also carries the bound
+    /// background colours (`key -> RGBA`): a colour fade frame is a change,
+    /// a colour that stood still is none.
+    pub fn gpu_values_changed_with_colors(
+        &mut self,
+        floats: &[(u64, f32)],
+        transforms: &[(u64, [f32; 16])],
+        colors: &[(u64, [u8; 4])],
+    ) -> bool {
         // Sorted by key before digesting. The caller collects these out of
         // `HashMap`s, whose iteration order is not a promise; an order that
         // flapped while the values stayed the same would report a change on a
@@ -171,6 +193,13 @@ impl GpuStateManager {
             for f in m {
                 h.push_f32(*f);
             }
+        }
+        let mut sorted_colors = colors.iter().collect::<Vec<_>>();
+        sorted_colors.sort_unstable_by_key(|(k, _)| *k);
+        h.push_u64(colors.len() as u64);
+        for (k, rgba) in sorted_colors {
+            h.push_u64(*k);
+            h.push_u64(u64::from(u32::from_be_bytes(*rgba)));
         }
         let digest = h.finish();
 
@@ -224,8 +253,48 @@ impl GpuStateManager {
             last_gpu_value_digest: None,
             last_image_digest: None,
             last_scroll_digest: None,
+            submitted_display_lists: BTreeMap::new(),
             pending_changes: GpuEventChanges::empty(),
         }
+    }
+
+    /// `WebRender` received these lists, one per DOM.
+    pub fn note_display_lists_submitted<'a>(
+        &mut self,
+        lists: impl IntoIterator<
+            Item = (DomId, &'a alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
+        >,
+    ) {
+        self.submitted_display_lists = lists
+            .into_iter()
+            .map(|(dom, list)| (dom, alloc::sync::Arc::downgrade(list)))
+            .collect();
+    }
+
+    /// Does any DOM have a display list `WebRender` has not received - one
+    /// built or patched since the last submission, or a DOM that is new or
+    /// gone? A frame that rebuilt nothing still owes the renderer such a
+    /// list: a fade patched into the list in place reached the CPU renderer
+    /// and never the GPU one, which showed the colour the fade started from.
+    #[must_use]
+    pub fn display_lists_unsubmitted<'a>(
+        &self,
+        lists: impl IntoIterator<
+            Item = (DomId, &'a alloc::sync::Arc<crate::solver3::display_list::DisplayList>),
+        >,
+    ) -> bool {
+        let mut count = 0usize;
+        for (dom, list) in lists {
+            count += 1;
+            let submitted = self
+                .submitted_display_lists
+                .get(&dom)
+                .is_some_and(|weak| core::ptr::eq(weak.as_ptr(), alloc::sync::Arc::as_ptr(list)));
+            if !submitted {
+                return true;
+            }
+        }
+        count != self.submitted_display_lists.len()
     }
 
     /// Take any queued transform / opacity events that have been accumulated

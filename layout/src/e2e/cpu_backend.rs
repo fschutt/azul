@@ -71,6 +71,10 @@ pub(super) struct CpuBackend {
     pub(super) previous_gpu_transforms:
         std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
     pub(super) previous_gpu_opacities: std::collections::HashMap<usize, f32>,
+    /// Bound background colours of the previous frame (`key.id -> colour`),
+    /// for the same diff: a colour fade changes no item either.
+    pub(super) previous_gpu_colors:
+        crate::cpurender::GpuColors,
 }
 
 impl Default for CpuBackend {
@@ -96,6 +100,7 @@ impl CpuBackend {
             previous_vview_dls: BTreeMap::new(),
             previous_gpu_transforms: std::collections::HashMap::new(),
             previous_gpu_opacities: std::collections::HashMap::new(),
+            previous_gpu_colors: std::collections::HashMap::new(),
         }
     }
 
@@ -201,7 +206,7 @@ impl CpuBackend {
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
         // In VIEWPORT space, like the shell's: an item inside a scrolled frame
         // is repainted where the frame paints it.
-        let gpu_damage = cpurender::gpu_value_damage(
+        let mut gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
@@ -209,6 +214,17 @@ impl CpuBackend {
             &gpu_opacities,
             &scroll_offsets,
         );
+        // A colour fade frame: the bound background rects whose colour moved.
+        let gpu_colors = cpurender::extract_gpu_colors(gpu_cache_early);
+        let color_damage = cpurender::color_value_damage(
+            display_list,
+            &self.previous_gpu_colors,
+            &gpu_colors,
+            &gpu_transforms,
+            &scroll_offsets,
+        );
+        gpu_damage.rects.extend(color_damage.rects);
+        gpu_damage.needs_full |= color_damage.needs_full;
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             let td: Vec<_> = gpu_transforms
@@ -251,6 +267,7 @@ impl CpuBackend {
             .collect();
         self.previous_gpu_transforms = gpu_transforms;
         self.previous_gpu_opacities = gpu_opacities;
+        self.previous_gpu_colors = gpu_colors;
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels

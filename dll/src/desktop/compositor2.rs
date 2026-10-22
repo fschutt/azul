@@ -103,6 +103,30 @@ const DEFAULT_ROOT_FONT_SIZE_PX: f32 = 16.0;
 /// half up from 0, so they never reach it.
 const WINDOW_SPACE_FRAME: u64 = u64::MAX;
 
+/// A solid rect, bound to its colour key when it has one
+/// (`DisplayList::color_bindings`): `WebRender` then paints it in the key's
+/// dynamic property, with `color` - the colour the list was built with - as
+/// the value it shows while the key has none.
+fn push_bound_rect(
+    builder: &mut WrDisplayListBuilder,
+    info: &CommonItemProperties,
+    rect: LayoutRect,
+    color: ColorF,
+    binding: Option<azul_core::resources::ColorKey>,
+) {
+    match binding {
+        Some(key) => builder.push_rect_with_animation(
+            info,
+            rect,
+            PropertyBinding::Binding(
+                webrender::api::PropertyBindingKey::new(key.id as u64),
+                color,
+            ),
+        ),
+        None => builder.push_rect(info, rect, color),
+    }
+}
+
 #[inline]
 fn color_u_to_wr(c: &ColorU) -> ColorF {
     ColorF::new(
@@ -300,6 +324,10 @@ pub fn translate_displaylist_to_wr(
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let color_f = color_u_to_wr(color);
+                // A background whose colour fades is bound to its key: the
+                // frames of the fade are property values
+                // (`synchronize_gpu_values`), not new lists.
+                let binding = display_list.color_binding(item_index);
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
@@ -371,7 +399,7 @@ pub fn translate_displaylist_to_wr(
                         "[compositor2] push_rect (with clip): {:?}",
                         rect
                     );
-                    builder.push_rect(&info_clipped, rect, color_f);
+                    push_bound_rect(&mut builder, &info_clipped, rect, color_f, binding);
                     continue;
                 }
 
@@ -380,7 +408,7 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] push_rect: {:?}",
                     rect
                 );
-                builder.push_rect(&info, rect, color_f);
+                push_bound_rect(&mut builder, &info, rect, color_f, binding);
             }
 
             DisplayListItem::SelectionRect {

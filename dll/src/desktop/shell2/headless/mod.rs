@@ -434,6 +434,11 @@ pub struct CpuBackend {
         std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
     #[cfg(feature = "cpurender")]
     pub previous_gpu_opacities: std::collections::HashMap<usize, f32>,
+    /// Bound background colours of the previous frame (`key.id -> colour`),
+    /// for the same diff: a colour fade changes no item either.
+    #[cfg(feature = "cpurender")]
+    pub previous_gpu_colors:
+        azul_layout::cpurender::GpuColors,
     /// Where zombie exits painted LAST frame (logical px) — see the
     /// zombie-damage computation in `render_frame`.
     pub previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
@@ -565,6 +570,8 @@ impl CpuBackend {
             previous_zombie_rects: Vec::new(),
             #[cfg(feature = "cpurender")]
             previous_gpu_opacities: std::collections::HashMap::new(),
+            #[cfg(feature = "cpurender")]
+            previous_gpu_colors: std::collections::HashMap::new(),
         }
     }
 
@@ -765,7 +772,7 @@ impl CpuBackend {
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
         // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
         // scrolled page) is repainted where the frame paints it.
-        let gpu_damage = cpurender::gpu_value_damage(
+        let mut gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
@@ -773,6 +780,17 @@ impl CpuBackend {
             &gpu_opacities,
             &scroll_offsets,
         );
+        // A colour fade frame: the bound background rects whose colour moved.
+        let gpu_colors = cpurender::extract_gpu_colors(gpu_cache_early);
+        let color_damage = cpurender::color_value_damage(
+            display_list,
+            &self.previous_gpu_colors,
+            &gpu_colors,
+            &gpu_transforms,
+            &scroll_offsets,
+        );
+        gpu_damage.rects.extend(color_damage.rects);
+        gpu_damage.needs_full |= color_damage.needs_full;
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
         // per-frame contribution is `previous ∪ current` painted rects
@@ -795,6 +813,7 @@ impl CpuBackend {
         // repaints read the CURRENT cache; skip only happens when unchanged).
         self.previous_gpu_transforms = gpu_transforms;
         self.previous_gpu_opacities = gpu_opacities;
+        self.previous_gpu_colors = gpu_colors;
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels

@@ -2656,6 +2656,75 @@ pub fn gpu_value_damage(
     out
 }
 
+/// The bound background colours that changed between two frames
+/// (`extract_gpu_colors` of each), damaged where each bound rect is painted:
+/// its bounds moved by the scroll frames around it and mapped through every
+/// reference frame it is inside, about each frame's origin, with the
+/// frame's live matrix (`transforms`, else the matrix the list was built
+/// with). A colour fade frame repaints its rect and nothing else. A
+/// perspective matrix around a changed rect asks for a full repaint.
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
+#[must_use]
+pub fn color_value_damage(
+    display_list: &DisplayList,
+    old_colors: &HashMap<usize, ColorU>,
+    new_colors: &HashMap<usize, ColorU>,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
+    let changed = |key: usize| old_colors.get(&key) != new_colors.get(&key);
+    let mut out = GpuValueDamage::default();
+    if new_colors.iter().all(|(k, v)| old_colors.get(k) == Some(v))
+        && old_colors.keys().all(|k| new_colors.contains_key(k))
+    {
+        return out;
+    }
+    let mut stack = ScrollStack::new(scroll_offsets);
+    // The reference frames open at the current item, outermost first: each
+    // one's origin and the matrix it is painted with.
+    let mut frames: Vec<(LogicalPosition, azul_core::transform::ComputedTransform3D)> = Vec::new();
+    for (idx, item) in display_list.items.iter().enumerate() {
+        let scrolled = stack.scrolled();
+        stack.step(item);
+        match item {
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                bounds,
+            } => {
+                let m = transforms
+                    .get(&transform_key.id)
+                    .copied()
+                    .unwrap_or(*initial_transform);
+                frames.push((moved_by(*bounds.inner(), scrolled).origin, m));
+            }
+            DisplayListItem::PopReferenceFrame => {
+                frames.pop();
+            }
+            DisplayListItem::Rect { bounds, .. } => {
+                let Some(key) = display_list.color_binding(idx) else {
+                    continue;
+                };
+                if !changed(key.id) {
+                    continue;
+                }
+                let mapped = frames
+                    .iter()
+                    .rev()
+                    .try_fold(moved_by(*bounds.inner(), scrolled), |r, (origin, m)| {
+                        affine_rect_about(m, *origin, r)
+                    });
+                match mapped {
+                    Some(r) => out.rects.push(r),
+                    None => out.needs_full = true,
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Can the user see any of what `nodes`' animations change, right now?
 ///
 /// A node's GROUP is the reference frame the display list opens for it (or,
@@ -3468,7 +3537,8 @@ fn render_display_list_range(
         if skip_ranges.iter().any(|(s, e)| i >= *s && i < *e) {
             continue;
         }
-        let item = &display_list.items[i];
+        let bound_item = item_with_bound_color(&display_list.items[i], display_list.color_binding(i), render_state);
+        let item = &*bound_item;
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
@@ -5301,6 +5371,7 @@ mod scroll_shift_tests {
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
             text_selection_colors: Vec::new(),
+            color_bindings: Vec::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {

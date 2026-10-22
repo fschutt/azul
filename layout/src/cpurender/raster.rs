@@ -1773,6 +1773,10 @@ pub struct CpuRenderState {
     /// For `WhenScrolling` mode, opacity is 1.0 when recently scrolled,
     /// fades to 0.0 after idle. For Always mode, opacity is always 1.0.
     pub opacities: HashMap<usize, f32>,
+    /// Colour values keyed by `ColorKey.id`: the backgrounds whose colour
+    /// fades, bound by `DisplayList::color_bindings` - what `WebRender`
+    /// gets as its colour bindings.
+    pub colors: HashMap<usize, ColorU>,
     /// System style for resolving system color references inside gradient
     /// stops (e.g. `system:accent` in macOS button backgrounds). When None,
     /// system color stops fall back to a transparent color.
@@ -1797,6 +1801,7 @@ impl CpuRenderState {
             scroll_offsets,
             transforms: HashMap::new(),
             opacities: HashMap::new(),
+            colors: HashMap::new(),
             system_style: None,
             clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
@@ -1844,6 +1849,7 @@ impl CpuRenderState {
             scroll_offsets: scroll_offsets.clone(),
             transforms,
             opacities,
+            colors: extract_gpu_colors(gpu_cache),
             system_style: None,
             clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
@@ -1885,6 +1891,49 @@ pub fn extract_gpu_values(
         }
 
         (transforms, opacities)
+    }
+}
+
+/// Bound background colours by `ColorKey.id` ([`extract_gpu_colors`]).
+pub type GpuColors = HashMap<usize, ColorU>;
+
+/// The bound background colours of the GPU value cache, `key.id -> colour`
+/// (`GpuValueCache::for_each_bound_color`): what the renderer paints a
+/// bound rect in, and what the damage layer diffs frame to frame.
+#[must_use]
+pub fn extract_gpu_colors(gpu_cache: Option<&azul_core::gpu::GpuValueCache>) -> GpuColors {
+    let mut colors = HashMap::new();
+    if let Some(cache) = gpu_cache {
+        cache.for_each_bound_color(|key, color| {
+            colors.insert(key, color);
+        });
+    }
+    colors
+}
+
+/// `item` as the renderer paints it: a rect bound to a colour key
+/// (`DisplayList::color_bindings`) in the key's current value, every other
+/// item as it is.
+#[must_use]
+pub fn item_with_bound_color<'a>(
+    item: &'a DisplayListItem,
+    binding: Option<azul_core::resources::ColorKey>,
+    render_state: &CpuRenderState,
+) -> alloc::borrow::Cow<'a, DisplayListItem> {
+    match (item, binding.and_then(|key| render_state.colors.get(&key.id))) {
+        (
+            DisplayListItem::Rect {
+                bounds,
+                border_radius,
+                ..
+            },
+            Some(color),
+        ) => alloc::borrow::Cow::Owned(DisplayListItem::Rect {
+            bounds: *bounds,
+            color: *color,
+            border_radius: *border_radius,
+        }),
+        _ => alloc::borrow::Cow::Borrowed(item),
     }
 }
 
@@ -1931,6 +1980,8 @@ fn render_display_list_with_state(
     let _p_loop = crate::probe::Probe::span("raster_loop");
     for (item_idx, item) in display_list.items.iter().enumerate() {
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
+        let bound_item = item_with_bound_color(item, display_list.color_binding(item_idx), render_state);
+        let item = &*bound_item;
         render_single_item(
             item,
             display_list
@@ -2353,6 +2404,8 @@ pub fn render_display_list_damaged(
 
             painted += 1;
             let _p = crate::probe::Probe::span(probe_label_for_item(item));
+            let bound_item = item_with_bound_color(item, display_list.color_binding(item_idx), render_state);
+            let item = &*bound_item;
             render_single_item(
                 item,
                 display_list

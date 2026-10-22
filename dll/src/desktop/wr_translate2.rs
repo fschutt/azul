@@ -2236,6 +2236,25 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         );
     }
 
+    // The backgrounds whose colour fades, bound by their rects
+    // (`DisplayList::color_bindings`).
+    for dom_id in layout_window.layout_results.keys() {
+        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
+            continue;
+        };
+        gpu_cache.for_each_bound_color(|key, color| {
+            properties.colors.push(PropertyValue {
+                key: webrender::api::PropertyBindingKey::new(key as u64),
+                value: webrender::api::ColorF::new(
+                    f32::from(color.r) / 255.0,
+                    f32::from(color.g) / 255.0,
+                    f32::from(color.b) / 255.0,
+                    f32::from(color.a) / 255.0,
+                ),
+            });
+        });
+    }
+
     // Nothing collected at all: nothing to send, nothing changed.
     if properties.floats.is_empty()
         && properties.transforms.is_empty()
@@ -2260,12 +2279,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         .map(|p| (p.key.id.to_u64(), p.value.to_array()))
         .collect::<Vec<_>>();
 
-    // Colors are never produced today; if that changes, a colour-only update
-    // must not be silenced by a digest that cannot see it.
-    let changed = layout_window
-        .gpu_state_manager
-        .gpu_values_changed(&float_digest_input, &transform_digest_input)
-        || !properties.colors.is_empty();
+    // The colours in the digest too: a colour fade frame is news, a colour
+    // that stood still is none.
+    let color_digest_input = properties
+        .colors
+        .iter()
+        .map(|p| {
+            let c = p.value;
+            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            (p.key.id.to_u64(), [byte(c.r), byte(c.g), byte(c.b), byte(c.a)])
+        })
+        .collect::<Vec<_>>();
+    let changed = layout_window.gpu_state_manager.gpu_values_changed_with_colors(
+        &float_digest_input,
+        &transform_digest_input,
+        &color_digest_input,
+    );
 
     if !changed {
         log_debug!(
@@ -2839,6 +2868,24 @@ pub fn build_webrender_transaction(
 /// its stable image key and WebRender's list does not name it yet.
 fn set_display_lists(
     txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+) -> Result<(), &'static str> {
+    set_display_lists_of(txn, layout_window)?;
+    let LayoutWindow {
+        ref layout_results,
+        ref mut gpu_state_manager,
+        ..
+    } = *layout_window;
+    gpu_state_manager.note_display_lists_submitted(
+        layout_results.iter().map(|(dom, r)| (*dom, &r.display_list)),
+    );
+    Ok(())
+}
+
+/// Build every DOM's display list into `txn` (see [`set_display_lists`],
+/// which records what was sent).
+fn set_display_lists_of(
+    txn: &mut WrTransaction,
     layout_window: &LayoutWindow,
 ) -> Result<(), &'static str> {
     let physical_size = layout_window.current_window_state.size.get_physical_size();
@@ -3025,7 +3072,16 @@ pub fn build_image_only_transaction(
     // slot got its key in this transaction (the display list WebRender holds
     // names the slot's previous image) or the content step built a list
     // again: then the lists go once more, at a new epoch.
-    if overlay.new_slot || textures.new_slot || lists_rebuilt {
+    // A list patched in place since the last submission (a colour or a
+    // gradient fade, a content patch) goes too: nothing else tells the
+    // renderer, which kept drawing the list as it was.
+    let lists_unsubmitted = layout_window.gpu_state_manager.display_lists_unsubmitted(
+        layout_window
+            .layout_results
+            .iter()
+            .map(|(dom, r)| (*dom, &r.display_list)),
+    );
+    if overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted {
         set_display_lists(txn, layout_window)?;
         layout_window.epoch.increment();
     } else {
