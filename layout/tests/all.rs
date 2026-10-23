@@ -292,6 +292,8 @@ mod selection_handles;
 mod session_regression;
 #[path = "statusbar_live_label.rs"]
 mod statusbar_live_label;
+#[path = "streaming_pages.rs"]
+mod streaming_pages;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
 #[path = "subtree_relayout.rs"]
