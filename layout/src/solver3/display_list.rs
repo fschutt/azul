@@ -9642,13 +9642,46 @@ pub fn paginate_display_list_with_breaks(
     breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
 ) -> Result<Vec<DisplayList>> {
-    Ok(paginate_pages_impl(
+    let mut pages = Vec::new();
+    paginate_pages_impl(
         full_display_list,
         config,
         breaks,
         renderer_resources,
         None,
-    ))
+        |page| {
+            pages.push(page);
+            Ok(())
+        },
+    )?;
+    Ok(pages)
+}
+
+/// [`paginate_display_list_with_breaks`], handing each page to `on_page` as
+/// soon as it is materialized instead of collecting them.
+///
+/// The streaming sibling: peak memory is the master display list plus ONE
+/// page, not one page per page. `on_page` is called in page order; returning
+/// `Err` stops pagination and propagates the error.
+/// # Errors
+///
+/// Returns a `LayoutError` if paginating the display list fails, or whatever
+/// `on_page` returns.
+pub fn paginate_display_list_with_breaks_streaming(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    breaks: &[page_breaks::PageBreakPosition],
+    renderer_resources: &RendererResources,
+    on_page: impl FnMut(DisplayList) -> Result<()>,
+) -> Result<()> {
+    paginate_pages_impl(
+        full_display_list,
+        config,
+        breaks,
+        renderer_resources,
+        None,
+        on_page,
+    )
 }
 
 /// Materialize ONE page of a paginated document — the lazy-viewer entry.
@@ -9669,14 +9702,19 @@ pub fn paginate_single_page(
     renderer_resources: &RendererResources,
     page_index: usize,
 ) -> Result<DisplayList> {
-    let mut pages = paginate_pages_impl(
+    let mut page = DisplayList::default();
+    paginate_pages_impl(
         full_display_list,
         config,
         breaks,
         renderer_resources,
         Some(page_index),
-    );
-    Ok(pages.pop().unwrap_or_default())
+        |p| {
+            page = p;
+            Ok(())
+        },
+    )?;
+    Ok(page)
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
@@ -9687,9 +9725,10 @@ fn paginate_pages_impl(
     breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
     only_page: Option<usize>,
-) -> Vec<DisplayList> {
+    mut on_page: impl FnMut(DisplayList) -> Result<()>,
+) -> Result<()> {
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
-        return vec![full_display_list];
+        return on_page(full_display_list);
     }
 
     let total_height = calculate_display_list_height(&full_display_list);
@@ -9703,9 +9742,9 @@ fn paginate_pages_impl(
 
     let num_pages = page_spans.len();
 
-    // Create per-page display lists by slicing the master list
-    let mut pages: Vec<DisplayList> =
-        Vec::with_capacity(num_pages.min(only_page.map_or(usize::MAX, |_| 1)));
+    // Pages are handed to `on_page` as they are built, so nothing accumulates
+    // here. `emitted` only drives the "always at least one page" fallback.
+    let mut emitted = 0usize;
 
     for (page_idx, &(content_start_y, content_end_y)) in page_spans.iter().enumerate() {
         // Lazy single-page materialization: skip every other span. PageInfo
@@ -10058,7 +10097,7 @@ fn paginate_pages_impl(
             }
         }
 
-        pages.push(DisplayList {
+        on_page(DisplayList {
             items: page_items,
             node_mapping: page_node_mapping,
             forced_page_breaks: Vec::new(),
@@ -10068,15 +10107,16 @@ fn paginate_pages_impl(
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
             text_selection_colors: Vec::new(),
-        });
+        })?;
+        emitted += 1;
     }
 
     // Ensure at least one page
-    if pages.is_empty() {
-        pages.push(DisplayList::default());
+    if emitted == 0 {
+        on_page(DisplayList::default())?;
     }
 
-    pages
+    Ok(())
 }
 
 /// Calculate page break positions respecting CSS forced page breaks.
