@@ -256,7 +256,7 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
 ///
 /// Falls back to the hardcoded `defaults::macos_modern_light()` if the
 /// Objective-C runtime cannot be loaded or if any query panics.
-pub(crate) fn discover() -> SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
     let lib = match ObjcLib::load() {
         Some(l) => l,
         None => return defaults::macos_modern_light(),
@@ -487,8 +487,9 @@ pub(crate) fn discover() -> SystemStyle {
                 lib.send_id(cur_locale, lib.sel(b"localeIdentifier\0")),
             ) {
                 // Convert "en_US" → "en-US"
+                
                 let bcp47 = ident.replace('_', "-");
-                style.language = AzString::from(bcp47);
+                style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
             }
         }
     }
@@ -505,7 +506,7 @@ pub(crate) fn discover() -> SystemStyle {
     };
 
     // ── CLI-based fallback discovery ────────────────────────────────────
-    discover_macos_cli_extras(&mut style);
+    discover_macos_cli_extras(&mut style, known_languages);
 
     // OS version: if native detection did not set it, try sw_vers
     if style.os_version == OsVersion::MACOS_SONOMA {
@@ -588,7 +589,7 @@ fn run_command_with_timeout(
 /// Fill in SystemStyle fields from `defaults read` CLI commands.
 ///
 /// Only overwrites fields that have not already been set by native discovery.
-fn discover_macos_cli_extras(style: &mut SystemStyle) {
+fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_css::system::SystemLanguage]) {
     let timeout = core::time::Duration::from_millis(500);
 
     // ── Dark mode detection ─────────────────────────────────────────────
@@ -650,8 +651,11 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
     }
 
     // ── Locale / language ───────────────────────────────────────────────
-    if style.language.as_str().is_empty() {
-        style.language = detect_language_macos();
+    if style.language.id.as_str().is_empty() {
+        
+        let bcp47 = detect_language_macos().as_str().to_string();
+        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
+        
     }
 }
 
@@ -942,7 +946,7 @@ fn adopt_probed_theme(
     // changed while leaving it every colour and metric from the OLD
     // appearance — an Aqua light/dark switch kept the light palette and only
     // the `@theme` CSS conditions moved.
-    Some(rediscovered_style_for(theme))
+    Some(rediscovered_style_for(theme, &[]))
 }
 
 /// The re-discovered style for an appearance, discovered ONCE per switch.
@@ -952,7 +956,7 @@ fn adopt_probed_theme(
 /// the window count for an identical answer. Cached against the theme it was
 /// discovered for, so a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(theme: azul_core::window::WindowTheme, known_languages: &[azul_css::system::SystemLanguage]) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
@@ -970,7 +974,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
             return alloc::sync::Arc::clone(style);
         }
     }
-    let style = alloc::sync::Arc::new(discover());
+    let style = alloc::sync::Arc::new(discover(known_languages));
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }

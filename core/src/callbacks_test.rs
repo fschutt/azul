@@ -61,7 +61,13 @@ mod autotest_generated {
         }
 
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.images,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
@@ -1364,7 +1370,13 @@ mod size_query_tests {
             }
         }
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
@@ -1540,7 +1552,13 @@ mod system_style_dependency_tests {
             }
         }
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,

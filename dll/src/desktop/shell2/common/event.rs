@@ -476,8 +476,7 @@ extern "C" fn auto_scroll_timer_callback(
             .min(scroll_info.max_scroll_y),
     };
 
-    let hierarchy_id =
-        NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
+    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
     timer_info.scroll_to(dom_id, hierarchy_id, new_pos);
 
     // DoNothing, not RefreshDom: `scroll_to` already yields
@@ -712,10 +711,12 @@ fn focus_change_per_dom(
     new_focus: Option<azul_core::dom::DomNodeId>,
 ) -> BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> {
     let mut per_dom: BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> = BTreeMap::new();
-    if let Some((dom, node)) = old_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+    if let Some((dom, node)) = old_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?)))
+    {
         per_dom.entry(dom).or_default().0 = Some(node);
     }
-    if let Some((dom, node)) = new_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+    if let Some((dom, node)) = new_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?)))
+    {
         per_dom.entry(dom).or_default().1 = Some(node);
     }
     per_dom
@@ -734,7 +735,12 @@ fn apply_focus_restyle(
     }
     let mut result = ProcessEventResult::DoNothing;
     for (dom_id, (lost, gained)) in per_dom {
-        result = result.max(apply_focus_restyle_in_dom(layout_window, dom_id, lost, gained));
+        result = result.max(apply_focus_restyle_in_dom(
+            layout_window,
+            dom_id,
+            lost,
+            gained,
+        ));
     }
     result
 }
@@ -836,10 +842,8 @@ fn stage_css_dirty(
         // hover states long since reverted — as one hitch proportional to how
         // long the user had been hovering. Merged, the list cannot outgrow the
         // DOM however long that goes on.
-        let mut merged: BTreeMap<
-            NodeId,
-            azul_css::props::property::RelayoutScope,
-        > = current.1.into_iter().collect();
+        let mut merged: BTreeMap<NodeId, azul_css::props::property::RelayoutScope> =
+            current.1.into_iter().collect();
         for (node_id, scope) in dirty {
             merged
                 .entry(node_id)
@@ -966,10 +970,7 @@ fn apply_active_restyle(
 /// something else rebuilt the DOM (`restyle_nodes_hover` was dead code).
 fn apply_hover_restyle(
     layout_window: &mut LayoutWindow,
-    changes_per_dom: BTreeMap<
-        DomId,
-        azul_core::styled_dom::HoverChange,
-    >,
+    changes_per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange>,
 ) -> ProcessEventResult {
     use azul_core::diff::ChangeAccumulator;
 
@@ -1412,8 +1413,6 @@ pub fn validation_enabled() -> bool {
 /// panic for every shell-owned write.
 fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Option<&'static str> {
     let FullWindowState {
-        // Event-bearing: `determine_all_events` turns a change in one of these
-        // into a callback, so an unconsumed delta here IS a lost event.
         size,
         position,
         flags,
@@ -3397,9 +3396,7 @@ impl CommonWindowState {
             // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
-            let resolve = |d: DomId, n: NodeId| {
-                lw.scroll_manager.get_current_offset(d, n)
-            };
+            let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
             let resolve_tf = |d: DomId, n: NodeId| {
                 lw.gpu_state_manager
@@ -3858,11 +3855,9 @@ pub trait PlatformWindow {
     /// sat on its start value and a switch froze after its first toggle.
     fn arm_css_animation_timer_if_needed(&mut self) {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
-        let needs = self
-            .get_layout_window()
-            .is_some_and(|lw| {
-                lw.needs_animation_frame() && !lw.timers.contains_key(&CSS_ANIMATION_TIMER_ID)
-            });
+        let needs = self.get_layout_window().is_some_and(|lw| {
+            lw.needs_animation_frame() && !lw.timers.contains_key(&CSS_ANIMATION_TIMER_ID)
+        });
         if !needs {
             return;
         }
@@ -3912,7 +3907,10 @@ pub trait PlatformWindow {
         // component animation functions; their changes apply like timer
         // changes, exactly as the WebRender frame path samples them.
         let mut result = ProcessEventResult::DoNothing;
-        if self.get_layout_window().is_some_and(LayoutWindow::has_track_work) {
+        if self
+            .get_layout_window()
+            .is_some_and(LayoutWindow::has_track_work)
+        {
             let track_changes = {
                 let borrows = self.prepare_callback_invocation();
                 let system_callbacks = ExternalSystemCallbacks::rust_internal();
@@ -4296,7 +4294,10 @@ pub trait PlatformWindow {
         let Some(tier) = tier else {
             return ProcessEventResult::DoNothing;
         };
-        if matches!(tier, ContentDirtyTier::Paint | ContentDirtyTier::RebuildDisplayList) {
+        if matches!(
+            tier,
+            ContentDirtyTier::Paint | ContentDirtyTier::RebuildDisplayList
+        ) {
             self.mark_display_list_dirty();
         }
         tier.to_process_event_result()
@@ -4664,11 +4665,7 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `text` - The tooltip text to display
     /// * `position` - The position where the tooltip should appear (logical coordinates)
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: &str,
-        position: LogicalPosition,
-    );
+    fn show_tooltip_from_callback(&mut self, text: &str, position: LogicalPosition);
 
     /// Hide the currently displayed tooltip.
     ///
@@ -4955,7 +4952,7 @@ pub trait PlatformWindow {
                 // headless E2E port of this handler had the same hole, which is
                 // what made every touch op inert.
                 let touch_state_changed = old_state.touch_state != state.touch_state;
-
+                
                 let anything_changed = mouse_state_changed
                     || seats_changed
                     || keyboard_state_changed
@@ -4984,7 +4981,7 @@ pub trait PlatformWindow {
                         current.keyboard_seats = state.keyboard_seats.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
-                    });
+                                            });
 
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;
@@ -4995,6 +4992,7 @@ pub trait PlatformWindow {
                 // A size OR scale change invalidates every rasterised pixel:
                 // same thing WM_DPICHANGED / the X11 DPI path do
                 // (a regeneration request tagged RelayoutReason::Resize).
+
                 if size_changed || dpi_changed {
                     // The engine relayouts because of the line below; the
                     // PLATFORM surface has to be told separately. A
@@ -5358,6 +5356,53 @@ pub trait PlatformWindow {
             CallbackChange::StopPropagation
             | CallbackChange::StopImmediatePropagation
             | CallbackChange::PreventDefault => ProcessEventResult::DoNothing,
+
+            // === Debug Server Management ===
+            #[cfg(feature = "debug-server")]
+            CallbackChange::StartHttpServer { port } => {
+                let component_map = std::sync::Arc::new(std::sync::Mutex::new(
+                    azul_core::xml::ComponentMap::default(),
+                ));
+                let (_handle, rx) =
+                    crate::desktop::shell2::common::debug_server::start_debug_server(*port);
+                let app_data = self.get_app_data().borrow().clone();
+                let window_id = self
+                    .get_current_window_state()
+                    .window_id
+                    .as_str()
+                    .to_string();
+                let get_system_time_fn =
+                    azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                        .get_system_time_fn;
+
+                let debug_timer = azul_layout::e2e::create_debug_timer(
+                    app_data,
+                    get_system_time_fn,
+                    rx,
+                    component_map,
+                    window_id,
+                );
+
+                const DEBUG_TIMER_ID: usize = 0xDEBE;
+                self.start_timer(DEBUG_TIMER_ID, debug_timer);
+                ProcessEventResult::DoNothing
+            }
+            #[cfg(not(feature = "debug-server"))]
+            CallbackChange::StartHttpServer { .. } => ProcessEventResult::DoNothing,
+
+            #[cfg(feature = "debug-server")]
+            CallbackChange::StopHttpServer => {
+                const DEBUG_TIMER_ID: usize = 0xDEBE;
+                self.stop_timer(DEBUG_TIMER_ID);
+                azul_layout::e2e::take_logs(); // Clear logs if necessary
+                if let Some(server) = azul_layout::e2e::get_debug_server() {
+                    server.shutdown();
+                    azul_layout::e2e::clear_debug_server();
+                }
+                ProcessEventResult::DoNothing
+            }
+            #[cfg(not(feature = "debug-server"))]
+            CallbackChange::StopHttpServer => ProcessEventResult::DoNothing,
 
             // === Timer Management ===
             CallbackChange::AddTimer { timer_id, timer } => {
@@ -6362,9 +6407,7 @@ pub trait PlatformWindow {
                         // Create new MultiCursorState with the cursor
                         let dom_node_id = azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(
-                                Some(*node_id),
-                            ),
+                            node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                         };
                         lw.text_edit_manager.multi_cursor =
                             Some(azul_core::selection::MultiCursorState::new_with_cursor(
@@ -6389,9 +6432,7 @@ pub trait PlatformWindow {
                     } else {
                         let dom_node_id = azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(
-                                Some(*node_id),
-                            ),
+                            node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                         };
                         let mut mc = azul_core::selection::MultiCursorState::new_with_cursor(
                             range.start,
@@ -6772,10 +6813,7 @@ pub trait PlatformWindow {
                             // painting nothing). Append first, then RE-PARENT.
                             let sd = &mut layout_result.styled_dom;
                             let new_id = NodeId::new(sd.node_data.as_ref().len());
-                            let root_id = sd
-                                .root
-                                .into_crate_internal()
-                                .unwrap_or(NodeId::ZERO);
+                            let root_id = sd.root.into_crate_internal().unwrap_or(NodeId::ZERO);
                             let root_last_before =
                                 sd.node_hierarchy.as_container()[root_id].last_child_id();
                             sd.append_child(styled);
@@ -6812,9 +6850,7 @@ pub trait PlatformWindow {
                                             h.as_container_mut()[new_id].next_sibling =
                                                 NodeId::into_raw(&None);
                                             h.as_container_mut()[new_id].parent =
-                                                NodeId::into_raw(&Some(
-                                                    *parent_node_id,
-                                                ));
+                                                NodeId::into_raw(&Some(*parent_node_id));
                                             h.as_container_mut()[*parent_node_id].last_child =
                                                 NodeId::into_raw(&Some(new_id));
                                         }
@@ -7127,6 +7163,12 @@ pub trait PlatformWindow {
                 } else {
                     ProcessEventResult::DoNothing
                 }
+            }
+            CallbackChange::SetLocale { locale } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.set_icu_locale(locale.as_str());
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
             }
         }
     }
@@ -8067,7 +8109,8 @@ pub trait PlatformWindow {
                     // Compared as DOM + node: node N of the root and node N of a
                     // VirtualView's DOM are different nodes.
                     if old_focus != new_focus {
-                        let restyle_result = apply_focus_restyle(layout_window, *old_focus, *new_focus);
+                        let restyle_result =
+                            apply_focus_restyle(layout_window, *old_focus, *new_focus);
                         result = result.max(restyle_result);
                     } else if visibility_changed {
                         result =
@@ -8391,11 +8434,7 @@ pub trait PlatformWindow {
     /// `determine_all_events` can target that cursor's events at the node
     /// under that cursor. Folds `PRIMARY_POINTER_SEAT` back into the primary
     /// path, so a caller need not special-case it.
-    fn update_seat_hit_test_at(
-        &mut self,
-        seat_id: u64,
-        position: LogicalPosition,
-    ) {
+    fn update_seat_hit_test_at(&mut self, seat_id: u64, position: LogicalPosition) {
         use azul_layout::managers::hover::InputPointId;
         let input_id = InputPointId::for_seat(seat_id);
         if input_id == InputPointId::Mouse {
@@ -8805,10 +8844,8 @@ pub trait PlatformWindow {
                             // Build callback map: NodeId → Vec<EventFilter>
                             let node_data_container =
                                 layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: BTreeMap<
-                                NodeId,
-                                Vec<EventFilter>,
-                            > = BTreeMap::new();
+                            let mut callback_map: BTreeMap<NodeId, Vec<EventFilter>> =
+                                BTreeMap::new();
 
                             for node_idx in 0..node_data_container.len() {
                                 let node_id = NodeId::new(node_idx);
@@ -9012,9 +9049,7 @@ pub trait PlatformWindow {
             // node the event was dispatched to (was a null node before).
             let hit_node = azul_core::dom::DomNodeId {
                 dom: planned.dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(
-                    planned.node_id,
-                )),
+                node: NodeHierarchyItemId::from_crate_internal(Some(planned.node_id)),
             };
             let (changes, update) = borrows.layout_window.invoke_single_callback_at(
                 hit_node,
@@ -9285,10 +9320,7 @@ pub trait PlatformWindow {
             // On Wayland: window_position is Uninitialized → falls back to window-local.
             match window_position {
                 azul_core::window::WindowPosition::Initialized(pos) => {
-                    LogicalPosition::new(
-                        pos.x as f32 + position.x,
-                        pos.y as f32 + position.y,
-                    )
+                    LogicalPosition::new(pos.x as f32 + position.x, pos.y as f32 + position.y)
                 }
                 // No reliable absolute origin → fall back to window-local coords.
                 azul_core::window::WindowPosition::Uninitialized
@@ -9475,11 +9507,7 @@ pub trait PlatformWindow {
     #[cfg(feature = "a11y")]
     fn dispatch_accessibility_actions(
         &mut self,
-        actions: Vec<(
-            DomId,
-            NodeId,
-            azul_core::dom::AccessibilityAction,
-        )>,
+        actions: Vec<(DomId, NodeId, azul_core::dom::AccessibilityAction)>,
     ) -> bool {
         if actions.is_empty() {
             return false;
@@ -9753,10 +9781,7 @@ pub trait PlatformWindow {
     ///
     /// Returns whether anything changed at all — `false` means the two styles
     /// are equal and the caller owes neither pass nor repaint.
-    fn adopt_system_style(
-        &mut self,
-        new_style: Arc<azul_css::system::SystemStyle>,
-    ) -> bool {
+    fn adopt_system_style(&mut self, new_style: Arc<azul_css::system::SystemStyle>) -> bool {
         let old_style = Arc::clone(&self.get_common_mut().system_style);
         // The WINDOW theme is what the cascade follows, so the window-theme
         // delta is the trigger — not `SystemStyle` equality. The two
@@ -10033,10 +10058,7 @@ pub trait PlatformWindow {
                             })
                             .map(|n| azul_core::dom::DomNodeId {
                                 dom: *dom_id,
-                                node:
-                                    NodeHierarchyItemId::from_crate_internal(
-                                        Some(n),
-                                    ),
+                                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
                             })
                     });
                     explicit.or_else(|| {
@@ -10623,8 +10645,7 @@ pub trait PlatformWindow {
         // result at the bottom of this function.
         let hover_restyle_result: Option<ProcessEventResult> = {
             use std::collections::BTreeMap;
-            let mut per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange> =
-                BTreeMap::new();
+            let mut per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange> = BTreeMap::new();
             for ev in &synthetic_events {
                 let is_enter = ev.event_type == azul_core::events::EventType::MouseEnter;
                 let is_leave = ev.event_type == azul_core::events::EventType::MouseLeave;
@@ -10657,8 +10678,7 @@ pub trait PlatformWindow {
         // The `:active` twin of the block above — see `apply_active_restyle`.
         let active_restyle_result: Option<ProcessEventResult> = {
             use std::collections::BTreeMap;
-            let mut pressed: BTreeMap<DomId, Vec<NodeId>> =
-                BTreeMap::new();
+            let mut pressed: BTreeMap<DomId, Vec<NodeId>> = BTreeMap::new();
             let mut released = false;
             for ev in &synthetic_events {
                 match ev.event_type {
@@ -10737,9 +10757,7 @@ pub trait PlatformWindow {
                         self.get_current_window_state()
                             .keyboard_state
                             .current_virtual_keycode,
-                        azul_core::window::OptionVirtualKeyCode::Some(
-                            VirtualKeyCode::Escape,
-                        )
+                        azul_core::window::OptionVirtualKeyCode::Some(VirtualKeyCode::Escape,)
                     ),
                     _ => false,
                 });
@@ -10890,9 +10908,7 @@ pub trait PlatformWindow {
                             hit.regular_hit_test_nodes.keys().map(move |nid| {
                                 azul_core::dom::DomNodeId {
                                     dom: *dom_id,
-                                    node: NodeHierarchyItemId::from_crate_internal(
-                                        Some(*nid),
-                                    ),
+                                    node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
                                 }
                             })
                         })
@@ -11144,9 +11160,7 @@ pub trait PlatformWindow {
         if !deferred_clipboard.is_empty() {
             let clip_target = old_focus.unwrap_or(azul_core::dom::DomNodeId {
                 dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(
-                    NodeId::ZERO,
-                )),
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
             });
             let has_paste = deferred_clipboard
                 .iter()
@@ -11626,9 +11640,9 @@ pub trait PlatformWindow {
                                     );
                                     if let Some(focus_target) = focus_target {
                                         let out_of_scope = self
-                                        .get_layout_window()
-                                        .map(LayoutWindow::focus_out_of_scope_doms)
-                                        .unwrap_or_default();
+                                            .get_layout_window()
+                                            .map(LayoutWindow::focus_out_of_scope_doms)
+                                            .unwrap_or_default();
                                         let resolve_result = resolve_focus_target(
                                             &focus_target,
                                             layout_results,
@@ -11810,10 +11824,7 @@ pub trait PlatformWindow {
                                                     lw.scroll_manager.scroll_by(
                                                         ancestor.dom,
                                                         anc_node,
-                                                        LogicalPosition {
-                                                            x: dx,
-                                                            y: dy,
-                                                        },
+                                                        LogicalPosition { x: dx, y: dy },
                                                         std::time::Duration::from_millis(150)
                                                             .into(),
                                                         azul_core::events::EasingFunction::EaseOut,
@@ -12520,8 +12531,8 @@ pub trait PlatformWindow {
             && !needs_layout_regeneration
         {
             let mut debug_messages = None;
-            if let Err(e) =
-                self.incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+            if let Err(e) = self
+                .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
             {
                 crate::log_warn!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Layout,
@@ -13163,10 +13174,7 @@ pub trait PlatformWindow {
     }
 
     /// Handle scrollbar drag - update scroll position based on mouse delta.
-    fn handle_scrollbar_drag(
-        &mut self,
-        current_pos: LogicalPosition,
-    ) -> ProcessEventResult {
+    fn handle_scrollbar_drag(&mut self, current_pos: LogicalPosition) -> ProcessEventResult {
         use azul_core::{dom::ScrollbarOrientation, hit_test::ScrollbarHitId};
 
         let drag_state = match self.get_scrollbar_drag_state() {
@@ -13300,14 +13308,14 @@ mod tests {
             styled_dom::{NodeHierarchyItemId, StyledDom},
         };
         use azul_layout::{
-            callbacks::ExternalSystemCallbacks, window::LayoutWindow,
-            window_state::FullWindowState,
+            callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
         };
 
         fn two_level(text: &str) -> StyledDom {
             let mut dom = Dom::create_node(NodeType::Div).with_child(
-                Dom::create_node(NodeType::Div)
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+                Dom::create_node(NodeType::Div).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(text),
+                ),
             );
             StyledDom::create(&mut dom, azul_css::css::Css::empty())
         }
@@ -13328,11 +13336,17 @@ mod tests {
 
         let node = NodeId::new(1);
         let focused = |lw: &LayoutWindow, dom: DomId| {
-            lw.layout_results[&dom].styled_dom.styled_nodes.as_container()[node]
+            lw.layout_results[&dom]
+                .styled_dom
+                .styled_nodes
+                .as_container()[node]
                 .styled_node_state
                 .focused
         };
-        assert!(!focused(&lw, DomId::ROOT_ID) && !focused(&lw, child), "harness: nothing focused");
+        assert!(
+            !focused(&lw, DomId::ROOT_ID) && !focused(&lw, child),
+            "harness: nothing focused"
+        );
 
         let target = DomNodeId {
             dom: child,
@@ -13340,7 +13354,10 @@ mod tests {
         };
         let _ = apply_focus_restyle(&mut lw, None, Some(target));
 
-        assert!(focused(&lw, child), "the nested DOM's node must take :focus");
+        assert!(
+            focused(&lw, child),
+            "the nested DOM's node must take :focus"
+        );
         assert!(
             !focused(&lw, DomId::ROOT_ID),
             "the root node with the same index took :focus"
@@ -13426,7 +13443,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unconsumed input delta at test.move: previous_window_state.position")]
+    #[should_panic(
+        expected = "unconsumed input delta at test.move: previous_window_state.position"
+    )]
     fn check_input_delta_consumed_panics_on_an_unconsumed_window_move() {
         require_validation_gate();
         let (previous, mut current) = state_pair();

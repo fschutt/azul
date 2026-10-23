@@ -315,6 +315,32 @@ fn link_shared(target: &str, src: &Path, is_system: bool, out_dir: &str, bin_dir
     };
     println!("cargo:warning=Linking against {} [{}]", src.display(), kind);
 
+    if !is_system {
+        // Verify the local dylib is not older than the FFI API definition.
+        // If it is, the struct layouts or exported symbols have changed and
+        // linking against it will cause undefined symbol errors or memory corruption.
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            let api_json = Path::new(&manifest_dir).join("../doc/api.json");
+            if let (Ok(dylib_meta), Ok(api_meta)) = (fs::metadata(&src), fs::metadata(&api_json)) {
+                if let (Ok(dylib_time), Ok(api_time)) = (dylib_meta.modified(), api_meta.modified()) {
+                    if api_time > dylib_time {
+                        panic!(
+                            "\n\n================================================================================\n\
+                            FATAL: Your pre-compiled dynamic library is out of date!\n\
+                            ================================================================================\n\n\
+                            The API definition (doc/api.json) was modified more recently than the library:\n  {}\n\n\
+                            This causes ABI mismatches, leading to linker errors or memory corruption.\n\
+                            Please rebuild the dynamic library before building the client app:\n\n    \
+                            cargo build --release -p azul-dll --features build-dll\n\n\
+                            ================================================================================\n\n",
+                            src.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     if dir_str.contains("/debug") && !dir_str.contains("/release") {
         println!(
             "cargo:warning=Note: linking against debug build of libazul — \
@@ -413,15 +439,24 @@ fn refuse_to_overwrite_the_linked_library(found_in: &Path, out_dir: &str, target
         return;
     }
     panic!(
-        "\n\nrefusing to build azul-dll for link-dynamic into {dir}:\n\
-         this build would overwrite the library it links against ({lib}) with an\n\
-         empty stub (azul-dll is also a cdylib, and cargo copies it into that same\n\
-         directory).\n\n\
-         Build the consumer into a separate target directory; it still finds the\n\
-         prebuilt library in {dir}:\n\n    \
-         CARGO_TARGET_DIR=target/consumer cargo build ...\n\n\
-         or point AZ_LINK_PATH at a copy of the library outside the target directory.\n\
-         (`cargo check` is refused too: a build script cannot tell it from a build.)\n",
+        "\n\n================================================================================\n\
+         FATAL: Refusing to build azul-dll for 'link-dynamic' into {dir}\n\
+         ================================================================================\n\n\
+         Cargo is about to overwrite your pre-compiled {lib} with an empty stub!\n\n\
+         Because `azul-dll` is configured as a `cdylib`, Cargo will output a new \n\
+         {lib} to {dir} whenever you build a crate that depends on it. \n\
+         Since the `build-dll` feature is not set, Cargo will write an empty stub, \n\
+         permanently destroying your real library.\n\n\
+         To bypass this locally, you have two options:\n\n\
+         Option 1: Use a different target directory (Recommended)\n\
+         Tell Cargo to put the build artifacts in a different folder so it doesn't \n\
+         overwrite the DLL. It will automatically find and link the real DLL:\n\n    \
+         CARGO_TARGET_DIR=target/demo cargo build ...\n\n\
+         Option 2: Switch to Static Linking\n\
+         Change `features = [\"link-dynamic\"]` to `features = [\"link-static\"]` in your \n\
+         consumer's Cargo.toml. This statically links the engine, avoiding the issue.\n\n\
+         (Note: `cargo check` is refused too, as a build script cannot distinguish it \n\
+         from a build).\n\n",
         dir = found_in.display(),
         lib = lib_filename(target),
     );

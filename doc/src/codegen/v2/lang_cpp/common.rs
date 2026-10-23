@@ -374,7 +374,7 @@ pub fn is_vec_type(struct_def: &StructDef) -> bool {
 /// `copyFromPtr` for has exactly these four fields.
 pub fn has_vec_layout(struct_def: &StructDef) -> bool {
     let has = |n: &str| struct_def.fields.iter().any(|f| f.name == n);
-    struct_def.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor")
+    struct_def.fields.len() == 5 && has("ptr") && has("len") && has("cap") && has("destructor")
 }
 
 /// Check if a struct is a String type

@@ -2140,6 +2140,28 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
+            // Copy manual images from doc/guide/en/images/ to
+            // <deploy>/guide/images/ so standard markdown images resolve.
+            let guide_images_src = project_root.join("doc/guide/en/images");
+            let guide_images_dst = output_dir.join("guide/images");
+            if guide_images_src.is_dir() {
+                fs::create_dir_all(&guide_images_dst)?;
+                let mut copied = 0usize;
+                for entry in fs::read_dir(&guide_images_src)? {
+                    let entry = entry?;
+                    let from = entry.path();
+                    if from.extension().map(|e| e == "png" || e == "jpg" || e == "svg").unwrap_or(false) {
+                        let to = guide_images_dst.join(from.file_name().unwrap());
+                        fs::copy(&from, &to)?;
+                        copied += 1;
+                    }
+                }
+                println!(
+                    "  [OK] Copied {} image(s) to guide/images/",
+                    copied
+                );
+            }
+
             // Verify all example files exist before proceeding
             let examples_dir = project_root.join("examples");
             println!("Verifying example files...");
