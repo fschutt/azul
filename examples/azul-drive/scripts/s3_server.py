@@ -757,6 +757,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if self.headers.get("Authorization") and not payload_hash:
                 raise S3Error(400, "InvalidRequest", "Missing required header for this request: "
                                                      "x-amz-content-sha256")
+            # an Azlin node's front, before the request is read as S3: a hello below the
+            # minimum (426), a client's older map epoch (409 map_stale)
+            if self.server.front is not None:
+                refused = self.server.front(self.headers, bucket)
+                if refused is not None:
+                    record["op"] = "Front"
+                    self.fail(refused, resource, refused.headers)
+                    return
             self.authenticate(raw_path, query_pairs, payload_hash or EMPTY_SHA256)
             fault = self.server.fault_of(bucket)
             if fault is not None:
@@ -773,6 +781,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     why = ("This drive was closed after its ban." if closed else
                            "This drive is banned: it takes no writes and serves no links.")
                     error = self.server.node_failure("drive_banned", why)
+                    self.fail(error, resource, error.headers)
+                    return
+            # a write to a read-only bucket: the node code of its reason
+            if self.server.read_only_of is not None and self.command in ("PUT", "POST", "DELETE"):
+                code = self.server.read_only_of(bucket)
+                if code is not None:
+                    record["op"] = "ReadOnly"
+                    error = self.server.node_failure(code, "This drive takes no writes now.")
                     self.fail(error, resource, error.headers)
                     return
             if payload_hash and payload_hash.startswith("STREAMING-"):
@@ -1127,6 +1143,10 @@ class Server(http.server.ThreadingHTTPServer):
         self.space_quota = None
         # With it HeadBucket signs its count (x-azlin-usage-proof): (bucket, held) -> header.
         self.usage_proof = None
+        # An Azlin node's front: (request headers, bucket) -> a NodeError to answer, or None.
+        self.front = None
+        # An Azlin node's read-only buckets: bucket -> the node code a write gets, or None.
+        self.read_only_of = None
         # With it the writes keep to that quota as a node's do (check_quota).
         self.enforce_quota = False
         # The node codes' statuses and S3 codes (NODE_ERRORS; the mock stack's: the contract's).

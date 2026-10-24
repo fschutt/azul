@@ -81,3 +81,34 @@ def idempotent_scopes():
 
 
 ALREADY_ANSWERED = 'already_answered'
+# idempotency.rs IDEMPOTENCY_REQUIRED: an app's grant sent without its key.
+IDEMPOTENCY_REQUIRED = 'idempotency_required'
+
+
+def min_contract():
+    """The crate's MIN_CONTRACT (src/hello.rs): the oldest contract the services answer."""
+    if 'min' not in _cache:
+        with open(os.path.join(CRATE, 'src', 'hello.rs'), encoding='utf-8') as f:
+            found = re.search(r'^pub const MIN_CONTRACT: u32 = (\d+);$', f.read(), re.M)
+        if not found:
+            raise ValueError('no MIN_CONTRACT in the contract crate')
+        _cache['min'] = int(found.group(1))
+    return _cache['min']
+
+
+def below_minimum(hello):
+    """Whether the hello `hello` (`azdrive/0.3.0; contract=3`) is refused 426 client_too_old
+    (hello.rs `ClientMinimum::refuses`): one that does not read, or an older contract. The
+    per-app version floors (MIN_VERSIONS) are empty."""
+    first, _, rest = hello.partition(';')
+    app, _, version = first.strip().partition('/')
+    if not re.fullmatch(r'[a-z0-9-]{1,32}', app.strip().lower()) \
+            or not re.fullmatch(r'\d+\.\d+\.\d+([-+].*)?', version.strip()):
+        return True
+    contract = None
+    for field in rest.split(';'):
+        key, _, value = field.partition('=')
+        if key.strip() == 'contract' and value.strip().isdigit():
+            contract = int(value.strip())
+            break
+    return contract is None or contract < min_contract()

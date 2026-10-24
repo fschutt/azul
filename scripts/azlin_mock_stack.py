@@ -664,6 +664,10 @@ def token_hash(token):
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
+# The node code of each read-only reason (azlin-contract read_only.rs, fixtures/read_only_why.json).
+READ_ONLY_CODES = {e['why']: e['code'] for e in azlin_contract.fixture('read_only_why.json')}
+
+
 class ApiError(Exception):
     def __init__(self, status, code, message, extra=None):
         super().__init__(message)
@@ -708,6 +712,9 @@ class TokenState:
         self.lock = threading.Lock()
         # Signs HeadBucket's count of a bucket's bytes (usage_proof), as a node's identity does.
         self.usage_key = secrets.token_bytes(32)
+        # The cluster map the token server trusts and the nodes hold (set_map_epoch); None: no
+        # map yet, so no request is told its map is stale.
+        self.map = None
         # The node list and the failover URLs every bundle names (set_nodes).
         self.nodes = [node_entry('n1', s3_url)]
         self.failover = []
@@ -867,7 +874,9 @@ class TokenState:
             'failover': list(self.failover),
             'nodes': [dict(n) for n in self.nodes],
             'quota_bytes': drive['quota_bytes'],
-            'read_only': False,
+            'read_only': self.read_only_why(drive) is not None,
+            'read_only_reason': self.read_only_why(drive),
+            'map': dict(self.map) if self.map else None,
             'period_until': rfc3339(drive['period_until']),
             # every device sees a pending recovery-key lockdown at its refresh (F12)
             'lockdown_pending_until': (rfc3339(drive['lockdown_pending_until'])
@@ -1824,6 +1833,7 @@ class TokenState:
                        for member in sorted(added)]
             return {'id': drive['id'], 'tier': drive['tier'],
                     'quota_bytes': drive['quota_bytes'], 'read_only': read_only,
+                    'read_only_reason': self.read_only_why(drive),
                     'status': 'active', 'period_until': rfc3339(drive['period_until']),
                     'lockdown_pending_until': rfc3339(pending) if pending else None,
                     'you': state.get('member', 'owner'), 'members': members,
@@ -1860,11 +1870,59 @@ class TokenState:
                     return drive.get('quota_bytes')
         return None
 
-    def set_read_only(self, drive_id, read_only=True):
-        """A test's switch: drive `drive_id` takes no writes (unpaid past its grace) - its
-        status says `read_only` (the S3 server is not told)."""
+    def set_read_only(self, drive_id, read_only=True, why='unpaid'):
+        """A test's switch: drive `drive_id` takes no writes for `why` (`unpaid` past its grace,
+        `lockdown_pending`, `operator`) - its status and refresh say `read_only` and
+        `read_only_reason`, and the node refuses writes with that reason's code."""
         with self.lock:
-            self.drives[drive_id]['read_only'] = bool(read_only)
+            drive = self.drives[drive_id]
+            drive['read_only'] = bool(read_only)
+            drive['read_only_reason'] = why if read_only else None
+
+    def read_only_why(self, drive):
+        """Why `drive` takes no writes (buckets.read_only_reason), None while it takes them: a
+        pending recovery-key lockdown freezes it too. The caller holds the lock."""
+        if drive.get('lockdown_pending_until'):
+            return 'lockdown_pending'
+        if drive.get('read_only'):
+            return drive.get('read_only_reason') or 'unpaid'
+        return None
+
+    def read_only_code(self, bucket):
+        """The node code a write to `bucket` gets (read_only.rs: each reason its code), None
+        while the drive takes writes."""
+        with self.lock:
+            for drive in self.drives.values():
+                if drive.get('bucket') == bucket:
+                    why = self.read_only_why(drive)
+                    return READ_ONLY_CODES.get(why) if why else None
+        return None
+
+    def set_map_epoch(self, epoch, hash_hex=None):
+        """A test's switch: the cluster map the token server trusts and the nodes hold moves to
+        `epoch` (refresh and sign-up name it in `map`); a request naming an older one in
+        x-azlin-map is answered 409 map_stale with the node's epoch and hash."""
+        with self.lock:
+            self.map = {'cluster': 'mock', 'epoch': int(epoch),
+                        'hash': hash_hex or hashlib.sha256(b'map %d' % int(epoch)).hexdigest()}
+
+    def node_front(self, headers, bucket):
+        """s3d's `Front::call`: an app below the minimum gets 426 client_too_old (with
+        x-azlin-min-contract), a request naming an older map epoch than the node's 409
+        map_stale (with the node's `epoch hash` in x-azlin-map); None lets it go on."""
+        hello = headers.get(azlin_contract.CLIENT_HEADER)
+        if hello is not None and azlin_contract.below_minimum(hello):
+            error = self.s3.node_failure('client_too_old', 'this app is too old for this service')
+            error.headers['x-azlin-min-contract'] = str(azlin_contract.min_contract())
+            return error
+        asked = (headers.get('x-azlin-map') or '').strip()
+        with self.lock:
+            held = self.map
+        if held is not None and asked.isdigit() and int(asked) < held['epoch']:
+            error = self.s3.node_failure('map_stale', 'the map is newer: fetch it and send again')
+            error.headers['x-azlin-map'] = '%d %s' % (held['epoch'], held['hash'])
+            return error
+        return None
 
     def set_recovery(self, drive_id, bearer, body, key=None):
         """POST /v1/drives/<id>/recovery (recovery.rs `set_only`, a grant): the drive's only
@@ -2698,6 +2756,11 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         key (as the token server, idempotent.rs `Once::of`)."""
         value = self.headers.get(azlin_contract.IDEMPOTENCY_HEADER)
         if value is None:
+            # an app names every grant; only a caller that is no app (no hello) may leave the
+            # key out
+            if self.headers.get(azlin_contract.CLIENT_HEADER) is not None:
+                raise ApiError(400, azlin_contract.IDEMPOTENCY_REQUIRED,
+                               'a grant needs its x-azlin-idempotency key')
             return None
         if not azlin_contract.is_idempotency_key(value):
             raise ApiError(400, 'bad_request', 'x-azlin-idempotency: 22 characters of base64url')
@@ -2712,6 +2775,12 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
 
     def route(self):
         state = self.server.state
+        # the token server's router: an app below the minimum is told to update, before
+        # anything else; no hello is no app and goes on
+        hello = self.headers.get(azlin_contract.CLIENT_HEADER)
+        if hello is not None and azlin_contract.below_minimum(hello):
+            raise ApiError(426, 'client_too_old', 'this app is too old for this service: update it',
+                           {'min_contract': azlin_contract.min_contract()})
         path, _, query_text = self.path.partition('?')
         path = path.strip('/')
         query = urllib.parse.parse_qs(query_text)
@@ -2956,6 +3025,8 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     # and keeps every write to that quota as a node does (parts of unfinished uploads count).
     s3.space_quota = state.quota_of_bucket
     s3.usage_proof = state.usage_proof
+    s3.front = state.node_front
+    s3.read_only_of = state.read_only_code
     s3.enforce_quota = True
     # The node codes' statuses and S3 codes: the contract crate's.
     s3.azlin_errors = azlin_contract.azlin_errors()
@@ -3000,6 +3071,39 @@ def self_test():
         assert status == 200 and headers.get('x-azlin-used-bytes') == '10', (status, headers)
         assert headers.get('x-azlin-quota-bytes') == str(drive['quota_bytes']), headers
         print('ok: HeadBucket names the stored bytes and the quota of the drive\'s tier')
+        # The version minimum, the key an app's grant needs, the map epoch, why a drive is
+        # read-only: as the token server and the nodes answer them.
+        token = locked['drive_token']
+        old_app = {azlin_contract.CLIENT_HEADER: 'azdrive/0.1.0; contract=%d'
+                   % (azlin_contract.min_contract() - 1)}
+        status, value, _ = client.call('GET', path, bearer=token, headers=old_app)
+        assert status == 426 and value['error'] == 'client_too_old', (status, value)
+        assert value['min_contract'] == azlin_contract.min_contract(), value
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '', headers=old_app)
+        assert status == 426 and headers.get('x-azlin-error') == 'client_too_old', (status, headers)
+        app = {azlin_contract.CLIENT_HEADER: azlin_contract.client_hello('azdrive', '0.3.0')}
+        status, value, _ = client.call('POST', path + '/members', {'member': 'tablet'},
+                                       bearer=token, headers=app)
+        assert status == 400 and value['error'] == azlin_contract.IDEMPOTENCY_REQUIRED, value
+        assert status == 400 and not any(f.get('member') == 'tablet'
+                                         for f in state.families.values()), 'nothing granted'
+        state.set_map_epoch(7)
+        status, value, _ = client.refresh(drive_id, token)
+        assert status == 200 and value['map']['epoch'] == 7, (status, value)
+        token = value['drive_token']
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '', headers={'x-azlin-map': '6'})
+        assert status == 409 and headers.get('x-azlin-error') == 'map_stale', (status, headers)
+        assert headers.get('x-azlin-map', '').startswith('7 '), headers
+        assert s3.request('HEAD', drive['bucket'], '', headers={'x-azlin-map': '7'})[0] == 200
+        state.set_read_only(drive_id, why='operator')
+        status, value, _ = client.call('GET', path, bearer=token)
+        assert value['read_only'] and value['read_only_reason'] == 'operator', value
+        status, headers, _ = s3.request('PUT', drive['bucket'], 'data/y', body=b'y')
+        assert status == 403 and headers.get('x-azlin-error') == 'read_only_operator', headers
+        state.set_read_only(drive_id, False)
+        assert s3.request('PUT', drive['bucket'], 'data/y', body=b'y')[0] == 200
+        print('ok: the minimum (426), an app\'s unkeyed grant (400), the map epoch (409), '
+              'the read-only reason\'s code')
         # By the recovery key.
         _, bundle, _ = client.signup('self-test-recovery')
         drive_id, owner = bundle['drive']['id'], bundle['drive_token']
