@@ -137,7 +137,9 @@ fn every_row_of_the_table_does_what_it_says() {
 }
 
 #[test]
-fn a_stale_copy_of_a_file_deleted_elsewhere_is_deleted_not_brought_back() {
+fn a_file_this_device_never_synced_is_never_deleted_by_a_tombstone_nor_sent_back() {
+    // A fresh pairing (a re-login, lost state): no base. The drive deleted old.md elsewhere and
+    // this device holds the same bytes. Deleting it here would make a login remove a file.
     let mut remote = RemoteIndex::empty();
     remote.deleted.insert(
         String::from("old.md"),
@@ -162,16 +164,48 @@ fn a_stale_copy_of_a_file_deleted_elsewhere_is_deleted_not_brought_back() {
         device: "d",
         date: "x",
     });
+    let old = String::from("old.md");
+    assert!(
+        !actions.contains(&Action::DeleteLocal { key: old.clone() }),
+        "never deleted: {actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::Upload { key: old }),
+        "not sent back either, so the delete stands on every device: {actions:?}"
+    );
+    assert!(actions.contains(&Action::Upload {
+        key: String::from("new.md")
+    }));
+}
+
+#[test]
+fn a_tombstone_still_deletes_a_file_this_device_synced_before() {
+    let mut remote = RemoteIndex::empty();
+    remote.deleted.insert(
+        String::from("a.md"),
+        Tombstone {
+            hash: h('1'),
+            gen: 4,
+            at: 0,
+            device: String::from("dev-b"),
+        },
+    );
+    let bases: BTreeMap<String, BaseEntry> = [(String::from("a.md"), base('1'))].into();
+    let locals: BTreeMap<String, LocalFile> = [(String::from("a.md"), local('1'))].into();
+    let never = |_: &str| false;
+    let actions = plan(&PlanInput {
+        base: &bases,
+        local: &locals,
+        remote: &remote,
+        excluded: &never,
+        device: "d",
+        date: "x",
+    });
     assert_eq!(
         actions,
-        vec![
-            Action::Upload {
-                key: String::from("new.md")
-            },
-            Action::DeleteLocal {
-                key: String::from("old.md")
-            },
-        ]
+        vec![Action::DeleteLocal {
+            key: String::from("a.md")
+        }]
     );
 }
 

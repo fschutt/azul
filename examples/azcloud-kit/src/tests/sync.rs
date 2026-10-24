@@ -434,7 +434,7 @@ fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key() {
 }
 
 #[test]
-fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
+fn a_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_kept_listed_and_not_sent() {
     let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("old.md", b"old");
@@ -445,10 +445,42 @@ fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
     // A device restored from a backup that still holds old.md, never synced.
     let c = Device::new("dev-c");
     c.write("old.md", b"old");
-    let report = c.sync(&store);
-    assert_eq!(report.deleted_here, 1, "{}", report.summary());
-    assert!(c.read("old.md").is_none());
+    for pass in 0..2 {
+        let report = c.sync(&store);
+        assert_eq!(report.deleted_here, 0, "pass {pass}: {}", report.summary());
+        assert!(
+            report.skipped.iter().any(|(key, _)| key == "old.md"),
+            "pass {pass}: listed for the user: {:?}",
+            report.skipped
+        );
+        assert_eq!(c.read("old.md").as_deref(), Some(&b"old"[..]));
+        let index = index_of(&store);
+        assert!(!index.files.contains_key("old.md"), "pass {pass}: not sent back");
+        assert!(index.deleted.contains_key("old.md"), "the delete stands");
+    }
     assert_eq!(c.read("keep.md").as_deref(), Some(&b"keep"[..]));
+}
+
+#[test]
+fn a_relogin_after_the_state_was_lost_never_deletes_a_file_the_drive_deleted_meanwhile() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    a.write("old-plan.txt", b"the old plan");
+    a.write("current.txt", b"current");
+    a.sync(&store);
+    b.sync(&store);
+    // a logs out (its state goes), b deletes the file meanwhile, a logs in again.
+    fs::remove_file(a.index()).unwrap();
+    b.remove("old-plan.txt");
+    b.sync(&store);
+    for _ in 0..2 {
+        let report = a.sync(&store);
+        assert_eq!(report.deleted_here, 0, "{}", report.summary());
+    }
+    assert_eq!(a.read("old-plan.txt").as_deref(), Some(&b"the old plan"[..]));
+    assert_eq!(a.read("current.txt").as_deref(), Some(&b"current"[..]));
+    assert!(!index_of(&store).files.contains_key("old-plan.txt"));
 }
 
 #[test]
