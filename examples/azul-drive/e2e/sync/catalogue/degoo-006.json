@@ -1,0 +1,26 @@
+{
+  "name": "a file over the server's per-file cap is listed as too large on every pass, the rest goes up, and it goes up once the cap is lifted",
+  "description": "DEGOO-006 (sync-chaos res-one-file-keeps-failing, srv-account-never-deleted): Degoo introduced a per-file cap and backups silently became incomplete. Rules E6 and O1: the refused file is a persistent, named problem (too-large), never a silent skip; the others go up.",
+  "pending": "drive_fault max_object_bytes (n): a 413 'entity too large' for any PUT of an object over n bytes, as a server's per-file cap",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "big/archive.tar", "size": 3000000, "seed": 39 },
+    { "op": "drive_write", "device": "a", "path": "small.txt", "text": "fits" },
+    { "op": "drive_fault", "remote": "r", "max_object_bytes": 1000000 },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "remote_file", "key": "small.txt", "text": "fits" },
+    { "op": "drive_check", "check": "remote_file", "key": "big/archive.tar", "absent": true },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "too-large", "key": "big/archive.tar", "when": "last" },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "too-large", "key": "big/archive.tar", "when": "last" },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "big/archive.tar", "size": 3000000 },
+    { "op": "drive_fault", "remote": "r", "clear": true },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "remote_file", "key": "big/archive.tar", "same_as": "{root:a}/big/archive.tar" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "too-large", "absent": true, "when": "last" },
+    { "op": "drive_cleanup" }
+  ]
+}

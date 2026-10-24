@@ -1,0 +1,49 @@
+[
+  {
+    "name": "a video goes up like any other file: no type is refused",
+    "description": "TERABOX-017 (sync-chaos mobile-camera-upload): TeraBox blocked video uploads for free mobile users. Rule O1: AzDrive refuses no file for its type; a video uploads byte for byte.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Camera/IMG_0001.MOV", "size": 3000000, "seed": 17 },
+      { "op": "drive_write", "device": "a", "path": "Camera/IMG_0002.HEIC", "size": 400000, "seed": 18 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 2 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Camera/IMG_0001.MOV", "same_as": "{root:a}/Camera/IMG_0001.MOV" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Camera/IMG_0002.HEIC", "same_as": "{root:a}/Camera/IMG_0002.HEIC" },
+      { "op": "drive_check", "check": "remote_file", "key": "Camera/IMG_0001.MOV", "same_as": "{root:a}/Camera/IMG_0001.MOV" },
+      { "op": "drive_problems", "device": "a" },
+      { "op": "assert_response", "path": "result.problems", "len": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a backup stopped by the system says paused, and resumes where it stopped",
+    "description": "TERABOX-017 (sync-chaos mobile-camera-upload): iOS background limits stopped TeraBox's backups unless the app was opened, silently. Rules E8 and O1: a pass the OS suspends shows 'paused by the system' (never up to date), and continues after without sending any finished file again.",
+    "pending": "drive_suspend {device} / drive_resume {device} (the OS suspends and wakes the app's background work, as iOS BGProcessingTask expiry or Android Doze); a drive_status status key for it, e.g. paused-by-os",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "c", "dir": "Camera", "count": 40, "size": 50000, "seed": 19 },
+      { "op": "drive_sync", "device": "c", "pause_at": "after-blob" },
+      { "op": "drive_suspend", "device": "c" },
+      { "op": "drive_cont", "device": "c" },
+      { "op": "drive_status", "device": "c" },
+      { "op": "assert_response", "path": "result.status", "equals": "paused-by-os" },
+      { "op": "drive_resume", "device": "c" },
+      { "op": "drive_wait", "device": "c" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "remote_count", "glob": "Camera/*", "count": 40 },
+      { "op": "drive_counters", "device": "c" },
+      { "op": "assert_response", "path": "result.ops.put", "at_most": 42 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -1,0 +1,53 @@
+[
+  {
+    "name": "a 32 MiB upload over a connection cut again and again: the drive never names a short object, and the stored file is byte for byte",
+    "description": "DEGOO-007 (sync-chaos res-partition-mid-transfer, res-netem-lossy-link): an 8 GB Degoo upload was later shown as 6.84 GB. Rules E5, A7 and A5: blobs first, then the index; after every cut the index names only whole objects, and the stored size and hash equal the local ones before the file counts as uploaded.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 33554432, "seed": 40 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 2 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true, "cut_after_ops": 4 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_check", "check": "remote_file", "key": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.files[\"big.bin\"].size", "equals": 33554432 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a stored object the server cut short later is refused by its hash: no short file appears",
+    "description": "DEGOO-007: the stored file 'reduced itself'. Rules S15 and A5: a short body fails the hash, the download is refused and listed (hash-mismatch), no temp file and no short file is left.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "video.mp4", "size": 8000000, "seed": 41 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_tamper", "remote": "r2", "action": "truncate_blob", "key": "video.mp4", "keep": 6840000 },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "hash-mismatch", "key": "video.mp4" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "video.mp4", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "d" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "video.mp4", "size": 8000000 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

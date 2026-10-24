@@ -1,0 +1,32 @@
+[
+  {
+    "name": "the server deletes every file of the account: the device holds the deletes, every local copy survives",
+    "description": "DEGOO-001 (sync-chaos srv-account-never-deleted, client side): Degoo's cancelbot closed accounts and deleted every file, local copies were the only survivors. Rules D1 and D2: a remote that suddenly deletes everything is a mass delete, held for the user; nothing local is touched or trashed.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Videos", "count": 14, "size": 20000, "seed": 34 },
+      { "op": "drive_write", "device": "a", "path": "secret.cloudencoded2", "size": 5000, "seed": 1 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "Videos/*", "count": 14 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "secret.cloudencoded2", "size": 5000 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "trash", "check": "max_ops", "device": "a", "max": 0 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held", "when": "last" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "Videos/*", "count": 14 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an abuse flag never deletes an account's data without a human review",
+    "description": "DEGOO-001: the deletion itself is a server policy (rule V7): an abuse flag leads to read-only, notices, an audit log and a human review.",
+    "not_applicable": "the account-deletion policy lives in the token server and iso, not in AzDrive; AzDrive's stand-in remote has no account. It is sync-chaos srv-account-never-deleted (dc mode, azctl test money)",
+    "steps": []
+  }
+]

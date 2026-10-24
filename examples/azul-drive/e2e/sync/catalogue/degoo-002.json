@@ -1,0 +1,41 @@
+[
+  {
+    "name": "a quota cut below the usage refuses new uploads by name, keeps downloads going and deletes nothing",
+    "description": "DEGOO-002 (sync-chaos srv-account-never-deleted, client side): Degoo cut free quotas below usage and scheduled whole accounts for termination. Rules E4, O1 and V7: over quota the drive is read-only for new bytes; each refused file is listed with quota-exceeded and stays here untouched, the other device still downloads, nothing anywhere is deleted, and more room lets it go up.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "old1.bin", "size": 400000, "seed": 21 },
+      { "op": "drive_write", "device": "a", "path": "old2.bin", "size": 400000, "seed": 22 },
+      { "op": "drive_write", "device": "a", "path": "old3.bin", "size": 400000, "seed": 23 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 500000 },
+      { "op": "drive_write", "device": "a", "path": "new.bin", "size": 200000, "seed": 24 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "new.bin" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "new.bin", "size": 200000 },
+      { "op": "drive_check", "check": "remote_file", "key": "new.bin", "absent": true },
+      { "op": "drive_check", "check": "remote_count", "count": 3 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old1.bin", "same_as": "{root:a}/old1.bin" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "new.bin", "same_as": "{root:a}/new.bin" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "absent": true, "when": "last" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a smaller plan never deletes an account",
+    "description": "DEGOO-002: the termination of over-quota accounts is a server policy (rule V7).",
+    "not_applicable": "the plan/termination policy is the token server's (sync-chaos srv-account-never-deleted, dc mode); the client side is the test above",
+    "steps": []
+  }
+]

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "a same-name upload from another device replaces the file, and the old version stays recoverable",
+    "description": "DEGOO-004 (sync-chaos merge-versions-no-false-conflict): a same-name upload on Degoo silently replaced the file, no trash, no version. Rule D2: the drive keeps the replaced version, so content A is recoverable after B overwrote it.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "content A" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "a.txt", "text": "content B" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "a.txt", "text": "content B" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "a.txt", "count": 0 },
+      { "op": "drive_check", "check": "kept", "texts": ["content A", "content B"] },
+      { "op": "overwrite", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the same name made on two devices independently keeps both as visible files",
+    "description": "DEGOO-004: two uploads of a.txt that never saw each other. Rule C1/C4: never overwrite; AzDrive holds it for the user (conflict-held) and keep both makes one conflict copy.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "a.txt", "text": "upload from c" },
+      { "op": "drive_write", "device": "d", "path": "a.txt", "text": "upload from d" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "assert_response", "path": "result.conflicts", "equals": 1 },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "conflict-held", "key": "a.txt" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "a.txt", "text": "upload from d" },
+      { "op": "drive_resolve", "device": "d", "key": "a.txt", "choice": "both" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "d", "path": "a.txt", "count": 1 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["upload from c", "upload from d"] },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
