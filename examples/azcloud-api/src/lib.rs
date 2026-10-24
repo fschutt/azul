@@ -463,4 +463,40 @@ pub mod iroh_lane {
         }
         Ok(addr)
     }
+
+    /// HTTPS trusts the roots the shared config names: a server under a root outside them, or
+    /// under one the set left out (distrusted), is refused at the handshake; one under a
+    /// trusted root answers.
+    #[test]
+    fn a_server_outside_the_trusted_roots_is_refused_and_one_inside_answers() {
+        use azul_core::tls_testing::{serve_tls, TestCa};
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(b.server_for_loopback());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let call = HttpCall {
+            method: Method::Get,
+            url: format!("https://127.0.0.1:{port}/bucket"),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
+        };
+        let trusting = |pems: Vec<String>| {
+            HttpsTransport::trusting(runtime.handle().clone(), HTTPS_TIMEOUT, Some(&pems)).unwrap()
+        };
+        assert!(trusting(vec![a.cert_pem.clone()]).send(&call).is_err());
+        assert!(seen.recv().unwrap().is_err(), "b's server is outside the set");
+        let set = azul_appkit::azlin_config::TrustPems {
+            pinned: Some(vec![a.cert_pem.clone(), b.cert_pem.clone()]),
+            distrusted: vec![b.cert_pem.clone()],
+        }
+        .certificates_pem()
+        .unwrap();
+        let narrowed = trusting(set);
+        assert!(!narrowed.trusts_public_roots());
+        assert!(narrowed.send(&call).is_err());
+        assert!(seen.recv().unwrap().is_err(), "b is distrusted");
+        assert_eq!(trusting(vec![b.cert_pem.clone()]).send(&call).unwrap().status, 200);
+    }
 }

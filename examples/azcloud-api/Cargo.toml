@@ -52,6 +52,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
 # relays). The same version and features as azlin-client's.
 iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"], optional = true }
 
+[dev-dependencies]
+# Throwaway roots and a loopback TLS server (azul-core's tls_testing) for the trust test.
+azul-core = { path = "../../core", default-features = false, features = ["std", "tls-testing"] }
+
 [features]
 default = ["iroh", "encryption"]
 # Without it the CLI speaks HTTPS only and `azcloud transport` says so.
