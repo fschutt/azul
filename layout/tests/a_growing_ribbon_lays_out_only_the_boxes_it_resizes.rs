@@ -483,7 +483,6 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
     let fresh = window(page(groups, places, rows, OPEN_PX));
     assert_same_layout(&lw, &fresh, "the band opened");
 }
-}
 
 /// What a frame keeps is what a fresh window lays out: at three heights of
 /// the band mid-tween, every box of the window is where a window opened with
