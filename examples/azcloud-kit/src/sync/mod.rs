@@ -2035,7 +2035,7 @@ fn run<R: SyncRemote + ?Sized>(
         }
     };
     report.generation = committed.generation;
-    for key in committed.files.keys().filter(|key| linked(key)) {
+    for key in committed.files.keys().filter(|key| linked(key.as_str())) {
         report.errors.push(format!("{key}: {THROUGH_LINK}"));
         report
             .file_errors
