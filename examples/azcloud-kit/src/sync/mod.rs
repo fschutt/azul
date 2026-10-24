@@ -1038,7 +1038,8 @@ fn merge_json_files<R: SyncRemote + ?Sized>(
 /// Where a blob's bytes come from.
 enum BlobSource {
     File(PathBuf),
-    JsonFile(PathBuf),
+    /// A JSON file merged key by key: read from the scanned file ([`BlobJob::found`]).
+    JsonFile,
     Bytes(Vec<u8>),
 }
 
@@ -1243,7 +1244,7 @@ fn job_bytes(job: &BlobJob) -> Result<Vec<u8>, String> {
             Some(found) => read_found(found)?,
             None => return Err(String::from("vanished while it was synced")),
         },
-        BlobSource::JsonFile(_) => {
+        BlobSource::JsonFile => {
             let raw = match &job.found {
                 Some(found) => read_found(found)?,
                 None => return Err(String::from("vanished while it was synced")),
@@ -1388,7 +1389,7 @@ fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
             let path = local::path_of(&work.root.path, here);
             let source = match file.content {
                 Content::Raw => BlobSource::File(path),
-                Content::JsonMerge => BlobSource::JsonFile(path),
+                Content::JsonMerge => BlobSource::JsonFile,
             };
             let found = Found {
                 root: work.root.path.clone(),
