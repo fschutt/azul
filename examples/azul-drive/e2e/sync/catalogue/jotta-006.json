@@ -1,0 +1,83 @@
+[
+  {
+    "name": "the root's disk is unplugged and an empty folder with two stale files stands in its place: nothing is deleted anywhere",
+    "description": "JOTTA-006 (Jottacloud): a backup root on a suddenly unmounted disk propagated deletes for the whole root. Rules D3 (the root's identity marker: a root that lacks it changes nothing and says root-replaced) and D1 (10 of 12 'deleted' is under the breaker, so only the marker saves this). sync-chaos delete-root-unmounted (drive_replace_root stands for the unmount).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_replace_root", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "docs/d000/f000000.txt", "text": "stale shadow copy" },
+      { "op": "drive_write", "device": "a", "path": "docs/d000/f000001.txt", "text": "stale shadow copy 2" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "root-replaced" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 12 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "docs/d000/f000000.txt", "text": "doc 0" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted", "len": 0 },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the root's mount point disappears altogether: the pass changes nothing and says root-missing",
+    "description": "JOTTA-006 (Jottacloud), the unmount that leaves no folder behind. Rule D3: a missing root changes nothing anywhere and says so; the catalogue's 'backup root missing'.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_remove_root", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "root-missing" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 12 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "another disk mounted inside the root is never walked into, and unmounting it deletes nothing",
+    "description": "JOTTA-006 (Jottacloud): unmount detection by filesystem id. Rules S7 (mount points inside the root are never walked into) and D3. sync-chaos sec-mount-inside-root.",
+    "only_on": ["macos", "linux"],
+    "pending": "drive_mount_inside {\"device\": \"a\", \"path\": \"usb\", \"fs\": \"apfs:16m\", \"files\": {\"stick.txt\": \"on the stick\"}} (a volume of its own mounted at a folder inside the root: hdiutil on macOS, a loop device on Linux) and drive_unmount_inside {\"device\": \"a\", \"path\": \"usb\"}",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "top.txt", "text": "top" },
+      { "op": "drive_mount_inside", "device": "a", "path": "usb", "fs": "apfs:16m", "files": {"stick.txt": "on the stick"} },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_unmount_inside", "device": "a", "path": "usb" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mount-point", "key": "usb" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "top.txt", "text": "top" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

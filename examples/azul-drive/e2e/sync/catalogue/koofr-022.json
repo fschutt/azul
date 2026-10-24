@@ -75,6 +75,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "count": 30 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
       { "op": "drive_answer", "device": "b", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_wait_idle" },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "files_count", "device": "b", "count": 0 },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "doc 0" },
