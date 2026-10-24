@@ -158,6 +158,10 @@ mod closing;
 mod unlock;
 #[cfg(test)]
 mod unlock_tests;
+/// Touch ID or the password before an action that reveals or changes a drive's keys.
+mod presence;
+#[cfg(test)]
+mod presence_tests;
 /// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
 mod picker;
 #[cfg(test)]
