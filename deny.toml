@@ -9,18 +9,13 @@ version = 2
 # advisory can't be fixed yet.
 yanked = "warn"
 ignore = [
-    # ── Security — all reach the tree ONLY through rustls-rustcrypto 0.0.2-alpha,
-    # used solely as a TLS *client* for HTTPS fetching in azul-doc / reftest.
+    # ── Security — reaches the tree ONLY through rustls-rustcrypto (our copy in
+    # third_party/rustls-rustcrypto), used solely as a TLS *client*.
     # rustls-rustcrypto is the pure-Rust crypto provider that lets the shipped
     # libazul (via azul-layout) cross-compile to the exotic targets
-    # (riscv64/s390x/ppc64/…) where ring / aws-lc-rs need platform asm. It's a
-    # crates.io alpha we don't control; revisit when it bumps its rsa/webpki
-    # pins (or we fork it). ──
+    # (riscv64/s390x/ppc64/…) where ring / aws-lc-rs need platform asm.
+    # Revisit when it bumps its rsa pin. ──
     { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing attack recovers a TLS *server's* RSA private key via decryption/signing timing. azul is a TLS client doing certificate signature *verification* (public-key) only and never performs RSA private-key ops, so the vulnerable path is unreachable. No fixed rsa release exists." },
-    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 CRL distributionPoint matching. Pulled directly by rustls-rustcrypto (alpha); the live TLS handshake path goes through rustls 0.23.40 -> rustls-webpki 0.103.13 (fixed). azul fetches from trusted hosts and does not rely on CRL revocation; low impact." },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name-constraint handling (same rustls-rustcrypto chain as -0049). webpki exposes no URI-name API and azul asserts none; reachable only post-signature against a misissued cert." },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name-constraint handling (same chain as -0049); reachable only post-signature against a misissued cert." },
-    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 reachable panic parsing a malformed CRL (same chain as -0049). azul does not parse untrusted CRLs (trusted-host fetch). Fixed in >=0.103.13." },
     # rustls 0.23.45: the four advisories of 2026-10-14 are fixed in 0.23.46, published that same
     # day and so inside the 14-day cooldown for new crate versions; bump on or after 2026-10-28
     # and drop these four. None reaches azul's configuration (ring provider, default features).

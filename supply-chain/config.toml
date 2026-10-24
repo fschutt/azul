@@ -34,6 +34,9 @@ audit-as-crates-io = false
 [policy.azul-layout]
 audit-as-crates-io = false
 
+[policy.rustls-rustcrypto]
+audit-as-crates-io = false
+
 [policy.webrender]
 audit-as-crates-io = true
 
@@ -3005,14 +3008,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rustls-platform-verifier-android]]
 version = "0.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.rustls-rustcrypto]]
-version = "0.0.2-alpha"
-criteria = "safe-to-deploy"
-
-[[exemptions.rustls-webpki]]
-version = "0.102.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]

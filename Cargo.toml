@@ -104,6 +104,9 @@ azul-css = { path = "css" }
 # printpdf comes from its branch that tracks this API. Drop this line, and pin
 # the released printpdf in dll/, at that release.
 printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-codegen-api" }
+# rustls-rustcrypto without rustls-webpki 0.102, which has no fixed release: the copy in
+# third_party/rustls-rustcrypto takes its algorithm identifiers from rustls-pki-types instead.
+rustls-rustcrypto = { path = "third_party/rustls-rustcrypto" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
