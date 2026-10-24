@@ -26,7 +26,7 @@
   {
     "name": "every non-essential endpoint (telemetry, update check, crash reports) blackholed: the sync is unaffected",
     "description": "KDRIVE-021 (kDrive): a DNS filter answering 0.0.0.0 for the analytics host stopped the sync. Rule E6: no sync step waits on a non-essential host. sync-chaos res-hostile-network.",
-    "pending": "drive_netblock {hosts: [...]}: blackholes (drops SYN to) every non-sync endpoint AzDrive calls, by role: telemetry, update-check, crash-report",
+    "pending": "drive_netblock {hosts: [telemetry, update-check, crash-report]}: AzDrive calls no telemetry, update-check or crash-report host (the app has none of them), so there is nothing to blackhole and the scenario would test nothing; once such an endpoint exists it needs a seam that maps the role to its host, and this command blackholes it",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

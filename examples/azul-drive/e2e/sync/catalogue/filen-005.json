@@ -39,7 +39,7 @@
   {
     "name": "FILEN-005: on an encrypted drive, an entry that fails to decrypt and a folder whose entry is missing delete nothing here",
     "description": "FILEN-005 (Filen): the encrypted form of the trigger (a bad AEAD tag, a missing parent folder record). Rules D6, M1, M2.",
-    "pending": "drive_tamper on an encrypted remote: action 'corrupt_entry' {key} (the file's sealed entry fails to decrypt) and action 'drop_folder' {key} (the folder's own entry is gone, its children stay); today only put, delete and delete_all work on an encrypted remote",
+    "pending": "drive_tamper corrupt_entry / drop_folder on an encrypted remote: its entries live in sealed packs of the drive's metadata repository (a pack per change, sealed per chunk), so a server without the key damages a chunk, never one entry; the stand-in can aim at the chunk that holds a path once azul-storage's meta module tells which pack and chunk hold it (MetaRepo: path -> pointer blob -> pack, chunk)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
