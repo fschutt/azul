@@ -973,8 +973,8 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
     Update::DoNothing
 }
 
-/// Typing: the bar opens, and the history walk starts over. Only an opening rebuilds (the
-/// field keeps its own text).
+/// Typing: the bar opens, and the history walk starts over. Only an opening, and the line
+/// turning empty or not (Run's state), rebuild: the field keeps its own text.
 extern "C" fn on_input_text(
     mut data: RefAny,
     mut info: CallbackInfo,
@@ -985,13 +985,17 @@ extern "C" fn on_input_text(
     let update = match data.downcast_mut::<DriveState>() {
         Some(mut guard) => {
             let s = &mut *guard;
+            let was_empty = s.command_bar.input.trim().is_empty();
+            let empty = text.trim().is_empty();
             s.command_bar.input = text;
             s.command_bar.history.reset_walk();
-            if s.command_bar.expanded {
-                Update::DoNothing
-            } else {
+            if !s.command_bar.expanded {
                 open(&mut info, &app, s);
                 Update::RefreshDom
+            } else if was_empty != empty {
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
             }
         }
         None => Update::DoNothing,
