@@ -8062,36 +8062,88 @@ pub fn resolve_text_indent(
     viewport_size: LogicalSize,
     intrinsic: bool,
 ) -> (f32, bool, bool) {
-    // No node of this DOM declares it: the cascade walk would find nothing.
-    let declared = styled_dom
-        .css_property_cache
-        .ptr
-        .compact_cache
-        .as_ref()
-        .is_none_or(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0);
-    if !declared {
-        return (0.0, false, false);
+    TextIndent::of(styled_dom, node_id, node_state, viewport_size)
+        .map_or((0.0, false, false), |indent| {
+            indent.at(containing_block_width, intrinsic)
+        })
+}
+
+/// The `text-indent` of an inline formatting context's root, resolved as
+/// far as it goes without the containing block: a length is in px already
+/// (its font sizes and the viewport read), a percentage waits for the width
+/// it is a share of ([`TextIndent::at`]). Two equal values indent alike at
+/// every width, which is what the IFC root's line style compares
+/// (`fc::LineStyle`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextIndent {
+    /// The declared value: its keywords, and a percentage's share.
+    declared: azul_css::props::style::text::StyleTextIndent,
+    /// The declared length in px; `None` for a percentage.
+    length_px: Option<f32>,
+}
+
+impl TextIndent {
+    /// The `text-indent` of `node_id`; `None` when it has none.
+    #[must_use]
+    pub fn of(
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        node_state: &StyledNodeState,
+        viewport_size: LogicalSize,
+    ) -> Option<Self> {
+        // No node of this DOM declares it: the cascade walk would find nothing.
+        let declared_in_dom = styled_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| {
+                cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0
+            });
+        if !declared_in_dom {
+            return None;
+        }
+        let declared = get_text_indent_value(styled_dom, node_id, node_state)?;
+        let length_px = declared.inner.to_percent().is_none().then(|| {
+            let context = ResolutionContext {
+                vertical_writing_mode: false,
+                element_font_size: get_element_font_size(styled_dom, node_id, node_state),
+                parent_font_size: get_parent_font_size(styled_dom, node_id, node_state),
+                root_font_size: get_root_font_size(styled_dom, node_state),
+                containing_block_size: PhysicalSize::new(0.0, 0.0),
+                element_size: None,
+                viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+            };
+            declared
+                .inner
+                .resolve_with_context(&context, PropertyContext::Other)
+        });
+        Some(Self {
+            declared,
+            length_px,
+        })
     }
-    let Some(text_indent) = get_text_indent_value(styled_dom, node_id, node_state) else {
-        return (0.0, false, false);
-    };
-    let px = if intrinsic && text_indent.inner.to_percent().is_some() {
-        0.0
-    } else {
-        let context = ResolutionContext {
-            vertical_writing_mode: false,
-            element_font_size: get_element_font_size(styled_dom, node_id, node_state),
-            parent_font_size: get_parent_font_size(styled_dom, node_id, node_state),
-            root_font_size: get_root_font_size(styled_dom, node_state),
-            containing_block_size: PhysicalSize::new(containing_block_width, 0.0),
-            element_size: None,
-            viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+
+    /// `(indent in px, each-line, hanging)` in a containing block
+    /// `containing_block_width` wide. A percentage counts as 0 when
+    /// `intrinsic` (CSS Text 3 section 8.1).
+    #[must_use]
+    pub fn at(&self, containing_block_width: f32, intrinsic: bool) -> (f32, bool, bool) {
+        let px = match self.length_px {
+            Some(px) => px,
+            None if intrinsic => 0.0,
+            None => {
+                let context = ResolutionContext {
+                    containing_block_size: PhysicalSize::new(containing_block_width, 0.0),
+                    ..ResolutionContext::default()
+                };
+                self.declared
+                    .inner
+                    .resolve_with_context(&context, PropertyContext::Other)
+            }
         };
-        text_indent
-            .inner
-            .resolve_with_context(&context, PropertyContext::Other)
-    };
-    (px, text_indent.each_line, text_indent.hanging)
+        (px, self.declared.each_line, self.declared.hanging)
+    }
 }
 
 /// Get column-count property. Returns Option<ColumnCount>.
@@ -9204,6 +9256,7 @@ mod autotest_generated {
             unresolved_box_props: UnresolvedBoxProps::default(),
             ifc_id: None,
             text_style: None,
+            line_style: None,
         }
     }
 

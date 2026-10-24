@@ -1099,6 +1099,11 @@ pub struct LayoutNode {
     /// A text node: the style its runs were laid out with, read when a
     /// restyle above it asked ([`TextStyleKey`]). `None` until then.
     pub text_style: Option<Arc<TextStyleKey>>,
+    /// An IFC root: the styles its lines were last broken with
+    /// ([`crate::solver3::fc::LineStyle`], written by `layout_ifc`). The
+    /// reconcile compares them under a restyle above the root; `None` for a
+    /// node never laid out as one.
+    pub line_style: Option<Arc<crate::solver3::fc::LineStyle>>,
 }
 
 /// Pre-computed CSS properties needed during layout.
@@ -1356,6 +1361,11 @@ pub struct LayoutNodeCold {
     pub ifc_id: Option<IfcId>,
     /// A text node: the style its runs were laid out with ([`TextStyleKey`]).
     pub text_style: Option<Arc<TextStyleKey>>,
+    /// An IFC root: the styles its lines were last broken with
+    /// ([`crate::solver3::fc::LineStyle`]), written by `layout_ifc`, read by
+    /// the reconcile (`cache::reconcile_node`) to tell when a restyle above
+    /// the root moved them.
+    pub line_style: Option<Arc<crate::solver3::fc::LineStyle>>,
 }
 
 impl LayoutNode {
@@ -1401,6 +1411,7 @@ impl LayoutNode {
                 unresolved_box_props: self.unresolved_box_props,
                 ifc_id: self.ifc_id,
                 text_style: self.text_style,
+                line_style: self.line_style,
             },
         )
     }
@@ -1913,6 +1924,7 @@ impl LayoutTree {
             unresolved_box_props: cold.unresolved_box_props,
             ifc_id: cold.ifc_id,
             text_style: cold.text_style,
+            line_style: cold.line_style,
         })
     }
 
@@ -3358,6 +3370,7 @@ impl LayoutTreeBuilder {
             unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             ifc_id: None,
             text_style: None,
+            line_style: None,
         });
 
         self.nodes[parent].children.push(index);
@@ -3429,6 +3442,7 @@ impl LayoutTreeBuilder {
             unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             ifc_id: None,
             text_style: None,
+            line_style: None,
         });
 
         // Insert as FIRST child (per spec)
@@ -3594,6 +3608,7 @@ impl LayoutTreeBuilder {
             unresolved_box_props: collected.unresolved,
             ifc_id: None,
             text_style: None,
+            line_style: None,
         });
         {
             let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8));

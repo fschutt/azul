@@ -1530,6 +1530,31 @@ pub struct TextStyleReader<'a> {
     viewport: azul_css::props::basic::PhysicalSize,
 }
 
+/// Whether the styles an IFC root broke its lines with (`laid_out_with`;
+/// `None` for a node never laid out as one) are not what the cascade says
+/// now for `style_dom_id`, the element the root takes its style from.
+fn line_style_moved(
+    laid_out_with: Option<&crate::solver3::fc::LineStyle>,
+    styled_dom: &StyledDom,
+    style_dom_id: NodeId,
+    text_styles: &mut TextStyleReader<'_>,
+) -> bool {
+    laid_out_with.is_some_and(|old| {
+        let now = crate::solver3::fc::LineStyle::of(
+            styled_dom,
+            style_dom_id,
+            text_styles.styles,
+            text_styles.system_style,
+            text_styles.viewport,
+        );
+        let moved = *old != now;
+        if moved {
+            drop(crate::probe::Probe::span("recon_line_restyled"));
+        }
+        moved
+    })
+}
+
 /// Reconciles the new DOM against the cached tree. `css_dirty` is this
 /// pass's CSS diff (`layout_document`'s): a node whose own computed style
 /// moved in a layout-affecting way is built fresh
@@ -2068,6 +2093,11 @@ fn reconcile_table_children(
 /// atomic children it places are laid out (carried by their own clones, or
 /// measured by a fresh collection).
 ///
+/// The wrapper breaks its lines with the styles of its element,
+/// `style_dom_id`. When a restyle on or above the element (`restyled`) moved
+/// them (`fc::LineStyle`), the wrapper keeps nothing and is laid out anew, as
+/// an element that is an IFC root is built anew (`reconcile_node`).
+///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
 /// child inside a matched run still invalidates through that child's own
@@ -2081,6 +2111,10 @@ fn try_reuse_anon_wrapper(
     new_tree_builder: &mut LayoutTreeBuilder,
     anon_idx: usize,
     recon: &mut ReconciliationResult,
+    styled_dom: &StyledDom,
+    style_dom_id: NodeId,
+    restyled: bool,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
@@ -2111,6 +2145,24 @@ fn try_reuse_anon_wrapper(
     if !ids_match {
         return false;
     }
+    let laid_out_with = t
+        .cold(LayoutNodeId::new(old_anon))
+        .and_then(|cold| cold.line_style.clone());
+    if restyled
+        && line_style_moved(
+            laid_out_with.as_deref(),
+            styled_dom,
+            style_dom_id,
+            text_styles,
+        )
+    {
+        // Dirty, as a node built anew is: its size cache (handed over from
+        // the old wrapper by position) is dropped and its intrinsic sizes
+        // are measured again.
+        recon.intrinsic_dirty.insert(anon_idx);
+        recon.layout_roots.insert(anon_idx);
+        return false;
+    }
     if let (Some(old_warm), Some(new_node)) = (
         t.warm(LayoutNodeId::new(old_anon)),
         new_tree_builder.get_mut(anon_idx),
@@ -2137,6 +2189,8 @@ fn try_reuse_anon_wrapper(
         new_node.scrollbar_info = old_warm.scrollbar_info;
         new_node.escaped_top_margin = old_warm.escaped_top_margin;
         new_node.escaped_bottom_margin = old_warm.escaped_bottom_margin;
+        // The styles that inline layout was broken with.
+        new_node.line_style = laid_out_with;
     }
     recon.carried_indices.insert(old_anon, anon_idx);
     true
@@ -2350,6 +2404,10 @@ pub fn reconcile_recursive(
                             new_tree_builder,
                             anon_idx,
                             recon,
+                            styled_dom,
+                            new_dom_id,
+                            subtree_style_changed,
+                            text_styles,
                         );
                         anon_ordinal += 1;
 
@@ -2500,6 +2558,10 @@ pub fn reconcile_recursive(
                     new_tree_builder,
                     anon_idx,
                     recon,
+                    styled_dom,
+                    new_dom_id,
+                    subtree_style_changed,
+                    text_styles,
                 );
                 anon_ordinal += 1;
 
@@ -2786,7 +2848,19 @@ fn reconcile_node(
                 }
             }
         };
-    let dirty_flag = if css_relayout_here || text_restyled {
+    // An IFC root is built anew, too, when the styles its lines were broken
+    // with moved (`fc::LineStyle`). Most of them are inherited: a
+    // `word-break` or `text-align` set on an ancestor reaches the root while
+    // the root and its text keep their own data, and a kept root would serve
+    // its old lines from its size cache.
+    let line_restyled = subtree_style_changed
+        && line_style_moved(
+            old_cold.and_then(|c| c.line_style.as_deref()),
+            styled_dom,
+            new_dom_id,
+            text_styles,
+        );
+    let dirty_flag = if css_relayout_here || text_restyled || line_restyled {
         DirtyFlag::Layout
     } else {
         dirty_flag

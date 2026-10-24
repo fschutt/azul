@@ -523,13 +523,24 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let mut text3_constraints = translate_to_text3_constraints(
-        ctx,
-        constraints,
+    let line_style = LineStyle::of(
         ctx.styled_dom,
         ifc_root_dom_id,
-        ifc_root_is_anonymous,
+        &mut ctx.style_cache,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     );
+    let mut text3_constraints =
+        translate_to_text3_constraints(ctx, constraints, &line_style, ifc_root_is_anonymous);
+    // The root keeps the styles its lines are broken with: a restyle above
+    // it that moves them makes the reconcile lay it out anew
+    // (`cache::reconcile_node`), where its clean text alone would keep it.
+    if let Some(cold) = tree
+        .cold_mut(LayoutNodeId::new(node_index))
+        .filter(|cold| cold.line_style.as_deref() != Some(&line_style))
+    {
+        cold.line_style = Some(Arc::new(line_style));
+    }
     // CSS 2.1 s16.1 / CSS Text 3 s8.1: `text-indent` indents the FIRST
     // formatted line of the block container. An anonymous block (which
     // borrows the container's style) holds that line only when it is the
