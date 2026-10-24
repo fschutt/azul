@@ -177,6 +177,33 @@ impl LocalIndex {
         Ok(Some(index))
     }
 
+    /// Moves the base at `path` that [`LocalIndex::load`] could not read out of the way: kept
+    /// beside it as `<name>.unreadable` (the newest such), so the fresh pairing of the run
+    /// (D5) is saved anew. Written into, a base database nothing can read failed every later
+    /// pass of its folder.
+    ///
+    /// # Errors
+    ///
+    /// When it cannot be moved.
+    pub fn set_aside(path: &Path) -> std::io::Result<()> {
+        #[cfg(feature = "state-db")]
+        let files = if super::base::is_database(path) {
+            super::base::files_of(path)
+        } else {
+            vec![path.to_path_buf()]
+        };
+        #[cfg(not(feature = "state-db"))]
+        let files = vec![path.to_path_buf()];
+        for from in files {
+            if fs::symlink_metadata(&from).is_ok() {
+                let mut to = from.clone().into_os_string();
+                to.push(".unreadable");
+                fs::rename(&from, to)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Writes it.
     ///
     /// # Errors

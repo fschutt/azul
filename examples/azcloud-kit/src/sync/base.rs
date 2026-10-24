@@ -245,12 +245,24 @@ impl BaseDb {
 
     /// The database's own side files (its write-ahead log) owner-only too.
     fn make_files_private(&self) {
-        for suffix in ["", "-wal", "-shm", "-journal"] {
-            let mut name = self.path.as_os_str().to_os_string();
-            name.push(suffix);
-            let _ = set_private(Path::new(&name));
+        for name in files_of(&self.path) {
+            let _ = set_private(&name);
         }
     }
+}
+
+/// The database at `path` and its side files (the write-ahead log and its index, a rollback
+/// journal), whether they exist or not.
+#[must_use]
+pub fn files_of(path: &Path) -> Vec<PathBuf> {
+    ["", "-wal", "-shm", "-journal"]
+        .into_iter()
+        .map(|suffix| {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(suffix);
+            PathBuf::from(name)
+        })
+        .collect()
 }
 
 /// Reads the base at the database `path`, importing an older JSON base beside it once (kept

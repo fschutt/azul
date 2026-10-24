@@ -2855,6 +2855,15 @@ fn run<R: SyncRemote + ?Sized>(
                      deletes nothing"
                 ),
             );
+            // The new pairing is saved in a new base, the unreadable one kept beside it.
+            if !opts.dry_run {
+                LocalIndex::set_aside(index_path).map_err(|why| {
+                    CloudError::Io(format!(
+                        "the unreadable sync state {} cannot be moved aside: {why}",
+                        index_path.display()
+                    ))
+                })?;
+            }
             LocalIndex::new(&root.path, &opts.bucket, &opts.prefix)
         }
     };
