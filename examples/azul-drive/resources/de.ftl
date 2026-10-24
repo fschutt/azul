@@ -646,6 +646,60 @@ azdrive-sync-copies-decrypted = Entschlüsselt (schnell zu öffnen und zu durchs
 azdrive-sync-copies-encrypted = Verschlüsselt, beim Öffnen entschlüsselt
 azdrive-sync-resume = Fortsetzen
 azdrive-sync-pause = Anhalten
+azdrive-sync-problems = { $count ->
+        [one] Eine Datei wurde nicht synchronisiert:
+       *[other] { $count } Dateien wurden nicht synchronisiert:
+    }
+azdrive-sync-problems-more = und { $count } weitere
+azdrive-sync-problem = { $code ->
+        [symlink-skipped] Ein Link (wird nie verfolgt)
+        [special-file] Keine normale Datei
+        [bad-name] Ein Name, der nicht synchronisiert werden kann
+        [bad-remote-name] Ein Name auf dem Laufwerk, den kein System führen kann
+        [invalid-here] Ein Name, den dieser Computer nicht führen kann (bleibt auf dem Laufwerk)
+        [portability] Ein Name, den ein anderes System nicht führen kann
+        [display-risk] Ein irreführender Name
+        [name-collision] Zwei Namen, die dieser Datenträger für einen hält
+        [type-conflict] Hier eine Datei, auf dem Laufwerk ein Ordner (oder umgekehrt)
+        [through-link] Unter einem Link: Durch ihn wird nichts geschrieben
+        [link-refused] Ein Link von einem anderen Gerät (nicht angelegt)
+        [mount-point] Ein anderer Datenträger im Ordner
+        [hardlink] Ein harter Link auf eine Datei außerhalb des Ordners
+        [unreadable] Nicht lesbar
+        [changed-during-sync] Während der Synchronisierung geändert (beim nächsten Mal)
+        [settling] Gerade geändert (wird synchronisiert, sobald Ruhe ist)
+        [save-in-progress] Eine App speichert sie gerade
+        [locked] Von einer anderen App gesperrt
+        [too-large] Zu groß
+        [disk-reserve] Nicht genug freier Platz auf diesem Computer
+        [disk-full] Der Datenträger dieses Computers ist voll
+        [quota-exceeded] Das Laufwerk ist voll
+        [transient] Das Laufwerk hat dafür versagt (wird erneut versucht)
+        [rate-limited] Das Laufwerk bat zu warten
+        [remote-offline] Das Laufwerk ist nicht erreichbar
+        [sign-in-needed] Erneut anmelden (Ihre Änderungen bleiben erhalten)
+        [update-needed] AzDrive aktualisieren, um dieses Laufwerk zu synchronisieren
+        [remote-entry-unreadable] Der Eintrag auf dem Laufwerk ist nicht lesbar (hier bleibt alles, wie es ist)
+        [remote-index-unreadable] Der Index des Laufwerks ist nicht lesbar (nichts geändert)
+        [remote-rollback] Das Laufwerk antwortete mit einem älteren Stand (nichts geändert)
+        [server-restored] Das Laufwerk wurde aus seiner Sicherung wiederhergestellt
+        [hash-mismatch] Die Daten des Laufwerks sind beschädigt (die alte Version bleibt)
+        [decompression-bomb] Eine komprimierte Datei, größer als angegeben
+        [mass-delete-held] Viele Löschungen warten auf Sie
+        [loop-frozen] Ändert sich ständig hin und her: wartet auf Sie
+        [deleted-elsewhere-kept] Auf einem anderen Gerät gelöscht, während dieses fort war: behalten
+        [root-missing] Der Ordner fehlt (ein Datenträger nicht verbunden?)
+        [root-replaced] Der Ordner ist nicht der verbundene
+        [state-reset] Neu verbunden (nichts gelöscht)
+        [ignore-change] Nach einer Änderung der Ignorier-Datei nicht mehr synchronisiert
+        [renamed-to-invalid] Umbenannt in einen Namen, den ein anderes System nicht führen kann
+        [busy] Andere Geräte änderten das Laufwerk ständig (wird erneut versucht)
+        [io-error] Ein Lese- oder Schreibvorgang schlug fehl
+        [conflict-held] Ein Konflikt wartet auf Sie
+        [uploads-paused] Hochladen pausiert, bis Sie antworten
+        [held-back] Wartet auf ein freies Netz
+       *[other] Nicht synchronisiert
+    }
 azdrive-sync-none = Noch kein Laufwerk wird mit einem Ordner synchronisiert: Das Menü eines Cloud-Laufwerks in der Navigationsleiste (oder Freigeben > Mit einem Ordner synchronisieren) verbindet es mit einem.
 azdrive-sync-freed = { $count ->
         [one] Eine Datei wurde

@@ -361,6 +361,11 @@ pub const SYNC_KEEP_MINE: AzString = AzString::from_const_str("__azdrive_sync_ke
 pub const SYNC_TAKE_THEIRS: AzString = AzString::from_const_str("__azdrive_sync_take_theirs");
 pub const SYNC_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_sync_keep_both");
 pub const SYNC_OPTIONS: AzString = AzString::from_const_str("__azdrive_sync_options");
+/// A pairing's problem list in Options > Drives > Sync.
+#[must_use]
+pub fn sync_problems(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_sync_problems_{drive_id}"))
+}
 /// Options > Drives > Sync's line about this computer (its client health).
 pub const SYNC_HEALTH: AzString = AzString::from_const_str("__azdrive_sync_health");
 pub const SYNC_DELETE: AzString = AzString::from_const_str("__azdrive_sync_delete");

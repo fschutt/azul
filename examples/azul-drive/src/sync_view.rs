@@ -1393,6 +1393,53 @@ fn under_mb(setup: &SyncSetup) -> u64 {
 }
 
 /// Options > Drives > Sync: each synced drive with its status and settings.
+/// The problems shown per pairing at most; the rest is counted.
+const PROBLEMS_SHOWN: usize = 20;
+
+/// The pairing's problem list as its last pass left it (azcloud-kit's `sync::problems`): every
+/// file it skipped, refused, held, froze or failed, by what kind of problem it is and its name
+/// (escaped: a reversed extension shows as `<U+202E>`). `None` when there is none.
+pub(crate) fn problems_block(s: &DriveState, setup: &SyncSetup) -> Option<Dom> {
+    let root = sync_jobs::state_root(s)?;
+    let list =
+        azcloud_kit::sync::problems::ProblemList::load(&setup.state_dir(&root)).ok()?;
+    if list.problems.is_empty() {
+        return None;
+    }
+    let small = "font-size: 12px; opacity: 0.75;";
+    let count = list.problems.len();
+    let mut block = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-top: 8px;")
+        .with_id(ids::sync_problems(&setup.drive_id))
+        .with_child(Dom::create_span_with_text(AzString::from(l10n::t_args(
+            "azdrive-sync-problems",
+            &[("count", l10n::Arg::from(count))],
+        ))));
+    for problem in list.problems.iter().take(PROBLEMS_SHOWN) {
+        let what = l10n::t_args(
+            "azdrive-sync-problem",
+            &[("code", l10n::Arg::from(problem.code.as_str()))],
+        );
+        let key = problem.shown_key();
+        let text = if key.is_empty() {
+            what
+        } else {
+            format!("{what}: {key}")
+        };
+        block.add_child(Dom::create_span_with_text(AzString::from(text)).with_css(small));
+    }
+    if count > PROBLEMS_SHOWN {
+        block.add_child(
+            Dom::create_span_with_text(AzString::from(l10n::t_args(
+                "azdrive-sync-problems-more",
+                &[("count", l10n::Arg::from(count - PROBLEMS_SHOWN))],
+            )))
+            .with_css(small),
+        );
+    }
+    Some(block)
+}
+
 pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
     let mut rows: Vec<Dom> = Vec::new();
     for setup in &s.settings.synced {
@@ -1425,6 +1472,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                 )))
                 .with_css(small),
             )
+            .with_child(problems_block(s, setup).unwrap_or_else(Dom::create_div))
             .with_child(label("azdrive-sync-auto-download"))
             .with_child(
                 DropDown::create(StringVec::from(

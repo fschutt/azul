@@ -111,6 +111,9 @@ pub(crate) struct SyncWork {
     pub transfer_limit: Option<u64>,
     /// Small files moved at once (the computer's health: [`crate::health::transfers`]).
     pub parallel: usize,
+    /// The drive's members as its last look saw them: the user's own devices, whose files need
+    /// no quarantine mark (files from any other device get one).
+    pub own_devices: Vec<String>,
 }
 
 impl SyncWork {
@@ -125,6 +128,7 @@ impl SyncWork {
             objects: None,
             transfer_limit: None,
             parallel: crate::health::transfers(100),
+            own_devices: Vec::new(),
         }
     }
 
@@ -137,6 +141,7 @@ impl SyncWork {
     /// that lets a burst of changes (a checkout, an unzip) go as one batch.
     pub(crate) fn session(&self) -> SyncSession {
         self.drive_session()
+            .with_own_devices(&self.own_devices)
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
             .with_settle(settle())
@@ -551,7 +556,7 @@ pub(crate) fn publish(s: &DriveState) {
 }
 
 /// The folder the pairings' states are kept in: `<cache>/sync`.
-fn state_root(s: &DriveState) -> Option<PathBuf> {
+pub(crate) fn state_root(s: &DriveState) -> Option<PathBuf> {
     s.cache_dir.as_ref().map(|dir| dir.join("sync"))
 }
 
@@ -679,6 +684,9 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
     let drive = crate::open_slot(s, index)?;
     #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
     let mut work = SyncWork::new(setup.clone(), setup.state_dir(&root), drive);
+    if let Some(devices) = s.devices.get(drive_id) {
+        work.own_devices.clone_from(&devices.members);
+    }
     #[cfg(feature = "encryption")]
     {
         work.auto = s.slots[index].auto.clone();

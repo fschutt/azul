@@ -648,6 +648,60 @@ azdrive-sync-copies-decrypted = Decrypted (fast to open and search)
 azdrive-sync-copies-encrypted = Encrypted, decrypted when opened
 azdrive-sync-resume = Resume
 azdrive-sync-pause = Pause
+azdrive-sync-problems = { $count ->
+        [one] One file did not sync:
+       *[other] { $count } files did not sync:
+    }
+azdrive-sync-problems-more = and { $count } more
+azdrive-sync-problem = { $code ->
+        [symlink-skipped] A link (never followed)
+        [special-file] Not a regular file
+        [bad-name] A name that can't be synced
+        [bad-remote-name] A name on the drive no system can hold
+        [invalid-here] A name this computer can't hold (kept on the drive)
+        [portability] A name another system can't hold
+        [display-risk] A misleading name
+        [name-collision] Two names this disk takes for one
+        [type-conflict] A file here, a folder on the drive (or the other way round)
+        [through-link] Below a link: nothing is written through it
+        [link-refused] A link from another device (not created)
+        [mount-point] Another disk inside the folder
+        [hardlink] A hard link to a file outside the folder
+        [unreadable] Can't be read
+        [changed-during-sync] Changed while syncing (next time)
+        [settling] Just changed (synced once it's quiet)
+        [save-in-progress] An app is saving it
+        [locked] Locked by another app
+        [too-large] Too large
+        [disk-reserve] Not enough free space on this computer
+        [disk-full] This computer's disk is full
+        [quota-exceeded] The drive is full
+        [transient] The drive failed for it (tried again)
+        [rate-limited] The drive asked to wait
+        [remote-offline] The drive can't be reached
+        [sign-in-needed] Sign in again (your changes are kept)
+        [update-needed] Update AzDrive to sync this drive
+        [remote-entry-unreadable] The drive's entry can't be read (kept as it is here)
+        [remote-index-unreadable] The drive's index can't be read (nothing changed)
+        [remote-rollback] The drive answered an older state (nothing changed)
+        [server-restored] The drive was restored from its backup
+        [hash-mismatch] The drive's bytes are damaged (the old version stays)
+        [decompression-bomb] A compressed file larger than it says
+        [mass-delete-held] Many deletes wait for you
+        [loop-frozen] Keeps changing back and forth: waits for you
+        [deleted-elsewhere-kept] Deleted on another device while this one was away: kept
+        [root-missing] The folder is gone (a disk not connected?)
+        [root-replaced] The folder is not the one that was paired
+        [state-reset] Paired afresh (nothing deleted)
+        [ignore-change] Stopped syncing after a change to the ignore file
+        [renamed-to-invalid] Renamed to a name another system can't hold
+        [busy] Other devices kept changing the drive (tried again)
+        [io-error] A read or write failed
+        [conflict-held] A conflict waits for you
+        [uploads-paused] Uploads paused until you answer
+        [held-back] Waits for a free network
+       *[other] Not synced
+    }
 azdrive-sync-none = No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > Sync with a folder) pairs it with one.
 azdrive-sync-freed = Freed { $count ->
         [one] one file
