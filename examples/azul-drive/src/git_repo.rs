@@ -47,6 +47,20 @@ impl Default for Limits {
     }
 }
 
+/// How often a quick repository is looked at again where no cheap watcher of its work tree
+/// exists (`ui_git`: every system but macOS).
+pub const POLL_EVERY: Duration = Duration::from_secs(10);
+/// A look that took this long or longer is not repeated by that poll: the repository is looked
+/// at on the events alone (another folder, F5, a command, a ref or index write).
+pub const POLL_MAX_LOOK: Duration = Duration::from_millis(500);
+
+/// Whether a repository whose last look took `took` and ended `since` ago is due for another
+/// look by the poll.
+#[must_use]
+pub fn poll_due(took: Duration, since: Duration) -> bool {
+    took < POLL_MAX_LOOK && since >= POLL_EVERY
+}
+
 /// The hex digits a detached HEAD's commit is shown with (git's default short id).
 pub const SHORT_ID: usize = 7;
 
