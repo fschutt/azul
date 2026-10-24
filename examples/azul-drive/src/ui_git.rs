@@ -432,26 +432,27 @@ pub(crate) fn chip_room(s: &DriveState) -> f32 {
 }
 
 /// The address row: the address bar, and the chip with its switcher at its end when the folder
-/// is in a repository.
+/// is in a repository. The bar keeps the same place in the tree with and without the chip, so
+/// a chip that appears while the search box is typed in leaves the box its keyboard.
 pub(crate) fn address_row(s: &DriveState, app: &RefAny, bar: Dom) -> Dom {
-    let Some(chip) = chip(s, app) else {
-        return bar;
-    };
-    Dom::create_div()
+    let mut row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; min-width: 0px;")
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
                 .with_child(bar),
-        )
-        .with_child(
+        );
+    if let Some(chip) = chip(s, app) {
+        row.add_child(
             Dom::create_div()
                 .with_css(
                     "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
                      margin: 0px 8px 0px 2px;",
                 )
                 .with_child(chip),
-        )
+        );
+    }
+    row
 }
 
 /// The chip's words: the branch (cut when long), the commit of a detached HEAD, the dot for
