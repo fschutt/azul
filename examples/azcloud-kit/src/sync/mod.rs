@@ -56,6 +56,8 @@ pub mod attrs;
 pub mod base;
 pub mod drive_store;
 pub mod engine;
+// "Free up space" only once the drive holds the version whole.
+pub mod evict;
 // Where a test harness crashes or pauses a pass (through SyncSession::with_points), and the
 // clock and disk a pass sees.
 pub mod faults;
@@ -68,6 +70,8 @@ pub mod merge;
 pub mod named;
 pub mod names;
 pub mod objects;
+// A backup pairing's plan: one way, from the folder to the drive.
+mod oneway;
 pub mod oplog;
 pub mod problems;
 pub mod quarantine;
@@ -537,6 +541,9 @@ pub struct RunHooks<'a> {
     /// The engine around the run ([`engine::Engine`]): the journal, the operations log, the
     /// loop detector and quarantine marks hear every local step. `None`: none of them.
     pub observer: Option<&'a dyn engine::Observer>,
+    /// A backup pairing: one way, from the folder to the drive ([`oneway`]). Nothing on the
+    /// drive changes the folder, and nothing deleted here is deleted there.
+    pub backup: bool,
 }
 
 impl RunHooks<'_> {
@@ -3051,6 +3058,10 @@ fn run<R: SyncRemote + ?Sized>(
         }
         let mut actions = merge::plan(&input);
         keep_saves(&mut actions, &scan, base, &root.path, &mut report);
+        // A backup's one-way answers first: a conflict there is no question for the user.
+        if hooks.backup {
+            oneway::backup_plan(&mut actions, &scan, base);
+        }
         report.held = on_demand(&mut actions, &scan, base, &readable, hooks);
         hooks.observe_plan(&mut actions, &readable, base, &mut report.problems);
         if !opts.allow_mass_delete {

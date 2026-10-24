@@ -941,3 +941,102 @@ fn a_pairing_kept_before_the_metered_setting_reads_it_as_off() {
     let text = serde_json::to_string(&setup).unwrap();
     assert_eq!(serde_json::from_str::<SyncSetup>(&text).unwrap(), setup);
 }
+
+// ==== Free up space, backups, on-demand switched off ====
+
+#[test]
+fn free_up_space_keeps_a_file_whose_copy_on_the_drive_is_damaged_or_not_there_yet() {
+    use crate::sync::problems::Code;
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("evict-checked", &store, |_| {});
+    a.write("good.txt", b"good bytes");
+    a.write("bad.txt", b"bad bytes");
+    a.pass();
+    let blob = crate::sync::remote::blob_key(
+        "Documents/",
+        &crate::sync::local::hash_bytes(b"bad bytes"),
+    );
+    RemoteStore::put(store.as_ref(), &blob, b"rotten").unwrap();
+    a.write("later.txt", b"not synced yet");
+    let keys = [
+        String::from("good.txt"),
+        String::from("bad.txt"),
+        String::from("later.txt"),
+    ];
+    let freed = a.session.free_up(&keys).unwrap();
+    assert_eq!(freed.freed, vec![String::from("good.txt")]);
+    assert_eq!(freed.kept.len(), 2, "{:?}", freed.kept);
+    assert!(a.read("good.txt").is_none());
+    assert_eq!(a.read("bad.txt").as_deref(), Some(&b"bad bytes"[..]), "the only good copy stays");
+    assert!(a.read("later.txt").is_some());
+    let problems = a.session.problems();
+    assert!(
+        problems
+            .problems
+            .iter()
+            .any(|p| p.key == "bad.txt" && p.code == Code::HashMismatch),
+        "{:?}",
+        problems.problems
+    );
+}
+
+#[test]
+fn a_backup_pairing_keeps_the_drives_copy_of_a_file_deleted_here_and_never_deletes_here() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("backup-a", &store, |s| s.backup = true);
+    let b = paired("backup-b", &store, |_| {});
+    a.write("photo.jpg", b"a photo");
+    a.write("notes.txt", b"notes");
+    a.pass();
+    b.pass();
+    // Gone here: the drive keeps it, this device shows it in the cloud only.
+    fs::remove_file(path_of(a.folder.path(), "photo.jpg")).unwrap();
+    let (states, _) = a.pass();
+    assert!(lists(&index_of(&store), "photo.jpg"), "a backup deletes nothing on the drive");
+    assert_eq!(states.state_of("photo.jpg"), Some(FileState::CloudOnly));
+    // Gone on the drive (another device deleted it): the source keeps it and sends it again.
+    fs::remove_file(path_of(b.folder.path(), "notes.txt")).unwrap();
+    b.pass();
+    assert!(!lists(&index_of(&store), "notes.txt"));
+    a.pass();
+    assert_eq!(a.read("notes.txt").as_deref(), Some(&b"notes"[..]));
+    assert!(lists(&index_of(&store), "notes.txt"), "sent again from the source");
+    // Changed on the drive: the source's version wins and nothing here is overwritten.
+    b.pass();
+    b.write("notes.txt", b"changed elsewhere");
+    b.pass();
+    a.pass();
+    assert_eq!(a.read("notes.txt").as_deref(), Some(&b"notes"[..]));
+}
+
+#[test]
+fn a_pairing_that_downloads_everything_brings_cloud_only_files_down_but_not_freed_ones() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("everything-a", &store, |_| {});
+    let b = paired("everything-b", &store, |s| s.auto_download = AutoDownload::Nothing);
+    a.write("one.txt", b"one");
+    a.write("two.txt", b"two");
+    a.pass();
+    let (states, _) = b.pass();
+    assert_eq!(states.state_of("one.txt"), Some(FileState::CloudOnly));
+    // On-demand switched off: every file comes down.
+    let mut setup = b.session.setup().clone();
+    setup.auto_download = AutoDownload::Everything;
+    let b = Paired {
+        session: SyncSession::plain(
+            setup,
+            b.state.path().to_path_buf(),
+            "everything-b",
+            store.clone() as Arc<dyn RemoteStore>,
+        ),
+        ..b
+    };
+    let (states, _) = b.pass();
+    assert_eq!(b.read("one.txt").as_deref(), Some(&b"one"[..]));
+    assert_eq!(states.state_of("two.txt"), Some(FileState::OnDevice));
+    // A file the user freed up stays in the cloud.
+    b.session.free_up(&[String::from("one.txt")]).unwrap();
+    let (states, _) = b.pass();
+    assert!(b.read("one.txt").is_none());
+    assert_eq!(states.state_of("one.txt"), Some(FileState::CloudOnly));
+}

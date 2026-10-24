@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "encryption")]
 use super::objects::ObjectCache;
 use super::{
-    evict_file, fetch_file, guard,
+    fetch_file, guard,
     local::{self, BaseEntry, LocalIndex},
     lock, remote, sync_to, HeldConflict, LocalRoot, MassDelete, RunHooks, SyncEvent,
     SyncOptions, SyncReport, Target,
@@ -158,6 +158,16 @@ pub struct SyncSetup {
     /// drive.
     #[serde(default)]
     pub sync_on_metered: bool,
+    /// A backup pairing: one way, from this folder to the drive ([`super::oneway`]). A delete
+    /// here keeps the drive's copy (cloud only here), and nothing the drive changes or deletes
+    /// touches this folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub backup: bool,
+    /// Selective sync: what this device leaves out, as `.azcloudignore` lines. A file left out
+    /// is neither sent, fetched nor deleted on either side; taking it in again changes nothing
+    /// that is the same on both.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
 }
 
 impl SyncSetup {
@@ -173,6 +183,8 @@ impl SyncSetup {
             keep_gb: None,
             paused: false,
             sync_on_metered: false,
+            backup: false,
+            exclude: Vec::new(),
         }
     }
 
@@ -338,6 +350,10 @@ pub struct SyncStates {
     /// Always kept on this device: files, and folders (ending in `/`) with all they hold.
     #[serde(default)]
     pub pinned: BTreeSet<String>,
+    /// The files the user freed up ("Free up space"): a pairing that downloads everything
+    /// brings every other cloud-only file down, never these - until they are opened or pinned.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub freed: BTreeSet<String>,
     /// Conflicts the user answered "keep both": the next pass makes the conflict copy.
     #[serde(default)]
     pub keep_both: BTreeSet<String>,
@@ -864,6 +880,9 @@ impl SyncSession {
         let mut root = LocalRoot::folder(&self.setup.folder);
         root.rules
             .add("/.azdrive-trash/", "AzDrive's trash of a folder added as a drive");
+        for line in &self.setup.exclude {
+            root.rules.add(line, "left out on this device (selective sync)");
+        }
         root
     }
 
@@ -975,6 +994,7 @@ impl SyncSession {
                     hold_mass_delete: true,
                     transfer_limit: self.transfer_limit,
                     observer: None,
+                    backup: self.setup.backup,
                 };
                 // The engine recovers the journal first and publishes the problem list after,
                 // failed pass or not; the run's own result is what the session goes on with.
@@ -1013,14 +1033,17 @@ impl SyncSession {
             states.allow_burst = burst_answered;
             states.allow_mass_delete = mass_answered;
         }
-        // Pinned files kept in the cloud come down now (within the limit; the rest wait).
+        // Pinned files kept in the cloud come down now (within the limit; the rest wait) - and,
+        // when the pairing downloads everything (on-demand switched off), every cloud-only
+        // file the user did not free up.
         let mut fetched = Vec::new();
         let mut held = report.held_back.clone();
         let mut pinned: Vec<(String, u64)> = Vec::new();
+        let everything = self.setup.auto_download == AutoDownload::Everything;
         let in_the_cloud: Vec<String> = report
             .cloud_only
             .iter()
-            .filter(|key| states.is_pinned(key))
+            .filter(|key| states.is_pinned(key) || (everything && !states.freed.contains(*key)))
             .cloned()
             .collect();
         for key in in_the_cloud {
@@ -1098,6 +1121,8 @@ impl SyncSession {
         let mut freed = Vec::new();
         for key in states.to_free(cap) {
             if self.evict_one(&key, states).is_ok() {
+                // Freed for the cap: a pairing that downloads everything does not fetch it again.
+                states.freed.insert(key.clone());
                 freed.push(key);
             }
         }
@@ -1119,7 +1144,14 @@ impl SyncSession {
                 return Ok(());
             }
         }
-        evict_file(&self.root(), &self.index_path(), key)?;
+        // Only once the drive holds this version whole: its copy is read back and checked first.
+        super::evict::evict_checked(
+            self.target(),
+            &self.root(),
+            &self.index_path(),
+            &self.options()?,
+            key,
+        )?;
         if let Some(record) = states.files.get_mut(key) {
             record.cloud_only = true;
         }
@@ -1135,6 +1167,7 @@ impl SyncSession {
     pub fn open(&self, key: &str) -> CloudResult<PathBuf> {
         let mut states = self.states();
         let path = self.open_path(key, &mut states)?;
+        states.freed.remove(key);
         if let Some(record) = states.files.get_mut(key) {
             record.last_used = crate::now();
             record.error = None;
@@ -1174,6 +1207,10 @@ impl SyncSession {
         for key in keys {
             if on {
                 states.pinned.insert(key.clone());
+                let under = states.under(&[key.clone()], false);
+                for freed in under {
+                    states.freed.remove(&freed);
+                }
             } else {
                 states.pinned.remove(key);
             }
@@ -1204,8 +1241,20 @@ impl SyncSession {
                 continue;
             }
             match self.evict_one(&key, &mut states) {
-                Ok(()) => out.freed.push(key),
-                Err(e) => out.kept.push((key, e.to_string())),
+                Ok(()) => {
+                    states.freed.insert(key.clone());
+                    out.freed.push(key);
+                }
+                Err(e) => {
+                    // The drive's copy failed its check: the problem list names it.
+                    if super::problems::code_of_error(&e) == super::problems::Code::HashMismatch {
+                        super::evict::note_problem(
+                            &self.dir,
+                            super::problems::Problem::of_error(&key, &e),
+                        );
+                    }
+                    out.kept.push((key, e.to_string()));
+                }
             }
         }
         states.save(&self.dir)?;
@@ -1663,6 +1712,7 @@ fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>
         files.entry(key.clone()).or_default().error = Some(why.clone());
     }
     states.files = files;
+    states.freed.retain(|key| states.files.contains_key(key));
     states.skipped = report.skipped.iter().cloned().collect();
     states
         .keep_both
