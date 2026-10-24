@@ -731,13 +731,19 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         .collect();
     rows.sort_by(|a, b| b.2.cmp(&a.2));
 
-    eprintln!("[CPU] === {label} ({} phases) ===", rows.len());
-    eprintln!(
+    // The report goes out in one write: a line per write cost the pass that
+    // prints it ~40 us a line, half of what a profiled frame measured.
+    use core::fmt::Write as _;
+    let mut out = String::with_capacity(96 * (rows.len() + rss_marks.len() + 3));
+    let _ = writeln!(out, "[CPU] === {label} ({} phases) ===", rows.len());
+    let _ = writeln!(
+        out,
         "[CPU] {:<28}  {:>5}  {:>10}  {:>9}  {:>9}  {:>9}",
         "phase", "n", "total(µs)", "avg(µs)", "p99(µs)", "max(µs)"
     );
     for (name, n, total, avg, p99, max) in &rows {
-        eprintln!(
+        let _ = writeln!(
+            out,
             "[CPU] {:<28}  {:>5}  {:>10.1}  {:>9.2}  {:>9.2}  {:>9.2}",
             name,
             n,
@@ -748,7 +754,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         );
     }
     if !rss_marks.is_empty() {
-        eprintln!("[CPU]   -- RSS checkpoints (wall-clock order) --");
+        let _ = writeln!(out, "[CPU]   -- RSS checkpoints (wall-clock order) --");
         let mut prev: Option<u64> = None;
         for (lbl, bytes) in &rss_marks {
             let delta = prev
@@ -761,7 +767,8 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
                     }
                 })
                 .unwrap_or_default();
-            eprintln!(
+            let _ = writeln!(
+                out,
                 "[CPU]   {:<28}  {:.2} MiB{}",
                 lbl,
                 *bytes as f64 / 1_048_576.0,
@@ -770,6 +777,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
             prev = Some(*bytes);
         }
     }
+    eprint!("{out}");
 }
 
 /// Convenience wrapper: sample the process's **current** resident set

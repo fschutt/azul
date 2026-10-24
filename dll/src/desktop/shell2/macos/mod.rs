@@ -2323,6 +2323,8 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
             pace_trace("drawrect-cpu-enter");
+            // The whole draw of a CPU frame (AZ_PROFILE=cpu), next to its relayout.
+            let _probe = azul_layout::probe::Probe::span("draw_rect_cpu");
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };
@@ -8870,6 +8872,9 @@ impl MacOSWindow {
     pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
         use super::common::event::PlatformWindow;
 
+        // The whole draw of a frame, one per drawRect: what AZ_PROFILE=cpu
+        // reports as a frame's render cost next to its relayout.
+        let _probe = azul_layout::probe::Probe::span("draw_rect_render_present");
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
         self.sync_window_backdrop();
 
