@@ -1291,7 +1291,8 @@ define_class!(
                 if let Err(e) = macos_window.render_and_present_in_draw_rect() {
                     log_error!(LogCategory::Rendering, "[GLView] drawRect: Error during rendering: {:?}", e);
                 }
-                macos_window.reveal_after_first_frame();
+                let shows_document = macos_window.gpu_shows_document();
+                macos_window.reveal_after_first_frame(shows_document);
             }
         }
 
@@ -2471,7 +2472,8 @@ define_class!(
 
             if let Some(window_ptr) = *ivars.window_ptr.borrow() {
                 unsafe {
-                    (*(window_ptr as *mut MacOSWindow)).reveal_after_first_frame();
+                    // The CPU renderer drew the document in this very pass.
+                    (*(window_ptr as *mut MacOSWindow)).reveal_after_first_frame(true);
                 }
             }
         }
@@ -4835,8 +4837,14 @@ pub struct MacOSWindow {
     /// back-pointer they render through, so a `drawRect` it causes draws no
     /// frame; shown at once, a new window would flash white (or an empty GL
     /// surface) before its content. `reveal_after_first_frame` makes it
-    /// opaque again from the first `drawRect` that could draw.
+    /// opaque again from the first `drawRect` that showed its document.
     awaiting_first_frame: bool,
+    /// The draws since the window was ordered in that did not show its
+    /// document yet (WebRender builds a frame after the pass that sent it).
+    blank_first_draws: u32,
+    /// WebRender published a frame after the renderer last took one in: the
+    /// next pass shows it even when it has nothing new to send.
+    frame_waiting: bool,
     /// A node drag of this window left it and runs as the system's drag
     /// session (`start_os_drag_if_it_left`) until `os_drag_ended`: AppKit
     /// tracks the pointer meanwhile, so no `mouseUp:` ends the node drag, and
@@ -6672,6 +6680,8 @@ impl MacOSWindow {
             applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
             webviews: None,            // made (and WebKit loaded) at the first web view
             awaiting_first_frame: false,
+            blank_first_draws: 0,
+            frame_waiting: false,
             os_drag_running: false,
         };
 
@@ -8745,13 +8755,36 @@ impl MacOSWindow {
     }
 
     /// Make a window the constructor ordered in transparent visible, once a
-    /// view's `drawRect` could draw its frame (see `awaiting_first_frame`).
-    /// Called after every `drawRect` that reached the window, whatever the
-    /// render did, so a failed first frame never leaves it invisible.
-    pub(super) fn reveal_after_first_frame(&mut self) {
-        if self.awaiting_first_frame {
+    /// view's `drawRect` showed its document (see `awaiting_first_frame`):
+    /// a window shown before that shows its bare background for a frame,
+    /// the white flash of a popover. Called after every `drawRect` that
+    /// reached the window; a renderer that never shows the document still
+    /// gets the window shown after [`BLANK_DRAWS_BEFORE_SHOWN`] draws, so a
+    /// failed first frame never leaves it invisible.
+    pub(super) fn reveal_after_first_frame(&mut self, shows_document: bool) {
+        if !self.awaiting_first_frame {
+            return;
+        }
+        if shown_after_draw(shows_document, self.blank_first_draws) {
             self.awaiting_first_frame = false;
             self.window.setAlphaValue(1.0);
+        } else {
+            // The frame WebRender is building asks for the draw that shows
+            // it; the request keeps a window whose frame never comes on its
+            // way to being shown anyway.
+            self.blank_first_draws += 1;
+            self.request_redraw();
+        }
+    }
+
+    /// Whether the GPU renderer's current frame holds this window's
+    /// document. A window without one (the CPU backend) answers `true`.
+    pub(super) fn gpu_shows_document(&self) -> bool {
+        match (self.common.renderer.as_ref(), self.common.layout_window.as_ref()) {
+            (Some(renderer), Some(lw)) => {
+                crate::desktop::wr_translate2::renderer_shows_document(renderer, lw.document_id)
+            }
+            _ => true,
         }
     }
 
@@ -9367,7 +9400,7 @@ impl MacOSWindow {
             // for no frame, so sending it would only make WebRender do
             // bookkeeping for values it already has. The display-link tick that
             // brought us here has nothing to present.
-            if !frame.changed {
+            if !frame.changed && !self.frame_waiting {
                 log_trace!(
                     LogCategory::Rendering,
                     "[macOS] Lightweight pass: nothing changed, transaction dropped"
@@ -9391,8 +9424,16 @@ impl MacOSWindow {
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");
 
-        // Send the complete atomic transaction
-        if let Some(layout_window) = self.common.layout_window.as_ref() {
+        // Send the complete atomic transaction (a pass that only shows a
+        // frame WebRender published has nothing to send).
+        let only_shows_a_published_frame =
+            std::mem::take(&mut self.frame_waiting) && !display_list_needs_rebuild && txn.is_empty();
+        if let Some(layout_window) = self
+            .common
+            .layout_window
+            .as_ref()
+            .filter(|_| !only_shows_a_published_frame)
+        {
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
@@ -9418,6 +9459,11 @@ impl MacOSWindow {
         self.common.sync_renderer_clear_color();
         if let Some(ref mut renderer) = self.common.renderer {
             log_trace!(LogCategory::Rendering, "[WebRender] renderer.update()");
+            // Every frame published so far is taken in now: a signal still
+            // pending is for one this pass shows, not one still waiting.
+            if let Ok(mut ready) = self.new_frame_ready.0.lock() {
+                *ready = false;
+            }
             renderer.update();
 
             let device_size = webrender::api::units::DeviceIntSize::new(
@@ -9686,6 +9732,16 @@ impl Drop for MacOSWindow {
     }
 }
 
+/// The draws a new window waits for its document before it is shown anyway.
+const BLANK_DRAWS_BEFORE_SHOWN: u32 = 30;
+
+/// Whether a window ordered in invisible is shown after a draw: once the
+/// draw showed its document, or after [`BLANK_DRAWS_BEFORE_SHOWN`] draws
+/// without it before this one.
+const fn shown_after_draw(shows_document: bool, blank_draws_before: u32) -> bool {
+    shows_document || blank_draws_before >= BLANK_DRAWS_BEFORE_SHOWN
+}
+
 #[cfg(test)]
 mod first_frame_tests {
     use super::{shown_after_draw, BLANK_DRAWS_BEFORE_SHOWN};
@@ -9731,8 +9787,11 @@ impl MacOSWindow {
                 LogCategory::Rendering,
                 "[drain_loop_work] Frame ready signal - requesting redraw"
             );
-            // A frame is ready in WebRender's backbuffer.
-            // Tell macOS to schedule a drawRect: call, which will display it.
+            // WebRender built a frame the renderer has not taken in (the
+            // render pass clears the signal as it takes frames in). Tell
+            // macOS to schedule a drawRect: call, which will display it even
+            // if it has nothing new to send.
+            self.frame_waiting = true;
             self.request_redraw();
         }
 

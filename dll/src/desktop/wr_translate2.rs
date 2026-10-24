@@ -536,6 +536,23 @@ pub fn translate_id_namespace_wr(
 }
 
 /// Translate PipelineId from azul-core to WebRender
+/// Whether the renderer's current frame holds the document `document_id`:
+/// WebRender builds a frame after the pass that sent its display list and
+/// publishes the document's epoch with it, so until a later
+/// `Renderer::update` took that frame in, a render shows only the clear
+/// colour.
+pub fn renderer_shows_document(
+    renderer: &webrender::Renderer,
+    document_id: DocumentId,
+) -> bool {
+    renderer
+        .current_epoch(
+            wr_translate_document_id(document_id),
+            wr_translate_pipeline_id(PipelineId(0, document_id.id)),
+        )
+        .is_some()
+}
+
 pub fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
     WrPipelineId(pipeline_id.0, pipeline_id.1)
 }

@@ -16603,7 +16603,7 @@ mod tests {
     /// renders nothing: the CPU view blits its blank fill and the GL view
     /// shows an empty surface, a white flash every time a popup or dialog
     /// opens. So the constructor orders it in fully transparent, and each
-    /// view's `drawRect` reveals it once it could draw a frame.
+    /// view's `drawRect` reveals it once it drew the window's document.
     #[test]
     fn a_new_macos_window_stays_invisible_until_its_first_frame_is_drawn() {
         let ctor = MACOS_MOD_RS
@@ -16629,7 +16629,7 @@ mod tests {
             let body = &rest[start..];
             let end = body.find("\n        }\n").expect("drawRect's closing brace");
             assert!(
-                body[..end].contains("reveal_after_first_frame()"),
+                body[..end].contains("reveal_after_first_frame("),
                 "a view's drawRect does not reveal the window it drew"
             );
             draw_rects += 1;
