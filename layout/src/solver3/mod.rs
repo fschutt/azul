@@ -2022,6 +2022,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
         }
+        cache.last_patch_move_from_seq = cache.layout_seq;
+        cache.layout_seq = cache.layout_seq.wrapping_add(1);
         if patch.is_some() || same_nodes {
             // Round-3 presentation hint from the SAME inputs the patch used,
             // and on a pass that built its list in full from the same nodes

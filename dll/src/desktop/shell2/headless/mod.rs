@@ -365,6 +365,10 @@ pub struct CpuBackend {
     /// the hint is gated on ptr inequality (the retry then takes the plain
     /// diff, which damages the movers normally).
     pub last_patch_shift_dl: usize,
+    /// The layout pass (`LayoutCache::layout_seq`) the frame on screen shows:
+    /// the layout move hint is blitted only from that pass
+    /// (`LayoutCache::last_patch_move_from_seq`).
+    pub presented_layout_seq: Option<u64>,
     /// #27 native backbuffer: when set, the NEXT `render_frame` draws
     /// DIRECTLY into this externally-owned pixmap (a platform backbuffer,
     /// e.g. the free Wayland shm slot) instead of the owned `last_frame`.
@@ -555,6 +559,7 @@ impl CpuBackend {
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             last_patch_shift_dl: 0,
+            presented_layout_seq: None,
             #[cfg(feature = "cpurender")]
             native_target: None,
             rendered_native: false,
@@ -858,7 +863,9 @@ impl CpuBackend {
         // which is exactly where "typing does not repaint" lives.
         let patch_hint: Option<(cpurender::TranslateHint, Vec<azul_core::geom::LogicalRect>)> =
             cpurender::translate_hint_for_patch(
-                layout_window.layout_cache.last_patch_move.as_ref(),
+                layout_window.layout_cache.last_patch_move.as_ref().filter(|_| {
+                self.presented_layout_seq == Some(layout_window.layout_cache.last_patch_move_from_seq)
+            }),
                 dpi_factor,
                 can_reuse_previous_frame,
                 self.last_patch_shift_dl == dl_arc_ptr,
@@ -1140,6 +1147,7 @@ impl CpuBackend {
                 // changed — that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
                 self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
                 // Nothing painted: baseline keeps accumulating dropped
                 // sub-pixel scroll deltas (see next_scroll_baseline above).
                 self.previous_scroll_offsets = next_scroll_baseline;
@@ -1613,6 +1621,7 @@ impl CpuBackend {
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
         // Full render paints EVERY frame at its current offset → baseline is
         // the current offsets. Incremental: only shifted frames advanced.
         self.previous_scroll_offsets = if is_incremental {

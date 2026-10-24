@@ -2663,6 +2663,8 @@ impl LayoutWindow {
                 dom_diff_clean: None,
                 last_fingerprint_skips: 0,
                 last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
                 calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: HashMap::new(),
@@ -6053,6 +6055,8 @@ impl LayoutWindow {
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -11112,6 +11116,8 @@ impl LayoutWindow {
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -25293,7 +25299,10 @@ impl LayoutWindow {
         // `last_patch_damage` is the milder half of the same defect
         // (over-damage from rects that describe a different list).
         self.layout_cache.record_full_emission();
-        self.layout_cache.last_patch_move = None;
+        // The move hint stays: it describes the layout this list is built
+        // from, and a CPU frame takes it only while it shows the layout the
+        // move starts from (`LayoutCache::last_patch_move_from_seq`) - a
+        // keystroke's list after a presented reflow does not blit by it.
         if dom_id == DomId::ROOT_ID {
             self.retain_running_color_keys();
         }

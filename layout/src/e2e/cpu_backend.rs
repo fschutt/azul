@@ -51,6 +51,10 @@ pub(super) struct CpuBackend {
     /// the already-shifted guard (a re-present of the same list must not
     /// blit twice). Mirrors the dll headless backend.
     pub(super) last_patch_shift_dl: usize,
+    /// The layout pass (`LayoutCache::layout_seq`) the frame on screen shows:
+    /// the layout move hint is blitted only from that pass
+    /// (`LayoutCache::last_patch_move_from_seq`).
+    pub(super) presented_layout_seq: Option<u64>,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised.
     pub(super) last_frame_damage: FrameDamage,
@@ -93,6 +97,7 @@ impl CpuBackend {
             previous_display_list: None,
             last_consumed_build_seq: 0,
             last_patch_shift_dl: 0,
+            presented_layout_seq: None,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
@@ -288,7 +293,9 @@ impl CpuBackend {
         // structurally untestable here).
         let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         let patch_hint = cpurender::translate_hint_for_patch(
-            layout_window.layout_cache.last_patch_move.as_ref(),
+            layout_window.layout_cache.last_patch_move.as_ref().filter(|_| {
+                self.presented_layout_seq == Some(layout_window.layout_cache.last_patch_move_from_seq)
+            }),
             dpi_factor,
             can_reuse_previous_frame,
             self.last_patch_shift_dl == dl_arc_ptr,
@@ -496,6 +503,7 @@ impl CpuBackend {
                 // A frame whose backing store changed size is never "nothing".
                 self.previous_display_list = Some(display_list.clone());
                 self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
@@ -683,6 +691,7 @@ impl CpuBackend {
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
+        self.presented_layout_seq = Some(layout_window.layout_cache.layout_seq);
         self.previous_scroll_offsets = if is_incremental {
             next_scroll_baseline
         } else {

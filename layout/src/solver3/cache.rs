@@ -648,6 +648,15 @@ pub struct LayoutCache {
     /// spirit — the consumer must guard against re-application on the SAME
     /// display list (buffers-held retries re-run the present path).
     pub last_patch_move: Option<super::display_list::PatchMoveSummary>,
+    /// Counts the passes that placed the nodes again (each one that
+    /// computed or dropped [`Self::last_patch_move`]).
+    pub layout_seq: u64,
+    /// The [`Self::layout_seq`] the move of [`Self::last_patch_move`] starts
+    /// from. A CPU frame blits by the move only when the frame it shows is
+    /// that pass's (`CpuBackend::presented_layout_seq`): a list built again
+    /// for the same layout (a caret blink, a content patch) still moves
+    /// from there, and a move already presented never moves twice.
+    pub last_patch_move_from_seq: u64,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache
@@ -812,13 +821,11 @@ impl LayoutCache {
         self.last_full_build_seq = self.build_seq;
         self.last_build_was_patched = false;
         self.last_patch_damage = None;
-        // The mover blit belongs to the PATCHED list it was computed for; a
-        // full emission invalidates it exactly like the patch rects. Callers
-        // used to clear this themselves (regenerate_display_list_for_dom
-        // does), but the Step-1.1 cache-hit and early-exit paths called only
-        // this function and left a stale TranslateHint armed - neutralized
-        // today by the Arc-pointer guard, but nothing pinned that.
-        self.last_patch_move = None;
+        // The move hint is NOT dropped: it describes how the nodes moved
+        // between two layout passes, whatever list is built from the second,
+        // and a CPU frame takes it only while it still shows the first
+        // (`last_patch_move_from_seq`). Dropping it here dropped every move
+        // of a layout tween whose frame rebuilt its list.
         self.patch_damage_log.clear();
     }
 

@@ -6434,6 +6434,8 @@ pub fn render_component_preview(
         dom_diff_clean: None,
         last_fingerprint_skips: 0,
         last_patch_move: None,
+            layout_seq: 0,
+            last_patch_move_from_seq: 0,
         calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: HashMap::new(),
