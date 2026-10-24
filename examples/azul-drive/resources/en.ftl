@@ -705,6 +705,9 @@ azdrive-sync-problem = { $code ->
         [conflict-held] A conflict waits for you
         [uploads-paused] Uploads paused until you answer
         [held-back] Waits for a free network
+        [server-moved] The drive moved to another address (nothing changed)
+        [read-only] The drive takes no new files now (kept here)
+        [xattrs-not-synced] Attributes and tags are not synced (the content is)
        *[other] Not synced
     }
 azdrive-sync-none = No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > Sync with a folder) pairs it with one.

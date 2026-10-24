@@ -58,6 +58,9 @@ mod sync_named;
 mod sync_ondemand;
 /// The per-file problem list: codes, what stays listed, escaped names.
 mod sync_problems;
+/// A hostile server, network or disk as the engine names it: moved, read-only, too large,
+/// immutable files, unlistable folders, a crash mid-download, attributes not synced.
+mod sync_hostile;
 /// The base as a SQLite state database.
 #[cfg(feature = "state-db")]
 mod sync_base;

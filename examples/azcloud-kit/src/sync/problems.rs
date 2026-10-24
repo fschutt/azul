@@ -118,6 +118,15 @@ pub enum Code {
     UploadsPaused,
     /// A transfer held back by a limit (a metered network).
     HeldBack,
+    /// The drive answered that it moved to another address (a 301 or 308): nothing changed,
+    /// the files here and their queue stay until the drive answers at its new address.
+    ServerMoved,
+    /// The drive takes no new bytes (unpaid past its grace, a lockdown, an operator's hold, a
+    /// ban): the files here stay, and go up once it takes writes again.
+    ReadOnly,
+    /// Items of the folder carry extended attributes, a resource fork or flags, which are not
+    /// synced (their content is): a note, once per folder.
+    XattrsNotSynced,
     /// Anything else, with its sentence.
     Other,
 }
@@ -146,6 +155,7 @@ impl Code {
             | Code::StateReset
             | Code::Busy
             | Code::HeldBack
+            | Code::XattrsNotSynced
             | Code::ChangedDuringSync => Severity::Warning,
             _ => Severity::Error,
         }
@@ -169,6 +179,7 @@ impl Code {
                 | Code::StateReset
                 | Code::Busy
                 | Code::UploadsPaused
+                | Code::ServerMoved
         )
     }
 }
@@ -228,7 +239,22 @@ impl Problem {
 #[must_use]
 pub fn code_of_error(error: &CloudError) -> Code {
     if let CloudError::Drive(azul_storage::DriveError::Service(service)) = error.root() {
+        // The service's own code says more than the status: a read-only drive answers 403
+        // like revoked keys do, but signing in again changes nothing there.
+        match &service.azlin_error {
+            Some(
+                azul_storage::AzlinError::ReadOnlyUnpaid
+                | azul_storage::AzlinError::ReadOnlyLockdown
+                | azul_storage::AzlinError::ReadOnlyOperator
+                | azul_storage::AzlinError::DriveBanned,
+            ) => return Code::ReadOnly,
+            Some(azul_storage::AzlinError::ObjectTooLarge) => return Code::TooLarge,
+            Some(azul_storage::AzlinError::QuotaExceeded) => return Code::QuotaExceeded,
+            _ => {}
+        }
         match service.status {
+            301 | 308 => return Code::ServerMoved,
+            413 => return Code::TooLarge,
             429 => return Code::RateLimited,
             507 => return Code::QuotaExceeded,
             401 | 403 => return Code::SignInNeeded,
@@ -270,6 +296,10 @@ fn code_of_io_text(text: &str) -> Code {
         || lower.contains("resource busy")
         || lower.contains("locked")
     {
+        Code::Locked
+    } else if lower.contains("operation not permitted") {
+        // EPERM on a write or a rename here: the file or its folder is made immutable (an app
+        // holding it, chflags uchg, chattr +i), the way Windows locks an open file.
         Code::Locked
     } else if lower.contains("permission denied") {
         Code::Unreadable
