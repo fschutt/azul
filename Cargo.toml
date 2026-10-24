@@ -250,6 +250,16 @@ codegen-units = 256
 [profile.pyext-e2e.package.azul-dll]
 opt-level = 0
 
+# An app's end-to-end build (AzDrive's sync scenarios, examples/azul-drive/scripts/e2e_sync.sh):
+# release speed, but the app's own panics unwind. A scenario crashes a sync pass at a named
+# point by unwinding it, and the app catches that and goes on as after a restart; under
+# release's abort the whole app - and the scenario run with it - ended there. libazul is built
+# on its own and keeps release's abort (no panic may cross its C API).
+#   cargo build --profile e2e-unwind -p AzDrive --features fake-providers
+[profile.e2e-unwind]
+inherits = "release"
+panic = "unwind"
+
 # CI / distribution profile: maximum optimization, slow to build.
 #   cargo build --profile prod-release -p azul-dll --features build-dll
 [profile.prod-release]

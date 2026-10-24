@@ -6,8 +6,10 @@
 #
 # A folder runs every scenario in it and in its subfolders (e2e/sync/catalogue/); a test marked
 # "pending" or "not_applicable" runs no step and is reported as such, never as a failure.
-# Defaults: every scenario in e2e/sync, target/release/AzDrive. libazul must be built with the
-# debug server (the `debug-server` feature, as for every AZ_E2E run).
+# Defaults: every scenario in e2e/sync, target/e2e-unwind/AzDrive (the e2e-unwind profile:
+# release with unwinding panics, which the scenarios' crash points need; `cargo build --profile
+# e2e-unwind -p AzDrive --features fake-providers`). libazul must be built with the debug server
+# (the `debug-server` feature, as for every AZ_E2E run).
 #
 # Every file runs in an AzDrive of its own, with folders of its own (the data root, the drives
 # file, Home, the caches, the keyring file, the scenarios' sandboxes, the process's own system
@@ -50,6 +52,8 @@ if [ "${1:-}" = --one ]; then
     count() { printf '%s' "$summary" | sed -n "s/.* \([0-9][0-9]*\) $1.*/\1/p"; }
     passed=$(count passed); failed=$(count failed); xfailed=$(count xfailed)
     xpassed=$(count xpassed); skipped=$(count skipped); pending=$(count pending)
+    passed=${passed:-0} failed=${failed:-0} xfailed=${xfailed:-0}
+    xpassed=${xpassed:-0} skipped=${skipped:-0} pending=${pending:-0}
     if [ -z "$summary" ]; then
         # A process that ended before its report: one failure at least.
         passed=0 failed=1 xfailed=0 xpassed=0 skipped=0 pending=0
@@ -90,7 +94,7 @@ fi
 here=$(cd "$(dirname "$0")/.." && pwd)
 scenarios=${1:-$here/e2e/sync}
 scenarios=$(cd "$(dirname "$scenarios")" && pwd)/$(basename "$scenarios")
-bin=${2:-${AZDRIVE_BIN:-$here/../../target/release/AzDrive}}
+bin=${2:-${AZDRIVE_BIN:-$here/../../target/e2e-unwind/AzDrive}}
 jobs=${AZDRIVE_E2E_JOBS:-$(( $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2) - 1 ))}
 [ "$jobs" -ge 1 ] || jobs=1
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/azdrive-e2e-sync.XXXXXX")
@@ -113,8 +117,11 @@ else
     root=$(dirname "$scenarios")
     echo "$scenarios" > "$tmp/files"
 fi
+# Each file's run reports itself; one that ended early (xargs says so) still leaves its line in
+# the tally, so the sum below is always written.
 E2E_SCENARIOS=$root E2E_TMP=$tmp E2E_LOGS=$logs E2E_BIN=$bin \
-    xargs -n 1 -P "$jobs" "$0" --one < "$tmp/files"
+    xargs -n 1 -P "$jobs" "$0" --one < "$tmp/files" ||
+    echo "e2e_sync: a file's run ended early (xargs: $?)" >&2
 awk '{ p += $2; f += $3; xf += $4; xp += $5; s += $6; pe += $7; n++ }
      END { printf "test result: %s. %d passed; %d failed; %d xfailed; %d xpassed; %d skipped; %d pending (%d files, logs in '"$logs"')\n",
            (f + xp == 0 ? "ok" : "FAILED"), p, f, xf, xp, s, pe, n }' "$tmp/tally"
