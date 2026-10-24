@@ -101,6 +101,10 @@ mod rotation_meta;
 /// The key flows over the drive index's policy (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod policy_keys;
+/// A device's pin of its drive key, and the key ids join and claim codes carry (feature
+/// `encryption`).
+#[cfg(feature = "encryption")]
+mod key_pin;
 /// Small files packed together on an encrypted drive (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod packing;
