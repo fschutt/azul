@@ -1,5 +1,7 @@
 //! What the app's session does to the synced folder itself: a delete or a rename the user asks
-//! for reaches every name from the folder's root, never through a link below it.
+//! for reaches every name from the folder's root, never through a link below it, and a pass
+//! whose folder is gone fails and says why. A pairing made before folders were marked takes
+//! its marker only from a folder that still holds its files.
 
 use std::{
     fs,
@@ -8,11 +10,16 @@ use std::{
 
 use azul_storage::testing::TempDir;
 
-use super::fake_s3::S3Bucket;
+use super::{
+    fake_s3::S3Bucket,
+    sync::{index_of, Device},
+};
 use crate::{
     store::RemoteStore,
     sync::{
-        local::path_of,
+        local::{hash_bytes, path_of},
+        problems::Code,
+        root,
         session::{SyncSession, SyncSetup},
     },
 };
@@ -75,4 +82,92 @@ fn a_delete_or_rename_the_user_asks_for_never_reaches_through_a_link() {
     assert_eq!(fs::read(outside.path().join("x.txt")).unwrap(), b"outside");
     assert!(!outside.path().join("y.txt").exists());
     assert_eq!(a.read("y.txt").as_deref(), Some(&b"y"[..]));
+}
+
+#[test]
+fn a_pass_whose_folder_is_gone_fails_says_why_and_never_makes_it_again() {
+    // An unplugged disk: the folder is gone. The pass changes nothing anywhere, and the app
+    // says why instead of showing the folder as up to date.
+    let store = Arc::new(S3Bucket::new());
+    let a = Pairing::new("gone-a", &store);
+    a.write("a.txt", b"a");
+    a.write("b.txt", b"b");
+    a.pass();
+    let synced = a.session.states().last_pass;
+    fs::remove_dir_all(a.folder.path()).unwrap();
+    let stop = AtomicBool::new(false);
+    assert!(
+        a.session.pass(&stop, &mut |_| {}).is_err(),
+        "a pass that synced nothing is no pass"
+    );
+    assert!(!a.folder.path().exists(), "the folder is never made again");
+    let states = a.session.states();
+    assert!(
+        states
+            .last_error
+            .as_deref()
+            .is_some_and(|why| why.contains("is gone")),
+        "{:?}",
+        states.last_error
+    );
+    assert_eq!(states.last_pass, synced, "not synced since");
+    let b = Pairing::new("gone-b", &store);
+    b.pass();
+    assert_eq!(
+        b.read("a.txt").as_deref(),
+        Some(&b"a"[..]),
+        "nothing deleted on the drive"
+    );
+}
+
+/// Makes the pairing look like one made before folders were marked: no marker in its base,
+/// none in its folder.
+fn forget_marker(device: &Device) {
+    let mut base: serde_json::Value =
+        serde_json::from_slice(&fs::read(device.index()).unwrap()).unwrap();
+    base.as_object_mut().unwrap().remove("root_id");
+    fs::write(device.index(), serde_json::to_vec(&base).unwrap()).unwrap();
+    let _ = fs::remove_file(device.path().join(root::SYNC_DIR).join(root::MARKER_FILE));
+}
+
+#[test]
+fn a_folder_paired_before_markers_is_marked_only_while_it_holds_a_file_as_synced() {
+    // Such a base names no marker, so only its files can tell its folder: an unplugged disk's
+    // empty mount point, or a stale copy written under it, holds none of them as synced.
+    let store = S3Bucket::new();
+    let a = Device::new("premark-a");
+    a.write("a.txt", b"a");
+    a.write("b.txt", b"b");
+    a.sync(&store);
+    forget_marker(&a);
+    let report = a.sync(&store);
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert!(
+        root::read_marker(a.path()).is_some(),
+        "its files are here: it is the folder"
+    );
+    forget_marker(&a);
+    a.remove("a.txt");
+    a.remove("b.txt");
+    a.write("a.txt", b"a stale copy");
+    let report = a.sync(&store);
+    assert!(
+        report.problems.iter().any(|p| p.code == Code::RootReplaced),
+        "{:?}",
+        report.problems
+    );
+    assert!(
+        root::read_marker(a.path()).is_none(),
+        "a folder that is not the pairing's is not marked"
+    );
+    let index = index_of(&store);
+    assert_eq!(
+        index.files["a.txt"].hash,
+        hash_bytes(b"a"),
+        "the stale copy never went up"
+    );
+    assert!(
+        index.files.contains_key("b.txt"),
+        "nothing deleted on the drive"
+    );
 }
