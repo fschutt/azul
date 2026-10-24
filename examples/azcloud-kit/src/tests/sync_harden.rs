@@ -511,6 +511,36 @@ fn a_drive_entry_that_names_no_content_is_never_a_delete_here() {
     assert!(trashed(b.path()).is_empty());
 }
 
+/// An entry the index's own fields cannot be read from is kept aside when the index is read;
+/// the next pass that gets "not modified" from the drive works from its cached copy, which
+/// must keep it aside too - never a delete here.
+#[test]
+fn an_unreadable_drive_entry_stays_unknown_in_the_next_pass_too() {
+    let store = S3Bucket::new();
+    let a = Device::new("unreadable-a");
+    let b = Device::new("unreadable-b");
+    a.write("x.txt", b"x");
+    a.write("y.txt", b"y");
+    a.sync(&store);
+    b.sync(&store);
+    let key = index_key(PREFIX);
+    let mut whole: serde_json::Value =
+        serde_json::from_slice(&store.read(&key).unwrap()).unwrap();
+    whole["files"]["x.txt"] = serde_json::json!({ "hash": "bad tag", "size": -1 });
+    whole["generation"] = serde_json::json!(whole["generation"].as_u64().unwrap() + 1);
+    store.write(&key, serde_json::to_vec_pretty(&whole).unwrap());
+    for pass in 0..3 {
+        let report = b.sync(&store);
+        assert!(
+            lists(&report, Code::RemoteEntryUnreadable, Some("x.txt")),
+            "pass {pass}: {:?}",
+            report.problems
+        );
+        assert_eq!(b.read("x.txt").as_deref(), Some(&b"x"[..]), "pass {pass}");
+        assert!(trashed(b.path()).is_empty(), "pass {pass}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_fifo_in_the_folder_is_listed_and_never_opened() {

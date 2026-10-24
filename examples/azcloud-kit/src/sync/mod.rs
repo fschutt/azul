@@ -628,7 +628,10 @@ fn each_in_parallel<J: Sync, R: Send>(
 #[derive(Serialize, Deserialize)]
 struct CachedIndex {
     etag: String,
-    index: RemoteIndex,
+    /// The index as the drive holds it, its damaged entries too ([`RemoteIndex::to_bytes`]),
+    /// read back as the drive's own bytes are ([`RemoteIndex::parse`]): an entry a pass keeps
+    /// aside as unreadable is never missing from the copy the next pass works from.
+    index: serde_json::Value,
 }
 
 fn cache_path(index_path: &Path) -> PathBuf {
@@ -637,17 +640,25 @@ fn cache_path(index_path: &Path) -> PathBuf {
 
 fn load_cache(index_path: &Path, local: &LocalIndex) -> Option<(String, RemoteIndex)> {
     let cached: CachedIndex = read_json(&cache_path(index_path)).ok().flatten()?;
-    (local.remote_etag.as_deref() == Some(cached.etag.as_str()))
-        .then_some((cached.etag, cached.index))
+    if local.remote_etag.as_deref() != Some(cached.etag.as_str()) {
+        return None;
+    }
+    let bytes = serde_json::to_vec(&cached.index).ok()?;
+    let index = RemoteIndex::parse(&bytes).ok()?;
+    Some((cached.etag, index))
 }
 
 fn save_cache(index_path: &Path, etag: Option<&str>, index: &RemoteIndex) {
     let path = cache_path(index_path);
     match etag.filter(|e| !e.is_empty()) {
         Some(etag) => {
+            let Ok(whole) = serde_json::from_slice(&index.to_bytes()) else {
+                let _ = fs::remove_file(path);
+                return;
+            };
             let cached = CachedIndex {
                 etag: etag.to_string(),
-                index: index.clone(),
+                index: whole,
             };
             let _ = write_json(&path, &cached, true);
         }
