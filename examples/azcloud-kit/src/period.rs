@@ -1007,8 +1007,20 @@ fn redeem_with(
     let drive_id = tokens.drive_id();
     let tier = active.tier();
     let mut period_until = active.period_until();
-    let due =
-        |until: Option<u64>| until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS));
+    // A locked drive comes back only to its owner: before the proof nothing is bought (the
+    // token server would refuse it, the tokens stay). After it, months pay the time the drive
+    // was kept unpaid, up to the day it was locked; the days beyond start when it is back.
+    let locked = active.status.archive.as_ref();
+    if locked.is_some_and(|a| !a.proven) {
+        return Redeemed::Kept(String::from(
+            "the drive is locked: its owner proves it is theirs before a month is bought",
+        ));
+    }
+    let pay_through = locked.and_then(|a| u64::try_from(a.pay_through.unix()).ok());
+    let due = |until: Option<u64>| match pay_through {
+        Some(through) => until.is_none_or(|at| at < through),
+        None => until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS)),
+    };
     let mut count = 0;
     let mut failed: Option<String> = None;
     for _ in 0..MAX_ROUNDS {
@@ -1241,14 +1253,15 @@ impl Reminder {
 }
 
 /// The reminder due for a drive with `status` at `now`: of the deadlines an unpaid drive meets
-/// ([`azlin_contract::expiry`]: the period's end, the drive turning read-only, its closing),
-/// the next one within 30, 7 or 1 days, at its nearest step. None while the drive's vaults keep
-/// a month for it (`kept`: a token or an open grant - the next look buys it), for a drive
-/// without a period, and for a banned one (its banner says what ends).
+/// ([`azlin_contract::expiry`]: the period's end, the drive turning read-only, its lock), the
+/// next one within 30, 7 or 1 days, at its nearest step. None while the drive's vaults keep a
+/// month for it (`kept`: a token or an open grant - the next look buys it), for a drive without
+/// a period, for a banned one (its banner says what ends) and for a locked one (its view says
+/// how to get it back).
 #[must_use]
 pub fn reminder_due(status: &DriveStatus, kept: &VaultState, now: u64) -> Option<Reminder> {
     let until = status.period_until?;
-    if holds_months(kept) || status.ban.is_some() {
+    if holds_months(kept) || status.ban.is_some() || status.locked() {
         return None;
     }
     let now = i64::try_from(now).ok()?;

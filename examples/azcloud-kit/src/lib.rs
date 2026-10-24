@@ -89,6 +89,7 @@ pub mod cash;
 pub mod claim;
 #[cfg(feature = "encryption")]
 pub mod cloudflare;
+pub mod device_key;
 pub mod drive;
 #[cfg(feature = "encryption")]
 pub mod encryption;
@@ -150,9 +151,10 @@ pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
     Ban, BlindSignatures, Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, ClaimedFamily,
-    DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier,
-    TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    DriveStatus, FoundDrive, IssueAnswer, OptionsQuery, ProofAnswer, RecoveryKeyInfo,
+    RecoveryLockdown, Tier, TierNews, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
+pub use device_key::DeviceKey;
 pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
 pub use vault::{DriveTokens, RenewalLock, TokenVault, VaultGrant, VaultState};

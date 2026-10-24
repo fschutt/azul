@@ -32,15 +32,26 @@ pub struct DriveStatus {
     /// Why it takes no writes, when the server says it (`read_only_reason`; a server of
     /// before names none, and then read-only was a payment due).
     pub read_only_why: Option<azlin_contract::ReadOnlyWhy>,
+    /// The drive is locked (unpaid past its read-only time; its files in offline storage):
+    /// since when, the day its period must reach, whether its owner proved it is theirs, and
+    /// whether its files are on their way back (`archive`).
+    pub archive: Option<azlin_contract::ArchiveWire>,
 }
 
 impl DriveStatus {
+    /// Whether the drive is locked: nothing is read or written until its owner gets it back.
+    #[must_use]
+    pub fn locked(&self) -> bool {
+        self.archive.is_some()
+    }
+
     /// Whether the drive takes no writes because a payment is due (not a recovery's freeze, an
     /// operator's, a ban).
     #[must_use]
     pub fn payment_due(&self) -> bool {
         self.read_only
             && self.ban.is_none()
+            && self.archive.is_none()
             && matches!(self.read_only_why, None | Some(azlin_contract::ReadOnlyWhy::Unpaid))
     }
 }
@@ -413,6 +424,7 @@ impl<'a> TokenServer<'a> {
             read_only_why: info["read_only_reason"]
                 .as_str()
                 .map(azlin_contract::ReadOnlyWhy::from_wire),
+            archive: serde_json::from_value(info["archive"].clone()).ok(),
         })
     }
 }

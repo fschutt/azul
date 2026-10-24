@@ -128,6 +128,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             used_bytes: Some(62_000_000_000),
             ban: None,
             read_only_why: None,
+            archive: None,
         }
     );
     assert_eq!(
@@ -143,6 +144,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             used_bytes: None,
             ban: None,
             read_only_why: None,
+            archive: None,
         }
     );
 }

@@ -2,6 +2,8 @@
 //! as the real ones do (the token server's JSON, S3's XML) and records every call.
 
 mod account;
+/// A locked drive's way back: its status, the proof, a device's key.
+mod archive;
 mod ban;
 mod bucket;
 /// Many files at once: folders deleted and moved, batch deletes and moves.

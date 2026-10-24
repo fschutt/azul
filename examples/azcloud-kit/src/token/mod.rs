@@ -43,6 +43,11 @@
 //! | `POST /v1/vouchers/redeem`            | a voucher: days on a drive, or a new drive        |
 //! | `POST /v1/drives/{id}/restore`        | a prefix as it was at a time (queued)             |
 //! | `GET /v1/drives/{id}/restore/{req}`   | a restore's progress                              |
+//! | `POST /v1/drives/{id}/device_keys`    | this device's key for the drive (while it is      |
+//! |                                       | open): it proves the owner if the drive is locked |
+//! | `POST .../archive/challenge`          | a locked drive: a challenge (5 minutes, once)     |
+//! | `POST .../archive/proof`              | the owner's signature over it (a recovery key or  |
+//! |                                       | a device key); paid too, the drive comes back     |
 //!
 //! Blocking, through azul-storage's [`Transport`]: call it from an azul `Thread`.
 
@@ -59,12 +64,14 @@ use crate::{
 };
 
 // One file per group of routes, so changes to one group do not meet changes to another.
+mod archive;
 mod checkout;
 mod members;
 mod period;
 mod recovery;
 mod refresh;
 
+pub use archive::ProofAnswer;
 pub use checkout::{
     Checkout, CheckoutFor, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, TierNews, Tiers,
     VoucherRedeemed,
