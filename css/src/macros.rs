@@ -1129,6 +1129,9 @@ macro_rules! impl_option {
 
         impl $struct_name {
             /// The value, moved out: no copy of it is made.
+            // Not const: a const fn cannot take a payload with a destructor by value, and
+            // this arm serves every payload type.
+            #[allow(clippy::missing_const_for_fn)]
             #[must_use] pub fn into_option(self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
@@ -1161,6 +1164,9 @@ macro_rules! impl_option {
 
         impl $struct_name {
             /// The value, moved out: no copy of it is made.
+            // Not const: a const fn cannot take a payload with a destructor by value, and
+            // this arm serves every payload type.
+            #[allow(clippy::missing_const_for_fn)]
             #[must_use] pub fn into_option(self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
@@ -1323,9 +1329,9 @@ mod option_move_tests {
         static CLONES: Cell<usize> = const { Cell::new(0) };
     }
 
-    /// A payload that counts its copies.
+    /// A payload that counts its copies (as visible as the option the macro makes of it).
     #[derive(Debug, PartialEq)]
-    struct Counted(u32);
+    pub struct Counted(u32);
 
     impl Clone for Counted {
         fn clone(&self) -> Self {

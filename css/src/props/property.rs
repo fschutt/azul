@@ -595,8 +595,9 @@ std::thread_local! {
     pub(crate) static KEY_MAP_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// The maps of every CSS property name, for parsing the keys of stylesheets:
-/// built on first use and kept for the life of the process, so a parse only
+/// The maps of every CSS property name, for parsing the keys of stylesheets.
+///
+/// Built on first use and kept for the life of the process, so a parse only
 /// looks its keys up (inline styles are parsed for every row a list renders).
 #[must_use]
 pub fn css_key_map() -> &'static CssKeyMap {
@@ -3932,8 +3933,8 @@ pub fn parse_css_property(
 
 #[cfg(feature = "parser")]
 /// The `background-color` value of a parsed colour.
-fn background_color_layer(colour: ColorOrSystem) -> StyleBackgroundContent {
-    match colour {
+const fn background_color_layer(value: ColorOrSystem) -> StyleBackgroundContent {
+    match value {
         ColorOrSystem::Color(color) => StyleBackgroundContent::Color(color),
         ColorOrSystem::System(system) => StyleBackgroundContent::SystemColor(system),
     }

@@ -2481,10 +2481,7 @@ fn parse_declaration_resilient<'a>(
             // longhands read the whole value (a colour sets the layer and the
             // colour, an image the layer).
             if combined_key == CombinedCssPropertyType::Background {
-                let defaults = match fallback {
-                    None => parse_combined_css_property(combined_key, "initial"),
-                    Some(f) => parse_combined_css_property(combined_key, f),
-                };
+                let defaults = parse_combined_css_property(combined_key, fallback.unwrap_or("initial"));
                 let defaults = match defaults {
                     Ok(props) => props,
                     Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
