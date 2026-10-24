@@ -4684,33 +4684,44 @@ pub fn compute_patch_move_summary(
             && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
             && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
     };
-    let backed_by_a_still_fill = |i: usize| -> bool {
+    // The ancestor whose fill backs mover `i`, if one does.
+    let backing_fill = |i: usize| -> Option<usize> {
         let (Some(old), Some(new)) = (
             rect_of(prev_positions[i], prev_sizes[i]),
             rect_of(new_positions[i], new_sizes[i]),
         ) else {
-            return false;
+            return None;
         };
         let mut cur = parents.get(i).copied().flatten();
         while let Some(p) = cur {
             if p >= n {
-                return false;
+                return None;
             }
             if opaque_bg.get(p).copied().unwrap_or(false) {
-                return !is_dominant_mover[p]
+                let holds = !is_dominant_mover[p]
                     && rect_of(prev_positions[p], prev_sizes[p]).is_some_and(|a| contains(&a, &old))
                     && rect_of(new_positions[p], new_sizes[p]).is_some_and(|a| contains(&a, &new));
+                return holds.then_some(p);
             }
             cur = parents.get(p).copied().flatten();
         }
-        false
+        None
     };
-    let blittable: Vec<bool> = (0..n)
+    // Per mover: blitted on its own (`Some(None)`, its own opaque
+    // background), as part of its backing fill's region (`Some(Some(a))`),
+    // or not at all.
+    let blit_as: Vec<Option<Option<usize>>> = (0..n)
         .map(|i| {
-            is_dominant_mover[i]
-                && (opaque_bg.get(i).copied().unwrap_or(false) || backed_by_a_still_fill(i))
+            if !is_dominant_mover[i] {
+                None
+            } else if opaque_bg.get(i).copied().unwrap_or(false) {
+                Some(None)
+            } else {
+                backing_fill(i).map(Some)
+            }
         })
         .collect();
+    let blittable: Vec<bool> = blit_as.iter().map(Option::is_some).collect();
     let covered_by_mover_ancestor = |i: usize| -> bool {
         let mut cur = parents.get(i).copied().flatten();
         while let Some(p) = cur {
@@ -4723,19 +4734,42 @@ pub fn compute_patch_move_summary(
     };
     let mut mover_rects_old: Vec<LogicalRect> = Vec::new();
     let mut moved_region: Option<LogicalRect> = None;
+    // Movers over one backing fill move as one region: what lies between
+    // them is that fill (and any static box there is an exception below),
+    // so a list's rows are one blit, not one per row.
+    let mut backed_regions: BTreeMap<usize, LogicalRect> = BTreeMap::new();
     for i in 0..n {
         if !blittable[i] || covered_by_mover_ancestor(i) {
             continue;
         }
-        if let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) {
-            mover_rects_old.push(r);
-            if mover_rects_old.len() > MAX_MOVERS {
-                return None; // too many independent blits — full repaint
+        let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) else {
+            continue;
+        };
+        moved_region = Some(union(moved_region, r));
+        match blit_as[i] {
+            Some(Some(fill)) => {
+                let region = backed_regions.get(&fill).copied();
+                backed_regions.insert(fill, union(region, r));
             }
-            moved_region = Some(union(moved_region, r));
+            _ => mover_rects_old.push(r),
         }
     }
-    let moved_region_old = moved_region?;
+    mover_rects_old.extend(backed_regions.into_values());
+    if mover_rects_old.len() > MAX_MOVERS {
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            eprintln!("[MOVESUMMARY] {} blits, over {MAX_MOVERS}", mover_rects_old.len());
+        }
+        return None; // too many independent blits — full repaint
+    }
+    let Some(moved_region_old) = moved_region else {
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            let movers = is_dominant_mover.iter().filter(|m| **m).count();
+            eprintln!("[MOVESUMMARY] {movers} movers by {dominant:?}, none can blit");
+        }
+        return None;
+    };
     // Descendant-of-blitted-mover test for pass 2: a static (or any) node
     // whose OPAQUE mover ancestor blits is carried by that blit and needs
     // no exception; equally, dominant movers inside a blitted ancestor are
@@ -4802,6 +4836,10 @@ pub fn compute_patch_move_summary(
             if let Some(r) = acc {
                 exceptions.push(r);
                 if exceptions.len() > MAX_EXCEPTIONS {
+                    #[cfg(feature = "std")]
+                    if env_flag!("AZ_PATCH_DEBUG") {
+                        eprintln!("[MOVESUMMARY] over {MAX_EXCEPTIONS} exceptions");
+                    }
                     return None; // too fragmented — full repaint is cheaper
                 }
             }
