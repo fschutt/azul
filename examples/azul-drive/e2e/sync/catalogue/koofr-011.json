@@ -1,0 +1,66 @@
+[
+  {
+    "name": "emoji and astral-plane names round-trip byte for byte; a remote backslash name is listed and stays on the drive",
+    "description": "KOOFR-011 (Koofr API and desktop): a backslash was replaced by U+FF3C, invalid UTF-8 replaced, emoji refused as 'Invalid filename', Google Drive names given U+FFFD plus a random suffix. Rules P4, S8 and O1: names are kept byte for byte; emoji and astral-plane characters are valid everywhere; a backslash or invalid UTF-8 is refused and listed per file, never mapped silently. sync-chaos port-control-chars.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "smile-\ud83d\ude00.txt", "text": "emoji" },
+      { "op": "drive_write", "device": "a", "path": "cuneiform-\ud808\udc00.txt", "text": "astral" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "smile-\ud83d\ude00.txt", "text": "emoji" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "cuneiform-\ud808\udc00.txt", "text": "astral" },
+      { "op": "drive_check", "check": "remote_file", "key": "smile-\ud83d\ude00.txt", "text": "emoji" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "back\\slash.txt", "text": "backslash" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": "back\\slash.txt" },
+      { "op": "drive_check", "check": "remote_file", "key": "back\\slash.txt", "text": "backslash" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": "smile-*", "absent": true },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a local name holding a backslash is listed and stays here, it is neither uploaded nor renamed",
+    "description": "KOOFR-011 (Koofr API and desktop): a backslash was replaced by U+FF3C, invalid UTF-8 replaced, emoji refused as 'Invalid filename', Google Drive names given U+FFFD plus a random suffix. Rules P4, S8 and O1: names are kept byte for byte; emoji and astral-plane characters are valid everywhere; a backslash or invalid UTF-8 is refused and listed per file, never mapped silently. sync-chaos port-control-chars. A backslash is a path separator on Windows, so this half runs on macOS and Linux.",
+    "only_on": ["macos", "linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a\\b.txt", "text": "local backslash" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["bad-name", "portability"] },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "a\\b.txt", "text": "local backslash" },
+      { "op": "drive_check", "check": "remote_file", "key": "ok.txt", "text": "ok" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a local name that is not valid UTF-8 is listed and stays here",
+    "description": "KOOFR-011 (Koofr API and desktop): a backslash was replaced by U+FF3C, invalid UTF-8 replaced, emoji refused as 'Invalid filename', Google Drive names given U+FFFD plus a random suffix. Rules P4, S8 and O1: names are kept byte for byte; emoji and astral-plane characters are valid everywhere; a backslash or invalid UTF-8 is refused and listed per file, never mapped silently. sync-chaos port-control-chars. Linux file names are bytes; 0xFF cannot be written in a JSON path.",
+    "pending": "drive_write field path_hex (a file name given as raw bytes, so a name that is not UTF-8 can be made)",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path_hex": "6e616d65ff2e747874", "text": "invalid utf-8 name" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "bad-name" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 2 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
