@@ -78,3 +78,74 @@ fn the_azlin_apps_share_one_keyring_namespace_and_any_other_app_keeps_its_own() 
         "org.example.Editor"
     );
 }
+
+/// A keyring that refuses `refused` (as the user's "No" to the system's prompt does) and counts
+/// every read.
+struct Refusing {
+    inner: MemoryKeyring,
+    refused: &'static str,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+impl KeyringStore for Refusing {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if key == self.refused {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.get(key)
+    }
+
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.inner.set(key, secret)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.inner.delete(key)
+    }
+}
+
+fn refusing(refused: &'static str) -> Refusing {
+    let inner = MemoryKeyring::new();
+    inner.set("a", "1").unwrap();
+    inner.set("c", "3").unwrap();
+    Refusing {
+        inner,
+        refused,
+        reads: std::sync::atomic::AtomicUsize::new(0),
+    }
+}
+
+fn keys(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| (*name).to_string()).collect()
+}
+
+/// "Unlock drives": one round reads every drive's entry, one after the other, and the user's
+/// first "No" ends it - the entries after it answer Denied unread, so a refusal is never
+/// followed by one more prompt per drive.
+#[test]
+fn a_round_that_asks_reads_each_entry_once_and_ends_at_the_first_refusal() {
+    use crate::keyring::{read_entries, Asking};
+    let keyring = refusing("b");
+    let answers = read_entries(&keyring, &keys(&["a", "b", "c", "missing"]), Asking::User);
+    let names: Vec<&str> = answers.iter().map(|(key, _)| key.as_str()).collect();
+    assert_eq!(names, ["a", "b", "c", "missing"], "one answer per entry, in order");
+    assert_eq!(answers[0].1, Ok(Some(String::from("1"))));
+    assert_eq!(answers[1].1, Err(KeyringError::Denied));
+    assert_eq!(answers[2].1, Err(KeyringError::Denied), "not read after the refusal");
+    assert_eq!(answers[3].1, Err(KeyringError::Denied));
+    assert_eq!(keyring.reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+/// Background work reads quietly - no read can raise a prompt - so a quiet round reads every
+/// entry: one that would need the user does not hold back the drives that need nobody.
+#[test]
+fn a_quiet_round_reads_every_entry_even_after_a_refusal() {
+    use crate::keyring::{read_entries, Asking};
+    let keyring = refusing("a");
+    let answers = read_entries(&keyring, &keys(&["a", "c", "missing"]), Asking::Never);
+    assert_eq!(answers[0].1, Err(KeyringError::Denied));
+    assert_eq!(answers[1].1, Ok(Some(String::from("3"))));
+    assert_eq!(answers[2].1, Ok(None), "an entry that is not there");
+    assert_eq!(keyring.reads.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
