@@ -150,10 +150,8 @@ dependencies = [
  "micromail",
  "rsa",
  "rustls",
- "rustls-rustcrypto",
  "serde",
  "serde_json",
- "webpki-roots 1.0.10",
 ]
 
 [[package]]
