@@ -6530,6 +6530,42 @@ mod tests {
         }
     }
 
+    /// A window that gets narrower or shorter keeps its pixels: a shrink
+    /// exposes nothing new, so the frame repaints what the relayout changed,
+    /// and a mixed resize (wider but shorter) repaints that plus the strip it
+    /// gained - each frame equal to a full repaint. Every shrinking step of a
+    /// window-edge drag used to repaint the whole window (48 ms of raster at
+    /// 1x for AzDrive's window).
+    #[test]
+    fn a_window_that_shrinks_repaints_only_what_changed() {
+        use azul_core::geom::LogicalSize;
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(100.0, 50.0), (100.0, 50.0)],
+            highlight: None,
+        })));
+        let mut window = make_window_sized(&state, harness_layout_grid, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        for (w, h) in [(380.0f32, 300.0f32), (380.0, 280.0), (395.0, 260.0)] {
+            window
+                .common
+                .update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions = LogicalSize::new(w, h);
+                });
+            window.regenerate_layout().expect("relayout at the new size");
+            let damage = window.cpu_backend.last_frame_damage.clone();
+            assert!(
+                !damage.is_full(),
+                "a resize to {w}x{h} that exposes at most a strip repainted the whole window"
+            );
+            let (diffs, first) = incremental_vs_full(&mut window);
+            assert_eq!(
+                diffs, 0,
+                "the frame at {w}x{h} differs from a full repaint in {diffs} px, first at {first:?} \
+                 (damage {damage:?})"
+            );
+        }
+    }
+
     #[test]
     fn damage_reflow_shifts_sibling() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
