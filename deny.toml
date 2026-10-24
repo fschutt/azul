@@ -9,12 +9,12 @@ version = 2
 # advisory can't be fixed yet.
 yanked = "warn"
 ignore = [
-    # ── Security — reaches the tree ONLY through rustls-rustcrypto (our copy in
-    # third_party/rustls-rustcrypto), used solely as a TLS *client*.
-    # rustls-rustcrypto is the pure-Rust crypto provider that lets the shipped
-    # libazul (via azul-layout) cross-compile to the exotic targets
-    # (riscv64/s390x/ppc64/…) where ring / aws-lc-rs need platform asm.
-    # Revisit when it bumps its rsa pin. ──
+    # ── Security — the shipped libazul reaches rsa ONLY through rustls-rustcrypto-azul
+    # (our published fork of rustls-rustcrypto, rsa 0.10), used solely as a TLS *client*.
+    # It is the pure-Rust crypto provider that lets libazul (via azul-layout)
+    # cross-compile to the exotic targets (riscv64/s390x/ppc64/…) where ring /
+    # aws-lc-rs need platform asm. rsa 0.9 comes in through example apps and
+    # their crates (micromail's DKIM, sqlx, reqsign). Revisit when rsa ships a fix. ──
     { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing attack recovers a TLS *server's* RSA private key via decryption/signing timing. azul is a TLS client doing certificate signature *verification* (public-key) only and never performs RSA private-key ops, so the vulnerable path is unreachable. No fixed rsa release exists." },
     # rustls 0.23.45: the four advisories of 2026-10-14 are fixed in 0.23.46, published that same
     # day and so inside the 14-day cooldown for new crate versions; bump on or after 2026-10-28
@@ -40,7 +40,7 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant 5 unmaintained: merged into zbus 6 as its wire module (no vulnerability). Pulled by zbus 5: azul-dll's Linux D-Bus clients (portals, GeoClue, media keys) and accesskit_unix's AT-SPI stack (accesskit_atspi_common, atspi). Moving the dll to zbus 6 alone keeps zvariant 5 in the graph through accesskit_unix; the advisory names no safe upgrade until accesskit moves to zbus 6." },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained: merged into zbus 6 (no vulnerability). Same path as RUSTSEC-2026-0370 (zbus 5: the dll's D-Bus clients and accesskit_unix)." },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained: merged into zbus 6 (no vulnerability). Same path as RUSTSEC-2026-0370 (zbus 5: the dll's D-Bus clients and accesskit_unix)." },
-    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 archived (-> pastey). Transitive via nokhwa, turso_core, and rustls-rustcrypto. Build-time macro only, no runtime/security impact; awaiting upstreams to migrate." },
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 archived (-> pastey). Transitive via nokhwa, netlink-packet-core, and rustls-rustcrypto-azul. Build-time macro only, no runtime/security impact; awaiting upstreams to migrate." },
     { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml 0.2.11 unmaintained. Pulled only by serde_yaml 0.9 in azul-doc, the build and docs tool that is never shipped; it parses the repo's own front matter and FUNDING.yml, no untrusted YAML. Fix path: move azul-doc to a maintained YAML reader." },
 ]
 

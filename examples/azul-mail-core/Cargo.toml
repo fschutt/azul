@@ -33,7 +33,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 mail-parser = { version = "0.11", features = ["full_encoding"] }
 # Sending (send.rs): the MIME builder, DKIM signing and the SMTP client of direct delivery and the
 # relay; STARTTLS with the pure-Rust provider below.
-micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim", "signing"] }
+micromail = { version = "0.2.1", default-features = false, features = ["tls-rustcrypto", "dkim", "signing"] }
 # The DKIM key's public half (dkim.rs).
 rsa = { version = "0.9", features = ["pem"] }
 base64 = "0.22"
@@ -43,7 +43,7 @@ microdns = "0.1"
 # provider and the Mozilla roots.
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
-rustls-rustcrypto = "0.0.2-alpha"
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0" }
 # The Mozilla roots when the host hands in no set of its own (tls.rs); in Cargo.lock already.
 webpki-roots = "1.0"
 

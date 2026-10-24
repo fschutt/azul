@@ -13,6 +13,12 @@ criteria = "safe-to-deploy"
 delta = "0.4.2 -> 0.4.4"
 notes = "RUSTSEC-2026-0385 fix: Choice mask generation goes through to_u8 (black-boxed), u128 comparisons on 32-bit targets use half-width u64 predicates, ct_lt/ct_gt for u128 use them. MSRV 1.87 casts and const fns, deprecations, tests. The crate still forbids unsafe code; subtle requirement moves to 2.6 (the tree has 2.6.1)."
 
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.4 -> 0.4.5"
+notes = "Hardening for Thumb-1 (ARM without pointer-width atomics): Choice::and and the u32/u64 comparison predicates black-box their bit there; the bitle/bitlt/bitnz macros move unchanged into a new public primitives module that adds borrowing_sub, constant-time leading/trailing zero counts (native instructions where the target has them, a fixed-stage search otherwise) and overflowing_add (u128 split into halves on riscv32). Other targets lower as before. No new dependencies; the crate still forbids unsafe code; the rest is tests."
+
 [[audits.rustls-webpki]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"

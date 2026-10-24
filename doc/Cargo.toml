@@ -65,7 +65,7 @@ colored = "2.1"
 tiktoken-rs = "0.6"
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
-rustls-rustcrypto = "0.0.2-alpha"
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0" }
 webpki-roots = "1.0"
 libc = "0.2"
 nanospinner = "0.3"

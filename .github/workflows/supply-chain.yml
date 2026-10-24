@@ -154,11 +154,19 @@ jobs:
             EXEMPT+=(--exempt clipboard-win)
             echo "cooldown: clipboard-win exempt until 2026-11-07 (5.4.1 yanked for an out-of-bounds read)"
           fi
-          # ctutils 0.4.4: RUSTSEC-2026-0385 fix, constant-time masks; delta audit 0.4.2 -> 0.4.4 in supply-chain/audits.toml.
+          # ctutils 0.4.5 (published 2026-10-23 like 0.4.4): RUSTSEC-2026-0385 fix, constant-time masks, then the
+          # Thumb-1 hardening crypto-bigint 0.7.6 requires; delta audits 0.4.2 -> 0.4.4 -> 0.4.5 in supply-chain/audits.toml.
           # Exempt until it is 14 days old on every hour of the day.
           if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
             EXEMPT+=(--exempt ctutils)
             echo "cooldown: ctutils exempt until 2026-11-07 (RUSTSEC-2026-0385 fix, constant-time masks)"
+          fi
+          # crypto-bigint 0.7.6 (published 2026-10-23): RUSTSEC-2026-0387 fix, the timing leaks of 0.5.5 under
+          # p256/p384; it comes with rustls-rustcrypto-azul's RustCrypto generation (cargo-vet exemption).
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
+            EXEMPT+=(--exempt crypto-bigint)
+            echo "cooldown: crypto-bigint exempt until 2026-11-07 (RUSTSEC-2026-0387 fix, constant-time arithmetic)"
           fi
           # tokio 1.53.3: RUSTSEC-2026-0386 fix, AsyncFd I/O safety; delta audit 1.53.1 -> 1.53.3 in supply-chain/audits.toml.
           # Exempt until it is 14 days old on every hour of the day.

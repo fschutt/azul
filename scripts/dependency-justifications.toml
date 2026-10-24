@@ -229,7 +229,7 @@ rustls = "Pure-Rust TLS stack for HTTPS (ureq) — avoids an OpenSSL dependency.
 rustls-pki-types = "Shared certificate/key types for rustls."
 rustls-webpki = "X.509 certificate path validation for rustls."
 webpki-roots = "Bundled Mozilla root CA certificates for rustls."
-rustls-rustcrypto = "Pure-Rust (RustCrypto) crypto provider backend for rustls."
+rustls-rustcrypto-azul = "Pure-Rust (RustCrypto) crypto provider backend for rustls: our fork of rustls-rustcrypto, its unreleased master on crypto-bigint 0.7.6+ (RUSTSEC-2026-0387), published so no [patch] is needed."
 untrusted = "Safe parser for untrusted input (DER/certs) used by rustls-webpki."
 
 # === Cryptography (RustCrypto — pulled by rustls-rustcrypto and/or turso) ===
@@ -260,6 +260,9 @@ p384 = "NIST P-384 elliptic curve (RustCrypto) for TLS."
 ecdsa = "ECDSA signatures over P-256/P-384 for TLS."
 elliptic-curve = "Generic elliptic-curve traits shared by p256/p384/ecdsa."
 primeorder = "Prime-order elliptic-curve arithmetic for p256/p384."
+primefield = "Prime-field arithmetic (on crypto-bigint) generic over the modulus, under p256/p384 0.14."
+wnaf = "Windowed-NAF scalar multiplication over the group trait, under the elliptic-curve 0.14 generation."
+crypto-primes = "Prime generation and testing on crypto-bigint, under rsa 0.10 (rustls-rustcrypto-azul)."
 ff = "Finite-field trait used by the elliptic-curve crates."
 group = "Group-of-prime-order trait used by the elliptic-curve crates."
 rsa = "RSA signatures/encryption (RustCrypto) for TLS certificates."

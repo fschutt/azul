@@ -16,7 +16,7 @@ publish = false
 
 [dependencies]
 # No new crates in the tree: sha2 0.10 and hmac 0.12 already come in through
-# rustls-rustcrypto (the TLS stack of azul's `http` feature) and azul-layout,
+# azul-layout, ed25519-dalek, zip and pbkdf2,
 # roxmltree 0.21 through azul-layout's `xml` feature, serde / serde_json
 # through azul-layout and AzCalendar. See scripts/DRIVE1_AZDRIVE_2026_09_30.md.
 sha2 = "0.10"

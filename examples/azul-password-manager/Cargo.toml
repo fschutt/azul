@@ -36,7 +36,7 @@ serde_json = "1"
 # No default features: no password-hash string API, no rand; `alloc` for `hash_password_into`,
 # `zeroize` to wipe its memory blocks.
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
-# In Cargo.lock (rustls-rustcrypto): XChaCha20-Poly1305 AEAD; a random 192-bit nonce per save is
+# In Cargo.lock (AzMeet, azcloud-kit): XChaCha20-Poly1305 AEAD; a random 192-bit nonce per save is
 # safe without a counter (two devices, a synced bucket). Zeroizes its key on drop.
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 # In Cargo.lock: wiping keys, the master password and decrypted bytes.

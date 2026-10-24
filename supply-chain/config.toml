@@ -34,9 +34,6 @@ audit-as-crates-io = false
 [policy.azul-layout]
 audit-as-crates-io = false
 
-[policy.rustls-rustcrypto]
-audit-as-crates-io = false
-
 [policy.webrender]
 audit-as-crates-io = true
 
@@ -86,6 +83,10 @@ criteria = "safe-to-deploy"
 version = "0.5.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.aead]]
+version = "0.6.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.aegis]]
 version = "0.9.15"
 criteria = "safe-to-deploy"
@@ -100,6 +101,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.aes-gcm]]
 version = "0.10.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.aes-gcm]]
+version = "0.11.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.agg-rust-azul]]
@@ -308,10 +313,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.backtrace]]
 version = "0.3.76"
-criteria = "safe-to-deploy"
-
-[[exemptions.base16ct]]
-version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.base16ct]]
@@ -542,6 +543,10 @@ criteria = "safe-to-deploy"
 version = "0.10.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.chacha20poly1305]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.chrono]]
 version = "0.4.45"
 criteria = "safe-to-deploy"
@@ -743,7 +748,7 @@ version = "0.8.22"
 criteria = "safe-to-deploy"
 
 [[exemptions.crypto-bigint]]
-version = "0.5.5"
+version = "0.7.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.crypto-common]]
@@ -752,6 +757,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.crypto-common]]
 version = "0.2.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.crypto-primes]]
+version = "0.7.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.csv]]
@@ -772,6 +781,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.ctr]]
 version = "0.9.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.ctr]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ctutils]]
@@ -919,7 +932,7 @@ version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ecdsa]]
-version = "0.16.9"
+version = "0.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.ed25519]]
@@ -943,7 +956,7 @@ version = "1.18.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.elliptic-curve]]
-version = "0.13.8"
+version = "0.14.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.email_address]]
@@ -1059,7 +1072,7 @@ version = "0.7.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ff]]
-version = "0.13.1"
+version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.find-msvc-tools]]
@@ -1202,6 +1215,10 @@ criteria = "safe-to-deploy"
 version = "0.5.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.ghash]]
+version = "0.6.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.gif]]
 version = "0.14.2"
 criteria = "safe-to-deploy"
@@ -1263,7 +1280,7 @@ version = "1.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.group]]
-version = "0.13.0"
+version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.h264-reader]]
@@ -1320,6 +1337,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.hkdf]]
 version = "0.12.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.hkdf]]
+version = "0.13.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hmac]]
@@ -1871,7 +1892,7 @@ version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.micromail]]
-version = "0.2.0"
+version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.miette]]
@@ -2439,11 +2460,11 @@ version = "3.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.p256]]
-version = "0.13.2"
+version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.p384]]
-version = "0.13.1"
+version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pack1]]
@@ -2550,6 +2571,10 @@ criteria = "safe-to-deploy"
 version = "0.7.5"
 criteria = "safe-to-deploy"
 
+[[exemptions.pkcs1]]
+version = "0.8.0-rc.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.pkcs5]]
 version = "0.7.1"
 criteria = "safe-to-deploy"
@@ -2590,8 +2615,16 @@ criteria = "safe-to-deploy"
 version = "0.8.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.poly1305]]
+version = "0.9.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.polyval]]
 version = "0.6.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.polyval]]
+version = "0.7.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-atomic]]
@@ -2626,8 +2659,12 @@ criteria = "safe-to-deploy"
 version = "0.3.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.primefield]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.primeorder]]
-version = "0.13.6"
+version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro-crate]]
@@ -2891,7 +2928,7 @@ version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rfc6979]]
-version = "0.4.0"
+version = "0.6.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rgb]]
@@ -2928,6 +2965,10 @@ criteria = "safe-to-run"
 
 [[exemptions.rsa]]
 version = "0.9.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.rsa]]
+version = "0.10.0-rc.18"
 criteria = "safe-to-deploy"
 
 [[exemptions.rstar]]
@@ -3010,6 +3051,10 @@ criteria = "safe-to-deploy"
 version = "0.1.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.rustls-rustcrypto-azul]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.rustls-webpki]]
 version = "0.103.15"
 criteria = "safe-to-deploy"
@@ -3063,7 +3108,7 @@ version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sec1]]
-version = "0.7.3"
+version = "0.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.security-framework]]
@@ -3694,6 +3739,10 @@ criteria = "safe-to-deploy"
 version = "0.2.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.universal-hash]]
+version = "0.6.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.unsafe-libyaml]]
 version = "0.2.11"
 criteria = "safe-to-deploy"
@@ -4046,6 +4095,10 @@ criteria = "safe-to-deploy"
 version = "0.18.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.wnaf]]
+version = "0.14.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.writeable]]
 version = "0.6.4"
 criteria = "safe-to-deploy"
@@ -4072,6 +4125,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.x25519-dalek]]
 version = "2.0.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.x25519-dalek]]
+version = "3.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.xmlparser]]

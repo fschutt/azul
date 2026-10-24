@@ -37,7 +37,7 @@ roxmltree = { version = "0.21.1", default-features = false }
 # features azul-layout's `http` builds it with (rustls, the pure-Rust RustCrypto provider, the
 # Mozilla roots), so no crate enters Cargo.lock.
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
-rustls-rustcrypto = "0.0.2-alpha"
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0" }
 # The per-install password (the OS's random source).
 getrandom = "0.2"
 # HTTP Digest for WebDAV (Windows' WebClient takes no Basic over http): RustCrypto's MD5, already in

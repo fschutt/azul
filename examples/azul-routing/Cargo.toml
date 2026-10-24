@@ -26,7 +26,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # The download of the tiles (feature `http`): exactly the ureq and rustls azul-layout's `http`
 # builds (the pure-Rust RustCrypto provider, the Mozilla roots), so no crate enters Cargo.lock.
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
-rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0", optional = true }
 
 [features]
 default = []
