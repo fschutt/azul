@@ -2234,7 +2234,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
     }
     let (small, big): (Vec<Download>, Vec<Download>) =
         downloads.into_iter().partition(|d| d.size <= BIG_BLOB);
+    // A download starts before its first byte is asked for: what a pause there lets happen
+    // (the connection cut, the sign-in revoked) is what the fetch meets.
     let fetch = |d: &Download| {
+        hooks.point("download-start");
         hooks.tell(SyncEvent::Started {
             key: d.key.clone(),
             up: false,
@@ -2284,6 +2287,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
         let blob = if root.json_merge.iter().any(|k| *k == d.key) {
             fetch(d).map(Blob::Bytes)
         } else {
+            hooks.point("download-start");
             hooks.tell(SyncEvent::Started {
                 key: d.key.clone(),
                 up: false,
@@ -2323,7 +2327,6 @@ fn write_download(
             error,
         });
     };
-    hooks.point("download-start");
     let here = scan.here(&d.key).to_string();
     let blob = match blob {
         Ok(blob) => blob,
