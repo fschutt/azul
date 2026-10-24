@@ -104,3 +104,32 @@ fn large_files_do_not_try_the_dictionary() {
     let report = encode(&input, &Options::upload()).unwrap().report;
     assert!(!matches!(report.codec.first_choice, Some(Choice::ZstdDict(..))), "{report:?}");
 }
+
+/// A record of a few dozen bytes: plain zstd's frame costs more than it saves there, so the
+/// trial fails, yet a dictionary (the kind's shipped one or brotli's built-in one) still makes
+/// it smaller. The trial must not stop a small text file before the dictionaries are tried.
+#[test]
+fn a_tiny_json_record_plain_zstd_cannot_shrink_still_gets_a_dictionary() {
+    let input = br#"{"id": 7, "name": "user7", "active": true, "score": 412, "tags": ["a", "b"]}"#;
+    let plain = zstd::bulk::compress(input, 1).unwrap();
+    assert!(plain.len() * 100 > input.len() * 95, "plain zstd saves 5 % here: {} of {}", plain.len(), input.len());
+    let options = Options {
+        limits: azlin_compress::Limits {
+            codec_time: Budget::UNLIMITED,
+            ..Default::default()
+        },
+        ..Options::upload()
+    };
+    let member = encode_member(input, &options).unwrap();
+    assert!(
+        member.codec == Codec::ZstdDict.byte() || member.codec == Codec::Brotli.byte(),
+        "codec {}",
+        member.codec
+    );
+    assert!(member.data.len() < input.len(), "{} of {}", member.data.len(), input.len());
+    let report = encode(input, &options).unwrap().report;
+    assert!(
+        matches!(report.codec.first_choice, Some(Choice::ZstdDict(1, _) | Choice::Brotli(_))),
+        "{report:?}"
+    );
+}
