@@ -720,3 +720,17 @@ the top of a volume of its own; `drive_detach` ejects it (the mount point stays 
 folder) and `drive_attach` mounts the same image there again - the system gives it a new device
 id. `drive_mount_inside` mounts another disk at a folder inside the device's folder, with
 `files` on it. `drive_cleanup` detaches every volume before the sandbox goes.
+
+### A soak
+
+| op | arguments | result |
+|---|---|---|
+| `drive_soak` | `devices` (default every device), `ops` (default 100), `seed`, `files` (names `soak/f00.txt` on) | `ran`, `written` |
+
+`drive_soak` runs `ops` random steps from `seed` (the same seed, the same steps): writes,
+deletes, renames, passes, passes that crash at a point, restarts, a device cut off from the
+drive and back; the questions a pass asks are answered as a user would (a held conflict: keep
+both; a mass delete: keep them). Then every device is reconnected and two rounds of passes run.
+It answers across calls (`pending` while a pass runs): give the step a `timeout_ms` that fits.
+`drive_check` `kept_soak` holds when every version a soak's pass saw in a device's folder is
+still in some folder, trash or stored object (as `kept`).

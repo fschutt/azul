@@ -7,8 +7,8 @@
 use azul::prelude::*;
 
 use super::{
-    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, a_volume,
-    a_watch, str_arg, Answer, Args,
+    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_soak, a_store, a_verify, a_versions,
+    a_volume, a_watch, str_arg, Answer, Args,
     OpDoc,
     DEVICE, PATH,
 };
@@ -62,6 +62,7 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_attach", summary: "the device's volume plugged in again", args: &[DEVICE] },
     OpDoc { name: "drive_mount_inside", summary: "another disk mounted at a folder inside", args: &[DEVICE, PATH, ("fs", "string", false), ("files", "object", false)] },
     OpDoc { name: "drive_unmount_inside", summary: "that disk ejected", args: &[DEVICE, PATH] },
+    OpDoc { name: "drive_soak", summary: "random steps on several devices from a seed", args: &[("devices", "array", false), ("ops", "number", false), ("seed", "number", false), ("files", "number", false)] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -73,7 +74,8 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
         "drive_pair" => a_pair::has_options(args),
         "drive_sync" => args.contains_key("verify"),
         "drive_many" => args.get("flat").and_then(serde_json::Value::as_bool) == Some(true),
-        "drive_check" => str_arg(args, "check").is_some_and(|c| a_store::CHECKS.contains(&c)),
+        "drive_check" => str_arg(args, "check")
+            .is_some_and(|c| a_store::CHECKS.contains(&c) || c == "kept_soak"),
         "drive_status" => true,
         "drive_open" => args.contains_key("fs"),
         _ => OPS.iter().any(|op| op.name == name),
@@ -93,7 +95,9 @@ pub(super) fn run(
         "drive_sync" => a_verify::sync_verified(info, app, s, args),
         "drive_verify" => a_verify::verify(info, app, s, args),
         "drive_versions" => a_versions::versions(s, args),
+        "drive_check" if str_arg(args, "check") == Some("kept_soak") => a_soak::kept_soak(s, args),
         "drive_check" => a_store::check(s, args),
+        "drive_soak" => a_soak::soak(info, app, s, args),
         "drive_browse" => a_drive::browse(s, args),
         "drive_status" => a_ops::status(s, args),
         "drive_open" => {

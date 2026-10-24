@@ -21,6 +21,7 @@ mod a_lock;
 mod a_ops;
 mod a_pair;
 mod a_place;
+mod a_soak;
 mod a_state;
 mod a_store;
 mod a_verify;

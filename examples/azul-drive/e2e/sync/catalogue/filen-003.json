@@ -99,15 +99,14 @@
   {
     "name": "FILEN-003: 200 random steps on two devices with restarts and offline periods: nothing that was ever synced disappears",
     "description": "FILEN-003 (Filen): mass deletes with no isolated trigger in two-way sync. Rules E8, E1, C1, D1. sync-chaos res-soak-two-devices.",
-    "pending": "drive_soak {devices: [a, b], ops: 200, seed: 7, files: 10} (random edits, passes, crashes at random points, partitions of one device) and drive_check kept_soak (every version ever synced is in a folder, a trash or the drive's versions); both stay sync-chaos-only today",
     "steps": [
-      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_open", "device": "b", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_soak", "devices": ["a", "b"], "ops": 200, "seed": 7, "files": 10 },
+      { "op": "drive_soak", "devices": ["a", "b"], "ops": 200, "seed": 7, "files": 10, "timeout_ms": 1800000 },
       { "op": "drive_check", "check": "kept_soak" },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
