@@ -69,7 +69,7 @@ use azul::{
     },
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenMultiResult},
-    dom::{NodeId, VirtualKeyCode},
+    dom::{AccessibilityRole, NodeId, VirtualKeyCode},
     file::{FilePath, FileTypeList},
     image::{ImageRef, RawImage, RawImageFormat},
     option::{OptionFileTypeList, OptionString},
@@ -1610,7 +1610,7 @@ fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                         .with_child(text(&m.name, BIN_NAME_CSS))
                         .with_child(text(&media_line(app, m), NOTE_CSS)),
                 )
-                .clickable(&m.name, item_data.clone(), on_bin_click)
+                .clickable_as(&m.name, AccessibilityRole::ListItem, item_data.clone(), on_bin_click)
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::DoubleClick),
                     item_data,

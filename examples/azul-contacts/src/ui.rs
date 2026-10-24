@@ -36,7 +36,7 @@ use azul::{
         TextInputOnTextInputCallbackType, ToolbarOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
-    dom::{ClipboardContent, DomNodeId, ScrollIntoViewOptions},
+    dom::{AccessibilityRole, ClipboardContent, DomNodeId, ScrollIntoViewOptions},
     error::ResultRawImageDecodeImageError,
     image::{ImageRef, RawImage},
     option::{OptionFileTypeList, OptionString},
@@ -459,8 +459,9 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         children,
     )
     .with_class(ids::CONTACT_ROW_CLASS)
-    .clickable(
+    .clickable_as(
         &shown_name(c),
+        AccessibilityRole::ListItem,
         RefAny::new(RowRef {
             app: app.clone(),
             uid: c.uid.clone(),
@@ -484,7 +485,13 @@ fn jump_bar(present: &[char]) -> Dom {
             .with_child(text(letter.to_string()));
         // Only a letter with contacts is a stop: the others jump nowhere.
         bar.add_child(if has {
-            cell.clickable(&letter.to_string(), RefAny::new(LetterRef { letter }), on_jump)
+            // A letter goes to its contacts, as an index's link does.
+            cell.clickable_as(
+                &letter.to_string(),
+                AccessibilityRole::Link,
+                RefAny::new(LetterRef { letter }),
+                on_jump,
+            )
         } else {
             cell
         });

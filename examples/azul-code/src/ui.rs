@@ -29,7 +29,7 @@ use azul::{
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
         ToolbarOnEventCallbackType,
     },
-    dom::VirtualKeyCode,
+    dom::{AccessibilityInfo, AccessibilityRole, VirtualKeyCode},
     prelude::*,
     shells::{OfficeShell, ShellPane, ShellPaneKind},
     str::String as AzString,
@@ -111,12 +111,20 @@ pub fn column(children: Vec<Dom>) -> Dom {
 }
 
 /// A clickable box: `callback(data)` on a click (the pointer coming up over
-/// it), named `name` for a screen reader.
-pub fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+/// it), a `role` called `name` for a screen reader (a name alone does not say
+/// what the box is).
+pub fn clickable(
+    id: AzString,
+    css: &str,
+    name: &str,
+    role: AccessibilityRole,
+    data: RefAny,
+    callback: CallbackType,
+) -> Dom {
     Dom::create_div()
         .with_id(id)
         .with_css(css)
-        .with_accessibility_name(l10n::label(name))
+        .with_accessibility_info(AccessibilityInfo::named(l10n::label(name), role))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, callback)
 }
 
@@ -257,6 +265,7 @@ fn activity_item(
     } else {
         "border-left: 2px solid transparent; opacity: 0.55; :hover { opacity: 1; }"
     };
+    // An item switches the side bar beside the activity bar, as a tab does.
     clickable(
         id,
         &format!(
@@ -264,6 +273,7 @@ fn activity_item(
              height: 48px; flex-shrink: 0; cursor: pointer; {look}"
         ),
         name,
+        AccessibilityRole::PageTab,
         app.clone(),
         callback,
     )
@@ -294,6 +304,7 @@ pub fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback:
          width: 22px; height: 22px; border-radius: 4px; cursor: pointer; opacity: 0.8; \
          :hover { background: rgba(128, 128, 128, 0.25); opacity: 1; }",
         name,
+        AccessibilityRole::PushButton,
         data,
         callback,
     )
@@ -312,6 +323,7 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
         "display: flex; flex-direction: row; align-items: center; padding: 3px 4px; border-radius: 3px; \
          cursor: pointer; :hover { background: rgba(128, 128, 128, 0.15); }",
         &t_args("azcode-open-place", &[("folder", Arg::from(folder))]),
+        AccessibilityRole::Link,
         RefAny::new(RecentRef { app: app.clone(), index }),
         on_recent_click,
     )
@@ -425,6 +437,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
          height: 20px; margin-right: 6px; border-radius: 4px; cursor: pointer; \
          :hover { background: rgba(128, 128, 128, 0.25); }",
         &t_args("azcode-close-tab", &[("name", Arg::from(doc.name.as_str()))]),
+        AccessibilityRole::PushButton,
         tab_ref(),
         on_tab_close,
     )
@@ -558,6 +571,7 @@ fn link(
          color: var(--az-accent, #3794FF); :hover { opacity: 0.8; } @theme(flora) { color: \
          system:link; }",
         title,
+        AccessibilityRole::Link,
         app.clone(),
         callback,
     )

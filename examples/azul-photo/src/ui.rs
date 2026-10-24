@@ -735,7 +735,12 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), cmd(app, Command::LayerPress(id)), commands::on_command)
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::LayerRelease(id)), commands::on_command)
         // The pointer selects by pressing (and drags from there); Tab + Enter selects too.
-        .clickable(l.name.as_str(), cmd(app, Command::SelectLayer(id)), commands::on_command)
+        .clickable_as(
+            l.name.as_str(),
+            AccessibilityRole::ListItem,
+            cmd(app, Command::SelectLayer(id)),
+            commands::on_command,
+        )
         .with_child(icon_button(
             app,
             if l.visible { "visibility" } else { "visibility_off" },
@@ -858,7 +863,12 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         list.add_child(
             text(label, &css)
                 .with_id(ids::numbered(ids::HISTORY_PREFIX, i))
-                .clickable(label, cmd(app, Command::HistoryJump(i)), commands::on_command),
+                .clickable_as(
+                    label,
+                    AccessibilityRole::ListItem,
+                    cmd(app, Command::HistoryJump(i)),
+                    commands::on_command,
+                ),
         );
     }
     // Undo / redo sit in the title row: below the list they ended under the

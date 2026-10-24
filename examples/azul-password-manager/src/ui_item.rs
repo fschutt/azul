@@ -11,6 +11,7 @@ use azul::{
         TokenInputOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
+    dom::AccessibilityRole,
     option::OptionFileTypeList,
     prelude::*,
     shells::ShellEmptyState,
@@ -1668,8 +1669,9 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
                 ],
             )
             .with_id(ids::audit_row(shown))
-            .clickable(
+            .clickable_as(
                 item.title.as_str(),
+                AccessibilityRole::ListItem,
                 RefAny::new(AuditRef {
                     app: app.clone(),
                     id: item.id.clone(),

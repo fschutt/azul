@@ -16,7 +16,7 @@ use azul::{
         SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType,
     },
-    dom::{DomId, VirtualKeyCode},
+    dom::{AccessibilityRole, DomId, VirtualKeyCode},
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationPane,
@@ -843,8 +843,9 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     )
     .with_id(ids::row(position))
     .with_class(ids::ROW_CLASS)
-    .clickable(
+    .clickable_as(
         item.title.as_str(),
+        AccessibilityRole::ListItem,
         RefAny::new(RowRef {
             app: app.clone(),
             id: item.id.clone(),

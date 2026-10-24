@@ -19,7 +19,7 @@ use azul::{
         ToolbarOnEventCallbackType,
     },
     css::{Css, CssDeclaration, CssPropertyWithConditions},
-    dom::VirtualViewCallbackReason,
+    dom::{AccessibilityInfo, AccessibilityRole, VirtualViewCallbackReason},
     image::ImageRef,
     prelude::*,
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
@@ -195,7 +195,12 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
                  8px 12px; border-bottom: 1px solid system:separator;",
             )
             .with_dataset(tag(i))
-            .clickable(doc.title.as_str(), data.clone(), crate::on_recent);
+            .clickable_as(
+                doc.title.as_str(),
+                AccessibilityRole::Link,
+                data.clone(),
+                crate::on_recent,
+            );
         row.add_child(
             Dom::create_icon("picture_as_pdf").with_css("font-size: 18px; color: system:accent;"),
         );
@@ -1032,13 +1037,22 @@ fn thumb_frame(
             )
             .as_str(),
         )
-        .clickable(
+        .clickable_as(
             t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str(),
+            AccessibilityRole::Link,
             app.clone(),
             crate::on_go_to_page,
         );
     if let Some(image) = image {
-        frame.add_child(Dom::create_image(image).with_css("width: 100%; height: 100%;"));
+        // The page's picture only decorates the link that names the page.
+        frame.add_child(
+            Dom::create_image(image)
+                .with_css("width: 100%; height: 100%;")
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::Nothing,
+                    ..AccessibilityInfo::default()
+                }),
+        );
     }
     frame.add_child(
         Dom::create_span_with_text(format!("{}", page + 1).as_str()).with_css(
@@ -1070,7 +1084,12 @@ fn outline(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: row; gap: 8px; padding: 4px 12px; font-size: \
                  12px;",
             )
-            .clickable(title.as_str(), data.clone(), crate::on_go_to_page);
+            .clickable_as(
+                title.as_str(),
+                AccessibilityRole::Link,
+                data.clone(),
+                crate::on_go_to_page,
+            );
         row.add_child(
             Dom::create_span_with_text(title.as_str())
                 .with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"),
@@ -1123,8 +1142,9 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: column; gap: 2px; padding: 6px 12px; \
                  border-bottom: 1px solid system:separator;",
             )
-            .clickable(
+            .clickable_as(
                 t_args("azpdf-page-n", &[("page", Arg::from(hit.page + 1))]).as_str(),
+                AccessibilityRole::Link,
                 data.clone(),
                 crate::on_go_to_page,
             );
