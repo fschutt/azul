@@ -315,6 +315,14 @@ mod sync_store;
 mod git_repo;
 #[cfg(test)]
 mod git_repo_tests;
+/// The command bar's model: what a typed line is, how the shell runs it, the history.
+mod command_line;
+#[cfg(test)]
+mod command_line_tests;
+/// The command bar's "/" actions: a registry later macros and agent actions join.
+mod micro_actions;
+#[cfg(test)]
+mod micro_actions_tests;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
 /// This computer's client health (power, battery, network) and the background work it scales.
