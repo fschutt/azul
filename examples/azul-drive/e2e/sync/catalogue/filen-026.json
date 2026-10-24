@@ -1,0 +1,47 @@
+[
+  {
+    "name": "FILEN-026: photos with several dots and equal names in two albums, then the pairing re-created on the same folder: nothing is uploaded again",
+    "description": "FILEN-026 (Filen): after the v4 app update the camera-upload settings were lost, re-enabling them to the same folder re-uploaded every photo under new names (local and remote dedup keys diverged). Rules D5 (a fresh pairing on the same folder sends nothing unchanged), A1. sync-chaos mobile-camera-upload (the desktop half).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "camera/vacation.2024.png", "size": 50000, "seed": 21 },
+      { "op": "drive_write", "device": "a", "path": "camera/a.b.c.png", "size": 50000, "seed": 22 },
+      { "op": "drive_write", "device": "a", "path": "camera/album/IMG_0001.JPG", "size": 50000, "seed": 23 },
+      { "op": "drive_write", "device": "a", "path": "camera/album2/IMG_0001.JPG", "size": 50000, "seed": 24 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 4 },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.last.up", "equals": 0 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 4 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 4 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "camera/vacation.2024.png", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-026: the phone's camera upload uploads every asset exactly once across updates, reinstalls and background limits",
+    "description": "FILEN-026 (Filen): mobile camera upload re-uploaded photos under new names and stopped when the screen went off. Rules E8, O1. sync-chaos mobile-camera-upload (pending: AzDrive has no mobile app yet).",
+    "pending": "drive_camera_upload {device, assets: [{id, name, size, seed}], compress} (the mobile upload queue keyed by asset id and content hash) and drive_reinstall {device} (the app's data wiped, the queue rebuilt); AzDrive has no mobile app yet",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_camera_upload", "device": "a", "assets": [{"id": "A1", "name": "vacation.2024.png", "size": 50000, "seed": 21}, {"id": "A2", "name": "IMG_0001.JPG", "size": 50000, "seed": 22}, {"id": "A3", "name": "IMG_0001.JPG", "size": 50000, "seed": 23}], "compress": true },
+      { "op": "drive_reinstall", "device": "a" },
+      { "op": "drive_camera_upload", "device": "a", "assets": [{"id": "A1", "name": "vacation.2024.png", "size": 50000, "seed": 21}, {"id": "A2", "name": "IMG_0001.JPG", "size": 50000, "seed": 22}, {"id": "A3", "name": "IMG_0001.JPG", "size": 50000, "seed": 23}], "compress": false },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

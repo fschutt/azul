@@ -1,0 +1,57 @@
+[
+  {
+    "name": "FILEN-017: a synced folder replaced by a link to outside the root, and a link loop: the drive keeps the folder, the scan ends, nothing outside is read",
+    "description": "FILEN-017 (Filen): the client followed symlinks (stat, not lstat); replacing a synced folder with a symlink deleted the folder's whole cloud subtree. Rules S1 (links in the root are inert, a synced folder replaced by a link keeps its drive copy, a link loop ends the scan), D6. sync-chaos sec-folder-replaced-by-link.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 4, "text_prefix": "doc" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rmtree", "device": "a", "path": "docs" },
+      { "op": "drive_symlink", "device": "a", "path": "docs", "target": "{outside}/victim" },
+      { "op": "drive_symlink", "device": "a", "path": "loop", "target": "." },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 20000 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "docs/*", "count": 4 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "docs/*", "count": 4 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "docs" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "loop" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-017: a link in the root to a file or folder outside it is never followed: its bytes never reach the drive",
+    "description": "FILEN-017 (Filen): symlinks inside the root (~/Games -> /mnt/games) were followed. Rules S1, O1. sync-chaos sec-symlink-out-file.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "plain" },
+      { "op": "drive_symlink", "device": "a", "path": "key.txt", "target": "{outside}/secret.txt" },
+      { "op": "drive_symlink", "device": "a", "path": "home", "target": "{outside}" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "key.txt" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "home" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "key.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "home", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "ok.txt", "text": "plain" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
