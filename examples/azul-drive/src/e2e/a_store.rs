@@ -181,6 +181,29 @@ pub(super) fn upgrade(s: &mut DriveState, args: &Args) -> Answer {
     Ok(serde_json::json!({ "pairings": s.settings.synced.len() }))
 }
 
+/// `drive_unpair` with `fail_state_removal`: "Stop syncing" whose removal of the state folder
+/// was cut off half way - the pairing is gone, the base (and its cached index) deleted, the
+/// rest of the state left. Pairing the folder again must delete nothing anywhere.
+pub(super) fn unpair_cut(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
+    let (drive_id, state_dir) = with_harness(|h| {
+        let d = h.device(args)?;
+        Ok((d.drive_id.clone(), d.state_dir.clone()))
+    })?;
+    crate::sync_jobs::stop(info, app, s, &drive_id);
+    let mut removed = Vec::new();
+    if let Some(dir) = state_dir {
+        for entry in fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // The base first, as a removal in name order meets it; what follows stays.
+            if name.starts_with("index") {
+                fs::remove_file(entry.path()).map_err(|e| format!("{name}: {e}"))?;
+                removed.push(name);
+            }
+        }
+    }
+    Ok(serde_json::json!({ "removed": removed }))
+}
+
 /// `drive_uninstall`: AzDrive's "Remove drive" for the device's drive, confirmed - the drive
 /// leaves the source list and its keys the keyring; its pairing stops and its state folder
 /// goes. Every file of the folder stays as it is (a cloud-only one stays on the drive).

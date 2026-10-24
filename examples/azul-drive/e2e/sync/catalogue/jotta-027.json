@@ -39,7 +39,7 @@
     "name": "links made by another device: one pointing out of the root is never created, and no file is ever written through a link",
     "description": "JOTTA-027 (Jottacloud), the remote side of the same class. Rules S2 (nothing written through a link; a remote link out of the root is never created) and M1. sync-chaos sec-remote-link-objects.",
     "only_on": ["macos", "linux"],
-    "pending": "drive_tamper put {\"kind\": \"link\", \"target\": \"...\"} (a link object in the index, as another device that syncs links writes it) and drive_pair {\"links\": \"in-root\"} (the pairing policy that syncs relative links staying inside the root)",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
     "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },

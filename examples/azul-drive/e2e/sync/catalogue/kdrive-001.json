@@ -88,7 +88,6 @@
   {
     "name": "removing a pairing whose state cannot be deleted, then pairing again: nothing is deleted anywhere",
     "description": "KDRIVE-001 (kDrive): when stopping a sync failed half way, the sync root was unregistered before the state's deletion was known, and files were mass-deleted. Rules D5 and D6.",
-    "pending": "drive_unpair {device, fail_state_removal: true}: the pairing's removal fails while deleting its state folder (the state is left half removed), as a sync whose stop failed",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -27,7 +27,7 @@
   {
     "name": "a burst of ten shots with one name and one capture second, and 600 assets at once, through the camera upload queue: 610 distinct files",
     "description": "KDRIVE-018 (kDrive): burst photos were treated as versions of one file (all but the last overwritten); same-second photos failed. Rules E8 and O1 (mobile upload: keyed by asset id and content hash, bursts never overwrite each other). sync-chaos mobile-camera-upload.",
-    "pending": "drive_camera_upload {device, assets: [{id, name, taken_at, size, seed}] or count + size + seed}: feeds AzDrive's mobile camera-upload queue with assets (asset id, file name, capture time)",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

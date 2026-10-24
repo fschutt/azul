@@ -39,7 +39,7 @@
   {
     "name": "with link syncing on, a relative link inside the root round-trips as a link; one pointing outside never does",
     "description": "PCLOUD-026 (pCloud): symlinks lost. Rule S1: a pairing may sync relative links inside the root as link objects; S2: a link out of the root is never created.",
-    "pending": "drive_pair {\"device\":\"a\",\"links\":\"inside-root\"} (the pairing option that syncs relative links whose target stays inside the root as link objects; the strict default skips them)",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

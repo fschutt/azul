@@ -78,6 +78,7 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
             .is_some_and(|c| a_store::CHECKS.contains(&c) || c == "kept_soak"),
         "drive_status" => true,
         "drive_open" => args.contains_key("fs"),
+        "drive_unpair" => args.contains_key("fail_state_removal"),
         _ => OPS.iter().any(|op| op.name == name),
     }
 }
@@ -135,6 +136,7 @@ pub(super) fn run(
         "drive_state_save" => a_store::state_save(args),
         "drive_state_load" => a_store::state_load(s, args),
         "drive_uninstall" => a_store::uninstall(info, app, s, args),
+        "drive_unpair" => a_store::unpair_cut(info, app, s, args),
         "drive_corrupt_settings" => a_store::corrupt_settings(s),
         "drive_upgrade" => a_store::upgrade(s, args),
         "drive_restore_version" => a_versions::restore_version(s, args),

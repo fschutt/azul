@@ -25,7 +25,7 @@
   {
     "name": "a backup stopped by the system says paused, and resumes where it stopped",
     "description": "TERABOX-017 (sync-chaos mobile-camera-upload): iOS background limits stopped TeraBox's backups unless the app was opened, silently. Rules E8 and O1: a pass the OS suspends shows 'paused by the system' (never up to date), and continues after without sending any finished file again.",
-    "pending": "drive_suspend {device} / drive_resume {device} (the OS suspends and wakes the app's background work, as iOS BGProcessingTask expiry or Android Doze); a drive_status status key for it, e.g. paused-by-os",
+    "pending": "the system suspending background work is the mobile app's (iOS BGProcessingTask expiry, Android Doze); the desktop's sleep is drive_wake (MISS25-A): drive_suspend / drive_resume need a 'paused by the system' state in AzDrive's sync view (stop the pass between files, refuse new ones, a status key azdrive-sync-status-paused-by-os in every language)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },

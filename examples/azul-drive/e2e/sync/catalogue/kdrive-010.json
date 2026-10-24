@@ -57,7 +57,7 @@
   {
     "name": "with links synced inside the root, a link in the root is created and nothing is ever written through it",
     "description": "KDRIVE-010 (kDrive): a pairing that syncs relative links whose target stays inside the root. Rules S1 and S2: the in-root link is a link object; a file another device puts under it is refused (through-link). sync-chaos sec-remote-link-objects.",
-    "pending": "drive_pair {device, links: 'in-root'}: the pairing's link policy (sync relative links that stay inside the root as link objects; the default 'skip' refuses all)",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "b", "remote": "r" },
@@ -106,7 +106,7 @@
   {
     "name": "a Windows junction to outside the root is a link, and a link synced to an exFAT root gets a per-item error",
     "description": "KDRIVE-010 (kDrive): junctions, and a junction downloaded onto a non-NTFS volume. Rules S5, S1 and O1. sync-chaos port-windows-ntfs.",
-    "pending": "drive_junction {device, path, target} (a Windows junction) and drive_pair {fs: 'exfat:64m'} (the root on an exFAT volume of its own) with drive_pair {links}",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
     "only_on": ["windows"],
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },

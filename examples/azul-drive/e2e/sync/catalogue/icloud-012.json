@@ -28,7 +28,7 @@
   {
     "name": "links made by another device: one leaving the root is never created, nothing is written through one",
     "description": "ICLOUD-012 (sync-chaos sec-remote-link-objects): rules S2, S1 and M1: a remote link pointing out of the root (../../, absolute, /etc) is refused (link-refused); a remote file under a link is refused (through-link).",
-    "pending": "drive_tamper put with kind: \"link\" and target (a link entry as another device writes it); drive_open or drive_pair links: \"in-root\" (the pairing's link policy: sync links that stay inside the root)",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "d", "remote": "r2" },

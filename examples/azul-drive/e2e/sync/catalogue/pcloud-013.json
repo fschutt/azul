@@ -23,7 +23,7 @@
   {
     "name": "an HDR HEVC video with rotation metadata uploaded from the phone app comes down byte-identical",
     "description": "PCLOUD-013 (pCloud iOS): uploads from several iPhones came back re-coloured or flipped. Rule I1 for the mobile upload (sync-chaos mobile-camera-upload): original bytes stored unchanged.",
-    "pending": "drive_camera_upload {\"device\":\"phone\",\"assets\":[{\"kind\":\"hevc-hdr\",\"rotation\":90}]} (the mobile app's upload path; AzDrive has no mobile app yet)",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -32,7 +32,7 @@
       { "op": "drive_pair", "device": "phone" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_camera_upload", "device": "phone", "assets": [{ "kind": "hevc-hdr", "rotation": 90, "path": "DCIM/IMG_0042.MOV" }] },
+      { "op": "drive_camera_upload", "device": "phone", "assets": [{"kind": "hevc-hdr", "rotation": 90, "path": "DCIM/IMG_0042.MOV"}] },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0042.MOV", "same_as": "{root:phone}/DCIM/IMG_0042.MOV" },
       { "op": "drive_cleanup" }

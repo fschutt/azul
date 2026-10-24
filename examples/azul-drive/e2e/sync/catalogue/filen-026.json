@@ -30,7 +30,7 @@
   {
     "name": "FILEN-026: the phone's camera upload uploads every asset exactly once across updates, reinstalls and background limits",
     "description": "FILEN-026 (Filen): mobile camera upload re-uploaded photos under new names and stopped when the screen went off. Rules E8, O1. sync-chaos mobile-camera-upload (pending: AzDrive has no mobile app yet).",
-    "pending": "drive_camera_upload {device, assets: [{id, name, size, seed}], compress} (the mobile upload queue keyed by asset id and content hash) and drive_reinstall {device} (the app's data wiped, the queue rebuilt); AzDrive has no mobile app yet",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

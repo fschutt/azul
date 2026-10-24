@@ -30,7 +30,7 @@
   {
     "name": "the phone's camera upload queue survives background limits and kills: server count equals the selection",
     "description": "SYNCCOM-020 (Sync.com iOS/Android): uploads stalled, half-uploaded selections, nameless files. Rule E8 for the mobile queue: persistent, keyed by asset and hash, every asset once.",
-    "pending": "drive_camera_upload {\"device\":\"phone\",\"assets\":1000,\"kinds\":[\"heic\",\"live\",\"mov\"],\"background_limit_s\":30} (AzDrive has no mobile upload queue yet; planning/mobile)",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

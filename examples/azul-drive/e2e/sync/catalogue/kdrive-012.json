@@ -57,7 +57,6 @@
   {
     "name": "two accounts on one AzDrive, a token refresh racing a listing: nothing of one account reaches the other",
     "description": "KDRIVE-012 (kDrive): a mixed-up binding of content to file. Rule M2: responses are keyed by account and a foreign one is dropped. sync-chaos sec-never-mix-accounts.",
-    "pending": "drive_create {remote, account} and drive_open {device, remote, account}: remotes of different accounts, each with its own credentials and keyring, opened by one AzDrive",
     "steps": [
       { "op": "drive_create", "remote": "work", "account": "work" },
       { "op": "drive_create", "remote": "home", "account": "home" },

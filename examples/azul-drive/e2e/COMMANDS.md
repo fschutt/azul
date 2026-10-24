@@ -734,3 +734,7 @@ both; a mass delete: keep them). Then every device is reconnected and two rounds
 It answers across calls (`pending` while a pass runs): give the step a `timeout_ms` that fits.
 `drive_check` `kept_soak` holds when every version a soak's pass saw in a device's folder is
 still in some folder, trash or stored object (as `kept`).
+
+`drive_unpair` with `fail_state_removal: true` is "Stop syncing" whose removal of the state folder
+was cut off half way: the pairing is gone and the base (with its cached index) deleted, the rest
+of the state left; pairing the folder again must delete nothing anywhere.

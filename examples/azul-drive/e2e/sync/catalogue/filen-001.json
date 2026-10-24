@@ -34,7 +34,7 @@
   {
     "name": "FILEN-001: an active account pushed past its plan by a lagging usage counter goes read-only, and nothing is ever deleted",
     "description": "FILEN-001 (Filen): the over-quota process meant for expired plans deleted an active paying account after four weeks of warnings. Rule V7: quota overage, expiry and the rest lead to read-only with notices, never to a deletion while a subscription is active. sync-chaos srv-account-never-deleted (a token-server test).",
-    "pending": "drive_account {remote, plan_bytes, usage_lag_ms, subscription: 'active'|'expired', advance_days} (the account's plan and a usage counter that lags) and drive_check account_state {remote, state: 'read-only', deletion_scheduled: false}; V7 is the token server's policy (srv-account-never-deleted, azctl test money), the stand-in remote has no account",
+    "pending": "an account's plan, usage, subscription and password reset are the token server's (azctl test money, sync-chaos srv-account-never-deleted); the stand-in remote has no account (MISS25-A): drive_account / drive_account_reset need a stand-in token server in the E2E harness",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -63,7 +63,7 @@
   {
     "name": "space macOS can purge on demand counts as free: the sync is not refused for want of space",
     "description": "KDRIVE-020 (kDrive): the client read 'free' (49 GB) instead of 'available including purgeable' (240 GB) and refused to sync. Rule E3: the reserve is measured against the space the system will really give.",
-    "pending": "drive_disk {device, purgeable_bytes}: space the system frees on demand (macOS purgeable), which the engine's free-space check must count as available",
+    "pending": "the engine's free-space check reads statfs, which leaves out the space macOS purges on demand (MISS25-A): it needs the volume's capacity for important usage on macOS (CFURL kCFURLVolumeAvailableCapacityForImportantUsageKey) and the disk seam a purgeable part of its own (faults::set_purgeable) before drive_disk purgeable_bytes means anything",
     "only_on": ["macos"],
     "steps": [
       { "op": "drive_create", "remote": "r" },
