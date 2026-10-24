@@ -2345,16 +2345,37 @@ define_class!(
             if size_changed {
                 ivars.width.set(width);
                 ivars.height.set(height);
-                let mut fb = ivars.framebuffer.borrow_mut();
-                fb.resize(width * height * 4, 255);
                 let blank = blank_frame_pixel(ivars.transparent.get(), ivars.blank_rgb.get());
+                let mut fb = ivars.framebuffer.borrow_mut();
+                // The frame on screen stays where it is, top-left anchored as
+                // the window's content is: what the new size still shows is
+                // the frame before, and only a strip a side gained is blank.
+                // So the next frame repaints what its relayout changed plus
+                // that strip (`CpuBackend::render_frame`); a framebuffer
+                // blanked whole made every step of an edge drag a full
+                // repaint.
+                let kept = current_width > 0
+                    && current_height > 0
+                    && fb.len() >= current_width * current_height * 4
+                    && ivars.fb_content_valid.get();
+                let old = if kept { Some(core::mem::take(&mut *fb)) } else { None };
+                fb.clear();
+                fb.resize(width * height * 4, 0);
                 for chunk in fb.chunks_exact_mut(4) {
                     chunk.copy_from_slice(&blank);
                 }
-                // The retained frame is GONE - a partial present against this
-                // buffer would leave everything outside its rects white. Force
-                // the next present through a full copy.
-                ivars.fb_content_valid.set(false);
+                if let Some(old) = old {
+                    let cols = current_width.min(width) * 4;
+                    for row in 0..current_height.min(height) {
+                        let src = row * current_width * 4;
+                        let dst = row * width * 4;
+                        fb[dst..dst + cols].copy_from_slice(&old[src..src + cols]);
+                    }
+                }
+                // Without a frame to keep (none drawn yet), a partial present
+                // against this buffer would leave everything outside its rects
+                // blank: the next present goes through a full copy.
+                ivars.fb_content_valid.set(kept);
             }
 
             // CPU render on every drawRect that needs it (first frame, after

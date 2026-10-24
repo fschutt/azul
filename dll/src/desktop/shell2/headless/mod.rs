@@ -735,19 +735,24 @@ impl CpuBackend {
                     height,
                 );
             } else {
-                // Shrink or first allocation: full recreate.
-                //
-                // A MIXED resize (wider but shorter) lands here too — `is_grow`
-                // demands both axes. This branch stays a FULL repaint, and that
-                // is a measured decision, not an oversight: it recreates the
-                // compositor AND never calls `compute_resize_damage`, so letting
-                // it reuse the previous frame under-paints. Measured with the
-                // resize probe at 500x600 -> 700x400: 53200 changed pixels
-                // uncovered by any damage rect, the first at (500, 134) — i.e.
-                // the whole newly-exposed right strip, stale on a real screen. A
-                // shrink also exposes nothing new, so a full repaint here costs
-                // at most the NEW (smaller) buffer.
+                // A shrink, or a mixed resize (wider but shorter): the layers
+                // are made again at the new size (they serve the full
+                // repaint), and the frame keeps its pixels - the target is
+                // cut to the new size from its top-left (`resize_reuse`, or
+                // the platform's own buffer), so what is still on screen is
+                // valid and only the strip a side gained is unknown
+                // (`compute_resize_damage`: none for a shrink). Every step
+                // of a shrinking window-edge drag repainted the whole window.
                 *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
+                if old_pw > 0 && old_ph > 0 {
+                    resize_preserved_pixels = true;
+                    resize_damage = cpurender::compute_resize_damage(
+                        old_pw as f32 / dpi_factor,
+                        old_ph as f32 / dpi_factor,
+                        width,
+                        height,
+                    );
+                }
             }
         }
 
