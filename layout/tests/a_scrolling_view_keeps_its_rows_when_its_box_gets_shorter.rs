@@ -308,3 +308,26 @@ fn rows_as_tall_as_the_box_are_laid_out_again_without_a_reconcile() {
         );
     }
 }
+
+/// The host page builds its display list ONCE per pass when its list's box
+/// moved: the box is published to the scroll manager after the page's list
+/// was built, but nothing that list reads moved with it (the view's virtual
+/// size and its offset stayed). Rebuilding it - every frame of a ribbon
+/// opening over a folder list - also threw away the pass's patch bookkeeping
+/// the CPU frame blits the moved rows with.
+#[test]
+fn a_moved_list_box_does_not_rebuild_the_pages_display_list() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut lw = window(800.0, 400.0);
+    lay_out(&mut lw, page(&calls, 0.0, LIST));
+    for (step, height) in [380.0_f32, 350.0, 310.0].into_iter().enumerate() {
+        let before = lw.frame_report.dl_rebuilds;
+        relayout_at(&mut lw, 800.0, height);
+        assert_eq!(
+            lw.frame_report.dl_rebuilds,
+            before,
+            "step {step}: the list's box moved ({height} px) but its virtual size did not - \
+             no second build of the page's display list"
+        );
+    }
+}
