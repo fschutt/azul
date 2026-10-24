@@ -1,0 +1,83 @@
+[
+  {
+    "name": "a file replaced by delete-and-recreate (upload to a temp name, delete, rename) is one new version: the old one stays restorable",
+    "description": "INFOMANIAK-004 (Infomaniak): a WebDAV client that replaces a file by delete plus re-create lost kDrive's version history. Rules P10 and D2: an atomic replace within one pass is one update of the same file; the drive keeps the earlier version; no trash, no conflict on the other device. sync-chaos port-office-save-interrupted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "f.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "f.tmp", "text": "v2" },
+      { "op": "drive_rm", "device": "a", "path": "f.txt" },
+      { "op": "drive_rename", "device": "a", "from": "f.tmp", "to": "f.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "f.txt", "text": "v2" },
+      { "op": "drive_check", "check": "kept", "texts": ["v1"] },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "f.txt", "text": "v2" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "f.txt", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file deleted in one pass and created again in the next keeps every earlier version",
+    "description": "INFOMANIAK-004 (Infomaniak): delete then re-create across passes. Rule D2: the drive keeps tombstones and versions, so v1 and v2 stay restorable after the re-create.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "f.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "f.txt", "text": "v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "path": "f.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "f.txt", "text": "v3" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "f.txt", "text": "v3" },
+      { "op": "drive_check", "check": "kept", "texts": ["v1", "v2"] },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a time with nanoseconds comes back at one documented precision, and the precision causes no churn",
+    "description": "INFOMANIAK-004 (Infomaniak): times stored at 1-second precision broke tools comparing exact mtimes. Rules P6 and P12: times travel and are set on downloads; a rounding never makes a pass upload again.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "m.txt", "text": "timed", "mtime": 1700000000123456789 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "m.txt", "ns": 1700000000123456789, "tolerance_ns": 1000000000 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the WebDAV and S3 gateway linking a replace to the file's version history",
+    "description": "INFOMANIAK-004 (Infomaniak): the gateway's own behaviour (rule V1) is the server's; sync-chaos srv-s3-conformance runs rclone and the AWS CLI against the stack.",
+    "not_applicable": "WebDAV/S3 gateway semantics are the server's (iso, rule V1, dc scenario srv-s3-conformance); AzDrive's folder sync does not go through the gateway",
+    "steps": []
+  }
+]
