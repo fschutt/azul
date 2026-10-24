@@ -809,3 +809,47 @@ fn rountrip_test(encoding: HuffmanOriginalEncoding) {
         "sentinal value didn't match"
     );
 }
+
+/// azlin-preflate: RFC 1951 lets a block's literal/length or distance alphabet hold a single
+/// code of one bit (miniz writes one for a run of equal bytes, whose only distance is 1) or no
+/// code at all (a block of literals). Both are read; the bit pattern no code has is an error.
+#[test]
+fn an_alphabet_of_one_one_bit_code_is_read_and_its_unused_pattern_is_an_error() {
+    use crate::deflate::bit_reader::BitReader;
+    use std::io::Cursor;
+
+    let mut lengths = [0u8; 30];
+    lengths[4] = 1;
+    let tree = calculate_lit_dist_code_tree(&lengths).unwrap();
+    // the code ('0') twice, then the pattern no code has ('1'): first bits come first
+    let data = [0b0000_0100u8, 0, 0, 0];
+    let mut reader = Cursor::new(&data[..]);
+    let mut bits = BitReader::new();
+    assert_eq!(decode_symbol(&mut bits, &mut reader, &tree).unwrap(), 4);
+    assert_eq!(decode_symbol(&mut bits, &mut reader, &tree).unwrap(), 4);
+    assert!(decode_symbol(&mut bits, &mut reader, &tree).is_err());
+
+    // the same through the fast table (8 bits are buffered once a read has filled it)
+    let data = [0u8, 0b0000_0010, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+    let mut reader = Cursor::new(&data[..]);
+    let mut bits = BitReader::new();
+    assert_eq!(bits.get(8, &mut reader).unwrap(), 0);
+    assert_eq!(decode_symbol(&mut bits, &mut reader, &tree).unwrap(), 4);
+    assert!(decode_symbol(&mut bits, &mut reader, &tree).is_err());
+
+    // an alphabet without codes decodes nothing
+    let none = calculate_lit_dist_code_tree(&[0u8; 30]).unwrap();
+    let mut reader = Cursor::new(&[0u8; 8][..]);
+    let mut bits = BitReader::new();
+    assert!(decode_symbol(&mut bits, &mut reader, &none).is_err());
+
+    // the code length alphabet stays complete only, and so does any other incomplete code
+    assert!(calculate_huffman_code_tree(&lengths[..19]).is_err());
+    let mut two = [0u8; 30];
+    two[0] = 1;
+    two[1] = 2;
+    assert!(calculate_lit_dist_code_tree(&two).is_err());
+    let mut long_single = [0u8; 30];
+    long_single[3] = 2;
+    assert!(calculate_lit_dist_code_tree(&long_single).is_err());
+}
