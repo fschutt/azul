@@ -66,7 +66,7 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
 
     // M1, D6: another device's or a share participant's bad entry is named, kept as it is
     // (a run that rewrites the index keeps it) and never acted on; the rest of the index is read.
-    assert!(back.unreadable().is_empty());
+    assert!(back.unreadable(false).is_empty());
     for bad in [
         "../../etc/passwd",
         "/etc/passwd",
@@ -79,7 +79,7 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
         evil.files
             .insert(bad.to_string(), evil.files["notes/a.md"].clone());
         let read = RemoteIndex::parse(&evil.to_bytes()).unwrap();
-        let unreadable = read.unreadable();
+        let unreadable = read.unreadable(false);
         assert!(unreadable.contains_key(bad), "{bad:?}: {unreadable:?}");
         assert_eq!(unreadable.len(), 1, "{bad:?}");
         let readable = read.readable(&unreadable);
@@ -93,7 +93,13 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
     let mut damaged = index.clone();
     damaged.files.get_mut("notes/a.md").unwrap().hash = String::from("zz");
     let read = RemoteIndex::parse(&damaged.to_bytes()).unwrap();
-    assert!(read.unreadable().contains_key("notes/a.md"));
+    assert!(read.unreadable(false).contains_key("notes/a.md"));
+    // A drive synced by name names a version it has not read yet; elsewhere that is damage.
+    let mut by_name = index.clone();
+    by_name.files.get_mut("notes/a.md").unwrap().hash = crate::sync::remote::version_stand_in("\"e1\"");
+    assert!(by_name.unreadable(true).is_empty());
+    assert!(by_name.unreadable(false).contains_key("notes/a.md"));
+    assert!(damaged.unreadable(true).contains_key("notes/a.md"), "no stand-in either");
     // D43: a newer version, a feature this code does not know, fields it does not know - the
     // index is read and what it does not know named (the run leaves such a drive as it is and
     // asks to be updated, `sync_format.rs`).

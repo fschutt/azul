@@ -843,6 +843,13 @@ trait SyncRemote: Sync {
         true
     }
 
+    /// Whether an entry may name the drive's version of a file instead of its content
+    /// ([`remote::version_stand_in`]): a drive synced by name knows a file's content only once
+    /// a device read or wrote it. Anywhere else such an entry is a damaged one.
+    fn names_versions(&self) -> bool {
+        false
+    }
+
     /// [`SyncRemote::fetch`] into the file `dest` (a big file: in ranges, never whole in
     /// memory where the drive can), checked the same way; the content's hash for the base.
     fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
@@ -3004,7 +3011,7 @@ fn run<R: SyncRemote + ?Sized>(
             &index.files
         };
         // M1: entries no run acts on stay on the drive as they are.
-        let unreadable = remote.unreadable();
+        let unreadable = remote.unreadable(remote_side.names_versions());
         for (key, why) in &unreadable {
             let code = if remote::check_key(key).is_err() || names::key_problem(key).is_some() {
                 Code::BadRemoteName

@@ -199,7 +199,7 @@ impl<'d> NamedFiles<'d> {
                 return hash;
             }
         }
-        format!("version:{etag}")
+        remote::version_stand_in(etag)
     }
 
     /// This device knows `key`'s version `etag` holds `hash`.
@@ -416,6 +416,10 @@ impl Drop for NamedFiles<'_> {
 }
 
 impl SyncRemote for NamedFiles<'_> {
+    fn names_versions(&self) -> bool {
+        true
+    }
+
     /// The drive's index names a file's content, not its permission bits.
     fn tracks_exec(&self) -> bool {
         false

@@ -87,6 +87,22 @@ pub fn is_hash(s: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// What a drive synced by name puts in an entry whose content it does not know yet: the
+/// version the drive gave the file (its entity tag), until a device has read or written it.
+#[must_use]
+pub fn version_stand_in(etag: &str) -> String {
+    format!("{VERSION_STAND_IN}{etag}")
+}
+
+/// The prefix of [`version_stand_in`].
+const VERSION_STAND_IN: &str = "version:";
+
+/// Whether `s` is a [`version_stand_in`].
+#[must_use]
+pub fn is_version_stand_in(s: &str) -> bool {
+    s.strip_prefix(VERSION_STAND_IN).is_some()
+}
+
 /// One file of the index.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteFile {
@@ -206,9 +222,10 @@ impl RemoteIndex {
 
     /// The entries no run acts on, and why: a path no folder can hold, a hash that is none.
     /// They stay in the index as they are (a run never removes them), so nothing is lost and
-    /// nothing is deleted on their account.
+    /// nothing is deleted on their account. With `stand_ins` (a drive synced by name) an entry
+    /// may name its version instead of its content ([`version_stand_in`]).
     #[must_use]
-    pub fn unreadable(&self) -> BTreeMap<String, String> {
+    pub fn unreadable(&self, stand_ins: bool) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         let entries = self
             .files
@@ -220,7 +237,7 @@ impl RemoteIndex {
                 out.insert(key.clone(), e.to_string());
             } else if let Some(why) = super::names::key_problem(key) {
                 out.insert(key.clone(), why);
-            } else if !is_hash(hash) {
+            } else if !is_hash(hash) && !(stand_ins && is_version_stand_in(hash)) {
                 out.insert(
                     key.clone(),
                     String::from("the drive's entry names no content (a damaged hash)"),
