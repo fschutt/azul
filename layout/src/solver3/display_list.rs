@@ -6067,6 +6067,44 @@ where
             self.paint_child_context(builder, child)?;
         }
 
+        // After painting the node and all its descendants, pop what it pushed,
+        // in the reverse order of the pushes: its clips and scroll frames
+        // first (they were opened last, inside its opacity, filter and
+        // reference frame). Closed after those, the list nested a clip across
+        // the group's end, and the incremental raster - which nests its group
+        // state on one stack - closed the wrong group: every later item was
+        // painted moved by a transform that had already ended.
+        // For VirtualView nodes, emit the placeholder INSIDE the clip (before PopClip)
+        // so the virtualized view viewport is clipped to the container.
+        if did_push_clip_or_scroll {
+            // Emit VirtualViewPlaceholder before popping the clip so it's inside PushClip/PopClip
+            if let Some(dom_id) = node.dom_node_id {
+                if self.is_virtual_view_node(dom_id) {
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
+                }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
+            }
+            self.close_node_clips(builder, context.node_index, node);
+        } else {
+            // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
+            if let Some(dom_id) = node.dom_node_id {
+                if self.is_virtual_view_node(dom_id) {
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
+                }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
+            }
+        }
+
         // Pop image mask clip (before filter/opacity since it was pushed after them)
         if did_push_image_mask {
             builder.pop_image_mask_clip();
@@ -6101,37 +6139,6 @@ where
             builder.end_fixed_position_element();
         }
 
-        // After painting the node and all its descendants, pop any contexts it pushed.
-        // For VirtualView nodes, emit the placeholder INSIDE the clip (before PopClip)
-        // so the virtualized view viewport is clipped to the container.
-        if did_push_clip_or_scroll {
-            // Emit VirtualViewPlaceholder before popping the clip so it's inside PushClip/PopClip
-            if let Some(dom_id) = node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(
-                        dom_id,
-                        context.node_index,
-                        node_bounds,
-                        node_bounds,
-                    );
-                }
-                self.maybe_push_webview(builder, dom_id, context.node_index);
-            }
-            self.close_node_clips(builder, context.node_index, node);
-        } else {
-            // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
-            if let Some(dom_id) = node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(
-                        dom_id,
-                        context.node_index,
-                        node_bounds,
-                        node_bounds,
-                    );
-                }
-                self.maybe_push_webview(builder, dom_id, context.node_index);
-            }
-        }
 
         // Paint scrollbars AFTER popping the clip, so they appear on top of content
         // and are not clipped by the scroll frame
