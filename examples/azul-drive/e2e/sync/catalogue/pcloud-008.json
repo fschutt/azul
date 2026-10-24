@@ -32,7 +32,6 @@
   {
     "name": "a save just before the app quits or the machine sleeps is sent first (or the quit says why)",
     "description": "PCLOUD-008 (pCloud): users set a 6-minute timer before shutting down. Rules A2/E2: a pending change is flushed at quit, and a pass follows a save within seconds without the user asking.",
-    "pending": "drive_quit {\"device\":\"a\"} (the app quitting, or the machine going to sleep, with a change not yet sent: it runs the pass first or says why) and drive_wait_auto {\"device\":\"a\",\"within_ms\":10000} (a pass AzDrive starts by itself after a save; today only the poll timer starts one)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -41,6 +40,7 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_watch", "device": "a", "on": true },
       { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "saved 30 s before shutdown" },
       { "op": "drive_wait_auto", "device": "a", "within_ms": 10000 },
       { "op": "drive_write", "device": "a", "path": "notes2.txt", "text": "saved right before quit" },

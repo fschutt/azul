@@ -194,3 +194,29 @@ fn the_list_survives_in_the_state_folder_and_the_harness_reads_escaped_keys() {
         assert_eq!(mode & 0o077, 0, "the list names files: owner only");
     }
 }
+
+#[test]
+fn not_backed_up_since_is_the_oldest_problem_that_keeps_a_change_back() {
+    let mut list = ProblemList::default();
+    assert_eq!(list.unsynced_since(), None);
+    list.publish(
+        vec![
+            Problem::new(Code::Portability, "a:b.txt", "Windows cannot hold it"),
+            Problem::new(Code::Transient, "work/day01.psd", "the service failed"),
+        ],
+        true,
+        1_000,
+    );
+    list.publish(
+        vec![
+            Problem::new(Code::Portability, "a:b.txt", "Windows cannot hold it"),
+            Problem::new(Code::Transient, "work/day01.psd", "the service failed"),
+            Problem::new(Code::RemoteOffline, "", "offline"),
+        ],
+        false,
+        5_000,
+    );
+    assert_eq!(list.unsynced_since(), Some(1_000), "kept since the first pass that listed it");
+    list.publish(vec![Problem::new(Code::Settling, "x", "being written")], true, 9_000);
+    assert_eq!(list.unsynced_since(), None, "a passing moment keeps nothing back");
+}

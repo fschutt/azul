@@ -193,14 +193,93 @@ pub(super) fn no_registration(s: &DriveState, args: &Args) -> Result<(), String>
     }
 }
 
+/// `drive_check` `state_size`: the device's state folder (the base, its journal, the states,
+/// the problem list, the operations log) holds at most `max_bytes`.
+fn state_size(args: &Args) -> Result<(), String> {
+    let dir = state_dir_of(args)?;
+    let max = args
+        .get("max_bytes")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("'max_bytes' is missing")?;
+    let total: u64 = super::files::all_files(&dir)
+        .iter()
+        .filter_map(|(_, p)| fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
+    if total <= max {
+        Ok(())
+    } else {
+        Err(format!("the state folder holds {total} bytes, more than {max}"))
+    }
+}
+
+/// What the sync engine and the storage layer name their temporary files.
+fn engine_temp(name: &str) -> bool {
+    name.starts_with(".azsync-tmp-")
+        || (name.starts_with("azul-storage-") && name.ends_with(".azl1-spool"))
+        || (name.starts_with('.') && name.contains(".azul-storage-") && name.ends_with(".tmp"))
+}
+
+/// `drive_check` `system_temp_untouched`: nothing of the sync engine is left in the process's
+/// system temporary folder (a download is spooled on the folder's own disk, an upload's spool
+/// is removed): no entry of the engine's names made since the sandbox was.
+fn system_temp_untouched() -> Result<(), String> {
+    let run = with_harness(|h| Ok(h.run.clone()))?;
+    let started = fs::metadata(&run)
+        .and_then(|m| m.created().or_else(|_| m.modified()))
+        .map_err(|e| format!("{}: {e}", run.display()))?;
+    let tmp = std::env::temp_dir();
+    let mut left = Vec::new();
+    for entry in fs::read_dir(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !engine_temp(&name) {
+            continue;
+        }
+        let made = entry
+            .metadata()
+            .and_then(|m| m.created().or_else(|_| m.modified()))
+            .ok();
+        if made.is_some_and(|t| t >= started) {
+            left.push(name);
+        }
+    }
+    if left.is_empty() {
+        Ok(())
+    } else {
+        left.sort();
+        left.truncate(5);
+        Err(format!("the system temp folder {} holds {left:?}", tmp.display()))
+    }
+}
+
+/// `drive_check` `peak_memory`: the process took at most `max_mb` MiB at any time so far (its
+/// peak resident set: a pass over a burst of files must stream).
+fn peak_memory(args: &Args) -> Result<(), String> {
+    let max = args
+        .get("max_mb")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("'max_mb' is missing")?;
+    let peak = azcloud_kit::sync::memory::peak_bytes()
+        .ok_or("this system does not say a process's peak memory")?;
+    let mb = peak / (1024 * 1024);
+    if mb <= max {
+        Ok(())
+    } else {
+        Err(format!("the process took {mb} MiB at its peak, more than {max}"))
+    }
+}
+
 /// The checks group A answers (`drive_check` with one of these names).
-pub(super) const CHECKS: &[&str] = &["no_registration"];
+pub(super) const CHECKS: &[&str] = &["no_registration", "state_size", "system_temp_untouched", "peak_memory"];
 
 /// Runs group A's check `name`: `ok` and `detail`, `success` as `ok` (as every check).
 pub(super) fn check(s: &DriveState, args: &Args) -> Answer {
     let name = str_arg(args, "check").unwrap_or_default().to_string();
     let verdict = match name.as_str() {
         "no_registration" => no_registration(s, args),
+        "state_size" => state_size(args),
+        "system_temp_untouched" => system_temp_untouched(),
+        "peak_memory" => peak_memory(args),
         other => Err(format!("no check '{other}'")),
     };
     Ok(match verdict {
@@ -241,5 +320,14 @@ mod tests {
         rewrite(dir.path(), "newer").unwrap();
         assert!(LocalIndex::load(&dir.path().join(INDEX_FILE)).is_err());
         assert!(rewrite(dir.path(), "sideways").is_err());
+    }
+
+    #[test]
+    fn the_engines_temporary_files_are_told_by_their_names() {
+        assert!(engine_temp("azul-storage-00ff00ff00ff00ff.azl1-spool"));
+        assert!(engine_temp(".azsync-tmp-1234"));
+        assert!(engine_temp(".report.txt.azul-storage-77.tmp"));
+        assert!(!engine_temp("azul-storage-period-tokens"));
+        assert!(!engine_temp("AzDrive-open"));
     }
 }

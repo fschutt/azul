@@ -9,8 +9,8 @@
 # Defaults: every scenario in e2e/sync, target/release/AzDrive. libazul must be built with the
 # debug server (the `debug-server` feature, as for every AZ_E2E run). Everything AzDrive reads
 # and writes goes to one temporary folder (the data root, the drives file, Home, the caches,
-# the scenarios' sandboxes), removed at the end unless AZDRIVE_E2E_KEEP=1. Exit status: the
-# runner's (0 = every scenario passed).
+# the scenarios' sandboxes, the process's own system temp folder), removed at the end unless
+# AZDRIVE_E2E_KEEP=1. Exit status: the runner's (0 = every scenario passed).
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 scenarios=${1:-$here/e2e/sync}
@@ -25,7 +25,7 @@ cleanup() {
     fi
 }
 trap cleanup EXIT INT TERM
-mkdir -p "$tmp/data" "$tmp/home" "$tmp/downloads" "$tmp/cache" "$tmp/work"
+mkdir -p "$tmp/data" "$tmp/home" "$tmp/downloads" "$tmp/cache" "$tmp/work" "$tmp/systemp"
 status=0
 AZ_BACKEND=headless \
 AZ_E2E="$scenarios" \
@@ -39,5 +39,6 @@ AZDRIVE_E2E_WORK="$tmp/work" \
 AZDRIVE_DIALOGS=inline \
 AZDRIVE_SYNC_POLL=3600 \
 AZDRIVE_SYNC_SETTLE_MS=0 \
+TMPDIR="$tmp/systemp" \
     "$bin" || status=$?
 exit "$status"

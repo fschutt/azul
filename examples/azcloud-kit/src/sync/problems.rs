@@ -161,6 +161,22 @@ impl Code {
         }
     }
 
+    /// Whether it keeps a change of this device from the drive while it lasts (the notes about
+    /// names, links and passing moments do not).
+    #[must_use]
+    pub fn holds_back(self) -> bool {
+        !matches!(
+            self,
+            Code::Portability
+                | Code::DisplayRisk
+                | Code::Hardlink
+                | Code::Settling
+                | Code::ChangedDuringSync
+                | Code::ServerRestored
+                | Code::StateReset
+        )
+    }
+
     /// Whether the problem is about the whole pass (no file of its own): a pass that stopped
     /// early keeps the files' problems of the last pass that got that far.
     #[must_use]
@@ -481,6 +497,20 @@ impl ProblemList {
     #[must_use]
     pub fn up_to_date(&self) -> bool {
         self.problems.iter().all(|p| p.severity == Severity::Warning)
+    }
+
+    /// Since when (seconds) something here has not reached the drive: the oldest problem the
+    /// list still holds that keeps a change back - a file that did not go up, a pass that
+    /// could not reach the drive (offline for a month is the case that matters), a question
+    /// waiting - for the "not backed up since" warning. Notes about names and moments (a file
+    /// still being written) keep nothing back. `None`: nothing waits.
+    #[must_use]
+    pub fn unsynced_since(&self) -> Option<i64> {
+        self.problems
+            .iter()
+            .filter(|p| p.since > 0 && p.code.holds_back())
+            .map(|p| p.since)
+            .min()
     }
 
     /// The problems of `key`.

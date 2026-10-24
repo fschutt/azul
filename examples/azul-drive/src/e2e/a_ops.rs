@@ -177,6 +177,26 @@ pub(super) fn network(s: &mut DriveState, args: &Args) -> Answer {
     }))
 }
 
+/// `drive_status` as the shared command answers it, plus `unsynced_for_s`: how long the oldest
+/// change kept from the drive has waited, by the device's sync clock (azcloud-kit's
+/// `ProblemList::unsynced_since`; `null` when nothing waits) - the "not backed up since" alarm.
+pub(super) fn status(s: &DriveState, args: &Args) -> Answer {
+    let mut answer = super::status(s, args)?;
+    let (state_dir, clock) = with_harness(|h| {
+        let d = h.device(args)?;
+        Ok((d.state_dir.clone(), d.clock))
+    })?;
+    let since = state_dir
+        .and_then(|dir| azcloud_kit::sync::problems::ProblemList::load(&dir).ok())
+        .and_then(|list| list.unsynced_since());
+    let now = azcloud_kit::now() as f64 + clock;
+    let waited = since.map(|since| (now - since as f64).max(0.0).round() as i64);
+    if let serde_json::Value::Object(map) = &mut answer {
+        map.insert(String::from("unsynced_for_s"), serde_json::json!(waited));
+    }
+    Ok(answer)
+}
+
 /// `drive_wake`: the system woke from sleep (or its network changed), as AzDrive hears it:
 /// every synced drive that is not paused gets a full pass now. Answers `passes` (the drives
 /// asked).

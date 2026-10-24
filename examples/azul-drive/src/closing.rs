@@ -64,12 +64,17 @@ pub(crate) fn work_running(s: &DriveState) -> usize {
 
 /// The window is asked to close (its close button, Cmd+Q): see the module.
 pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
     let Some(mut guard) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
     let s = &mut *guard;
     // A picker closed before it answered: the request is cancelled.
     crate::picker::on_close(s);
+    // The first close: what was saved just now goes to the drives before the window does.
+    if !s.closing {
+        last_passes(&mut info, &app, s);
+    }
     let work = work_running(s);
     match drive_close(work, s.closing) {
         DriveClose::Close => {
@@ -90,6 +95,29 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
             Update::DoNothing
         }
     }
+}
+
+/// Before the window goes: every synced drive that is not paused (and can be opened without
+/// asking the keyring) gets a last pass, so a file saved just before the close reaches the drive
+/// first - the close waits for it, a second close stops it. A pass running now is followed by
+/// one more (the save may have come after its scan). How many were asked.
+pub(crate) fn last_passes(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> usize {
+    let due: Vec<String> = s
+        .settings
+        .synced
+        .iter()
+        .filter(|p| !p.paused)
+        .filter(|p| s.slot_index(&p.drive_id).is_some_and(|i| !s.slots[i].locked()))
+        .filter(|p| crate::sync_jobs::polled(&s.sync_view.store.states(&p.drive_id)))
+        .map(|p| p.drive_id.clone())
+        .collect();
+    for drive_id in &due {
+        crate::sync_jobs::request_pass(info, app, s, drive_id);
+    }
+    if !due.is_empty() {
+        println!("AZDRIVE_CLOSE_LAST_PASSES {}", due.len());
+    }
+    due.len()
 }
 
 /// How long a close waits for a refresh that spent a drive token to keep its answer.

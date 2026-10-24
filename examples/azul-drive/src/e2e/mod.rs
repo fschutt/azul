@@ -25,6 +25,7 @@ mod a_state;
 mod a_store;
 mod a_verify;
 mod a_versions;
+mod a_watch;
 mod checks;
 mod files;
 mod remote;
@@ -67,6 +68,9 @@ use azul_storage::{
 
 use crate::{sync_jobs, sync_view, DriveState, Slot};
 use remote::{FaultDrive, Remote};
+
+// Whether AzDrive watches a synced drive's folder (an E2E device's only after drive_watch).
+pub(crate) use a_watch::watches;
 
 /// A pass that crashed at a fault point ends with this error text and the point's name.
 pub(crate) const CRASHED: &str = "crashed at ";

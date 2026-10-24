@@ -67,6 +67,8 @@ pub mod journal;
 pub mod local;
 pub mod loops;
 pub mod merge;
+// How much memory the process took at most (tests bound a pass by it).
+pub mod memory;
 // A move into the synced folder: the source goes once the drive holds the copy.
 pub mod movein;
 pub mod named;

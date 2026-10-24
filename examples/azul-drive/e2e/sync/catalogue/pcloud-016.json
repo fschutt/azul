@@ -25,7 +25,6 @@
   {
     "name": "100,000 small files into an encrypted drive in one burst keep the memory bounded",
     "description": "PCLOUD-016 (pCloud): the client crashed on a big burst into the encrypted folder. Rule E7/I1: bounded memory, resumable progress.",
-    "pending": "drive_check {\"check\":\"peak_memory\",\"device\":\"a\",\"max_mb\":512} (the pass thread's peak memory, so a 100,000-file burst proves bounded memory)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

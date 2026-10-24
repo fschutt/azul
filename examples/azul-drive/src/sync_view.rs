@@ -121,6 +121,11 @@ pub(crate) struct SyncView {
     /// This computer as last read (its power, battery and network: the client health's parts,
     /// [`crate::health`]); `None` before. Kept here only, never sent anywhere.
     pub device: Option<Device>,
+    /// A watcher of each synced folder (azcloud-kit's `sync::watcher`): a change heard there
+    /// asks for a pass at once, so a save travels in seconds instead of at the next poll.
+    pub watchers: HashMap<String, azcloud_kit::sync::watcher::Watcher>,
+    /// The watch timer runs.
+    pub watch_timer: bool,
 }
 
 /// The status line while a metered or low-data network holds big transfers back.

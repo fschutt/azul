@@ -660,3 +660,29 @@ once it is empty (an empty folder moved in has nothing for the drive to hold and
 flags in `com.apple.FinderInfo`), `drive_junction` a junction (`mklink /J`). `drive_racer` runs a
 thread that swaps the folder for a link to `target` and back as fast as it can (the real folder
 waiting outside the device's folder), until `drive_racer_stop` (or `drive_cleanup`) puts it back.
+
+### Passes AzDrive starts by itself, and what a device says of itself
+
+| op | arguments | result |
+|---|---|---|
+| `drive_watch` | `device`, `on` (default true) | `watching` |
+| `drive_wait_auto` | `device`, `within_ms` (default 10000) | `passes` |
+| `drive_quit` | - | `quit` |
+| `drive_status` | as above | as above, plus `unsynced_for_s` |
+
+AzDrive watches every synced folder (azcloud-kit's `sync::watcher`, looked at every second): a
+change heard asks for a pass at once, so a save travels in seconds instead of at the next poll.
+An E2E device's folder is watched only after `drive_watch` (a scenario's passes are its own).
+`drive_wait_auto` waits for a pass the device started by itself to end. `drive_quit` is what a
+quit does before the window goes - every synced drive that is not paused gets a last pass, and
+the close waits for it (a second close stops it) - with the window left open: it answers once
+no pass runs. `unsynced_for_s` is how long the oldest change kept from the drive has waited
+(a file that did not go up, a pass that could not reach the drive, a question waiting), by the
+device's sync clock; `null` when nothing waits.
+
+| check | fields |
+|---|---|
+| `no_registration` | `device` |
+| `state_size` | `device`, `max_bytes` (the state folder's files together) |
+| `system_temp_untouched` | - (no file of the engine's names left in the process's system temp folder since the sandbox was made; the script gives the process a temp folder of its own) |
+| `peak_memory` | `max_mb` (the process's peak resident set so far) |

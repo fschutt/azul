@@ -725,6 +725,15 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 }
 
 fn start_timer(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if !s.sync_view.watch_timer {
+        s.sync_view.watch_timer = true;
+        let get_time = info.get_system_time_fn();
+        info.add_timer(
+            TimerId::unique(),
+            Timer::create(app.clone(), on_watch_timer, get_time)
+                .with_interval(Duration::System(SystemTimeDiff::from_millis(WATCH_MS))),
+        );
+    }
     if s.sync_view.timer {
         return;
     }
@@ -736,6 +745,58 @@ fn start_timer(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
             SystemTimeDiff::from_millis(poll_secs() * 1000),
         )),
     );
+}
+
+/// How often the watch timer looks at what the folders' watchers heard.
+const WATCH_MS: u64 = 1000;
+
+extern "C" fn on_watch_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let mut callback_info = info.callback_info;
+    let app = data.clone();
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return TimerCallbackReturn::continue_unchanged();
+    };
+    for drive_id in heard_changes(&mut *s) {
+        println!("AZDRIVE_SYNC_HEARD {drive_id}");
+        request_pass(&mut callback_info, &app, &mut *s, &drive_id);
+    }
+    TimerCallbackReturn::continue_unchanged()
+}
+
+/// The synced drives whose folder changed since the last look: a watcher per folder of a drive
+/// that is not paused (started on the first look, a folder that cannot be watched is left to
+/// the poll), the watchers of the others stopped.
+fn heard_changes(s: &mut DriveState) -> Vec<String> {
+    let wanted: Vec<(String, PathBuf)> = s
+        .settings
+        .synced
+        .iter()
+        .filter(|p| !p.paused && crate::e2e::watches(&p.drive_id))
+        .map(|p| (p.drive_id.clone(), p.folder.clone()))
+        .collect();
+    s.sync_view
+        .watchers
+        .retain(|id, _| wanted.iter().any(|(wanted, _)| wanted == id));
+    let mut heard = Vec::new();
+    for (drive_id, folder) in wanted {
+        if !s.sync_view.watchers.contains_key(&drive_id) {
+            match azcloud_kit::sync::watcher::Watcher::start(&folder) {
+                Ok(watcher) => {
+                    s.sync_view.watchers.insert(drive_id.clone(), watcher);
+                }
+                Err(_) => continue,
+            }
+        }
+        let woke = s
+            .sync_view
+            .watchers
+            .get(&drive_id)
+            .and_then(|w| w.wait(StdDuration::ZERO, StdDuration::ZERO));
+        if woke.is_some() {
+            heard.push(drive_id);
+        }
+    }
+    heard
 }
 
 extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {

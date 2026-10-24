@@ -33,7 +33,6 @@
   {
     "name": "downloads leave nothing in the system temp folder (a tmpfs on another filesystem)",
     "description": "KDRIVE-019 (kDrive), the catalogue's repro: the temp dir on another mount than the root. Rule A5 (F9 in today's code, TempBlob in the system temp dir): no byte of a download is spooled outside the target's own folder.",
-    "pending": "drive_check system_temp_untouched {}: nothing of the sync engine was written into the process's system temp folder (std::env::temp_dir()) since drive_harness",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

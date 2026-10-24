@@ -78,7 +78,6 @@
   {
     "name": "after 200 passes over names that cannot be written here, the state folder stays small",
     "description": "KDRIVE-007 (kDrive): the client's SQLite WAL grew to 50+ GB from the error loop. Rules O1 and A1: a failing item is one problem entry, so the state database stays bounded.",
-    "pending": "drive_check state_size {device, max_bytes}: the device's state folder (the base database with its journal or WAL, problems.json, the operations log) is at most max_bytes",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "b", "remote": "r" },

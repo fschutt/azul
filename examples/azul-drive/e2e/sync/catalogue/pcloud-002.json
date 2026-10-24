@@ -39,7 +39,6 @@
   {
     "name": "a device that has not reached the drive for a month says so, loudly and by date",
     "description": "PCLOUD-002 (pCloud): 32 days without an upload and no alarm. Rule O1: 'up to date' means nothing is pending; the status names how long the files have waited.",
-    "pending": "drive_status answer \"unsynced_for_s\" (how long the oldest local change not on the drive has waited, by the device's sync clock), so a scenario can assert the \"not backed up since\" alarm after drive_clock jumps",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r", "encrypted": false },

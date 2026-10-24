@@ -7,8 +7,8 @@
 use azul::prelude::*;
 
 use super::{
-    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer,
-    Args,
+    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, a_watch, str_arg,
+    Answer, Args,
     OpDoc,
     DEVICE, PATH,
 };
@@ -52,6 +52,9 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_junction", summary: "a directory junction (Windows)", args: &[DEVICE, PATH, ("target", "string", true)] },
     OpDoc { name: "drive_racer", summary: "a folder swapped for a link and back, fast", args: &[DEVICE, PATH, ("target", "string", true)] },
     OpDoc { name: "drive_racer_stop", summary: "the racer stops, the folder is back", args: &[DEVICE] },
+    OpDoc { name: "drive_watch", summary: "AzDrive's folder watcher on or off for the device", args: &[DEVICE, ("on", "bool", false)] },
+    OpDoc { name: "drive_wait_auto", summary: "wait for a pass the device started by itself", args: &[DEVICE, ("within_ms", "number", false)] },
+    OpDoc { name: "drive_quit", summary: "the quit's last passes (the window stays)", args: &[] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -64,6 +67,7 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
         "drive_sync" => args.contains_key("verify"),
         "drive_many" => args.get("flat").and_then(serde_json::Value::as_bool) == Some(true),
         "drive_check" => str_arg(args, "check").is_some_and(|c| a_store::CHECKS.contains(&c)),
+        "drive_status" => true,
         _ => OPS.iter().any(|op| op.name == name),
     }
 }
@@ -83,6 +87,10 @@ pub(super) fn run(
         "drive_versions" => a_versions::versions(s, args),
         "drive_check" => a_store::check(s, args),
         "drive_browse" => a_drive::browse(s, args),
+        "drive_status" => a_ops::status(s, args),
+        "drive_watch" => a_watch::watch(args),
+        "drive_wait_auto" => a_watch::wait_auto(s, args),
+        "drive_quit" => a_watch::quit(info, app, s, args),
         "drive_many" => a_files::many_flat(args),
         "drive_write_at" | "drive_patch" => a_files::write_at_step(args),
         "drive_truncate" => a_files::truncate(args),
