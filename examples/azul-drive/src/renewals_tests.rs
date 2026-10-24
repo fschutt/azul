@@ -104,7 +104,9 @@ fn the_reminders_say_what_ends_and_when() {
     let english = crate::l10n::EN;
     assert!(english.contains("azdrive-renew-period-end = "));
     assert!(english.contains("turns read-only"));
-    assert!(english.contains("are deleted"));
+    // A lapsed drive is closed and reviewed, still readable, not deleted by the deadline.
+    assert!(english.contains("is closed on"));
+    assert!(english.contains("stays readable after that"));
 }
 
 /// Q2: a full drive offers what exists: a bigger tier only when one is sold.
