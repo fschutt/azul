@@ -3254,17 +3254,18 @@ pub fn render_single_item(
             let opacity = &opacity_key
                 .and_then(|k| render_state.opacities.get(&k.id).copied())
                 .unwrap_or(*opacity);
-            // The group blends over the region it can paint in: the clip
-            // open around it (a damage rect, on the incremental path), else
-            // its own box. Its box alone left what the group paints outside
-            // it (its shadow) unblended, and a group with an empty box pushed
-            // nothing - its pop then took the entry of the frame around it
-            // (a translated box: every later item painted moved by it).
-            let rect = clip_stack
-                .last()
-                .copied()
-                .flatten()
-                .or_else(|| logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor))
+            // The group blends over its box inside the clip open around it
+            // (a damage rect, on the incremental path): blending the whole
+            // clip per group cost a full-window blend for every group of a
+            // window. A group with an empty box still leaves its entry - it
+            // pushed nothing before, and its pop then took the entry of the
+            // frame around it (a translated box: every later item painted
+            // moved by it).
+            let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
+                .and_then(|r| match clip_stack.last().copied().flatten() {
+                    Some(c) => intersect_clips(Some(c), Some(r)),
+                    None => Some(r),
+                })
                 .unwrap_or(AzRect::DENY_ALL);
             let snap = snapshot_region(
                 pixmap,
