@@ -8,6 +8,7 @@
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, CallbackType},
+    dom::AccessibilityRole,
     prelude::*,
     str::String as AzString,
     vec::{StringVec, U32Vec},
@@ -33,15 +34,46 @@ pub fn clickable(dom: Dom, name: &str, data: RefAny, callback: CallbackType) -> 
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
 }
 
-/// [`clickable`] at the end of a builder chain: `.clickable(name, data, callback)`.
+/// [`clickable`] that a screen reader announces as `role`.
+#[must_use]
+pub fn clickable_as(
+    dom: Dom,
+    name: &str,
+    _role: AccessibilityRole,
+    data: RefAny,
+    callback: CallbackType,
+) -> Dom {
+    clickable(dom, name, data, callback)
+}
+
+/// [`clickable`] and [`clickable_as`] at the end of a builder chain: `.clickable(name, data,
+/// callback)`, `.clickable_as(name, role, data, callback)`.
 pub trait Clickable {
     #[must_use]
     fn clickable(self, name: &str, data: RefAny, callback: CallbackType) -> Dom;
+    #[must_use]
+    fn clickable_as(
+        self,
+        name: &str,
+        role: AccessibilityRole,
+        data: RefAny,
+        callback: CallbackType,
+    ) -> Dom;
 }
 
 impl Clickable for Dom {
     fn clickable(self, name: &str, data: RefAny, callback: CallbackType) -> Dom {
         clickable(self, name, data, callback)
+    }
+
+    fn clickable_as(
+        self,
+        name: &str,
+        role: AccessibilityRole,
+        data: RefAny,
+        callback: CallbackType,
+    ) -> Dom {
+        clickable_as(self, name, role, data, callback)
     }
 }
 
