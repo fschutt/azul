@@ -1,0 +1,56 @@
+[
+  {
+    "name": "a folder with a custom icon (desktop.ini, Thumbs.db) and read-only permissions reaches 'up to date'; the system files stay here",
+    "description": "MAGENTA-004 (MagentaCloud 4.0.5 on Windows 11): folders with a custom icon or changed rights stayed 'sync pending' forever. Rules P11 and O1: the systems' bookkeeping (desktop.ini, Thumbs.db) is ignored, never pending; a read-only folder still syncs its files and the status says up to date. sync-chaos port-ignored-system-files, port-xattrs-policy.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "pics/desktop.ini", "text": "[.ShellClassInfo]\r\nIconResource=C:\\Windows\\System32\\imageres.dll,-3\r\n" },
+      { "op": "drive_write", "device": "a", "path": "pics/Thumbs.db", "text": "thumbs" },
+      { "op": "drive_write", "device": "a", "path": "pics/holiday.jpg", "text": "the photo" },
+      { "op": "drive_chmod", "device": "a", "path": "pics", "mode": "555" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "pics/*", "count": 1 },
+      { "op": "drive_check", "check": "remote_file", "key": "pics/holiday.jpg", "text": "the photo" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "up-to-date" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "pics/*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "pics/holiday.jpg", "text": "the photo" },
+      { "op": "drive_status", "device": "b" },
+      { "op": "assert_response", "path": "result.status", "contains": "up-to-date" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_chmod", "device": "a", "path": "pics", "mode": "755" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file with extended attributes and a hidden flag syncs its content, and the folder says once that attributes are not synced",
+    "description": "MAGENTA-004: folder attributes and appearance metadata. Rule P6: xattrs, resource forks and flags are not synced in v1 and the folder's status says so once, never a pending state.",
+    "pending": "drive_xattr {device, path, name, hex} and drive_chflags {device, path, flags} (sync-chaos's xattr and chflags steps), plus the engine's once-per-folder 'attributes not synced' note as a problem code or status field to check",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "styled/report.txt", "text": "the report" },
+      { "op": "drive_xattr", "device": "a", "path": "styled", "name": "com.apple.FinderInfo", "hex": "0000000000000000400000000000000000000000000000000000000000000000" },
+      { "op": "drive_chflags", "device": "a", "path": "styled/report.txt", "flags": "hidden" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "styled/report.txt", "text": "the report" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "up-to-date" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

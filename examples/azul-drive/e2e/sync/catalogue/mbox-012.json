@@ -1,0 +1,28 @@
+{
+  "name": "a revoked share reads nothing new: the guest's old key and link fail, and files written after the revocation use a key the guest never had",
+  "description": "MBOX-012 (OX App Suite behind mailbox.org Drive): guests kept access after the owner removed their permissions; other shares lost theirs. Rules M1 and S14 and the share design: revocation ends access, and new content in the folder is wrapped with a rotated key. sync-chaos share-links-and-revocation (pending: share keys in the upload transaction).",
+  "pending": "drive_share {device, path, to, link} and drive_unshare {device, path, to} (the window's share and revoke), drive_open fields share and as_user (a participant's device on the shared folder), and the check share_reads {device, key, via: \"key\"|\"link\", ok} (whether the participant's old key or link still reads an object)",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "shared/plan.txt", "text": "before the revocation" },
+    { "op": "drive_write", "device": "a", "path": "private.txt", "text": "never shared" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_share", "device": "a", "path": "shared", "to": "guest", "link": true },
+    { "op": "drive_open", "device": "g", "remote": "r", "share": "shared", "as_user": "guest" },
+    { "op": "drive_pair", "device": "g" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_check", "check": "file", "device": "g", "path": "plan.txt", "text": "before the revocation" },
+    { "op": "drive_unshare", "device": "a", "path": "shared", "to": "guest" },
+    { "op": "drive_write", "device": "a", "path": "shared/after.txt", "text": "after the revocation" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "g", "expect": "any" },
+    { "op": "drive_check", "check": "file", "device": "g", "path": "after.txt", "absent": true },
+    { "op": "drive_check", "check": "share_reads", "device": "g", "key": "shared/after.txt", "ok": false },
+    { "op": "drive_check", "check": "share_reads", "device": "g", "key": "shared/plan.txt", "via": "link", "ok": false },
+    { "op": "drive_check", "check": "problem", "device": "g", "code_any": ["sign-in-needed", "remote-entry-unreadable"] },
+    { "op": "drive_cleanup" }
+  ]
+}
