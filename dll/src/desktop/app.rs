@@ -171,6 +171,10 @@ impl App {
         // with the bundle's / package's / Flatpak's id is reported.
         crate::desktop::app_identity::declare(app_config.app_id.as_str());
 
+        // The app's trusted roots, before any connection: every HTTP request, database sync
+        // and iroh endpoint whose config names no set of its own trusts what the app set.
+        azul_core::tls::set_app_trust_roots(app_config.trust_roots.clone());
+
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
 

@@ -30,7 +30,6 @@ use tokio::{
 };
 
 use azul_core::tls::TrustRoots;
-use rustls_pki_types::{pem::PemObject, CertificateDer};
 
 use super::types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode};
 
@@ -82,23 +81,11 @@ fn endpoint_ids(
         .collect()
 }
 
-/// What the relays' TLS trusts: Mozilla's roots, or exactly the pinned ones (an entry that does
-/// not parse fails the bind; it never falls back to the public roots).
+/// What the endpoint's TLS outside iroh's own connections trusts (its relays, address lookup,
+/// DNS over HTTPS): exactly `roots`' certificates (`TrustRoots::certificates`). An entry that
+/// does not parse fails the bind; it never falls back to the public roots.
 fn ca_tls_config(roots: &TrustRoots) -> Result<iroh::tls::CaTlsConfig, String> {
-    let TrustRoots::Pinned(pems) = roots else {
-        return Ok(iroh::tls::CaTlsConfig::embedded());
-    };
-    let mut certs = Vec::new();
-    for (i, pem) in pems.as_ref().iter().enumerate() {
-        let before = certs.len();
-        for cert in CertificateDer::pem_slice_iter(pem.as_str().as_bytes()) {
-            certs.push(cert.map_err(|e| format!("trusted root {i} does not parse: {e:?}"))?);
-        }
-        if certs.len() == before {
-            return Err(format!("trusted root {i} holds no certificate"));
-        }
-    }
-    Ok(iroh::tls::CaTlsConfig::custom_roots(certs))
+    Ok(iroh::tls::CaTlsConfig::custom_roots(roots.certificates()?))
 }
 
 pub(super) struct Engine {

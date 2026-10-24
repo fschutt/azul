@@ -5,7 +5,7 @@
 use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
-pub use azul_core::tls::TrustRoots;
+pub use azul_core::tls::{ResultStringVecString, TrustRootSet, TrustRoots};
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq, AzString, StringVec, U8Vec,
@@ -200,8 +200,9 @@ pub struct HttpRequestConfig {
     /// follows the client's `HttpClientConfig`, not the fields here.
     pub client: OptionHttpClient,
     /// The certificate authorities this request trusts when it opens its own
-    /// connection (no `client`): the public roots (default), or the ones an
-    /// app pins for a far end it knows.
+    /// connection (no `client`): the app's set (default, `AppConfig::trust_roots`),
+    /// the public roots, or the ones it pins for a far end it knows - minus any it
+    /// distrusts.
     pub trust_roots: TrustRoots,
     /// Request timeout in seconds (default: 30)
     pub timeout_secs: u64,
@@ -236,7 +237,7 @@ impl Default for HttpRequestConfig {
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
             client: OptionHttpClient::None,
-            trust_roots: TrustRoots::PublicRoots,
+            trust_roots: TrustRoots::app_default(),
             follow_redirects: true,
         }
     }
@@ -247,8 +248,9 @@ impl Default for HttpRequestConfig {
 #[repr(C)]
 pub struct HttpClientConfig {
     /// The certificate authorities every request of this client trusts: the
-    /// public roots (default), or the ones an app pins for a far end it knows
-    /// (its token server). A pinned set that does not parse fails every request.
+    /// app's set when the client is made (default, `AppConfig::trust_roots`), the
+    /// public roots, or the ones it pins for a far end it knows (its token server) -
+    /// minus any it distrusts. A set that does not parse fails every request.
     pub trust_roots: TrustRoots,
     /// Idle connections kept open across all hosts (default: 32).
     pub max_idle_connections: u32,
@@ -270,7 +272,7 @@ pub struct HttpClientConfig {
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
-            trust_roots: TrustRoots::PublicRoots,
+            trust_roots: TrustRoots::app_default(),
             max_idle_connections: 32,
             max_idle_connections_per_host: 8,
             dns_cache_secs: 0,
@@ -1213,7 +1215,7 @@ fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::A
     make_agent_trusting(
         timeout_secs,
         disable_tls_cert_verification,
-        ureq::tls::RootCerts::WebPki,
+        app_root_certs(),
     )
 }
 
@@ -1293,7 +1295,7 @@ fn dns_failure(error: ureq::Error) -> ureq::Error {
 fn agent_config(
     disable_tls_cert_verification: bool,
 ) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
-    agent_config_trusting(disable_tls_cert_verification, ureq::tls::RootCerts::WebPki)
+    agent_config_trusting(disable_tls_cert_verification, app_root_certs())
 }
 
 /// [`agent_config`] trusting `roots` (unless verification is off).
@@ -1320,29 +1322,54 @@ fn agent_config_trusting(
         .timeout_resolve(Some(DNS_LOOKUP_TIMEOUT))
 }
 
-/// The root store `roots` names: Mozilla's for the public roots, else exactly
-/// the pinned certificates (nothing of the public set). A pinned entry that
-/// holds no certificate, or one that does not parse, is an error naming it.
+/// The root store `roots` names (`TrustRoots::certificates`: the resolved set
+/// without its distrusted roots). An entry that holds no certificate, or one
+/// that does not parse, is an error naming it.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn root_certs_of(roots: &TrustRoots) -> Result<ureq::tls::RootCerts, String> {
-    let TrustRoots::Pinned(pems) = roots else {
-        return Ok(ureq::tls::RootCerts::WebPki);
-    };
-    let mut certs = Vec::new();
-    for (i, pem) in pems.as_ref().iter().enumerate() {
-        let before = certs.len();
-        for item in ureq::tls::parse_pem(pem.as_str().as_bytes()) {
-            match item {
-                Ok(ureq::tls::PemItem::Certificate(cert)) => certs.push(cert),
-                Ok(_) => {}
-                Err(e) => return Err(format!("trusted root {i} does not parse: {e}")),
-            }
-        }
-        if certs.len() == before {
-            return Err(format!("trusted root {i} holds no certificate"));
-        }
-    }
+    let certs = roots
+        .certificates()?
+        .iter()
+        .map(|cert| ureq::tls::Certificate::from_der(cert.as_ref()).to_owned())
+        .collect();
     Ok(ureq::tls::RootCerts::Specific(std::sync::Arc::new(certs)))
+}
+
+/// The root store of the app's set, for the requests that take no config (`is_url_reachable`).
+/// A set that does not load trusts nothing: the handshake fails, it never falls back to the
+/// public roots.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn app_root_certs() -> ureq::tls::RootCerts {
+    root_certs_of(&TrustRoots::app_default()).unwrap_or_else(|_| no_root_certs())
+}
+
+/// A root store that trusts nothing.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn no_root_certs() -> ureq::tls::RootCerts {
+    ureq::tls::RootCerts::Specific(std::sync::Arc::new(Vec::new()))
+}
+
+/// A rustls client configuration trusting `roots`, with the pure-Rust crypto provider every
+/// TLS client of azul uses: for a client that takes a whole rustls configuration (the crash
+/// report's STARTTLS).
+///
+/// # Errors
+///
+/// As [`TrustRoots::certificates`].
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+pub fn rustls_client_config(
+    roots: &TrustRoots,
+) -> Result<std::sync::Arc<rustls::ClientConfig>, String> {
+    let mut store = rustls::RootCertStore::empty();
+    let _ = store.add_parsable_certificates(roots.certificates()?);
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls_rustcrypto::provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| e.to_string())?
+    .with_root_certificates(store)
+    .with_no_client_auth();
+    Ok(std::sync::Arc::new(config))
 }
 
 /// The agent behind an [`HttpClient`]: pooled per `config`, and resolving hosts
@@ -1356,8 +1383,7 @@ fn client_agent(
 ) -> ureq::Agent {
     // Roots that do not load trust nothing here; every request fails with why
     // (`HttpClientInner::trust_error`).
-    let roots = root_certs_of(&config.trust_roots)
-        .unwrap_or_else(|_| ureq::tls::RootCerts::Specific(std::sync::Arc::new(Vec::new())));
+    let roots = root_certs_of(&config.trust_roots).unwrap_or_else(|_| no_root_certs());
     let agent_config = agent_config_trusting(config.disable_tls_cert_verification, roots)
         .max_idle_connections(config.max_idle_connections as usize)
         .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
@@ -2045,8 +2071,14 @@ pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> Ht
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 #[must_use]
 pub fn is_url_reachable(url: &str) -> bool {
+    url_reachable_trusting(url, app_root_certs())
+}
+
+/// [`is_url_reachable`] trusting `roots`.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn url_reachable_trusting(url: &str, roots: ureq::tls::RootCerts) -> bool {
     const REACHABILITY_TIMEOUT_SECS: u64 = 10;
-    let agent = make_agent(REACHABILITY_TIMEOUT_SECS, false);
+    let agent = make_agent_trusting(REACHABILITY_TIMEOUT_SECS, false, roots);
     match agent.head(url).call() {
         Ok(resp) => {
             let code = resp.status().as_u16();

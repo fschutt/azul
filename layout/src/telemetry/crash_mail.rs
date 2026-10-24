@@ -38,6 +38,8 @@ pub struct CrashMailConfig {
     pub use_tls: bool,
     /// Subject prefix; the app name + version are appended per mail.
     pub subject_prefix: String,
+    /// The certificate authorities STARTTLS trusts: the app's set (default).
+    pub trust_roots: crate::http::TrustRoots,
 }
 
 impl CrashMailConfig {
@@ -56,7 +58,15 @@ impl CrashMailConfig {
             ports: vec![25, 587, 2525],
             use_tls: true,
             subject_prefix: "[crash]".to_owned(),
+            trust_roots: crate::http::TrustRoots::app_default(),
         }
+    }
+
+    /// Trusts these certificate authorities for STARTTLS instead of the app's set.
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: crate::http::TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
+        self
     }
 
     /// Overrides the SMTP port list (e.g. `vec![2525]` against a local sink).
@@ -269,9 +279,14 @@ pub fn send_attachments(
         )
         .build();
 
-    let mail_config = micromail::Config::new(config.helo_domain.clone())
+    let mut mail_config = micromail::Config::new(config.helo_domain.clone())
         .ports(config.ports.clone())
         .use_tls(config.use_tls);
+    if config.use_tls {
+        let tls = crate::http::rustls_client_config(&config.trust_roots)
+            .map_err(|why| format!("crash mail failed: {why}"))?;
+        mail_config = mail_config.tls_config(tls);
+    }
     let mut mailer = micromail::Mailer::new(mail_config);
     let outcomes = mailer.send_raw(
         &config.from,

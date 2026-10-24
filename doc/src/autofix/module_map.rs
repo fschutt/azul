@@ -709,8 +709,9 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     ("Wt", "webtransport"),
     ("Iroh", "iroh"),
     // What a TLS connection trusts: set on `HttpRequestConfig` / `HttpClientConfig` (and on
-    // `IrohConfig`, `DbConfig`); the keyword pass filed it under "str" for its PEM strings.
-    ("TrustRoots", "http"),
+    // `IrohConfig`, `DbConfig`, `AppConfig`); the keyword pass filed it under "str" for its PEM
+    // strings. The prefix covers `TrustRootSet` too.
+    ("TrustRoot", "http"),
     // The CPU rasterizer's text style (`RawImage::from_text` / `draw_text`,
     // `CallbackInfo::text_image`): "Style" filed it under css; it belongs
     // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone

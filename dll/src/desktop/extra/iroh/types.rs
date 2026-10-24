@@ -38,9 +38,10 @@ pub struct IrohConfig {
     /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
     pub secret_key: U8Vec,
     /// The certificate authorities the relays' (and any other non-iroh) TLS is checked
-    /// against: the public roots by default, or the ones an app pins, so a relay with a
-    /// forged certificate is refused. Iroh's own connections are authenticated by the peers'
-    /// keys and need no authority.
+    /// against: the app's set by default (`AppConfig::trust_roots`), the public roots, or the
+    /// ones it pins - minus any it distrusts - so a relay with a forged certificate is
+    /// refused. Iroh's own connections are authenticated by the peers' keys and need no
+    /// authority.
     pub trust_roots: TrustRoots,
     /// The endpoint ids an incoming connection is accepted from. `None` (the default): every
     /// peer that knows the protocol name, and the app decides whom it trusts. `Some`: only
@@ -63,7 +64,7 @@ impl IrohConfig {
             relay_only: false,
             relay_url: AzString::from_const_str(""),
             secret_key: U8Vec::from_const_slice(&[]),
-            trust_roots: TrustRoots::PublicRoots,
+            trust_roots: TrustRoots::app_default(),
             allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,

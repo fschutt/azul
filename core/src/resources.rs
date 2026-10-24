@@ -1055,6 +1055,13 @@ pub struct AppConfig {
     ///
     /// 8-aligned (a string), so it sits with the other 8-aligned fields.
     pub theme_font: AzString,
+    /// The certificate authorities every TLS connection of the app trusts that does not name
+    /// its own (`TrustRoots::app_default`, the default of every HTTP, database and iroh
+    /// config): the public roots (the default), a pinned set, and the roots it distrusts.
+    /// `App::create` makes it the app's set; a connection's own config still overrides it.
+    ///
+    /// 8-aligned (two vecs), so it sits with the other 8-aligned fields.
+    pub trust_roots: crate::tls::TrustRoots,
     /// The app's MODE: `None` (the default, "system") follows the desktop's
     /// light / dark setting, and every change of it; `Some(mode)` pins every
     /// window of the app to light or dark, whatever the desktop says. Not
@@ -1238,6 +1245,20 @@ impl AppConfig {
         self.theme_font = families;
     }
 
+    /// Returns the config whose TLS connections trust `trust_roots` unless their own config
+    /// names a set (see [`Self::trust_roots`]): pin the app's servers' roots, or distrust a
+    /// public root, once for every connection.
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: crate::tls::TrustRoots) -> Self {
+        self.set_trust_roots(trust_roots);
+        self
+    }
+
+    /// In-place [`Self::with_trust_roots`].
+    pub fn set_trust_roots(&mut self, trust_roots: crate::tls::TrustRoots) {
+        self.trust_roots = trust_roots;
+    }
+
     /// Light every window of the app with `light` (see [`Self::light`]).
     #[must_use]
     pub const fn with_light(mut self, light: crate::light::Light) -> Self {
@@ -1334,6 +1355,8 @@ impl AppConfig {
             app_id: AzString::from_const_str(""),
             // The theme's own face.
             theme_font: AzString::from_const_str(""),
+            // The public web PKI until the app hardens it.
+            trust_roots: crate::tls::TrustRoots::public_roots(),
             // Follow the desktop.
             mode: crate::window::OptionDarkLightMode::None,
             light: crate::light::Light::DEFAULT,
