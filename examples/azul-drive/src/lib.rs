@@ -211,6 +211,8 @@ mod problems;
 mod usage_view;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
+/// The devices of an Azlin drive and their removal (Options > Drives).
+mod devices;
 /// AzDrive's words through azul's localization: its resources, the kit's error table.
 mod l10n;
 /// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
@@ -1129,6 +1131,9 @@ pub(crate) struct DriveState {
     /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
     /// the bar with Cancel over the drive in view.
     pub pending_lockdowns: HashMap<String, u64>,
+    /// Each Azlin drive's devices as its last look saw them: Options > Drives offers to remove
+    /// the others.
+    pub devices: HashMap<String, devices::DriveDevices>,
     /// What the looks saw of each Azlin drive's next months (a reminder, a change of tier,
     /// a monthly plan): the bar with Renew over the drive in view.
     pub renewals: HashMap<String, renewals::RenewalSeen>,
@@ -3152,6 +3157,11 @@ pub(crate) extern "C" fn on_job_done(
             }
             vouchers::redeemed(s, &drive_id, result);
         }
+        Outcome::DeviceRemoved {
+            drive_id,
+            member,
+            result,
+        } => devices::removed(s, &drive_id, &member, result),
         Outcome::Sync(outcome) => {
             refresh = sync_jobs::on_outcome(&mut info, &handle, s, outcome);
         }
@@ -3842,6 +3852,7 @@ pub fn start() {
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
+        devices: HashMap::new(),
         renewals: HashMap::new(),
         tier_news: None,
         sync_view: sync_view::SyncView::default(),

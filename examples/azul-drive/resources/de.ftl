@@ -511,6 +511,10 @@ azdrive-voucher-added-until = Der Gutschein hat „{ $name }“ um { $days ->
        *[other] { $days } Tage
     } verlängert: Es ist bis { $until } bezahlt.
 azdrive-voucher-failed = Der Gutschein konnte nicht eingelöst werden:
+azdrive-options-device = Gerät { $device }
+azdrive-options-remove-device = Entfernen
+azdrive-device-removed = Das Gerät { $device } wurde aus „{ $name }“ entfernt: Es kann das Laufwerk nicht mehr öffnen.
+azdrive-device-remove-failed = Das Gerät konnte nicht entfernt werden:
 azdrive-restore-type-time = Gib den Zeitpunkt ein, auf den das Laufwerk zurückgesetzt wird: „vor 2 Stunden“ oder eine UTC-Zeit wie 2026-10-10 08:00.
 azdrive-restore-unknown-time = „{ $text }“ ist kein Zeitpunkt, den AzDrive kennt: Gib „vor 2 Stunden“ oder eine UTC-Zeit wie 2026-10-10 08:00 ein.
 azdrive-restore-in-future = Dieser Zeitpunkt liegt in der Zukunft.

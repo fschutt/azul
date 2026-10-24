@@ -513,6 +513,10 @@ azdrive-voucher-added-until = The voucher added { $days ->
        *[other] { $days } days
     } to "{ $name }": it is paid until { $until }.
 azdrive-voucher-failed = The voucher could not be redeemed:
+azdrive-options-device = Device { $device }
+azdrive-options-remove-device = Remove
+azdrive-device-removed = The device { $device } was removed from "{ $name }": it can no longer open the drive.
+azdrive-device-remove-failed = The device could not be removed:
 azdrive-restore-type-time = Type the time to restore the drive to: type "2 hours ago" or a UTC time like 2026-10-10 08:00.
 azdrive-restore-unknown-time = "{ $text }" is no time AzDrive knows: type "2 hours ago" or a UTC time like 2026-10-10 08:00.
 azdrive-restore-in-future = That time is still to come.

@@ -1167,6 +1167,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                 .with_id(ids::restore_button(&slot.entry.id)),
                         );
                     }
+                    let devices = crate::devices::rows(s, app, &slot.entry.id);
                     if !slot.is_built_in() {
                         row.add_child(
                             Button::create(l10n::label("azdrive-forget-button"))
@@ -1180,7 +1181,13 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                 .dom(),
                         );
                     }
-                    row
+                    if devices.is_empty() {
+                        return row;
+                    }
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column;")
+                        .with_child(row)
+                        .with_children(azul::vec::DomVec::from(devices))
                 })
                 .collect();
             let drives_file = s

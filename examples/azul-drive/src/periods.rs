@@ -255,6 +255,8 @@ pub(crate) fn periods_redeemed(
             crate::sync_jobs::drive_status_seen(s, &drive_id, status.payment_due());
             // Its space: the quota and the stored bytes the token server counts.
             crate::usage_view::status_seen(s, &drive_id, status);
+            // Its devices: Options > Drives offers to remove the others.
+            crate::devices::seen(s, &drive_id, status);
         }
         for member in new_devices(&look.new_members) {
             println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");

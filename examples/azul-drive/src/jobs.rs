@@ -480,6 +480,14 @@ pub(crate) enum Job {
         drive: Option<String>,
         keyring: SharedKeyring,
     },
+    /// The device `member` of the Azlin drive `drive_id` removed from this computer, at the
+    /// token server `token_url` ([`Outcome::DeviceRemoved`]).
+    RemoveDevice {
+        token_url: String,
+        drive_id: String,
+        member: String,
+        keyring: SharedKeyring,
+    },
     /// The folder sync: a pass, a file opened through it, pins, "Free up space", an answer.
     Sync(crate::sync_jobs::SyncJob),
     /// "Restore as of...": the Azlin drive `drive_id` put back as it was at `as_of` (seconds
@@ -760,6 +768,12 @@ pub(crate) enum Outcome {
         result: Result<(u32, Option<u64>), Text>,
         /// The days bought: the drive's credentials follow ([`azcloud_kit::AzlinDrive::apply`]).
         grant: Option<GrantChanged>,
+    },
+    /// What the removal of the device `member` from `drive_id` came to.
+    DeviceRemoved {
+        drive_id: String,
+        member: String,
+        result: Result<(), Text>,
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
@@ -3455,6 +3469,25 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             keyring,
         } => redeem_voucher(serial, &token_url, &code, &tier, drive, &keyring),
+        Job::RemoveDevice {
+            token_url,
+            drive_id,
+            member,
+            keyring,
+        } => {
+            let transport = AzulTransport::new(USER_AGENT);
+            let result = match TokenServer::new(&token_url, &transport) {
+                Ok(server) => keyring
+                    .remove_member(&server, &drive_id, &member)
+                    .map_err(|e| cloud_error_text(&e)),
+                Err(e) => Err(token_error_text(&e)),
+            };
+            Outcome::DeviceRemoved {
+                drive_id,
+                member,
+                result,
+            }
+        }
         Job::Sync(job) => {
             let mut emit = |outcome: Outcome| send(sender, outcome);
             crate::sync_jobs::run(job, &mut emit)
