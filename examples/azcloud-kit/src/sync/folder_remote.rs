@@ -228,12 +228,16 @@ impl FolderRemote {
         if early {
             line["early"] = Value::Bool(true);
         }
+        // One write of the whole line: several passes (and a pass's parallel transfers) append
+        // to the log at once, and a line written in pieces (a File is unbuffered, and a
+        // formatted value is written piece by piece) interleaves with theirs.
+        let line = format!("{line}\n");
         if let Ok(mut f) = fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.p("requests.jsonl"))
         {
-            let _ = writeln!(f, "{line}");
+            let _ = f.write_all(line.as_bytes());
         }
     }
 
@@ -802,8 +806,10 @@ impl SyncRemote for FolderRemote {
                     .open(self.p("versions.jsonl"))
                     .map_err(io)?;
                 for v in versions {
-                    let line = encode_raw(&v.to_string());
-                    f.write_all(&line).and_then(|()| f.write_all(b"\n")).map_err(io)?;
+                    // the line and its end in one write, as every appended line here
+                    let mut line = encode_raw(&v.to_string());
+                    line.push(b'\n');
+                    f.write_all(&line).map_err(io)?;
                 }
             }
             Ok(Some(format!("g{new_gen}")))
@@ -835,4 +841,33 @@ pub fn sync(
         }
     }
     super::run(remote, root, index_path, &opts, hooks)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Several passes (and a pass's parallel transfers) append to `requests.jsonl` at once; the
+    /// harness reads it line by line, so every line must arrive whole.
+    #[test]
+    fn requests_logged_at_the_same_time_stay_whole_lines() {
+        let dir = azul_storage::testing::TempDir::new("folder-remote-log");
+        let remotes: Vec<super::FolderRemote> = (0..8)
+            .map(|i| super::FolderRemote::new(dir.path(), &format!("device-{i}"), Box::new(|| 1.5)).unwrap())
+            .collect();
+        std::thread::scope(|scope| {
+            for remote in &remotes {
+                scope.spawn(move || {
+                    for n in 0..200 {
+                        remote.log("put", &format!("folder/file-{n}.txt"), 200, n % 3 == 0);
+                    }
+                });
+            }
+        });
+        let log = std::fs::read_to_string(dir.path().join("requests.jsonl")).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 8 * 200);
+        for line in lines {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
+            assert_eq!(value["op"], "put", "{line}");
+        }
+    }
 }
