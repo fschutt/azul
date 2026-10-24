@@ -24,6 +24,8 @@ mod sigv4;
 mod tables;
 mod time;
 mod transfer;
+/// Names a Windows disk cannot hold, refused before a key becomes a path there.
+mod windows_names;
 mod xml;
 
 /// An S3 service in memory with multipart uploads (the multipart and transfer tests).
