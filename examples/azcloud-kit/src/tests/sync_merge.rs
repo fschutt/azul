@@ -170,9 +170,10 @@ fn a_file_this_device_never_synced_is_never_deleted_by_a_tombstone_nor_sent_back
         "never deleted: {actions:?}"
     );
     assert!(
-        !actions.contains(&Action::Upload { key: old }),
+        !actions.contains(&Action::Upload { key: old.clone() }),
         "not sent back either, so the delete stands on every device: {actions:?}"
     );
+    assert!(actions.contains(&Action::Keep { key: old }), "kept and listed");
     assert!(actions.contains(&Action::Upload {
         key: String::from("new.md")
     }));

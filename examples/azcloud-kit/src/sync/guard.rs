@@ -223,7 +223,7 @@ pub(crate) fn learn(guard: &mut Guard, actions: &[Action], root: &Path, scan: &S
             | Action::CloudOnly { key } => {
                 guard.low_entropy.remove(key);
             }
-            Action::Agree { .. } => {}
+            Action::Agree { .. } | Action::Keep { .. } => {}
         }
     }
 }

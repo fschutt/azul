@@ -14,11 +14,16 @@
 //! | changed          | changed (otherwise) | keep both: the drive's version keeps the name, this one    |
 //! |                  |                     | becomes "name (conflict <device> <date>).ext" (an          |
 //! |                  |                     | unattended sync); a JSON-merge file merges per key         |
-//! | new, no base     | a tombstone of it   | delete here: a stale copy of a file deleted elsewhere      |
+//! | new, no base     | a tombstone of it   | keep here, listed, not sent: this device never synced it   |
 //!
 //! A conflict never loses a byte, and two devices that sync in turn end with
 //! the same files: the side that committed first keeps the name, the other
 //! adds its copy.
+//!
+//! A tombstone deletes only what this device synced itself (the base has it). Without a
+//! base - a re-login, lost state, a backup restored on a new device - a file with the
+//! deleted bytes is the user's, so a login never removes it; sending it would undo the
+//! delete on every device, so it waits, listed, until the user edits or deletes it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -50,6 +55,10 @@ pub enum Action {
     /// A JSON-merge file changed on both sides: merged per key, written here
     /// and uploaded.
     MergeJson { key: String },
+    /// A file here this device never synced whose bytes the drive deleted elsewhere: it stays
+    /// as it is and is listed, nothing goes up, and the base does not take it (so the next
+    /// run lists it again until the user edits or deletes it).
+    Keep { key: String },
     /// The drive's version stays in the cloud (an app's on-demand file: new
     /// there and not wanted here yet, or kept in the cloud only already): the
     /// base takes it as a cloud-only entry, nothing is written here.
@@ -69,6 +78,7 @@ impl Action {
             | Action::Forget { key }
             | Action::Conflict { key, .. }
             | Action::MergeJson { key }
+            | Action::Keep { key }
             | Action::CloudOnly { key } => key,
         }
     }
@@ -87,6 +97,7 @@ impl Action {
                 format!("conflict {key}: the drive's stays, this one becomes {copy}")
             }
             Action::MergeJson { key } => format!("merge {key} key by key"),
+            Action::Keep { key } => format!("keep here {key}: the drive deleted it elsewhere"),
             Action::CloudOnly { key } => format!("cloud only {key}"),
         }
     }
@@ -162,7 +173,7 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
                 Some(b) if b == h => Action::DeleteLocal { key: key_s },
                 Some(_) => Action::Upload { key: key_s },
                 None => match input.remote.deleted.get(key) {
-                    Some(tomb) if tomb.hash == h => Action::DeleteLocal { key: key_s },
+                    Some(tomb) if tomb.hash == h => Action::Keep { key: key_s },
                     _ => Action::Upload { key: key_s },
                 },
             },

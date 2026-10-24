@@ -100,6 +100,9 @@ pub const MAX_ATTEMPTS: u32 = 8;
 /// The longest a run waits for a folder to settle ([`SyncOptions::settle`]): a build that
 /// writes all the time is synced as it is after this.
 pub const SETTLE_MAX: Duration = Duration::from_secs(30);
+/// Why a file stays here unsynced ([`Action::Keep`]), in the report's `skipped`.
+pub const KEPT_HERE: &str = "the drive deleted it from another device before this device synced \
+     it: it is kept here and not sent, until you edit it (then it goes up again) or delete it";
 /// Below this many deletes a plan is never stopped as a mass delete.
 pub const MASS_DELETE_MIN: usize = 10;
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
@@ -1296,6 +1299,7 @@ fn next_index(
             | Action::Download { .. }
             | Action::DeleteLocal { .. }
             | Action::Forget { .. }
+            | Action::Keep { .. }
             | Action::CloudOnly { .. } => {}
         }
     }
@@ -1369,6 +1373,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
             }
             Action::Forget { .. } => {
                 base.remove(key);
+            }
+            Action::Keep { .. } => {
+                report.skipped.push((key.to_string(), String::from(KEPT_HERE)));
             }
             Action::CloudOnly { .. } => {
                 if let Some(f) = committed.files.get(key) {
