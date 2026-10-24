@@ -8,7 +8,7 @@
     { "op": "drive_wait_idle" },
     { "op": "drive_many", "device": "a", "dir": "backup", "count": 999, "size": 64, "text_prefix": "item" },
     { "op": "drive_write", "device": "a", "path": "backup-big/stuck.bin", "text": "the one that keeps failing" },
-    { "op": "drive_fault", "remote": "r", "fail_keys": ["backup-big/stuck.bin"] },
+    { "op": "drive_fault", "remote": "r", "fail_files": ["backup-big/stuck.bin"] },
     { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
     { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
     { "op": "drive_check", "check": "remote_count", "glob": "backup/*", "count": 999 },

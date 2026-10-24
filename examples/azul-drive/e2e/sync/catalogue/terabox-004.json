@@ -13,7 +13,7 @@
       { "op": "drive_write", "device": "a", "path": "bulk/fail-1.bin", "text": "failing 1" },
       { "op": "drive_write", "device": "a", "path": "bulk/fail-2.bin", "text": "failing 2" },
       { "op": "drive_write", "device": "a", "path": "bulk/fail-3.bin", "text": "failing 3" },
-      { "op": "drive_fault", "device": "a", "fail_keys": ["bulk/fail-*"] },
+      { "op": "drive_fault", "device": "a", "fail_files": ["bulk/fail-*"] },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "bulk/fail-1.bin", "when": "last" },

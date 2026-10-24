@@ -12,7 +12,7 @@
     { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "small file" },
     { "op": "drive_write", "device": "a", "path": "photos/p1.jpg", "size": 20000, "seed": 45 },
     { "op": "drive_sync", "device": "a" },
-    { "op": "drive_fault", "device": "b", "fail_keys": ["big/*"] },
+    { "op": "drive_fault", "device": "b", "fail_files": ["big/*"] },
     { "op": "drive_sync", "device": "b", "expect": "any" },
     { "op": "drive_check", "check": "file", "device": "b", "path": "notes.txt", "text": "small file" },
     { "op": "drive_check", "check": "file", "device": "b", "path": "photos/p1.jpg", "same_as": "{root:a}/photos/p1.jpg" },

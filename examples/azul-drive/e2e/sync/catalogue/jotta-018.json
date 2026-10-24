@@ -9,7 +9,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_many", "device": "a", "dir": "batch", "count": 20, "text_prefix": "item" },
       { "op": "drive_write", "device": "a", "path": "big/stuck.bin", "text": "the one that keeps failing" },
-      { "op": "drive_fault", "device": "a", "fail_keys": ["big/stuck.bin"] },
+      { "op": "drive_fault", "device": "a", "fail_files": ["big/stuck.bin"] },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "batch/*", "count": 20 },

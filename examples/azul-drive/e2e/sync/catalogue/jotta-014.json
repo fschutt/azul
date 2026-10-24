@@ -59,6 +59,7 @@
   {
     "name": "renames that compose: a parent renamed on one side and a child on the other, and a swap",
     "description": "JOTTA-014 (Jottacloud): moves between shared folders and 'sync move resilience' needed repeated fixes. Rules A3 and C1. sync-chaos merge-rename-compose.",
+    "pending": "the v1 engine has no folder identity: it syncs files, so a folder renamed on one side while a child is renamed on the other ends with both names (sync-chaos merge-rename-compose, run on 2026-10-24: dir2/child2.txt never reaches either side); folder entries in the index are later engine work",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
