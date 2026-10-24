@@ -1246,6 +1246,35 @@
         assert_ne!(a, b);
     }
 
+    #[test]
+    fn unified_constraints_tell_apart_lines_that_wrap_and_a_cap_height_that_moved() {
+        use std::hash::{Hash, Hasher};
+        let line_inputs = |c: &UnifiedConstraints| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            c.hash_line_inputs(&mut h);
+            h.finish()
+        };
+        let whole = |c: &UnifiedConstraints| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            c.hash(&mut h);
+            h.finish()
+        };
+        let base = UnifiedConstraints::default();
+        let mut no_wrap = base.clone();
+        no_wrap.text_wrap = TextWrap::NoWrap;
+        let mut capped = base.clone();
+        capped.strut_cap_height = base.strut_cap_height + 5.0;
+        for (what, other) in [("text-wrap", &no_wrap), ("the cap height", &capped)] {
+            assert_ne!(base, *other, "{what} moved: the constraints differ");
+            assert_ne!(
+                line_inputs(&base),
+                line_inputs(other),
+                "{what} moved: the lines' inputs differ"
+            );
+            assert_ne!(whole(&base), whole(other), "{what} moved: the hash differs");
+        }
+    }
+
     // =====================================================================
     // constructor: TextDecoration::from_css
     // =====================================================================

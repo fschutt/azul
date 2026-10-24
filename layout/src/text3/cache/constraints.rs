@@ -460,91 +460,178 @@ impl UnifiedConstraints {
     /// hash into its validity key: a kept layout is reused only under the
     /// styles it was broken with - an inherited `word-break` or `hyphens`
     /// that changed above the root included.
+    ///
+    /// Every field is named, here and in [`PartialEq`]: a new one does not
+    /// compile until both say whether the lines depend on it.
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     pub fn hash_line_inputs<H: Hasher>(&self, state: &mut H) {
-        self.shape_boundaries.hash(state);
-        self.available_height
-            .map(|h| h.round() as isize)
-            .hash(state);
-        self.writing_mode.hash(state);
-        self.direction.hash(state);
-        self.text_orientation.hash(state);
-        self.text_align.hash(state);
-        self.text_justify.hash(state);
-        self.line_height.hash(state);
-        self.vertical_align.hash(state);
-        (self.strut_ascent.round() as isize).hash(state);
-        (self.strut_descent.round() as isize).hash(state);
-        (self.strut_x_height.round() as isize).hash(state);
-        (self.strut_font_size.round() as isize).hash(state);
-        (self.ch_width.round() as isize).hash(state);
-        self.overflow.hash(state);
-        self.segment_alignment.hash(state);
-        self.text_combine_upright.hash(state);
-        (self.exclusion_margin.round() as isize).hash(state);
-        self.hyphenation.hash(state);
-        self.hyphenation_language.hash(state);
-        (self.text_indent.round() as isize).hash(state);
-        self.text_indent_each_line.hash(state);
-        self.text_indent_hanging.hash(state);
-        self.initial_letter.hash(state);
-        self.line_clamp.hash(state);
-        self.columns.hash(state);
-        (self.column_gap.round() as isize).hash(state);
-        self.column_flow.hash(state);
-        self.hanging_punctuation.hash(state);
-        self.overflow_wrap.hash(state);
-        self.text_align_last.hash(state);
-        self.word_break.hash(state);
-        self.white_space_mode.hash(state);
-        self.line_break.hash(state);
-        self.unicode_bidi.hash(state);
+        let Self {
+            shape_boundaries,
+            shape_exclusions: _,
+            available_width: _,
+            available_height,
+            writing_mode,
+            direction,
+            text_orientation,
+            text_align,
+            text_justify,
+            line_height,
+            vertical_align,
+            strut_ascent,
+            strut_descent,
+            strut_x_height,
+            strut_cap_height,
+            strut_font_size,
+            ch_width,
+            overflow,
+            segment_alignment,
+            text_combine_upright,
+            exclusion_margin,
+            hyphenation,
+            hyphenation_language,
+            text_indent,
+            text_indent_each_line,
+            text_indent_hanging,
+            initial_letter,
+            line_clamp,
+            text_wrap,
+            columns,
+            column_gap,
+            hanging_punctuation,
+            overflow_wrap,
+            text_align_last,
+            word_break,
+            white_space_mode,
+            line_break,
+            unicode_bidi,
+            column_flow,
+        } = self;
+        shape_boundaries.hash(state);
+        available_height.map(|h| h.round() as isize).hash(state);
+        writing_mode.hash(state);
+        direction.hash(state);
+        text_orientation.hash(state);
+        text_align.hash(state);
+        text_justify.hash(state);
+        line_height.hash(state);
+        vertical_align.hash(state);
+        (strut_ascent.round() as isize).hash(state);
+        (strut_descent.round() as isize).hash(state);
+        (strut_x_height.round() as isize).hash(state);
+        (strut_cap_height.round() as isize).hash(state);
+        (strut_font_size.round() as isize).hash(state);
+        (ch_width.round() as isize).hash(state);
+        overflow.hash(state);
+        segment_alignment.hash(state);
+        text_combine_upright.hash(state);
+        (exclusion_margin.round() as isize).hash(state);
+        hyphenation.hash(state);
+        hyphenation_language.hash(state);
+        (text_indent.round() as isize).hash(state);
+        text_indent_each_line.hash(state);
+        text_indent_hanging.hash(state);
+        initial_letter.hash(state);
+        line_clamp.hash(state);
+        text_wrap.hash(state);
+        columns.hash(state);
+        (column_gap.round() as isize).hash(state);
+        column_flow.hash(state);
+        hanging_punctuation.hash(state);
+        overflow_wrap.hash(state);
+        text_align_last.hash(state);
+        word_break.hash(state);
+        white_space_mode.hash(state);
+        line_break.hash(state);
+        unicode_bidi.hash(state);
     }
 }
 
 impl PartialEq for UnifiedConstraints {
     fn eq(&self, other: &Self) -> bool {
-        self.shape_boundaries == other.shape_boundaries
-            && self.shape_exclusions == other.shape_exclusions
-            && self.available_width == other.available_width
-            && match (self.available_height, other.available_height) {
+        let Self {
+            shape_boundaries,
+            shape_exclusions,
+            available_width,
+            available_height,
+            writing_mode,
+            direction,
+            text_orientation,
+            text_align,
+            text_justify,
+            line_height,
+            vertical_align,
+            strut_ascent,
+            strut_descent,
+            strut_x_height,
+            strut_cap_height,
+            strut_font_size,
+            ch_width,
+            overflow,
+            segment_alignment,
+            text_combine_upright,
+            exclusion_margin,
+            hyphenation,
+            hyphenation_language,
+            text_indent,
+            text_indent_each_line,
+            text_indent_hanging,
+            initial_letter,
+            line_clamp,
+            text_wrap,
+            columns,
+            column_gap,
+            hanging_punctuation,
+            overflow_wrap,
+            text_align_last,
+            word_break,
+            white_space_mode,
+            line_break,
+            unicode_bidi,
+            column_flow,
+        } = self;
+        *shape_boundaries == other.shape_boundaries
+            && *shape_exclusions == other.shape_exclusions
+            && *available_width == other.available_width
+            && match (*available_height, other.available_height) {
                 (None, None) => true,
                 (Some(h1), Some(h2)) => round_eq(h1, h2),
                 _ => false,
             }
-            && self.writing_mode == other.writing_mode
-            && self.direction == other.direction
-            && self.text_orientation == other.text_orientation
-            && self.text_align == other.text_align
-            && self.text_justify == other.text_justify
-            && self.line_height == other.line_height
-            && self.vertical_align == other.vertical_align
-            && round_eq(self.strut_ascent, other.strut_ascent)
-            && round_eq(self.strut_descent, other.strut_descent)
-            && round_eq(self.strut_x_height, other.strut_x_height)
-            && round_eq(self.strut_font_size, other.strut_font_size)
-            && round_eq(self.ch_width, other.ch_width)
-            && self.overflow == other.overflow
-            && self.segment_alignment == other.segment_alignment
-            && self.text_combine_upright == other.text_combine_upright
-            && round_eq(self.exclusion_margin, other.exclusion_margin)
-            && self.hyphenation == other.hyphenation
-            && self.hyphenation_language == other.hyphenation_language
-            && round_eq(self.text_indent, other.text_indent)
-            && self.text_indent_each_line == other.text_indent_each_line
-            && self.text_indent_hanging == other.text_indent_hanging
-            && self.initial_letter == other.initial_letter
-            && self.line_clamp == other.line_clamp
-            && self.columns == other.columns
-            && round_eq(self.column_gap, other.column_gap)
-            && self.column_flow == other.column_flow
-            && self.hanging_punctuation == other.hanging_punctuation
-            && self.overflow_wrap == other.overflow_wrap
-            && self.text_align_last == other.text_align_last
-            && self.word_break == other.word_break
-            && self.white_space_mode == other.white_space_mode
-            && self.line_break == other.line_break
-            && self.unicode_bidi == other.unicode_bidi
+            && *writing_mode == other.writing_mode
+            && *direction == other.direction
+            && *text_orientation == other.text_orientation
+            && *text_align == other.text_align
+            && *text_justify == other.text_justify
+            && *line_height == other.line_height
+            && *vertical_align == other.vertical_align
+            && round_eq(*strut_ascent, other.strut_ascent)
+            && round_eq(*strut_descent, other.strut_descent)
+            && round_eq(*strut_x_height, other.strut_x_height)
+            && round_eq(*strut_cap_height, other.strut_cap_height)
+            && round_eq(*strut_font_size, other.strut_font_size)
+            && round_eq(*ch_width, other.ch_width)
+            && *overflow == other.overflow
+            && *segment_alignment == other.segment_alignment
+            && *text_combine_upright == other.text_combine_upright
+            && round_eq(*exclusion_margin, other.exclusion_margin)
+            && *hyphenation == other.hyphenation
+            && *hyphenation_language == other.hyphenation_language
+            && round_eq(*text_indent, other.text_indent)
+            && *text_indent_each_line == other.text_indent_each_line
+            && *text_indent_hanging == other.text_indent_hanging
+            && *initial_letter == other.initial_letter
+            && *line_clamp == other.line_clamp
+            && *text_wrap == other.text_wrap
+            && *columns == other.columns
+            && round_eq(*column_gap, other.column_gap)
+            && *column_flow == other.column_flow
+            && *hanging_punctuation == other.hanging_punctuation
+            && *overflow_wrap == other.overflow_wrap
+            && *text_align_last == other.text_align_last
+            && *word_break == other.word_break
+            && *white_space_mode == other.white_space_mode
+            && *line_break == other.line_break
+            && *unicode_bidi == other.unicode_bidi
     }
 }
 
