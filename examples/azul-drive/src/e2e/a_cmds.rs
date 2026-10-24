@@ -6,7 +6,7 @@
 
 use azul::prelude::*;
 
-use super::{a_pair, a_place, Answer, Args, OpDoc, DEVICE, PATH};
+use super::{a_lock, a_ops, a_pair, a_place, Answer, Args, OpDoc, DEVICE, PATH};
 use crate::DriveState;
 
 /// Group A's commands, for `list_app_ops` (COMMANDS.md has the long form).
@@ -18,6 +18,15 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_write_through_placeholder", summary: "an app writing a file of an on-demand pairing", args: &[DEVICE, PATH, ("text", "string", false), ("size", "number", false), ("seed", "number", false)] },
     OpDoc { name: "drive_scan_read", summary: "read every matching file end to end (a virus scanner)", args: &[DEVICE, ("glob", "string", false)] },
     OpDoc { name: "drive_select", summary: "what this device leaves out (selective sync)", args: &[DEVICE, ("exclude", "array", true)] },
+    OpDoc { name: "drive_setting", summary: "one setting of the device's pairing", args: &[DEVICE, ("name", "string", true), ("value", "any", true)] },
+    OpDoc { name: "drive_settings", summary: "the device's pairing's settings (after `set`)", args: &[DEVICE, ("set", "object", false)] },
+    OpDoc { name: "drive_cancel", summary: "Cancel the pass running", args: &[DEVICE] },
+    OpDoc { name: "drive_ops", summary: "the device's operations log as data", args: &[DEVICE] },
+    OpDoc { name: "drive_untrash", summary: "put back what the passes trashed", args: &[DEVICE, ("path", "string", false)] },
+    OpDoc { name: "drive_network", summary: "the network as AzDrive reads it", args: &[("metered", "bool", false), ("constrained", "bool", false), ("hotspot", "bool", false), ("connected", "bool", false)] },
+    OpDoc { name: "drive_wake", summary: "the system woke: every drive gets a pass", args: &[] },
+    OpDoc { name: "drive_lock", summary: "a file locked by another app, or the drive key off the device", args: &[DEVICE, ("path", "string", false)] },
+    OpDoc { name: "drive_unlock", summary: "the lock let go, or the drive key back", args: &[DEVICE, ("path", "string", false)] },
 ];
 
 /// Whether group A answers `name` with these arguments: its own commands, and the shared ones
@@ -46,6 +55,20 @@ pub(super) fn run(
         "drive_corrupt_placeholder" => a_place::corrupt_placeholder(args),
         "drive_write_through_placeholder" => a_place::write_through(info, app, s, args),
         "drive_scan_read" => a_place::scan_read(args),
+        "drive_setting" => a_ops::setting(info, app, s, args),
+        "drive_settings" => a_ops::settings(info, app, s, args),
+        "drive_cancel" => a_ops::cancel(s, args),
+        "drive_ops" => a_ops::ops(args),
+        "drive_untrash" => a_ops::untrash(args),
+        "drive_network" => a_ops::network(s, args),
+        "drive_wake" => a_ops::wake(info, app, s),
+        "drive_lock" => a_lock::lock(s, args),
+        "drive_unlock" => a_lock::unlock(s, args),
         other => Err(format!("'{other}' is not one of group A's commands")),
     }
+}
+
+/// Before the sandbox goes (`drive_cleanup`): the files a scenario held locked are let go.
+pub(super) fn cleanup() {
+    super::a_state::peek(|a| a.locks.clear());
 }

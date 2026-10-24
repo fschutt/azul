@@ -1,7 +1,6 @@
 {
   "name": "while the drive key is locked nothing syncs one way only: no upload and no delete, and the folder says why",
   "description": "ICEDRIVE-003 (Icedrive): after Mount/Unmount the crypto area was locked; deletions still mirrored to the cloud but new files were not uploaded. Rules D6/O1/E6: when uploads cannot run, deletes do not run either; the problem list names the lock.",
-  "pending": "drive_lock {\"device\":\"a\"} and drive_unlock (drop the drive key from the device's keyring, as a locked vault / unmounted encrypted area)",
   "steps": [
     { "op": "drive_harness" },
     { "op": "drive_create", "remote": "r" },

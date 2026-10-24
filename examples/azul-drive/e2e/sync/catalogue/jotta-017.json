@@ -64,8 +64,6 @@
   {
     "name": "a wake from sleep (or a changed network address) starts a full pass on its own and the device catches up",
     "description": "JOTTA-017 (Jottacloud): jottad kept a socket bound to an expired IPv6 address and heard nothing until restarted. Rule E2: a full rescan and a pass follow the wake, without the user asking. sync-chaos res-hostile-network (pending there).",
-    "pending": "drive_wake {\"device\": \"b\"}: delivers the system's wake (or network-change) notification to the device as AzDrive gets it from the OS, which must start a full rescan and a pass by itself",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

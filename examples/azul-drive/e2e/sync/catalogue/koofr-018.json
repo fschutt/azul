@@ -33,21 +33,23 @@
   {
     "name": "on a metered network uploads wait and say so; once the network is unmetered every queued photo goes up",
     "description": "KOOFR-018 (the Wi-Fi-only half). Rule O1: a pause for a metered network is a named status (azdrive-sync-status-metered), and nothing queued is forgotten.",
-    "pending": "drive_network {device, metered: bool} (the network state AzDrive's metered pause reads, NetworkState)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_network", "device": "a", "metered": true },
-      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 20, "size": 4096, "seed": 7 },
+      { "op": "drive_setting", "device": "a", "name": "auto_download", "value": {"new_under": 1} },
+      { "op": "drive_network", "metered": true },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 3, "size": 2000000, "seed": 7 },
+      { "op": "drive_write", "device": "a", "path": "note.txt", "text": "small files go on" },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_status", "device": "a" },
       { "op": "assert_response", "path": "result.status", "contains": "metered" },
       { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 0 },
-      { "op": "drive_network", "device": "a", "metered": false },
+      { "op": "drive_check", "check": "remote_file", "key": "note.txt", "text": "small files go on" },
+      { "op": "drive_network", "metered": false },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 3 },
       { "op": "drive_cleanup" }
     ]
   }

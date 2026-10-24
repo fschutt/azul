@@ -15,8 +15,11 @@ mod c_keys;
 mod c_links;
 // Group A: cloud-only files, a pairing's modes, the window's actions and the computer around.
 mod a_cmds;
+mod a_lock;
+mod a_ops;
 mod a_pair;
 mod a_place;
+mod a_state;
 mod checks;
 mod files;
 mod remote;
@@ -582,6 +585,8 @@ fn cleanup(s: &mut DriveState) -> Answer {
             }
         }
     }
+    // Group A's locks let go and its volumes detached before the sandbox goes.
+    a_cmds::cleanup();
     if !h.keep {
         b_files::clear_flags(&h.run);
         files::clean(&h.run);

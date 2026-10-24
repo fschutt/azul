@@ -755,6 +755,24 @@ fn conditions_changed(s: &mut DriveState, network: NetworkState, device: Device)
     true
 }
 
+/// The computer woke from sleep, or its network changed: every synced drive that is not
+/// paused (and whose sign-in is not refused) gets a full pass now instead of at the next poll.
+/// How many were asked.
+pub(crate) fn woke(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> usize {
+    let due: Vec<String> = s
+        .settings
+        .synced
+        .iter()
+        .filter(|p| !p.paused && polled(&s.sync_view.store.states(&p.drive_id)))
+        .map(|p| p.drive_id.clone())
+        .collect();
+    println!("AZDRIVE_SYNC_WOKE {}", due.len());
+    for drive_id in &due {
+        request_pass(info, app, s, drive_id);
+    }
+    due.len()
+}
+
 /// Synced drive `drive_id` as a job takes it; `None` (with a message, or the keyring asked
 /// for its keys - the next poll syncs) when it cannot be opened now.
 fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Option<SyncWork> {

@@ -32,7 +32,6 @@
   {
     "name": "Cancel at 10/50/99 percent of a transfer leaves the local file whole and no partial version current",
     "description": "ICEDRIVE-005 (Icedrive): cancelled transfers lost the file. Rules E5/A5/A7.",
-    "pending": "drive_cancel {\"device\":\"a\"} (Cancel in the transfers window while a pass is mid-transfer)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

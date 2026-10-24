@@ -38,7 +38,6 @@
   {
     "name": "every delete the client makes is journaled with its time and reason and can be undone from the client",
     "description": "PCLOUD-011 (pCloud): files deleted from the computer with no record of when or why. Rule D7: every destructive step is in the operations log; D2: it is a move into the trash, reversible.",
-    "pending": "drive_ops {\"device\":\"b\"} (the device's operations log as data: ops.jsonl entries with at, op, key, reason and the remote change applied; max_ops only bounds the count) and drive_untrash {\"device\":\"b\",\"path\":\"photos\"} (restore from the client's trash, as the window does)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

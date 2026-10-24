@@ -526,3 +526,37 @@ pass takes the drive's version as cloud only again, with no download and no dele
 
 `drive_states` answers each file's `modified` too (seconds: the drive's time of the version it
 knows), so a cloud-only file's new size and time can be checked without a download.
+
+### The window's actions and the computer around
+
+| op | arguments | result |
+|---|---|---|
+| `drive_setting` | `device`, `name`, `value` | `settings` (the pairing's, as the settings file keeps them) |
+| `drive_settings` | `device`, `set` (an object of name: value, optional) | `settings` |
+| `drive_cancel` | `device` | `cancelled` (a pass was running) |
+| `drive_ops` | `device` | `ops`: `[{at, op, key, to, hash, reason}]`, oldest first |
+| `drive_untrash` | `device`, `path` (a file or folder; absent: everything) | `restored` (keys) |
+| `drive_network` | `metered`, `constrained`, `hotspot` (bools, default false), `connected` (default true) | the same |
+| `drive_wake` | - | `passes` (drives asked) |
+| `drive_lock` | `device`, `path` (optional) | `locked` (the key), or `key_here: false` |
+| `drive_unlock` | `device`, `path` (optional) | `unlocked`, or `key_here: true` |
+
+A setting's `name` is the settings file's: `auto_download` (`"everything"`, `{"new_under": 25}`,
+`"pinned_only"`, `"nothing"`), `keep_gb`, `paused`, `sync_on_metered`, `backup`, `exclude`,
+`local_copies`, plus `mode` and `remote_deletes` as `drive_pair` takes them; the pairing's
+drive and folders are no setting. `drive_cancel` is Cancel while a pass runs: it stops before
+its next file and commits nothing half done (a pass held at a pause point is let go so it can
+stop). `drive_ops` is the operations log with each step's `reason`. `drive_untrash` puts back
+the newest trashed version of each file (found through the log), never over a file that is
+there; the next pass sends it up again. `drive_network` is the network as AzDrive reads it from
+the system: on a metered or low-data one, files over the auto-download size wait (both ways)
+while small ones go on, and the status line says `azdrive-sync-status-metered`. `drive_wake` is
+the system waking up: every synced drive that is not paused gets a full pass now.
+
+`drive_lock` with a `path` holds that file with an exclusive lock, as another app mid-write
+does (`flock` on macOS and Linux, `LockFileEx` on Windows) until `drive_unlock` with the same
+path: a pass leaves a changed file it finds locked for later, lists it as `locked`, and never
+takes it for deleted. Without a `path` the drive's key leaves the device (an encrypted remote's
+device only): its passes fail as `sign-in-needed`, changing nothing on either side, until
+`drive_unlock` gives the key back. A `passphrase` fails: AzDrive keeps the key in the system's
+keyring and has no passphrase of its own.

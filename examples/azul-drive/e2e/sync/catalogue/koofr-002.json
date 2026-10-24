@@ -43,7 +43,6 @@
   {
     "name": "a file another application holds locked is listed as locked and goes up within one pass after the lock is released",
     "description": "KOOFR-002, the trigger itself (an Office lock). Rule P9: locked files are retried with backoff and listed (locked); the rest of the pass goes on.",
-    "pending": "drive_lock {device, path} and drive_unlock {device, path} (hold the file with an exclusive lock as Office does: a share-mode lock on Windows, flock plus uchg on macOS, as sync-chaos's chflags step)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
