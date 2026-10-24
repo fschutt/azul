@@ -164,7 +164,9 @@ impl SyncWork {
             .with_own_devices(&self.own_devices)
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
-            .with_settle(self.settle.unwrap_or_else(settle))
+            .with_settle(settle())
+            // An E2E device's settle is the sync scenarios' (a file written within it waits,
+            // listed as settling); the folder's quiet wait before a pass stays the app's.
             .with_file_settle(self.settle.unwrap_or_else(settle))
             .with_clock(self.clock)
             .with_restore(self.restore.clone());

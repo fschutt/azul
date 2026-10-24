@@ -98,7 +98,7 @@ removes the sandbox (unless `keep`), since the process does not tell the command
 | op | arguments | result |
 |---|---|---|
 | `drive_create` | `remote` (name), `encrypted` (bool, default true), `prefix` (default `""`) | `remote`, `path`, `encrypted` |
-| `drive_open` | `device`, `remote`, `device_name` (default the device), `settle_ms` (default 0), `clock` (seconds the sync clock is off, default 0) | `device`, `drive_id` |
+| `drive_open` | `device`, `remote`, `device_name` (default the device), `settle_ms` (default 0: a file written within it waits for a later pass, listed as settling, as sync-chaos's settle; the pass's wait for a quiet folder is `AZDRIVE_SYNC_SETTLE_MS`), `clock` (seconds the sync clock is off, default 0) | `device`, `drive_id` |
 | `drive_pair` | `device`, `folder` (default `{root:<device>}`), `prefix` (default the remote's) | `folder`, `state_dir` |
 | `drive_unpair` | `device` | - |
 | `drive_restart` | `device` | - |
