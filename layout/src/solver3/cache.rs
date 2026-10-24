@@ -220,6 +220,17 @@ pub struct NodeCache {
     /// taffy cache was last empty - what tells a second store into a class
     /// (an eviction) from the first. Reset with `taffy_measure_spill`.
     pub taffy_slots_stored: u16,
+
+    /// The widths a flex ROW answered to width-only questions (a parent
+    /// asking how wide it is - its max-content width, its width at a known
+    /// height) - see [`super::taffy_bridge::TaffyWidthOnlyAnswers`]. Such an
+    /// answer runs the whole row algorithm and stays out of taffy's own cache
+    /// (whose key ignores the axis), so without this every re-layout of the
+    /// row's parent ran it again, and marked the row's final layout stale. The
+    /// same validity as `taffy_measure_spill`: never read while the node's
+    /// taffy cache is empty, dropped by the first store into it after it was
+    /// emptied, and by [`Self::clear`].
+    pub taffy_width_only: Option<Box<super::taffy_bridge::TaffyWidthOnlyAnswers>>,
 }
 
 impl Default for NodeCache {
@@ -232,6 +243,7 @@ impl Default for NodeCache {
             final_layout_current: false,
             taffy_measure_spill: None,
             taffy_slots_stored: 0,
+            taffy_width_only: None,
         }
     }
 }
@@ -248,6 +260,7 @@ impl NodeCache {
         self.final_layout_current = false;
         self.taffy_measure_spill = None;
         self.taffy_slots_stored = 0;
+        self.taffy_width_only = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -905,6 +918,9 @@ impl LayoutCache {
             }
             if e.taffy_measure_spill.is_some() {
                 cache_map_bytes += size_of::<super::taffy_bridge::TaffyMeasureSpill>();
+            }
+            if e.taffy_width_only.is_some() {
+                cache_map_bytes += size_of::<super::taffy_bridge::TaffyWidthOnlyAnswers>();
             }
         }
         let cached_dl = self

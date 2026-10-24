@@ -2060,6 +2060,12 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 FlexDirection::Row | FlexDirection::RowReverse
             )
         {
+            // Asked before: the answer, and nothing in the subtree is touched
+            // - the row's last final layout still describes it.
+            if let Some(width) = self.width_only_answer_kept(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_row_hit"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
             drop(crate::probe::Probe::span("taffy_width_only_row"));
             self.width_only_rows.push(node_idx);
             let output = compute_flexbox_layout(self, node_id, inputs);
@@ -2070,6 +2076,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             // at that width), so the row's last final layout no longer
             // describes its subtree: the next one runs again.
             self.set_final_layout_current(node_idx, false);
+            self.keep_width_only_answer(node_idx, &inputs, output.size.width);
             return LayoutOutput::from_outer_size(Size {
                 width: output.size.width,
                 height: 0.0,
@@ -2282,6 +2289,43 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
             c.final_layout_current = current;
         }
+    }
+
+    /// The width `node_idx` (a flex row) answered to this width-only question
+    /// before, while its taffy cache still holds what it measured since -
+    /// see [`TaffyWidthOnlyAnswers`].
+    fn width_only_answer_kept(&self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
+        let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
+        if primary.is_empty() {
+            return None;
+        }
+        self.ctx
+            .cache_map
+            .entries
+            .get(node_idx)?
+            .taffy_width_only
+            .as_deref()?
+            .get(inputs)
+    }
+
+    /// Keep the width `node_idx` answered to a width-only question. An empty
+    /// taffy cache means the subtree changed since anything kept was
+    /// answered: that goes first.
+    fn keep_width_only_answer(&mut self, node_idx: usize, inputs: &LayoutInput, width: f32) {
+        let primary_empty = self
+            .tree
+            .warm(LayoutNodeId::new(node_idx))
+            .is_none_or(|w| w.taffy_cache.is_empty());
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        if primary_empty {
+            cache.taffy_width_only = None;
+        }
+        cache
+            .taffy_width_only
+            .get_or_insert_with(Box::default)
+            .store(inputs, width);
     }
 
     /// The border-box width [`Self::compute_non_flex_layout`] answers for
@@ -2992,6 +3036,94 @@ impl TaffyMeasureSpill {
     }
 }
 
+/// The widths one flex row answered to width-only questions
+/// ([`TaffyBridge::compute_child_layout`]): a parent asking for its min- or
+/// max-content width, or for its width at a known height. Such a question
+/// runs the row algorithm over every item with the items' heights stubbed,
+/// and its answer stays out of taffy's own cache, whose key ignores the
+/// axis: a both-axes query must never be served a width-only answer. Kept
+/// here, keyed by what the question gives the row, the next ask of the same
+/// question is a lookup - a ribbon group re-laid out by a tween asked each of
+/// its button rows how wide it is on every frame.
+///
+/// Lives in the node's `NodeCache` (`taffy_width_only`) and is valid exactly
+/// as long as the node's taffy cache: never read while that cache is empty,
+/// dropped by the first store into it after it was emptied (a dirty subtree,
+/// a restyle, a clone that could not keep its measurements all empty it).
+#[derive(Debug, Clone, Default)]
+pub struct TaffyWidthOnlyAnswers {
+    /// A ring, oldest overwritten first.
+    entries: [Option<WidthOnlyAnswer>; WIDTH_ONLY_ENTRIES],
+    next: usize,
+}
+
+/// How many width-only answers a row keeps: its parent asks for its
+/// max-content and min-content widths, and its width at a height or two.
+const WIDTH_ONLY_ENTRIES: usize = 4;
+
+/// One answer in a [`TaffyWidthOnlyAnswers`]: what the question gave the row
+/// and the border-box width the row answered.
+#[derive(Debug, Clone, Copy)]
+struct WidthOnlyAnswer {
+    known_height: Option<f32>,
+    available_space: Size<AvailableSpace>,
+    parent_width: Option<f32>,
+    sizing_mode: taffy::SizingMode,
+    width: f32,
+}
+
+impl WidthOnlyAnswer {
+    /// taffy's rule for a measurement answering a query (`Cache::get`), for
+    /// a question whose width is never known: the known height matches, an
+    /// unknown height's available space matches, and so does the available
+    /// width. The parent's width and the sizing mode match too: an item's
+    /// percentage width resolves against the first, and the second says
+    /// whether the row's own size styles count.
+    fn answers(&self, input: &LayoutInput) -> bool {
+        input.known_dimensions.height == self.known_height
+            && (self.known_height.is_some()
+                || self
+                    .available_space
+                    .height
+                    .is_roughly_equal(input.available_space.height))
+            && self
+                .available_space
+                .width
+                .is_roughly_equal(input.available_space.width)
+            && input.parent_size.width == self.parent_width
+            && input.sizing_mode == self.sizing_mode
+    }
+}
+
+impl TaffyWidthOnlyAnswers {
+    /// The width kept for this question, if any.
+    fn get(&self, input: &LayoutInput) -> Option<f32> {
+        self.entries
+            .iter()
+            .flatten()
+            .find(|a| a.answers(input))
+            .map(|a| a.width)
+    }
+
+    /// Record an answer: the same question again is refreshed where it is,
+    /// a new one overwrites the oldest.
+    fn store(&mut self, input: &LayoutInput, width: f32) {
+        let new = WidthOnlyAnswer {
+            known_height: input.known_dimensions.height,
+            available_space: input.available_space,
+            parent_width: input.parent_size.width,
+            sizing_mode: input.sizing_mode,
+            width,
+        };
+        if let Some(same) = self.entries.iter_mut().flatten().find(|a| a.answers(input)) {
+            *same = new;
+            return;
+        }
+        self.entries[self.next] = Some(new);
+        self.next = (self.next + 1) % WIDTH_ONLY_ENTRIES;
+    }
+}
+
 /// taffy's measurement slot class of a key (`Cache::compute_cache_slot`,
 /// private there): 0 both axes known; 1 / 2 only the width, the height asked
 /// at max-content-or-definite / min-content; 3 / 4 only the height, likewise
@@ -3079,10 +3211,11 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             return;
         };
         // The first store after the primary was emptied: whatever the second
-        // way holds was measured before that clear.
+        // way and the width-only answers hold was measured before that clear.
         if primary_was_empty {
             cache.taffy_measure_spill = None;
             cache.taffy_slots_stored = 0;
+            cache.taffy_width_only = None;
         }
         if input.run_mode != RunMode::ComputeSize {
             return;
