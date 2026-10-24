@@ -722,16 +722,17 @@ fn upload_file_with(
             let _ = fs::remove_file(file);
         }
     };
-    let held: u64 = state
+    // The bytes the parts of an earlier run already sent (`held` is the checked file's handle).
+    let resumed: u64 = state
         .parts
         .keys()
         .map(|n| part_size.min(size - (*n as u64 - 1) * part_size))
         .sum();
-    progress(held);
+    progress(resumed);
     let missing: Vec<usize> = (1..=count)
         .filter(|n| !state.parts.contains_key(n))
         .collect();
-    let sent = AtomicU64::new(held);
+    let sent = AtomicU64::new(resumed);
     let shared = Mutex::new(state);
     let result = in_parallel(missing.len(), parallel, |i| {
         let number = missing[i];
