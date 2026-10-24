@@ -96,4 +96,13 @@ pub trait RemoteStore: Send + Sync {
             None => Ok(false),
         }
     }
+
+    /// [`RemoteStore::fetch_to`] that calls `mid` once, when the first part of a download in
+    /// parts is in the file: the place of the `mid-download` crash point. A `mid` that unwinds
+    /// (a crash) stops the download there, and the parts in the file stay for the next one to
+    /// resume, as after a killed process. By default the object comes whole, without `mid`.
+    fn fetch_to_with(&self, key: &str, size: u64, dest: &Path, mid: &dyn Fn()) -> CloudResult<bool> {
+        let _ = mid;
+        self.fetch_to(key, size, dest)
+    }
 }

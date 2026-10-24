@@ -8,11 +8,18 @@
 //! - A conditional PUT is the drive's [`Drive::put_if`] (S3 `If-Match` / `If-None-Match: *`);
 //!   a drive that cannot ask (a folder on disk) cannot hold a synced index.
 
-use std::{io::Read, path::Path, sync::Arc};
+use std::{
+    io::Read,
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
-    ops, transfer, Drive, DriveError, Precondition,
+    ops, transfer, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 use crate::{
@@ -131,6 +138,14 @@ impl RemoteStore for DriveStore {
         }
     }
 
+    fn fetch_to_with(&self, key: &str, size: u64, dest: &Path, mid: &dyn Fn()) -> CloudResult<bool> {
+        match download_told(self.drive.as_ref(), key, size, dest, mid) {
+            Ok(_) => Ok(true),
+            Err(DriveError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn fetch_to(&self, key: &str, size: u64, dest: &Path) -> CloudResult<bool> {
         match transfer::download_to_file(
             self.drive.as_ref(),
@@ -154,5 +169,97 @@ impl RemoteStore for DriveStore {
                 modified: info.modified.and_then(|m| i64::try_from(m).ok()),
             })
             .collect())
+    }
+}
+
+/// Downloads `key` (`size` bytes) into `dest` as [`transfer::download_to_file`] does (a big
+/// object in ranged parts, a part left in the file for the next download to resume), calling
+/// `mid` once when the first part of a download in parts is in the file.
+///
+/// `mid` is where a test harness crashes a pass (the `mid-download` point of the fault seam).
+/// A crash unwinds out of it on this thread while the parts' threads are still fetching; a
+/// process killed there would fetch nothing more, so from then on every request of this
+/// download fails at once and the download ends with what is in the file.
+pub(crate) fn download_told(
+    drive: &dyn Drive,
+    key: &str,
+    size: u64,
+    dest: &Path,
+    mid: &dyn Fn(),
+) -> Result<u64, DriveError> {
+    let stopped = AtomicBool::new(false);
+    let gated = Stoppable {
+        inner: drive,
+        stopped: &stopped,
+    };
+    let mut told = false;
+    transfer::download_with_progress(&gated, key, Some(size), dest, transfer::CHUNK, &mut |n| {
+        // The first call says what was in the file already (0 for a fresh download).
+        if told || n == 0 || n >= size {
+            return;
+        }
+        told = true;
+        let stops = StopsOnUnwind(&stopped);
+        mid();
+        // `mid` returned: no crash, the download goes on.
+        std::mem::forget(stops);
+    })
+}
+
+/// Stops a download when the point it is dropped at unwinds.
+struct StopsOnUnwind<'a>(&'a AtomicBool);
+
+impl Drop for StopsOnUnwind<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// A drive whose requests fail once `stopped` is set (the download's process is gone).
+struct Stoppable<'a> {
+    inner: &'a dyn Drive,
+    stopped: &'a AtomicBool,
+}
+
+impl Stoppable<'_> {
+    fn alive(&self) -> Result<(), DriveError> {
+        if self.stopped.load(Ordering::SeqCst) {
+            return Err(DriveError::Transport(String::from(
+                "the download stopped (its pass crashed)",
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl Drive for Stoppable<'_> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.alive()?;
+        self.inner.list(request)
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get(key)
+    }
+
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.alive()?;
+        self.inner.get_range(key, range)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.alive()?;
+        self.inner.put(key, bytes)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.alive()?;
+        self.inner.delete(key)
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.alive()?;
+        self.inner.head(key)
     }
 }

@@ -834,6 +834,21 @@ trait SyncRemote: Sync {
         Ok(content_hash(hash, &bytes))
     }
 
+    /// [`SyncRemote::fetch_to`] that calls `mid` once, when the first part of a download in
+    /// parts is in the file (the `mid-download` point: [`RemoteStore::fetch_to_with`]). By
+    /// default the content comes whole, without `mid`.
+    fn fetch_to_with(
+        &self,
+        key: &str,
+        hash: &str,
+        size: u64,
+        dest: &Path,
+        mid: &dyn Fn(),
+    ) -> CloudResult<String> {
+        let _ = mid;
+        self.fetch_to(key, hash, size, dest)
+    }
+
     /// Puts what the plan sends to the drive where the commit can name it; the keys whose
     /// upload waits for the next run (their file changed, the run was stopped, ...).
     fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>>;
@@ -897,9 +912,20 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
         fetch_blob(self.store, &self.prefix, hash, size)
     }
 
-    fn fetch_to(&self, _key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
+    fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
+        self.fetch_to_with(key, hash, size, dest, &|| {})
+    }
+
+    fn fetch_to_with(
+        &self,
+        _key: &str,
+        hash: &str,
+        size: u64,
+        dest: &Path,
+        mid: &dyn Fn(),
+    ) -> CloudResult<String> {
         let key = remote::blob_key(&self.prefix, hash);
-        if !self.store.fetch_to(&key, size, dest)? {
+        if !self.store.fetch_to_with(&key, size, dest, mid)? {
             fail!("the blob {key} is missing from the drive");
         }
         if local::hash_file(dest)? != hash {
@@ -2194,8 +2220,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 bytes: d.size,
             });
             TempBlob::for_download(&root.path, &d.key, &d.hash).and_then(|file| {
+                let mid = || hooks.point("mid-download");
                 remote_side
-                    .fetch_to(&d.key, &d.hash, d.size, file.path())
+                    .fetch_to_with(&d.key, &d.hash, d.size, file.path(), &mid)
                     .map(|hash| Blob::File { file, hash })
             })
         };

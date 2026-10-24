@@ -154,3 +154,100 @@ fn a_played_readdir_error_lasts_the_scans_it_was_set_for() {
     assert!(faults::readdir_error(root, "a/b").is_none(), "gone after two scans");
     faults::clear(root);
 }
+
+/// One big object in memory, counting its ranged GETs.
+struct BigObject {
+    bytes: Vec<u8>,
+    ranges: std::sync::atomic::AtomicUsize,
+}
+
+impl azul_storage::Drive for BigObject {
+    fn list(&self, _: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+        Ok(azul_storage::ListPage {
+            folders: Vec::new(),
+            objects: Vec::new(),
+            next: None,
+        })
+    }
+
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        Ok(self.bytes.clone())
+    }
+
+    fn get_range(&self, _: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.ranges.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let start = usize::try_from(range.start).unwrap_or(usize::MAX).min(self.bytes.len());
+        let end = range
+            .end
+            .map_or(self.bytes.len(), |e| usize::try_from(e).unwrap_or(usize::MAX).saturating_add(1))
+            .min(self.bytes.len());
+        Ok(self.bytes[start..end.max(start)].to_vec())
+    }
+
+    fn put(&self, key: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(DriveError::Unsupported(format!("writing {key}")))
+    }
+
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Ok(())
+    }
+
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+        Ok(azul_storage::ObjectInfo {
+            key: key.to_string(),
+            size: self.bytes.len() as u64,
+            modified: Some(1),
+            etag: Some(String::from("one-version")),
+        })
+    }
+}
+
+fn big_object() -> BigObject {
+    // Two parts: one whole part and one byte.
+    let len = usize::try_from(azul_storage::transfer::CHUNK).unwrap() + 1;
+    BigObject {
+        bytes: (0..len).map(|i| (i % 251) as u8).collect(),
+        ranges: std::sync::atomic::AtomicUsize::new(0),
+    }
+}
+
+#[test]
+fn a_download_in_parts_tells_its_middle_once_and_completes() {
+    let object = big_object();
+    let dir = TempDir::new("azcloud-hostile-mid");
+    let dest = dir.path().join("big.blob");
+    let told = std::sync::atomic::AtomicUsize::new(0);
+    let size = object.bytes.len() as u64;
+    crate::sync::drive_store::download_told(&object, "big", size, &dest, &|| {
+        told.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    })
+    .expect("the download");
+    assert_eq!(told.load(std::sync::atomic::Ordering::SeqCst), 1, "the middle is told once");
+    assert_eq!(fs::read(&dest).unwrap(), object.bytes);
+}
+
+#[test]
+fn a_crash_in_the_middle_of_a_download_stops_it_and_the_next_one_resumes_from_the_parts_kept() {
+    let object = big_object();
+    let dir = TempDir::new("azcloud-hostile-mid-crash");
+    let dest = dir.path().join("big.blob");
+    let size = object.bytes.len() as u64;
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::sync::drive_store::download_told(&object, "big", size, &dest, &|| {
+            std::panic::resume_unwind(Box::new(faults::Crashed {
+                point: String::from("mid-download"),
+            }))
+        })
+    }));
+    let payload = crashed.expect_err("the download crashed in its middle");
+    assert_eq!(faults::crashed_at(payload.as_ref()).as_deref(), Some("mid-download"));
+    assert!(!dest.exists(), "a crashed download leaves no file under its name");
+    crate::sync::drive_store::download_told(&object, "big", size, &dest, &|| {})
+        .expect("the next download");
+    assert_eq!(fs::read(&dest).unwrap(), object.bytes);
+    assert_eq!(
+        object.ranges.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "every part was fetched once: the second download resumed"
+    );
+}

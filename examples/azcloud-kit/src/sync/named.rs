@@ -34,7 +34,7 @@ use std::{
 };
 
 use azul_storage::{
-    ops, transfer, BatchDelete, BatchMove, BatchPut, BatchStream, Drive, DriveError, Precondition,
+    ops, BatchDelete, BatchMove, BatchPut, BatchStream, Drive, DriveError, Precondition,
     CONTENT_HASH_METADATA, SMALL_FILE_BYTES,
 };
 use serde::{Deserialize, Serialize};
@@ -493,7 +493,18 @@ impl SyncRemote for NamedFiles<'_> {
 
     /// Into the file `dest` in ranges (never whole in memory), checked like [`Self::fetch`].
     fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
-        transfer::download_to_file(self.drive, &self.full(key), Some(size), dest, transfer::CHUNK)?;
+        self.fetch_to_with(key, hash, size, dest, &|| {})
+    }
+
+    fn fetch_to_with(
+        &self,
+        key: &str,
+        hash: &str,
+        size: u64,
+        dest: &Path,
+        mid: &dyn Fn(),
+    ) -> CloudResult<String> {
+        super::drive_store::download_told(self.drive, &self.full(key), size, dest, mid)?;
         let got = local::hash_file(dest)?;
         if remote::is_hash(hash) {
             if got != hash {

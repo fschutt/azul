@@ -33,6 +33,8 @@ pub const POINTS: &[&str] = &[
     "mid-read",
     "after-blob",
     "after-commit",
+    // Inside a big download's body, its first part in the spool (before the file is written).
+    "mid-download",
     "download-start",
     "before-rename",
     "after-rename",

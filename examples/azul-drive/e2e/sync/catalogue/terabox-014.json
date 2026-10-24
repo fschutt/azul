@@ -52,8 +52,6 @@
   {
     "name": "a single big download cut in the middle resumes by byte range instead of starting over",
     "description": "TERABOX-014 (TeraBox), the catalogue's byte-range resume. Rule E5 (parts resume) and P8.",
-    "pending": "drive_sync {\"crash_at\": \"mid-download\"}: a crash point inside a download's body, after its first part is on disk (the engine names none between download-start and before-rename)",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

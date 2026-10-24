@@ -394,3 +394,11 @@ The scans of the device's next `passes` passes meet that OS error when they list
 (`azcloud_kit::sync::faults::set_readdir_error`): the error of a failing disk or network
 share, a folder swapped for a file, a permission. The engine lists the folder as `unreadable`
 and takes nothing in it for deleted.
+
+### A crash inside a download
+
+The engine names one more point: `mid-download`, inside a big download's body (one in more
+than one part, over 16 MiB), once its first part is in the spool and before `download-start`
+(which follows the fetch). A crash there stops the download as a killed process would: no
+further part is fetched, and the parts in the spool stay for the next pass to resume
+(`drive_sync` `crash_at: "mid-download"`). A download in one part never meets it.
