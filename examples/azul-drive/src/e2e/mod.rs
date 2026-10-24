@@ -1198,7 +1198,7 @@ fn fault(args: &Args) -> Answer {
         let remote = h.remote_of(args)?;
         let clear = bool_arg(args, "clear");
         let mut fields = args.clone();
-        for k in ["device", "remote", "clear", "_attempt", "timeout_ms"] {
+        for k in ["device", "remote", "clear", "_attempt", "_test", "timeout_ms"] {
             fields.remove(k);
         }
         // The hostile server's and network's faults are kept apart (b_faults).
