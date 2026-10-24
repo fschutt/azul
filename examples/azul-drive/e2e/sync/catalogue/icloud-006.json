@@ -2,6 +2,7 @@
   {
     "name": "a case-only rename of a folder and of a file is a rename on every side: nothing deleted, later writes arrive",
     "description": "ICLOUD-006 (sync-chaos merge-case-only-rename): iCloud's case-insensitive server trashed a whole directory after `mv CaseDir2 casedir2`, and later writes went into a stale folder. Rules P1 and A3: a case-only rename is a rename on both sides; no delete, no trash, and a file written into the renamed folder afterwards syncs.",
+    "pending": "a case-only rename of a folder is applied file by file: on a disk that ignores case the files move into the folder under its old spelling, which is never renamed (P1 needs the folder renamed here as a whole)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

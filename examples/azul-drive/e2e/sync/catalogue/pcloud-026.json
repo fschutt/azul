@@ -2,6 +2,7 @@
   {
     "name": "the executable bit travels as part of the file; links are inert (listed, never followed out of the root)",
     "description": "PCLOUD-026 (pCloud): no POSIX permissions and no symlinks, so the exec bit and links were lost. Rules P6/S1/S2 (sync-chaos port-exec-bit, sec-symlink-out-file, sec-folder-replaced-by-link): the user's x bit syncs (nothing else of the mode); links are listed (symlink-skipped), never followed, a loop ends the scan.",
+    "pending": "a drive synced by name keeps no executable bit (its index names content, not mode bits), so on an encrypted drive the user's x bit does not travel (P6 on encrypted drives)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

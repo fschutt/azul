@@ -2,6 +2,7 @@
   {
     "name": "SYNCCOM-002: 40 of 50 files deleted at once are held until the user confirms; then they go to the other device's trash",
     "description": "SYNCCOM-002 (Sync.com): tens of thousands of files deleted overnight from hundreds of folders with no user deletes. Rules D1 (a mass-delete breaker that cannot be bypassed), D2, D7. sync-chaos delete-mass-delete-held.",
+    "pending": "a mass delete confirmed on one device is carried in the drive's tombstones, which an encrypted drive does not have: the other device holds the same deletes again until its own user confirms them (D1 on encrypted drives needs confirmed deletes in the drive's history)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

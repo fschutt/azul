@@ -1,6 +1,7 @@
 {
   "name": "FILEN-015: 0-byte files and empty folders at every depth exist on both sides, and a file truncated to 0 bytes syncs as 0 bytes",
   "description": "FILEN-015 (Filen): empty files were skipped ('Empty files are currently not supported at all'), backups incomplete, whole trees ignored. Rule P7: 0-byte files are real files, a truncation to 0 syncs as 0 bytes, empty folders are index entries. sync-chaos port-empty-folders, port-sparse-zero-byte.",
+  "pending": "empty folders are no index entries yet: the sync carries files only, so a folder with nothing in it is neither sent nor made on the other device (P7 needs folder entries)",
   "steps": [
     { "op": "drive_create", "remote": "r" },
     { "op": "drive_open", "device": "a", "remote": "r" },

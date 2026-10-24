@@ -71,6 +71,7 @@
   {
     "name": "FILEN-024: a lost or corrupted sync state is said once and rebuilt by hash: nothing deleted, nothing sent again, no conflict copy",
     "description": "FILEN-024 (Filen): pairs vanished on upgrade and logout, the CLI left partial state files and refused to start. Rules D6, D5 (lost or corrupted state never deletes anything). sync-chaos delete-state-lost.",
+    "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -105,6 +106,7 @@
   {
     "name": "FILEN-024: a file deleted on the drive while this device was logged out is kept at the next login, listed, and not sent back up until the user sends it again",
     "description": "FILEN-024 (Filen): logout/login lost the pairs and re-uploaded everything. Rule D5: no login path removes a file; at a fresh pairing a file the drive deleted meanwhile is kept and listed and not sent again. sync-chaos delete-relogin-tombstone-kept.",
+    "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

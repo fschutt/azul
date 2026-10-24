@@ -2,6 +2,7 @@
   {
     "name": "40 of 50 files deleted elsewhere are held until confirmed, then go to this device's trash and the drive's versions",
     "description": "PCLOUD-011 (pCloud): hundreds of local files vanished with nothing in the trash and no way to tell when. Rules D1/D2/D7 (sync-chaos delete-mass-delete-held): held, then recoverable and logged.",
+    "pending": "a mass delete confirmed on one device is carried in the drive's tombstones, which an encrypted drive does not have: the other device holds the same deletes again until its own user confirms them (D1 on encrypted drives needs confirmed deletes in the drive's history)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -38,6 +39,7 @@
   {
     "name": "every delete the client makes is journaled with its time and reason and can be undone from the client",
     "description": "PCLOUD-011 (pCloud): files deleted from the computer with no record of when or why. Rule D7: every destructive step is in the operations log; D2: it is a move into the trash, reversible.",
+    "pending": "a mass delete confirmed on one device is carried in the drive's tombstones, which an encrypted drive does not have: the other device holds the same deletes again until its own user confirms them (D1 on encrypted drives needs confirmed deletes in the drive's history)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

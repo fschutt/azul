@@ -1,6 +1,7 @@
 {
   "name": "a client with an empty state finds files the drive deleted meanwhile: kept here and listed, not sent again",
   "description": "KOOFR-017 (Koofr iOS 4.0.0, a rebuilt app with no record of the old one's uploads): a full rescan re-uploaded photos the user had deliberately deleted from Koofr. Rule D5: at a fresh pairing or a lost state, a local file the drive deleted meanwhile is kept and listed (deleted-elsewhere-kept) and is not sent again until the user chooses. sync-chaos mobile-camera-upload, state-upgrade-migration.",
+  "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

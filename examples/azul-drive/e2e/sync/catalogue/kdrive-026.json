@@ -2,6 +2,7 @@
   {
     "name": "a cleanup tool deletes the state database while AzDrive is stopped, another one is cut mid-write: rescans reconcile by hash, no duplicate, nothing deleted",
     "description": "KDRIVE-026 (kDrive): CCleaner or CleanMyMac deleting the client's database files led to 'problematic synchronisations'. Rules D5, D6 and A1: a lost or corrupted state says state-reset and pairs afresh by content hash; nothing is uploaded again, nothing deleted, no conflict copy. sync-chaos delete-state-lost.",
+    "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

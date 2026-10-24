@@ -2,6 +2,7 @@
   {
     "name": "files with times in 2099, at 1970-01-01 and before their creation are uploaded once each, then every pass is quiet",
     "description": "KDRIVE-006 (kDrive): a local file with an invalid modification time (0, far in the future, earlier than its creation) was re-synced on every cycle. Rule P12: time is a hint, never the decision; times from 1970 to 2100 and in the future are accepted, a file is uploaded once and then left alone, its time travels to the other device. sync-chaos merge-clock-skew.",
+    "pending": "an encrypted drive keeps no file's modification time: a drive synced by name has no way to send one (Drive::put takes none) and lists only the upload's second (ObjectInfo.modified), so the named sync sets mtime_ns 0 and a download gets the download time. It needs a time in the put calls, the pointer and the listing (P6/P12 on encrypted drives)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

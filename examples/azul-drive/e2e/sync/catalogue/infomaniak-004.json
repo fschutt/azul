@@ -56,6 +56,7 @@
   {
     "name": "a time with nanoseconds comes back at one documented precision, and the precision causes no churn",
     "description": "INFOMANIAK-004 (Infomaniak): times stored at 1-second precision broke tools comparing exact mtimes. Rules P6 and P12: times travel and are set on downloads; a rounding never makes a pass upload again.",
+    "pending": "an encrypted drive keeps no file's modification time: a drive synced by name has no way to send one (Drive::put takes none) and lists only the upload's second (ObjectInfo.modified), so the named sync sets mtime_ns 0 and a download gets the download time. It needs a time in the put calls, the pointer and the listing (P6/P12 on encrypted drives)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

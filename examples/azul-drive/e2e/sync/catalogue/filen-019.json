@@ -36,6 +36,7 @@
   {
     "name": "FILEN-019: a folder renamed on one side while the other moves a file into it: the file ends in the renamed folder, the old folder never comes back",
     "description": "FILEN-019 (Filen): items moved into a concurrently renamed directory duplicated and the old directory resurrected. Rules A3, C1. sync-chaos merge-rename-compose.",
+    "pending": "the index keeps no folder identity: a folder rename is each file's delete and new name, so a rename of a folder on one side and of a file or child folder in it on the other do not compose (A3/C1 need folder ids in the index)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -68,6 +69,7 @@
   {
     "name": "FILEN-019: a parent renamed on one side and a child folder renamed on the other, with an edit inside: one item under the composed path",
     "description": "FILEN-019 (Filen): local /top -> /top2 while remote /top/mid -> /top/mid2 with a modified file left a permanent duplicate. Rules A3, C2. sync-chaos merge-rename-compose.",
+    "pending": "the index keeps no folder identity: a folder rename is each file's delete and new name, so a rename of a folder on one side and of a file or child folder in it on the other do not compose (A3/C1 need folder ids in the index)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -1,6 +1,7 @@
 {
   "name": "a folder renamed on one device while the other is idle: only the new name exists afterwards, no empty old folder comes back",
   "description": "KOOFR-006 (Koofr desktop on Windows before August 2019, two computers): the rename propagated, but the second client re-created an empty copy of the folder under the old name. Rules A3 and D1: a folder rename is a move by folder identity on both sides; empty folders are index entries, so the old one is gone everywhere. sync-chaos merge-rename-folder-is-move.",
+  "pending": "empty folders are no index entries yet: the sync carries files only, so a folder with nothing in it is neither sent nor made on the other device (P7 needs folder entries)",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

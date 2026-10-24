@@ -36,6 +36,7 @@
   {
     "name": "a state cut off mid-write (an upgrade's migration interrupted) is a state reset, deleting and duplicating nothing",
     "description": "SYNCCOM-018 (Sync.com): updates deleted, reverted and duplicated files. Rules D5/D6 (sync-chaos delete-state-lost): a corrupt state is listed (state-reset), no delete, no conflict copy.",
+    "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

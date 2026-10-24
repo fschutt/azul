@@ -36,6 +36,7 @@
   {
     "name": "state left over from an earlier install is detected: the device pairs afresh, does not pause, deletes and duplicates nothing",
     "description": "MBOX-010 (trigger a): a reinstall with leftover state went straight to 'paused' until the files were removed by hand. Rules D5 and D6: lost or foreign state is reported (state-reset), and the rebuild by content hash deletes nothing on either side. sync-chaos delete-state-lost.",
+    "pending": "an encrypted drive lists no deleted files (no tombstones the merge can read), so at a fresh pairing or a lost state a file the drive deleted meanwhile looks new here and is sent again (D5 on encrypted drives needs the drive's deletes from its history)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },

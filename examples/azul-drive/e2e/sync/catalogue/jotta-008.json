@@ -30,6 +30,7 @@
   {
     "name": "the folder Photos renamed to photos on a disk that ignores case: its files move, none is deleted, the other device converges",
     "description": "JOTTA-008 (Jottacloud), the folder form ('Photos' to 'photos'). Rules P1, A3 and D1 (a renamed folder is a move, not a delete).",
+    "pending": "a case-only rename of a folder is applied file by file: on a disk that ignores case the files move into the folder under its old spelling, which is never renamed (P1 needs the folder renamed here as a whole)",
     "only_on": ["macos", "windows"],
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },

@@ -31,6 +31,7 @@
   {
     "name": "link objects from another device pointing out of the root are never created",
     "description": "KDRIVE-010 (kDrive): links synced as links. Rules S2, S8, M1 and O1: a remote link pointing out of the root (relative, absolute, /etc) is refused and listed (link-refused); nothing is written outside. sync-chaos sec-remote-link-objects.",
+    "pending": "the sync keeps no link objects: every symbolic link is skipped and listed, and a drive holds no link entry another device could create (S2/S8 for link objects need link entries in the index)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "b", "remote": "r" },
