@@ -595,6 +595,13 @@ review = "audited"
 reason = "proc macro building data-encoding specs and constants at compile time; pure source, no file, env or network access"
 reviewed = ["0.1.19:a9645f2fa679b8483b8f47a560c710a309dfcfd03861432b7250f2c0f9c97b35"]
 
+[crate."default-boxed-derive"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "derive(DefaultBoxed) for azlin-preflate (vendored preflate-rs): syn 1 / quote over the struct, no I/O, no environment, no processes (read 0.2.0)"
+reviewed = ["0.2.0:09ccde9cb1c7b986f5276504da03b49575fc744bd4bb99737412f2f81f09e6b2"]
+
 [crate."deflate64"]  # build-dependency
 allow = true
 risk = "low"
@@ -909,6 +916,13 @@ risk = "low"
 review = "audited"
 reason = "filters the bundled SDL gamecontrollerdb.txt down to the target platform's mappings into OUT_DIR"
 reviewed = ["0.11.3:6c79f8dd2ccb1ef103c69c5062dc4636085377866faee811f4cdc76242a8f105"]
+
+[crate."git-version-macro"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "git_version! for lepton_jpeg: runs `git -C $CARGO_MANIFEST_DIR describe --abbrev=40 --always --dirty=M` with fallback '0' (no shell). lepton_jpeg parses the result as a u32, which a 40-digit hash never is, so nothing of it reaches the Lepton header. git_submodule_versions! (git submodule foreach through a shell) is not used by anything in the tree (read 0.3.9)"
+reviewed = ["0.3.9:0195e991d2ee1851c1290b16cdf98d03b0ff8e8081073282fa38aa0f7468b6d0"]
 
 [crate."glob"]  # build-dependency
 allow = true

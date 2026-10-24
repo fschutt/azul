@@ -691,6 +691,11 @@ criteria = "safe-to-deploy"
 version = "0.15.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.cpu-time]]
+version = "1.0.0"
+criteria = "safe-to-deploy"
+notes = "per-thread CPU time (libc / winapi calls), through lepton_jpeg 0.5.8 (azlin-compress, the JPEG transform), on Windows only in this tree; not read."
+
 [[exemptions.cpubits]]
 version = "0.1.1"
 criteria = "safe-to-deploy"
@@ -850,6 +855,16 @@ criteria = "safe-to-deploy"
 [[exemptions.datasketches]]
 version = "0.2.0"
 criteria = "safe-to-deploy"
+
+[[exemptions.default-boxed]]
+version = "0.2.0"
+criteria = "safe-to-deploy"
+notes = "heap-allocated Default for large structs, used by azlin-preflate (vendored preflate-rs) and lepton_jpeg; a few unsafe pointer writes; not read."
+
+[[exemptions.default-boxed-derive]]
+version = "0.2.0"
+criteria = "safe-to-deploy"
+notes = "the derive of default-boxed; proc macro read (build-script-policy.toml)."
 
 [[exemptions.deflate64]]
 version = "0.1.12"
@@ -1230,6 +1245,16 @@ criteria = "safe-to-deploy"
 [[exemptions.gilrs-core-azul]]
 version = "0.6.9"
 criteria = "safe-to-deploy"
+
+[[exemptions.git-version]]
+version = "0.3.9"
+criteria = "safe-to-deploy"
+notes = "the version string through lepton_jpeg 0.5.8 (azlin-compress, the JPEG transform); a re-export of git-version-macro; no unsafe."
+
+[[exemptions.git-version-macro]]
+version = "0.3.9"
+criteria = "safe-to-deploy"
+notes = "proc macro running git describe for lepton_jpeg's version string; read (build-script-policy.toml): its output does not reach the Lepton header."
 
 [[exemptions.gl-context-loader]]
 version = "0.1.10"
@@ -1718,6 +1743,11 @@ criteria = "safe-to-deploy"
 [[exemptions.lazycell]]
 version = "1.3.0"
 criteria = "safe-to-deploy"
+
+[[exemptions.lepton_jpeg]]
+version = "0.5.8"
+criteria = "safe-to-deploy"
+notes = "Microsoft's Lepton (Apache-2.0), azlin-compress's JPEG transform; #![forbid(unsafe_code)]; pinned exactly because the stored format depends on it (examples/azlin-compress/FORMAT.md); not read beyond its API and header writer."
 
 [[exemptions.lettre]]
 version = "0.11.23"
@@ -3071,6 +3101,11 @@ criteria = "safe-to-run"
 version = "1.0.23"
 criteria = "safe-to-deploy"
 
+[[exemptions.safe_arch]]
+version = "0.9.3"
+criteria = "safe-to-deploy"
+notes = "SIMD intrinsics behind safe functions for wide, through lepton_jpeg 0.5.8 (azlin-compress, the JPEG transform); unsafe is the intrinsics; not read."
+
 [[exemptions.salsa20]]
 version = "0.10.2"
 criteria = "safe-to-deploy"
@@ -3495,6 +3530,11 @@ criteria = "safe-to-deploy"
 version = "2.0.20"
 criteria = "safe-to-deploy"
 
+[[exemptions.thread-priority]]
+version = "1.2.0"
+criteria = "safe-to-deploy"
+notes = "thread priority calls (libc / winapi), through lepton_jpeg 0.5.8 (azlin-compress, the JPEG transform), on Linux and Windows only; not read."
+
 [[exemptions.thread_local]]
 version = "1.1.10"
 criteria = "safe-to-deploy"
@@ -3886,6 +3926,11 @@ criteria = "safe-to-deploy"
 [[exemptions.whoami]]
 version = "1.6.1"
 criteria = "safe-to-deploy"
+
+[[exemptions.wide]]
+version = "0.8.3"
+criteria = "safe-to-deploy"
+notes = "portable SIMD types for Lepton's DCT, through lepton_jpeg 0.5.8 (azlin-compress, the JPEG transform); not read."
 
 [[exemptions.widestring]]
 version = "1.2.1"

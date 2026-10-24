@@ -13,6 +13,8 @@ members = [
     "examples/azul-calendar", # AzCalendar test app: week view, event files, mints AzMeet links
     "examples/azul-calendar-core", # azul-calendar-core: AzCalendar's events without azul types (event files, calendars, iCalendar), shared with the Azlin Bridge's CalDAV
     "examples/azul-storage", # azul-storage: the Drive trait (LocalDrive, S3Drive) AzDrive and AzMail share
+    "examples/azlin-compress", # azlin-compress: AzDrive's client-side lossless compression (detection, Lepton and deflate-rebuild transforms, per-segment zstd / brotli / dictionaries, the AZC1 container); azul-storage seals its output
+    "examples/azlin-preflate", # azlin-preflate: deflate reconstruction (preflate-rs 0.7.6, Apache-2.0, vendored without its LGPL range coder) for azlin-compress
     "examples/azlin-contract", # azlin-contract: what the Azlin apps and services say to each other (contract version, client hello, ids and units, idempotency key, deadlines, error codes, golden fixtures); serde only
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-pay", # azul-pay: the checkout's client half - the provider registry, the offer filter, the pills, the surfaces, the navigation bridge, the checkout state machine
@@ -181,6 +183,11 @@ azul-layout = { path = "layout" }
 # tfd: use crates.io 0.1.2 (fork published) — the runtime-dlopen Win32 dialog
 # resolver that links on every Windows target incl. legacy i686-rust9x. layout/
 # declares tfd = "0.1", which resolves to 0.1.2.
+
+# The deflate analysis and rebuild run many times slower unoptimised, and azlin-compress's and
+# azul-storage's round-trip tests run them on every deflate input.
+[profile.dev.package.azlin-preflate]
+opt-level = 2
 
 [profile.release]
 opt-level = 3

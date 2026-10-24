@@ -75,7 +75,12 @@ multiple-versions = "warn"
 wildcards = "warn"
 highlight = "all"
 allow = []
-deny = []
+deny = [
+    # azlin-compress rebuilds deflate streams with the vendored examples/azlin-preflate. Every
+    # published preflate-rs depends on cabac, and every cabac release is LGPL-3.0-or-later.
+    { crate = "cabac", reason = "LGPL-3.0-or-later; azlin-compress uses the vendored azlin-preflate, which does not need it" },
+    { crate = "preflate-rs", reason = "every published version depends on cabac (LGPL-3.0-or-later); azlin-compress uses the vendored azlin-preflate instead" },
+]
 
 [sources]
 unknown-registry = "deny"
