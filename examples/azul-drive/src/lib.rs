@@ -310,6 +310,11 @@ mod sync_jobs;
 mod e2e;
 /// The synced drives' file states, shared by the window and the search.
 mod sync_store;
+/// The git side of a folder on this computer (gix): the address row's branch chip, the quick
+/// switcher's branches, the check before a switch.
+mod git_repo;
+#[cfg(test)]
+mod git_repo_tests;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
 /// This computer's client health (power, battery, network) and the background work it scales.
