@@ -541,7 +541,8 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
             let signals = run.session.signals.clone();
             if run.session.alternate_screen() {
                 Tick::FullScreen(program_of(&run.line))
-            } else if signals.exited.load(Ordering::Acquire) {
+            } else if signals.finished() {
+                // Not `exited`: the child's exit comes before its last output is read.
                 Tick::Ended(signals.exit_code())
             } else {
                 Tick::Output(signals.dirty.load(Ordering::Acquire))
