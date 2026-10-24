@@ -328,3 +328,57 @@ fn a_json_merge_file_changed_on_both_sides_merges_instead_of_conflicting() {
         }]
     );
 }
+
+/// A pass cut after its commit put this side's conflict copy on the drive, before it renamed
+/// the file here: the next plan finds that copy (this device's name for `a.md`, this side's
+/// content, new to this side) and finishes the same conflict - one copy, never a second, and
+/// the copy is not downloaded beside the file it is.
+#[test]
+fn a_conflict_whose_copy_the_drive_already_holds_from_this_side_is_finished_not_copied_again() {
+    let copy = "a (conflict laptop 2026-10-07).md";
+    let mut bases = BTreeMap::new();
+    bases.insert(String::from("a.md"), base('0'));
+    let mut locals = BTreeMap::new();
+    locals.insert(String::from("a.md"), local('h'));
+    let mut remote = RemoteIndex::empty();
+    remote.files.insert(String::from("a.md"), remote_file('t'));
+    let mut mine = remote_file('h');
+    mine.device = String::from("laptop");
+    remote.files.insert(String::from(copy), mine);
+    let never = |_: &str| false;
+    let actions = plan(&PlanInput {
+        base: &bases,
+        local: &locals,
+        remote: &remote,
+        excluded: &never,
+        device: "laptop",
+        date: "2026-10-08",
+    });
+    assert_eq!(
+        actions,
+        vec![Action::Conflict {
+            key: String::from("a.md"),
+            copy: String::from(copy),
+        }]
+    );
+
+    // Another device's copy, or a copy with other content, is a file of its own.
+    let mut other = remote.clone();
+    other.files.get_mut(copy).unwrap().hash = h('x');
+    let actions = plan(&PlanInput {
+        base: &bases,
+        local: &locals,
+        remote: &other,
+        excluded: &never,
+        device: "laptop",
+        date: "2026-10-08",
+    });
+    assert!(actions.contains(&Action::Download { key: String::from(copy) }), "{actions:?}");
+    assert!(
+        actions.contains(&Action::Conflict {
+            key: String::from("a.md"),
+            copy: String::from("a (conflict laptop 2026-10-08).md"),
+        }),
+        "{actions:?}"
+    );
+}
