@@ -114,6 +114,11 @@ pub(crate) struct SyncWork {
     /// The drive's members as its last look saw them: the user's own devices, whose files need
     /// no quarantine mark (files from any other device get one).
     pub own_devices: Vec<String>,
+    /// The device name its conflict copies say instead of this computer's: an E2E device's
+    /// (several "computers" sync in one process).
+    pub device: Option<String>,
+    /// How long a pass waits for a quiet folder instead of [`settle`]: an E2E device's.
+    pub settle: Option<StdDuration>,
 }
 
 impl SyncWork {
@@ -129,6 +134,8 @@ impl SyncWork {
             transfer_limit: None,
             parallel: crate::health::transfers(100),
             own_devices: Vec::new(),
+            device: None,
+            settle: None,
         }
     }
 
@@ -144,12 +151,12 @@ impl SyncWork {
             .with_own_devices(&self.own_devices)
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
-            .with_settle(settle())
+            .with_settle(self.settle.unwrap_or_else(settle))
     }
 
     /// The session of the drive's kind.
     fn drive_session(&self) -> SyncSession {
-        let device = device_name();
+        let device = self.device.clone().unwrap_or_else(device_name);
         #[cfg(feature = "encryption")]
         {
             if let Some(auto) = &self.auto {
@@ -337,17 +344,44 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let drive_id = work.drive_id();
             let mut progress = PassProgress::default();
             let mut last: Option<Instant> = None;
-            let result = session.pass(&cancel, &mut |event| {
-                let now = progress.hear(&event);
-                let due = last.is_none_or(|at| at.elapsed() >= StdDuration::from_millis(100));
-                if now || due {
-                    last = Some(Instant::now());
-                    emit(Outcome::Sync(SyncOutcome::Progress {
-                        drive_id: drive_id.clone(),
-                        progress: progress.clone(),
-                    }));
+            // A pass that unwinds (a test harness crashed it at a fault point, or a bug) ends
+            // as a failed pass, so the drive does not wait for it forever; the states are read
+            // again from the state folder, as after a restart.
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                session.pass(&cancel, &mut |event| {
+                    let now = progress.hear(&event);
+                    let due =
+                        last.is_none_or(|at| at.elapsed() >= StdDuration::from_millis(100));
+                    if now || due {
+                        last = Some(Instant::now());
+                        emit(Outcome::Sync(SyncOutcome::Progress {
+                            drive_id: drive_id.clone(),
+                            progress: progress.clone(),
+                        }));
+                    }
+                })
+            }));
+            let result = match caught {
+                Ok(result) => result,
+                Err(payload) => {
+                    let why = match azcloud_kit::sync::faults::crashed_at(payload.as_ref()) {
+                        Some(point) => format!("{}{point}", crate::e2e::CRASHED),
+                        None => format!(
+                            "the pass panicked: {}",
+                            payload
+                                .downcast_ref::<&str>()
+                                .map(|s| (*s).to_string())
+                                .or_else(|| payload.downcast_ref::<String>().cloned())
+                                .unwrap_or_default()
+                        ),
+                    };
+                    return Outcome::Sync(SyncOutcome::Passed {
+                        drive_id,
+                        result: Err(why),
+                        states: session.states(),
+                    });
                 }
-            });
+            };
             match result {
                 Ok(pass) => SyncOutcome::Passed {
                     drive_id,
@@ -682,10 +716,15 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
         return None;
     }
     let drive = crate::open_slot(s, index)?;
-    #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
     let mut work = SyncWork::new(setup.clone(), setup.state_dir(&root), drive);
     if let Some(devices) = s.devices.get(drive_id) {
         work.own_devices.clone_from(&devices.members);
+    }
+    work.device = crate::e2e::device_name_of(drive_id);
+    work.settle = crate::e2e::settle_of(drive_id);
+    // An E2E device's fellow devices on its remote are the same user's.
+    if let Some(devices) = crate::e2e::own_devices_of(drive_id) {
+        work.own_devices = devices;
     }
     #[cfg(feature = "encryption")]
     {
@@ -1372,6 +1411,7 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
             let before = s.sync_view.store.states(&drive_id);
             s.sync_view.store.set_moving(&drive_id, None);
             s.sync_view.store.set_states(&drive_id, states);
+            crate::e2e::pass_ended(s, &drive_id, &result);
             match &result {
                 Ok(done) => println!(
                     "AZDRIVE_SYNC_DONE {drive_id} up={} down={} deleted={} conflicts={} \
@@ -1434,6 +1474,7 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
             states,
         } => {
             replace_states(s, &drive_id, states);
+            crate::e2e::change_ended(&drive_id);
             match (done, result) {
                 (_, Err(e)) => s.error(e),
                 (SyncChange::Pinned(on), Ok(text)) => {

@@ -289,6 +289,9 @@ mod ui_sidebar;
 mod ui_view;
 /// The folder sync on worker threads, and what starts it.
 mod sync_jobs;
+// The E2E commands a scenario drives the folder sync with (e2e/COMMANDS.md): registered only
+// when AZ_E2E or AZ_DEBUG is set.
+mod e2e;
 /// The synced drives' file states, shared by the window and the search.
 mod sync_store;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
@@ -3875,6 +3878,8 @@ pub fn start() {
     azul_fonts_calmet::register(&mut config);
     // "Calmet everywhere" (SPEC 5): the theme's widgets set their words and capitals in it too.
     config.set_theme_font(AzString::from(azul_fonts_calmet::STACK));
+    // The E2E commands, when a scenario or the debug server drives this run.
+    e2e::register(&mut config);
     // A picker is a smaller window (as a system's file dialog).
     let size = if state.picker.is_some() {
         (900.0, 600.0)

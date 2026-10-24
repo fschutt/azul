@@ -104,7 +104,7 @@ pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
 /// ranged chunk reads when it is browsed, so a computer new to a drive browses it before
 /// every pack has downloaded. Small files are packed together (one ranged read each, one
 /// index commit per pack), their journal beside the drive's index copy.
-fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
+pub(crate) fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
     MetaIndexProvider::new("AzDrive")
         .with_cache_root(cache_root)
         .with_lazy(true)
