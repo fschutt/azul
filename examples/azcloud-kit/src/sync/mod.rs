@@ -1417,6 +1417,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                     hash: scan.files.get(key).map(|f| f.hash.as_str()),
                     trash: None,
                 };
+                hooks.point("before-trash");
                 let ticket = match hooks.begin(&step) {
                     Ok(ticket) => ticket,
                     Err(e) => {
@@ -1939,6 +1940,7 @@ fn run<R: SyncRemote + ?Sized>(
             )
         },
     )?;
+    hooks.point("after-scan");
     report.scanned = scan.files.len();
     report.hashed = scan.hashed;
     report.excluded = scan.excluded;

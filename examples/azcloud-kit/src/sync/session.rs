@@ -655,6 +655,9 @@ pub struct SyncSession {
     /// The user's own devices (this one and the account's others): a download written by any
     /// other device - a share participant's - gets the system's quarantine mark.
     own_devices: Vec<String>,
+    /// Hears every named point of a pass (`after-scan`, `before-trash`, ...): an app's test
+    /// commands stop or crash a pass there ([`super::engine::Observer::point`]).
+    points: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl SyncSession {
@@ -701,7 +704,15 @@ impl SyncSession {
             parallel: None,
             settle: Duration::ZERO,
             own_devices: vec![device.to_string()],
+            points: None,
         }
+    }
+
+    /// The session's passes call `points` at every named point (an app's end-to-end tests).
+    #[must_use]
+    pub fn with_points(mut self, points: Arc<dyn Fn(&str) + Send + Sync>) -> SyncSession {
+        self.points = Some(points);
+        self
     }
 
     /// The account's other devices, whose files need no quarantine mark (this one is always
@@ -726,11 +737,18 @@ impl SyncSession {
     /// The pairing's engine: its journal, operations log, loop memory and problem list live
     /// in the pairing's state folder.
     fn engine(&self) -> super::engine::Engine {
-        super::engine::Engine::new(
+        let engine = super::engine::Engine::new(
             &self.dir,
             &self.setup.folder,
             Box::new(super::quarantine::OwnDevices(self.own_devices.clone())),
-        )
+        );
+        match &self.points {
+            Some(points) => {
+                let points = Arc::clone(points);
+                engine.with_points(Box::new(move |name: &str| points(name)))
+            }
+            None => engine,
+        }
     }
 
     /// The session's passes first wait until nothing in the folder changed for `quiet`
