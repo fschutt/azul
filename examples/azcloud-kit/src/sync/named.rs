@@ -45,7 +45,7 @@ use super::{
     CheckedRead, RemoteFile, RemoteIndex, SyncEvent, SyncRemote, SyncReport, Uploads,
 };
 use crate::{
-    error::{fail, CloudResult},
+    error::{fail, CloudError, CloudResult},
     state::{read_json, write_json},
 };
 
@@ -259,18 +259,25 @@ impl<'d> NamedFiles<'d> {
                     report.blobs_up += 1;
                     report.bytes_up += bytes;
                     tell_finished(work, &b.key, bytes, None);
+                    work.hooks.point("after-blob");
                 }
                 Err(DriveError::Conflict { .. }) => {
                     lost_race(work, report, abandoned, &b.key, bytes);
                 }
                 Err(e) => {
                     tell_finished(work, &b.key, bytes, Some(e.to_string()));
-                    stop.get_or_insert(e);
+                    let e = CloudError::from(e);
+                    if super::waits_listed(&e) {
+                        super::listed_upload_failure(report, &b.key, &e);
+                        abandoned.insert(b.key.clone());
+                    } else {
+                        stop.get_or_insert(e);
+                    }
                 }
             }
         }
         match stop {
-            Some(e) => Err(e.into()),
+            Some(e) => Err(e),
             None => Ok(()),
         }
     }
@@ -326,18 +333,25 @@ impl<'d> NamedFiles<'d> {
                     report.blobs_up += 1;
                     report.bytes_up += body.bytes().unwrap_or(sending.job.size);
                     tell_finished(work, &sending.key, sending.job.size, None);
+                    work.hooks.point("after-blob");
                 }
                 Err(DriveError::Conflict { .. }) => {
                     lost_race(work, report, abandoned, &sending.key, sending.job.size);
                 }
                 Err(e) => {
                     tell_finished(work, &sending.key, sending.job.size, Some(e.to_string()));
-                    stop.get_or_insert(e);
+                    let e = CloudError::from(e);
+                    if super::waits_listed(&e) {
+                        super::listed_upload_failure(report, &sending.key, &e);
+                        abandoned.insert(sending.key.clone());
+                    } else {
+                        stop.get_or_insert(e);
+                    }
                 }
             }
         }
         match stop {
-            Some(e) => Err(e.into()),
+            Some(e) => Err(e),
             None => Ok(()),
         }
     }
@@ -614,6 +628,7 @@ impl SyncRemote for NamedFiles<'_> {
         let mut large: Vec<(Sending, LargeBody)> = Vec::new();
         let mut large_bytes = 0u64;
         for sending in sends {
+            work.hooks.point("mid-read");
             // Small files are never streamed (that starts at BIG_BLOB): read whole, sent together.
             if sending.job.size < SMALL_FILE_BYTES {
                 match job_bytes(&sending.job) {

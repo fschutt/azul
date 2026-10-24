@@ -119,7 +119,7 @@ use crate::{
     error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
     store::BIG_BLOB,
-    user_errors::{Class, UserError},
+    user_errors::{Behaviour, Class, UserError},
 };
 
 /// The data root of every Azlin app, in the drive.
@@ -1460,13 +1460,16 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
         let outcome = match outcome {
             Ok(outcome) => outcome,
             // A dropped connection, a busy node: this file waits for the next run with its
-            // reason, the others reach the drive now. What the user must act on (a full drive,
-            // a device removed) fails the run, which says it.
-            Err(e) if passes(&e) => {
-                report.errors.push(format!("upload {key}: {e}"));
-                report.file_errors.push((key.clone(), e.to_string()));
+            // reason, the others reach the drive now. So does a file the drive refuses for
+            // itself (too large) and one a full or unpaid drive takes no more of (its reads, its
+            // deletes and the other devices' files still sync). What the user must act on
+            // before anything works (a device removed) fails the run, which says it.
+            Err(e) if passes(&e) || waits_listed(&e) => {
+                listed_upload_failure(report, &key, &e);
                 abandoned.insert(key);
-                passing.get_or_insert(e);
+                if passes(&e) {
+                    passing.get_or_insert(e);
+                }
                 continue;
             }
             Err(e) => return Err(e),
@@ -1515,6 +1518,23 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
 /// updating node): one file's such failure is no failed run.
 fn passes(e: &CloudError) -> bool {
     UserError::from_cloud_error(e).is_some_and(|user| user.class() == Class::Retry)
+}
+
+/// The upload of `key` failed with `e` and the file waits: said in the report, listed with its
+/// code.
+fn listed_upload_failure(report: &mut SyncReport, key: &str, e: &CloudError) {
+    report.errors.push(format!("upload {key}: {e}"));
+    report.file_errors.push((key.to_string(), e.to_string()));
+    report.problems.push(problems::Problem::of_error(key, e));
+}
+
+/// An upload error of the file alone (the drive refuses it: too large) or of the drive's writes
+/// alone (full, unpaid: no more uploads, reads go on): the file waits, listed with its reason,
+/// and the run goes on.
+fn waits_listed(e: &CloudError) -> bool {
+    UserError::from_cloud_error(e).is_some_and(|user| {
+        matches!(user.behaviour(), Behaviour::SkipFile | Behaviour::StopUploads)
+    })
 }
 
 /// The index after `actions`: `remote` itself when they change nothing in it
