@@ -2,6 +2,7 @@
   {
     "name": "every delete path (one, two, a burst) goes through one breaker: the burst is held, every deleted file stays recoverable",
     "description": "ICEDRIVE-001 (Icedrive): 'Do Not Delete' was honoured for one deletion but two or more switched to a batch delete that removed the cloud copies. Rules D1/D2 (sync-chaos delete-backup-mode, delete-one-subfolder): one policy for every path; a burst over half a folder is held; deletes keep versions.",
+    "pending": "a mass delete confirmed on one device is carried in the drive's tombstones, which an encrypted drive does not have: the other device holds the same deletes again until its own user confirms them (D1 on encrypted drives needs confirmed deletes in the drive's history)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

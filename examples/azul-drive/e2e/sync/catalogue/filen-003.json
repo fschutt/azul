@@ -61,6 +61,7 @@
   {
     "name": "FILEN-003: a stale device that comes online after the drive was emptied keeps its newer edit and never refills the drive with stale copies",
     "description": "FILEN-003 (Filen): a stale Linux device came online after the cloud had been emptied and refilled it with stale versions. Rules D1 (one confirmation carried in the tombstones, applied into the other device's trash), C2 (an edit beats a delete), E1. sync-chaos res-soak-two-devices (the reported trigger).",
+    "pending": "a mass delete confirmed on one device is carried in the drive's tombstones, which an encrypted drive does not have: the other device holds the same deletes again until its own user confirms them (D1 on encrypted drives needs confirmed deletes in the drive's history)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
