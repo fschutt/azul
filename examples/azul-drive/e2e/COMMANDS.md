@@ -618,3 +618,19 @@ there, as a restored backup or a reinstall that kept an old configuration does.
 its pairing stops and its state folder goes; every file of the folder stays (a cloud-only one
 on the drive only). `drive_check` `no_registration` (`device`) holds when nothing of it is left:
 no source-list entry, no pairing, no state folder.
+
+### The drive
+
+| op | arguments | result |
+|---|---|---|
+| `drive_browse` | `device`, `path` (default the top), `timeout_ms` (default 60000) | `entries` (names; a folder's ends in `/`), `ms` |
+| `drive_migrate` | `remote`, `to` (a new remote's name) | `remote`, `objects` |
+| `drive_repoint` | `device`, `remote` | `device`, `remote` |
+
+`drive_browse` is the window's listing of the device's drive, answered at once (also while a
+pass runs; slower than `timeout_ms` fails): a plain synced drive by its sync index's names, an
+encrypted one by its own listing. `drive_migrate` copies every stored object of a remote byte
+for byte to a new one (the index with its tombstones, the blobs, an encrypted drive's objects
+and keys), as a backend migration does: the drive keeps its identity and keys.
+`drive_repoint` opens the device's drive at another remote with the same pairing, state folder
+and folder.

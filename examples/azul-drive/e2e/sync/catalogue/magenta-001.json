@@ -32,7 +32,6 @@
   {
     "name": "a drive copied to a new backend keeps files, tombstones and encrypted objects, and the devices reconnect without a re-sync",
     "description": "MAGENTA-001: the migration drill the competitor skipped. Rule V4: restores onto a replacement and backend migrations keep trash, versions and every committed file; clients converge without deletes or transfers.",
-    "pending": "drive_migrate {remote, to} (copy every stored object, the index with its tombstones and versions, to a new remote, as a backend migration does) and drive_repoint {device, remote} (the device's drive opens the new remote, same pairing and state)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

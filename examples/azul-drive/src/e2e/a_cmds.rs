@@ -7,7 +7,8 @@
 use azul::prelude::*;
 
 use super::{
-    a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer, Args, OpDoc,
+    a_drive, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer, Args,
+    OpDoc,
     DEVICE, PATH,
 };
 use crate::DriveState;
@@ -37,6 +38,9 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_state_save", summary: "a copy of the state folder", args: &[DEVICE, ("name", "string", true)] },
     OpDoc { name: "drive_state_load", summary: "a copy of the state folder put back", args: &[DEVICE, ("name", "string", true)] },
     OpDoc { name: "drive_uninstall", summary: "Remove drive: the drive, its pairing and state go", args: &[DEVICE] },
+    OpDoc { name: "drive_browse", summary: "the window's listing of the drive", args: &[DEVICE, ("path", "string", false), ("timeout_ms", "number", false)] },
+    OpDoc { name: "drive_migrate", summary: "the drive copied whole to a new backend", args: &[("remote", "string", true), ("to", "string", true)] },
+    OpDoc { name: "drive_repoint", summary: "the device's drive opened at another remote", args: &[DEVICE, ("remote", "string", true)] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -66,6 +70,9 @@ pub(super) fn run(
         "drive_verify" => a_verify::verify(info, app, s, args),
         "drive_versions" => a_versions::versions(s, args),
         "drive_check" => a_store::check(s, args),
+        "drive_browse" => a_drive::browse(s, args),
+        "drive_migrate" => a_drive::migrate(args),
+        "drive_repoint" => a_drive::repoint(s, args),
         "drive_state_format" => a_store::state_format(args),
         "drive_state_save" => a_store::state_save(args),
         "drive_state_load" => a_store::state_load(s, args),

@@ -15,6 +15,7 @@ mod c_keys;
 mod c_links;
 // Group A: cloud-only files, a pairing's modes, the window's actions and the computer around.
 mod a_cmds;
+mod a_drive;
 mod a_lock;
 mod a_ops;
 mod a_pair;

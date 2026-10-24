@@ -28,7 +28,6 @@
   {
     "name": "a listing of the drive answers within normal time while the upload queue is full",
     "description": "KOOFR-019, the browsing half. Rule E6: metadata requests and bulk transfers use separate lanes, so a listing is never queued behind 500 uploads.",
-    "pending": "drive_browse {device, path} (the window's listing of the drive's folder, answered while a pass runs; timeout_ms bounds its latency)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
