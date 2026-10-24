@@ -95,6 +95,75 @@ pub fn restore_drive_as_of<B: Bucket, S: Sealer>(
     }))
 }
 
+/// One stored version of a file of an encrypted drive: its content object, when it became the
+/// drive's (seconds since 1970) and the device that committed it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileVersion {
+    pub id: ObjectId,
+    pub at: i64,
+    pub device: String,
+}
+
+/// Every version the repository keeps of the file `path`, oldest first: each content the file
+/// had, once per change (a commit that left it as it was adds none; a delete and a later file
+/// of that name are two lives of the name, both listed).
+///
+/// # Errors
+///
+/// When the repository cannot be read.
+pub fn file_versions<B: Bucket, S: Sealer>(
+    repo: &mut MetaRepo<B, S>,
+    path: &str,
+) -> Result<Vec<FileVersion>, MetaError> {
+    repo.pull()?;
+    repo.fetch_all()?;
+    let history = repo.history()?;
+    let mut out: Vec<FileVersion> = Vec::new();
+    let mut last: Option<ObjectId> = None;
+    for (_, commit) in history.iter().rev() {
+        let now = entries(repo.objects(), Some(&commit.tree))?;
+        let id = match now.get(path) {
+            Some((Mode::File, id)) => Some(*id),
+            _ => None,
+        };
+        if let Some(id) = id.filter(|id| last != Some(*id)) {
+            out.push(FileVersion {
+                id,
+                at: commit.committer.time,
+                device: commit.committer.name.clone(),
+            });
+        }
+        last = id;
+    }
+    Ok(out)
+}
+
+/// Puts the version `id` of the file `path` back as the drive's (a stored version, or a file
+/// deleted since), as one commit "Restore <path>"; the drive's devices bring it down with
+/// their next pass. `.azlin` is never restored.
+///
+/// # Errors
+///
+/// When `path` is under `.azlin`, or the commit cannot be published.
+pub fn restore_file_version<B: Bucket, S: Sealer>(
+    repo: &mut MetaRepo<B, S>,
+    path: &str,
+    id: ObjectId,
+    resolve: &mut dyn FnMut(&Conflict) -> Resolution,
+) -> Result<CommitOutcome, MetaError> {
+    if path == RESERVED || path.starts_with(&format!("{RESERVED}/")) {
+        return Err(MetaError::Unsupported(format!(
+            "{path} is the drive's policy and keys: never restored"
+        )));
+    }
+    repo.pull()?;
+    let changes = vec![Change::Put {
+        path: path.to_string(),
+        id,
+    }];
+    repo.commit(&changes, &format!("Restore {path}"), resolve)
+}
+
 /// The changes that turn the drive's tree `now` (`None`: empty) into `then`.
 struct Back {
     changes: Vec<Change>,

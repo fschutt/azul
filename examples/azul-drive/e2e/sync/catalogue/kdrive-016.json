@@ -84,7 +84,6 @@
   {
     "name": "the drive's version history never gains a duplicate revision of identical content",
     "description": "KDRIVE-016 (kDrive): all 30 stored revisions ended up with the same old content. Rules D2 and C3: a version is stored only for a new content; a returning device adds none.",
-    "pending": "drive_versions {remote, key}: the drive's stored versions of a file, oldest first ([{hash, size, at, device}])",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

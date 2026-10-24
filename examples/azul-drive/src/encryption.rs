@@ -1211,6 +1211,60 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Option<Result<usize, S
     Some(restored)
 }
 
+/// The bucket below an encrypted drive (its first call decides whether it is encrypted); an
+/// error for a plain one, whose index names only each file's current version.
+fn versioned_bucket(auto: &AutoEncrypted) -> Result<Arc<dyn Drive>, String> {
+    if auto.is_encrypted().is_none() {
+        let _ = auto.head("");
+    }
+    if auto.is_encrypted() != Some(true) {
+        return Err(String::from(
+            "a plain drive keeps no versions of its files: its index names each file's current \
+             version only",
+        ));
+    }
+    Ok(Arc::clone(auto.bucket()))
+}
+
+/// Every stored version of the file `key` of an encrypted drive, oldest first, from its
+/// metadata repository (a copy of its own, in memory), the drive key from `keyring`.
+pub(crate) fn file_versions(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    key: &str,
+) -> Result<Vec<azcloud_kit::restore::FileVersion>, String> {
+    let bucket = versioned_bucket(auto)?;
+    let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
+    let device_id = azul_storage::ids::new_uuid();
+    let mut repo = MetaRepo::open(DriveBucket::new(bucket), drive_key, &device_id, "AzDrive")
+        .map_err(|e| e.to_string())?;
+    azcloud_kit::restore::file_versions(&mut repo, key).map_err(|e| e.to_string())
+}
+
+/// The version `id` of the file `key` of an encrypted drive put back as the drive's (an older
+/// version, or a file deleted since), as one commit; the open drive reads its index again.
+pub(crate) fn restore_file_version(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    key: &str,
+    id: azul_storage::meta::ObjectId,
+) -> Result<(), String> {
+    let bucket = versioned_bucket(auto)?;
+    let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
+    let device_id = azul_storage::ids::new_uuid();
+    let mut repo = MetaRepo::open(DriveBucket::new(bucket), drive_key, &device_id, "AzDrive")
+        .map_err(|e| e.to_string())?;
+    let restored = azcloud_kit::restore::restore_file_version(&mut repo, key, id, &mut keep_both)
+        .map(drop)
+        .map_err(|e| e.to_string());
+    auto.reopen();
+    restored
+}
+
 /// "Encrypt this drive...": the question.
 pub(crate) fn ask_encrypt(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {

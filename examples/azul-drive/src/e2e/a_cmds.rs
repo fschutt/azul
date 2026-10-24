@@ -6,7 +6,7 @@
 
 use azul::prelude::*;
 
-use super::{a_lock, a_ops, a_pair, a_place, a_verify, Answer, Args, OpDoc, DEVICE, PATH};
+use super::{a_lock, a_ops, a_pair, a_place, a_verify, a_versions, Answer, Args, OpDoc, DEVICE, PATH};
 use crate::DriveState;
 
 /// Group A's commands, for `list_app_ops` (COMMANDS.md has the long form).
@@ -27,6 +27,9 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_wake", summary: "the system woke: every drive gets a pass", args: &[] },
     OpDoc { name: "drive_lock", summary: "a file locked by another app, or the drive key off the device", args: &[DEVICE, ("path", "string", false)] },
     OpDoc { name: "drive_unlock", summary: "the lock let go, or the drive key back", args: &[DEVICE, ("path", "string", false)] },
+    OpDoc { name: "drive_versions", summary: "a file's stored versions, oldest first", args: &[DEVICE, ("remote", "string", false), ("key", "string", true)] },
+    OpDoc { name: "drive_restore_version", summary: "a stored version back as the drive's", args: &[DEVICE, ("key", "string", true), ("version", "number", false), ("hash", "string", false)] },
+    OpDoc { name: "drive_restore_deleted", summary: "a deleted file back as its last version was", args: &[DEVICE, ("key", "string", true)] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -53,6 +56,9 @@ pub(super) fn run(
         "drive_pair" => a_pair::pair(info, app, s, args),
         "drive_sync" => a_verify::sync_verified(info, app, s, args),
         "drive_verify" => a_verify::verify(info, app, s, args),
+        "drive_versions" => a_versions::versions(s, args),
+        "drive_restore_version" => a_versions::restore_version(s, args),
+        "drive_restore_deleted" => a_versions::restore_deleted(s, args),
         "drive_bitrot" => a_verify::bitrot(args),
         "drive_select" => a_pair::select(info, app, s, args),
         "drive_on_demand" => a_pair::on_demand(info, app, s, args),

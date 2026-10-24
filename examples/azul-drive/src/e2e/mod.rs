@@ -21,6 +21,7 @@ mod a_pair;
 mod a_place;
 mod a_state;
 mod a_verify;
+mod a_versions;
 mod checks;
 mod files;
 mod remote;

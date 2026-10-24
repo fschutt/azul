@@ -581,3 +581,18 @@ going into the folder's trash (and its operations log). Each finding is listed a
 `hash-mismatch`; the report is kept as `verify.json` in the state folder. `drive_bitrot` changes
 bytes in place as a failing disk does: the size and the modification time stay (the change time
 moves - only a raw write to the disk keeps that).
+
+### Versions
+
+| op | arguments | result |
+|---|---|---|
+| `drive_versions` | `remote` or `device`, `key` | `versions`: `[{hash, at, device}]`, oldest first |
+| `drive_restore_version` | `device`, `key`, `version` (1 the oldest) or `hash` | `restored` (the version's hash) |
+| `drive_restore_deleted` | `device`, `key` | `restored` |
+
+An encrypted drive keeps every version of a file in its metadata repository
+(azcloud-kit's `restore::file_versions`): one entry per change of the file's content object (a
+commit that left it as it was adds none; a re-upload of the same bytes as a new object does).
+`drive_restore_version` and `drive_restore_deleted` put a version back as the drive's, as one
+commit "Restore <key>" (`restore::restore_file_version`); the devices bring it down with their
+next pass. A plain drive's index names each file's current version only: the three fail there.

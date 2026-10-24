@@ -18,7 +18,10 @@ use azul_storage::{
 
 use super::{header, json, period::keyring_with_session, Fake, Shared, TOKEN};
 use crate::{
-    restore::{restore_bucket_as_of, restore_drive_as_of, state_at, BucketRestore},
+    restore::{
+        file_versions, restore_bucket_as_of, restore_drive_as_of, restore_file_version, state_at,
+        BucketRestore,
+    },
     token::TokenServer,
 };
 
@@ -235,4 +238,37 @@ fn a_plain_drives_bucket_is_restored_by_the_token_server_and_its_progress_follow
             request: String::from("r_1")
         }
     );
+}
+
+#[test]
+fn a_files_versions_are_listed_once_each_and_an_old_or_deleted_one_comes_back() {
+    let bucket = MemoryBucket::new();
+    let clock = Arc::new(AtomicU64::new(T0));
+    let mut laptop = device(&bucket, &clock, "laptop", true);
+    let v1 = put(&mut laptop, "report.txt", "version one");
+    let kept = put(&mut laptop, "gone.txt", "kept");
+    laptop.commit(&[v1, kept], "one", &mut keep_both).unwrap();
+    clock.store(T0 + 10, Ordering::SeqCst);
+    let v2 = put(&mut laptop, "report.txt", "version two");
+    laptop.commit(&[v2], "two", &mut keep_both).unwrap();
+    // A commit that leaves the file as it is adds no version.
+    clock.store(T0 + 20, Ordering::SeqCst);
+    let other = put(&mut laptop, "other.txt", "x");
+    let deleted = Change::Delete { path: String::from("gone.txt") };
+    laptop.commit(&[other, deleted], "other", &mut keep_both).unwrap();
+    let versions = file_versions(&mut laptop, "report.txt").unwrap();
+    assert_eq!(versions.len(), 2, "{versions:?}");
+    assert_eq!((versions[0].at, versions[1].at), (T0 as i64, (T0 + 10) as i64));
+    // Version one back, as one more commit another device sees.
+    clock.store(T0 + 30, Ordering::SeqCst);
+    restore_file_version(&mut laptop, "report.txt", versions[0].id, &mut keep_both).unwrap();
+    let gone = file_versions(&mut laptop, "gone.txt").unwrap();
+    assert_eq!(gone.len(), 1);
+    restore_file_version(&mut laptop, "gone.txt", gone[0].id, &mut keep_both).unwrap();
+    let mut phone = device(&bucket, &clock, "phone", false);
+    phone.pull().unwrap();
+    assert_eq!(files(&phone)["report.txt"], "version one");
+    assert_eq!(files(&phone)["gone.txt"], "kept");
+    assert_eq!(file_versions(&mut phone, "report.txt").unwrap().len(), 3);
+    assert!(restore_file_version(&mut phone, ".azlin/policy.toml", versions[0].id, &mut keep_both).is_err());
 }
