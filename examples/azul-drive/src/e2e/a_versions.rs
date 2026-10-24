@@ -13,24 +13,29 @@ use crate::DriveState;
 #[cfg(feature = "encryption")]
 struct Versioned {
     auto: std::sync::Arc<azul_storage::encrypted::AutoEncrypted>,
-    keyring: std::sync::Arc<super::remote::MemKeyring>,
+    keyring: std::sync::Arc<dyn azul_storage::keyring::KeyringStore>,
     key: String,
 }
 
 #[cfg(feature = "encryption")]
 fn versioned(s: &mut DriveState, args: &Args) -> Result<Versioned, String> {
-    let (drive_id, remote) = with_harness(|h| {
+    let (drive_id, remote, keyring) = with_harness(|h| {
         let remote = h.remote_of(args)?;
-        let drive_id = match str_arg(args, "device") {
-            Some(_) => h.device(args)?.drive_id.clone(),
+        let (name, drive_id) = match str_arg(args, "device") {
+            Some(_) => {
+                let d = h.device(args)?;
+                (d.name.clone(), d.drive_id.clone())
+            }
             None => h
                 .devices
                 .iter()
                 .find(|d| d.remote == remote.name)
-                .map(|d| d.drive_id.clone())
+                .map(|d| (d.name.clone(), d.drive_id.clone()))
                 .ok_or_else(|| format!("remote '{}' has no device to read it", remote.name))?,
         };
-        Ok((drive_id, remote))
+        // The keyring the device keeps the drive key in (its own when it is not joined).
+        let keyring = super::c_keys::keyring_of(h, &name)?;
+        Ok((drive_id, remote, keyring))
     })?;
     if !remote.encrypted {
         return Err(String::from(
@@ -48,7 +53,7 @@ fn versioned(s: &mut DriveState, args: &Args) -> Result<Versioned, String> {
         .ok_or_else(|| format!("{drive_id} is no encrypted drive"))?;
     Ok(Versioned {
         auto,
-        keyring: remote.keyring.clone(),
+        keyring,
         key: format!("{}{}", remote.prefix, need(args, "key")?),
     })
 }

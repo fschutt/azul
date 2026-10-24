@@ -95,7 +95,7 @@ fn copy_objects(from: &Remote, to: &Remote) -> Result<usize, String> {
 /// pairing, its state folder and its folder stay; the next pass finds the drive as it was.
 pub(super) fn repoint(s: &mut DriveState, args: &Args) -> Answer {
     let target = need(args, "remote")?.to_string();
-    let (name, drive_id, remote, run) = with_harness(|h| {
+    let (name, drive_id, remote, run, keyring) = with_harness(|h| {
         let remote = h
             .remotes
             .get(&target)
@@ -104,7 +104,10 @@ pub(super) fn repoint(s: &mut DriveState, args: &Args) -> Answer {
         let run = h.run.clone();
         let d = h.device_mut(args)?;
         d.remote.clone_from(&target);
-        Ok((d.name.clone(), d.drive_id.clone(), remote, run))
+        let (name, drive_id) = (d.name.clone(), d.drive_id.clone());
+        // The keyring the device keeps the drive key in (its own when it is not joined).
+        let keyring = super::c_keys::keyring_of(h, &name)?;
+        Ok((name, drive_id, remote, run, keyring))
     })?;
     let index = s
         .slot_index(&drive_id)
@@ -114,7 +117,10 @@ pub(super) fn repoint(s: &mut DriveState, args: &Args) -> Answer {
         device: name.clone(),
     });
     if remote.encrypted {
-        open_encrypted(s, index, bucket, &remote, &run.join("devices").join(&name).join("index-cache"))?;
+        let cache = run.join("devices").join(&name).join("index-cache");
+        open_encrypted(s, index, bucket, &remote, keyring, &cache)?;
+        // The fault layer over a file's objects, as drive_open puts it.
+        super::b_faults::wrap_files(s.slots.get_mut(index), &remote, &name);
     } else {
         s.slots[index].drive = Some(bucket);
     }
@@ -127,6 +133,7 @@ fn open_encrypted(
     index: usize,
     bucket: Arc<dyn Drive>,
     remote: &Remote,
+    keyring: Arc<dyn azul_storage::keyring::KeyringStore>,
     index_cache: &std::path::Path,
 ) -> Result<(), String> {
     let provider: Arc<dyn azul_storage::encrypted::IndexProvider> =
@@ -134,7 +141,7 @@ fn open_encrypted(
     let auto = Arc::new(azul_storage::encrypted::AutoEncrypted::new(
         bucket,
         &remote.drive_name,
-        remote.keyring.clone(),
+        keyring,
         Some(provider),
     ));
     s.slots[index].drive = Some(auto.clone() as Arc<dyn Drive>);
@@ -148,6 +155,7 @@ fn open_encrypted(
     _index: usize,
     _bucket: Arc<dyn Drive>,
     _remote: &Remote,
+    _keyring: Arc<dyn azul_storage::keyring::KeyringStore>,
     _index_cache: &std::path::Path,
 ) -> Result<(), String> {
     Err(String::from("this AzDrive was built without encryption"))

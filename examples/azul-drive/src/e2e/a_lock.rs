@@ -68,23 +68,24 @@ fn reopen(s: &mut DriveState, args: &Args, locked: bool) -> Result<(), String> {
         keyring::KeyringStore,
     };
 
-    let (name, remote, sharing) = with_harness(|h| {
+    let (name, remote, sharing, keyring) = with_harness(|h| {
         let d = h.device(args)?;
         let remote = h.remote_of(args)?;
+        // The keyring the device keeps the key in (its own when it is not joined).
+        let keyring = super::c_keys::keyring_of(h, &d.name)?;
         let sharing: Vec<String> = h
             .devices
             .iter()
             .filter(|o| o.remote == d.remote)
             .map(|o| o.drive_id.clone())
             .collect();
-        Ok((d.name.clone(), remote, sharing))
+        Ok((d.name.clone(), remote, sharing, keyring))
     })?;
     if !remote.encrypted {
         return Err(String::from(
             "a plain remote has no drive key to lock: drive_create it with \"encrypted\": true",
         ));
     }
-    let keyring = remote.keyring.clone();
     let entries = [drive_key_entry(&remote.drive_name), member_key_entry(&remote.drive_name)];
     if locked {
         let mut kept = Vec::new();
