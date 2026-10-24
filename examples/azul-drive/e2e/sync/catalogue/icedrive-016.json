@@ -1,0 +1,62 @@
+[
+  {
+    "name": "the drive suddenly lists nothing: the folder here is not emptied, the delete is held",
+    "description": "ICEDRIVE-016 (Icedrive): year folders showed 'Folder Empty' though their 401 files existed, and files appeared and disappeared with the client's cache. Rules D6 and D1: an empty listing is no evidence; a plan that would empty the folder is held for the user (mass-delete-held), nothing is deleted or trashed here or on the other device. sync-chaos delete-remote-emptied.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "401 photos in year folders listed by another device mid-upload, then uploaded again: never 'empty', nothing sent twice",
+    "description": "ICEDRIVE-016 (Icedrive), the catalogue's repro: listings taken while an upload is half done, then a re-upload that said the files 'already exist'. Rules A7, D5 and A1: the index names a file only once its blob is stored, so a listing mid-upload shows the folder as it was, never an empty folder with committed children; after the commit every device lists all 401; a re-pairing agrees by hash and sends nothing again.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "photos/2014", "count": 140, "size": 1024, "seed": 61 },
+      { "op": "drive_many", "device": "a", "dir": "photos/2021", "count": 130, "size": 1024, "seed": 62 },
+      { "op": "drive_many", "device": "a", "dir": "photos/2022", "count": 131, "size": 1024, "seed": 63 },
+      { "op": "drive_sync", "device": "a", "pause_at": "after-blob", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "photos/2014/*", "count": 140 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "photos/2021/*", "count": 130 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "photos/2022/*", "count": 131 },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.deleted", "equals": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 401 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

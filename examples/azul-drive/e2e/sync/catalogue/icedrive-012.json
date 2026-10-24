@@ -1,0 +1,64 @@
+[
+  {
+    "name": "a file whose stored bytes were lost over a year: a new laptop lists it and never writes a 0 KB document",
+    "description": "ICEDRIVE-012 (Icedrive): small files uploaded a year earlier came down as 0 KB documents; the user could not tell which. Rules A5, S15, P7 and O1: a download whose bytes do not match the hash is refused and listed (hash-mismatch), never written as an empty file; every intact file arrives; the uploading device's own copy is untouched. sync-chaos srv-corrupt-shard-healed (the server half is its dc scenario).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "docs/contract.pdf", "size": 20000, "seed": 41 },
+      { "op": "drive_write", "device": "a", "path": "docs/invoice.pdf", "size": 9000, "seed": 42 },
+      { "op": "drive_write", "device": "a", "path": "docs/notes.txt", "text": "the notes" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "docs/contract.pdf", "keep": 0 },
+      { "op": "drive_open", "device": "b", "remote": "r", "clock": 31536000 },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "docs/contract.pdf" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/contract.pdf", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/invoice.pdf", "same_as": "{root:a}/docs/invoice.pdf" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/notes.txt", "text": "the notes" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "docs/contract.pdf", "when": "last" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/contract.pdf", "absent": true },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "docs/contract.pdf", "size": 20000 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a stored object the server lost entirely (the index still names it): listed, nothing written, nothing deleted",
+    "description": "ICEDRIVE-012 (Icedrive): an object gone from the store. Rules D6 and O1: a remote entry whose content cannot be read is unknown, never a deletion and never an empty file; it is listed while every other file syncs.",
+    "pending": "drive_tamper action drop_blob {remote, key}: removes the file's stored object while the index still names it (an object the server lost)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "docs/contract.pdf", "size": 20000, "seed": 41 },
+      { "op": "drive_write", "device": "a", "path": "docs/invoice.pdf", "size": 9000, "seed": 42 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "drop_blob", "key": "docs/contract.pdf" },
+      { "op": "drive_open", "device": "b", "remote": "r", "clock": 31536000 },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["hash-mismatch", "remote-entry-unreadable"], "key": "docs/contract.pdf" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/contract.pdf", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "docs/invoice.pdf", "same_as": "{root:a}/docs/invoice.pdf" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "docs/contract.pdf", "size": 20000 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the server's integrity scrub finds lost objects before a user does",
+    "description": "ICEDRIVE-012 (Icedrive): the store's own scrub (rule V5) is the iso server's; sync-chaos srv-corrupt-shard-healed runs it as a dc scenario.",
+    "not_applicable": "the scrub and the shards are the storage server's (iso, rule V5, dc scenario srv-corrupt-shard-healed); AzDrive's stand-in remote is a folder without shards or a scrub",
+    "steps": []
+  }
+]
