@@ -135,3 +135,34 @@ fn a_pass_crashed_before_it_moved_a_file_here_keeps_the_old_name_and_the_next_pa
     faults::clear(a.path());
     faults::clear(b.path());
 }
+
+/// A4: a pass that crashed after its commit and before it saved its base sent this device's own
+/// change; an edit made after it is no conflict with that change.
+#[test]
+fn an_edit_after_a_pass_that_crashed_after_its_commit_is_no_conflict() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-lost-ack");
+    let state = TempDir::new("azcloud-faults-lost-ack-state");
+    fs::write(folder.path().join("main.swift"), "first").unwrap();
+    let session = faulted(folder.path(), state.path(), &store);
+    pass(&session).expect("the first pass");
+    fs::write(folder.path().join("main.swift"), "second").unwrap();
+    faults::arm_crash(folder.path(), "after-commit");
+    assert!(pass(&session).is_err(), "the pass crashes after its commit");
+    fs::write(folder.path().join("main.swift"), "third").unwrap();
+    pass(&session).expect("the next pass runs through");
+    let index = RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap();
+    assert_eq!(index.files.len(), 1, "no conflict copy on the drive: {:?}", index.files.keys());
+    assert_eq!(
+        index.files["main.swift"].hash,
+        crate::sync::local::hash_bytes(b"third")
+    );
+    let here: Vec<_> = fs::read_dir(folder.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != ".azlin")
+        .collect();
+    assert_eq!(here, ["main.swift"], "no conflict copy here");
+    faults::clear(folder.path());
+}

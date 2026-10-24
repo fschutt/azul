@@ -668,6 +668,81 @@ fn save_cache(index_path: &Path, etag: Option<&str>, index: &RemoteIndex) {
     }
 }
 
+/// What a pass sends, kept beside its base from before its first upload until the base is
+/// saved. After a pass that stopped in between, the next one takes what of it is on the drive
+/// into the base ([`adopt_sent`]).
+#[derive(Default, Serialize, Deserialize)]
+struct Sending {
+    /// Each key and the content the pass sends under it (`None`: its delete).
+    files: BTreeMap<String, Option<String>>,
+}
+
+fn sending_path(index_path: &Path) -> PathBuf {
+    index_path.with_extension("sending.json")
+}
+
+/// Notes what `actions` send (best effort: without it a pass that stops short only makes the
+/// next one compare once more).
+fn note_sending(
+    index_path: &Path,
+    actions: &[Action],
+    scan: &Scan,
+    merged: &BTreeMap<String, Merged>,
+) {
+    let mut files = BTreeMap::new();
+    for action in actions {
+        let key = match action {
+            Action::DeleteRemote { key } => {
+                files.insert(key.clone(), None);
+                continue;
+            }
+            // The conflict's copy is what goes up under a name of its own.
+            Action::Conflict { copy, .. } => copy,
+            other => other.key(),
+        };
+        if let Some(hash) = uploaded_hash(action, scan, merged) {
+            files.insert(key.to_string(), Some(hash.to_string()));
+        }
+    }
+    let path = sending_path(index_path);
+    if files.is_empty() {
+        let _ = fs::remove_file(path);
+    } else {
+        let _ = write_json(&path, &Sending { files }, true);
+    }
+}
+
+/// Takes into `base` what the last pass sent (its note beside the base) as far as `remote`
+/// holds it: a version the drive names with the content sent, a delete the drive has made.
+/// What did not land stays as the base had it.
+fn adopt_sent(index_path: &Path, remote: &RemoteIndex, base: &mut BTreeMap<String, BaseEntry>) {
+    let Ok(Some(sent)) = read_json::<Sending>(&sending_path(index_path)) else {
+        return;
+    };
+    for (key, hash) in sent.files {
+        match (hash, remote.files.get(&key)) {
+            (Some(hash), Some(file)) if file.hash == hash => {
+                if base.get(&key).is_some_and(|b| b.hash == hash) {
+                    continue;
+                }
+                base.insert(
+                    key,
+                    BaseEntry {
+                        hash,
+                        size: file.size,
+                        exec: file.exec,
+                        ..BaseEntry::default()
+                    },
+                );
+            }
+            (None, None) => {
+                base.remove(&key);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The index and its ETag (`None`: there is none yet). With `cached`, a
 /// conditional GET: a 304 answers with the cached copy.
 fn read_index<S: RemoteStore + ?Sized>(
@@ -3124,6 +3199,12 @@ fn run<R: SyncRemote + ?Sized>(
             report.generation = remote.generation;
             return Ok(report);
         }
+        // A4: what the last pass of this folder sent before it stopped short of saving its
+        // base (a crash or a kill after its commit) and that is on the drive now is this
+        // device's own last change, never another device's: the base takes it first.
+        if attempt == 1 && !opts.dry_run && remote.generation >= index.generation {
+            adopt_sent(index_path, &remote, &mut index.files);
+        }
         // S15, V3: an index older than the last one seen is a rollback (a replayed or
         // rolled-back index would resurrect deletes and turn every edit since into a conflict)
         // unless the drive announced a restore since. A restore heals from here: the files
@@ -3314,6 +3395,9 @@ fn run<R: SyncRemote + ?Sized>(
             hooks.tell(planned(&actions, &scan, &readable));
         }
         let merged = merge_json_files(remote_side, root, &actions, base, &readable, &mut report)?;
+        if !opts.dry_run {
+            note_sending(index_path, &actions, &scan, &merged);
+        }
         hooks.point("before-upload");
         let abandoned = remote_side.upload(
             &Uploads {
@@ -3419,6 +3503,8 @@ fn run<R: SyncRemote + ?Sized>(
     index.remote_etag = etag.clone().filter(|e| !e.is_empty());
     hooks.point("before-base-save");
     index.save(index_path)?;
+    // The base knows what this pass sent now.
+    let _ = fs::remove_file(sending_path(index_path));
     save_cache(index_path, index.remote_etag.as_deref(), &committed);
     report.cloud_only = index
         .files
