@@ -462,3 +462,16 @@ path.
 | op | arguments | result |
 |---|---|---|
 | `drive_mark_objects` | `remote`, `name` | `objects`: records every content object (AZL1 objects and packs, plain blobs) and its BLAKE3, for the `objects_fresh` check |
+
+### Checks of what is stored and what is left readable
+
+| check | fields | holds when |
+|---|---|---|
+| `nonces_unique` | `remote` | no nonce of an AZL1 object's public header (its segments' STREAM prefix, its info's, its trailer's) is used twice across the remote's objects; fails on a remote with no AZL1 object (nothing tested) |
+| `remote_objects_disjoint` | `remotes` (two or more) | no content object of one remote has the bytes of one of another (no deduplication across accounts) |
+| `objects_fresh` | `remote`, `since` (a `drive_mark_objects` name) | no content object stored now has the key or the bytes of one recorded then (a purge removed them; an upload of the same bytes is new ciphertext) |
+| `logs_never_have` | `marker` | no file of AzDrive's own folders (`AZLIN_DATA`, `AZDRIVE_CACHE`, `AZDRIVE_HOME`, the drives file, the run's cache folder) that others can read holds `marker` in its name or bytes; private files (no group or other permission), the pairings' state folders, the devices' folders, the remotes and the outside folder are not searched |
+| `logs_clean` | `device` | the same for the name of every file (five bytes or more) in the device's folder |
+
+`argv_clean` (no child process carries a secret) stays sync-chaos's: AzDrive has no seam that
+records the processes it starts.

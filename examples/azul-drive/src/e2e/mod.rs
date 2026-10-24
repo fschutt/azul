@@ -21,6 +21,7 @@ mod tamper;
 mod b_faults;
 mod b_files;
 mod b_tamper;
+mod b_checks;
 
 // The stand-in remote under azcloud-kit's real folder sync.
 #[cfg(test)]
@@ -516,6 +517,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_tamper" if b_tamper::owns(args) => b_tamper::tamper(s, args),
         "drive_tamper" => tamper::tamper(s, args),
         "drive_snapshot" => tamper::snapshot(args),
+        "drive_check" if b_checks::owns(args) => b_checks::check(s, args),
         "drive_check" => checks::check(s, args),
         // Group C: keys, recovery, share links.
         "drive_recover" => c_keys::recover(s, args),

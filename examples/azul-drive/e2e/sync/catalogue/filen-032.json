@@ -21,7 +21,6 @@
   {
     "name": "FILEN-032: a flipped byte in an encrypted object fails its authentication: the file is listed and never written, the old version stays",
     "description": "FILEN-032 (Filen): ciphertexts without authentication. Rules M2, S15 (a chunk tampered with fails its AEAD, the file is listed, never written). sync-chaos crypto-malicious-server (pending).",
-    "pending": "drive_tamper action 'corrupt_object' {key, byte} on an encrypted remote (flip one byte of the file's stored AZL1 object; today the damaging actions fail there) and drive_check nonces_unique {remote} (no nonce repeats across the remote's objects)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

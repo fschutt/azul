@@ -37,7 +37,7 @@
   {
     "name": "FILEN-029: no secret appears in the command line of any process AzDrive starts",
     "description": "FILEN-029 (Filen): a managed rclone was started with --rc-pass and an obscured API key on its command line (visible in /proc/<pid>/cmdline). Rule S19: keys never in argv or logs.",
-    "pending": "drive_check argv_clean {device} (no child process AzDrive started carried a key, a token or a password in its argv) and logs_clean {device} (AzDrive's logs hold no key and no file name); nothing records child processes or scans the logs today",
+    "pending": "drive_check argv_clean {device} (no child process AzDrive started carried a key, a token or a password in its argv): AzDrive starts its child processes (the system's opener, its helpers) through std::process::Command in several places and nothing records them; the check needs one spawn seam that records every child's argv in E2E runs",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -46,6 +46,20 @@
       { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "argv_clean", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-029: no file AzDrive leaves readable by others names a synced file",
+    "description": "FILEN-029 (Filen): secrets and names in places other users can read. Rule S19: keys and file names never in logs; what names files is kept private (0600).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "tax-return-2026.pdf", "text": "x" },
+      { "op": "drive_write", "device": "a", "path": "letters/to-the-doctor.txt", "text": "y" },
+      { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "logs_clean", "device": "a" },
       { "op": "drive_cleanup" }
     ]

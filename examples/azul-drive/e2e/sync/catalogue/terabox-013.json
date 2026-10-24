@@ -24,8 +24,6 @@
   {
     "name": "the same file in two encrypted drives (two accounts) is stored as different objects: no cross-account deduplication",
     "description": "TERABOX-013 (TeraBox): deduplication across accounts lets a provider (or an attacker) confirm a user holds a known file. Rule I1 (per-file keys; never dedup ciphertext across accounts or across a permanent delete).",
-    "pending": "drive_check {\"check\": \"remote_objects_disjoint\", \"remotes\": [\"r1\", \"r2\"]}: no stored object (by bytes or content hash) of one remote equals one of the other",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r1", "encrypted": true },
       { "op": "drive_create", "remote": "r2", "encrypted": true },

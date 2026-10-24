@@ -21,7 +21,6 @@
   {
     "name": "no log, crash report or telemetry payload holds a file name",
     "description": "SYNCCOM-021 (Sync.com): file names in logs and Sentry reports. Rule S19: file names never go into logs or crash reports.",
-    "pending": "drive_check {\"check\":\"logs_never_have\",\"device\":\"a\",\"marker\":\"canary-diagnosis-7f3a\"} (no AzDrive log, crash report or telemetry payload outside the 0600 state folder holds a file name)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
