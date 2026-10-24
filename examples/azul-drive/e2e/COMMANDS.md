@@ -220,7 +220,7 @@ what the engine's free-space check and local writes see through the fault seam
 | op | arguments |
 |---|---|
 | `drive_tamper` | `remote`, `action`, and the action's fields (below) |
-| `drive_snapshot` | `remote`, `name`: keeps the remote's index as it is now |
+| `drive_snapshot` | `remote`, `name`: keeps the remote's index as it is now (a valid empty one while it has none) |
 
 Actions (a hostile or broken server, past every device's fault layer): `put` (`key`, content,
 `exec`, `writer` (device name)) adds a file the engine's way; `delete` (`key`) a tombstone;

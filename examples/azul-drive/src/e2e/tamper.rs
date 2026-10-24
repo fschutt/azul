@@ -264,9 +264,11 @@ pub(crate) fn snapshot(args: &Args) -> Answer {
             "an encrypted remote's index is not one object: snapshots need \"encrypted\": false",
         ));
     }
+    // A remote without an index yet is kept as a valid empty one: what a server answers for
+    // a drive it holds nothing of.
     let bytes = remote
         .read(&index_key(&remote.prefix))
-        .ok_or("the remote has no index yet")?;
+        .unwrap_or_else(|| azcloud_kit::sync::remote::RemoteIndex::empty().to_bytes());
     remote
         .snapshots
         .lock()
