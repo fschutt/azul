@@ -1476,7 +1476,7 @@ azdrive-archive-rescue-missing = { $missing ->
     } not copied to { $folder } yet ({ $names }). AzDrive tries again at its next look.
 azdrive-archive-rescue-no-space = This computer has too little free space to copy the drive: { $needed } needed, { $free } free. Free some space, or copy it elsewhere with "Copy everything to this computer".
 azdrive-archive-open-copy = Open the copy
-azdrive-archive-locked = "{ $drive }" was locked on { $locked } because it stayed unpaid for 104 days after { $paid }. Its files were moved to offline storage; nothing was deleted. To get it back, prove that it is yours and pay the time it was kept for you (at least { $months ->
+azdrive-archive-locked = "{ $drive }" was locked on { $locked } because it stayed unpaid for 104 days after { $paid }. Its files were moved to offline storage; nothing was deleted. To get it back, prove that it is yours and pay for the time it was kept for you ({ $months ->
         [one] 1 month
        *[other] { $months } months
     }). Restoring it can take some days. Files you copied to this computer stay where they are.

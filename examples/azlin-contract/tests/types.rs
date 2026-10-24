@@ -549,32 +549,34 @@ mod renewal {
 
 mod archive {
     use azlin_contract::{
-        archive_proof_message, device_key_message, months_owed, paid_through_lock,
+        archive_proof_message, device_key_message, months_owed, paid_through, pay_through,
         period_after_restore, ArchiveRefusal, ArchiveState, ArchiveWire, RedeemRefusal,
-        RefreshRefusal, ARCHIVE_DEBT_SECS, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, READ_ONLY_SECS,
-        WRITABLE_GRACE_SECS,
+        RefreshRefusal, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, LOCK_AFTER_SECS, READ_ONLY_SECS,
+        RESTORE_OWED_SECS, WRITABLE_GRACE_SECS,
     };
 
     const DAY: i64 = 86_400;
     const UNTIL: i64 = 1_791_255_600;
 
     #[test]
-    fn a_locked_drive_owes_its_grace_and_its_read_only_time_and_nothing_for_the_archive() {
-        assert_eq!(ARCHIVE_DEBT_SECS, WRITABLE_GRACE_SECS + READ_ONLY_SECS);
-        assert_eq!(ARCHIVE_DEBT_SECS, 104 * DAY);
-        let locked = UNTIL + ARCHIVE_DEBT_SECS;
-        // 104 days are three months and a half: four months of 30 days pay them
-        assert_eq!(months_owed(UNTIL, locked), 4);
-        assert_eq!(months_owed(UNTIL + 3 * INSTALMENT_SECS, locked), 1);
-        assert_eq!(months_owed(locked, locked), 0);
-        assert!(!paid_through_lock(UNTIL + 3 * INSTALMENT_SECS, locked));
-        assert!(paid_through_lock(UNTIL + 4 * INSTALMENT_SECS, locked));
-        // back two years later: the 16 days paid beyond the lock start now, the two years in
-        // offline storage cost nothing
+    fn a_drive_locks_104_days_after_its_period_and_its_owner_pays_three_months_to_get_it_back() {
+        assert_eq!(LOCK_AFTER_SECS, WRITABLE_GRACE_SECS + READ_ONLY_SECS);
+        assert_eq!(LOCK_AFTER_SECS, 104 * DAY);
+        assert_eq!(RESTORE_OWED_SECS, 3 * INSTALMENT_SECS);
+        let locked = UNTIL + LOCK_AFTER_SECS;
+        let through = pay_through(locked);
+        assert_eq!(through, UNTIL + 90 * DAY, "three months after its old period end");
+        assert_eq!(months_owed(UNTIL, through), 3);
+        assert_eq!(months_owed(UNTIL + 2 * INSTALMENT_SECS, through), 1);
+        assert_eq!(months_owed(through, through), 0);
+        assert!(!paid_through(UNTIL + 2 * INSTALMENT_SECS, through));
+        assert!(paid_through(UNTIL + 3 * INSTALMENT_SECS, through), "a three-month checkout");
+        // back two years later with six months paid: the three beyond start now, the two years
+        // in offline storage cost nothing
         let now = locked + 730 * DAY;
-        let paid = UNTIL + 4 * INSTALMENT_SECS;
-        assert_eq!(period_after_restore(paid, locked, now), now + 16 * DAY);
-        assert_eq!(period_after_restore(locked, locked, now), now);
+        let paid = UNTIL + 6 * INSTALMENT_SECS;
+        assert_eq!(period_after_restore(paid, through, now), now + 90 * DAY);
+        assert_eq!(period_after_restore(through, through, now), now);
     }
 
     #[test]

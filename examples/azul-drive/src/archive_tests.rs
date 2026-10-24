@@ -35,12 +35,12 @@ fn unpaid(read_only: bool) -> DriveStatus {
     }
 }
 
+/// Locked 104 days after its last paid day, to be paid through three months after it.
 fn locked(state: ArchiveState, proven: bool) -> ArchiveWire {
-    let at = Rfc3339::from_unix(i64::try_from(PAID + 104 * DAY).unwrap());
     ArchiveWire {
         state,
-        locked_at: at.clone(),
-        pay_through: at,
+        locked_at: Rfc3339::from_unix(i64::try_from(PAID + 104 * DAY).unwrap()),
+        pay_through: Rfc3339::from_unix(i64::try_from(PAID + 90 * DAY).unwrap()),
         proven,
     }
 }
@@ -81,11 +81,11 @@ fn an_unpaid_drive_is_in_grace_then_read_only_then_locked_with_its_days() {
 }
 
 #[test]
-fn a_locked_drive_owes_its_grace_and_read_only_time_in_months_of_thirty_days() {
+fn a_locked_drive_owes_three_months_of_thirty_days() {
     let wire = locked(ArchiveState::Locked, true);
-    assert_eq!(months_needed(&wire, Some(PAID)), 4, "104 days");
-    assert_eq!(months_needed(&wire, Some(PAID + 90 * DAY)), 1, "14 days left");
-    assert_eq!(months_needed(&wire, Some(PAID + 104 * DAY)), 0, "paid through");
+    assert_eq!(months_needed(&wire, Some(PAID)), 3);
+    assert_eq!(months_needed(&wire, Some(PAID + 60 * DAY)), 1, "one month left");
+    assert_eq!(months_needed(&wire, Some(PAID + 90 * DAY)), 0, "paid through");
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn the_bar_and_the_locked_page_say_what_happens_when_and_how_to_get_it_back() {
     };
     let page = stage_phrase("Photos", &lock(ArchiveState::Locked, false));
     assert_eq!(page.key, "azdrive-archive-locked");
-    assert_eq!(arg_text(&page, "months").as_deref(), Some("4"));
+    assert_eq!(arg_text(&page, "months").as_deref(), Some("3"));
     assert_eq!(arg_text(&page, "paid").as_deref(), Some("2026-07-01"));
     assert_eq!(
         stage_phrase("Photos", &lock(ArchiveState::Locked, true)).key,

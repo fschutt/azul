@@ -20,7 +20,7 @@
 //!   map's epoch in [`MAP_HEADER`].
 //! - A locked drive ([`ArchiveWire`]): unpaid past its read-only time, its files in offline
 //!   storage; its owner gets it back with a signed [`ArchiveProof`] of an [`ArchiveChallenge`]
-//!   and by paying the time it was kept ([`ARCHIVE_DEBT_SECS`]).
+//!   and by paying the three months it was kept for them ([`RESTORE_OWED_SECS`]).
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
 //! exactly them, and the services check [`fixtures_digest`] against the digest they were built
@@ -39,10 +39,10 @@ mod renewal;
 mod time;
 
 pub use archive::{
-    archive_proof_message, device_key_message, months_owed, paid_through_lock,
+    archive_proof_message, device_key_message, months_owed, paid_through, pay_through,
     period_after_restore, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState,
     ArchiveWire, DeviceKeyAnswer, DeviceKeyRegistration, ProofKey, ARCHIVE_CHALLENGE_SECS,
-    ARCHIVE_DEBT_SECS, ARCHIVE_KEEP_SECS,
+    ARCHIVE_KEEP_SECS, LOCK_AFTER_SECS, RESTORE_OWED_SECS,
 };
 pub use checkout::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,

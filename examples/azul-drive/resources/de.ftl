@@ -1474,7 +1474,7 @@ azdrive-archive-rescue-missing = { $missing ->
     } noch nicht nach { $folder } kopiert ({ $names }). AzDrive versucht es beim nächsten Blick wieder.
 azdrive-archive-rescue-no-space = Auf diesem Computer ist zu wenig Platz, um das Laufwerk zu kopieren: { $needed } nötig, { $free } frei. Schaffe Platz oder kopiere es mit „Alles auf diesen Computer kopieren“ an einen anderen Ort.
 azdrive-archive-open-copy = Kopie öffnen
-azdrive-archive-locked = „{ $drive }“ wurde am { $locked } gesperrt, weil es nach dem { $paid } 104 Tage unbezahlt blieb. Seine Dateien wurden in einen Offline-Speicher verschoben; gelöscht wurde nichts. Um es zurückzubekommen, weise nach, dass es dir gehört, und bezahle die Zeit, in der es für dich aufbewahrt wurde (mindestens { $months ->
+azdrive-archive-locked = „{ $drive }“ wurde am { $locked } gesperrt, weil es nach dem { $paid } 104 Tage unbezahlt blieb. Seine Dateien wurden in einen Offline-Speicher verschoben; gelöscht wurde nichts. Um es zurückzubekommen, weise nach, dass es dir gehört, und bezahle die Zeit, in der es für dich aufbewahrt wurde ({ $months ->
         [one] 1 Monat
        *[other] { $months } Monate
     }). Die Wiederherstellung kann einige Tage dauern. Dateien, die du auf diesen Computer kopiert hast, bleiben, wo sie sind.

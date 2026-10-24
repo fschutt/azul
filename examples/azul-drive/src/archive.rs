@@ -25,7 +25,7 @@ use std::{
 
 use azcloud_kit::{
     azlin_contract::{
-        months_owed, ArchiveState, ArchiveWire, ProofKey, ARCHIVE_DEBT_SECS, WRITABLE_GRACE_SECS,
+        months_owed, ArchiveState, ArchiveWire, ProofKey, LOCK_AFTER_SECS, WRITABLE_GRACE_SECS,
     },
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
 };
@@ -97,7 +97,7 @@ pub(crate) fn stage_of(status: &DriveStatus, now: u64) -> Option<Stage> {
         return None;
     }
     let grace = u64::try_from(WRITABLE_GRACE_SECS).unwrap_or(0);
-    let debt = u64::try_from(ARCHIVE_DEBT_SECS).unwrap_or(0);
+    let debt = u64::try_from(LOCK_AFTER_SECS).unwrap_or(0);
     let read_only_at = period_until + grace;
     let locks_at = period_until + debt;
     if now < read_only_at && !status.payment_due() {
@@ -151,7 +151,7 @@ pub(crate) fn stage_phrase(drive: &str, stage: &Stage) -> Phrase {
             Phrase::new("azdrive-archive-restore-pending").arg("drive", drive)
         }
         Stage::Locked { wire, period_until } => {
-            let paid = wire.locked_at.unix() - ARCHIVE_DEBT_SECS;
+            let paid = wire.locked_at.unix() - LOCK_AFTER_SECS;
             let key = if wire.proven {
                 "azdrive-archive-locked-proven"
             } else {

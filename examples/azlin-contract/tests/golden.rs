@@ -207,13 +207,13 @@ fn every_refresh_refusal_reads_and_writes_its_fixture() {
     golden("refresh_refusals.json", &refusals);
 }
 
-/// A drive locked on 2026-10-24, its owner's proof given or not.
+/// A drive locked on 2026-10-24 (unpaid since 2026-07-12), to be paid through 2026-10-10 (three
+/// months after that), its owner's proof given or not.
 fn locked_wire(proven: bool) -> ArchiveWire {
-    let locked = Rfc3339::parse("2026-10-24T00:00:00Z").expect("time");
     ArchiveWire {
         state: ArchiveState::Locked,
-        locked_at: locked.clone(),
-        pay_through: locked,
+        locked_at: Rfc3339::parse("2026-10-24T00:00:00Z").expect("time"),
+        pay_through: Rfc3339::parse("2026-10-10T00:00:00Z").expect("time"),
         proven,
     }
 }

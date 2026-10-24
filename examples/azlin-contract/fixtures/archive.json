@@ -3,12 +3,12 @@
     {
       "state": "locked",
       "locked_at": "2026-10-24T00:00:00Z",
-      "pay_through": "2026-10-24T00:00:00Z"
+      "pay_through": "2026-10-10T00:00:00Z"
     },
     {
       "state": "restore_pending",
       "locked_at": "2026-10-24T00:00:00Z",
-      "pay_through": "2026-10-24T00:00:00Z",
+      "pay_through": "2026-10-10T00:00:00Z",
       "proven": true
     }
   ],

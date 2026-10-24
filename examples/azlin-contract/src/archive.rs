@@ -12,10 +12,11 @@
 //!   ([`ArchiveChallenge`]) and signs [`archive_proof_message`] with one of the drive's
 //!   recovery keys or with the key of one of its devices ([`ArchiveProof`]). No key, no
 //!   restore.
-//! - **Payment**: the time the drive was kept unpaid, its grace and its read-only time
-//!   ([`ARCHIVE_DEBT_SECS`]), is paid first: period tokens redeemed on a locked drive count from
-//!   its old period end, and the drive is brought back once its period reaches the day it was
-//!   locked ([`ArchiveWire::pay_through`]). Days paid beyond that start when it is back.
+//! - **Payment**: the three months the drive was kept for its owner unpaid ([`RESTORE_OWED_SECS`])
+//!   are paid first: period tokens redeemed on a locked drive count from its old period end, and
+//!   the drive is brought back once its period reaches [`ArchiveWire::pay_through`], three months
+//!   after that end. Days paid beyond it start when the drive is back; the time it spent in
+//!   offline storage costs nothing.
 //!
 //! Then an operator copies the files back from offline storage, which can take some days, and
 //! the drive opens again as it was.
@@ -25,9 +26,13 @@ use serde::{Deserialize, Serialize};
 use crate::renewal::{READ_ONLY_SECS, WRITABLE_GRACE_SECS};
 use crate::time::Rfc3339;
 
-/// The time an unpaid drive is kept before it is locked: its writable grace and its read-only
-/// time. Its owner pays it before the drive is brought back.
-pub const ARCHIVE_DEBT_SECS: i64 = WRITABLE_GRACE_SECS + READ_ONLY_SECS;
+/// How long after its period's end an unpaid drive is locked: its writable grace and its
+/// read-only time, 104 days.
+pub const LOCK_AFTER_SECS: i64 = WRITABLE_GRACE_SECS + READ_ONLY_SECS;
+
+/// What a locked drive's owner pays before it is brought back: three months (of
+/// [`crate::INSTALMENT_SECS`]) for the time it was kept for them unpaid.
+pub const RESTORE_OWED_SECS: i64 = 3 * crate::period::INSTALMENT_SECS;
 
 /// How long an archive is kept at the least: ten years. No age deletes an archive; after this
 /// an operator looks at it.
@@ -49,25 +54,32 @@ pub fn device_key_message(drive_id: &str, public_key: &str) -> String {
     format!("device-key:{drive_id}:{public_key}")
 }
 
-/// Whether a locked drive paid until `period_until` is paid far enough to be brought back:
-/// through the day it was locked (`locked_at`). Both in seconds since 1970.
+/// The day a drive locked at `locked_at` must be paid through before it is brought back:
+/// [`RESTORE_OWED_SECS`] after its old period end. Seconds since 1970.
 #[must_use]
-pub fn paid_through_lock(period_until: i64, locked_at: i64) -> bool {
-    period_until >= locked_at
+pub fn pay_through(locked_at: i64) -> i64 {
+    locked_at - LOCK_AFTER_SECS + RESTORE_OWED_SECS
 }
 
-/// The drive's period once it is back at `now`: the days paid beyond the day it was locked
-/// start now, so its owner pays nothing for the time its files spent in offline storage.
+/// Whether a locked drive paid until `period_until` is paid far enough to be brought back:
+/// through `pay_through`. Both in seconds since 1970.
 #[must_use]
-pub fn period_after_restore(period_until: i64, locked_at: i64, now: i64) -> i64 {
-    now + (period_until - locked_at).max(0)
+pub fn paid_through(period_until: i64, pay_through: i64) -> bool {
+    period_until >= pay_through
+}
+
+/// The drive's period once it is back at `now`: the days paid beyond `pay_through` start now,
+/// so its owner pays nothing for the time its files spent in offline storage.
+#[must_use]
+pub fn period_after_restore(period_until: i64, pay_through: i64, now: i64) -> i64 {
+    now + (period_until - pay_through).max(0)
 }
 
 /// The months (of [`crate::INSTALMENT_SECS`]) a locked drive paid until `period_until` still
-/// needs to reach the day it was locked; 0 when it is paid through.
+/// needs to reach `pay_through`; 0 when it is paid through.
 #[must_use]
-pub fn months_owed(period_until: i64, locked_at: i64) -> u32 {
-    let owed = locked_at - period_until;
+pub fn months_owed(period_until: i64, pay_through: i64) -> u32 {
+    let owed = pay_through - period_until;
     if owed <= 0 {
         return 0;
     }
@@ -97,7 +109,8 @@ pub struct ArchiveWire {
     pub state: ArchiveState,
     /// When it was locked.
     pub locked_at: Rfc3339,
-    /// The day its period must reach before it is brought back: the day it was locked.
+    /// The day its period must reach before it is brought back ([`pay_through`]): three months
+    /// after its old period end.
     pub pay_through: Rfc3339,
     /// Its owner proved the drive is theirs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
