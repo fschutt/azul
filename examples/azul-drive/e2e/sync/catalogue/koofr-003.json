@@ -1,0 +1,23 @@
+{
+  "name": "a file's modification time arrives on the other device as written, and nothing is sent back",
+  "description": "KOOFR-003 (Koofr desktop before June 2020): downloaded copies got the download time, breaking mtime-based change detection and backup tools. Rules P6 and P12: modification times travel and are set on downloads, and setting them sends nothing again. sync-chaos port-mtime-roundtrip.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "minutes.txt", "mtime": 981173106789000000, "text": "the minutes of 2001" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "minutes.txt", "ns": 981173106789000000, "tolerance_ns": 1000 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "assert_response", "path": "result.up", "equals": 0 },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_check", "check": "mtime", "device": "a", "path": "minutes.txt", "ns": 981173106789000000 },
+    { "op": "drive_cleanup" }
+  ]
+}

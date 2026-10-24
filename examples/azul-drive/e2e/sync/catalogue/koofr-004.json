@@ -1,0 +1,26 @@
+{
+  "name": "a touch of a large synced file sends no content, and the file never disappears from the drive or the other device",
+  "description": "KOOFR-004 (Koofr API, used by rclone): an mtime-only change needs a delete and a full re-upload, a window in which the file is absent. Rule P12: a touch alone sends nothing; the time is a hint, the content identity is unchanged. sync-chaos perf-delta-upload, port-mtime-roundtrip.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "video.bin", "size": 33554432, "seed": 4, "mtime": 1600000000000000000 },
+    { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+    { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+    { "op": "drive_utime", "device": "a", "path": "video.bin", "mtime": 1700000000000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "assert_response", "path": "result.up", "equals": 0 },
+    { "op": "assert_response", "path": "result.deleted", "equals": 0 },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_check", "check": "remote_file", "key": "video.bin", "same_as": "video.bin", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "assert_response", "path": "result.down", "equals": 0 },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "video.bin", "same_as": "{root:a}/video.bin" },
+    { "op": "drive_check", "check": "trash_empty", "device": "b" },
+    { "op": "drive_cleanup" }
+  ]
+}
