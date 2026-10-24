@@ -5,7 +5,7 @@ use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
     AppName, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState, ArchiveWire,
-    AzlinError, BanWire, BucketName, DeviceKeyAnswer, DeviceKeyRegistration, ProofKey, Cents, CheckoutId, ClientHello, ClientTooOld,
+    AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, ClientTooOld,
     Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
     Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
@@ -224,8 +224,6 @@ struct ArchiveFixture {
     challenge: ArchiveChallenge,
     proofs: Vec<ArchiveProof>,
     refusals: Vec<ArchiveRefusal>,
-    device_key: DeviceKeyRegistration,
-    device_key_answer: DeviceKeyAnswer,
 }
 
 #[test]
@@ -241,18 +239,19 @@ fn a_locked_drive_its_challenge_its_proofs_and_their_refusals_read_and_write_the
         ],
         challenge: ArchiveChallenge {
             challenge: challenge.clone(),
+            nonce: "q3Zx0aB1cD2eF3gH4iJ5kL6m".into(),
             expires_at: Rfc3339::parse("2026-10-21T08:05:00Z").expect("time"),
         },
         proofs: vec![
             ArchiveProof {
                 challenge: challenge.clone(),
-                key: ProofKey::RecoveryKey,
+                checkout_id: Some("ck_4n2v8r6tqe".into()),
                 key_id: Some("rk_legacy".into()),
                 signature: "c2lnbmF0dXJl".into(),
             },
             ArchiveProof {
                 challenge,
-                key: ProofKey::DeviceKey,
+                checkout_id: None,
                 key_id: None,
                 signature: "c2lnbmF0dXJl".into(),
             },
@@ -265,14 +264,9 @@ fn a_locked_drive_its_challenge_its_proofs_and_their_refusals_read_and_write_the
             ArchiveRefusal::NoKey,
             ArchiveRefusal::NotArchived,
             ArchiveRefusal::NotVerified,
+            ArchiveRefusal::CheckoutNotPaid,
+            ArchiveRefusal::CheckoutOtherTier,
         ],
-        device_key: DeviceKeyRegistration {
-            public_key: "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=".into(),
-            signature: "c2lnbmF0dXJl".into(),
-        },
-        device_key_answer: DeviceKeyAnswer {
-            key_id: "dk_k3f9x2mq7a".into(),
-        },
     };
     golden("archive.json", &fixture);
 }

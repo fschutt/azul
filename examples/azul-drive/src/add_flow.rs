@@ -1780,6 +1780,8 @@ pub(crate) fn renewed(
 ) {
     println!("AZDRIVE_RENEWED {checkout_id} {drive_id} {months}");
     s.in_flight.retain(|c| c.checkout_id != checkout_id);
+    // a locked drive: the payment is named in a proof, so it counts at once
+    crate::archive::renewed(info, app, s, drive_id, checkout_id);
     crate::cash::claimed(s, checkout_id);
     let name = s.drive_name(&Place::folder(drive_id, ""));
     s.success(

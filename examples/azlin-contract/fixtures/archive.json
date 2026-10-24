@@ -14,18 +14,18 @@
   ],
   "challenge": {
     "challenge": "ac1.d_k3f9x2mq7a.1792569900.q3Zx0aB1cD2eF3gH4iJ5kL6m.g1:00ff",
+    "nonce": "q3Zx0aB1cD2eF3gH4iJ5kL6m",
     "expires_at": "2026-10-21T08:05:00Z"
   },
   "proofs": [
     {
       "challenge": "ac1.d_k3f9x2mq7a.1792569900.q3Zx0aB1cD2eF3gH4iJ5kL6m.g1:00ff",
-      "key": "recovery_key",
+      "checkout_id": "ck_4n2v8r6tqe",
       "key_id": "rk_legacy",
       "signature": "c2lnbmF0dXJl"
     },
     {
       "challenge": "ac1.d_k3f9x2mq7a.1792569900.q3Zx0aB1cD2eF3gH4iJ5kL6m.g1:00ff",
-      "key": "device_key",
       "signature": "c2lnbmF0dXJl"
     }
   ],
@@ -50,13 +50,12 @@
     },
     {
       "error": "not_verified"
+    },
+    {
+      "error": "checkout_not_paid"
+    },
+    {
+      "error": "checkout_other_tier"
     }
-  ],
-  "device_key": {
-    "public_key": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
-    "signature": "c2lnbmF0dXJl"
-  },
-  "device_key_answer": {
-    "key_id": "dk_k3f9x2mq7a"
-  }
+  ]
 }

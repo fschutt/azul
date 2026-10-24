@@ -415,6 +415,17 @@ pub(crate) enum Job {
         keyring: SharedKeyring,
         drive_id: String,
         via: crate::archive::ProveWith,
+        /// The paid checkout the proof unlocks (its months count at once), when there is one.
+        checkout: Option<String>,
+    },
+    /// This computer's own key of the Azlin drive `drive_id` registered as one of its recovery
+    /// keys, `signer` (the recovery code's key) signing the addition
+    /// ([`crate::archive::register_device_key_now`]).
+    RegisterDeviceKey {
+        token_url: String,
+        keyring: SharedKeyring,
+        drive_id: String,
+        signer: azcloud_kit::RecoveryKey,
     },
     /// The copy of the read-only Azlin drive `drive_id` (`source`, opened) to this computer,
     /// into `folder`; `home`'s disk must have the room; `state` keeps how far it got
@@ -736,10 +747,16 @@ pub(crate) enum Outcome {
         months: u32,
     },
     PlanCancelled { drive_id: String, result: Result<(), String> },
-    /// A proof of a locked drive answered (its Azlin id).
+    /// A proof of a locked drive answered (its Azlin id), with the checkout it named.
     ArchiveProven {
         drive_id: String,
+        checkout: Option<String>,
         result: Result<azcloud_kit::ProofAnswer, String>,
+    },
+    /// This computer's key of an Azlin drive registered as one of its recovery keys (its id).
+    DeviceKeyRegistered {
+        drive_id: String,
+        result: Result<String, String>,
     },
     /// How far a read-only drive's copy to this computer got (its Azlin id).
     RescueProgress {
@@ -2843,17 +2860,6 @@ fn redeem_periods(
             continue;
         };
         let look = look_at_drive(&server, keyring, store, &tokens, now);
-        // this device's key, which proves the owner if the drive is ever locked: registered
-        // while the drive is open, once (a failure is tried again at the next look)
-        if look
-            .status
-            .as_ref()
-            .is_some_and(|status| !status.locked() && status.ban.is_none())
-        {
-            if let Err(e) = azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id) {
-                eprintln!("[azdrive] the device key of {drive_id} waits for the next look: {e}");
-            }
-        }
         renewals.push((
             drive_id.clone(),
             renewal_seen(&server, keyring, store, &tokens, &look, azlin.as_ref(), now),
@@ -3422,8 +3428,19 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             drive_id,
             via,
+            checkout,
         } => Outcome::ArchiveProven {
-            result: crate::archive::prove(&token_url, &keyring, &drive_id, &via),
+            result: crate::archive::prove(&token_url, &keyring, &drive_id, &via, checkout.as_deref()),
+            drive_id,
+            checkout,
+        },
+        Job::RegisterDeviceKey {
+            token_url,
+            keyring,
+            drive_id,
+            signer,
+        } => Outcome::DeviceKeyRegistered {
+            result: crate::archive::register_device_key_now(&token_url, &keyring, &drive_id, &signer),
             drive_id,
         },
         Job::Rescue {

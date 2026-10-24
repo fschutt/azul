@@ -685,9 +685,16 @@ extern "C" fn on_drill_check(mut data: RefAny, mut info: CallbackInfo) -> Update
         let known = state_of(&s.settings.recovery.drives, &drive_id)
             .and_then(|state| state.recovery_key.clone());
         let answer = drill_answer(known.as_deref(), &drive_id, typed);
+        // the code is at hand: this computer's own key becomes one of the drive's recovery keys
+        // (once), so a locked drive comes back to it without the code typed again
+        let signer = RecoveryCode::parse(typed)
+            .map(|code| crate::encryption::recovery_key_of(&code, &drive_id));
         let error = match answer {
             DrillAnswer::Passed => {
                 drill_passed(info, app, s, &drive_id, None);
+                if let Some(signer) = signer {
+                    crate::archive::register_device_key(info, app, s, &drive_id, signer);
+                }
                 return;
             }
             DrillAnswer::AskTheBucket(code) => {

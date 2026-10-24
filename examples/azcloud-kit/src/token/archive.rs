@@ -1,15 +1,15 @@
 //! A locked drive's way back. A drive unpaid past its read-only time is locked and its files
 //! move to offline storage; the token server gives it back only to its owner, and it keeps no
 //! name or address to know the owner by. So the owner proves it with a key only the owner has:
-//! one of the drive's recovery keys (from the recovery code) or the key this device registered
-//! while the drive was open ([`crate::device_key`]). The token server's challenge is signed and
-//! answered once; then the owner pays the time the drive was kept unpaid, and the files come
-//! back.
+//! one of the drive's recovery keys - the recovery code's, or this device's own key registered as
+//! one while the code was at hand ([`crate::device_key`]). The signature covers the token
+//! server's challenge as an [`archive_statement`] - its purpose, the drive, the nonce, the expiry
+//! and the paid checkout it unlocks - and counts once; the checkout pays the three months the
+//! drive owes, and the files come back.
 
 use super::*;
 use azlin_contract::{
-    archive_proof_message, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveWire,
-    DeviceKeyAnswer, DeviceKeyRegistration, ProofKey,
+    archive_statement, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveWire,
 };
 
 /// What a proof came to.
@@ -61,8 +61,9 @@ impl TokenServer<'_> {
             .map_err(|_| TokenError::Protocol(String::from("the challenge does not read")))
     }
 
-    /// Proves the locked drive `drive_id` is this owner's: a challenge, `sign` signs
-    /// [`archive_proof_message`] of it with the `key` (`key_id`, when known: which one), then
+    /// Proves the locked drive `drive_id` is this owner's: a challenge, `sign` signs its
+    /// [`archive_statement`] with one of the drive's recovery keys (`key_id`, when known: which
+    /// one) naming the paid checkout `checkout_id` it unlocks (none: the proof alone), then
     /// `POST /v1/drives/{id}/archive/proof`.
     ///
     /// # Errors
@@ -70,22 +71,29 @@ impl TokenServer<'_> {
     /// [`TokenError::Config`] when `sign` cannot sign (nothing is sent); the token server's
     /// refusals as [`TokenError::Refused`] with the contract's code: `bad_signature` (no key of
     /// the drive signed it), `no_key` (the drive has none: it cannot be brought back),
-    /// `challenge_used`, `bad_challenge`, `not_archived`, `not_verified`.
+    /// `challenge_used`, `bad_challenge`, `not_archived`, `not_verified`, `checkout_not_paid`,
+    /// `checkout_other_tier`.
     pub fn archive_prove(
         &self,
         drive_id: &str,
         drive_token: &str,
-        key: ProofKey,
+        checkout_id: Option<&str>,
         key_id: Option<&str>,
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<ProofAnswer, TokenError> {
         let id = check_id(drive_id)?;
         let challenge = self.archive_challenge(id, drive_token)?;
-        let signature = sign(archive_proof_message(id, &challenge.challenge).as_bytes())
+        let statement = archive_statement(
+            id,
+            &challenge.nonce,
+            challenge.expires_at.unix(),
+            checkout_id,
+        );
+        let signature = sign(statement.as_bytes())
             .map_err(|e| TokenError::Config(format!("The proof is not signed: {e}")))?;
         let proof = ArchiveProof {
             challenge: challenge.challenge,
-            key,
+            checkout_id: checkout_id.map(str::to_string),
             key_id: key_id.map(str::to_string),
             signature,
         };
@@ -104,33 +112,5 @@ impl TokenServer<'_> {
         serde_json::from_value(value)
             .map(ProofAnswer::Locked)
             .map_err(|_| TokenError::Protocol(String::from("the answer names no archive")))
-    }
-
-    /// This device's key for the open drive `drive_id` (`POST /v1/drives/{id}/device_keys`,
-    /// the drive token): its id, which a proof may name. The same key again answers its id.
-    ///
-    /// # Errors
-    ///
-    /// The token server's refusals (403 `drive_archived`: a locked drive takes no key; 401
-    /// `bad_signature`; 409 `too_many_keys`).
-    pub fn register_device_key(
-        &self,
-        drive_id: &str,
-        drive_token: &str,
-        registration: &DeviceKeyRegistration,
-    ) -> Result<DeviceKeyAnswer, TokenError> {
-        let path = format!("/v1/drives/{}/device_keys", check_id(drive_id)?);
-        let body = serde_json::to_value(registration)
-            .map_err(|_| TokenError::Protocol(String::from("the key does not write")))?;
-        let reply = self.exchange(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;
-        if !reply.is_success() {
-            // a bad signature here is the device's key, not its drive token
-            if reply.status == 401 {
-                return Err(proof_refusal(&reply));
-            }
-            return Err(refusal(&reply, true));
-        }
-        serde_json::from_slice(&reply.body)
-            .map_err(|_| TokenError::Protocol(String::from("the answer names no key")))
     }
 }

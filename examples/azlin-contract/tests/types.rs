@@ -549,7 +549,7 @@ mod renewal {
 
 mod archive {
     use azlin_contract::{
-        archive_proof_message, device_key_message, months_owed, paid_through, pay_through,
+        archive_statement, months_owed, paid_through, pay_through, ARCHIVE_STATEMENT_FORMAT,
         period_after_restore, ArchiveRefusal, ArchiveState, ArchiveWire, RedeemRefusal,
         RefreshRefusal, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, LOCK_AFTER_SECS, READ_ONLY_SECS,
         RESTORE_OWED_SECS, WRITABLE_GRACE_SECS,
@@ -585,13 +585,24 @@ mod archive {
     }
 
     #[test]
-    fn a_proof_and_a_device_key_sign_their_drive_by_name() {
+    fn a_proof_signs_its_purpose_the_drive_the_nonce_the_expiry_and_the_payment_line_by_line() {
+        let statement = archive_statement("d_x", "n0nce", 1_792_569_900, Some("ck_1"));
         assert_eq!(
-            archive_proof_message("d_x", "ac1.c"),
-            "archive-restore:d_x:ac1.c"
+            statement,
+            "azlin-archive-restore-v1\ndrive=d_x\nnonce=n0nce\nexpires=1792569900\ncheckout=ck_1\n"
         );
-        assert_ne!(archive_proof_message("d_x", "c"), archive_proof_message("d_y", "c"));
-        assert_eq!(device_key_message("d_x", "pk"), "device-key:d_x:pk");
+        assert!(statement.starts_with(ARCHIVE_STATEMENT_FORMAT));
+        // every line counts: another drive, nonce, expiry or payment is another statement
+        for other in [
+            archive_statement("d_y", "n0nce", 1_792_569_900, Some("ck_1")),
+            archive_statement("d_x", "other", 1_792_569_900, Some("ck_1")),
+            archive_statement("d_x", "n0nce", 1_792_569_901, Some("ck_1")),
+            archive_statement("d_x", "n0nce", 1_792_569_900, Some("ck_2")),
+            archive_statement("d_x", "n0nce", 1_792_569_900, None),
+        ] {
+            assert_ne!(other, statement);
+        }
+        assert!(archive_statement("d_x", "n", 1, None).ends_with("checkout=\n"));
     }
 
     #[test]

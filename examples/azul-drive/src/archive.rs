@@ -10,8 +10,10 @@
 //!   `Azlin rescue/<drive>` in the home folder, so nothing is lost when it locks; the bar shows
 //!   how far that got and which files are still missing, and the copy runs again at every look;
 //! - once it is locked, the drive is empty in AzDrive: a page says why and offers "Get my drive
-//!   back" - this computer's device key signs the token server's challenge (or the recovery
-//!   code, typed, on a computer without one), then Renew pays the time the drive was kept unpaid;
+//!   back" - this computer's own key, one of the drive's recovery keys, signs the token server's
+//!   statement (or the recovery code, typed, on a computer without one), then Renew pays the
+//!   three months the drive owes, and the paid checkout is named in a second proof so its months
+//!   count at once;
 //! - when its files are back, the drive opens again and AzDrive says so once.
 //!
 //! On stdout, for scripts: `AZDRIVE_ARCHIVE_STAGE <drive> <grace|read_only|locked|restore_pending>`,
@@ -25,7 +27,7 @@ use std::{
 
 use azcloud_kit::{
     azlin_contract::{
-        months_owed, ArchiveState, ArchiveWire, ProofKey, LOCK_AFTER_SECS, WRITABLE_GRACE_SECS,
+        months_owed, ArchiveState, ArchiveWire, LOCK_AFTER_SECS, WRITABLE_GRACE_SECS,
     },
     DriveStatus, ProofAnswer, SharedKeyring, TokenError, TokenServer,
 };
@@ -449,26 +451,101 @@ extern "C" fn on_get_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     crate::with_state(&mut app, &mut info, |info, app, s| {
-        prove_start(info, app, s, &drive_id, ProveWith::DeviceKey);
+        prove_start(info, app, s, &drive_id, ProveWith::DeviceKey, None);
     })
+}
+
+/// A renewal of AzDrive's (or the Azlin) drive `drive_id` was paid: when the drive is locked and
+/// not on its way back yet, the proof is sent again naming the payment `checkout_id`, so its
+/// months pay what the drive owes at once (its period tokens would come one a month).
+pub(crate) fn renewed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    checkout_id: &str,
+) {
+    let azlin_id = if s.archives.contains_key(drive_id) {
+        drive_id.to_string()
+    } else {
+        match azlin_of(s, drive_id) {
+            Some(id) => id,
+            None => return,
+        }
+    };
+    let pending = match s.archives.get(&azlin_id).map(|seen| &seen.stage) {
+        Some(Stage::Locked { wire, .. }) => wire.state == ArchiveState::RestorePending,
+        _ => return,
+    };
+    if pending {
+        return;
+    }
+    let Some(slot) = slot_of(s, &azlin_id) else {
+        return;
+    };
+    prove_start(info, app, s, &slot, ProveWith::DeviceKey, Some(checkout_id.to_string()));
+}
+
+/// This computer's own key of AzDrive's drive `drive_id` registered as one of its recovery keys,
+/// `signer` (the recovery code's key, the code at hand) signing the addition; a job. Once: a key
+/// registered before answers its id without asking.
+pub(crate) fn register_device_key(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    signer: azcloud_kit::RecoveryKey,
+) {
+    let fallback = s.token.url.clone();
+    let Some((azlin_id, token_url)) = s
+        .slot_index(drive_id)
+        .and_then(|index| crate::periods::azlin_drive(&s.slots[index].entry, fallback.as_deref()))
+    else {
+        return;
+    };
+    let job = Job::RegisterDeviceKey {
+        token_url,
+        keyring: s.keyring.clone(),
+        drive_id: azlin_id,
+        signer,
+    };
+    spawn(info, app, s, job);
+}
+
+/// The registration of this computer's key, run in a job: its id among the drive's recovery
+/// keys.
+pub(crate) fn register_device_key_now(
+    token_url: &str,
+    keyring: &SharedKeyring,
+    drive_id: &str,
+    signer: &azcloud_kit::RecoveryKey,
+) -> Result<String, String> {
+    let transport = AzulTransport::new(crate::USER_AGENT);
+    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    azcloud_kit::device_key::register_as_recovery_key(&server, keyring, drive_id, |message| {
+        Ok(signer.sign_base64(message))
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// How the owner proves a locked drive is theirs.
 pub(crate) enum ProveWith {
-    /// This computer's device key, registered while the drive was open.
+    /// This computer's own key, one of the drive's recovery keys.
     DeviceKey,
     /// The drive's recovery code, typed.
     #[cfg(feature = "encryption")]
     RecoveryCode(azul_storage::crypto::keys::RecoveryCode),
 }
 
-/// Starts a proof of AzDrive's drive `drive_id` (a job: the token server's challenge, signed).
+/// Starts a proof of AzDrive's drive `drive_id` (a job: the token server's statement, signed),
+/// naming the paid `checkout` it unlocks when there is one.
 pub(crate) fn prove_start(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
     via: ProveWith,
+    checkout: Option<String>,
 ) {
     let fallback = s.token.url.clone();
     let Some((azlin_id, token_url)) = s
@@ -484,6 +561,7 @@ pub(crate) fn prove_start(
         keyring: s.keyring.clone(),
         drive_id: azlin_id,
         via,
+        checkout,
     };
     spawn(info, app, s, job);
 }
@@ -491,14 +569,16 @@ pub(crate) fn prove_start(
 /// The message key a refused proof is said with; anything else as the token server said it.
 const NO_DEVICE_KEY: &str = "azdrive-archive-no-key-here";
 
-/// A proof of the locked drive `drive_id` (its Azlin id) at `token_url`: under the drive's
-/// keyring lock with its newest drive token, the token server's challenge signed with `via`.
-/// Runs in a job.
+/// A proof of the locked drive `drive_id` (its Azlin id) at `token_url`, naming the paid
+/// `checkout` it unlocks: under the drive's keyring lock with its newest drive token, the token
+/// server's statement signed with `via`. With the recovery code at hand, this computer's own key
+/// becomes one of the drive's recovery keys too, so the next proof needs no code. Runs in a job.
 pub(crate) fn prove(
     token_url: &str,
     keyring: &SharedKeyring,
     drive_id: &str,
     via: &ProveWith,
+    checkout: Option<&str>,
 ) -> Result<ProofAnswer, String> {
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
@@ -506,9 +586,10 @@ pub(crate) fn prove(
         ProveWith::DeviceKey => {
             let key = azcloud_kit::DeviceKey::load(keyring, drive_id)
                 .map_err(|e| e.to_string())?
+                .filter(|key| key.key_id().is_some())
                 .ok_or_else(|| String::from(NO_DEVICE_KEY))?;
             server
-                .archive_prove(drive_id, token, ProofKey::DeviceKey, key.key_id(), |message| {
+                .archive_prove(drive_id, token, checkout, key.key_id(), |message| {
                     Ok(key.sign_base64(message))
                 })
                 .map_err(proof_error)
@@ -518,13 +599,13 @@ pub(crate) fn prove(
             let key = crate::encryption::recovery_key_of(code, drive_id);
             let findable = crate::recovery_keys::findable_key_of(code);
             server
-                .archive_prove(drive_id, token, ProofKey::RecoveryKey, None, |message| {
+                .archive_prove(drive_id, token, checkout, None, |message| {
                     Ok(key.sign_base64(message))
                 })
                 .or_else(|e| match &e {
                     // not the drive key: the code's findable key (a second kit registers only it)
                     TokenError::Refused { code, .. } if code == "bad_signature" => server
-                        .archive_prove(drive_id, token, ProofKey::RecoveryKey, None, |message| {
+                        .archive_prove(drive_id, token, checkout, None, |message| {
                             Ok(findable.sign_base64(message))
                         }),
                     _ => Err(e),
@@ -532,7 +613,20 @@ pub(crate) fn prove(
                 .map_err(proof_error)
         }
     });
-    answered.map_err(|e| e.to_string())?
+    let answer = answered.map_err(|e| e.to_string())?;
+    #[cfg(feature = "encryption")]
+    if let (Ok(_), ProveWith::RecoveryCode(code)) = (&answer, via) {
+        let key = crate::encryption::recovery_key_of(code, drive_id);
+        if let Err(e) = azcloud_kit::device_key::register_as_recovery_key(
+            &server,
+            keyring,
+            drive_id,
+            |message| Ok(key.sign_base64(message)),
+        ) {
+            eprintln!("[azdrive] this computer's key of {drive_id} is not registered: {e}");
+        }
+    }
+    answer
 }
 
 /// A refused proof's words: the contract's refusals as message keys.
@@ -549,14 +643,16 @@ fn proof_error(e: TokenError) -> String {
     }
 }
 
-/// A proof answered for the Azlin drive `azlin_id`: proven and paid with its files still on the
-/// servers - open again; proven - Renew opens to pay what it owes; its files on their way back -
-/// said; refused - why (on a computer without a device key, the recovery code is asked for).
+/// A proof answered for the Azlin drive `azlin_id` (naming the paid `checkout`, or none): proven
+/// and paid with its files still on the servers - open again; proven - Renew opens to pay what
+/// it owes (unless the proof named a payment already); its files on their way back - said;
+/// refused - why (on a computer without its own key, the recovery code is asked for).
 pub(crate) fn proven(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     azlin_id: &str,
+    checkout: Option<String>,
     result: Result<ProofAnswer, String>,
 ) {
     let drive_id = slot_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string());
@@ -584,15 +680,18 @@ pub(crate) fn proven(
             };
             s.success(stage_phrase(&name, &stage));
             s.archives.insert(azlin_id.to_string(), Seen { stage });
-            if !pending {
+            if !pending && checkout.is_none() {
                 crate::renewals::open_renew(info, app, s, &drive_id);
             }
         }
         Err(why) if why == NO_DEVICE_KEY => {
             #[cfg(feature = "encryption")]
-            crate::encryption::ask_get_back(s, &drive_id);
+            crate::encryption::ask_get_back(s, &drive_id, checkout);
             #[cfg(not(feature = "encryption"))]
-            s.error(Phrase::new(NO_DEVICE_KEY).arg("drive", name.as_str()));
+            {
+                let _ = checkout;
+                s.error(Phrase::new(NO_DEVICE_KEY).arg("drive", name.as_str()));
+            }
         }
         Err(why) if why.starts_with("azdrive-") => {
             s.error(Phrase::new(&why).arg("drive", name.as_str()));

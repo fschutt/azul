@@ -8,10 +8,12 @@
 //!
 //! Its owner gets the drive back in two steps, in either order:
 //! - **Proof**: the drive holds no name or address of anyone, so the only way to know the
-//!   owner is a key only the owner has. The app asks the token server for a challenge
-//!   ([`ArchiveChallenge`]) and signs [`archive_proof_message`] with one of the drive's
-//!   recovery keys or with the key of one of its devices ([`ArchiveProof`]). No key, no
-//!   restore.
+//!   owner is a key only the owner has: one of the drive's recovery keys - the recovery code's,
+//!   a passkey, or the key of one of its devices registered as one while the code was at hand.
+//!   The app asks the token server for a challenge ([`ArchiveChallenge`]) and signs its
+//!   [`archive_statement`] ([`ArchiveProof`]): the statement names its purpose, the drive, the
+//!   server's nonce, the expiry and the paid checkout it unlocks, a signature counts once and
+//!   only for exactly that. No key, no restore.
 //! - **Payment**: the three months the drive was kept for its owner unpaid ([`RESTORE_OWED_SECS`])
 //!   are paid first: period tokens redeemed on a locked drive count from its old period end, and
 //!   the drive is brought back once its period reaches [`ArchiveWire::pay_through`], three months
@@ -41,17 +43,25 @@ pub const ARCHIVE_KEEP_SECS: i64 = 10 * 365 * 86_400;
 /// How long a challenge of [`ArchiveChallenge`] can be answered.
 pub const ARCHIVE_CHALLENGE_SECS: i64 = 300;
 
-/// What the owner's key signs: the drive and the token server's challenge, so a signature
-/// proves nothing for another drive or another time.
-#[must_use]
-pub fn archive_proof_message(drive_id: &str, challenge: &str) -> String {
-    format!("archive-restore:{drive_id}:{challenge}")
-}
+/// The first line of an [`archive_statement`]: what the signature is for, and nothing else.
+pub const ARCHIVE_STATEMENT_FORMAT: &str = "azlin-archive-restore-v1";
 
-/// What a device signs when it registers its key for a drive: it holds the private half.
+/// What the owner's key signs to get a locked drive back: the purpose, then `key=value` lines in
+/// this order, each ending in a newline - the drive, the token server's nonce, the challenge's
+/// expiry (seconds since 1970) and the paid checkout the proof unlocks (empty for none). A
+/// signature proves nothing for another drive, another challenge, another time or another
+/// payment.
 #[must_use]
-pub fn device_key_message(drive_id: &str, public_key: &str) -> String {
-    format!("device-key:{drive_id}:{public_key}")
+pub fn archive_statement(
+    drive_id: &str,
+    nonce: &str,
+    expires_at: i64,
+    checkout_id: Option<&str>,
+) -> String {
+    format!(
+        "{ARCHIVE_STATEMENT_FORMAT}\ndrive={drive_id}\nnonce={nonce}\nexpires={expires_at}\ncheckout={}\n",
+        checkout_id.unwrap_or("")
+    )
 }
 
 /// The day a drive locked at `locked_at` must be paid through before it is brought back:
@@ -121,31 +131,23 @@ pub struct ArchiveWire {
 /// [`ARCHIVE_CHALLENGE_SECS`] and answered once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveChallenge {
-    /// Opaque to the app: it signs it as it is.
+    /// Opaque to the app: it is sent back with the proof as it is.
     pub challenge: String,
+    /// The server's nonce and the expiry the [`archive_statement`] names.
+    pub nonce: String,
     pub expires_at: Rfc3339,
 }
 
-/// Which of the drive's keys signed a proof.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProofKey {
-    /// One of its recovery keys (from the recovery code the owner wrote down, or a passkey).
-    RecoveryKey,
-    /// The key of one of its devices, registered while the drive was open.
-    DeviceKey,
-    /// A kind this build does not know.
-    #[serde(other)]
-    Unknown,
-}
-
-/// `POST /v1/drives/{id}/archive/proof`: the owner's signature over
-/// [`archive_proof_message`] of a challenge.
+/// `POST /v1/drives/{id}/archive/proof`: a recovery key's signature over the
+/// [`archive_statement`] of a challenge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveProof {
     pub challenge: String,
-    pub key: ProofKey,
-    /// Which key of that kind, when the app knows; else every one of them is tried.
+    /// The paid checkout (a renewal of the drive) the proof unlocks: its months not issued yet
+    /// pay what the drive owes at once. None: the proof alone; the months come as period tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_id: Option<String>,
+    /// Which of the drive's recovery keys signed, when the app knows; else every one is tried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_id: Option<String>,
     /// Ed25519, standard base64.
@@ -171,6 +173,10 @@ pub enum ArchiveRefusal {
     NotArchived,
     /// The key is not verified yet (an upgrade): ask again later (503).
     NotVerified,
+    /// The checkout the proof names is not paid (409). Nothing was spent.
+    CheckoutNotPaid,
+    /// The checkout the proof names is of another tier than the drive (409). Nothing was spent.
+    CheckoutOtherTier,
     /// A refusal this build does not know: a newer token server sent it.
     #[serde(other)]
     Unknown,
@@ -188,6 +194,8 @@ impl ArchiveRefusal {
             ArchiveRefusal::NoKey => "no_key",
             ArchiveRefusal::NotArchived => "not_archived",
             ArchiveRefusal::NotVerified => "not_verified",
+            ArchiveRefusal::CheckoutNotPaid => "checkout_not_paid",
+            ArchiveRefusal::CheckoutOtherTier => "checkout_other_tier",
             ArchiveRefusal::Unknown => "unknown",
         }
     }
@@ -199,24 +207,12 @@ impl ArchiveRefusal {
             ArchiveRefusal::BadRequest => 400,
             ArchiveRefusal::BadChallenge | ArchiveRefusal::BadSignature => 401,
             ArchiveRefusal::NoKey => 403,
-            ArchiveRefusal::ChallengeUsed | ArchiveRefusal::NotArchived => 409,
+            ArchiveRefusal::ChallengeUsed
+            | ArchiveRefusal::NotArchived
+            | ArchiveRefusal::CheckoutNotPaid
+            | ArchiveRefusal::CheckoutOtherTier => 409,
             ArchiveRefusal::NotVerified => 503,
             ArchiveRefusal::Unknown => 500,
         }
     }
-}
-
-/// `POST /v1/drives/{id}/device_keys`: a device's public key for the drive, registered while
-/// the drive is open, and its signature over [`device_key_message`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeviceKeyRegistration {
-    /// Ed25519, 32 bytes in standard base64.
-    pub public_key: String,
-    pub signature: String,
-}
-
-/// The answer to a registration: the key's id, which a proof may name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeviceKeyAnswer {
-    pub key_id: String,
 }

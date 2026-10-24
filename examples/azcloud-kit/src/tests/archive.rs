@@ -1,21 +1,24 @@
 //! A locked drive's way back, as the kit speaks it: the drive's status names its archive (and a
 //! locked drive is no payment due, nor reminded of one); a proof signs the token server's
-//! challenge with this device's key or the recovery code's, and its refusals stay refusals (a
-//! wrong key is no reason to sign in again); a device registers its key once, signed by the key
-//! itself, and keeps its id.
+//! statement - purpose, drive, nonce, expiry, the checkout it unlocks - with one of the drive's
+//! recovery keys, and its refusals stay refusals (a wrong key is no reason to sign in again); a
+//! device's own key becomes one of the drive's recovery keys once, signed by the code's key.
 
 use azul_storage::testing::TempDir;
 use serde_json::Value;
 
 use super::{json, Fake, Shared, TOKEN};
 use crate::{
-    azlin_contract::{
-        archive_proof_message, device_key_message, ArchiveState, ProofKey,
-    },
-    device_key::{ensure_registered, DeviceKey},
+    azlin_contract::{archive_statement, ArchiveState},
+    device_key::{register_as_recovery_key, DeviceKey, DEVICE_LABEL},
     token::{ProofAnswer, TokenServer},
-    TokenError,
+    RecoveryKey, TokenError,
 };
+
+/// The token server's challenge: its nonce and its expiry (2026-10-21T08:05:00Z).
+const CHALLENGE: &str = r#"{"challenge": "ac1.d_1.1792570000.n0nce0123456789abcdef.g0:00",
+    "nonce": "n0nce0123456789abcdef", "expires_at": "2026-10-21T08:05:00Z"}"#;
+const EXPIRES: i64 = 1_792_570_000;
 
 const LOCKED: &str = r#"{"state": "locked", "locked_at": "2026-10-13T00:00:00Z",
     "pay_through": "2026-10-13T00:00:00Z"}"#;
@@ -66,7 +69,7 @@ fn a_proof_signs_the_token_server_s_challenge_for_this_drive() {
             assert!(call.url.ends_with("/v1/drives/d_1/archive/challenge"), "{}", call.url);
             Ok(json(
                 200,
-                r#"{"challenge": "ac1.d_1.1.abc.g0:00", "expires_at": "2026-10-21T08:05:00Z"}"#,
+                CHALLENGE,
             ))
         } else {
             assert!(call.url.ends_with("/v1/drives/d_1/archive/proof"), "{}", call.url);
@@ -80,7 +83,7 @@ fn a_proof_signs_the_token_server_s_challenge_for_this_drive() {
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let answer = server
-        .archive_prove("d_1", "dt_f.0.a", ProofKey::DeviceKey, Some("dk_1"), |m| {
+        .archive_prove("d_1", "dt_f.0.a", Some("ck_paid"), Some("rk_device"), |m| {
             Ok(key.sign_base64(m))
         })
         .unwrap();
@@ -91,17 +94,20 @@ fn a_proof_signs_the_token_server_s_challenge_for_this_drive() {
     assert!(wire.proven);
     let calls = fake.calls();
     let sent: Value = serde_json::from_slice(&calls[1].body).unwrap();
-    assert_eq!(sent["challenge"], "ac1.d_1.1.abc.g0:00");
-    assert_eq!(sent["key"], "device_key");
-    assert_eq!(sent["key_id"], "dk_1");
-    let message = archive_proof_message("d_1", "ac1.d_1.1.abc.g0:00");
-    assert!(verifies(&public, message.as_bytes(), sent["signature"].as_str().unwrap()));
+    assert_eq!(sent["challenge"], "ac1.d_1.1792570000.n0nce0123456789abcdef.g0:00");
+    assert_eq!(sent["checkout_id"], "ck_paid");
+    assert_eq!(sent["key_id"], "rk_device");
+    let statement = archive_statement("d_1", "n0nce0123456789abcdef", EXPIRES, Some("ck_paid"));
+    assert!(verifies(&public, statement.as_bytes(), sent["signature"].as_str().unwrap()));
+    // the same signature says nothing for another payment
+    let other = archive_statement("d_1", "n0nce0123456789abcdef", EXPIRES, Some("ck_other"));
+    assert!(!verifies(&public, other.as_bytes(), sent["signature"].as_str().unwrap()));
     // open again at once (its files never left the servers)
     let fake = Fake::new(|_, n| {
         Ok(json(
             200,
             if n == 0 {
-                r#"{"challenge": "ac1.d_1.1.abc.g0:00", "expires_at": "2026-10-21T08:05:00Z"}"#
+                CHALLENGE
             } else {
                 r#"{"state": "restored"}"#
             },
@@ -110,7 +116,7 @@ fn a_proof_signs_the_token_server_s_challenge_for_this_drive() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let answer = server
-        .archive_prove("d_1", "dt_f.0.a", ProofKey::DeviceKey, None, |m| Ok(key.sign_base64(m)))
+        .archive_prove("d_1", "dt_f.0.a", None, None, |m| Ok(key.sign_base64(m)))
         .unwrap();
     assert_eq!(answer, ProofAnswer::Restored);
 }
@@ -121,10 +127,11 @@ fn a_wrong_key_or_a_used_challenge_is_a_refusal_not_a_sign_in() {
         (401, r#"{"error": "bad_signature", "message": "no key of the drive signed it"}"#, "bad_signature"),
         (409, r#"{"error": "challenge_used"}"#, "challenge_used"),
         (403, r#"{"error": "no_key"}"#, "no_key"),
+        (409, r#"{"error": "checkout_not_paid"}"#, "checkout_not_paid"),
     ] {
         let fake = Fake::new(move |_, n| {
             if n == 0 {
-                Ok(json(200, r#"{"challenge": "ac1.d_1.1.abc.g0:00", "expires_at": "2026-10-21T08:05:00Z"}"#))
+                Ok(json(200, CHALLENGE))
             } else {
                 Ok(json(status, body))
             }
@@ -132,7 +139,7 @@ fn a_wrong_key_or_a_used_challenge_is_a_refusal_not_a_sign_in() {
         let transport = Shared(fake);
         let server = TokenServer::new(TOKEN, &transport).unwrap();
         let refused = server
-            .archive_prove("d_1", "dt_f.0.a", ProofKey::RecoveryKey, None, |_| Ok(String::from("c2ln")))
+            .archive_prove("d_1", "dt_f.0.a", None, None, |_| Ok(String::from("c2ln")))
             .unwrap_err();
         assert!(
             matches!(&refused, TokenError::Refused { code: c, .. } if c == code),
@@ -144,46 +151,47 @@ fn a_wrong_key_or_a_used_challenge_is_a_refusal_not_a_sign_in() {
     let transport = Shared(fake);
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let refused = server
-        .archive_prove("d_1", "dt_f.0.a", ProofKey::DeviceKey, None, |_| Ok(String::new()))
+        .archive_prove("d_1", "dt_f.0.a", None, None, |_| Ok(String::new()))
         .unwrap_err();
     assert!(matches!(refused, TokenError::SignIn(_)), "{refused:?}");
 }
 
 #[test]
-fn a_device_registers_its_key_once_signed_by_the_key_and_keeps_its_id() {
+fn a_device_s_key_becomes_one_of_the_drive_s_recovery_keys_once_signed_by_the_code_s_key() {
     let dir = TempDir::new("azcloud-device-key");
     let shared = super::period::keyring_with_session(&dir, "dt_f.3.newest");
+    let code_key = RecoveryKey::derive(b"ABCDE-FGHIJ-KLMNO-PQRST-UVWXYZ", "d_1");
     let fake = Fake::new(|call, _| {
-        assert!(call.url.ends_with("/v1/drives/d_1/device_keys"), "{}", call.url);
-        Ok(json(201, r#"{"key_id": "dk_laptop"}"#))
+        assert!(call.url.ends_with("/v1/drives/d_1/recovery_keys"), "{}", call.url);
+        let sent: Value = serde_json::from_slice(&call.body).unwrap();
+        Ok(json(
+            201,
+            &serde_json::json!({
+                "key_id": "rk_device", "label": sent["label"], "recovery_pubkey": sent["recovery_pubkey"],
+                "verified": true,
+            })
+            .to_string(),
+        ))
     });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    assert_eq!(ensure_registered(&server, &shared, "d_1").unwrap(), "dk_laptop");
+    let id = register_as_recovery_key(&server, &shared, "d_1", |m| Ok(code_key.sign_base64(m)))
+        .unwrap();
+    assert_eq!(id, "rk_device");
     let calls = fake.calls();
     assert_eq!(calls.len(), 1);
     let sent: Value = serde_json::from_slice(&calls[0].body).unwrap();
-    let public = sent["public_key"].as_str().unwrap();
-    let message = device_key_message("d_1", public);
-    assert!(verifies(public, message.as_bytes(), sent["signature"].as_str().unwrap()));
-    // kept with its id: the next look sends nothing
-    assert_eq!(ensure_registered(&server, &shared, "d_1").unwrap(), "dk_laptop");
+    assert_eq!(sent["label"], DEVICE_LABEL);
+    // signed by the code's key over the addition, as every new recovery key is
+    let public = sent["recovery_pubkey"].as_str().unwrap();
+    let message = crate::token::recovery_add_message("d_1", public, sent["nonce"].as_str().unwrap());
+    assert!(verifies(&code_key.public_base64(), message.as_bytes(), sent["signature"].as_str().unwrap()));
+    // kept with its id: nothing is sent again
+    let again = register_as_recovery_key(&server, &shared, "d_1", |_| Err(String::from("no code")))
+        .unwrap();
+    assert_eq!(again, "rk_device");
     assert_eq!(fake.calls().len(), 1);
     let kept = DeviceKey::load(&shared, "d_1").unwrap().expect("in the keyring");
-    assert_eq!(kept.key_id(), Some("dk_laptop"));
+    assert_eq!(kept.key_id(), Some("rk_device"));
     assert_eq!(kept.public_base64(), public);
-}
-
-#[test]
-fn a_locked_drive_takes_no_device_key() {
-    let dir = TempDir::new("azcloud-device-key-locked");
-    let shared = super::period::keyring_with_session(&dir, "dt_f.3.newest");
-    let fake = Fake::new(|_, _| Ok(json(403, r#"{"error": "drive_archived"}"#)));
-    let transport = Shared(fake);
-    let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let refused = ensure_registered(&server, &shared, "d_1").unwrap_err();
-    assert!(
-        matches!(&refused, TokenError::Refused { code, .. } if code == "drive_archived"),
-        "{refused:?}"
-    );
 }

@@ -3045,8 +3045,12 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::PlanCancelled { drive_id, result } => {
             renewals::plan_cancelled(s, &drive_id, result);
         }
-        Outcome::ArchiveProven { drive_id, result } => {
-            archive::proven(&mut info, &handle, s, &drive_id, result);
+        Outcome::ArchiveProven {
+            drive_id,
+            checkout,
+            result,
+        } => {
+            archive::proven(&mut info, &handle, s, &drive_id, checkout, result);
         }
         Outcome::RescueProgress {
             drive_id,
@@ -3054,6 +3058,10 @@ pub(crate) extern "C" fn on_job_done(
             total,
         } => archive::rescue_progress(s, &drive_id, copied, total),
         Outcome::RescueDone { drive_id, report } => archive::rescue_done(s, &drive_id, report),
+        Outcome::DeviceKeyRegistered { drive_id, result } => match result {
+            Ok(key_id) => println!("AZDRIVE_DEVICE_KEY {drive_id} {key_id}"),
+            Err(why) => eprintln!("[azdrive] this computer's key of {drive_id} is not registered: {why}"),
+        },
         Outcome::NoticeSaved { key, result } => match result {
             Ok(()) => println!("AZDRIVE_NOTICE_SAVED {key}"),
             Err(e) => s.error(failed("azdrive-notice-not-saved", &e)),

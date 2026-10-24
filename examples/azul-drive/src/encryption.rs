@@ -605,6 +605,8 @@ pub(crate) enum Dialog {
     /// typed, signing the token server's challenge for the locked drive.
     GetDriveBack {
         drive_id: String,
+        /// The paid checkout the proof unlocks, when the payment came first.
+        checkout: Option<String>,
         typed: Zeroizing<String>,
         error: String,
     },
@@ -3113,11 +3115,12 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
 
 /// "Get my drive back" on a computer without the locked drive's device key: the recovery code
 /// is asked for.
-pub(crate) fn ask_get_back(s: &mut DriveState, drive_id: &str) {
+pub(crate) fn ask_get_back(s: &mut DriveState, drive_id: &str, checkout: Option<String>) {
     if s.popup.is_none() {
         s.popups_opened += 1;
         s.popup = Some(Popup::Encryption(Dialog::GetDriveBack {
             drive_id: drive_id.to_string(),
+            checkout,
             typed: Zeroizing::new(String::new()),
             error: String::new(),
         }));
@@ -3129,12 +3132,16 @@ pub(crate) fn ask_get_back(s: &mut DriveState, drive_id: &str) {
 extern "C" fn on_get_back_signed(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         let Some(Popup::Encryption(Dialog::GetDriveBack {
-            drive_id, typed, ..
+            drive_id,
+            checkout,
+            typed,
+            ..
         })) = s.popup.as_ref()
         else {
             return;
         };
         let drive_id = drive_id.clone();
+        let checkout = checkout.clone();
         let known = crate::recovery_health::state_of(&s.settings.recovery.drives, &drive_id)
             .and_then(|state| state.recovery_key.clone());
         match current_code(known.as_deref(), &drive_id, typed) {
@@ -3146,6 +3153,7 @@ extern "C" fn on_get_back_signed(mut data: RefAny, mut info: CallbackInfo) -> Up
                     s,
                     &drive_id,
                     crate::archive::ProveWith::RecoveryCode(code),
+                    checkout,
                 );
             }
             Err(why) => {
