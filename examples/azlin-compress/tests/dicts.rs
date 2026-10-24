@@ -48,27 +48,9 @@ fn csv_and_binary_have_no_dictionary_and_text_kinds_have_one() {
     assert_eq!(dict::for_kind(Kind::Binary), None);
 }
 
-fn small_json() -> Vec<u8> {
-    // The shape of a typical small JSON file: a config with a schema reference.
-    br#"{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Settings",
-  "type": "object",
-  "properties": {
-    "name": { "type": "string", "description": "The name of the project" },
-    "version": { "type": "string" },
-    "private": { "type": "boolean", "default": false },
-    "dependencies": { "type": "object", "additionalProperties": { "type": "string" } }
-  },
-  "required": ["name", "version"]
-}
-"#
-    .to_vec()
-}
-
 #[test]
 fn a_small_json_file_is_compressed_with_the_json_dictionary() {
-    let input = small_json();
+    let input = common::settings_json();
     let options = Options {
         limits: azlin_compress::Limits {
             codec_time: Budget::UNLIMITED,

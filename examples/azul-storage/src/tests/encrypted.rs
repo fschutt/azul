@@ -965,7 +965,10 @@ fn a_new_drive_stores_a_jpeg_and_a_pdf_smaller_and_counts_the_stored_bytes() {
         assert_eq!(entry.size, plain.len() as u64, "{path}");
         let object = entry.object.unwrap();
         assert!(object.compressed, "{path}");
-        assert!(object.stored_size < plain.len() as u64, "{path}: {} of {}", object.stored_size, plain.len());
+        // Smaller than the object it would be stored as: a 13 KB JPEG cannot also win back the
+        // object's 4 KiB header against its plain length.
+        let as_it_was = crate::crypto::azl1::stored_object_len(plain.len() as u64, crate::crypto::azl1::DEFAULT_SEGMENT_SIZE);
+        assert!(object.stored_size < as_it_was, "{path}: {} of {as_it_was}", object.stored_size);
         let in_bucket = drive.inner().get(&object.id.bucket_key()).unwrap();
         assert_eq!(object.stored_size, in_bucket.len() as u64, "{path}");
         stored += object.stored_size;

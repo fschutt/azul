@@ -39,13 +39,19 @@ fn text(len: usize) -> Vec<u8> {
 /// An encrypted drive whose uploads store every segment as it is (the recompression pass has
 /// everything to gain), in small segments.
 fn uploaded_uncompressed() -> EncryptedDrive<Arc<MemBucket>> {
+    uploaded_uncompressed_in(SMALL)
+}
+
+/// A drive whose files were stored as they were, in segments of `segment_size` (the pass
+/// rewrites them in the drive's segment size).
+fn uploaded_uncompressed_in(segment_size: u32) -> EncryptedDrive<Arc<MemBucket>> {
     EncryptedDrive::new(
         Arc::new(MemBucket::new()),
         DriveKey::generate().unwrap(),
         Arc::new(MemoryIndex::new()),
     )
     .with_options(WriteOptions {
-        segment_size: SMALL,
+        segment_size,
         compression: Compression::Never,
     })
 }
@@ -94,7 +100,10 @@ fn every_kind_but_dense_ones_without_a_transform_is_worth_trying() {
 /// smaller, bit-exact, version 2 objects.
 #[test]
 fn a_jpeg_and_a_pdf_stored_as_they_were_are_replaced_by_their_transforms() {
-    let drive = uploaded_uncompressed();
+    // The drives' segment size: the PDF's inflated text repeats 40 KiB apart, which only a
+    // segment larger than that sees (in 4 KiB segments it loses to the deflate it came from,
+    // and the pass rightly keeps the old object).
+    let drive = uploaded_uncompressed_in(crate::crypto::azl1::DEFAULT_SEGMENT_SIZE);
     let content = super::compress_inputs::far_repeats(&mut super::compress_inputs::Rng::new(46), 40 * 1024, 4);
     let flate = super::compress_inputs::zlib(&content, 6);
     let pdf = super::compress_inputs::pdf(
@@ -234,7 +243,8 @@ fn small_files_folders_and_compressed_formats_are_not_tried() {
         recompress_one(&drive, "gone.txt", &policy).unwrap(),
         RecompressOutcome::Skipped
     );
-    assert_eq!(drive.inner().puts(), puts);
+    // The PNG's own write is the only upload since the first count.
+    assert_eq!(drive.inner().puts(), puts_with_png);
 }
 
 #[test]

@@ -48,6 +48,24 @@ pub fn text(rng: &mut Rng, len: usize) -> Vec<u8> {
     out
 }
 
+/// A typical small JSON file: a settings file with a schema reference.
+pub fn settings_json() -> Vec<u8> {
+    br#"{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Settings",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "The name of the project" },
+    "version": { "type": "string" },
+    "private": { "type": "boolean", "default": false },
+    "dependencies": { "type": "object", "additionalProperties": { "type": "string" } }
+  },
+  "required": ["name", "version"]
+}
+"#
+    .to_vec()
+}
+
 /// JSON records.
 pub fn json(rng: &mut Rng, records: usize) -> Vec<u8> {
     let mut out = String::from("[");
