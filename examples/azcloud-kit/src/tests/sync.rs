@@ -84,6 +84,11 @@ impl Device {
         fs::read(path_of(self.folder.path(), key)).ok()
     }
 
+    /// The synced folder (the key its faults are armed under).
+    pub(super) fn folder(&self) -> &Path {
+        self.folder.path()
+    }
+
     fn remove(&self, key: &str) {
         fs::remove_file(path_of(self.folder.path(), key)).unwrap();
     }

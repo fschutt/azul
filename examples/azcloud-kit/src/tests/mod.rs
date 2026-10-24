@@ -43,6 +43,8 @@ mod state;
 mod sync;
 /// The sync under hostile conditions: failed passes, files it cannot take, twin names, clocks.
 mod sync_chaos;
+/// A pass crashed at a named point (the fault seam), and the pass after it.
+mod sync_faults;
 mod sync_format;
 mod sync_guard;
 mod sync_local;
