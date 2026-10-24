@@ -2041,8 +2041,8 @@ fn reconcile_table_children(
 /// clone carries: the content-derived caches (`inline_content_cache`
 /// re-validates itself against the subtree fingerprint, `intrinsic_sizes`
 /// with the children verified identical) AND the layout it last produced -
-/// its inline layout, used size, offset in its parent, baseline, overflow,
-/// scrollbars and escaped margins.
+/// its inline layout and the measures kept beside it, used size, offset in
+/// its parent, baseline, overflow, scrollbars and escaped margins.
 ///
 /// The layout half used to stay `None`, on the assumption that it
 /// "re-derives through the CB-size-keyed caches like any other clean node".
@@ -2128,6 +2128,9 @@ fn try_reuse_anon_wrapper(
         new_node
             .inline_layout_result
             .clone_from(&old_warm.inline_layout_result);
+        new_node
+            .inline_measure_layouts
+            .clone_from(&old_warm.inline_measure_layouts);
         new_node.baseline = old_warm.baseline;
         new_node.relative_position = old_warm.relative_position;
         new_node.overflow_content_size = old_warm.overflow_content_size;

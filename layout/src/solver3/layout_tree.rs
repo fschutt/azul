@@ -859,6 +859,78 @@ impl CachedInlineLayout {
     }
 }
 
+/// An IFC root's layouts at the min-content and the max-content width, kept
+/// beside its final layout (`LayoutNodeWarm::inline_layout_result`).
+///
+/// Flex, grid and table containers measure their items' content at min- and
+/// max-content width before they lay the items out at their final width, and
+/// they measure again in every pass that lays the container out anew. Each
+/// measure is a layout of the item's text. If the final layout were the only
+/// slot, every measure would take its place, and the final layout would then
+/// flow the text again. A measure is kept here instead: asked again with the
+/// same content it flows nothing, and the final layout - the one painted and
+/// hit-tested - never holds a measure while a definite layout exists.
+///
+/// The measures are valid under the final layout's rules: the width
+/// constraint (`CachedInlineLayout::is_valid_for`) and the inline content
+/// hash. A layout of other content stored for the IFC drops the measures of
+/// the old content, so content and style changes invalidate all slots.
+#[derive(Debug, Clone, Default)]
+pub struct InlineMeasureLayouts {
+    /// The layout at the min-content width, where every soft wrap
+    /// opportunity is taken. Read and written by `layout_ifc`.
+    pub min_content: Option<CachedInlineLayout>,
+    /// The layout at the max-content width, where none is taken. Read and
+    /// written by `layout_ifc`.
+    pub max_content: Option<CachedInlineLayout>,
+}
+
+impl InlineMeasureLayouts {
+    /// The kept layout for a measure at `width`. A definite width has none:
+    /// only the final layout answers it.
+    #[must_use]
+    pub const fn get(&self, width: AvailableSpace) -> Option<&CachedInlineLayout> {
+        match width {
+            AvailableSpace::MinContent => self.min_content.as_ref(),
+            AvailableSpace::MaxContent => self.max_content.as_ref(),
+            AvailableSpace::Definite(_) => None,
+        }
+    }
+
+    /// Keeps `layout` in the slot of its width. A layout at a definite width
+    /// is not a measure and is not kept.
+    pub fn keep(&mut self, layout: CachedInlineLayout) {
+        match layout.available_width {
+            AvailableSpace::MinContent => self.min_content = Some(layout),
+            AvailableSpace::MaxContent => self.max_content = Some(layout),
+            AvailableSpace::Definite(_) => {}
+        }
+    }
+
+    /// Drops the measures of any content other than `content_hash`.
+    pub fn retain_content(&mut self, content_hash: u64) {
+        for slot in [&mut self.min_content, &mut self.max_content] {
+            if slot
+                .as_ref()
+                .is_some_and(|kept| kept.inline_content_hash != content_hash)
+            {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Whether no measure is kept.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.min_content.is_none() && self.max_content.is_none()
+    }
+
+    /// The kept measures.
+    pub fn layouts(&self) -> impl Iterator<Item = &CachedInlineLayout> {
+        self.min_content.iter().chain(self.max_content.iter())
+    }
+}
+
 /// A layout tree node representing the CSS box model.
 ///
 /// ## Memory Layout Optimization (`#[repr(C)]`)
@@ -928,6 +1000,8 @@ pub struct LayoutNode {
     /// BOXED (rare-data split, 2026-08-11): populated only on IFC roots /
     /// table cells; the 296-B inline Option was paid by EVERY node.
     pub inline_layout_result: Option<Box<CachedInlineLayout>>,
+    /// See [`LayoutNodeWarm::inline_measure_layouts`].
+    pub inline_measure_layouts: Option<Box<InlineMeasureLayouts>>,
     /// See [`LayoutNodeWarm::inline_content_cache`]. BOXED likewise (88 B).
     pub inline_content_cache: Option<Box<CachedInlineContent>>,
     /// Cached scrollbar information (calculated during layout)
@@ -1149,6 +1223,13 @@ pub struct LayoutNodeWarm {
     /// BOXED (rare-data split, 2026-08-11): only IFC roots populate this,
     /// but the 296-B inline Option was paid by EVERY node. 8 B here now.
     pub inline_layout_result: Option<Box<CachedInlineLayout>>,
+    /// The IFC root's layouts at min- and max-content width, kept beside
+    /// `inline_layout_result` so that a container measuring the IFC again
+    /// flows no text and never replaces its final layout
+    /// ([`InlineMeasureLayouts`]). Written and read by `layout_ifc`, carried
+    /// with the final layout through reconciles. BOXED: only IFC roots that
+    /// a container measures hold one.
+    pub inline_measure_layouts: Option<Box<InlineMeasureLayouts>>,
     /// Cached result of `collect_and_measure_inline_content` for this IFC
     /// root, valid while the subtree's fingerprints are unchanged.
     ///
@@ -1292,6 +1373,7 @@ impl LayoutNode {
                 intrinsic_sizes: self.intrinsic_sizes,
                 baseline: self.baseline,
                 inline_layout_result: self.inline_layout_result,
+                inline_measure_layouts: self.inline_measure_layouts,
                 inline_content_cache: self.inline_content_cache,
                 scrollbar_info: self.scrollbar_info,
                 relative_position: self.relative_position,
@@ -1573,10 +1655,18 @@ impl LayoutTree {
             alloc::collections::BTreeSet::new();
         let mut run_arcs: alloc::collections::BTreeSet<usize> = alloc::collections::BTreeSet::new();
         for w in &self.warm {
-            if let Some(cached) = &w.inline_layout_result {
-                // The Box allocation itself — CachedInlineLayout is boxed off
-                // LayoutNodeWarm, so `warm_bytes` above does NOT include it.
-                // This also covers the INLINE `Option<UnifiedConstraints>`.
+            // The final layout and the min-/max-content measures kept beside it.
+            let inline_layouts = w.inline_layout_result.as_deref().into_iter().chain(
+                w.inline_measure_layouts
+                    .as_deref()
+                    .into_iter()
+                    .flat_map(InlineMeasureLayouts::layouts),
+            );
+            for cached in inline_layouts {
+                // The layout's own allocation (the final layout's Box, a
+                // measure's slot in its box): `warm_bytes` above does NOT
+                // include it. This also covers the INLINE
+                // `Option<UnifiedConstraints>`.
                 report.warm_inline_layout_bytes += size_of::<CachedInlineLayout>();
                 // Heap Vecs hanging off the inline constraints.
                 if let Some(c) = &cached.constraints {
@@ -1799,6 +1889,7 @@ impl LayoutTree {
             intrinsic_sizes: warm.intrinsic_sizes,
             baseline: warm.baseline,
             inline_layout_result: warm.inline_layout_result,
+            inline_measure_layouts: warm.inline_measure_layouts,
             inline_content_cache: warm.inline_content_cache,
             scrollbar_info: warm.scrollbar_info,
             relative_position: warm.relative_position,
@@ -3242,6 +3333,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_measure_layouts: None,
             inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
@@ -3312,6 +3404,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_measure_layouts: None,
             inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
@@ -3449,6 +3542,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_measure_layouts: None,
             inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
@@ -3646,6 +3740,7 @@ impl LayoutTreeBuilder {
 
             self.nodes[idx].preview_byte_range = Some((0, flat_at));
             self.nodes[idx].inline_layout_result = None;
+            self.nodes[idx].inline_measure_layouts = None;
             self.nodes[idx].dirty_flag = DirtyFlag::Layout;
 
             let part2_idx = self.nodes.len();
@@ -3654,6 +3749,7 @@ impl LayoutTreeBuilder {
             part2.preview_byte_range = Some((flat_at, u32::MAX));
             part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
             part2.inline_layout_result = None;
+            part2.inline_measure_layouts = None;
             part2.taffy_cache = TaffyCache::new();
             part2.measured_content_sizes = (None, None);
             part2.dirty_flag = DirtyFlag::Layout;
@@ -3727,6 +3823,7 @@ impl LayoutTreeBuilder {
 
         self.nodes[idx].children = keep;
         self.nodes[idx].inline_layout_result = None;
+        self.nodes[idx].inline_measure_layouts = None;
         self.nodes[idx].dirty_flag = DirtyFlag::Layout;
 
         let part2_idx = self.nodes.len();
@@ -3734,6 +3831,7 @@ impl LayoutTreeBuilder {
         part2.children.clone_from(&moved);
         part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
         part2.inline_layout_result = None;
+        part2.inline_measure_layouts = None;
         part2.taffy_cache = TaffyCache::new();
         part2.measured_content_sizes = (None, None);
         part2.dirty_flag = DirtyFlag::Layout;
@@ -3803,6 +3901,7 @@ impl LayoutTreeBuilder {
         });
         self.nodes[wrapper].children = keep;
         self.nodes[wrapper].inline_layout_result = None;
+        self.nodes[wrapper].inline_measure_layouts = None;
         self.nodes[wrapper].taffy_cache = TaffyCache::new();
         self.nodes[wrapper].measured_content_sizes = (None, None);
         self.nodes[wrapper].dirty_flag = DirtyFlag::Layout;
@@ -3814,6 +3913,7 @@ impl LayoutTreeBuilder {
         let mut second = self.nodes[wrapper].clone();
         second.children = moved;
         second.inline_layout_result = None;
+        second.inline_measure_layouts = None;
         second.taffy_cache = TaffyCache::new();
         second.measured_content_sizes = (None, None);
         second.dirty_flag = DirtyFlag::Layout;
@@ -3883,6 +3983,7 @@ impl LayoutTreeBuilder {
                     if survivors.len() != before {
                         self.nodes[c].children = survivors;
                         self.nodes[c].inline_layout_result = None;
+                        self.nodes[c].inline_measure_layouts = None;
                         self.nodes[c].taffy_cache = TaffyCache::new();
                         self.nodes[c].measured_content_sizes = (None, None);
                         self.nodes[c].dirty_flag = DirtyFlag::Layout;
@@ -3896,6 +3997,7 @@ impl LayoutTreeBuilder {
         if changed {
             self.nodes[idx].children = kept;
             self.nodes[idx].inline_layout_result = None;
+            self.nodes[idx].inline_measure_layouts = None;
             self.nodes[idx].dirty_flag = DirtyFlag::Layout;
         }
     }
@@ -3918,6 +4020,7 @@ impl LayoutTreeBuilder {
         }
         self.nodes[first_idx].children.extend(moved);
         self.nodes[first_idx].inline_layout_result = None;
+        self.nodes[first_idx].inline_measure_layouts = None;
         self.nodes[first_idx].dirty_flag = DirtyFlag::Layout;
 
         // Detach `second` itself from its parent (unreachable = unpainted).
@@ -6209,6 +6312,58 @@ mod autotest_generated {
                 }
             }
         }
+    }
+
+    // ==================================================================
+    // InlineMeasureLayouts — the min-/max-content slots
+    // ==================================================================
+
+    fn measure(width: AvailableSpace, content_hash: u64) -> CachedInlineLayout {
+        let mut c = cached(width, false);
+        c.inline_content_hash = content_hash;
+        c
+    }
+
+    #[test]
+    fn a_measure_is_kept_in_the_slot_of_its_width_and_a_definite_layout_in_none() {
+        let mut m = InlineMeasureLayouts::default();
+        assert!(m.is_empty());
+        m.keep(measure(AvailableSpace::MinContent, 1));
+        m.keep(measure(AvailableSpace::MaxContent, 2));
+        m.keep(measure(AvailableSpace::Definite(120.0), 3));
+        let hash_at = |w| m.get(w).map(|c| c.inline_content_hash);
+        assert_eq!(hash_at(AvailableSpace::MinContent), Some(1));
+        assert_eq!(hash_at(AvailableSpace::MaxContent), Some(2));
+        assert_eq!(
+            hash_at(AvailableSpace::Definite(120.0)),
+            None,
+            "a definite width is answered by the final layout alone"
+        );
+        assert_eq!(m.layouts().count(), 2);
+    }
+
+    #[test]
+    fn a_measure_at_the_same_width_takes_the_place_of_the_last_one() {
+        let mut m = InlineMeasureLayouts::default();
+        m.keep(measure(AvailableSpace::MaxContent, 1));
+        m.keep(measure(AvailableSpace::MaxContent, 2));
+        assert_eq!(
+            m.get(AvailableSpace::MaxContent).map(|c| c.inline_content_hash),
+            Some(2)
+        );
+        assert_eq!(m.layouts().count(), 1);
+    }
+
+    #[test]
+    fn retain_content_drops_exactly_the_measures_of_other_content() {
+        let mut m = InlineMeasureLayouts::default();
+        m.keep(measure(AvailableSpace::MinContent, 7));
+        m.keep(measure(AvailableSpace::MaxContent, 8));
+        m.retain_content(7);
+        assert!(m.get(AvailableSpace::MinContent).is_some());
+        assert!(m.get(AvailableSpace::MaxContent).is_none());
+        m.retain_content(9);
+        assert!(m.is_empty());
     }
 
     // ==================================================================

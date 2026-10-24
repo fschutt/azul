@@ -24811,6 +24811,9 @@ impl LayoutWindow {
                 // may patch incrementally against these positions.
                 fresh.shaping_style_fp = Self::shaping_style_fingerprint(&new_inline_content);
                 warm_node.inline_layout_result = Some(Box::new(fresh));
+                // The text changed: what the IFC measured before the edit is
+                // stale, and the next layout measures it again.
+                warm_node.inline_measure_layouts = None;
                 warm_node.overflow_content_size = Some(content_extent);
             }
         }

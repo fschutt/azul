@@ -58,8 +58,9 @@ use crate::{
             get_white_space_property, get_writing_mode, MultiValue,
         },
         layout_tree::{
-            AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutNodeCold, LayoutNodeHot,
-            LayoutNodeId, LayoutNodeWarm, LayoutTree, PseudoElement,
+            AnonymousBoxType, CachedInlineLayout, InlineMeasureLayouts, LayoutNode,
+            LayoutNodeCold, LayoutNodeHot, LayoutNodeId, LayoutNodeWarm, LayoutTree,
+            PseudoElement,
         },
         positioning::get_position_type,
         scrollbar::{ScrollbarKind, ScrollbarRequirements},
@@ -403,10 +404,10 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     };
 
     // Visit-type census (AZ_PROFILE=cpu): which constraint TYPE reaches this
-    // IFC. Min/Max-content visits that fall through to layout_flow are the
-    // measure-vs-final cache thrash — intrinsic WIDTHS are cached on warm,
-    // so a min/max-content visit that still re-runs line breaking is either
-    // a min-content-HEIGHT request or a bug.
+    // IFC. Min/Max-content visits are measures (a container asking how tall
+    // the content is at that width): they read the slot their earlier
+    // measures filled (`InlineMeasureLayouts`), so one that falls through to
+    // layout_flow measures this content for the first time.
     drop(crate::probe::Probe::span(
         match constraints.available_width_type {
             Text3AvailableSpace::Definite(_) => "ifc_visit_definite",
@@ -651,6 +652,8 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                         false,
                         text3_constraints,
                     )));
+                // What the IFC measured before it emptied is stale.
+                warm_node.inline_measure_layouts = None;
                 // A strut has no glyphs: its baseline sits where a line of
                 // this font would put one (ascent ~ 0.8 em within the line).
                 warm_node.baseline = Some(strut_height * 0.8);
@@ -671,9 +674,10 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         // layout (see display_list.rs `paint_inline_*`), so a leftover entry
         // would re-emit the removed content AND index `styled_nodes` with a
         // `source_node_id` that no longer exists in the new DOM (OOB panic).
-        // Clear it so the empty IFC renders nothing.
+        // Clear it so the empty IFC renders nothing, and its measures with it.
         if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
             warm_node.inline_layout_result = None;
+            warm_node.inline_measure_layouts = None;
         }
         return Ok(LayoutOutput::default());
     }
@@ -684,9 +688,15 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // try incremental relayout (GlyphSwap or LineShift) before falling
     // back to full layout_flow().
     {
-        let cached_ifc = tree
-            .warm(LayoutNodeId::new(node_index))
-            .and_then(|n| n.inline_layout_result.as_ref());
+        // A measure (a min- or max-content width) is answered from the slot
+        // its earlier measures filled, a definite width from the final
+        // layout. The final layout answers a measure too while it holds one:
+        // an IFC measured before its first definite layout.
+        let warm = tree.warm(LayoutNodeId::new(node_index));
+        let cached_ifc = warm
+            .and_then(|n| n.inline_measure_layouts.as_deref())
+            .and_then(|m| m.get(constraints.available_width_type))
+            .or_else(|| warm.and_then(|n| n.inline_layout_result.as_deref()));
 
         // Only reuse the cached inline layout when the available WIDTH is unchanged.
         // This fast path was built for text edits (content changes, width constant); on a
@@ -786,6 +796,13 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                         baseline: main_frag.last_baseline(),
                         ..Default::default()
                     };
+                    // The node's baseline is that of its last layout, which
+                    // the box's sizing and alignment read: the full path
+                    // writes it, and so must this exit - a measure at another
+                    // width may have left its own since.
+                    if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        warm_node.baseline = output.baseline;
+                    }
                     // The cache-reuse exit must trim like the full path: a
                     // measure pass that lands here would otherwise size the
                     // box untrimmed while the final pass trims (see
@@ -801,8 +818,9 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                     //
                     // This is the discipline a memoized call with a side effect
                     // needs: the exit REPLAYS what the full path would have
-                    // written. Note it replays POSITIONS only — the children's
-                    // sizes are assumed to be in the tree already. A carried
+                    // written. Note it replays the baseline (above) and the
+                    // POSITIONS only — the children's sizes are assumed to be
+                    // in the tree already. A carried
                     // `inline_layout_result` (a clone's, and a matched
                     // anonymous block's since `try_reuse_anon_wrapper` carries
                     // layout state) can reach this exit in a new tree, and the
@@ -957,6 +975,12 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             .warm_mut(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
+        // A measure - a layout at a min- or max-content width - is kept in a
+        // slot of its own (`InlineMeasureLayouts`), so the next measure at
+        // that width flows no text, and it never replaces a definite layout
+        // of the same content: that one is what the box shows, and taking its
+        // place made the final layout flow the text again after every measure.
+        let is_measure = !matches!(current_width_type, Text3AvailableSpace::Definite(_));
         let should_store = match &warm_node.inline_layout_result {
             None => {
                 // No cached result - always store
@@ -972,9 +996,12 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             }
             Some(cached) => {
                 // Check if the new result should replace the cached one
-                if cached.should_replace_with(current_width_type, has_floats)
-                    || cached.inline_content_hash != current_content_hash
-                {
+                let replaces_width = if is_measure {
+                    !matches!(cached.available_width, Text3AvailableSpace::Definite(_))
+                } else {
+                    cached.should_replace_with(current_width_type, has_floats)
+                };
+                if replaces_width || cached.inline_content_hash != current_content_hash {
                     // #11 fix: the cached layout is what the display-list
                     // generator paints from; replace it when the inline content
                     // changed, even if the width constraint is unchanged.
@@ -1005,7 +1032,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             }
         };
 
-        if should_store {
+        if should_store || is_measure {
             let mut cil = CachedInlineLayout::new_with_constraints(
                 main_frag.clone(),
                 current_width_type,
@@ -1016,10 +1043,36 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             // this layout when the inline content is genuinely unchanged, and so
             // the store decision above can detect content changes.
             cil.inline_content_hash = current_content_hash;
-            warm_node.inline_layout_result = Some(Box::new(cil));
-            // DL-patching invalidation: this IFC's line layout was
-            // recomputed — its text items must re-emit on a patched pass.
-            ctx.reflowed_ifcs.insert(node_index);
+            // A measure goes to its own slot, and to the final one as well
+            // while that holds no definite layout of this content.
+            let (for_final, for_measures) = match (should_store, is_measure) {
+                (true, true) => (Some(cil.clone()), Some(cil)),
+                (true, false) => (Some(cil), None),
+                (false, _) => (None, Some(cil)),
+            };
+            // The measures of other content are stale with this layout in.
+            if let Some(measures) = warm_node.inline_measure_layouts.as_deref_mut() {
+                measures.retain_content(current_content_hash);
+            }
+            if let Some(measure) = for_measures {
+                warm_node
+                    .inline_measure_layouts
+                    .get_or_insert_with(Box::default)
+                    .keep(measure);
+            }
+            if warm_node
+                .inline_measure_layouts
+                .as_deref()
+                .is_some_and(InlineMeasureLayouts::is_empty)
+            {
+                warm_node.inline_measure_layouts = None;
+            }
+            if let Some(cil) = for_final {
+                warm_node.inline_layout_result = Some(Box::new(cil));
+                // DL-patching invalidation: this IFC's line layout was
+                // recomputed — its text items must re-emit on a patched pass.
+                ctx.reflowed_ifcs.insert(node_index);
+            }
         }
 
         // Extract the overall size and baseline for the IFC root.
