@@ -18,7 +18,7 @@ use crate::{
 /// The token server's challenge: its nonce and its expiry (2026-10-21T08:05:00Z).
 const CHALLENGE: &str = r#"{"challenge": "ac1.d_1.1792570000.n0nce0123456789abcdef.g0:00",
     "nonce": "n0nce0123456789abcdef", "expires_at": "2026-10-21T08:05:00Z"}"#;
-const EXPIRES: i64 = 1_792_570_000;
+const EXPIRES: i64 = 1_792_569_900;
 
 const LOCKED: &str = r#"{"state": "locked", "locked_at": "2026-10-13T00:00:00Z",
     "pay_through": "2026-10-13T00:00:00Z"}"#;
