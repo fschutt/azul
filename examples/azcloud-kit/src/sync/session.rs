@@ -652,6 +652,10 @@ pub struct SyncSession {
     parallel: Option<usize>,
     /// How long a pass waits for the folder to be quiet first ([`SyncSession::with_settle`]).
     settle: Duration,
+    /// A file written within this long waits for a later pass ([`SyncSession::with_file_settle`]).
+    file_settle: Duration,
+    /// The drive's newest restore announcement ([`SyncSession::with_restore`]).
+    restore: Option<super::RestoreNotice>,
     /// The user's own devices (this one and the account's others): a download written by any
     /// other device - a share participant's - gets the system's quarantine mark.
     own_devices: Vec<String>,
@@ -705,6 +709,8 @@ impl SyncSession {
             transfer_limit: None,
             parallel: None,
             settle: Duration::ZERO,
+            file_settle: Duration::ZERO,
+            restore: None,
             own_devices: vec![device.to_string()],
             points: None,
             clock_offset: 0.0,
@@ -723,6 +729,24 @@ impl SyncSession {
     #[must_use]
     pub fn with_clock(mut self, offset: f64) -> SyncSession {
         self.clock_offset = offset;
+        self
+    }
+
+    /// The session's passes leave a file written within the last `quiet` for a later pass
+    /// (listed as settling, never a delete meanwhile): a file still being written - an export,
+    /// a copy, a download - is never uploaded half ([`super::FILE_SETTLE`] for an app).
+    #[must_use]
+    pub fn with_file_settle(mut self, quiet: Duration) -> SyncSession {
+        self.file_settle = quiet;
+        self
+    }
+
+    /// The drive's newest restore announcement, as the token server answered it: a pass that
+    /// meets an index older than the last one seen takes it as that restore when the epoch is
+    /// new to this pairing, and refuses it as a rollback otherwise.
+    #[must_use]
+    pub fn with_restore(mut self, notice: Option<super::RestoreNotice>) -> SyncSession {
+        self.restore = notice;
         self
     }
 
@@ -831,6 +855,8 @@ impl SyncSession {
             opts.parallel = parallel;
         }
         opts.settle = self.settle;
+        opts.file_settle = self.file_settle;
+        opts.restore.clone_from(&self.restore);
         Ok(opts)
     }
 
@@ -916,8 +942,8 @@ impl SyncSession {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
-        fs::create_dir_all(&self.setup.folder)
-            .with_context(|| format!("{}", self.setup.folder.display()))?;
+        // The run checks the folder itself: a new pairing makes it, a paired one that is gone
+        // (an unplugged disk) is never made again here, so it is never synced as empty.
         let root = self.root();
         let mut opts = self.options()?;
         // The user's answers, for this pass.
@@ -1039,10 +1065,14 @@ impl SyncSession {
                 error,
             });
         }
-        // The folders of cloud-only files are here: the folder browses as the drive does.
-        for (key, _) in states.files.iter().filter(|(_, r)| r.cloud_only) {
-            if let Some(parent) = local::path_of(&self.setup.folder, key).parent() {
-                let _ = fs::create_dir_all(parent);
+        // The folders of cloud-only files are here: the folder browses as the drive does. Made
+        // from the folder's root without following a link (never inside one, never another disk).
+        if let Ok(tree) = azul_storage::beneath::Root::open(&self.setup.folder) {
+            for (key, _) in states.files.iter().filter(|(_, r)| r.cloud_only) {
+                let folder = azul_storage::beneath::split_key(key).0;
+                if !folder.is_empty() {
+                    let _ = tree.dir(folder, true);
+                }
             }
         }
         let freed = self.keep_cap(states);
@@ -1371,8 +1401,8 @@ impl SyncSession {
                 BaseEntry {
                     hash: held.there,
                     size: held.there_size,
-                    mtime_ns: 0,
-                    cloud_only: false,
+                    exec: held.there_exec,
+                    ..BaseEntry::default()
                 },
             )?,
             // The base takes mine as it is now: the drive's is the change, and comes here.
@@ -1386,7 +1416,8 @@ impl SyncSession {
                         hash,
                         size: meta.len(),
                         mtime_ns: local::mtime_ns(&meta),
-                        cloud_only: false,
+                        exec: local::is_executable(&meta),
+                        ..BaseEntry::default()
                     },
                 )?;
             }

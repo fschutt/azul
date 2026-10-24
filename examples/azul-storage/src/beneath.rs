@@ -293,7 +293,11 @@ impl Root {
     /// # Errors
     ///
     /// As [`Root::dir`], and [`BeneathError::BadName`] for a key without a name.
-    pub fn parent_of<'k>(&self, key: &'k str, create: bool) -> Result<(Dir, &'k str), BeneathError> {
+    pub fn parent_of<'k>(
+        &self,
+        key: &'k str,
+        create: bool,
+    ) -> Result<(Dir, &'k str), BeneathError> {
         let (folder, name) = split_key(key);
         check_name(name)?;
         Ok((self.dir(folder, create)?, name))
@@ -359,8 +363,7 @@ impl Dir {
                         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                         Err(e) => return Err(e.into()),
                     }
-                    sys::openat_dir(&self.fd, OsStr::new(name))
-                        .map_err(|e| link_or_io(e, &rel))?
+                    sys::openat_dir(&self.fd, OsStr::new(name)).map_err(|e| link_or_io(e, &rel))?
                 }
                 Err(e) => return Err(link_or_io(e, &rel)),
             };
@@ -520,7 +523,11 @@ impl Dir {
         check_name(name)?;
         #[cfg(unix)]
         {
-            Ok(File::from(sys::create_new(&self.fd, OsStr::new(name), mode)?))
+            Ok(File::from(sys::create_new(
+                &self.fd,
+                OsStr::new(name),
+                mode,
+            )?))
         }
         #[cfg(not(unix))]
         {
@@ -544,7 +551,12 @@ impl Dir {
         check_name(to)?;
         #[cfg(unix)]
         {
-            Ok(sys::renameat(&self.fd, OsStr::new(from), &target.fd, OsStr::new(to))?)
+            Ok(sys::renameat(
+                &self.fd,
+                OsStr::new(from),
+                &target.fd,
+                OsStr::new(to),
+            )?)
         }
         #[cfg(not(unix))]
         {
@@ -603,7 +615,12 @@ impl Dir {
     /// # Errors
     ///
     /// When it cannot be written.
-    pub fn write_atomically(&self, name: &str, bytes: &[u8], mode: u32) -> Result<(), BeneathError> {
+    pub fn write_atomically(
+        &self,
+        name: &str,
+        bytes: &[u8],
+        mode: u32,
+    ) -> Result<(), BeneathError> {
         self.write_from(name, &mut &bytes[..], mode).map(|_| ())
     }
 
@@ -663,6 +680,22 @@ pub fn temp_name(name: &str) -> String {
 #[must_use]
 pub fn is_temp_name(name: &str) -> bool {
     name.starts_with('.') && name.contains(".azul-storage-") && name.ends_with(".tmp")
+}
+
+/// The `fstat` of an open file (after a read: did it change while it was read?).
+///
+/// # Errors
+///
+/// When the system refuses it.
+pub fn stat_of(file: &File) -> io::Result<Stat> {
+    #[cfg(unix)]
+    {
+        sys::fstat(file)
+    }
+    #[cfg(not(unix))]
+    {
+        file.metadata().map(|m| stat_of_meta(&m))
+    }
 }
 
 /// The bytes free for this user on the disk of `path`; `None` where it cannot be told.
@@ -727,7 +760,11 @@ fn stat_of_meta(meta: &std::fs::Metadata) -> Stat {
         ctime_ns: 0,
         ino: 0,
         dev: 0,
-        mode: if meta.permissions().readonly() { 0o444 } else { 0o644 },
+        mode: if meta.permissions().readonly() {
+            0o444
+        } else {
+            0o644
+        },
         nlink: 1,
     }
 }
@@ -773,7 +810,9 @@ fn unescape_mount(field: &str) -> String {
     while i < bytes.len() {
         let octal = i + 3 < bytes.len()
             && bytes[i] == b'\\'
-            && bytes[i + 1..=i + 3].iter().all(|b| (b'0'..=b'7').contains(b));
+            && bytes[i + 1..=i + 3]
+                .iter()
+                .all(|b| (b'0'..=b'7').contains(b));
         if octal {
             let digit = |b: u8| u32::from(b - b'0');
             let n = digit(bytes[i + 1]) * 64 + digit(bytes[i + 2]) * 8 + digit(bytes[i + 3]);
@@ -925,7 +964,7 @@ mod sys {
         }
     }
 
-    pub fn fstat(fd: &OwnedFd) -> io::Result<Stat> {
+    pub fn fstat(fd: &impl AsRawFd) -> io::Result<Stat> {
         // SAFETY: zeroed is a valid `stat`; fstat fills it from an open descriptor.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         cvt(unsafe { libc::fstat(fd.as_raw_fd(), &mut st) })?;

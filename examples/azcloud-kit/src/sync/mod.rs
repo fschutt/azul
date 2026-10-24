@@ -64,12 +64,14 @@ pub mod local;
 pub mod loops;
 pub mod merge;
 pub mod named;
+pub mod names;
 pub mod objects;
 pub mod oplog;
 pub mod problems;
 pub mod quarantine;
 pub mod remote;
 pub mod retry;
+pub mod root;
 pub mod rules;
 pub mod session;
 pub mod watcher;
@@ -85,7 +87,11 @@ use std::{
     time::Duration,
 };
 
-use azul_storage::{checked::FileCheck, Drive as _, LocalDrive};
+use azul_storage::{
+    beneath::{self, BeneathError, Kind, Stat},
+    checked::FileCheck,
+    LocalDrive,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -114,8 +120,13 @@ pub const MAX_ATTEMPTS: u32 = 8;
 /// The longest a run waits for a folder to settle ([`SyncOptions::settle`]): a build that
 /// writes all the time is synced as it is after this.
 pub const SETTLE_MAX: Duration = Duration::from_secs(30);
-/// Below this many deletes a plan is never stopped as a mass delete.
+/// Below this many deletes a plan is never stopped as a mass delete - unless it deletes every
+/// file of the folder ([`mass_delete`]).
 pub const MASS_DELETE_MIN: usize = 10;
+/// The space a download leaves free on the folder's disk by default ([`SyncOptions::disk_reserve`]).
+pub const DISK_RESERVE: u64 = 1 << 30;
+/// How long a file must be quiet before an app's pass takes it ([`SyncOptions::file_settle`]).
+pub const FILE_SETTLE: Duration = Duration::from_secs(2);
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
 /// in parts - up from its file (an upload cut off goes on from the parts the bucket holds, and
 /// its BLAKE3 is checked again before it completes), down into a file - never whole in memory.
@@ -146,6 +157,38 @@ pub struct SyncOptions {
     /// as a whole, in batches, and the burst guard sees all of it. Zero (the default): the run
     /// starts at once.
     pub settle: Duration,
+    /// A file written within this long is left for a later run (listed as settling, never a
+    /// delete meanwhile): a file still being written is never uploaded half. Zero (the default
+    /// of the command line): every file is taken as it is; an app's session uses
+    /// [`FILE_SETTLE`].
+    pub file_settle: Duration,
+    /// A download that would leave less than this many bytes free on the folder's disk is not
+    /// started (listed): another person's files never fill this disk ([`DISK_RESERVE`]).
+    pub disk_reserve: u64,
+    /// The drive's newest restore announcement, as the token server hands it out: an index
+    /// older than the last one seen is taken as that restore (and healed from here) when its
+    /// epoch is above the one the base saw; without one such an index is refused.
+    pub restore: Option<RestoreNotice>,
+}
+
+/// A restore of the drive (from its off-site copy, or of a folder as of a moment), announced
+/// by the token server with an epoch one above the drive's last one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreNotice {
+    pub epoch: u64,
+    /// The key prefix the restore covered; empty for the whole drive.
+    #[serde(default)]
+    pub prefix: String,
+}
+
+impl RestoreNotice {
+    /// Whether the restore covered the folder synced to `prefix`.
+    #[must_use]
+    pub fn covers(&self, prefix: &str) -> bool {
+        self.prefix.is_empty()
+            || prefix.starts_with(&self.prefix)
+            || self.prefix.starts_with(prefix)
+    }
 }
 
 impl SyncOptions {
@@ -167,6 +210,9 @@ impl SyncOptions {
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
             settle: Duration::ZERO,
+            file_settle: Duration::ZERO,
+            disk_reserve: DISK_RESERVE,
+            restore: None,
         })
     }
 }
@@ -335,12 +381,39 @@ pub struct SyncReport {
     /// [`problems::from_report`] adds what the sentences above say).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<problems::Problem>,
+    /// The files a delete from the drive moved into the folder's trash here, and where to
+    /// (from the folder's root).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trashed: Vec<(String, String)>,
+    /// Why the run changed nothing anywhere (the folder is missing or not the paired one, the
+    /// drive's index went back): its problem says it too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 impl SyncReport {
+    /// Records the problem `code` of `key`.
+    fn tell(&mut self, code: problems::Code, key: &str, detail: impl Into<String>) {
+        self.problems
+            .push(problems::Problem::new(code, key, detail));
+    }
+
+    /// The run changes nothing anywhere, and says why.
+    fn refuse(&mut self, code: problems::Code, detail: String) {
+        self.tell(code, "", detail.clone());
+        self.errors.push(detail.clone());
+        self.refused = Some(detail);
+    }
+
     /// One line for people.
     #[must_use]
     pub fn summary(&self) -> String {
+        if let Some(why) = &self.refused {
+            return format!(
+                "{} <-> {}: nothing synced, nothing deleted - {why}",
+                self.root, self.prefix
+            );
+        }
         if !self.newer_format.is_empty() {
             return format!(
                 "{} <-> {}: nothing synced - the drive's sync index uses what this version does \
@@ -422,6 +495,10 @@ pub struct HeldConflict {
     pub there: String,
     pub there_size: u64,
     pub there_device: String,
+    /// The drive's executable bit: "keep mine" takes the drive's version as the base, and the
+    /// bit is part of a file's content.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub there_exec: bool,
 }
 
 /// What an app adds to a run; the command line's run has none of it ([`sync_folder`]).
@@ -610,27 +687,24 @@ pub struct MassDelete {
     pub keys: Vec<String>,
 }
 
-/// The mass delete a plan would make, if it would: more than [`MASS_DELETE_MIN`] deletes and
-/// more than half of the folder here or there. A delete whose content goes up under another
-/// name in the same plan is a move, not counted.
+/// The mass delete a plan would make, if it would (D1): more than [`MASS_DELETE_MIN`] deletes
+/// and more than half of the folder's files at its last sync, or every one of them (at least
+/// two) - a folder of four tax files emptied is as suspect as one of four thousand. Deletes here
+/// and on the drive count together. A delete whose content goes up under another name in the
+/// same plan is a move, not counted; nor is a delete here whose tombstone says the user
+/// confirmed it on the device that made it.
 fn mass_delete(
     actions: &[Action],
     scan: &Scan,
     base: &BTreeMap<String, BaseEntry>,
+    remote: &RemoteIndex,
 ) -> Option<MassDelete> {
     let here: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
+        .filter(|a| !remote.deleted.get(a.key()).is_some_and(|t| t.confirmed))
         .map(|a| a.key().to_string())
         .collect();
-    if here.len() > MASS_DELETE_MIN && here.len() * 2 > scan.files.len() {
-        return Some(MassDelete {
-            here: true,
-            count: here.len(),
-            of: scan.files.len(),
-            keys: here,
-        });
-    }
     let moved = moves(actions, scan, base);
     let there: Vec<String> = actions
         .iter()
@@ -638,15 +712,22 @@ fn mass_delete(
         .filter(|a| !moved.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
-    if there.len() > MASS_DELETE_MIN && there.len() * 2 > base.len() {
-        return Some(MassDelete {
-            here: false,
-            count: there.len(),
-            of: base.len(),
-            keys: there,
-        });
+    let count = here.len() + there.len();
+    let of = base.len();
+    let mass = count > MASS_DELETE_MIN && count * 2 > of;
+    let all = count >= 2 && count >= of;
+    if count == 0 || !(mass || all) {
+        return None;
     }
-    None
+    let is_here = here.len() >= there.len();
+    let mut keys = here;
+    keys.extend(there);
+    Some(MassDelete {
+        here: is_here,
+        count,
+        of,
+        keys,
+    })
 }
 
 /// The deletes on the drive a plan makes whose bytes go up under another name in the same plan:
@@ -669,7 +750,10 @@ fn moves(actions: &[Action], scan: &Scan, base: &BTreeMap<String, BaseEntry>) ->
         let Some(entry) = base.get(key) else {
             continue;
         };
-        if let Some(left) = arriving.get_mut(entry.hash.as_str()).filter(|left| **left > 0) {
+        if let Some(left) = arriving
+            .get_mut(entry.hash.as_str())
+            .filter(|left| **left > 0)
+        {
             *left -= 1;
             moved.insert(key.clone());
         }
@@ -733,8 +817,7 @@ trait SyncRemote: Sync {
 
     /// Puts what the plan sends to the drive where the commit can name it; the keys whose
     /// upload waits for the next run (their file changed, the run was stopped, ...).
-    fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport)
-        -> CloudResult<BTreeSet<String>>;
+    fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>>;
 
     /// Makes `next` the drive's state in place of `remote` (read with `etag`): the new marker;
     /// `None` when another device committed first (the run reads, merges and tries again).
@@ -807,11 +890,7 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
         Ok(hash.to_string())
     }
 
-    fn upload(
-        &self,
-        work: &Uploads<'_>,
-        report: &mut SyncReport,
-    ) -> CloudResult<BTreeSet<String>> {
+    fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>> {
         let mut known = lock(&self.known);
         upload_blobs(self.store, work, &mut known, report)
     }
@@ -848,8 +927,12 @@ fn merge_json_files<R: SyncRemote + ?Sized>(
                 .map(local::without_local_keys)
                 .unwrap_or_default()
         };
-        let path = local::path_of(&root.path, key);
-        let current = fs::read(&path).with_context(|| format!("{}", path.display()))?;
+        // Read without following a link, as every file of the folder is.
+        let current = read_here(&root.path, key).ok_or_else(|| {
+            CloudError::failed(format!(
+                "{key} cannot be read here (it changed or is a link)"
+            ))
+        })?;
         let theirs_file = remote
             .files
             .get(key)
@@ -890,6 +973,15 @@ enum BlobSource {
     Bytes(Vec<u8>),
 }
 
+/// The file a job reads, as the scan found it: opened again from the folder's root without a
+/// link, and checked to be the same file, untouched.
+struct Found {
+    root: PathBuf,
+    /// Its name here ([`Scan::here`]).
+    key: String,
+    file: LocalFile,
+}
+
 struct BlobJob {
     key: String,
     hash: String,
@@ -898,6 +990,61 @@ struct BlobJob {
     /// a big file's resumable upload checks it is still that file.
     mtime_ns: u64,
     source: BlobSource,
+    /// The file it reads (`None` for bytes made here).
+    found: Option<Found>,
+}
+
+/// Opens the file of a job without following a link and without blocking on a FIFO, and checks
+/// it is the file the scan hashed (inode, size and times): a link or a FIFO swapped in since
+/// is never read.
+fn open_found(found: &Found) -> Result<(fs::File, Stat), String> {
+    let changed = || String::from("changed while it was synced");
+    let tree = beneath::Root::open(&found.root).map_err(|e| format!("cannot be read ({e})"))?;
+    let (dir, name) = match tree.parent_of(&found.key, false) {
+        Ok(found) => found,
+        Err(e) if e.is_not_found() => return Err(String::from("vanished while it was synced")),
+        Err(_) => return Err(changed()),
+    };
+    match dir.open_read(name) {
+        Ok((file, st)) if found.file.matches(&st) => Ok((file, st)),
+        Ok(_) | Err(BeneathError::ThroughLink(_)) => Err(changed()),
+        Err(e) if e.is_not_found() => Err(String::from("vanished while it was synced")),
+        Err(e) => Err(format!("cannot be read ({e})")),
+    }
+}
+
+/// After a file was read for an upload: it must still be the file opened, untouched, and not
+/// deleted meanwhile (an open file still reads after its last name is gone).
+fn still_found(file: &fs::File, opened: &Stat) -> Result<(), String> {
+    match beneath::stat_of(file) {
+        Ok(now)
+            if now.nlink > 0
+                && now.size == opened.size
+                && now.mtime_ns == opened.mtime_ns
+                && now.ctime_ns == opened.ctime_ns =>
+        {
+            Ok(())
+        }
+        _ => Err(String::from("changed while it was synced")),
+    }
+}
+
+/// The bytes of a job's file, read whole and checked.
+fn read_found(found: &Found) -> Result<Vec<u8>, String> {
+    let (mut file, opened) = open_found(found)?;
+    let mut bytes = Vec::with_capacity(usize::try_from(opened.size).unwrap_or(0));
+    std::io::Read::read_to_end(&mut file, &mut bytes)
+        .map_err(|e| format!("cannot be read ({e})"))?;
+    still_found(&file, &opened)?;
+    Ok(bytes)
+}
+
+/// The file a job streams up (a big one), opened and checked as [`open_found`] does.
+fn open_job_file(job: &BlobJob) -> Result<(fs::File, Stat), String> {
+    match &job.found {
+        Some(found) => open_found(found),
+        None => Err(String::from("vanished while it was synced")),
+    }
 }
 
 enum Outcome {
@@ -973,18 +1120,38 @@ impl std::io::Read for CheckedRead {
     }
 }
 
-/// A file in the system's temporary folder a big download comes into, named after what it
-/// holds (a download cut short resumes there next time); removed when dropped.
+/// A file in the folder's spool (`.azlin/sync/tmp`, on the folder's own disk) a big download
+/// comes into, named after what it holds (a download cut short resumes there next time);
+/// removed when dropped, unless it was renamed into place.
 struct TempBlob(PathBuf);
 
 impl TempBlob {
-    fn for_download(key: &str, hash: &str) -> TempBlob {
+    /// The spool file for `key` at `hash` under the folder `root` (the spool is made when
+    /// missing).
+    fn for_download(root: &Path, key: &str, hash: &str) -> CloudResult<TempBlob> {
+        let tree = beneath::Root::open(root)?;
+        root::spool(&tree)?;
         let name = blake3::hash(format!("{key}\n{hash}").as_bytes()).to_hex();
-        TempBlob(std::env::temp_dir().join(format!("azcloud-sync-{}.blob", &name.as_str()[..32])))
+        let mut path = root.to_path_buf();
+        for segment in root::SPOOL_DIR.split('/') {
+            path.push(segment);
+        }
+        Ok(TempBlob(path.join(format!(
+            "azcloud-sync-{}.blob",
+            &name.as_str()[..32]
+        ))))
     }
 
     fn path(&self) -> &Path {
         &self.0
+    }
+
+    /// Its name in the spool.
+    fn name(&self) -> String {
+        self.0
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
     }
 }
 
@@ -1003,12 +1170,16 @@ enum Blob {
 /// The bytes a job uploads, unless its file changed since the scan.
 fn job_bytes(job: &BlobJob) -> Result<Vec<u8>, String> {
     let bytes = match &job.source {
-        BlobSource::File(path) => match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) => return Err(format!("cannot be read ({e})")),
+        BlobSource::File(_) => match &job.found {
+            Some(found) => read_found(found)?,
+            None => return Err(String::from("vanished while it was synced")),
         },
-        BlobSource::JsonFile(path) => {
-            match fs::read(path).ok().and_then(|b| local::json_blob(&b)) {
+        BlobSource::JsonFile(_) => {
+            let raw = match &job.found {
+                Some(found) => read_found(found)?,
+                None => return Err(String::from("vanished while it was synced")),
+            };
+            match local::json_blob(&raw) {
                 Some(bytes) => bytes,
                 None => return Err(String::from("no longer a JSON object")),
             }
@@ -1035,22 +1206,36 @@ fn upload_one<S: RemoteStore + ?Sized>(
             if store.head(&key)?.is_some() {
                 return Ok(Outcome::Existed);
             }
+            // Held open for the whole upload: it is the scanned file (no link, no FIFO), and
+            // still that file, undeleted, when the upload is done.
+            let (held, opened) = match open_job_file(job) {
+                Ok(open) => open,
+                Err(why) => return Ok(Outcome::Changed(why)),
+            };
             let check = FileCheck {
                 size: job.size,
                 modified_ns: job.mtime_ns,
                 blake3: job.hash.clone(),
             };
-            return match store.put_file(&key, path, &check) {
-                Ok(Some(sent)) => Ok(Outcome::Uploaded(sent)),
-                Ok(None) => Ok(Outcome::Changed(String::from(
-                    "changed while it was synced",
-                ))),
+            let sent = match store.put_file(&key, path, &check) {
+                Ok(Some(sent)) => sent,
+                Ok(None) => {
+                    return Ok(Outcome::Changed(String::from(
+                        "changed while it was synced",
+                    )))
+                }
                 // A file that changed or vanished since the scan waits for the next run; any
                 // other failure is the upload's.
-                Err(e) => match fs::metadata(path) {
-                    Ok(meta) if check.matches(&meta) => Err(e),
-                    _ => Ok(Outcome::Changed(String::from("changed while it was synced"))),
-                },
+                Err(e) => {
+                    return match still_found(&held, &opened) {
+                        Ok(()) => Err(e),
+                        Err(why) => Ok(Outcome::Changed(why)),
+                    }
+                }
+            };
+            return match still_found(&held, &opened) {
+                Ok(()) => Ok(Outcome::Uploaded(sent)),
+                Err(why) => Ok(Outcome::Changed(why)),
             };
         }
     }
@@ -1119,19 +1304,25 @@ fn uploaded_hash<'a>(
 /// The job that uploads what `action` sends to the drive (its key is the action's).
 fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
     let key = action.key();
-    let (size, source) = match action {
+    let (size, source, found) = match action {
         Action::MergeJson { .. } => {
             let m = &work.merged[key];
-            (m.blob.len() as u64, BlobSource::Bytes(m.blob.clone()))
+            (m.blob.len() as u64, BlobSource::Bytes(m.blob.clone()), None)
         }
         _ => {
             let file = &work.scan.files[key];
-            let path = local::path_of(&work.root.path, key);
+            let here = work.scan.here(key);
+            let path = local::path_of(&work.root.path, here);
             let source = match file.content {
                 Content::Raw => BlobSource::File(path),
                 Content::JsonMerge => BlobSource::JsonFile(path),
             };
-            (file.blob_size, source)
+            let found = Found {
+                root: work.root.path.clone(),
+                key: here.to_string(),
+                file: file.clone(),
+            };
+            (file.blob_size, source, Some(found))
         }
     };
     let mtime_ns = work.scan.files.get(key).map_or(0, |f| f.mtime_ns);
@@ -1141,6 +1332,7 @@ fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
         size,
         mtime_ns,
         source,
+        found,
     }
 }
 
@@ -1262,15 +1454,17 @@ fn next_index(
     device: &str,
     now: i64,
     tombstone_days: i64,
+    confirmed: bool,
 ) -> RemoteIndex {
     let mut next = remote.clone();
     let generation = remote.generation + 1;
-    let entry = |hash: &str, size: u64, mtime: i64| RemoteFile {
+    let entry = |hash: &str, size: u64, mtime: i64, exec: bool| RemoteFile {
         hash: hash.to_string(),
         size,
         mtime,
         gen: generation,
         device: device.to_string(),
+        exec,
     };
     let mut changed = false;
     for action in actions {
@@ -1279,7 +1473,7 @@ fn next_index(
                 if let Some(f) = scan.files.get(key) {
                     let mtime = (f.mtime_ns / 1_000_000_000) as i64;
                     next.files
-                        .insert(key.clone(), entry(&f.hash, f.blob_size, mtime));
+                        .insert(key.clone(), entry(&f.hash, f.blob_size, mtime, f.exec));
                     next.deleted.remove(key);
                     changed = true;
                 }
@@ -1288,7 +1482,7 @@ fn next_index(
                 if let Some(f) = scan.files.get(key) {
                     let mtime = (f.mtime_ns / 1_000_000_000) as i64;
                     next.files
-                        .insert(copy.clone(), entry(&f.hash, f.blob_size, mtime));
+                        .insert(copy.clone(), entry(&f.hash, f.blob_size, mtime, f.exec));
                     next.deleted.remove(copy);
                     changed = true;
                 }
@@ -1297,8 +1491,9 @@ fn next_index(
                 if let Some(m) = merged.get(key) {
                     let same = remote.files.get(key).is_some_and(|f| f.hash == m.hash);
                     if !same {
+                        let exec = scan.files.get(key).is_some_and(|f| f.exec);
                         next.files
-                            .insert(key.clone(), entry(&m.hash, m.blob.len() as u64, now));
+                            .insert(key.clone(), entry(&m.hash, m.blob.len() as u64, now, exec));
                         changed = true;
                     }
                 }
@@ -1312,6 +1507,7 @@ fn next_index(
                             gen: generation,
                             at: now,
                             device: device.to_string(),
+                            confirmed,
                         },
                     );
                     changed = true;
@@ -1343,6 +1539,178 @@ struct Download {
     expect: Option<LocalFile>,
     /// The device that wrote the drive's version (quarantine marks on other people's files).
     writer: String,
+    /// The drive's executable bit and modification time (seconds; 0: none) for the new file.
+    exec: bool,
+    mtime: i64,
+}
+
+/// The problem a failed step on this disk is.
+fn problem_of(key: &str, e: &BeneathError) -> problems::Problem {
+    use problems::{Code, Problem};
+    match e {
+        BeneathError::ThroughLink(at) => Problem::new(
+            Code::ThroughLink,
+            key,
+            format!("\"{at}\" here is a link or no folder; nothing is written through it"),
+        ),
+        BeneathError::CrossesMount(at) => Problem::new(
+            Code::MountPoint,
+            key,
+            format!("\"{at}\" is another disk; nothing is written into it"),
+        ),
+        e if e.is_disk_full() => Problem::new(
+            Code::DiskFull,
+            key,
+            "the disk is full; the old version stays as it was",
+        ),
+        BeneathError::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => Problem::new(
+            Code::Locked,
+            key,
+            format!("it cannot be replaced ({io}); the next pass tries again"),
+        ),
+        other => Problem::new(Code::IoError, key, other.to_string()),
+    }
+}
+
+/// A step on this disk that failed for `key`: said in the report's sentences and its problems.
+fn failed_here(report: &mut SyncReport, verb: &str, key: &str, e: &BeneathError) {
+    report.errors.push(format!("{verb} {key}: {e}"));
+    report.file_errors.push((key.to_string(), e.to_string()));
+    report.problems.push(problem_of(key, e));
+}
+
+/// The bytes of the file of `key` under `root`, read without following a link.
+fn read_here(root: &Path, key: &str) -> Option<Vec<u8>> {
+    let tree = beneath::Root::open(root).ok()?;
+    let (dir, name) = tree.parent_of(key, false).ok()?;
+    let (mut file, _) = dir.open_read(name).ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
+    Some(bytes)
+}
+
+/// The permission bits of a new version: the old file's read and write bits (the user's own
+/// choice), else `rw-r--r--`, and the executable bit wherever a read bit is when the drive's
+/// version is executable. Never setuid, setgid or sticky, never more than the old file or
+/// `rwxr-xr-x` allow: a remote entry brings no permission of its own.
+#[cfg(unix)]
+fn set_mode(file: &fs::File, exec: bool, old: Option<&Stat>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut mode = old
+        .filter(|st| st.kind == Kind::File)
+        .map_or(0o644, |st| (st.mode & 0o666) | 0o600);
+    if exec && merge::TRACKS_EXEC {
+        mode |= (mode & 0o444) >> 2;
+    }
+    file.set_permissions(fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_mode(_file: &fs::File, _exec: bool, _old: Option<&Stat>) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Sets the drive's modification time (seconds; 0: none) on a new version: the merge never
+/// decides by it, people and other tools do.
+fn set_mtime(file: &fs::File, mtime: i64) -> std::io::Result<()> {
+    if mtime > 0 {
+        file.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(mtime as u64))?;
+    }
+    Ok(())
+}
+
+/// Why a new version was not renamed in.
+enum Replace {
+    /// The file here changed since the scan (or a file turned up): the next run takes it.
+    Changed,
+    Failed(BeneathError),
+}
+
+/// Whether the file `name` of `dir` is still what the scan found (`None`: still absent).
+fn still_there(dir: &beneath::Dir, name: &str, expect: Option<&LocalFile>) -> bool {
+    match (dir.lstat(name), expect) {
+        (Err(e), None) => e.kind() == std::io::ErrorKind::NotFound,
+        (Ok(st), Some(file)) => file.matches(&st),
+        _ => false,
+    }
+}
+
+/// Writes a new version of `name` in `dir` from `body`: into a new temporary file in the same
+/// folder (the same disk, never the system's temporary folder), with its permission bits and
+/// time, synced to disk; then, if the file is still what the scan found, renamed over it and
+/// the folder synced. The old version is whole until the rename, a crash leaves the old or the
+/// new one, and a failure (a full disk) leaves no temporary file. The bytes written.
+fn replace_checked(
+    dir: &beneath::Dir,
+    name: &str,
+    expect: Option<&LocalFile>,
+    body: &mut dyn std::io::Read,
+    exec: bool,
+    mtime: i64,
+) -> Result<u64, Replace> {
+    let old = dir.lstat(name).ok();
+    let tmp = beneath::temp_name(name);
+    let mut file = dir.create_new(&tmp, 0o600).map_err(Replace::Failed)?;
+    let written = std::io::copy(body, &mut file).and_then(|n| {
+        set_mode(&file, exec, old.as_ref())?;
+        set_mtime(&file, mtime)?;
+        file.sync_all()?;
+        Ok(n)
+    });
+    drop(file);
+    let written = match written {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = dir.unlink(&tmp);
+            return Err(Replace::Failed(e.into()));
+        }
+    };
+    if !still_there(dir, name, expect) {
+        let _ = dir.unlink(&tmp);
+        return Err(Replace::Changed);
+    }
+    if let Err(e) = dir.rename(&tmp, dir, name) {
+        let _ = dir.unlink(&tmp);
+        return Err(Replace::Failed(e));
+    }
+    dir.sync();
+    Ok(written)
+}
+
+/// [`replace_checked`] for a big download already in the spool (`spool`, its file `blob`):
+/// its permission bits and time set, synced, then renamed straight over `name` if that is
+/// still what the scan found. The bytes it holds.
+fn replace_from_spool(
+    tree: &beneath::Root,
+    blob: &TempBlob,
+    dir: &beneath::Dir,
+    name: &str,
+    expect: Option<&LocalFile>,
+    exec: bool,
+    mtime: i64,
+) -> Result<u64, Replace> {
+    let spool = root::spool(tree).map_err(Replace::Failed)?;
+    let spooled = blob.name();
+    let (file, st) = spool.open_read(&spooled).map_err(Replace::Failed)?;
+    drop(file);
+    let old = dir.lstat(name).ok();
+    let prepared = fs::OpenOptions::new()
+        .write(true)
+        .open(blob.path())
+        .and_then(|file| {
+            set_mode(&file, exec, old.as_ref())?;
+            set_mtime(&file, mtime)?;
+            file.sync_all()
+        });
+    if let Err(e) = prepared {
+        return Err(Replace::Failed(e.into()));
+    }
+    if !still_there(dir, name, expect) {
+        return Err(Replace::Changed);
+    }
+    spool.rename(&spooled, dir, name).map_err(Replace::Failed)?;
+    dir.sync();
+    Ok(st.size)
 }
 
 /// Applies the committed index here and updates `base`.
@@ -1359,14 +1727,46 @@ fn apply_local<R: SyncRemote + ?Sized>(
     base: &mut BTreeMap<String, BaseEntry>,
     report: &mut SyncReport,
 ) {
+    use problems::Code;
     let drive = root.drive();
-    let scanned_entry = |key: &str| {
-        scan.files.get(key).map(|f| BaseEntry {
-            hash: f.hash.clone(),
-            size: f.size,
-            mtime_ns: f.mtime_ns,
-            cloud_only: false,
-        })
+    // The folder, reached from here on without a link (it was checked at the start of the run).
+    let tree = match beneath::Root::open(&root.path) {
+        Ok(tree) => tree,
+        Err(e) => {
+            report.errors.push(format!(
+                "{}: the folder cannot be opened ({e}); nothing was written here",
+                root.path.display()
+            ));
+            return;
+        }
+    };
+    let scanned_entry = |key: &str| scan.files.get(key).map(LocalFile::base_entry);
+    let stamp = root::trash_stamp(crate::now());
+    // E3: what the downloads planned so far take of the disk's free space.
+    let free = beneath::free_space(&root.path);
+    let mut pending: u64 = 0;
+    let mut fits = |key: &str, size: u64, report: &mut SyncReport| -> bool {
+        let Some(free) = free else {
+            return true;
+        };
+        if free.saturating_sub(pending) < size.saturating_add(opts.disk_reserve) {
+            report.tell(
+                Code::DiskReserve,
+                key,
+                format!(
+                    "{size} bytes would leave less than the {} bytes this disk keeps free; it \
+                     stays on the drive",
+                    opts.disk_reserve
+                ),
+            );
+            report.file_errors.push((
+                key.to_string(),
+                String::from("not enough free space on this disk"),
+            ));
+            return false;
+        }
+        pending = pending.saturating_add(size);
+        true
     };
     let mut downloads = Vec::new();
     // What this run deletes here before its downloads are written: a file the drive renamed by
@@ -1378,6 +1778,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
         .collect();
     for action in actions {
         let key = action.key();
+        let here = scan.here(key);
         let moved_on = || format!("{key}: changed during the run; the next run takes it");
         match action {
             Action::Agree { .. } | Action::Upload { .. } => {
@@ -1404,21 +1805,38 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         BaseEntry {
                             hash: f.hash.clone(),
                             size: f.size,
-                            mtime_ns: 0,
                             cloud_only: true,
+                            exec: f.exec,
+                            ..BaseEntry::default()
                         },
                     );
                 }
             }
             Action::DeleteLocal { .. } => {
-                if !local::still_as_scanned(&root.path, key, scan.files.get(key)) {
+                // D2: a delete here is a move into the folder's trash, never an unlink.
+                let expect = scan.files.get(key);
+                let (dir, name) = match tree.parent_of(here, false) {
+                    Ok(found) => found,
+                    Err(e) => {
+                        failed_here(report, "delete", key, &e);
+                        continue;
+                    }
+                };
+                if !(expect.is_some() && still_there(&dir, name, expect)) {
                     report.changed_during_sync.push(moved_on());
                     continue;
                 }
+                let (trash, target, rel) = match root::trash_target(&tree, here, &stamp) {
+                    Ok(target) => target,
+                    Err(e) => {
+                        failed_here(report, "delete", key, &e);
+                        continue;
+                    }
+                };
                 let step = engine::Step::Delete {
                     key,
-                    hash: scan.files.get(key).map(|f| f.hash.as_str()),
-                    trash: None,
+                    hash: expect.map(|f| f.hash.as_str()),
+                    trash: Some(rel.as_str()),
                 };
                 hooks.point("before-trash");
                 let ticket = match hooks.begin(&step) {
@@ -1429,18 +1847,21 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         continue;
                     }
                 };
-                let deleted = drive.delete(key);
-                hooks.finished(&step, ticket, deleted.is_ok(), None);
-                match deleted {
+                let moved = dir.rename(name, &trash, &target);
+                if moved.is_ok() {
+                    trash.sync();
+                    dir.sync();
+                }
+                hooks.finished(&step, ticket, moved.is_ok(), None);
+                match moved {
                     Ok(()) => {
-                        local::prune_empty_parents(&root.path, key);
+                        drive.note_deleted(here);
+                        local::prune_empty_parents(&root.path, here);
                         base.remove(key);
                         report.deleted_here += 1;
+                        report.trashed.push((key.to_string(), rel));
                     }
-                    Err(e) => {
-                        report.errors.push(format!("delete {key}: {e}"));
-                        report.file_errors.push((key.to_string(), e.to_string()));
-                    }
+                    Err(e) => failed_here(report, "delete", key, &e),
                 }
             }
             Action::Download { .. } => {
@@ -1449,32 +1870,50 @@ fn apply_local<R: SyncRemote + ?Sized>(
                     // A file new here whose name this disk already gives another file that
                     // stays: it stays on the drive, said, and is not fetched again every run.
                     let folder = key.rfind('/').map_or("", |i| &key[..=i]);
-                    let twin = local::other_spelling(&root.path, key)
+                    let twin = local::other_spelling(&root.path, here)
                         .filter(|other| !leaving.contains(format!("{folder}{other}").as_str()));
                     if let Some(other) = twin {
                         let why = same_name(&other);
                         report.errors.push(format!("download {key}: {why}"));
-                        report.file_errors.push((key.to_string(), why));
+                        report.file_errors.push((key.to_string(), why.clone()));
+                        report.tell(Code::NameCollision, key, why);
                         continue;
                     }
                 }
                 if let Some(f) = committed.files.get(key) {
+                    if !fits(key, f.size, report) {
+                        continue;
+                    }
                     downloads.push(Download {
                         key: key.to_string(),
                         hash: f.hash.clone(),
                         size: f.size,
                         expect,
                         writer: f.device.clone(),
+                        exec: f.exec,
+                        mtime: f.mtime,
                     });
                 }
             }
             Action::Conflict { copy, .. } => {
                 hooks.point("conflict-start");
-                if !local::still_as_scanned(&root.path, key, scan.files.get(key)) {
+                let expect = scan.files.get(key);
+                let (dir, name) = match tree.parent_of(here, false) {
+                    Ok(found) => found,
+                    Err(e) => {
+                        failed_here(report, "keep", key, &e);
+                        continue;
+                    }
+                };
+                let copy_name = beneath::split_key(copy).1;
+                // The copy's name must still be free; this side's version still as scanned.
+                if !(expect.is_some() && still_there(&dir, name, expect))
+                    || dir.lstat(copy_name).is_ok()
+                {
                     report.changed_during_sync.push(moved_on());
                     continue;
                 }
-                let here_hash = scan.files.get(key).map_or("", |f| f.hash.as_str());
+                let here_hash = expect.map_or("", |f| f.hash.as_str());
                 let step = engine::Step::Conflict {
                     key,
                     copy,
@@ -1488,58 +1927,72 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         continue;
                     }
                 };
-                let renamed = drive.rename(key, copy);
+                let renamed = dir.rename(name, &dir, copy_name);
+                if renamed.is_ok() {
+                    dir.sync();
+                }
                 hooks.finished(&step, ticket, renamed.is_ok(), None);
                 hooks.point("conflict-renamed");
                 match renamed {
                     Ok(()) => {
-                        // A rename keeps the time: the copy is as scanned.
-                        if let Some(entry) = scanned_entry(key) {
+                        let (folder, _) = beneath::split_key(here);
+                        let copy_here = if folder.is_empty() {
+                            copy_name.to_string()
+                        } else {
+                            format!("{folder}/{copy_name}")
+                        };
+                        drive.note_renamed(here, &copy_here);
+                        let entry = local::entry_now(&root.path, &copy_here, here_hash)
+                            .or_else(|| scanned_entry(key));
+                        if let Some(entry) = entry {
                             base.insert(copy.clone(), entry);
                         }
                         report.conflicts.push(format!("{key} -> {copy}"));
                         report.files_up += 1;
                         if let Some(f) = committed.files.get(key) {
-                            downloads.push(Download {
-                                key: key.to_string(),
-                                hash: f.hash.clone(),
-                                size: f.size,
-                                expect: None,
-                                writer: f.device.clone(),
-                            });
+                            if fits(key, f.size, report) {
+                                downloads.push(Download {
+                                    key: key.to_string(),
+                                    hash: f.hash.clone(),
+                                    size: f.size,
+                                    expect: None,
+                                    writer: f.device.clone(),
+                                    exec: f.exec,
+                                    mtime: f.mtime,
+                                });
+                            }
                         }
                     }
-                    Err(e) => {
-                        report.errors.push(format!("keep {key} as {copy}: {e}"));
-                        report.file_errors.push((key.to_string(), e.to_string()));
-                    }
+                    Err(e) => failed_here(report, "keep", key, &e),
                 }
             }
             Action::MergeJson { .. } => {
-                if !local::still_as_scanned(&root.path, key, scan.files.get(key)) {
-                    report.changed_during_sync.push(moved_on());
-                    continue;
-                }
                 let Some(m) = merged.get(key) else { continue };
-                match drive.put(key, &m.file) {
-                    Ok(()) => {
-                        if let Some(entry) = local::entry_now(&root.path, key, &m.hash) {
+                let expect = scan.files.get(key);
+                let written = tree
+                    .parent_of(here, false)
+                    .map_err(Replace::Failed)
+                    .and_then(|(dir, name)| {
+                        let exec = expect.is_some_and(|f| f.exec);
+                        replace_checked(&dir, name, expect, &mut &m.file[..], exec, 0)
+                    });
+                match written {
+                    Ok(_) => {
+                        drive.note_written(here);
+                        if let Some(entry) = local::entry_now(&root.path, here, &m.hash) {
                             base.insert(key.to_string(), entry);
                         }
                         report.merged.push(key.to_string());
                         report.files_up += 1;
                     }
-                    Err(e) => {
-                        report.errors.push(format!("write {key}: {e}"));
-                        report.file_errors.push((key.to_string(), e.to_string()));
-                    }
+                    Err(Replace::Changed) => report.changed_during_sync.push(moved_on()),
+                    Err(Replace::Failed(e)) => failed_here(report, "write", key, &e),
                 }
             }
         }
     }
-    let (small, big): (Vec<Download>, Vec<Download>) = downloads
-        .into_iter()
-        .partition(|d| d.size <= BIG_BLOB);
+    let (small, big): (Vec<Download>, Vec<Download>) =
+        downloads.into_iter().partition(|d| d.size <= BIG_BLOB);
     let fetch = |d: &Download| {
         hooks.tell(SyncEvent::Started {
             key: d.key.clone(),
@@ -1575,7 +2028,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
             drop(sender);
             for (i, blob) in fetched {
                 let blob = blob.map(Blob::Bytes);
-                write_download(&drive, root, &small[i], blob, hooks, base, report);
+                write_download(
+                    &tree, &drive, root, scan, &small[i], blob, hooks, base, report,
+                );
             }
         });
     }
@@ -1583,7 +2038,8 @@ fn apply_local<R: SyncRemote + ?Sized>(
         if hooks.cancelled() {
             break;
         }
-        // A big file comes down into a file, never whole in memory (a JSON-merge file is small).
+        // A big file comes down into the folder's spool on its own disk, never whole in memory
+        // (a JSON-merge file is small).
         let blob = if root.json_merge.iter().any(|k| *k == d.key) {
             fetch(d).map(Blob::Bytes)
         } else {
@@ -1592,21 +2048,25 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 up: false,
                 bytes: d.size,
             });
-            let file = TempBlob::for_download(&d.key, &d.hash);
-            remote_side
-                .fetch_to(&d.key, &d.hash, d.size, file.path())
-                .map(|hash| Blob::File { file, hash })
+            TempBlob::for_download(&root.path, &d.key, &d.hash).and_then(|file| {
+                remote_side
+                    .fetch_to(&d.key, &d.hash, d.size, file.path())
+                    .map(|hash| Blob::File { file, hash })
+            })
         };
-        write_download(&drive, root, d, blob, hooks, base, report);
+        write_download(&tree, &drive, root, scan, d, blob, hooks, base, report);
     }
 }
 
-/// Writes one fetched blob to its file (a JSON-merge file with this
-/// computer's machine-local keys put back), unless the file changed since
-/// the scan.
+/// Writes one fetched blob to its file (a JSON-merge file with this computer's machine-local
+/// keys put back) through a new file renamed in ([`replace_checked`]), unless the file changed
+/// since the scan.
+#[allow(clippy::too_many_arguments)]
 fn write_download(
+    tree: &beneath::Root,
     drive: &LocalDrive,
     root: &LocalRoot,
+    scan: &Scan,
     d: &Download,
     blob: CloudResult<Blob>,
     hooks: &RunHooks<'_>,
@@ -1622,11 +2082,15 @@ fn write_download(
         });
     };
     hooks.point("download-start");
+    let here = scan.here(&d.key).to_string();
     let blob = match blob {
         Ok(blob) => blob,
         Err(e) => {
             report.errors.push(format!("download {}: {e}", d.key));
             report.file_errors.push((d.key.clone(), e.to_string()));
+            report
+                .problems
+                .push(problems::Problem::of_error(&d.key, &e));
             finished(Some(e.to_string()));
             return;
         }
@@ -1637,34 +2101,20 @@ fn write_download(
     };
     let blob = match blob {
         Blob::Bytes(bytes) if root.json_merge.iter().any(|k| *k == d.key) => {
-            let current = fs::read(local::path_of(&root.path, &d.key)).ok();
+            let current = read_here(&root.path, &here);
             Blob::Bytes(local::json_with_local_keys(&bytes, current.as_deref()).unwrap_or(bytes))
         }
         other => other,
     };
-    // The last look before the rename: what a pause here lets change is caught below.
-    hooks.point("before-rename");
-    if !local::still_as_scanned(&root.path, &d.key, d.expect.as_ref()) {
-        // Another file of the drive came down under a name this disk takes for this one's.
-        let other = d
-            .expect
-            .is_none()
-            .then(|| local::other_spelling(&root.path, &d.key))
-            .flatten();
-        if let Some(other) = other {
-            let why = same_name(&other);
-            report.errors.push(format!("write {}: {why}", d.key));
-            report.file_errors.push((d.key.clone(), why.clone()));
-            finished(Some(why));
+    // The folder of the file, made where missing, never through a link or into another disk.
+    let (dir, name) = match tree.parent_of(&here, true) {
+        Ok(found) => found,
+        Err(e) => {
+            failed_here(report, "write", &d.key, &e);
+            finished(Some(e.to_string()));
             return;
         }
-        report.changed_during_sync.push(format!(
-            "{}: changed during the run; the next run takes it",
-            d.key
-        ));
-        finished(Some(String::from("changed here during the run")));
-        return;
-    }
+    };
     let step = engine::Step::Download {
         key: &d.key,
         hash: &hash,
@@ -1680,27 +2130,58 @@ fn write_download(
             return;
         }
     };
+    // The last look before the rename (in replace_checked): what a pause here lets change is
+    // caught there.
+    hooks.point("before-rename");
     let written = match &blob {
-        Blob::Bytes(bytes) => drive.put(&d.key, bytes).map(|()| bytes.len() as u64),
-        Blob::File { file, .. } => fs::File::open(file.path())
-            .map_err(azul_storage::DriveError::from)
-            .and_then(|mut from| drive.put_from(&d.key, &mut from)),
+        Blob::Bytes(bytes) => replace_checked(
+            &dir,
+            name,
+            d.expect.as_ref(),
+            &mut &bytes[..],
+            d.exec,
+            d.mtime,
+        ),
+        Blob::File { file, .. } => {
+            replace_from_spool(tree, file, &dir, name, d.expect.as_ref(), d.exec, d.mtime)
+        }
     };
-    let path = local::path_of(&root.path, &d.key);
+    let path = local::path_of(&root.path, &here);
     hooks.finished(&step, ticket, written.is_ok(), Some(&path));
     hooks.point("after-rename");
     match written {
         Ok(written) => {
-            if let Some(entry) = local::entry_now(&root.path, &d.key, &hash) {
+            drive.note_written(&here);
+            if let Some(entry) = local::entry_now(&root.path, &here, &hash) {
                 base.insert(d.key.clone(), entry);
             }
             report.files_down += 1;
             report.bytes_down += written;
             finished(None);
         }
-        Err(e) => {
-            report.errors.push(format!("write {}: {e}", d.key));
-            report.file_errors.push((d.key.clone(), e.to_string()));
+        Err(Replace::Changed) => {
+            // Another file of the drive came down under a name this disk takes for this one's.
+            let other = d
+                .expect
+                .is_none()
+                .then(|| local::other_spelling(&root.path, &here))
+                .flatten();
+            if let Some(other) = other {
+                let why = same_name(&other);
+                report.errors.push(format!("write {}: {why}", d.key));
+                report.file_errors.push((d.key.clone(), why.clone()));
+                report.tell(problems::Code::NameCollision, &d.key, why.clone());
+                finished(Some(why));
+                return;
+            }
+            report.changed_during_sync.push(format!(
+                "{}: changed during the run; the next run takes it",
+                d.key
+            ));
+            finished(Some(String::from("changed here during the run")));
+        }
+        Err(Replace::Failed(e)) => {
+            failed_here(report, "write", &d.key, &e);
             finished(Some(e.to_string()));
         }
     }
@@ -1728,6 +2209,8 @@ fn with_cloud_only(
             mtime_ns: 0,
             blob_size: entry.size,
             content: Content::Raw,
+            exec: entry.exec,
+            ..LocalFile::default()
         });
     }
     here
@@ -1764,14 +2247,14 @@ fn on_demand(
                     out.push(Action::Conflict { key, copy });
                     continue;
                 }
-                if let (Some(here), Some(there)) = (scan.files.get(&key), remote.files.get(&key))
-                {
+                if let (Some(here), Some(there)) = (scan.files.get(&key), remote.files.get(&key)) {
                     held.push(HeldConflict {
                         key: key.clone(),
                         here: here.hash.clone(),
                         there: there.hash.clone(),
                         there_size: there.size,
                         there_device: there.device.clone(),
+                        there_exec: there.exec,
                     });
                 }
                 continue;
@@ -1811,11 +2294,7 @@ fn hold_big(
 }
 
 /// What the plan moves: files and bytes up and down.
-fn planned(
-    actions: &[Action],
-    scan: &Scan,
-    remote: &RemoteIndex,
-) -> SyncEvent {
+fn planned(actions: &[Action], scan: &Scan, remote: &RemoteIndex) -> SyncEvent {
     let (mut up_files, mut up_bytes, mut down_files, mut down_bytes) = (0usize, 0u64, 0usize, 0u64);
     for action in actions {
         let key = action.key();
@@ -1900,6 +2379,220 @@ pub fn sync_to(
     }
 }
 
+/// The BLAKE3 of the file of `key` under `root`, read in pieces without following a link.
+fn hash_here(root: &Path, key: &str) -> Option<String> {
+    let tree = beneath::Root::open(root).ok()?;
+    let (dir, name) = tree.parent_of(key, false).ok()?;
+    let (mut file, _) = dir.open_read(name).ok()?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = std::io::Read::read(&mut file, &mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(hasher.finalize().to_hex().to_string())
+}
+
+/// P10, D6: an app that saves a file writes the new version aside and renames the old one to
+/// an ignored temporary name in the same folder for a moment, then renames the new one in. A
+/// run in that moment sees the file gone; a delete on the drive then would lose it on every
+/// device. A delete whose old bytes sit in such a temporary file next to it waits for the next
+/// run.
+fn keep_saves(
+    actions: &mut Vec<Action>,
+    scan: &Scan,
+    base: &BTreeMap<String, BaseEntry>,
+    root: &Path,
+    report: &mut SyncReport,
+) {
+    let mut hashes: BTreeMap<String, Option<String>> = BTreeMap::new();
+    actions.retain(|action| {
+        let Action::DeleteRemote { key } = action else {
+            return true;
+        };
+        let Some(entry) = base.get(key) else {
+            return true;
+        };
+        let folder = beneath::split_key(key).0;
+        for (temp, size) in &scan.temps {
+            let (temp_folder, temp_name) = beneath::split_key(temp);
+            if temp_folder != folder || *size != entry.size {
+                continue;
+            }
+            let hash = hashes
+                .entry(temp.clone())
+                .or_insert_with(|| hash_here(root, temp));
+            if hash.as_deref() == Some(entry.hash.as_str()) {
+                report.tell(
+                    problems::Code::SaveInProgress,
+                    key,
+                    format!(
+                        "an app is saving it (its old version is in {temp_name}); the next pass \
+                         takes the result"
+                    ),
+                );
+                return false;
+            }
+        }
+        true
+    });
+}
+
+/// Checks every file of the drive before the plan (M1, S2, P1-P5): a name this system or disk
+/// cannot hold, two names this disk takes for one, a file whose folder here is a link, another
+/// disk or a file, a folder here where the drive has a file. Each is listed and frozen: the
+/// plan neither writes nor deletes it, on either side. A name the drive spells otherwise than
+/// this folder - decomposed here, composed there, on a disk that takes both for one name - is
+/// the same file: the scan takes the drive's spelling ([`Scan::spelled`]).
+fn check_remote(
+    scan: &mut Scan,
+    remote: &RemoteIndex,
+    base: &BTreeMap<String, BaseEntry>,
+    volume: &names::Volume,
+    report: &mut SyncReport,
+) -> BTreeSet<String> {
+    use problems::Code;
+    let system = names::System::here();
+    let mut frozen = BTreeSet::new();
+    for key in remote.files.keys() {
+        if let Some(why) = names::here_problem(key, system, volume) {
+            report.tell(
+                Code::InvalidHere,
+                key,
+                format!("this system cannot hold it ({why}); it stays on the drive, not renamed"),
+            );
+            frozen.insert(key.clone());
+            continue;
+        }
+        for risk in names::display_risks(key) {
+            report.tell(Code::DisplayRisk, key, format!("its name has {risk}"));
+        }
+        if !scan.files.contains_key(key) {
+            for (other, why) in names::portability(key, system) {
+                report.tell(
+                    Code::Portability,
+                    key,
+                    format!("{} cannot hold it: {why}", other.label()),
+                );
+            }
+        }
+        let mut blocked = None;
+        let mut folder = key.as_str();
+        while let Some(i) = folder.rfind('/') {
+            folder = &folder[..i];
+            if scan.links.contains_key(folder) {
+                blocked = Some((
+                    Code::ThroughLink,
+                    format!("\"{folder}\" here is a link; nothing is written through it"),
+                ));
+                break;
+            }
+            if scan.mounts.contains(folder) {
+                blocked = Some((
+                    Code::MountPoint,
+                    format!("\"{folder}\" here is another disk; nothing is written into it"),
+                ));
+                break;
+            }
+            if scan.files.contains_key(folder) {
+                blocked = Some((
+                    Code::TypeConflict,
+                    format!(
+                        "\"{folder}\" is a file here and a folder on the drive; both are kept as \
+                         they are"
+                    ),
+                ));
+                break;
+            }
+        }
+        if blocked.is_none() && scan.dirs.contains(key.as_str()) {
+            blocked = Some((
+                Code::TypeConflict,
+                String::from(
+                    "it is a folder here and a file on the drive; both are kept as they are",
+                ),
+            ));
+        }
+        if let Some((code, why)) = blocked {
+            report.tell(code, key, why);
+            frozen.insert(key.clone());
+        }
+    }
+    if !(volume.case_insensitive || volume.norm_insensitive) {
+        return frozen;
+    }
+    // P1: of two names of the drive this disk takes for one, the one in the base or here, else
+    // the one committed first, comes down; the other stays on the drive, listed.
+    let mut groups: BTreeMap<String, Vec<&String>> = BTreeMap::new();
+    for key in remote.files.keys().filter(|k| !frozen.contains(*k)) {
+        groups
+            .entry(names::fold(key, volume))
+            .or_default()
+            .push(key);
+    }
+    let mut winners: BTreeMap<String, String> = BTreeMap::new();
+    let mut losers: Vec<(String, String)> = Vec::new();
+    for (fold, keys) in &groups {
+        let winner = if keys.len() == 1 {
+            keys[0].clone()
+        } else {
+            keys.iter()
+                .find(|k| base.contains_key(k.as_str()))
+                .or_else(|| keys.iter().find(|k| scan.files.contains_key(k.as_str())))
+                .or_else(|| {
+                    keys.iter().min_by_key(|k| {
+                        (
+                            remote.files.get(k.as_str()).map_or(0, |f| f.gen),
+                            (**k).clone(),
+                        )
+                    })
+                })
+                .map(|k| (**k).clone())
+                .unwrap_or_default()
+        };
+        for key in keys {
+            if **key != winner {
+                losers.push(((*key).clone(), winner.clone()));
+            }
+        }
+        winners.insert(fold.clone(), winner);
+    }
+    for (loser, winner) in losers {
+        report.tell(
+            Code::NameCollision,
+            &loser,
+            format!(
+                "this disk takes it for \"{}\", which stays; it is not downloaded here",
+                names::escaped(&winner)
+            ),
+        );
+        frozen.insert(loser);
+    }
+    // P2: a name here the drive spells in another normalization is that file.
+    if volume.norm_insensitive {
+        let aliases: Vec<(String, String)> = scan
+            .files
+            .keys()
+            .filter(|l| !remote.files.contains_key(*l) && !base.contains_key(*l))
+            .filter_map(|l| {
+                let w = winners.get(&names::fold(l, volume))?;
+                (w != l && names::nfc(w) == names::nfc(l) && !scan.files.contains_key(w))
+                    .then(|| (l.clone(), w.clone()))
+            })
+            .collect();
+        for (here, there) in aliases {
+            if let Some(file) = scan.files.remove(&here) {
+                scan.files.insert(there.clone(), file);
+                scan.spelled.insert(there, here);
+            }
+        }
+    }
+    frozen
+}
+
 /// The loop of a run against any drive side.
 fn run<R: SyncRemote + ?Sized>(
     remote_side: &R,
@@ -1908,6 +2601,7 @@ fn run<R: SyncRemote + ?Sized>(
     opts: &SyncOptions,
     hooks: &RunHooks<'_>,
 ) -> CloudResult<SyncReport> {
+    use problems::Code;
     let mut report = SyncReport {
         root: root.path.display().to_string(),
         prefix: opts.prefix.clone(),
@@ -1916,78 +2610,203 @@ fn run<R: SyncRemote + ?Sized>(
     };
     // The quiet folder before the base is read: a change to it made during the wait (an
     // answer to a question) is in what this run works from.
-    local::settle(
-        &root.path,
-        &root.rules,
-        opts.settle,
-        SETTLE_MAX,
-        &|| hooks.cancelled(),
-    );
+    local::settle(&root.path, &root.rules, opts.settle, SETTLE_MAX, &|| {
+        hooks.cancelled()
+    });
     let mut index = LocalIndex::load(index_path)?
         .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
+    // D3: the paired folder, or nothing changes anywhere. A missing folder, or one without the
+    // marker it was paired with (an unplugged disk's empty mount point, a stale copy under it),
+    // is never "every file deleted".
+    let paired = index.generation > 0 || !index.files.is_empty() || index.root_id.is_some();
+    if paired || !opts.dry_run {
+        match root::check(&root.path, index.root_id.as_deref(), paired) {
+            Ok(root::RootCheck::Paired(marker)) => index.root_id = Some(marker.id),
+            Ok(root::RootCheck::Missing) => {
+                report.refuse(
+                    Code::RootMissing,
+                    format!(
+                        "{} is gone (a disk not mounted, a folder moved or deleted): nothing was \
+                         synced and nothing deleted",
+                        root.path.display()
+                    ),
+                );
+                return Ok(report);
+            }
+            Ok(root::RootCheck::Replaced(why)) => {
+                report.refuse(
+                    Code::RootReplaced,
+                    format!("{why}: nothing was synced and nothing deleted"),
+                );
+                return Ok(report);
+            }
+            Err(e) => {
+                return Err(
+                    CloudError::from(e).context(format!("the folder {}", root.path.display()))
+                )
+            }
+        }
+        if !opts.dry_run {
+            if index.volume.is_none() {
+                index.volume = Some(root::probe_volume(&root.path));
+            }
+            if let Ok(tree) = beneath::Root::open(&root.path) {
+                root::purge_trash(&tree, crate::now());
+            }
+        }
+    }
+    let volume = index.volume.unwrap_or_default();
     // The folder as it was at one moment: a change made while it is read is read again whole.
-    let scan = local::scan_unchanged(
+    let scanned = local::scan_unchanged(
         &root.path,
         &root.rules,
         opts.settle,
         SETTLE_MAX,
         &|| hooks.cancelled(),
         || {
-            local::scan(
+            local::scan_settled(
                 &root.path,
                 &root.rules,
                 &index.files,
                 index.scanned_at_ns,
                 &root.json_merge,
                 opts.max_file_bytes,
+                opts.file_settle,
             )
         },
     )?;
     hooks.point("after-scan");
-    report.scanned = scan.files.len();
-    report.hashed = scan.hashed;
-    report.excluded = scan.excluded;
-    report.skipped = scan.skipped.clone();
-    let excluded = |key: &str| root.rules.excluded(key).is_some();
+    report.scanned = scanned.files.len();
+    report.hashed = scanned.hashed;
+    report.excluded = scanned.excluded;
+    report.skipped = scanned.skipped.clone();
+    report.problems.extend(scanned.problems.iter().cloned());
+    // What an attempt tells is told again by the next one (another device committed first).
+    let told = report.problems.len();
     let date = today();
-    let empty_base: BTreeMap<String, BaseEntry> = BTreeMap::new();
     let mut cached = load_cache(index_path, &index);
     let mut pause = None;
     let mut attempt = 0u32;
-    let (committed, actions, merged, reset, etag) = loop {
+    let (committed, actions, merged, etag, scan, base_after, restore_epoch) = loop {
         attempt += 1;
+        report.problems.truncate(told);
         let (remote, etag) = remote_side.read(cached.as_ref())?;
         // D43: an index this version does not read whole is left as it is (read-only here).
         let newer = remote.unknown_features();
         if !newer.is_empty() {
+            report.tell(
+                Code::UpdateNeeded,
+                "",
+                format!(
+                    "the drive uses what this version does not know ({}); it is left as it is \
+                     until the app is updated",
+                    newer.join(", ")
+                ),
+            );
             report.newer_format = newer;
             report.generation = remote.generation;
             return Ok(report);
         }
-        // The index went back (deleted, replaced): this side's base no longer
-        // describes it, so nothing is deleted on either side this run.
-        let reset = remote.generation < index.generation;
-        if reset && attempt == 1 {
-            report.notes.push(format!(
-                "the drive's index (generation {}) is older than this folder's last sync \
-                 (generation {}): this run deletes nothing on either side",
-                remote.generation, index.generation
-            ));
+        // S15, V3: an index older than the last one seen is a rollback (a replayed or
+        // rolled-back index would resurrect deletes and turn every edit since into a conflict)
+        // unless the drive announced a restore since. A restore heals from here: the files
+        // the restored index lacks are sent again, never deleted.
+        let mut restore_epoch = index.restore_epoch;
+        let healed;
+        let base: &BTreeMap<String, BaseEntry> = if remote.generation < index.generation {
+            let notice = opts
+                .restore
+                .as_ref()
+                .filter(|r| r.epoch > index.restore_epoch && r.covers(&opts.prefix));
+            let Some(notice) = notice else {
+                report.refuse(
+                    Code::RemoteRollback,
+                    format!(
+                        "the drive answered generation {}, older than the {} this folder saw: a \
+                         rolled-back or replayed index; nothing was changed (if you replaced the \
+                         drive's folder yourself, pair this folder again)",
+                        remote.generation, index.generation
+                    ),
+                );
+                report.generation = remote.generation;
+                return Ok(report);
+            };
+            let lost: Vec<&String> = index
+                .files
+                .keys()
+                .filter(|k| !remote.files.contains_key(*k) && !remote.deleted.contains_key(*k))
+                .collect();
+            report.tell(
+                Code::ServerRestored,
+                "",
+                format!(
+                    "the drive was restored from its backup; {} file(s) newer than the backup \
+                     are sent again from here",
+                    lost.len()
+                ),
+            );
+            let mut kept = index.files.clone();
+            for key in lost {
+                kept.remove(key);
+            }
+            restore_epoch = notice.epoch;
+            healed = kept;
+            &healed
+        } else {
+            &index.files
+        };
+        // M1: entries no run acts on stay on the drive as they are.
+        let unreadable = remote.unreadable();
+        for (key, why) in &unreadable {
+            let code = if remote::check_key(key).is_err() || names::key_problem(key).is_some() {
+                Code::BadRemoteName
+            } else {
+                Code::RemoteEntryUnreadable
+            };
+            report.tell(code, key, format!("never written here: {why}"));
         }
-        let base = if reset { &empty_base } else { &index.files };
+        let readable = remote.readable(&unreadable);
+        let mut scan = scanned.clone();
+        let mut frozen = check_remote(&mut scan, &readable, base, &volume, &mut report);
+        // What the drive says of them cannot be read: unknown, so never a delete here either.
+        frozen.extend(unreadable.keys().cloned());
+        let excluded = |key: &str| {
+            root.rules.excluded(key).is_some() || frozen.contains(key) || scan.hides(key)
+        };
         let here = with_cloud_only(&scan.files, base);
-        let mut actions = merge::plan(&merge::PlanInput {
+        let input = merge::PlanInput {
             base,
             local: &here,
-            remote: &remote,
+            remote: &readable,
             excluded: &excluded,
             device: &opts.device,
             date: &date,
-        });
-        report.held = on_demand(&mut actions, &scan, base, &remote, hooks);
-        hooks.observe_plan(&mut actions, &remote, base, &mut report.problems);
+        };
+        // D5: a file the drive deleted before this device knew it is kept, not sent again.
+        for key in merge::deleted_elsewhere(&input) {
+            report.tell(
+                Code::DeletedElsewhereKept,
+                &key,
+                "the drive deleted this file before this device was paired; it is kept here and \
+                 not sent again until you choose",
+            );
+        }
+        let mut actions = merge::plan(&input);
+        keep_saves(&mut actions, &scan, base, &root.path, &mut report);
+        report.held = on_demand(&mut actions, &scan, base, &readable, hooks);
+        hooks.observe_plan(&mut actions, &readable, base, &mut report.problems);
         if !opts.allow_mass_delete {
-            if let Some(asked) = mass_delete(&actions, &scan, base) {
+            if let Some(asked) = mass_delete(&actions, &scan, base, &readable) {
+                report.tell(
+                    Code::MassDeleteHeld,
+                    "",
+                    format!(
+                        "{} of {} files would be deleted {}; nothing changed until you confirm",
+                        asked.count,
+                        asked.of,
+                        if asked.here { "here" } else { "on the drive" }
+                    ),
+                );
                 // An app asks the user (nothing changed); the command line stops.
                 if hooks.hold_mass_delete {
                     report.mass_delete = Some(asked);
@@ -2035,12 +2854,12 @@ fn run<R: SyncRemote + ?Sized>(
             actions.retain(|a| !guard::sends(a));
         }
         if let Some(limit) = hooks.transfer_limit {
-            report.held_back = hold_big(&mut actions, &scan, &remote, limit);
+            report.held_back = hold_big(&mut actions, &scan, &readable, limit);
         }
         if attempt == 1 {
-            hooks.tell(planned(&actions, &scan, &remote));
+            hooks.tell(planned(&actions, &scan, &readable));
         }
-        let merged = merge_json_files(remote_side, root, &actions, base, &remote, &mut report)?;
+        let merged = merge_json_files(remote_side, root, &actions, base, &readable, &mut report)?;
         hooks.point("before-upload");
         let abandoned = remote_side.upload(
             &Uploads {
@@ -2048,13 +2867,14 @@ fn run<R: SyncRemote + ?Sized>(
                 actions: &actions,
                 scan: &scan,
                 merged: &merged,
-                remote: &remote,
+                remote: &readable,
                 opts,
                 hooks,
             },
             &mut report,
         )?;
         actions.retain(|a| !abandoned.contains(a.key()));
+        // From the drive's whole index: the entries no run acts on stay in it as they are.
         let next = next_index(
             &remote,
             &actions,
@@ -2063,9 +2883,19 @@ fn run<R: SyncRemote + ?Sized>(
             &opts.device,
             crate::now(),
             opts.tombstone_days,
+            opts.allow_mass_delete,
         );
         if next == remote {
-            break (remote, actions, merged, reset, etag);
+            let base_after = base.clone();
+            break (
+                remote,
+                actions,
+                merged,
+                etag,
+                scan,
+                base_after,
+                restore_epoch,
+            );
         }
         if hooks.cancelled() {
             // The blobs that went up wait for the next run (or the garbage collection).
@@ -2076,7 +2906,16 @@ fn run<R: SyncRemote + ?Sized>(
             Some(new_etag) => {
                 report.index_written = true;
                 hooks.point("after-commit");
-                break (next, actions, merged, reset, Some(new_etag));
+                let base_after = base.clone();
+                break (
+                    next,
+                    actions,
+                    merged,
+                    Some(new_etag),
+                    scan,
+                    base_after,
+                    restore_epoch,
+                );
             }
             None => {
                 report.cas_retries += 1;
@@ -2093,11 +2932,7 @@ fn run<R: SyncRemote + ?Sized>(
         }
     };
     report.generation = committed.generation;
-    let mut base = if reset {
-        BTreeMap::new()
-    } else {
-        index.files.clone()
-    };
+    let mut base = base_after;
     apply_local(
         remote_side,
         root,
@@ -2115,6 +2950,7 @@ fn run<R: SyncRemote + ?Sized>(
     report.cancelled = hooks.cancelled();
     index.files = base;
     index.generation = committed.generation;
+    index.restore_epoch = restore_epoch;
     index.scanned_at_ns = scan.started_ns;
     index.remote_etag = etag.clone().filter(|e| !e.is_empty());
     hooks.point("before-base-save");
@@ -2157,7 +2993,9 @@ pub fn fetch_file(
     key: &str,
 ) -> CloudResult<PathBuf> {
     match target {
-        Target::Index(store) => fetch_one(&BlobIndex::new(store, &opts.prefix), root, index_path, key),
+        Target::Index(store) => {
+            fetch_one(&BlobIndex::new(store, &opts.prefix), root, index_path, key)
+        }
         Target::Named(drive) => fetch_one(
             &named::NamedFiles::new(drive, &opts.prefix, index_path),
             root,
@@ -2186,32 +3024,42 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     let mut index = synced_index(root, index_path)?;
     let path = local::path_of(&root.path, key);
     let kept_in_cloud = index.files.get(key).is_some_and(|e| e.cloud_only);
-    if !kept_in_cloud && path.is_file() {
+    let now = local::stat_now(&root.path, key)?;
+    if !kept_in_cloud && now.is_some_and(|st| st.kind == Kind::File) {
         return Ok(path);
     }
     let cached = load_cache(index_path, &index);
     let (remote, _) = remote_side.read(cached.as_ref())?;
-    let file = remote.files.get(key).ok_or_else(|| {
-        CloudError::failed(format!("{key} is not on the drive (any more)"))
-    })?;
+    let file = remote
+        .files
+        .get(key)
+        .ok_or_else(|| CloudError::failed(format!("{key} is not on the drive (any more)")))?;
+    // The file's folder, made where missing, never through a link or into another disk.
+    let tree = beneath::Root::open(&root.path)?;
+    let (dir, name) = tree.parent_of(key, true)?;
+    let turned_up = || {
+        CloudError::failed(format!(
+            "{key} turned up on this device meanwhile; it is left as it is"
+        ))
+    };
     let hash = if file.size > BIG_BLOB {
-        // Into a file first, never whole in memory.
-        let blob = TempBlob::for_download(key, &file.hash);
+        // Into the folder's spool first, never whole in memory.
+        let blob = TempBlob::for_download(&root.path, key, &file.hash)?;
         let hash = remote_side.fetch_to(key, &file.hash, file.size, blob.path())?;
-        if fs::symlink_metadata(&path).is_ok() {
-            fail!("{key} turned up on this device meanwhile; it is left as it is");
+        match replace_from_spool(&tree, &blob, &dir, name, None, file.exec, file.mtime) {
+            Ok(_) => hash,
+            Err(Replace::Changed) => return Err(turned_up()),
+            Err(Replace::Failed(e)) => return Err(e.into()),
         }
-        root.drive()
-            .put_from(key, &mut fs::File::open(blob.path())?)?;
-        hash
     } else {
         let bytes = remote_side.fetch(key, &file.hash, file.size)?;
-        if fs::symlink_metadata(&path).is_ok() {
-            fail!("{key} turned up on this device meanwhile; it is left as it is");
+        match replace_checked(&dir, name, None, &mut &bytes[..], file.exec, file.mtime) {
+            Ok(_) => content_hash(&file.hash, &bytes),
+            Err(Replace::Changed) => return Err(turned_up()),
+            Err(Replace::Failed(e)) => return Err(e.into()),
         }
-        root.drive().put(key, &bytes)?;
-        content_hash(&file.hash, &bytes)
     };
+    root.drive().note_written(key);
     if let Some(entry) = local::entry_now(&root.path, key, &hash) {
         index.files.insert(key.to_string(), entry);
     }
@@ -2236,17 +3084,27 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
     if entry.cloud_only {
         return Ok(());
     }
-    let path = local::path_of(&root.path, key);
-    let meta = fs::metadata(&path).with_context(|| format!("{}", path.display()))?;
-    let unmoved = meta.len() == entry.size && local::mtime_ns(&meta) == entry.mtime_ns;
-    if !unmoved && local::hash_file(&path).ok().as_deref() != Some(entry.hash.as_str()) {
+    // Reached without a link: a folder swapped for one never makes this free a file elsewhere.
+    let tree = beneath::Root::open(&root.path)?;
+    let (dir, name) = tree.parent_of(key, false)?;
+    let st = dir.lstat(name).with_context(|| format!("{key}"))?;
+    if st.kind != Kind::File {
+        fail!("{key} is no file here: nothing is freed");
+    }
+    let unmoved = st.size == entry.size && st.mtime_ns == entry.mtime_ns;
+    if !unmoved && hash_here(&root.path, key).as_deref() != Some(entry.hash.as_str()) {
         fail!("{key} changed since its last sync and is not synced yet: it stays on this device");
     }
-    root.drive().delete(key)?;
+    dir.unlink(name)?;
+    dir.sync();
+    root.drive().note_deleted(key);
     index.files.insert(
         key.to_string(),
         BaseEntry {
             mtime_ns: 0,
+            ctime_ns: 0,
+            ino: 0,
+            dev: 0,
             cloud_only: true,
             ..entry
         },

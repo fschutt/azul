@@ -16,7 +16,7 @@
 //! parse as an object is skipped (its keys cannot be held back).
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
@@ -24,10 +24,16 @@ use std::{
 };
 
 use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
+use azul_storage::beneath::{self, BeneathError, Kind, Stat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{guard::Guard, rules::Rules};
+use super::{
+    guard::Guard,
+    names::{self, System, Volume},
+    problems::{Code, Problem, Severity},
+    rules::Rules,
+};
 use crate::{
     error::{fail, CloudResult, Context},
     state::{read_json, write_json},
@@ -39,8 +45,16 @@ pub const LOCAL_FORMAT: &str = "azcloud.sync-local";
 /// again by the next scan.
 pub const RACY_NS: u64 = 2_000_000_000;
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 /// What both sides agreed on for one file at the last sync.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BaseEntry {
     /// The BLAKE3 of the blob.
     pub hash: String,
@@ -54,6 +68,18 @@ pub struct BaseEntry {
     /// it is never a delete; deleted on the drive it is forgotten.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cloud_only: bool,
+    /// The user's executable bit: part of the file's content for the merge.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub exec: bool,
+    /// The status-change time, inode and device the file had (0: not known - a base an older
+    /// version wrote). With size and time they say the file was not touched since, so its hash
+    /// is kept; `touch -r` can set the time back, never the status-change time.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ctime_ns: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ino: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dev: u64,
 }
 
 /// The local index of one folder.
@@ -79,6 +105,17 @@ pub struct LocalIndex {
     /// The burst guard's memory, and its pause ([`super::guard`]).
     #[serde(default)]
     pub guard: Guard,
+    /// The folder's identity ([`super::root`]'s marker): a pass whose folder lacks it changes
+    /// nothing. `None` until the first pass that checked the folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<String>,
+    /// The drive's restore epoch at the last sync: an index older than the last one seen is
+    /// refused unless its restore epoch is higher (the drive was restored and announced it).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub restore_epoch: u64,
+    /// What the disk under the folder does with names, probed at the first pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<Volume>,
 }
 
 impl LocalIndex {
@@ -96,6 +133,9 @@ impl LocalIndex {
             remote_etag: None,
             files: BTreeMap::new(),
             guard: Guard::default(),
+            root_id: None,
+            restore_epoch: 0,
+            volume: None,
         }
     }
 
@@ -147,16 +187,17 @@ pub fn index_path(sync_dir: &Path, bucket: &str, prefix: &str, root: &Path) -> P
 }
 
 /// How a file is synced.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum Content {
     /// Its bytes.
+    #[default]
     Raw,
     /// Its JSON object without the machine-local keys.
     JsonMerge,
 }
 
 /// One file of the folder as the scan found it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LocalFile {
     /// The BLAKE3 of its blob (for [`Content::JsonMerge`]: of the filtered
     /// object).
@@ -168,6 +209,40 @@ pub struct LocalFile {
     /// The blob's bytes.
     pub blob_size: u64,
     pub content: Content,
+    /// The user's executable bit.
+    pub exec: bool,
+    /// The status-change time, inode and device as the scan saw them (0 where the system has
+    /// none): an upload and a replace check the file is still this one.
+    pub ctime_ns: u64,
+    pub ino: u64,
+    pub dev: u64,
+}
+
+impl LocalFile {
+    /// What the base keeps of it.
+    #[must_use]
+    pub fn base_entry(&self) -> BaseEntry {
+        BaseEntry {
+            hash: self.hash.clone(),
+            size: self.size,
+            mtime_ns: self.mtime_ns,
+            cloud_only: false,
+            exec: self.exec,
+            ctime_ns: self.ctime_ns,
+            ino: self.ino,
+            dev: self.dev,
+        }
+    }
+
+    /// Whether `st` (an `lstat` now) is still this file, untouched.
+    #[must_use]
+    pub fn matches(&self, st: &Stat) -> bool {
+        st.kind == Kind::File
+            && st.size == self.size
+            && st.mtime_ns == self.mtime_ns
+            && (self.ctime_ns == 0 || st.ctime_ns == self.ctime_ns)
+            && (self.ino == 0 || (st.ino == self.ino && st.dev == self.dev))
+    }
 }
 
 /// What a scan found.
@@ -182,6 +257,48 @@ pub struct Scan {
     pub hashed: usize,
     /// When it started (nanoseconds).
     pub started_ns: u64,
+    /// The folders found (keys, no trailing slash): a file of the drive cannot come down under
+    /// such a name, nor one whose folder is a file here.
+    pub dirs: BTreeSet<String>,
+    /// The links found, with their targets: never followed. What a link now hides where a
+    /// synced folder was is unknown, never deleted, and nothing is written through one.
+    pub links: BTreeMap<String, String>,
+    /// The folders that are another disk mounted inside the folder: never walked into, and
+    /// unmounting one deletes nothing.
+    pub mounts: BTreeSet<String>,
+    /// Files and folders that could not be read, or changed while read, or are still being
+    /// written: unknown this pass, never a delete (nothing below such a folder either).
+    pub unknown: BTreeSet<String>,
+    /// The files the rules leave out, with their sizes: an app that saves a file writes it
+    /// aside and renames the old one to such a name for a moment, which is no delete.
+    pub temps: BTreeMap<String, u64>,
+    /// What the scan has to tell, file by file (links, special files, names, unreadable).
+    pub problems: Vec<Problem>,
+    /// The local spelling of a key the drive spells otherwise (decomposed here, composed
+    /// there, on a disk that takes both for one name): paths here use it.
+    pub spelled: BTreeMap<String, String>,
+}
+
+impl Scan {
+    /// The name the file of `key` has here.
+    #[must_use]
+    pub fn here<'a>(&'a self, key: &'a str) -> &'a str {
+        self.spelled.get(key).map_or(key, String::as_str)
+    }
+
+    /// Whether `key`, or a folder of it, is unknown this pass (unreadable, settling, behind a
+    /// link or on another disk): nothing of it is deleted or written.
+    #[must_use]
+    pub fn hides(&self, key: &str) -> bool {
+        let covers = |p: &str| key == p || key.strip_prefix(p).is_some_and(|r| r.starts_with('/'));
+        self.unknown.iter().any(|p| covers(p))
+            || self.links.keys().any(|p| covers(p))
+            || self.mounts.iter().any(|p| covers(p))
+    }
+
+    fn tell(&mut self, code: Code, key: &str, detail: impl Into<String>) {
+        self.problems.push(Problem::new(code, key, detail));
+    }
 }
 
 /// Waits until nothing under `root` changed for `quiet` - the newest modification time of its
@@ -316,6 +433,21 @@ pub fn mtime_ns(meta: &fs::Metadata) -> u64 {
         .unwrap_or(0)
 }
 
+/// The user's executable bit of `meta` (never set where the system has none).
+#[must_use]
+pub fn is_executable(meta: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o100 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 /// The BLAKE3 of a file, read in pieces.
 ///
 /// # Errors
@@ -417,16 +549,20 @@ pub fn path_of(root: &Path, key: &str) -> PathBuf {
     azul_appkit::data::local_path(root, key)
 }
 
-/// Walks `root` (symbolic links are never followed) and finds every file the
-/// `rules` let through, reusing the `base`'s hash of a file whose size and
-/// time did not move since the scan at `base_scanned_ns`. A key of
-/// `json_merge` is synced as JSON without its machine-local keys. A folder
-/// that does not exist is empty.
+/// Walks `root` and finds every file the `rules` let through, reusing the `base`'s hash of a
+/// file whose size, times and inode did not move since the scan at `base_scanned_ns`. A key
+/// of `json_merge` is synced as JSON without its machine-local keys.
+///
+/// Every folder is opened from the one above it without following a link
+/// ([`azul_storage::beneath`]), and every file is opened without following a link and without
+/// blocking on a FIFO, then checked to be the file the folder listed: a link or a FIFO swapped
+/// in between is never read. Links, special files, other disks mounted inside and files that
+/// cannot be read are listed ([`Scan::problems`]) and never taken for deleted.
 ///
 /// # Errors
 ///
-/// When the folder itself cannot be read; a file that cannot be read is
-/// skipped and reported.
+/// When the folder itself is missing or cannot be read: a missing folder is no empty folder
+/// (an unplugged disk would read as "every file deleted").
 pub fn scan(
     root: &Path,
     rules: &Rules,
@@ -435,81 +571,227 @@ pub fn scan(
     json_merge: &[String],
     max_file_bytes: u64,
 ) -> CloudResult<Scan> {
+    scan_settled(
+        root,
+        rules,
+        base,
+        base_scanned_ns,
+        json_merge,
+        max_file_bytes,
+        Duration::ZERO,
+    )
+}
+
+/// [`scan`], leaving the files written within the last `settle` for a later pass: a file still
+/// being written (an export, a copy, a download) is taken once it is quiet, and is never a
+/// delete meanwhile.
+///
+/// # Errors
+///
+/// As [`scan`].
+pub fn scan_settled(
+    root: &Path,
+    rules: &Rules,
+    base: &BTreeMap<String, BaseEntry>,
+    base_scanned_ns: u64,
+    json_merge: &[String],
+    max_file_bytes: u64,
+    settle: Duration,
+) -> CloudResult<Scan> {
     let mut out = Scan {
         started_ns: crate::now_ns(),
         ..Scan::default()
     };
-    if !root.exists() {
-        return Ok(out);
-    }
-    let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
+    let tree =
+        beneath::Root::open(root).with_context(|| format!("the folder {}", root.display()))?;
+    let top = tree
+        .top()
+        .with_context(|| format!("the folder {}", root.display()))?;
+    let settle_ns = u64::try_from(settle.as_nanos()).unwrap_or(u64::MAX);
+    let here = System::here();
+    let mut stack: Vec<(beneath::Dir, String)> = vec![(top, String::new())];
     while let Some((dir, prefix)) = stack.pop() {
-        let entries = match fs::read_dir(&dir) {
+        let folder = prefix.trim_end_matches('/').to_string();
+        let mut entries = match dir.names() {
             Ok(entries) => entries,
             Err(e) if prefix.is_empty() => {
-                return Err(e).with_context(|| format!("the folder {}", dir.display()));
+                return Err(e).with_context(|| format!("the folder {}", root.display()));
             }
             Err(e) => {
+                out.unknown.insert(folder.clone());
                 out.skipped
-                    .push((prefix.clone(), format!("cannot be read ({e})")));
+                    .push((folder.clone(), format!("cannot be read ({e})")));
+                out.tell(
+                    Code::Unreadable,
+                    &folder,
+                    format!("the folder cannot be read ({e}); nothing in it is taken for deleted"),
+                );
                 continue;
             }
         };
-        for entry in entries {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(e) => {
-                    out.skipped
-                        .push((prefix.clone(), format!("cannot be listed ({e})")));
-                    continue;
-                }
-            };
-            let name = match entry.file_name().into_string() {
+        entries.sort();
+        for raw in entries {
+            let name = match raw.into_string() {
                 Ok(name) => name,
                 Err(raw) => {
-                    out.skipped.push((
-                        format!("{prefix}{}", raw.to_string_lossy()),
-                        String::from("its name is not UTF-8"),
-                    ));
+                    let key = format!("{prefix}{}", raw.to_string_lossy());
+                    out.skipped
+                        .push((key.clone(), String::from("its name is not UTF-8")));
+                    out.tell(
+                        Code::BadName,
+                        &key,
+                        "its name is not UTF-8, so no other device could name it",
+                    );
                     continue;
                 }
             };
             let key = format!("{prefix}{name}");
-            // file_type() does not follow a symbolic link.
-            let Ok(file_type) = entry.file_type() else {
-                out.skipped
-                    .push((key, String::from("vanished while scanned")));
-                continue;
-            };
-            if file_type.is_symlink() {
-                out.skipped
-                    .push((key, String::from("a symbolic link (never followed)")));
-                continue;
-            }
-            if file_type.is_dir() {
-                if rules.excluded_dir(&key).is_some() {
-                    out.excluded += 1;
-                } else {
-                    stack.push((entry.path(), format!("{key}/")));
+            let st = match dir.lstat(&name) {
+                Ok(st) => st,
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => {
+                    out.unknown.insert(key.clone());
+                    out.skipped
+                        .push((key.clone(), format!("cannot be read ({e})")));
+                    out.tell(
+                        Code::Unreadable,
+                        &key,
+                        "it cannot be read; it is not taken for deleted",
+                    );
+                    continue;
                 }
-                continue;
-            }
-            if !file_type.is_file() {
-                out.skipped.push((key, String::from("not a regular file")));
-                continue;
+            };
+            match st.kind {
+                Kind::Link => {
+                    let target = dir
+                        .read_link(&name)
+                        .map(|t| t.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    out.skipped.push((
+                        key.clone(),
+                        String::from("a symbolic link (never followed)"),
+                    ));
+                    out.tell(
+                        Code::SymlinkSkipped,
+                        &key,
+                        format!("a link to {target:?} is never followed"),
+                    );
+                    out.links.insert(key, target);
+                    continue;
+                }
+                Kind::Dir => {
+                    if rules.excluded_dir(&key).is_some() {
+                        out.excluded += 1;
+                        continue;
+                    }
+                    match dir.child(&name, false) {
+                        Ok(child) if !tree.is_mount_point(child.rel()) => {
+                            out.dirs.insert(key.clone());
+                            stack.push((child, format!("{key}/")));
+                        }
+                        Ok(_) | Err(BeneathError::CrossesMount(_)) => {
+                            out.skipped.push((
+                                key.clone(),
+                                String::from("another disk mounted here (never walked into)"),
+                            ));
+                            out.tell(
+                                Code::MountPoint,
+                                &key,
+                                "another disk is mounted here; it is not synced, and unmounting \
+                                 it deletes nothing",
+                            );
+                            out.mounts.insert(key);
+                        }
+                        // Swapped for a link since it was listed.
+                        Err(BeneathError::ThroughLink(_)) => {
+                            out.skipped.push((
+                                key.clone(),
+                                String::from("a symbolic link (never followed)"),
+                            ));
+                            out.links.insert(key, String::new());
+                        }
+                        Err(e) => {
+                            out.skipped
+                                .push((key.clone(), format!("cannot be read ({e})")));
+                            out.tell(
+                                Code::Unreadable,
+                                &key,
+                                format!(
+                                    "the folder cannot be opened ({e}); nothing in it is taken \
+                                     for deleted"
+                                ),
+                            );
+                            out.unknown.insert(key);
+                        }
+                    }
+                    continue;
+                }
+                Kind::File => {}
+                Kind::Fifo | Kind::Socket | Kind::Device | Kind::Other => {
+                    let what = match st.kind {
+                        Kind::Fifo => "a FIFO",
+                        Kind::Socket => "a socket",
+                        Kind::Device => "a device file",
+                        _ => "not a regular file",
+                    };
+                    out.skipped
+                        .push((key.clone(), String::from("not a regular file")));
+                    out.tell(
+                        Code::SpecialFile,
+                        &key,
+                        format!("{what} is never opened or synced"),
+                    );
+                    continue;
+                }
             }
             if rules.excluded(&key).is_some() {
                 out.excluded += 1;
+                out.temps.insert(key, st.size);
                 continue;
             }
             if let Err(e) = super::remote::check_key(&key) {
                 out.skipped
-                    .push((key, format!("its name cannot be a key ({e})")));
+                    .push((key.clone(), format!("its name cannot be a key ({e})")));
+                out.tell(Code::BadName, &key, format!("not synced: {e}"));
                 continue;
             }
+            if let Some(why) = names::key_problem(&key) {
+                out.skipped
+                    .push((key.clone(), format!("its name cannot be a key ({why})")));
+                out.tell(Code::BadName, &key, format!("not synced: {why}"));
+                continue;
+            }
+            if settle_ns > 0 && st.mtime_ns.saturating_add(settle_ns) > crate::now_ns() {
+                out.unknown.insert(key.clone());
+                out.tell(
+                    Code::Settling,
+                    &key,
+                    "it changed moments ago; it is taken once it is quiet",
+                );
+                continue;
+            }
+            for (system, why) in names::portability(&key, here) {
+                out.tell(
+                    Code::Portability,
+                    &key,
+                    format!("{} cannot hold it: {why}", system.label()),
+                );
+            }
+            if st.nlink > 1 {
+                // For the record only: it syncs as any file does.
+                let mut note = Problem::new(
+                    Code::Hardlink,
+                    &key,
+                    "it has other names (hard links); it syncs as its own copy",
+                );
+                note.severity = Severity::Warning;
+                out.problems.push(note);
+            }
             match scan_file(
-                &entry.path(),
+                &dir,
+                &name,
                 &key,
+                &st,
                 base,
                 base_scanned_ns,
                 json_merge,
@@ -522,98 +804,213 @@ pub fn scan(
                     out.files.insert(key, file);
                 }
                 Ok(None) => {}
-                Err(why) => out.skipped.push((key, why)),
+                Err(Skip::Changed) => {
+                    out.unknown.insert(key.clone());
+                    out.tell(
+                        Code::ChangedDuringSync,
+                        &key,
+                        "it changed while it was read; the next pass takes it",
+                    );
+                }
+                Err(Skip::Unreadable(why)) => {
+                    out.unknown.insert(key.clone());
+                    out.skipped.push((key.clone(), why));
+                    out.tell(
+                        Code::Unreadable,
+                        &key,
+                        "it cannot be read; it is not taken for deleted",
+                    );
+                }
+                Err(Skip::Refused(code, why)) => {
+                    out.skipped.push((key.clone(), why.clone()));
+                    out.tell(code, &key, why);
+                }
             }
         }
     }
     Ok(out)
 }
 
-/// One file: `Ok(Some((file, hashed)))`, `Ok(None)` when it vanished, `Err`
-/// with the reason it is skipped.
+/// Why a file the scan found is not taken.
+enum Skip {
+    /// It changed (or was swapped for something else) while it was read: the next pass.
+    Changed,
+    /// It cannot be read: unknown, never a delete.
+    Unreadable(String),
+    /// It is never synced (too big, not a JSON object): the code and why.
+    Refused(Code, String),
+}
+
+/// One regular file of `dir`, as its `lstat` `st` found it: `Ok(None)` when it vanished.
+#[allow(clippy::too_many_arguments)]
 fn scan_file(
-    path: &Path,
+    dir: &beneath::Dir,
+    name: &str,
     key: &str,
+    st: &Stat,
     base: &BTreeMap<String, BaseEntry>,
     base_scanned_ns: u64,
     json_merge: &[String],
     max_file_bytes: u64,
-) -> Result<Option<(LocalFile, bool)>, String> {
-    let meta = match fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("cannot be read ({e})")),
-    };
-    let size = meta.len();
-    if size > max_file_bytes {
-        return Err(format!(
-            "{size} bytes, over the {max_file_bytes} a sync takes (--max-file-mb)"
+) -> Result<Option<(LocalFile, bool)>, Skip> {
+    if st.size > max_file_bytes {
+        return Err(Skip::Refused(
+            Code::TooLarge,
+            format!(
+                "{} bytes, over the {max_file_bytes} a sync takes (--max-file-mb)",
+                st.size
+            ),
         ));
     }
-    let mtime_ns = mtime_ns(&meta);
+    let file_of = |hash: String, blob_size: u64, content: Content, at: &Stat| LocalFile {
+        hash,
+        size: at.size,
+        mtime_ns: at.mtime_ns,
+        blob_size,
+        content,
+        exec: at.executable(),
+        ctime_ns: at.ctime_ns,
+        ino: at.ino,
+        dev: at.dev,
+    };
     if json_merge.iter().any(|k| k == key) {
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(format!("cannot be read ({e})")),
+        let (bytes, at) = match read_checked(dir, name, st) {
+            Ok(Some(read)) => read,
+            Ok(None) => return Ok(None),
+            Err(skip) => return Err(skip),
         };
         let blob = json_blob(&bytes).ok_or_else(|| {
-            String::from(
-                "not a JSON object, so its machine-local keys cannot be held back; not synced \
-                 until it is one",
+            Skip::Refused(
+                Code::Unreadable,
+                String::from(
+                    "not a JSON object, so its machine-local keys cannot be held back; not \
+                     synced until it is one",
+                ),
             )
         })?;
-        let file = LocalFile {
-            hash: hash_bytes(&blob),
-            size,
-            mtime_ns,
-            blob_size: blob.len() as u64,
-            content: Content::JsonMerge,
-        };
+        let file = file_of(
+            hash_bytes(&blob),
+            blob.len() as u64,
+            Content::JsonMerge,
+            &at,
+        );
         return Ok(Some((file, true)));
     }
     let unchanged = base.get(key).filter(|b| {
-        b.size == size
-            && b.mtime_ns == mtime_ns
-            && mtime_ns.saturating_add(RACY_NS) < base_scanned_ns
+        b.size == st.size
+            && b.mtime_ns == st.mtime_ns
+            && (b.ctime_ns == 0 || b.ctime_ns == st.ctime_ns)
+            && (b.ino == 0 || (b.ino == st.ino && b.dev == st.dev))
+            && b.exec == st.executable()
+            && st.mtime_ns.saturating_add(RACY_NS) < base_scanned_ns
     });
     if let Some(b) = unchanged {
-        let file = LocalFile {
-            hash: b.hash.clone(),
-            size,
-            mtime_ns,
-            blob_size: size,
-            content: Content::Raw,
-        };
-        return Ok(Some((file, false)));
+        return Ok(Some((
+            file_of(b.hash.clone(), st.size, Content::Raw, st),
+            false,
+        )));
     }
-    match hash_file(path) {
-        Ok(hash) => Ok(Some((
-            LocalFile {
-                hash,
-                size,
-                mtime_ns,
-                blob_size: size,
-                content: Content::Raw,
-            },
-            true,
-        ))),
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("cannot be read ({e})")),
+    match hash_checked(dir, name, st) {
+        Ok(Some((hash, at))) => Ok(Some((file_of(hash, at.size, Content::Raw, &at), true))),
+        Ok(None) => Ok(None),
+        Err(skip) => Err(skip),
     }
 }
 
-/// Whether the file of `key` is still as the scan found it (`None`: still
-/// absent) - checked right before a download overwrites or a delete removes
-/// it, so an edit made during the sync is never lost; it waits for the next
-/// run.
+/// Opens the file `name` of `dir` without following a link and checks it is the file `st`
+/// describes; `Ok(None)` when it is gone.
+fn open_checked(
+    dir: &beneath::Dir,
+    name: &str,
+    st: &Stat,
+) -> Result<Option<(fs::File, Stat)>, Skip> {
+    match dir.open_read(name) {
+        Ok((file, at)) if at.same_file(st) => Ok(Some((file, at))),
+        Ok(_) | Err(BeneathError::ThroughLink(_)) => Err(Skip::Changed),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) => Err(Skip::Unreadable(format!("cannot be read ({e})"))),
+    }
+}
+
+/// After a read: the file's `fstat` must still be what it was when it was opened.
+fn still_same(file: &fs::File, at: &Stat) -> Result<(), Skip> {
+    match beneath::stat_of(file) {
+        Ok(now)
+            if now.size == at.size
+                && now.mtime_ns == at.mtime_ns
+                && now.ctime_ns == at.ctime_ns =>
+        {
+            Ok(())
+        }
+        _ => Err(Skip::Changed),
+    }
+}
+
+/// The bytes of the file `name` of `dir` (the file `st` describes), read whole.
+fn read_checked(
+    dir: &beneath::Dir,
+    name: &str,
+    st: &Stat,
+) -> Result<Option<(Vec<u8>, Stat)>, Skip> {
+    let Some((mut file, at)) = open_checked(dir, name, st)? else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| Skip::Unreadable(format!("cannot be read ({e})")))?;
+    still_same(&file, &at)?;
+    Ok(Some((bytes, at)))
+}
+
+/// The BLAKE3 of the file `name` of `dir` (the file `st` describes), read in pieces.
+fn hash_checked(dir: &beneath::Dir, name: &str, st: &Stat) -> Result<Option<(String, Stat)>, Skip> {
+    let Some((mut file, at)) = open_checked(dir, name, st)? else {
+        return Ok(None);
+    };
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| Skip::Unreadable(format!("cannot be read ({e})")))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    still_same(&file, &at)?;
+    Ok(Some((hasher.finalize().to_hex().to_string(), at)))
+}
+
+/// The `lstat` of the file of `key` under `root` now, reached without a link; `Ok(None)` when
+/// nothing is there.
+///
+/// # Errors
+///
+/// When a folder of its path is a link or another disk, or cannot be read.
+pub fn stat_now(root: &Path, key: &str) -> Result<Option<Stat>, BeneathError> {
+    let tree = beneath::Root::open(root)?;
+    let (dir, name) = match tree.parent_of(key, false) {
+        Ok(found) => found,
+        Err(e) if e.is_not_found() => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    match dir.lstat(name) {
+        Ok(st) => Ok(Some(st)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether the file of `key` is still as the scan found it (`None`: still absent) - checked
+/// right before a download replaces or a delete removes it, so an edit made during the sync is
+/// never lost; it waits for the next run. A folder of its path that became a link or another
+/// disk is never as scanned.
 #[must_use]
 pub fn still_as_scanned(root: &Path, key: &str, scanned: Option<&LocalFile>) -> bool {
-    match (fs::symlink_metadata(path_of(root, key)), scanned) {
-        (Err(e), None) => e.kind() == ErrorKind::NotFound,
-        (Ok(meta), Some(file)) => {
-            meta.is_file() && meta.len() == file.size && mtime_ns(&meta) == file.mtime_ns
-        }
+    match (stat_now(root, key), scanned) {
+        (Ok(None), None) => true,
+        (Ok(Some(st)), Some(file)) => file.matches(&st),
         _ => false,
     }
 }
@@ -660,30 +1057,38 @@ fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
         .is_ok_and(|m| m.len() == found.len() && m.modified().ok() == found.modified().ok())
 }
 
-/// Removes the folders of `key` under `root` that a delete left empty, up to
-/// (not including) `root`.
+/// Removes the folders of `key` under `root` that a delete left empty, up to (not including)
+/// `root`; never through a link.
 pub fn prune_empty_parents(root: &Path, key: &str) {
-    let mut path = path_of(root, key);
-    while path.pop() {
-        if path == root || !path.starts_with(root) {
+    let Ok(tree) = beneath::Root::open(root) else {
+        return;
+    };
+    let mut folder = beneath::split_key(key).0;
+    while !folder.is_empty() {
+        let Ok((dir, name)) = tree.parent_of(folder, false) else {
+            break;
+        };
+        // rmdir only removes an empty folder; anything in it stops the walk.
+        if dir.rmdir(name).is_err() {
             break;
         }
-        // remove_dir only removes an empty folder; anything in it stops the walk.
-        if fs::remove_dir(&path).is_err() {
-            break;
-        }
+        folder = beneath::split_key(folder).0;
     }
 }
 
-/// The base entry of a file as it is on disk now (after a download wrote
-/// it): `hash` and the file's size and time.
+/// The base entry of a file as it is on disk now (after a download wrote it): `hash` and the
+/// file's size, times and inode.
 #[must_use]
 pub fn entry_now(root: &Path, key: &str, hash: &str) -> Option<BaseEntry> {
-    let meta = fs::metadata(path_of(root, key)).ok()?;
-    Some(BaseEntry {
+    let st = stat_now(root, key).ok()??;
+    (st.kind == Kind::File).then(|| BaseEntry {
         hash: hash.to_string(),
-        size: meta.len(),
-        mtime_ns: mtime_ns(&meta),
+        size: st.size,
+        mtime_ns: st.mtime_ns,
         cloud_only: false,
+        exec: st.executable(),
+        ctime_ns: st.ctime_ns,
+        ino: st.ino,
+        dev: st.dev,
     })
 }

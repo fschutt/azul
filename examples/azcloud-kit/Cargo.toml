@@ -36,6 +36,9 @@ azlin-contract = { path = "../azlin-contract" }
 # The sync's content addresses: every blob is named by its BLAKE3 (no new crate: azul's tree has
 # 1.8.7 already).
 blake3 = "1.8"
+# The sync's name policy compares names in NFC, as macOS stores them decomposed and other systems
+# composed (no new crate: 0.1.25 is in Cargo.lock through url's idna).
+unicode-normalization = "0.1"
 # The claim of a paid drive (claim.rs): the sign-up the token server seals to a checkout's X25519
 # key - X25519, HKDF-SHA256, ChaCha20-Poly1305 - opened with the key the app keeps, made from the
 # OS random source, kept as base64. No new crates: AzMeet's sealed room keys use the same

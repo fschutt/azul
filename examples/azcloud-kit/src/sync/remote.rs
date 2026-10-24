@@ -100,6 +100,10 @@ pub struct RemoteFile {
     pub gen: u64,
     /// The device that wrote it.
     pub device: String,
+    /// The user's executable bit, part of the file's content: a download sets it, never any
+    /// other permission bit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exec: bool,
 }
 
 /// A deleted file: kept for [`super::SyncOptions::tombstone_days`], so a
@@ -113,6 +117,10 @@ pub struct Tombstone {
     /// When (seconds).
     pub at: i64,
     pub device: String,
+    /// The user confirmed this delete on the device that made it (a mass delete they were
+    /// asked about): other devices move the file into their trash without asking again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmed: bool,
 }
 
 /// The index.
@@ -149,15 +157,15 @@ impl RemoteIndex {
         }
     }
 
-    /// Reads an index. Every path must be a key a folder can hold (no `..`,
-    /// not absolute, no `.azlin/` at the root) and every hash a BLAKE3: an
-    /// index that breaks the rules is refused whole, never acted on in part.
-    /// A newer version, features and fields this code does not know are read
-    /// ([`RemoteIndex::unknown_features`] names them; D43).
+    /// Reads an index. An entry whose path no folder can hold (`..`, absolute, `.azlin/` at the
+    /// root, a control character) or whose hash is no BLAKE3 is kept as it is - another device
+    /// or a share participant wrote it - and named by [`RemoteIndex::unreadable`]: a run never
+    /// acts on it and never takes it for deleted. A newer version, features and fields this
+    /// code does not know are read ([`RemoteIndex::unknown_features`] names them; D43).
     ///
     /// # Errors
     ///
-    /// When the bytes are no index, or break a rule.
+    /// When the bytes are no index.
     pub fn parse(bytes: &[u8]) -> CloudResult<RemoteIndex> {
         let index: RemoteIndex = serde_json::from_slice(bytes).map_err(|e| {
             CloudError::failed(format!("the drive's sync index cannot be read: {e}"))
@@ -171,18 +179,42 @@ impl RemoteIndex {
         if index.version == 0 {
             fail!("the drive's sync index has no version");
         }
-        let paths = index
+        Ok(index)
+    }
+
+    /// The entries no run acts on, and why: a path no folder can hold, a hash that is none.
+    /// They stay in the index as they are (a run never removes them), so nothing is lost and
+    /// nothing is deleted on their account.
+    #[must_use]
+    pub fn unreadable(&self) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        let entries = self
             .files
             .iter()
             .map(|(k, f)| (k, &f.hash))
-            .chain(index.deleted.iter().map(|(k, t)| (k, &t.hash)));
-        for (key, hash) in paths {
-            check_key(key)?;
-            if !is_hash(hash) {
-                fail!("the drive's sync index names {key:?} with a damaged hash");
+            .chain(self.deleted.iter().map(|(k, t)| (k, &t.hash)));
+        for (key, hash) in entries {
+            if let Err(e) = check_key(key) {
+                out.insert(key.clone(), e.to_string());
+            } else if let Some(why) = super::names::key_problem(key) {
+                out.insert(key.clone(), why);
+            } else if !is_hash(hash) {
+                out.insert(
+                    key.clone(),
+                    String::from("the drive's entry names no content (a damaged hash)"),
+                );
             }
         }
-        Ok(index)
+        out
+    }
+
+    /// The index without the entries [`RemoteIndex::unreadable`] names: what a run plans with.
+    #[must_use]
+    pub fn readable(&self, unreadable: &BTreeMap<String, String>) -> RemoteIndex {
+        let mut out = self.clone();
+        out.files.retain(|k, _| !unreadable.contains_key(k));
+        out.deleted.retain(|k, _| !unreadable.contains_key(k));
+        out
     }
 
     /// What this code does not know of the index's format: a newer version (`version <n>`)

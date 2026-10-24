@@ -242,7 +242,11 @@ impl LocalDrive {
     }
 
     /// The folder of a (checked) key, walked from the root without a link, and the key's name.
-    fn contained_parent(&self, key: &str, create: bool) -> Result<(beneath::Dir, String), DriveError> {
+    fn contained_parent(
+        &self,
+        key: &str,
+        create: bool,
+    ) -> Result<(beneath::Dir, String), DriveError> {
         self.path_of(key)?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
         let (dir, name) = root

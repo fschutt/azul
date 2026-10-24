@@ -109,6 +109,12 @@ impl From<std::io::Error> for CloudError {
     }
 }
 
+impl From<azul_storage::beneath::BeneathError> for CloudError {
+    fn from(e: azul_storage::beneath::BeneathError) -> Self {
+        CloudError::Io(e.to_string())
+    }
+}
+
 /// What was being done, in front of the error of any result whose error is a [`CloudError`] or
 /// turns into one.
 pub trait Context<T> {

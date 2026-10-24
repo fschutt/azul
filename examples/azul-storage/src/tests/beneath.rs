@@ -51,7 +51,9 @@ fn a_contained_put_under_a_linked_folder_is_refused_and_lands_nowhere_outside() 
     let w = World::new("put");
     w.link_out("inbox");
     let drive = LocalDrive::without_manifest(w.root.path()).contained();
-    assert!(through_link(drive.put("inbox/evil.plist", b"<plist>run me</plist>")));
+    assert!(through_link(
+        drive.put("inbox/evil.plist", b"<plist>run me</plist>")
+    ));
     let mut body: &[u8] = b"streamed";
     assert!(matches!(
         drive.put_from("inbox/streamed.plist", &mut body),
@@ -90,7 +92,10 @@ fn a_contained_read_or_delete_never_goes_through_a_link() {
     )
     .unwrap();
     let drive = LocalDrive::without_manifest(w.root.path()).contained();
-    assert!(matches!(drive.get("secret-link"), Err(DriveError::NotFound { .. })));
+    assert!(matches!(
+        drive.get("secret-link"),
+        Err(DriveError::NotFound { .. })
+    ));
     assert!(matches!(
         drive.get("dir/secret"),
         Err(DriveError::InvalidKey { reason, .. }) if reason == THROUGH_LINK
@@ -112,7 +117,10 @@ fn a_contained_drive_reads_and_writes_its_own_files_as_any_drive_does() {
     drive.rename("docs/sub/a.txt", "docs/b.txt").unwrap();
     assert_eq!(drive.get("docs/b.txt").unwrap(), b"alpha");
     drive.delete("docs/b.txt").unwrap();
-    assert!(matches!(drive.get("docs/b.txt"), Err(DriveError::NotFound { .. })));
+    assert!(matches!(
+        drive.get("docs/b.txt"),
+        Err(DriveError::NotFound { .. })
+    ));
     // No temporary file is left behind.
     let left: Vec<String> = fs::read_dir(w.root.path().join("docs"))
         .unwrap()
@@ -133,7 +141,10 @@ fn a_folder_swapped_for_a_link_after_it_was_listed_fails_the_walk() {
     fs::rename(w.root.path().join("a"), w.root.path().join("a-old")).unwrap();
     w.link_out("a");
     assert!(matches!(root.dir("a/b", false), Err(BeneathError::ThroughLink(at)) if at == "a"));
-    assert!(matches!(root.dir("a", true), Err(BeneathError::ThroughLink(_))));
+    assert!(matches!(
+        root.dir("a", true),
+        Err(BeneathError::ThroughLink(_))
+    ));
     assert!(w.outside_names().is_empty());
 }
 
@@ -142,7 +153,12 @@ fn a_folder_swapped_for_a_link_after_it_was_listed_fails_the_walk() {
 fn a_fifo_is_refused_by_open_read_without_blocking() {
     let w = World::new("fifo");
     let path = std::ffi::CString::new(
-        w.root.path().join("pipe").as_os_str().to_string_lossy().as_bytes(),
+        w.root
+            .path()
+            .join("pipe")
+            .as_os_str()
+            .to_string_lossy()
+            .as_bytes(),
     )
     .unwrap();
     // SAFETY: a valid C string.
@@ -150,7 +166,10 @@ fn a_fifo_is_refused_by_open_read_without_blocking() {
     let top = Root::open(w.root.path()).unwrap().top().unwrap();
     assert_eq!(top.lstat("pipe").unwrap().kind, Kind::Fifo);
     // Without O_NONBLOCK this open would wait for a writer for ever.
-    assert!(matches!(top.open_read("pipe"), Err(BeneathError::ThroughLink(_))));
+    assert!(matches!(
+        top.open_read("pipe"),
+        Err(BeneathError::ThroughLink(_))
+    ));
 }
 
 #[cfg(unix)]
@@ -161,11 +180,11 @@ fn a_link_named_in_a_folder_is_seen_as_a_link_and_never_opened() {
     std::os::unix::fs::symlink(w.outside.path().join("secret"), w.root.path().join("s")).unwrap();
     let top = Root::open(w.root.path()).unwrap().top().unwrap();
     assert_eq!(top.lstat("s").unwrap().kind, Kind::Link);
-    assert!(matches!(top.open_read("s"), Err(BeneathError::ThroughLink(_))));
-    assert_eq!(
-        top.read_link("s").unwrap(),
-        w.outside.path().join("secret")
-    );
+    assert!(matches!(
+        top.open_read("s"),
+        Err(BeneathError::ThroughLink(_))
+    ));
+    assert_eq!(top.read_link("s").unwrap(), w.outside.path().join("secret"));
 }
 
 #[test]
@@ -197,7 +216,10 @@ fn write_atomically_replaces_the_file_whole_and_leaves_no_temp_file() {
     let dir = root.dir("x/y", true).unwrap();
     dir.write_atomically("f.txt", b"first", 0o644).unwrap();
     dir.write_atomically("f.txt", b"second", 0o644).unwrap();
-    assert_eq!(fs::read(w.root.path().join("x/y/f.txt")).unwrap(), b"second");
+    assert_eq!(
+        fs::read(w.root.path().join("x/y/f.txt")).unwrap(),
+        b"second"
+    );
     let names: Vec<String> = dir
         .names()
         .unwrap()

@@ -181,7 +181,9 @@ fn a_copy_of_a_file_deleted_elsewhere_before_this_side_knew_it_is_kept_and_not_s
 fn the_executable_bit_is_part_of_a_files_content() {
     // A file made executable here, the bytes unchanged, goes up as a change of the file.
     let mut remote = RemoteIndex::empty();
-    remote.files.insert(String::from("run.sh"), remote_file('1'));
+    remote
+        .files
+        .insert(String::from("run.sh"), remote_file('1'));
     let bases: BTreeMap<String, BaseEntry> = [(String::from("run.sh"), base('1'))].into();
     let mut file = local('1');
     file.exec = true;

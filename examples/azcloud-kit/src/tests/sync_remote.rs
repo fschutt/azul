@@ -84,7 +84,10 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
         let readable = read.readable(&unreadable);
         assert!(readable.files.contains_key("notes/a.md"));
         assert!(!readable.files.contains_key(bad));
-        assert!(read.files.contains_key(bad), "the entry is kept in the index");
+        assert!(
+            read.files.contains_key(bad),
+            "the entry is kept in the index"
+        );
     }
     let mut damaged = index.clone();
     damaged.files.get_mut("notes/a.md").unwrap().hash = String::from("zz");

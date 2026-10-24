@@ -96,7 +96,11 @@ fn a_file_from_the_drive_under_a_linked_folder_here_is_never_written_through_the
     a.write("inbox/evil.plist", b"<plist>run me at login</plist>");
     a.sync(&store);
     let report = b.sync(&store);
-    assert!(names(outside.path()).is_empty(), "{:?}", names(outside.path()));
+    assert!(
+        names(outside.path()).is_empty(),
+        "{:?}",
+        names(outside.path())
+    );
     assert!(
         lists(&report, Code::ThroughLink, Some("inbox/evil.plist")),
         "{:?}",
@@ -133,7 +137,11 @@ fn a_folder_that_is_gone_changes_nothing_anywhere() {
     let store = S3Bucket::new();
     let a = Device::new("gone-a");
     let b = Device::new("gone-b");
-    for (key, text) in [("vm/disk.img", "the only copy"), ("vm/notes.txt", "notes"), ("vm/keys.txt", "keys")] {
+    for (key, text) in [
+        ("vm/disk.img", "the only copy"),
+        ("vm/notes.txt", "notes"),
+        ("vm/keys.txt", "keys"),
+    ] {
         a.write(key, text.as_bytes());
     }
     a.sync(&store);
@@ -141,7 +149,11 @@ fn a_folder_that_is_gone_changes_nothing_anywhere() {
     fs::remove_dir_all(a.path()).unwrap();
     let report = a.sync(&store);
     assert!(report.refused.is_some(), "{}", report.summary());
-    assert!(lists(&report, Code::RootMissing, None), "{:?}", report.problems);
+    assert!(
+        lists(&report, Code::RootMissing, None),
+        "{:?}",
+        report.problems
+    );
     assert!(!a.path().exists(), "a missing folder is never made again");
     assert_eq!(index_of(&store).files.len(), 3);
     b.sync(&store);
@@ -167,11 +179,19 @@ fn a_folder_without_its_marker_is_not_the_paired_one_and_changes_nothing() {
     fs::remove_dir_all(a.path().join(".azlin")).unwrap();
     a.write("docs/f0.txt", b"stale shadow copy");
     let report = a.sync(&store);
-    assert!(lists(&report, Code::RootReplaced, None), "{:?}", report.problems);
+    assert!(
+        lists(&report, Code::RootReplaced, None),
+        "{:?}",
+        report.problems
+    );
     let index = index_of(&store);
     assert_eq!(index.files.len(), 12, "nothing deleted on the drive");
     let f0 = &index.files["docs/f0.txt"];
-    assert_eq!(f0.hash, hash_bytes(b"doc 0"), "the stale copy never went up");
+    assert_eq!(
+        f0.hash,
+        hash_bytes(b"doc 0"),
+        "the stale copy never went up"
+    );
 }
 
 #[test]
@@ -189,10 +209,21 @@ fn deleting_every_file_of_a_small_folder_waits_for_the_user() {
         hold_mass_delete: true,
         ..RunHooks::default()
     };
-    let report = sync_to(Target::Index(&store), &a.root(), &a.index(), &a.opts(), &hooks).unwrap();
+    let report = sync_to(
+        Target::Index(&store),
+        &a.root(),
+        &a.index(),
+        &a.opts(),
+        &hooks,
+    )
+    .unwrap();
     assert!(report.mass_delete.is_some(), "{}", report.summary());
     assert!(lists(&report, Code::MassDeleteHeld, None));
-    assert_eq!(index_of(&store).files.len(), 4, "nothing deleted on the drive");
+    assert_eq!(
+        index_of(&store).files.len(),
+        4,
+        "nothing deleted on the drive"
+    );
     // The command line's run stops with the question.
     assert!(a.sync_with(&store, &a.opts()).is_err());
     b.sync(&store);
@@ -206,7 +237,10 @@ fn deleting_one_subfolder_of_many_goes_through_into_the_other_devices_trash() {
     let b = Device::new("sub-b");
     for folder in ["alpha", "beta", "gamma"] {
         for i in 0..5 {
-            a.write(&format!("work/{folder}/{i}.txt"), format!("{folder} {i}").as_bytes());
+            a.write(
+                &format!("work/{folder}/{i}.txt"),
+                format!("{folder} {i}").as_bytes(),
+            );
         }
     }
     a.sync(&store);
@@ -239,7 +273,10 @@ fn a_delete_from_the_drive_moves_the_file_into_the_trash_here() {
     assert_eq!(trashed(b.path()), vec![b"signed contract".to_vec()]);
     let (key, to) = &report.trashed[0];
     assert_eq!(key, "contract.pdf");
-    assert!(to.starts_with(".azlin/sync/trash/") && to.ends_with("/contract.pdf"), "{to}");
+    assert!(
+        to.starts_with(".azlin/sync/trash/") && to.ends_with("/contract.pdf"),
+        "{to}"
+    );
     // The trash is the folder's bookkeeping: never synced.
     assert!(!index_of(&store).files.keys().any(|k| k.contains("trash")));
 }
@@ -261,7 +298,11 @@ fn a_download_is_renamed_in_whole_and_leaves_no_temporary_file() {
     assert_eq!(b.read("big.bin").unwrap()[0], 4);
     assert_eq!(names(b.path()), vec![".azlin", "big.bin", "small.txt"]);
     let spool = b.path().join(".azlin").join("sync").join("tmp");
-    assert!(names(&spool).is_empty(), "the spool is empty: {:?}", names(&spool));
+    assert!(
+        names(&spool).is_empty(),
+        "the spool is empty: {:?}",
+        names(&spool)
+    );
 }
 
 #[cfg(unix)]
@@ -274,7 +315,11 @@ fn a_download_takes_the_executable_bit_and_never_any_other_permission_from_the_d
     put_remote(&store, "notes.txt", b"plain", false);
     b.sync(&store);
     let mode = |key: &str| {
-        fs::metadata(b.path().join(key)).unwrap().permissions().mode() & 0o7777
+        fs::metadata(b.path().join(key))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777
     };
     assert_eq!(mode("tools/helper"), 0o755);
     assert_eq!(mode("notes.txt"), 0o644);
@@ -295,7 +340,11 @@ fn an_executable_file_here_syncs_its_bit_as_part_of_the_file() {
     assert_eq!(sent.files_up, 1, "{}", sent.summary());
     assert!(index_of(&store).files["run.sh"].exec);
     b.sync(&store);
-    let mode = fs::metadata(b.path().join("run.sh")).unwrap().permissions().mode() & 0o7777;
+    let mode = fs::metadata(b.path().join("run.sh"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777;
     assert_eq!(mode, 0o755, "the setuid bit never travels");
 }
 
@@ -339,10 +388,17 @@ fn an_app_saving_a_file_is_no_delete() {
     )
     .unwrap();
     let report = a.sync(&store);
-    assert!(lists(&report, Code::SaveInProgress, None), "{:?}", report.problems);
+    assert!(
+        lists(&report, Code::SaveInProgress, None),
+        "{:?}",
+        report.problems
+    );
     assert_eq!(report.deleted_there, 0);
     b.sync(&store);
-    assert_eq!(b.read("Pra\u{308}sentation.docx").as_deref(), Some(&b"draft"[..]));
+    assert_eq!(
+        b.read("Pra\u{308}sentation.docx").as_deref(),
+        Some(&b"draft"[..])
+    );
     fs::rename(
         a.path().join("~WRD0001.tmp"),
         a.path().join("Pra\u{308}sentation.docx"),
@@ -351,7 +407,10 @@ fn an_app_saving_a_file_is_no_delete() {
     fs::remove_file(a.path().join("~WRL0002.tmp")).unwrap();
     a.sync(&store);
     b.sync(&store);
-    assert_eq!(b.read("Pra\u{308}sentation.docx").as_deref(), Some(&b"final"[..]));
+    assert_eq!(
+        b.read("Pra\u{308}sentation.docx").as_deref(),
+        Some(&b"final"[..])
+    );
     assert!(trashed(b.path()).is_empty());
     assert_eq!(index_of(&store).files.len(), 1);
 }
@@ -367,10 +426,18 @@ fn a_file_still_being_written_waits_and_is_never_a_delete() {
     let mut opts = a.opts();
     opts.file_settle = Duration::from_secs(3600);
     let report = a.sync_with(&store, &opts).unwrap();
-    assert!(lists(&report, Code::Settling, Some("export.mov")), "{:?}", report.problems);
+    assert!(
+        lists(&report, Code::Settling, Some("export.mov")),
+        "{:?}",
+        report.problems
+    );
     assert!(lists(&report, Code::Settling, Some("fresh.mov")));
     let index = index_of(&store);
-    assert_eq!(index.files["export.mov"].hash, hash_bytes(b"frame 1"), "not sent half");
+    assert_eq!(
+        index.files["export.mov"].hash,
+        hash_bytes(b"frame 1"),
+        "not sent half"
+    );
     assert!(!index.files.contains_key("fresh.mov"));
     assert_eq!(report.deleted_there, 0);
     let report = a.sync(&store);
@@ -392,13 +459,25 @@ fn a_drive_entry_no_folder_can_hold_is_listed_kept_on_the_drive_and_never_acted_
         store.write(&index_key, index.to_bytes());
     }
     let report = b.sync(&store);
-    assert_eq!(b.read("fine.txt").as_deref(), Some(&b"fine"[..]), "{}", report.summary());
+    assert_eq!(
+        b.read("fine.txt").as_deref(),
+        Some(&b"fine"[..]),
+        "{}",
+        report.summary()
+    );
     for key in ["../../escape.txt", ".azlin/sync/root-id", "bell\u{7}.txt"] {
-        assert!(lists(&report, Code::BadRemoteName, Some(key)), "{key}: {:?}", report.problems);
+        assert!(
+            lists(&report, Code::BadRemoteName, Some(key)),
+            "{key}: {:?}",
+            report.problems
+        );
     }
     let marker = root::read_marker(b.path()).expect("the folder's own marker");
     assert_eq!(marker.id.len(), 32, "the marker was never overwritten");
-    assert!(b.path().parent().map_or(true, |p| !p.join("escape.txt").exists()));
+    assert!(b
+        .path()
+        .parent()
+        .map_or(true, |p| !p.join("escape.txt").exists()));
     // b writes the index again: the entries stay as they are.
     b.write("mine.txt", b"mine");
     b.sync(&store);
@@ -438,14 +517,22 @@ fn a_fifo_in_the_folder_is_listed_and_never_opened() {
     let a = Device::new("fifo-a");
     a.write("a.txt", b"a");
     let path = std::ffi::CString::new(
-        a.path().join("pipe").as_os_str().to_string_lossy().as_bytes(),
+        a.path()
+            .join("pipe")
+            .as_os_str()
+            .to_string_lossy()
+            .as_bytes(),
     )
     .unwrap();
     // SAFETY: a valid C string.
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
     // Opening the FIFO to hash it would wait for a writer for ever.
     let report = a.sync(&store);
-    assert!(lists(&report, Code::SpecialFile, Some("pipe")), "{:?}", report.problems);
+    assert!(
+        lists(&report, Code::SpecialFile, Some("pipe")),
+        "{:?}",
+        report.problems
+    );
     assert!(index_of(&store).files.contains_key("a.txt"));
     assert!(!index_of(&store).files.contains_key("pipe"));
 }
@@ -456,7 +543,10 @@ fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
     let volume = root::probe_volume(dir.path());
     if cfg!(target_os = "macos") {
         // APFS as macOS formats it ignores case and normalization.
-        assert!(volume.case_insensitive && volume.norm_insensitive, "{volume:?}");
+        assert!(
+            volume.case_insensitive && volume.norm_insensitive,
+            "{volume:?}"
+        );
     }
     assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
 }

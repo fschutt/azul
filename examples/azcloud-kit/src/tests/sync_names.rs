@@ -31,11 +31,25 @@ fn a_name_that_leaves_the_folder_or_names_its_bookkeeping_is_no_file_anywhere() 
     ] {
         assert!(key_problem(bad).is_some(), "{bad:?}");
     }
-    assert!(key_problem(&"n".repeat(256)).is_some(), "a name over 255 bytes");
-    for fine in ["a.txt", "dir/sub/a b.txt", "résumé.pdf", "x/.azlin/y", "日本語.txt"] {
+    assert!(
+        key_problem(&"n".repeat(256)).is_some(),
+        "a name over 255 bytes"
+    );
+    for fine in [
+        "a.txt",
+        "dir/sub/a b.txt",
+        "résumé.pdf",
+        "x/.azlin/y",
+        "日本語.txt",
+    ] {
         assert_eq!(key_problem(fine), None, "{fine:?}");
     }
-    assert_eq!(segment_problem(".."), Some(String::from("a \"..\" in its path climbs out of its folder")));
+    assert_eq!(
+        segment_problem(".."),
+        Some(String::from(
+            "a \"..\" in its path climbs out of its folder"
+        ))
+    );
 }
 
 #[test]
@@ -89,9 +103,18 @@ fn names_that_mislead_a_reader_are_flagged_and_always_shown_escaped() {
     let reversed = "invoice\u{202e}fdp.exe";
     assert!(!display_risks(reversed).is_empty());
     assert_eq!(escaped(reversed), "invoice<U+202E>fdp.exe");
-    assert!(!display_risks("pay\u{200b}pal.txt").is_empty(), "an invisible character");
-    assert!(!display_risks("invoice\u{2024}pdf").is_empty(), "a look-alike dot");
-    assert!(!display_risks("p\u{430}ypal.txt").is_empty(), "latin and cyrillic in one name");
+    assert!(
+        !display_risks("pay\u{200b}pal.txt").is_empty(),
+        "an invisible character"
+    );
+    assert!(
+        !display_risks("invoice\u{2024}pdf").is_empty(),
+        "a look-alike dot"
+    );
+    assert!(
+        !display_risks("p\u{430}ypal.txt").is_empty(),
+        "latin and cyrillic in one name"
+    );
     assert!(!display_risks(" lead.txt").is_empty());
     assert!(display_risks("plain.txt").is_empty());
     assert!(display_risks("Москва.txt").is_empty(), "one script is fine");
@@ -118,5 +141,8 @@ fn a_disk_that_ignores_case_or_normalization_folds_names_together() {
         case_insensitive: true,
         ..Volume::default()
     };
-    assert_eq!(fold("Report.txt", &casefold_ext4), fold("report.txt", &casefold_ext4));
+    assert_eq!(
+        fold("Report.txt", &casefold_ext4),
+        fold("report.txt", &casefold_ext4)
+    );
 }

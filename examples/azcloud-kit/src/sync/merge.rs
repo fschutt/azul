@@ -14,11 +14,13 @@
 //! | changed          | changed (otherwise) | keep both: the drive's version keeps the name, this one    |
 //! |                  |                     | becomes "name (conflict <device> <date>).ext" (an          |
 //! |                  |                     | unattended sync); a JSON-merge file merges per key         |
-//! | new, no base     | a tombstone of it   | delete here: a stale copy of a file deleted elsewhere      |
+//! | new, no base     | a tombstone of it   | nothing: kept here and not sent again (a file the drive    |
+//! |                  |                     | deleted before this device paired; the run lists it)       |
 //!
-//! A conflict never loses a byte, and two devices that sync in turn end with
-//! the same files: the side that committed first keeps the name, the other
-//! adds its copy.
+//! A file's content is its bytes and, where the system has one, its executable bit. A conflict
+//! never loses a byte, and two devices that sync in turn end with the same files: the side that
+//! committed first keeps the name, the other adds its copy. No row deletes a file because of
+//! its time, and no login path (a re-pairing, a lost base) deletes one either.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -133,6 +135,37 @@ pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -
     }
 }
 
+/// Whether the executable bit is part of a file's content here: a system without permission
+/// bits (Windows) keeps whatever the drive says.
+pub const TRACKS_EXEC: bool = cfg!(unix);
+
+/// A file's content as the merge compares it.
+fn ident(hash: &str, exec: bool) -> (&str, bool) {
+    (hash, exec && TRACKS_EXEC)
+}
+
+/// The files of the folder whose bytes match a tombstone and that the base never knew: a copy
+/// of a file the drive deleted before this device was paired (or after its base was lost). The
+/// merge leaves them as they are, on both sides; the run lists them.
+#[must_use]
+pub fn deleted_elsewhere(input: &PlanInput<'_>) -> Vec<String> {
+    input
+        .local
+        .iter()
+        .filter(|(key, file)| {
+            !(input.excluded)(key)
+                && !input.base.contains_key(*key)
+                && !input.remote.files.contains_key(*key)
+                && input
+                    .remote
+                    .deleted
+                    .get(*key)
+                    .is_some_and(|tomb| tomb.hash == file.hash)
+        })
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
 /// The actions for every file of the base, the folder and the index, in key
 /// order (excluded keys left out).
 #[must_use]
@@ -147,10 +180,10 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
         if (input.excluded)(key) {
             continue;
         }
-        let base = input.base.get(key).map(|e| e.hash.as_str());
+        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec));
         let local = input.local.get(key);
-        let here = local.map(|f| f.hash.as_str());
-        let there = input.remote.files.get(key).map(|f| f.hash.as_str());
+        let here = local.map(|f| ident(&f.hash, f.exec));
+        let there = input.remote.files.get(key).map(|f| ident(&f.hash, f.exec));
         let key_s = key.to_string();
         let action = match (here, there) {
             (None, None) => match base {
@@ -161,8 +194,10 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
             (Some(h), None) => match base {
                 Some(b) if b == h => Action::DeleteLocal { key: key_s },
                 Some(_) => Action::Upload { key: key_s },
+                // A copy of a file the drive deleted before this side knew it: neither deleted
+                // nor sent again ([`deleted_elsewhere`] lists it).
                 None => match input.remote.deleted.get(key) {
-                    Some(tomb) if tomb.hash == h => Action::DeleteLocal { key: key_s },
+                    Some(tomb) if tomb.hash == h.0 => continue,
                     _ => Action::Upload { key: key_s },
                 },
             },

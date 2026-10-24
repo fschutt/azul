@@ -25,7 +25,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
     sync::{
@@ -41,7 +40,8 @@ use azul_storage::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    blob_job, job_bytes, local, lock, remote, uploaded_hash, Action, BlobJob, BlobSource,
+    blob_job, job_bytes, local, lock, open_job_file, remote, uploaded_hash, Action, BlobJob,
+    BlobSource,
     CheckedRead, RemoteFile, RemoteIndex, SyncEvent, SyncRemote, SyncReport, Uploads,
 };
 use crate::{
@@ -450,6 +450,7 @@ impl SyncRemote for NamedFiles<'_> {
                     mtime: object.modified.and_then(|m| i64::try_from(m).ok()).unwrap_or(0),
                     gen: memo.generation,
                     device: String::new(),
+                    exec: false,
                 },
             );
             seen.insert(key.to_string(), etag);
@@ -726,9 +727,9 @@ fn lost_race(
 /// (a file on disk), or a merged JSON object read whole and checked already.
 fn large_body(job: &BlobJob) -> Result<LargeBody, String> {
     match &job.source {
-        BlobSource::File(path) => fs::File::open(path)
-            .map(|file| LargeBody::Streamed(CheckedRead::new(file, &job.hash)))
-            .map_err(|e| format!("cannot be read ({e})")),
+        // Reached without a link and checked to be the scanned file, never opened by its path.
+        BlobSource::File(_) => open_job_file(job)
+            .map(|(file, _)| LargeBody::Streamed(CheckedRead::new(file, &job.hash))),
         _ => job_bytes(job).map(|bytes| LargeBody::Whole(Cursor::new(bytes))),
     }
 }
