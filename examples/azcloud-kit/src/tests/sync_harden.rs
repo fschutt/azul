@@ -581,3 +581,40 @@ fn the_token_servers_restore_announcement_reaches_the_sync_and_the_account_recor
     let grant = crate::account::grant_of(&announced, "http://127.0.0.1:18081", "owner", 1).unwrap();
     assert_eq!(grant.record.restore, announced.restore);
 }
+
+#[test]
+fn a_file_with_a_time_in_the_future_is_no_write_in_progress() {
+    // A file from a computer whose clock runs ahead: waiting for it to be quiet would wait for
+    // ever.
+    let store = S3Bucket::new();
+    let a = Device::new("future-a");
+    a.write("ahead.txt", b"from a clock that runs ahead");
+    let file = fs::File::options()
+        .write(true)
+        .open(a.path().join("ahead.txt"))
+        .unwrap();
+    file.set_modified(std::time::SystemTime::now() + Duration::from_secs(86_400))
+        .unwrap();
+    drop(file);
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        !lists(&report, Code::Settling, None),
+        "{:?}",
+        report.problems
+    );
+    assert!(index_of(&store).files.contains_key("ahead.txt"));
+}
+
+#[test]
+fn a_data_root_whose_bookkeeping_is_the_azlin_folder_never_syncs_its_marker_or_trash() {
+    let data = TempDir::new("azcloud-nested-data");
+    let roots = crate::sync::azlin_roots(data.path(), &data.path().join(".azlin"));
+    let home = &roots[1].0;
+    assert!(home.rules.excluded("sync/root-id").is_some());
+    assert!(home
+        .rules
+        .excluded("sync/trash/20261024-101500-a1b2c3/x.txt")
+        .is_some());
+}

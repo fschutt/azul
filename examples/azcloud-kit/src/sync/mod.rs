@@ -290,6 +290,14 @@ pub fn azlin_roots(data_root: &Path, azlin_home: &Path) -> Vec<(LocalRoot, &'sta
             &format!("/{inner}/"),
             "the .azlin folder, synced on its own",
         );
+        // The .azlin folder is the data root's bookkeeping folder: its sync/ holds the data
+        // root's marker and trash, which no other device may get.
+        if inner == ".azlin" {
+            home.rules.add(
+                "/sync/",
+                "the data root's sync bookkeeping (its marker, its trash)",
+            );
+        }
     }
     vec![(data, DATA_PREFIX), (home, HOME_PREFIX)]
 }
@@ -806,6 +814,13 @@ trait SyncRemote: Sync {
     /// The bytes of the content `hash` (a base's version, for a key-by-key merge); an error
     /// when the drive no longer has them.
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>>;
+
+    /// Whether the drive keeps a file's executable bit. A drive that cannot (an encrypted
+    /// drive's files by name) leaves it out of every comparison: a file would otherwise look
+    /// changed there on every run.
+    fn tracks_exec(&self) -> bool {
+        true
+    }
 
     /// [`SyncRemote::fetch`] into the file `dest` (a big file: in ranges, never whole in
     /// memory where the drive can), checked the same way; the content's hash for the base.
@@ -2676,6 +2691,12 @@ fn run<R: SyncRemote + ?Sized>(
         },
     )?;
     hooks.point("after-scan");
+    let mut scanned = scanned;
+    if !remote_side.tracks_exec() {
+        for file in scanned.files.values_mut() {
+            file.exec = false;
+        }
+    }
     report.scanned = scanned.files.len();
     report.hashed = scanned.hashed;
     report.excluded = scanned.excluded;

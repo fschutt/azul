@@ -416,6 +416,11 @@ impl Drop for NamedFiles<'_> {
 }
 
 impl SyncRemote for NamedFiles<'_> {
+    /// The drive's index names a file's content, not its permission bits.
+    fn tracks_exec(&self) -> bool {
+        false
+    }
+
     fn read(
         &self,
         _cached: Option<&(String, RemoteIndex)>,
