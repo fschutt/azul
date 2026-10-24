@@ -529,6 +529,8 @@ fn a_grant_answered_before_is_said_as_done_already() {
     assert_eq!((user.code, user.class()), (Code::AlreadyAnswered, Class::Fatal));
     assert!(user.message(Lang::En).contains("already"), "{}", user.message(Lang::En));
     assert!(user.message(Lang::De).contains("bereits"), "{}", user.message(Lang::De));
+}
+
 #[test]
 fn a_read_only_drive_says_why_and_only_an_unpaid_one_speaks_of_a_payment() {
     let unpaid = UserError::from_drive_error(&azlin(403, "AccessDenied", Some("read_only_unpaid")))
