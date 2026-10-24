@@ -1,0 +1,63 @@
+[
+  {
+    "name": "a download that would eat the disk reserve is not started: the old version stays whole, small files still arrive",
+    "description": "PCLOUD-024 (pCloud): the upload cache grew to hundreds of GB and filled a 1 TB disk. Rules E3/A5/O1 (sync-chaos res-disk-full): a reserve is kept free (default 1 GiB), listed per file (disk-reserve), no temp file left.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 3000000, "seed": 1 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 30000000, "seed": 2 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_disk", "device": "b", "free_bytes": 1077741824 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-reserve", "disk-full"], "key": "big.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "size": 3000000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "small.txt", "text": "v2" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "size": 30000000 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an uninstall and reinstall brings back no file deleted weeks before",
+    "description": "PCLOUD-024 (pCloud): after a reinstall the app brought back files and folders deleted weeks before (stale local state). Rules D5/A1: a fresh pairing replays no stale operation; the drive's tombstone holds.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "old.txt", "text": "deleted weeks ago" },
+      { "op": "drive_write", "device": "a", "path": "kept.txt", "text": "kept" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "path": "old.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_clock", "device": "b", "jump": 1814400 },
+      { "op": "drive_unpair", "device": "b" },
+      { "op": "drive_wipe_state", "device": "b" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "key": "old.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "kept.txt", "text": "kept" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

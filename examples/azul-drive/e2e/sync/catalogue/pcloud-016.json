@@ -1,0 +1,42 @@
+[
+  {
+    "name": "20,000 small files copied into an encrypted drive at once go up, survive a crash mid-way, and come down",
+    "description": "PCLOUD-016 (pCloud): copying many files into the Crypto folder at once crashed the client. Rules E7/I1/E8 (sync-chaos res-many-small-files-20k, crypto-no-plaintext-no-dedup): packed small files, one commit per batch, resumable after a crash.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Crypto", "count": 20000, "size": 200, "seed": 3 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash", "timeout_ms": 3600000 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 3600000 },
+      { "op": "drive_check", "check": "remote_count", "glob": "Crypto/*", "count": 20000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 3600000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Crypto/*", "count": 20000 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "100,000 small files into an encrypted drive in one burst keep the memory bounded",
+    "description": "PCLOUD-016 (pCloud): the client crashed on a big burst into the encrypted folder. Rule E7/I1: bounded memory, resumable progress.",
+    "pending": "drive_check {\"check\":\"peak_memory\",\"device\":\"a\",\"max_mb\":512} (the pass thread's peak memory, so a 100,000-file burst proves bounded memory)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Crypto", "count": 100000, "size": 200, "seed": 3 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 7200000 },
+      { "op": "drive_check", "check": "remote_count", "glob": "Crypto/*", "count": 100000 },
+      { "op": "drive_check", "check": "peak_memory", "device": "a", "max_mb": 512 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
