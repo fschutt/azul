@@ -2184,6 +2184,7 @@ impl WaylandWindow {
             })?;
         layout_window.routes = resources.config.routes.clone();
         layout_window.set_app_localization(&resources.config);
+        layout_window.set_app_e2e(&resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
 
         let mut common = event::CommonWindowState::new(
@@ -2895,6 +2896,7 @@ impl WaylandWindow {
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 layout_window.routes = window.resources.config.routes.clone();
                 layout_window.set_app_localization(&window.resources.config);
+                layout_window.set_app_e2e(&window.resources.config);
                 layout_window.webviews.set_platform(super::webview::platform());
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
@@ -2960,6 +2962,7 @@ impl WaylandWindow {
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     layout_window.routes = window.resources.config.routes.clone();
                     layout_window.set_app_localization(&window.resources.config);
+                    layout_window.set_app_e2e(&window.resources.config);
                     layout_window.webviews.set_platform(super::webview::platform());
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
@@ -9768,6 +9771,7 @@ impl WaylandPopup {
         };
         layout_window.routes = parent.resources.config.routes.clone();
         layout_window.set_app_localization(&parent.resources.config);
+        layout_window.set_app_e2e(&parent.resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
         // Seed with the parent window's image map so css-id / url("...")
         // images inside the popup resolve (whole-map seed at creation).

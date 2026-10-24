@@ -5001,6 +5001,62 @@ pub extern "C" fn default_custom_e2e_op_extern(
     }
 }
 
+/// An E2E command's callback as `AppConfig` keeps it: the function pointer
+/// stored as a `usize`, like [`crate::callbacks::CoreCallback`], because its
+/// real type takes azul-layout's `CallbackInfo`, which this crate cannot name.
+///
+/// The real type is `azul_layout::callbacks::E2eCommandCallbackType`:
+/// `extern "C" fn(RefAny, CallbackInfo, AzString, AzString) -> CustomE2eOpResult`
+/// (the app's data, the window's callback info, the op name, its arguments as
+/// JSON). `azul_layout::callbacks::E2eCommandCallback::to_core` makes one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CoreE2eCommandCallback {
+    pub cb: usize,
+    /// The host-language callable for bindings; native code leaves it `None`.
+    pub ctx: crate::refany::OptionRefAny,
+}
+
+/// One op an application adds to the E2E scenarios and the debug server.
+///
+/// A scenario step `{"op": "<name>", ...}` whose name no engine op takes runs
+/// `callback` with the app's data, a `CallbackInfo` of the window (so the
+/// command can start threads and timers and change the UI like any callback)
+/// and the step's other fields as a JSON object. Its answer is a JSON object
+/// with a `success` boolean: `false` fails the step, `"pending": true` runs it
+/// again after one turn of the event loop.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct E2eCommand {
+    /// The op name scenarios use. A name an engine op has is never reached.
+    pub name: AzString,
+    /// What `list_app_ops` shows for it: one `E2eOpDef` (name, summary,
+    /// description, args, examples) as JSON. Kept as data so a plugin or an
+    /// agent can read the app's commands without calling any of them.
+    pub op_def: crate::json::Json,
+    pub callback: CoreE2eCommandCallback,
+}
+
+impl_option!(
+    E2eCommand,
+    OptionE2eCommand,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl_vec!(
+    E2eCommand,
+    E2eCommandVec,
+    E2eCommandVecDestructor,
+    E2eCommandVecDestructorType,
+    E2eCommandVecSlice,
+    OptionE2eCommand
+);
+impl_vec_clone!(E2eCommand, E2eCommandVec, E2eCommandVecDestructor);
+impl_vec_mut!(E2eCommand, E2eCommandVec);
+impl_vec_debug!(E2eCommand, E2eCommandVec);
+impl_vec_partialeq!(E2eCommand, E2eCommandVec);
+
 // Keep simpler Rust fn pointer aliases for internal use
 pub type InputInterpreterFn = fn(info: &InputInterpreterInfo<'_>) -> PreCallbackFilterResult;
 

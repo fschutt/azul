@@ -976,6 +976,10 @@ pub struct AppConfig {
     /// The default recognises nothing, so a scenario naming a custom op fails
     /// unless the app installed a handler.
     pub custom_e2e_op: crate::events::CustomE2eOpCallback,
+    /// The app's own E2E commands, by name (`add_e2e_command`). A scenario
+    /// op no engine op takes is looked up here first, then handed to
+    /// `custom_e2e_op`. Every window of the app takes a copy at its creation.
+    pub e2e_commands: crate::events::E2eCommandVec,
     /// Update configuration: manifest URL, requested mode, the running
     /// version. Drives `CallbackInfo::check_for_updates` and the
     /// `SysDialogType::UpdateVersion` dialog. Default: no manifest (checks
@@ -1160,6 +1164,26 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// Add an E2E command `name`: a scenario step or a debug-server request
+    /// with that op runs `callback` (see [`crate::events::E2eCommand`]).
+    /// `op_def` describes it for `list_app_ops`. Replaces an earlier command
+    /// of the same name.
+    pub fn add_e2e_command(
+        &mut self,
+        name: AzString,
+        op_def: crate::json::Json,
+        callback: crate::events::CoreE2eCommandCallback,
+    ) {
+        let mut list = self.e2e_commands.clone().into_library_owned_vec();
+        list.retain(|command| command.name.as_str() != name.as_str());
+        list.push(crate::events::E2eCommand {
+            name,
+            op_def,
+            callback,
+        });
+        self.e2e_commands = crate::events::E2eCommandVec::from_vec(list);
+    }
+
     /// Hold `hotkey` for the whole run, app-wide, running `callback` with
     /// `data` when it is pressed - even while another app has the keyboard
     /// focus. Replaces an earlier entry for the same accelerator.
@@ -1337,6 +1361,7 @@ impl AppConfig {
             expose_system_media_controls: false,
             remote_control: RemoteControlConfig::default(),
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
+            e2e_commands: crate::events::E2eCommandVec::from_const_slice(&[]),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,

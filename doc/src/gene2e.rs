@@ -385,6 +385,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // would name an op no handler recognises and fail with handled=false —
     // which is the op behaving correctly, and useless as a generated test.
     ("custom_op", Some("app-defined op name; the engine cannot know any valid one")),
+    // DENY: its answer is whatever the application registered, so a generated
+    // test has nothing engine-defined to assert on.
+    ("list_app_ops", Some("lists the application's own ops; nothing engine-defined to assert")),
     // DENY: both are human-debugging aids that write to the log and assert
     // NOTHING. A generated scenario that reaches for one has substituted
     // "show me" for "check this", and passes no matter what the engine did —

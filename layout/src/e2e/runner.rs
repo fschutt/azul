@@ -4712,6 +4712,26 @@ fn run_e2e_test_keeping_runner(
     test: &E2eTest,
     initial_dom: Option<StyledDom>,
 ) -> (E2eTestResult, Runner) {
+    run_e2e_test_inner(test, initial_dom, None)
+}
+
+/// [`run_e2e_test`] as an application's window runs it: `app_data` is the
+/// app's data the ops receive, and the window takes `config`'s E2E commands
+/// and catch-all handler (`LayoutWindow::set_app_e2e`), as every shell does.
+#[cfg(test)]
+pub(crate) fn run_e2e_test_with_app(
+    test: &E2eTest,
+    app_data: RefAny,
+    config: &azul_core::resources::AppConfig,
+) -> E2eTestResult {
+    run_e2e_test_inner(test, None, Some((app_data, config))).0
+}
+
+fn run_e2e_test_inner(
+    test: &E2eTest,
+    initial_dom: Option<StyledDom>,
+    app: Option<(RefAny, &azul_core::resources::AppConfig)>,
+) -> (E2eTestResult, Runner) {
     if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
         eprintln!("[scenario] {}", test.name);
     }
@@ -4766,7 +4786,13 @@ fn run_e2e_test_keeping_runner(
         dom_id: None,
         response_tx: tx,
     };
-    let mut app_data = RefAny::new(());
+    let mut app_data = match app {
+        Some((data, config)) => {
+            runner.layout_window.set_app_e2e(config);
+            data
+        }
+        None => RefAny::new(()),
+    };
     // The app's debug server starts with the builtin library (the palette's
     // HTML elements); the in-crate runner must see the same map.
     let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));

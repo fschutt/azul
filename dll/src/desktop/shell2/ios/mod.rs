@@ -1658,6 +1658,7 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        layout_window.set_app_e2e(&config);
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews

@@ -677,6 +677,7 @@ mod autotest_generated {
             routes,
             system_animations,
             custom_e2e_op,
+            e2e_commands,
             updates,
             changelog_md,
             report_problem,
@@ -709,6 +710,7 @@ mod autotest_generated {
             + size_of_field(routes)
             + size_of_field(system_animations)
             + size_of_field(custom_e2e_op)
+            + size_of_field(e2e_commands)
             + size_of_field(updates)
             + size_of_field(changelog_md)
             + size_of_field(report_problem)

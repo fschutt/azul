@@ -6536,6 +6536,7 @@ impl MacOSWindow {
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        layout_window.set_app_e2e(&config);
         // `<webview>`s are WKWebViews (`webview::MacWebViews`).
         layout_window
             .webviews

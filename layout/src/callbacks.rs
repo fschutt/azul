@@ -1299,6 +1299,72 @@ impl Callback {
     }
 }
 
+/// An app's E2E command (`AppConfig::add_e2e_command`): the app's data, a
+/// `CallbackInfo` of the window the scenario drives, the op name and its
+/// arguments as a JSON object. The answer is a JSON object with a `success`
+/// boolean (see `azul_core::events::E2eCommand`).
+pub type E2eCommandCallbackType = extern "C" fn(
+    RefAny,
+    CallbackInfo,
+    AzString,
+    AzString,
+) -> azul_core::events::CustomE2eOpResult;
+
+/// [`E2eCommandCallbackType`] with the host callable a binding keeps.
+#[repr(C)]
+pub struct E2eCommandCallback {
+    pub cb: E2eCommandCallbackType,
+    pub ctx: OptionRefAny,
+}
+
+impl Clone for E2eCommandCallback {
+    fn clone(&self) -> Self {
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+        }
+    }
+}
+
+impl core::fmt::Debug for E2eCommandCallback {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "E2eCommandCallback {{ cb: {:p} }}", self.cb as *const ())
+    }
+}
+
+impl E2eCommandCallback {
+    /// A command callback from a bare function pointer (no host callable).
+    #[must_use]
+    pub fn create(cb: E2eCommandCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+
+    /// The form `AppConfig` stores (the pointer as a `usize`).
+    #[must_use]
+    pub fn to_core(self) -> azul_core::events::CoreE2eCommandCallback {
+        azul_core::events::CoreE2eCommandCallback {
+            cb: self.cb as usize,
+            ctx: self.ctx,
+        }
+    }
+
+    /// The callback back from `AppConfig`'s form.
+    ///
+    /// The `usize` is only ever made by [`Self::to_core`] from a real
+    /// [`E2eCommandCallbackType`], which is what makes the transmute sound.
+    #[must_use]
+    pub fn from_core(core: &azul_core::events::CoreE2eCommandCallback) -> Self {
+        debug_assert!(core.cb != 0, "CoreE2eCommandCallback.cb is null");
+        Self {
+            cb: unsafe { core::mem::transmute::<usize, E2eCommandCallbackType>(core.cb) },
+            ctx: core.ctx.clone(),
+        }
+    }
+}
+
 /// Allow Callback to be passed to functions expecting `C: Into<CoreCallback>`
 impl From<Callback> for CoreCallback {
     fn from(callback: Callback) -> Self {

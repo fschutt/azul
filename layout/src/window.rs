@@ -1245,6 +1245,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         input_interpreter: _,
         post_filter: _,
         custom_e2e_op: _,
+        e2e_commands: _,
         routes: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
@@ -2220,6 +2221,10 @@ pub struct LayoutWindow {
     /// Application handler for E2E ops the engine does not implement.
     /// Mirrored from `AppConfig`, like `post_filter` and `input_interpreter`.
     pub custom_e2e_op: azul_core::events::CustomE2eOpCallback,
+    /// The app's E2E commands by name (`AppConfig::add_e2e_command`), copied
+    /// at window creation by [`Self::set_app_e2e`]. The debug server and the
+    /// scenario runner hand them every op no engine op takes.
+    pub e2e_commands: azul_core::events::E2eCommandVec,
     /// Registered routes from `AppConfig`.  Set once at window creation.
     /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
     pub routes: azul_core::resources::RouteVec,
@@ -2787,6 +2792,7 @@ impl LayoutWindow {
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
+            e2e_commands: azul_core::events::E2eCommandVec::from_const_slice(&[]),
             routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
@@ -21136,6 +21142,15 @@ impl LayoutWindow {
         }
     }
 
+    /// Take the app's E2E hooks from its config: its commands and its
+    /// catch-all handler. Every shell calls this beside
+    /// [`Self::set_app_localization`]; without it a scenario never reaches
+    /// the app's ops.
+    pub fn set_app_e2e(&mut self, config: &azul_core::resources::AppConfig) {
+        self.custom_e2e_op = config.custom_e2e_op.clone();
+        self.e2e_commands = config.e2e_commands.clone();
+    }
+
     /// The language this window's text is in: the one the app chose with
     /// `CallbackInfo::set_locale` if it chose one, else the system's.
     ///
@@ -28646,6 +28661,7 @@ impl LayoutWindow {
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
+            e2e_commands: _,
             routes: _,
             #[cfg(feature = "icu")]
                 icu_localizer: _,

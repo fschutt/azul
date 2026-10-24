@@ -434,6 +434,16 @@ pub struct CustomOpResponse {
     pub raw: String,
 }
 
+/// What `list_app_ops` answers.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct AppOpsResponse {
+    /// One `E2eOpDef` per command (`AppConfig::add_e2e_command`), in the
+    /// order they were added.
+    pub commands: Vec<serde_json::Value>,
+    /// What `AppConfig::custom_e2e_op` advertises (`{"ops": [..]}`).
+    pub custom_op_schema: serde_json::Value,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum ResponseData {
@@ -441,6 +451,8 @@ pub enum ResponseData {
     Profile(ProfileResponse),
     /// Result of an application-handled `CustomOp`.
     CustomOp(CustomOpResponse),
+    /// The application's ops, see `DebugEvent::ListAppOps`.
+    AppOps(AppOpsResponse),
     /// Screenshot data (base64 encoded PNG)
     Screenshot(ScreenshotData),
     /// Node CSS properties
@@ -2462,11 +2474,17 @@ pub enum DebugEvent {
         /// The application-defined op name. NOT called `op`: that key is the
         /// enum's own serde tag, so a scenario reads
         /// `{"op": "custom_op", "name": "load_document", "args": {..}}`.
+        /// The short spelling `{"op": "load_document", ..}` is parsed into
+        /// this too (see [`parse_debug_event`]).
         name: String,
         /// Arguments, passed through to the handler verbatim as JSON.
         #[serde(default)]
         args: serde_json::Value,
     },
+    /// Every op the application added: its commands' `E2eOpDef`s and the
+    /// schema of its catch-all handler, so a plugin or an agent can see what
+    /// the app answers without calling anything.
+    ListAppOps,
     // Mouse Events
     //
     // `seat` (9b-ii-c) names the pointer SEAT the op drives: 0 (the default)
@@ -4928,7 +4946,18 @@ struct E2eContinuation {
     /// the first step runs. Without this the whole `setup` block was parsed and
     /// then silently ignored — every test rendered at the default window size.
     setup_applied: bool,
+    /// How often the current step's app command answered `"pending": true`
+    /// so far: the `_attempt` it is called with next. Reset when a step ends.
+    step_attempt: u64,
+    /// When the current step's first pending answer came (wall clock). The
+    /// step fails once its `timeout_ms` passed since then.
+    step_pending_since: Option<std::time::Instant>,
 }
+
+/// How long an app command may answer `"pending": true` before its step
+/// fails, unless the step says `timeout_ms`.
+#[cfg(feature = "std")]
+const E2E_PENDING_TIMEOUT_MS: u64 = 60_000;
 
 // ==================== Debug Server Handle ====================
 
@@ -5879,26 +5908,45 @@ pub fn handle_event_request(
 ) -> String {
     use std::time::Duration;
 
-    // Parse the event request
-    #[derive(serde::Deserialize)]
+    // The request: the op's own fields plus the envelope (window, DOM, wait,
+    // timeout). The envelope is taken out first, so the op parses alone and
+    // an app op (a name no engine op has) gets only its own arguments.
     struct EventRequest {
-        #[serde(flatten)]
         event: DebugEvent,
-        #[serde(default)]
         window_id: Option<String>,
-        #[serde(default)]
         wait_for_render: bool,
         /// The DOM this op addresses; omitted = the root DOM (0).
         /// A sibling of `op`, not a field of it: one spelling for every op.
-        #[serde(default)]
         dom_id: Option<u64>,
         /// Override the default 30 s response timeout (seconds).
         /// E2E tests should set this to 300+.
-        #[serde(default)]
         timeout_secs: Option<u64>,
     }
 
-    let parsed: Result<EventRequest, _> = serde_json::from_str(body);
+    let parsed: Result<EventRequest, String> = serde_json::from_str::<serde_json::Value>(body)
+        .map_err(|e| e.to_string())
+        .and_then(|value| {
+            let serde_json::Value::Object(mut fields) = value else {
+                return Err("the request is not a JSON object".to_string());
+            };
+            let window_id = fields
+                .remove("window_id")
+                .and_then(|v| v.as_str().map(str::to_string));
+            let wait_for_render = fields
+                .remove("wait_for_render")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let dom_id = fields.remove("dom_id").and_then(|v| v.as_u64());
+            let timeout_secs = fields.remove("timeout_secs").and_then(|v| v.as_u64());
+            let event = parse_debug_event(serde_json::Value::Object(fields))?;
+            Ok(EventRequest {
+                event,
+                window_id,
+                wait_for_render,
+                dom_id,
+                timeout_secs,
+            })
+        });
 
     match parsed {
         Ok(req) => {
@@ -7205,31 +7253,215 @@ fn eval_assert_app_state(
     }
 }
 
-/// Navigate a dot-separated path in a `serde_json::Value`.
+/// Navigate a path in a `serde_json::Value`.
 ///
 /// E.g. `navigate_json_path(root, "user.address.city")` walks
-/// `root["user"]["address"]["city"]`. Supports array indices via
-/// bracket notation: `"items[0].name"`.
+/// `root["user"]["address"]["city"]`. An array index is `[n]`
+/// (`"items[0].name"`, `"grid[1][2]"`), and a key holding a dot or a bracket
+/// is quoted in brackets (`files["a.txt"].size`).
 #[cfg(feature = "std")]
 fn navigate_json_path<'a>(
     root: &'a serde_json::Value,
     path: &str,
 ) -> Option<&'a serde_json::Value> {
     let mut current = root;
-    for segment in path.split('.') {
-        // Handle array index: "items[0]"
-        if let Some(bracket_pos) = segment.find('[') {
-            let key = &segment[..bracket_pos];
-            let idx_str = segment[bracket_pos + 1..].trim_end_matches(']');
-
-            current = current.get(key)?;
-            let idx: usize = idx_str.parse().ok()?;
-            current = current.get(idx)?;
-        } else {
-            current = current.get(segment)?;
-        }
+    for segment in json_path_segments(path)? {
+        current = match segment {
+            JsonPathSegment::Key(key) => current.get(key.as_str())?,
+            JsonPathSegment::Index(i) => current.get(i)?,
+        };
     }
     Some(current)
+}
+
+/// One step of a [`navigate_json_path`] path.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum JsonPathSegment {
+    Key(String),
+    Index(usize),
+}
+
+/// The steps of a path; `None` when it is malformed (an unclosed bracket or
+/// quote, a bracket that is neither an index nor a quoted key).
+#[cfg(feature = "std")]
+fn json_path_segments(path: &str) -> Option<Vec<JsonPathSegment>> {
+    let mut out = Vec::new();
+    let mut key = String::new();
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '.' => {
+                if !key.is_empty() {
+                    out.push(JsonPathSegment::Key(std::mem::take(&mut key)));
+                }
+            }
+            '[' => {
+                if !key.is_empty() {
+                    out.push(JsonPathSegment::Key(std::mem::take(&mut key)));
+                }
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    let mut quoted = String::new();
+                    loop {
+                        match chars.next()? {
+                            '"' => break,
+                            '\\' => quoted.push(chars.next()?),
+                            other => quoted.push(other),
+                        }
+                    }
+                    if chars.next()? != ']' {
+                        return None;
+                    }
+                    out.push(JsonPathSegment::Key(quoted));
+                } else {
+                    let mut digits = String::new();
+                    loop {
+                        match chars.next()? {
+                            ']' => break,
+                            d => digits.push(d),
+                        }
+                    }
+                    out.push(JsonPathSegment::Index(digits.trim().parse().ok()?));
+                }
+            }
+            other => key.push(other),
+        }
+    }
+    if !key.is_empty() {
+        out.push(JsonPathSegment::Key(key));
+    }
+    Some(out)
+}
+
+/// `assert_response` with a `path`: one value of the previous step's
+/// response, compared with `equals`, `not_equals`, `at_least`, `at_most`,
+/// `len`, `contains` or `not_contains` (every one given must hold).
+///
+/// The path starts inside the response's `value` (a command's answer is
+/// then `result.<field>`), or at the response itself when it has none.
+#[cfg(feature = "std")]
+fn eval_response_path(response: &serde_json::Value, params: &serde_json::Value) -> AssertionResult {
+    let path = params.get("path").and_then(|v| v.as_str()).unwrap_or_default();
+    let root = response.get("value").unwrap_or(response);
+    let checks = ["equals", "not_equals", "at_least", "at_most", "len", "contains", "not_contains"];
+    if !checks.iter().any(|k| params.get(*k).is_some()) {
+        return AssertionResult::fail(format!(
+            "assert_response: path '{path}' needs one of {}",
+            checks.join(", ")
+        ));
+    }
+    if json_path_segments(path).is_none() {
+        return AssertionResult::fail(format!("assert_response: '{path}' is not a valid path"));
+    }
+    let Some(actual) = navigate_json_path(root, path) else {
+        let shown = root.to_string();
+        let shown = if shown.len() > 600 {
+            let mut cut = 600;
+            while !shown.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            format!("{}...", &shown[..cut])
+        } else {
+            shown
+        };
+        return AssertionResult::fail_with(
+            format!("assert_response: the response has no '{path}'"),
+            path.to_string(),
+            shown,
+        );
+    };
+    let text = actual.to_string();
+    if let Some(want) = params.get("equals") {
+        if !json_values_equal(actual, want) {
+            return AssertionResult::fail_with(
+                format!("assert_response: '{path}' differs"),
+                want.to_string(),
+                text,
+            );
+        }
+    }
+    if let Some(unwanted) = params.get("not_equals") {
+        if json_values_equal(actual, unwanted) {
+            return AssertionResult::fail_with(
+                format!("assert_response: '{path}' equals what it must not"),
+                format!("anything but {unwanted}"),
+                text,
+            );
+        }
+    }
+    for (key, at_least) in [("at_least", true), ("at_most", false)] {
+        if let Some(bound) = params.get(key).and_then(serde_json::Value::as_f64) {
+            let Some(n) = actual.as_f64() else {
+                return AssertionResult::fail_with(
+                    format!("assert_response: '{path}' is not a number"),
+                    format!("{key} {bound}"),
+                    text,
+                );
+            };
+            if (at_least && n < bound) || (!at_least && n > bound) {
+                return AssertionResult::fail_with(
+                    format!("assert_response: '{path}' is out of range"),
+                    format!("{key} {bound}"),
+                    text,
+                );
+            }
+        }
+    }
+    if let Some(want_len) = params.get("len").and_then(serde_json::Value::as_u64) {
+        let len = match actual {
+            serde_json::Value::Array(a) => Some(a.len()),
+            serde_json::Value::Object(o) => Some(o.len()),
+            serde_json::Value::String(s) => Some(s.chars().count()),
+            _ => None,
+        };
+        if len != Some(want_len as usize) {
+            return AssertionResult::fail_with(
+                format!("assert_response: '{path}' has the wrong length"),
+                format!("len {want_len}"),
+                format!("{len:?} ({text})"),
+            );
+        }
+    }
+    if let Some(sub) = params.get("contains").and_then(|v| v.as_str()) {
+        if !text.contains(sub) {
+            return AssertionResult::fail_with(
+                format!("assert_response: '{path}' does not contain the expected substring"),
+                sub.to_string(),
+                text,
+            );
+        }
+    }
+    if let Some(sub) = params.get("not_contains").and_then(|v| v.as_str()) {
+        if text.contains(sub) {
+            return AssertionResult::fail_with(
+                format!("assert_response: '{path}' CONTAINS a forbidden substring"),
+                format!("absence of {sub}"),
+                text,
+            );
+        }
+    }
+    AssertionResult::pass(format!("assert_response: '{path}' = {text}"))
+}
+
+/// JSON equality where numbers compare by value (`3` equals `3.0`).
+#[cfg(feature = "std")]
+fn json_values_equal(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    match (a, b) {
+        (serde_json::Value::Number(x), serde_json::Value::Number(y)) => {
+            x == y || x.as_f64().zip(y.as_f64()).is_some_and(|(x, y)| x == y)
+        }
+        (serde_json::Value::Array(x), serde_json::Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| json_values_equal(x, y))
+        }
+        (serde_json::Value::Object(x), serde_json::Value::Object(y)) => {
+            x.len() == y.len()
+                && x
+                    .iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| json_values_equal(v, w)))
+        }
+        _ => a == b,
+    }
 }
 
 /// `assert_scroll`: assert the scroll position of a scrollable node.
@@ -12764,6 +12996,9 @@ fn resume_e2e_continuation_inner(
                         "a response payload".to_string(),
                         "null".to_string(),
                     ),
+                    Some(resp) if step.params.get("path").is_some() => {
+                        eval_response_path(resp, &step.params)
+                    }
                     Some(resp) => {
                         let text = resp.to_string();
                         let want_type = step.params.get("type").and_then(|v| v.as_str());
@@ -12947,8 +13182,17 @@ fn resume_e2e_continuation_inner(
                 let step_dom_id = cmd.get("dom_id").and_then(serde_json::Value::as_u64);
                 cmd.remove("dom_id");
                 let cmd_json = serde_json::Value::Object(cmd);
-                match serde_json::from_value::<DebugEvent>(cmd_json) {
-                    Ok(debug_event) => {
+                match parse_debug_event(cmd_json) {
+                    Ok(mut debug_event) => {
+                        // An app op learns how often it said "pending" so far.
+                        let is_app_op = matches!(debug_event, DebugEvent::CustomOp { .. });
+                        if let DebugEvent::CustomOp {
+                            args: serde_json::Value::Object(fields),
+                            ..
+                        } = &mut debug_event
+                        {
+                            fields.insert("_attempt".to_string(), cont.step_attempt.into());
+                        }
                         let (step_tx, step_rx) = mpsc::channel();
                         let step_request = DebugRequest {
                             request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
@@ -12967,6 +13211,104 @@ fn resume_e2e_continuation_inner(
                         );
                         if step_needs_update {
                             needs_update = true;
+                        }
+                        // An app op's answer is read at once, before any yield:
+                        // its `success` and `pending` decide the step, and a
+                        // command that changed the UI must not lose its answer
+                        // to the relayout yield below.
+                        if is_app_op {
+                            let answer = step_rx.try_recv().map(DebugResponseData::into_ready);
+                            let pending = matches!(
+                                &answer,
+                                Ok(DebugResponseData::Ok { data: Some(ResponseData::CustomOp(r)), .. })
+                                    if custom_op_is_pending(r)
+                            );
+                            if pending {
+                                let timeout_ms = step
+                                    .params
+                                    .get("timeout_ms")
+                                    .and_then(serde_json::Value::as_u64)
+                                    .unwrap_or(E2E_PENDING_TIMEOUT_MS);
+                                let since = *cont.step_pending_since.get_or_insert(step_start);
+                                if (since.elapsed().as_millis() as u64) < timeout_ms {
+                                    // Run this step again after one turn of the
+                                    // event loop: the work it waits for lands
+                                    // on this thread meanwhile.
+                                    cont.step_attempt += 1;
+                                    cont.app_data = app_data;
+                                    session.pending = Some(cont);
+                                    return needs_update;
+                                }
+                            }
+                            let (status, error, response) = match answer {
+                                _ if pending => (
+                                    "fail",
+                                    Some(format!(
+                                        "'{op}' was still pending after {} ms (attempt {})",
+                                        step.params
+                                            .get("timeout_ms")
+                                            .and_then(serde_json::Value::as_u64)
+                                            .unwrap_or(E2E_PENDING_TIMEOUT_MS),
+                                        cont.step_attempt
+                                    )),
+                                    None,
+                                ),
+                                Ok(DebugResponseData::Ok { data, .. }) => (
+                                    "pass",
+                                    None,
+                                    data.as_ref().and_then(|d| serde_json::to_value(d).ok()),
+                                ),
+                                Ok(DebugResponseData::Err(msg)) => ("fail", Some(msg), None),
+                                Ok(DebugResponseData::PendingScreenshot(_)) => (
+                                    "fail",
+                                    Some("an app op answered with a screenshot".to_string()),
+                                    None,
+                                ),
+                                Err(_) => (
+                                    "fail",
+                                    Some(format!("'{op}' sent no answer")),
+                                    None,
+                                ),
+                            };
+                            if status == "fail" {
+                                cont.current_test_failed = true;
+                            }
+                            cont.current_step_results.push(E2eStepResult {
+                                step_index,
+                                op: op.to_string(),
+                                status: status.into(),
+                                duration_ms: cont
+                                    .step_pending_since
+                                    .unwrap_or(step_start)
+                                    .elapsed()
+                                    .as_millis() as u64,
+                                logs: vec![format!(
+                                    "Executed: {op} ({} attempt(s))",
+                                    cont.step_attempt + 1
+                                )],
+                                screenshot: None,
+                                error,
+                                response,
+                            });
+                            cont.step_attempt = 0;
+                            cont.step_pending_since = None;
+                            cont.step_idx = step_index + 1;
+                            // What the command changed reaches the window
+                            // before the next step reads it.
+                            if callback_info.has_pending_relayout_change() || step_needs_update {
+                                cont.app_data = app_data;
+                                if cont.current_test_failed && !continue_on_failure {
+                                    // Let the runner finish the test on its
+                                    // next turn: it ends at the failed step.
+                                    cont.step_idx = test.steps.len();
+                                }
+                                session.pending = Some(cont);
+                                return needs_update;
+                            }
+                            if cont.current_test_failed && !continue_on_failure {
+                                break;
+                            }
+                            continue;
                         }
                         // `wait_frame` is a BARRIER: the next step runs only
                         // once the window has prepared a frame after this
@@ -14992,6 +15334,101 @@ extern "C" fn e2e_tick_timer_callback(
 /// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
 /// still set it: those are the ops that legitimately mean "rebuild the DOM".
 #[cfg(feature = "std")]
+/// Parse one op (`{"op": "...", ...}`) the way the dispatcher takes it.
+///
+/// An op name no engine op has becomes [`DebugEvent::CustomOp`] with the
+/// object's other fields as its arguments, so an app's commands read like
+/// engine ops in a scenario (`{"op": "drive_sync", "device": "a"}`). A known
+/// op with wrong fields stays an error: only an UNKNOWN name is the app's.
+#[cfg(feature = "std")]
+pub fn parse_debug_event(cmd: serde_json::Value) -> Result<DebugEvent, String> {
+    match serde_json::from_value::<DebugEvent>(cmd.clone()) {
+        Ok(event) => Ok(event),
+        Err(e) => {
+            let message = e.to_string();
+            let name = cmd
+                .get("op")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            match (name, cmd) {
+                // serde's own wording for a tag no variant has.
+                (Some(name), serde_json::Value::Object(mut fields))
+                    if message.starts_with(&format!("unknown variant `{name}`")) =>
+                {
+                    fields.remove("op");
+                    Ok(DebugEvent::CustomOp {
+                        name,
+                        args: serde_json::Value::Object(fields),
+                    })
+                }
+                _ => Err(message),
+            }
+        }
+    }
+}
+
+/// What an app op's answer means for its request: the response, or the
+/// error the step fails with.
+///
+/// An op no handler recognised fails: a typo'd op name must not pass as a
+/// silent success. A recognised op fails when its answer says
+/// `"success": false`; the error carries the op's own `error` text and the
+/// whole answer, so a red step shows what the app saw.
+#[cfg(feature = "std")]
+fn custom_op_outcome(
+    name: &str,
+    out: azul_core::events::CustomE2eOpResult,
+) -> Result<CustomOpResponse, String> {
+    let raw = out.json.as_str().to_string();
+    if !out.handled {
+        return Err(format!(
+            "op '{name}' is neither an engine op nor one the application answers: no \
+             AppConfig::add_e2e_command of that name, and AppConfig::custom_e2e_op returned \
+             handled=false"
+        ));
+    }
+    let result: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
+    let failed = result
+        .as_ref()
+        .and_then(|r| r.get("success"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(false);
+    if failed {
+        let why = result
+            .as_ref()
+            .and_then(|r| r.get("error"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("no error given");
+        let mut answer = raw.clone();
+        if answer.len() > 2000 {
+            let mut cut = 2000;
+            while !answer.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            answer.truncate(cut);
+            answer.push_str("...");
+        }
+        return Err(format!("{name}: {why} (answer: {answer})"));
+    }
+    Ok(CustomOpResponse {
+        op: name.to_string(),
+        result,
+        raw,
+    })
+}
+
+/// Whether an app op answered `"pending": true` (it waits for work on
+/// another thread; the runner calls it again after one turn of the loop).
+#[cfg(feature = "std")]
+fn custom_op_is_pending(response: &CustomOpResponse) -> bool {
+    response
+        .result
+        .as_ref()
+        .and_then(|r| r.get("pending"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+}
+
 pub fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
@@ -16262,47 +16699,70 @@ pub fn process_debug_event(
         }
 
         DebugEvent::CustomOp { name, args } => {
-            // The fn pointer is copied out BEFORE `app_data` is touched: the
-            // handler lives on the (immutably borrowed) LayoutWindow and the
-            // ctx it receives is mutable app state, so holding both borrows
-            // at once would not compile.
-            let handler = callback_info.get_layout_window().custom_e2e_op.cb;
-            let ctx = match callback_info.get_layout_window().custom_e2e_op.ctx.as_ref() {
-                Some(c) => c.clone(),
-                // No explicit ctx: hand the app its OWN data. That is what a
-                // "now load the document" hook needs, and RefAny is
-                // refcounted so the clone is a bump.
-                None => app_data.clone(),
-            };
             let args_json = serde_json::to_string(args).unwrap_or_else(|_| "null".to_string());
-            let out = (handler)(
-                ctx,
-                azul_css::AzString::from(name.clone()),
-                azul_css::AzString::from(args_json),
-            );
-            let raw = out.json.as_str().to_string();
-            if out.handled {
-                let response = CustomOpResponse {
-                    op: name.clone(),
-                    result: serde_json::from_str(&raw).ok(),
-                    raw,
-                };
-                send_ok(request, None, Some(ResponseData::CustomOp(response)));
+            // A command the app added under this name answers first; the
+            // catch-all handler gets what no command took. The callback is
+            // copied out BEFORE `app_data` is touched: it lives on the
+            // (immutably borrowed) LayoutWindow and the data it receives is
+            // mutable app state.
+            let command = callback_info
+                .get_layout_window()
+                .e2e_commands
+                .as_ref()
+                .iter()
+                .find(|c| c.name.as_str() == name.as_str())
+                .map(|c| azul_layout::callbacks::E2eCommandCallback::from_core(&c.callback));
+            let out = if let Some(command) = command {
+                // The window's own CallbackInfo (it is Copy): the command
+                // starts threads and timers and changes the UI through it,
+                // and those changes are applied after this op like any
+                // callback's.
+                (command.cb)(
+                    app_data.clone(),
+                    *callback_info,
+                    azul_css::AzString::from(name.clone()),
+                    azul_css::AzString::from(args_json),
+                )
             } else {
-                // NOT an OK with an empty body. An unrecognised op name is the
-                // most likely thing to be wrong in a scenario — a typo, or a
-                // handler that was never installed — and reporting it as
-                // success makes it invisible, since non-assert ops print
-                // nothing of their own.
-                send_err(
-                    request,
-                    format!(
-                        "custom op '{name}' was not handled: the application's \
-                         AppConfig::custom_e2e_op returned handled=false (no handler installed, \
-                         or the name is not one it recognises)"
-                    ),
-                );
+                let handler = callback_info.get_layout_window().custom_e2e_op.cb;
+                let ctx = match callback_info.get_layout_window().custom_e2e_op.ctx.as_ref() {
+                    Some(c) => c.clone(),
+                    // No explicit ctx: hand the app its OWN data. That is what a
+                    // "now load the document" hook needs, and RefAny is
+                    // refcounted so the clone is a bump.
+                    None => app_data.clone(),
+                };
+                (handler)(
+                    ctx,
+                    azul_css::AzString::from(name.clone()),
+                    azul_css::AzString::from(args_json),
+                )
+            };
+            match custom_op_outcome(name, out) {
+                Ok(response) => {
+                    // The app state the command changed is laid out again; a
+                    // pending answer (it is only waiting) changed nothing.
+                    if !custom_op_is_pending(&response) {
+                        needs_update = true;
+                    }
+                    send_ok(request, None, Some(ResponseData::CustomOp(response)));
+                }
+                Err(message) => send_err(request, message),
             }
+        }
+
+        DebugEvent::ListAppOps => {
+            let window = callback_info.get_layout_window();
+            let response = AppOpsResponse {
+                commands: window
+                    .e2e_commands
+                    .as_ref()
+                    .iter()
+                    .map(|c| c.op_def.to_serde_value())
+                    .collect(),
+                custom_op_schema: window.custom_e2e_op.op_schema.to_serde_value(),
+            };
+            send_ok(request, None, Some(ResponseData::AppOps(response)));
         }
 
         DebugEvent::GetProfileReport { kind } => {
@@ -19585,6 +20045,8 @@ pub fn process_debug_event(
                 resume_after_frame: None,
                 frame_wait_ticks: 0,
                 setup_applied: false,
+                step_attempt: 0,
+                step_pending_since: None,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),
                 tests: tests.clone(),
