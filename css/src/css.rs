@@ -236,7 +236,21 @@ impl Css {
     #[cfg(feature = "parser")]
     #[must_use]
     pub fn parse_scoped(style: &str) -> Self {
-        use alloc::string::ToString;
+        // An app builds its DOM again on every change, with the same inline
+        // styles: a text parsed before is answered from this thread's memory
+        // of parsed styles, as a copy (a fraction of a parse).
+        if let Some(css) = SCOPED_STYLES.with(|kept| kept.borrow().get(style)) {
+            return css;
+        }
+        let css = Self::parse_scoped_text(style);
+        SCOPED_STYLES.with(|kept| kept.borrow_mut().keep(style, &css));
+        css
+    }
+
+    /// [`Self::parse_scoped`], parsing `style` itself.
+    #[cfg(feature = "parser")]
+    fn parse_scoped_text(style: &str) -> Self {
+        SCOPED_PARSES.with(|n| n.set(n.get() + 1));
         let mut wrapped = String::with_capacity(style.len() + 6);
         wrapped.push_str("* {\n");
         wrapped.push_str(style);
@@ -2629,6 +2643,96 @@ impl Css {
                 .iter()
                 .any(CssDeclaration::uses_custom_properties)
         })
+    }
+}
+
+#[cfg(feature = "parser")]
+std::thread_local! {
+    /// How many inline styles this thread parsed from their text.
+    static SCOPED_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// The inline styles a thread parsed, by their text. Bounded: past
+/// [`ParsedStyles::MAX_TEXTS`] texts or [`ParsedStyles::MAX_BYTES`] of text
+/// it forgets them all and starts over, so an app that makes ever new style
+/// texts (an animated `width: {x}px`) does not grow it without end.
+#[cfg(feature = "parser")]
+#[derive(Default)]
+struct ParsedStyles {
+    by_text: std::collections::HashMap<String, Css>,
+    bytes: usize,
+}
+
+#[cfg(feature = "parser")]
+impl ParsedStyles {
+    const MAX_TEXTS: usize = 4096;
+    const MAX_BYTES: usize = 4 << 20;
+
+    fn get(&self, text: &str) -> Option<Css> {
+        self.by_text.get(text).cloned()
+    }
+
+    fn keep(&mut self, text: &str, css: &Css) {
+        if self.by_text.len() >= Self::MAX_TEXTS || self.bytes + text.len() > Self::MAX_BYTES {
+            self.by_text.clear();
+            self.bytes = 0;
+        }
+        self.bytes += text.len();
+        self.by_text.insert(String::from(text), css.clone());
+    }
+}
+
+#[cfg(feature = "parser")]
+std::thread_local! {
+    static SCOPED_STYLES: core::cell::RefCell<ParsedStyles> =
+        core::cell::RefCell::new(ParsedStyles::default());
+}
+
+/// How many inline styles ([`Css::parse_scoped`]) this thread parsed from
+/// their text: what a test of the cost of building a DOM counts.
+#[cfg(feature = "parser")]
+#[doc(hidden)]
+#[must_use]
+pub fn scoped_parses_on_this_thread() -> u64 {
+    SCOPED_PARSES.with(core::cell::Cell::get)
+}
+
+#[cfg(all(test, feature = "parser"))]
+mod scoped_parse_tests {
+    use super::{scoped_parses_on_this_thread, Css};
+
+    /// An app builds its DOM again on every change with the same inline
+    /// styles: each text is parsed once, and its next use gets the same
+    /// stylesheet without parsing it again.
+    #[test]
+    fn an_inline_style_is_parsed_once_per_text() {
+        let text = "width: 13px; color: #123456; :hover { color: red; }";
+        let before = scoped_parses_on_this_thread();
+        let first = Css::parse_scoped(text);
+        let again = Css::parse_scoped(text);
+        assert_eq!(first, again, "the same text, the same stylesheet");
+        assert_eq!(
+            scoped_parses_on_this_thread() - before,
+            1,
+            "the second use of the text parsed it again"
+        );
+        let other = Css::parse_scoped("width: 14px;");
+        assert_ne!(first, other, "another text, its own stylesheet");
+    }
+
+    /// The memory of parsed styles forgets everything once it is full, and
+    /// parses on from there.
+    #[test]
+    fn the_memory_of_parsed_styles_stays_bounded() {
+        use super::{ParsedStyles, SCOPED_STYLES};
+        for i in 0..ParsedStyles::MAX_TEXTS + 10 {
+            let _ = Css::parse_scoped(&alloc::format!("width: {i}px;"));
+        }
+        let kept = SCOPED_STYLES.with(|kept| kept.borrow().by_text.len());
+        assert!(kept <= ParsedStyles::MAX_TEXTS, "{kept} texts kept");
+        let before = scoped_parses_on_this_thread();
+        let _ = Css::parse_scoped("width: 0px;");
+        assert_eq!(scoped_parses_on_this_thread() - before, 1, "a forgotten text is parsed again");
     }
 }
 
