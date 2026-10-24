@@ -1562,13 +1562,21 @@ fn error_text(e: &anyhow::Error) -> String {
 
 /// The network of this run on `runtime`: HTTPS always (one client: every bucket and token
 /// server call shares its connections), iroh when this build has it.
-fn net_on(runtime: &tokio::runtime::Runtime) -> Result<Net> {
-    let https = HttpsTransport::new(runtime.handle().clone(), HTTPS_TIMEOUT)?;
+fn net_on(runtime: &tokio::runtime::Runtime, args: &Args) -> Result<Net> {
+    // The shared config's trusted roots, for HTTPS and the iroh relays alike; a root it names
+    // that cannot be read stops the run rather than trust more than the user asked for.
+    let settings = Settings::from_process(&args.flags(), &os_dirs());
+    let roots = settings
+        .trust
+        .and_then(|trust| trust.certificates_pem())
+        .map_err(|why| anyhow::anyhow!("the trusted roots: {why}"))?;
+    let https =
+        HttpsTransport::trusting(runtime.handle().clone(), HTTPS_TIMEOUT, Some(&roots))?;
     let transports: TransportFactory =
         Arc::new(move || Box::new(https.clone()) as Box<dyn Transport>);
     #[cfg(feature = "iroh")]
     let dialer: Option<Arc<dyn IrohDialer>> = Some(Arc::new(
-        azcloud_api::iroh_lane::IrohLane::new(runtime.handle().clone()),
+        azcloud_api::iroh_lane::IrohLane::new(runtime.handle().clone()).trusting(&roots)?,
     ));
     #[cfg(not(feature = "iroh"))]
     let dialer: Option<Arc<dyn IrohDialer>> = None;
@@ -1604,7 +1612,7 @@ fn main() -> ExitCode {
         }
     };
     // The kit blocks this thread while the runtime's threads do the network.
-    let outcome = net_on(&runtime).and_then(|net| run(&args, &net));
+    let outcome = net_on(&runtime, &args).and_then(|net| run(&args, &net));
     let code = match outcome {
         Ok((value, text)) => {
             let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);

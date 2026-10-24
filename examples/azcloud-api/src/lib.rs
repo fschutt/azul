@@ -82,16 +82,30 @@ pub mod https {
         client: reqwest::Client,
         runtime: Handle,
         timeout: Duration,
+        /// The roots every client of the run trusts (the shared config's set); `None`:
+        /// reqwest's compiled-in Mozilla roots.
+        roots: Option<Arc<Vec<reqwest::Certificate>>>,
         /// Shared by every clone (every bucket and token server call of the run).
         pinned: Arc<Mutex<Pinned>>,
     }
 
-    /// The client of the run: `timeout` per request, [`CONNECT_TIMEOUT`] to connect.
-    fn builder(timeout: Duration) -> reqwest::ClientBuilder {
-        reqwest::Client::builder()
+    /// The client of the run: `timeout` per request, [`CONNECT_TIMEOUT`] to connect, trusting
+    /// exactly `roots` when there are (the compiled-in ones dropped).
+    fn builder(
+        timeout: Duration,
+        roots: Option<&Arc<Vec<reqwest::Certificate>>>,
+    ) -> reqwest::ClientBuilder {
+        let mut builder = reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(CONNECT_TIMEOUT)
-            .pool_max_idle_per_host(32)
+            .pool_max_idle_per_host(32);
+        if let Some(roots) = roots {
+            builder = builder.tls_built_in_root_certs(false);
+            for root in roots.iter() {
+                builder = builder.add_root_certificate(root.clone());
+            }
+        }
+        builder
     }
 
     /// A host as its addresses are kept under.
@@ -149,12 +163,40 @@ pub mod https {
         ///
         /// When the HTTP client cannot be built.
         pub fn new(runtime: Handle, timeout: Duration) -> anyhow::Result<HttpsTransport> {
+            HttpsTransport::trusting(runtime, timeout, None)
+        }
+
+        /// [`HttpsTransport::new`] trusting exactly the roots in `pems` (PEM text, one
+        /// certificate each: the shared config's set, `TrustPems::certificates_pem`); `None`:
+        /// the compiled-in Mozilla roots.
+        ///
+        /// # Errors
+        ///
+        /// A root that does not parse, or when the HTTP client cannot be built.
+        pub fn trusting(
+            runtime: Handle,
+            timeout: Duration,
+            pems: Option<&[String]>,
+        ) -> anyhow::Result<HttpsTransport> {
             azlin_client::install_crypto_provider();
-            let client = builder(timeout).build()?;
+            let roots = match pems {
+                Some(pems) => Some(Arc::new(
+                    pems.iter()
+                        .enumerate()
+                        .map(|(i, pem)| {
+                            reqwest::Certificate::from_pem(pem.as_bytes())
+                                .map_err(|e| anyhow::anyhow!("trusted root {i} does not parse: {e}"))
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                )),
+                None => None,
+            };
+            let client = builder(timeout, roots.as_ref()).build()?;
             Ok(HttpsTransport {
                 client,
                 runtime,
                 timeout,
+                roots,
                 pinned: Arc::new(Mutex::new(Pinned::default())),
             })
         }
@@ -167,7 +209,7 @@ pub mod https {
                 return None;
             }
             if pinned.client.is_none() {
-                let mut builder = builder(self.timeout);
+                let mut builder = builder(self.timeout, self.roots.as_ref());
                 for (host, addresses) in &pinned.addresses {
                     builder = builder.resolve_to_addrs(host, addresses);
                 }
@@ -207,6 +249,10 @@ pub mod https {
     }
 
     impl Transport for HttpsTransport {
+        fn trusts_public_roots(&self) -> bool {
+            self.roots.is_none()
+        }
+
         fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
             reqwest::Method::from_bytes(call.method.as_str().as_bytes())
                 .map_err(|e| e.to_string())?;
@@ -343,12 +389,35 @@ pub mod iroh_lane {
     /// Dials nodes on the command line's runtime.
     pub struct IrohLane {
         runtime: Handle,
+        /// The roots the endpoint's relays and address lookup trust; `None`: iroh's
+        /// compiled-in Mozilla roots.
+        roots: Option<Vec<rustls_pki_types::CertificateDer<'static>>>,
     }
 
     impl IrohLane {
         #[must_use]
         pub fn new(runtime: Handle) -> IrohLane {
-            IrohLane { runtime }
+            IrohLane { runtime, roots: None }
+        }
+
+        /// The lane whose endpoints trust exactly the roots in `pems` (PEM text: the shared
+        /// config's set) for their relays and address lookup. Iroh's own connections are
+        /// authenticated by the nodes' keys and need no authority.
+        ///
+        /// # Errors
+        ///
+        /// A root that does not parse.
+        pub fn trusting(mut self, pems: &[String]) -> anyhow::Result<IrohLane> {
+            use rustls_pki_types::{pem::PemObject, CertificateDer};
+            let mut certs = Vec::new();
+            for (i, pem) in pems.iter().enumerate() {
+                certs.push(
+                    CertificateDer::from_pem_slice(pem.as_bytes())
+                        .map_err(|e| anyhow!("trusted root {i} does not parse: {e:?}"))?,
+                );
+            }
+            self.roots = Some(certs);
+            Ok(self)
         }
     }
 
@@ -361,7 +430,7 @@ pub mod iroh_lane {
             let node = iroh_addr(target, relay).map_err(|e| format!("{e:#}"))?;
             let endpoint = self
                 .runtime
-                .block_on(iroh_endpoint(relay))
+                .block_on(iroh_endpoint(relay, self.roots.clone()))
                 .map_err(|e| format!("{e:#}"))?;
             Ok(Box::new(IrohTransport {
                 endpoint,
@@ -413,7 +482,10 @@ pub mod iroh_lane {
     /// The client endpoint with the configured relay: `default` = n0's relays and
     /// discovery (`presets::N0`), an address = that relay only, `off` (or none) =
     /// no relay, direct addresses only.
-    async fn iroh_endpoint(relay: Option<&str>) -> anyhow::Result<iroh::Endpoint> {
+    async fn iroh_endpoint(
+        relay: Option<&str>,
+        roots: Option<Vec<rustls_pki_types::CertificateDer<'static>>>,
+    ) -> anyhow::Result<iroh::Endpoint> {
         use iroh::endpoint::presets;
         let builder = match relay {
             Some("default") => iroh::Endpoint::builder(presets::N0),
@@ -426,6 +498,10 @@ pub mod iroh_lane {
                     .map_err(|e| anyhow!("the relay {url} is no relay address: {e}"))?;
                 iroh::Endpoint::builder(presets::Minimal).relay_mode(iroh::RelayMode::custom([url]))
             }
+        };
+        let builder = match roots {
+            Some(roots) => builder.ca_tls_config(iroh::tls::CaTlsConfig::custom_roots(roots)),
+            None => builder,
         };
         builder
             .bind()

@@ -35,13 +35,16 @@ azlin-client = { path = "../../../azul-apps/iso/crates/azlin-client" }
 azlin-proto = { path = "../../../azul-apps/iso/crates/azlin-proto" }
 # The shared Azlin config's endpoint flags; plain Rust without its `azul`
 # feature (no libazul).
-azul-appkit = { path = "../azul-appkit" }
+azul-appkit = { path = "../azul-appkit", features = ["trust"] }
 # The Transport the kit sends through, the time format of a listing.
 azul-storage = { path = "../azul-storage" }
 anyhow = "1"
 # The same OS folders azul's FilePath::get_data_dir / get_config_dir return
 # (layout/ uses dirs 6), so the data root here is the apps' data root.
 dirs = "6"
+# The relays' trusted roots as certificates for iroh (in this lockfile already, through
+# reqwest and iroh).
+rustls-pki-types = { version = "1", default-features = false, features = ["alloc"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots-no-provider"] }
 serde_json = "1"
 # The one runtime reqwest and iroh run on; the kit's blocking calls wait for
