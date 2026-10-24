@@ -1,4 +1,8 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.rustls-webpki]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.103.15 -> 0.103.16"
+notes = "RUSTSEC-2026-0382 fix: chain building rejects any path whose certificate or trust anchor has one of eight distrusted emSign SPKIs (bundled DER data files) with a new Error::CertDistrusted. No unsafe, no new dependencies, rest is tests."

@@ -136,6 +136,12 @@ jobs:
             EXEMPT+=(--exempt rustls)
             echo "cooldown: rustls exempt until 2026-09-28 (RUSTSEC-2026-0285 fix)"
           fi
+          # rustls-webpki 0.103.16: RUSTSEC-2026-0382 fix, distrusted emSign intermediates; delta audit 0.103.15 -> 0.103.16 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-04" ]]; then
+            EXEMPT+=(--exempt rustls-webpki)
+            echo "cooldown: rustls-webpki exempt until 2026-11-04 (RUSTSEC-2026-0382 fix, distrusted emSign intermediates)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"
