@@ -25,6 +25,7 @@ mod a_state;
 mod a_store;
 mod a_verify;
 mod a_versions;
+mod a_volume;
 mod a_watch;
 mod checks;
 mod files;

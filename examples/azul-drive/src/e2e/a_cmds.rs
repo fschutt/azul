@@ -7,8 +7,8 @@
 use azul::prelude::*;
 
 use super::{
-    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, a_watch, str_arg,
-    Answer, Args,
+    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, a_volume,
+    a_watch, str_arg, Answer, Args,
     OpDoc,
     DEVICE, PATH,
 };
@@ -57,6 +57,11 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_watch", summary: "AzDrive's folder watcher on or off for the device", args: &[DEVICE, ("on", "bool", false)] },
     OpDoc { name: "drive_wait_auto", summary: "wait for a pass the device started by itself", args: &[DEVICE, ("within_ms", "number", false)] },
     OpDoc { name: "drive_quit", summary: "the quit's last passes (the window stays)", args: &[] },
+    OpDoc { name: "drive_volume", summary: "the device's folder at the top of a volume of its own", args: &[DEVICE, ("fs", "string", true)] },
+    OpDoc { name: "drive_detach", summary: "the device's volume ejected", args: &[DEVICE] },
+    OpDoc { name: "drive_attach", summary: "the device's volume plugged in again", args: &[DEVICE] },
+    OpDoc { name: "drive_mount_inside", summary: "another disk mounted at a folder inside", args: &[DEVICE, PATH, ("fs", "string", false), ("files", "object", false)] },
+    OpDoc { name: "drive_unmount_inside", summary: "that disk ejected", args: &[DEVICE, PATH] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -70,6 +75,7 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
         "drive_many" => args.get("flat").and_then(serde_json::Value::as_bool) == Some(true),
         "drive_check" => str_arg(args, "check").is_some_and(|c| a_store::CHECKS.contains(&c)),
         "drive_status" => true,
+        "drive_open" => args.contains_key("fs"),
         _ => OPS.iter().any(|op| op.name == name),
     }
 }
@@ -90,6 +96,22 @@ pub(super) fn run(
         "drive_check" => a_store::check(s, args),
         "drive_browse" => a_drive::browse(s, args),
         "drive_status" => a_ops::status(s, args),
+        "drive_open" => {
+            let spec = str_arg(args, "fs").unwrap_or_default().to_string();
+            let mut rest = args.clone();
+            rest.remove("fs");
+            let opened = super::open(s, &rest)?;
+            let mount = a_volume::root_volume(args, &spec)?;
+            let mut answer = opened;
+            if let serde_json::Value::Object(map) = &mut answer {
+                map.insert(String::from("mount"), serde_json::json!(mount));
+            }
+            Ok(answer)
+        }
+        "drive_volume" => a_volume::volume(args),
+        "drive_detach" | "drive_unmount_inside" => a_volume::detach_step(args),
+        "drive_attach" => a_volume::attach_step(args),
+        "drive_mount_inside" => a_volume::mount_inside(args),
         "drive_watch" => a_watch::watch(args),
         "drive_wait_auto" => a_watch::wait_auto(s, args),
         "drive_quit" => a_watch::quit(info, app, s, args),
@@ -136,12 +158,14 @@ pub(super) fn run(
 
 /// Before the sandbox goes (`drive_cleanup`): the files a scenario held locked are let go.
 pub(super) fn cleanup() {
-    let racers = super::a_state::peek(|a| {
+    let held = super::a_state::peek(|a| {
         a.locks.clear();
-        std::mem::take(&mut a.racers)
+        (std::mem::take(&mut a.racers), std::mem::take(&mut a.volumes))
     });
-    // A racer stops before the sandbox goes, its folder back in place.
-    for racer in racers.unwrap_or_default().into_values() {
+    let (racers, volumes) = held.unwrap_or_default();
+    // A racer stops before the sandbox goes, its folder back in place; the volumes detach.
+    for racer in racers.into_values() {
         racer.stop();
     }
+    a_volume::detach_all(volumes.into_values().collect());
 }

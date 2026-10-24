@@ -90,8 +90,6 @@
     "name": "roots on FAT32 and exFAT (a USB stick, an SD card): coarse times cause no churn; names the disk refuses are listed, never renamed",
     "description": "JOTTA-024 (Jottacloud): exFAT 'prevents sync from working properly' (now refused). Rule P14 (FAT32/exFAT: no churn, limits probed and listed). sync-chaos port-fat-exfat-roots.",
     "only_on": ["macos", "linux"],
-    "pending": "drive_open {\"device\": \"a\", \"remote\": \"r\", \"fs\": \"fat32:40m\"} (and \"exfat:16m\"): the device's folder on a volume of its own of that filesystem (hdiutil on macOS, a loop device on Linux)",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r", "fs": "fat32:40m" },

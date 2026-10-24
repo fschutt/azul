@@ -57,8 +57,6 @@
     "name": "another disk mounted inside the root is never walked into, and unmounting it deletes nothing",
     "description": "JOTTA-006 (Jottacloud): unmount detection by filesystem id. Rules S7 (mount points inside the root are never walked into) and D3. sync-chaos sec-mount-inside-root.",
     "only_on": ["macos", "linux"],
-    "pending": "drive_mount_inside {\"device\": \"a\", \"path\": \"usb\", \"fs\": \"apfs:16m\", \"files\": {\"stick.txt\": \"on the stick\"}} (a volume of its own mounted at a folder inside the root: hdiutil on macOS, a loop device on Linux) and drive_unmount_inside {\"device\": \"a\", \"path\": \"usb\"}",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -85,7 +85,6 @@
   {
     "name": "FILEN-018: a pair whose folder is the root of a volume (a drive root, a mounted share) syncs normally",
     "description": "FILEN-018 (Filen): the traversal guard used startsWith(root + sep), which rejected every item of a pair rooted at Z:\\ or \\\\NAS\\share (7000+ errors) and froze the UI. Rule S8 keeps every path inside the root without breaking a root at a volume's top.",
-    "pending": "drive_volume {device, fs: 'apfs:16m' | 'ext4:64m' | 'fat32:40m' | ...}: the device's root becomes the top of a volume of its own (sync-chaos devices' fs field, hdiutil or a loop device), so a pair can be rooted at a volume root",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

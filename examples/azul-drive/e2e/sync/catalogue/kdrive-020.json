@@ -2,7 +2,6 @@
   {
     "name": "the root's disk is ejected and plugged in again (a new device id): the same folder is recognised, nothing is sent again or deleted",
     "description": "KDRIVE-020 (kDrive): a sync folder on an external SSD stayed paused after a reboot and could not be resumed. Rules D3 and A1: the root marker recognises the folder plugged in again; the pass after it sends nothing and deletes nothing. sync-chaos delete-root-remounted.",
-    "pending": "drive_pair {fs: 'apfs:16m'} (the root on a volume of its own) with drive_detach {device} and drive_attach {device} (eject the volume and mount it again: same path, new device id)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

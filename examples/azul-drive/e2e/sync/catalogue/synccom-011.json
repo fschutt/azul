@@ -56,7 +56,6 @@
   {
     "name": "SYNCCOM-011: the root's disk ejected and plugged in again (a new device id): the same folder is recognised, nothing sent again or deleted",
     "description": "SYNCCOM-011 (Sync.com): an external USB drive reconnected (new device id and inode numbers) re-indexed in a loop. Rules D3 (a root plugged in again is recognised by its marker), A1, P14. sync-chaos delete-root-remounted.",
-    "pending": "drive_volume {device, fs} (the device's root on a volume of its own) with drive_detach {device} / drive_attach {device} (eject the volume and mount it again under a new device id); sync-chaos's detach/attach steps have no drive_* command",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -12,15 +12,10 @@ use std::{
 
 use super::with_harness;
 
-/// A volume of its own made for a device (an image attached, mounted at `mount`).
+/// A volume of its own made for a device: its image, mounted at `mount`.
 pub(super) struct Volume {
-    /// The image file and what the system calls the attached device (`/dev/disk4`,
-    /// `/dev/loop3`).
     pub image: PathBuf,
-    pub device: Option<String>,
     pub mount: PathBuf,
-    /// Its file system as `drive_volume` named it (`apfs`, `fat32`, ...).
-    pub fs: String,
     /// It is attached (detached by `drive_detach` until `drive_attach`).
     pub attached: bool,
 }

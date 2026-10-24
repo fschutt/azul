@@ -15,7 +15,7 @@ use super::{bool_arg, str_arg, with_harness, Answer, Args};
 use crate::{sync_jobs, sync_view, DriveState};
 
 /// The options of `drive_pair` that only group A knows.
-const OPTIONS: &[&str] = &["mode", "remote_deletes", "on_demand", "exclude", "links"];
+const OPTIONS: &[&str] = &["mode", "remote_deletes", "on_demand", "exclude", "links", "fs"];
 
 pub(super) fn has_options(args: &Args) -> bool {
     OPTIONS.iter().any(|k| args.contains_key(*k))
@@ -90,6 +90,13 @@ fn globs(args: &Args, key: &str) -> Result<Vec<String>, String> {
 /// `drive_pair`'s steps otherwise).
 pub(super) fn pair(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
     let options = PairOptions::of(args)?;
+    // The device's folder at the top of a volume of its own first (`fs`).
+    if let Some(spec) = str_arg(args, "fs") {
+        if args.contains_key("folder") {
+            return Err(String::from("`fs` makes the device's own folder a volume: leave `folder` out"));
+        }
+        super::a_volume::root_volume(args, spec)?;
+    }
     let (drive_id, folder, prefix) = with_harness(|h| {
         let d = h.device(args)?;
         let folder = str_arg(args, "folder").map_or_else(|| d.root.clone(), PathBuf::from);

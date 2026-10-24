@@ -701,3 +701,22 @@ crash or a full disk does; `drive_upgrade` is AzDrive started again (a new versi
 start): the settings read from their file, the device's sync state from its state folder.
 `drive_setting` / `drive_settings` / `drive_select` / `drive_on_demand` write the settings file
 before they answer.
+
+### Volumes
+
+| op | arguments | result |
+|---|---|---|
+| `drive_volume` | `device`, `fs` | `mount`, `fs` |
+| `drive_pair` / `drive_open` | as above, plus `fs`: the device's folder at the top of such a volume first | as above |
+| `drive_detach` / `drive_attach` | `device` | `detached` / `attached` |
+| `drive_mount_inside` | `device`, `path`, `fs` (default `apfs:16m`), `files` (`{name: text}`) | `mount` |
+| `drive_unmount_inside` | `device`, `path` | `detached` |
+
+`fs` is a file system and a size: `apfs:16m`, `apfs-cs:16m` (case-sensitive), `hfs:16m`,
+`fat32:40m`, `exfat:16m` (macOS: a disk image through `hdiutil`), `ext4:64m`, `fat32:40m`,
+`exfat:16m` (Linux: a loop device, mounted with `sudo -n`, which a scenario's machine must
+allow; elsewhere the commands fail). `drive_volume` puts the device's (still empty) folder at
+the top of a volume of its own; `drive_detach` ejects it (the mount point stays as an empty
+folder) and `drive_attach` mounts the same image there again - the system gives it a new device
+id. `drive_mount_inside` mounts another disk at a folder inside the device's folder, with
+`files` on it. `drive_cleanup` detaches every volume before the sandbox goes.
