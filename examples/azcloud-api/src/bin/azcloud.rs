@@ -82,6 +82,10 @@ commands:
                                  the .azlin folder -> azlin/config/ (config.json without endpoints)
        [--dry-run] [--allow-mass-delete] [--allow-burst] [--exclude GLOB]... [--max-file-mb N]
        [--parallel N]            (--allow-burst: the paused burst of changes is yours, send it)
+       [--file-settle-ms N]      files written within N ms wait for a later run
+       [--disk-reserve BYTES]    downloads keep this much free on the folder's disk (1 GiB)
+                                 exit 3: a mass delete waits (--allow-mass-delete), exit 2: the
+                                 folder or the drive's index was refused, nothing changed
   share <key> [--expires S]      a presigned link (with --prefix P: the synced file <key> of P)
   lockdown --yes                 revokes every other device, key and link of the drive
   lockdown-cancel <code> | --code-file F | -
@@ -138,6 +142,8 @@ const VALUE_FLAGS: &[&str] = &[
     "--grace-hours",
     "--max-file-mb",
     "--parallel",
+    "--file-settle-ms",
+    "--disk-reserve",
     "--cloudflare-account",
     "--cloudflare-token-file",
     "--recovery-out",
@@ -912,9 +918,22 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         if let Some(parallel) = args.number::<usize>("--parallel")? {
             opts.parallel = parallel.max(1);
         }
+        if let Some(ms) = args.number::<u64>("--file-settle-ms")? {
+            opts.file_settle = std::time::Duration::from_millis(ms);
+        }
+        if let Some(bytes) = args.number::<u64>("--disk-reserve")? {
+            opts.disk_reserve = bytes;
+        }
         let index_path =
             sync::local::index_path(&state.sync_dir(), &opts.bucket, &opts.prefix, &root.path);
-        let report = match sync::sync_folder(&drive, &root, &index_path, &opts) {
+        // A mass delete waits for the user (exit 3) instead of failing the run: its report says
+        // what would go, and --allow-mass-delete confirms it.
+        let hooks = sync::RunHooks {
+            hold_mass_delete: true,
+            ..sync::RunHooks::default()
+        };
+        let target = sync::Target::Index(&drive);
+        let report = match sync::sync_to(target, &root, &index_path, &opts, &hooks) {
             Ok(report) => report,
             Err(e) => {
                 let what = format!("sync {} <-> {prefix}", root.path.display());
@@ -937,6 +956,18 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
                     .iter()
                     .map(|c| format!("  later: {c}")),
             )
+            .chain(report.problems.iter().map(|p| {
+                format!("  {}: {} {}", p.code.as_str(), p.shown_key(), p.detail)
+            }))
+            .chain(report.mass_delete.iter().map(|m| {
+                format!(
+                    "  waits: {} of {} files would be deleted {} - run again with \
+                     --allow-mass-delete if that is right",
+                    m.count,
+                    m.of,
+                    if m.here { "here" } else { "on the drive" }
+                )
+            }))
         {
             text.push_str(&line);
             text.push('\n');
@@ -947,8 +978,22 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let transport = drive.transport();
     drive.close();
     let ok = reports.iter().all(|r| r.errors.is_empty());
-    let value = json!({"ok": ok, "transport": lane, "transport_reason": transport.reason,
-                       "device": device.name, "reports": reports});
+    // 3: a mass delete waits for the user; 2: the folder or the drive's index was refused.
+    let exit = if reports.iter().any(|r| r.mass_delete.is_some()) {
+        3
+    } else if reports
+        .iter()
+        .any(|r| r.refused.is_some() || !r.newer_format.is_empty())
+    {
+        2
+    } else if ok {
+        0
+    } else {
+        1
+    };
+    let value = json!({"ok": ok, "exit": exit, "transport": lane,
+                       "transport_reason": transport.reason, "device": device.name,
+                       "reports": reports});
     Ok((value, text))
 }
 
@@ -1624,10 +1669,11 @@ fn main() -> ExitCode {
             } else {
                 print!("{text}");
             }
-            if ok {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
+            // A command that says its own exit code (sync: 3 a held mass delete, 2 refused).
+            match value.get("exit").and_then(Value::as_u64) {
+                Some(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+                None if ok => ExitCode::SUCCESS,
+                None => ExitCode::from(1),
             }
         }
         Err(e) => {
