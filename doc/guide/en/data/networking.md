@@ -134,6 +134,46 @@ The same idea applies to threads. `ThreadPool::create(n)` starts `n` workers,
 and `pool.create_thread(...)` returns an ordinary `Thread` whose body runs on
 one of them, so many short jobs don't each start an OS thread.
 
+## Hardening HTTPS: which roots to trust
+
+By default every TLS connection trusts the public web PKI, the roughly 150 root
+authorities Mozilla ships. Any one of them can issue a certificate for any
+name, so a single authority that issues one wrongly is enough to impersonate
+your server. `TrustRoots` narrows that, and one setting covers every TLS
+connection azul makes: HTTP requests and pooled clients, a database's backup
+sync, the iroh relays.
+
+Set it once for the whole app on `AppConfig`. Every config that names no set
+of its own (the default, `TrustRoots::app_default()`) follows it:
+
+```rust,ignore
+// Only your own authority: a certificate from any other root fails the handshake.
+let config = AppConfig::create()
+    .with_trust_roots(TrustRoots::pinned(StringVec::from_vec(vec![MY_CA_PEM.into()])));
+
+// The public roots minus the ones that lost the browsers' trust (the eMudhra /
+// emSign case): until the compiled-in roots catch up, drop them yourself.
+let config = AppConfig::create()
+    .with_trust_roots(TrustRoots::public_roots_except(StringVec::from_vec(vec![
+        EMSIGN_ROOT_G1_PEM.into(),
+    ])));
+```
+
+A single request or client can still pin its own set
+(`HttpRequestConfig::with_trust_roots`, `HttpClientConfig::with_trust_roots`,
+`DbConfig::with_trust_roots`, `IrohConfig::with_trust_roots`); its distrusted
+roots add to the app's. Entries are PEM text. A distrusted root is matched by
+its public key, so a re-issued copy is dropped too. An entry that does not
+parse fails every connection with a TLS error naming it; azul never falls back
+to the public roots. For a TLS client of your own (an IMAP library, another
+language's TLS stack), `TrustRoots::app_default().get_certificates_pem()`
+returns the exact set azul trusts, one PEM certificate each.
+
+A pinned set needs care when your server's authority changes: ship the new
+root before the server switches to it. The system web view trusts the
+operating system's store, and in the browser `fetch` uses the browser's roots:
+neither a pinned set nor a distrusted root applies there.
+
 ## Modelling connection state
 
 Use a plain enum on the application data side. A typical shape:
@@ -209,6 +249,6 @@ The engine needs the dll's `iroh` feature, which `build-dll` enables; `PlatformC
 
 ## What this page doesn't cover
 
-- TLS configuration beyond `disable_tls_cert_verification`. For custom TLS stacks, use `rustls`, `native-tls`, or a third-party HTTP client inside the worker.
+- TLS configuration beyond the trusted roots and `disable_tls_cert_verification` (client certificates, protocol versions). For those, use `rustls` or a third-party HTTP client inside the worker; `TrustRoots::get_certificates_pem` gives it the app's roots.
 - Mid-frame cancellation of in-flight DNS or TCP handshakes. `std::net` doesn't expose this. Use `socket2` or a third-party client if you need it.
 - WebSockets, gRPC, HTTP/2. Any blocking client works inside a `Thread`.
