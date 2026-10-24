@@ -649,6 +649,56 @@ fn an_auto_encrypted_drive_uses_a_plain_bucket_as_it_is() {
     assert_eq!(mem.object("b.txt").unwrap(), b"also plain");
 }
 
+/// "We always encrypt": a new Azlin drive whose encryption was not set up (it failed, the app
+/// closed first) is a plain bucket without files. It takes no plaintext file: every write is
+/// refused until the drive is encrypted, and then the write is sealed.
+#[test]
+fn a_new_plain_drive_takes_no_file_until_it_is_encrypted() {
+    let mem = Arc::new(MemBucket::new());
+    // Only the drive's bookkeeping: still a new drive.
+    mem.set(".azlin/policy.toml", b"# policy".to_vec());
+    let keyring = Arc::new(MemoryKeyring::new());
+    let drive = AutoEncrypted::new(mem.clone(), "d_new", keyring.clone(), provider());
+    assert!(drive.list(&ListRequest::folder("")).is_ok(), "it reads as a drive");
+    assert_eq!(drive.is_encrypted(), Some(false));
+    assert!(drive.needs_encryption());
+    let refused = |result: Result<(), DriveError>, what: &str| {
+        assert!(matches!(result, Err(DriveError::Denied { .. })), "{what}: {result:?}");
+    };
+    refused(drive.put("a.txt", b"plaintext"), "put");
+    refused(drive.put_from("b.txt", &mut &b"plaintext"[..]).map(|_| ()), "put_from");
+    refused(
+        drive.put_if("c.txt", b"plaintext", &Precondition::Absent).map(|_| ()),
+        "put_if",
+    );
+    refused(drive.create_folder("photos/"), "create_folder");
+    let batch = drive.put_many(&[crate::BatchPut::new("d.txt", b"plaintext")]);
+    assert!(matches!(batch[0], Err(DriveError::Denied { .. })), "put_many");
+    assert_eq!(mem.keys(), vec![String::from(".azlin/policy.toml")], "nothing reached the bucket");
+
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    setup_new_drive(drive.bucket().as_ref(), keyring.as_ref(), "d_new", kdf).unwrap();
+    drive.reopen();
+    drive.put("a.txt", b"sealed now").unwrap();
+    assert_eq!(drive.is_encrypted(), Some(true));
+    assert!(!drive.needs_encryption());
+    assert!(mem.object("a.txt").is_none(), "no plaintext name in the bucket");
+    assert_eq!(drive.get("a.txt").unwrap(), b"sealed now");
+}
+
+/// A plain drive made before encryption (it holds files) keeps opening and taking files; its
+/// menu offers the encryption.
+#[test]
+fn an_older_plain_drive_with_files_keeps_working() {
+    let mem = Arc::new(MemBucket::new());
+    mem.set("photos/2019/a.jpg", b"jpeg bytes".to_vec());
+    let drive = AutoEncrypted::new(mem.clone(), "d_old", Arc::new(MemoryKeyring::new()), provider());
+    drive.put("notes.txt", b"still plain").unwrap();
+    assert_eq!(drive.is_encrypted(), Some(false));
+    assert!(!drive.needs_encryption());
+    assert_eq!(mem.object("notes.txt").unwrap(), b"still plain");
+}
+
 #[test]
 fn an_auto_encrypted_drive_opens_an_encrypted_bucket_through_the_index() {
     let mem = Arc::new(MemBucket::new());
@@ -893,4 +943,57 @@ fn the_totals_count_stored_bytes_once_and_the_files_original_size() {
     let stored: u64 = drive.inner().objects().iter().map(|(_, b)| b.len() as u64).sum();
     assert_eq!(totals.stored_bytes, stored, "the copy's object counted once");
     assert!(totals.stored_bytes < totals.original_bytes / 2, "{totals:?}");
+}
+
+// ==== Compression on by default: what the drive stores and what the quota counts ====
+
+const BASELINE_JPEG: &[u8] = include_bytes!("../../../azlin-compress/tests/fixtures/baseline.jpg");
+
+/// A new drive compresses without being told: a JPEG goes through Lepton, a PDF's text is
+/// compressed (the skip list stored both as they were), and the totals count the stored bytes,
+/// which are what the quota counts.
+#[test]
+fn a_new_drive_stores_a_jpeg_and_a_pdf_smaller_and_counts_the_stored_bytes() {
+    let drive = new_drive();
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    pdf.extend(text(300_000));
+    drive.put("photos/IMG_0001.jpg", BASELINE_JPEG).unwrap();
+    drive.put("letters/offer.pdf", &pdf).unwrap();
+    let mut stored = 0;
+    for (path, plain) in [("photos/IMG_0001.jpg", BASELINE_JPEG), ("letters/offer.pdf", &pdf[..])] {
+        let entry = drive.entry(path).unwrap();
+        assert_eq!(entry.size, plain.len() as u64, "{path}");
+        let object = entry.object.unwrap();
+        assert!(object.compressed, "{path}");
+        assert!(object.stored_size < plain.len() as u64, "{path}: {} of {}", object.stored_size, plain.len());
+        let in_bucket = drive.inner().get(&object.id.bucket_key()).unwrap();
+        assert_eq!(object.stored_size, in_bucket.len() as u64, "{path}");
+        stored += object.stored_size;
+        assert_eq!(drive.get(path).unwrap(), plain, "{path}");
+        // A ranged read of the transformed JPEG reads back too.
+        let range = crate::ByteRange { start: 100, end: Some(4000) };
+        assert_eq!(drive.get_range(path, range).unwrap(), &plain[100..=4000], "{path}");
+    }
+    let totals = drive.totals().unwrap();
+    assert_eq!(totals.files, 2);
+    assert_eq!(totals.original_bytes, (BASELINE_JPEG.len() + pdf.len()) as u64);
+    assert_eq!(totals.stored_bytes, stored);
+    assert!(totals.stored_bytes < totals.original_bytes);
+}
+
+/// A streamed write (a sync's upload) transforms a JPEG as a write from memory does.
+#[test]
+fn a_streamed_jpeg_is_stored_as_a_transformed_object() {
+    let drive = new_drive();
+    let mut body = BASELINE_JPEG;
+    drive
+        .write_from("photos/streamed.jpg", &mut body, crate::encrypted::Expect::Any)
+        .unwrap();
+    let object = drive.entry("photos/streamed.jpg").unwrap().object.unwrap();
+    let in_bucket = drive.inner().get(&object.id.bucket_key()).unwrap();
+    assert_eq!(u16::from_le_bytes([in_bucket[4], in_bucket[5]]), 2, "AZL1 version 2");
+    let mut reader = drive.open_reader("photos/streamed.jpg").unwrap();
+    let mut back = Vec::new();
+    std::io::Read::read_to_end(&mut reader, &mut back).unwrap();
+    assert_eq!(back, BASELINE_JPEG);
 }

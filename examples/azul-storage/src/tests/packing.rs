@@ -776,3 +776,63 @@ fn the_pack_summary_counts_packed_files_packs_and_files_with_objects_of_their_ow
     assert_eq!(summary.pack_bytes, drive.inner().object(&pack).unwrap().len() as u64);
     assert!(summary.live_bytes > 0 && summary.live_bytes <= summary.pack_bytes, "{summary:?}");
 }
+
+// ==== Members compressed on their own (azlin-compress's member records) ====
+
+const BASELINE_JPEG: &[u8] = include_bytes!("../../../azlin-compress/tests/fixtures/baseline.jpg");
+
+/// The record of the packed file `path`: its codec byte, then its data, from its pack.
+fn record_of(drive: &EncryptedDrive<Arc<MemBucket>>, path: &str) -> Vec<u8> {
+    let object = drive.entry(path).unwrap().object.unwrap();
+    let packed = object.packed.clone().expect("packed");
+    let pack = packed.pack.id;
+    let key = drive.drive_key.unwrap_file_key(&object.wrapped_key, &pack).unwrap();
+    let bytes = drive.inner().get(&pack.bucket_key()).unwrap();
+    let plain = crate::crypto::azl1::decrypt(&bytes, &pack, &key).unwrap();
+    plain[packed.offset as usize..(packed.offset + packed.length) as usize].to_vec()
+}
+
+#[test]
+fn a_small_json_file_is_packed_with_a_shipped_dictionary_and_a_small_jpeg_through_lepton() {
+    let drive = packing_drive(None);
+    let json = super::compress_inputs::json(&mut super::compress_inputs::Rng::new(7), 60);
+    assert!((json.len() as u64) < PACK_THRESHOLD);
+    drive.put("settings/app.json", &json).unwrap();
+    drive.put("photos/thumb.jpg", BASELINE_JPEG).unwrap();
+    for (path, plain, codec) in [("settings/app.json", &json[..], 4u8), ("photos/thumb.jpg", BASELINE_JPEG, 5)] {
+        let record = record_of(&drive, path);
+        assert_eq!(record[0], codec, "{path}");
+        assert!(record.len() < plain.len(), "{path}: {} of {}", record.len(), plain.len());
+        let entry = drive.entry(path).unwrap();
+        assert!(entry.object.unwrap().compressed, "{path}");
+        assert_eq!(drive.get(path).unwrap(), plain, "{path}");
+    }
+}
+
+#[test]
+fn a_record_of_a_codec_this_build_does_not_write_is_refused_by_name() {
+    let hash = *blake3::hash(b"hello").as_bytes();
+    for codec in [3u8, 6, 200] {
+        let record = [codec, b'h', b'e', b'l', b'l', b'o'];
+        assert!(
+            matches!(
+                crate::packing::decode_record(&record, 5, &hash, "a.txt"),
+                Err(DriveError::Unsupported(_))
+            ),
+            "codec {codec}"
+        );
+    }
+    // A stored record decodes; one that would decode past its entry's size does not.
+    assert_eq!(
+        crate::packing::decode_record(b"\x00hello", 5, &hash, "a.txt").unwrap(),
+        b"hello"
+    );
+    assert!(matches!(
+        crate::packing::decode_record(b"\x00hello!", 5, &hash, "a.txt"),
+        Err(DriveError::Corrupt { .. })
+    ));
+    assert!(matches!(
+        crate::packing::decode_record(b"\x05not a container", 5, &hash, "a.txt"),
+        Err(DriveError::Corrupt { .. })
+    ));
+}

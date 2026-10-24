@@ -12,7 +12,7 @@ use crate::crypto::{
         ObjectSummary, OpenObject, PublicHeader, WriteOptions, DEFAULT_SEGMENT_SIZE, HEADER_LEN,
         MAX_SEGMENT_SIZE,
     },
-    codec::{Compression, Recoding},
+    codec::Compression,
     CryptoError, DriveKey, FileKey, ObjectId,
 };
 
@@ -224,10 +224,10 @@ fn a_range_across_compressed_segments_reads_back() {
 
 #[test]
 fn a_recompressed_object_reads_back_whole_and_in_ranges() {
-    for recoding in [Recoding::Brotli, Recoding::ZstdMax] {
+    for recoding in [Compression::Idle, Compression::Auto] {
         let options = WriteOptions {
             segment_size: SMALL,
-            compression: Compression::Recode(recoding),
+            compression: recoding,
         };
         // Text with a segment of noise in the middle: that one stays stored.
         let mut plain = text(3 * SMALL as usize);
@@ -585,8 +585,16 @@ fn a_changed_header_field_or_another_object_id_is_refused() {
         decrypt(&renamed, &object_id, &key),
         Err(CryptoError::Damaged(why)) if why.contains("AZL1")
     ));
+    // Version 2 (a transformed file) is this build's too: a version 1 object relabelled does
+    // not authenticate. Version 3 is a newer build's.
+    let mut relabelled = object.clone();
+    relabelled[4] = 2;
+    assert!(matches!(
+        decrypt(&relabelled, &object_id, &key),
+        Err(CryptoError::Damaged(_))
+    ));
     let mut newer = object.clone();
-    newer[4] = 2;
+    newer[4] = 3;
     assert!(matches!(
         decrypt(&newer, &object_id, &key),
         Err(CryptoError::Unsupported(_))

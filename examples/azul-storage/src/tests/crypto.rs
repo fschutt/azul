@@ -9,8 +9,8 @@ use crate::{
     crypto::{
         azl1::{decrypt, encrypt, OpenObject, WriteOptions},
         codec::{
-            brotli_window_bits, decompress, decompress_brotli, looks_compressed, worth_it, Codec,
-            Compression, Encoded, Encoder, Recoding, CODEC_BROTLI, CODEC_JPEG_XL,
+            brotli_window_bits, codec_of, decode_segment, extension_of, worth_it, Codec,
+            Compression, Encoded, Encoder, CODEC_BROTLI, CODEC_JPEG_XL, CODEC_ZSTD_DICT,
         },
         keys::{
             load_member_wrap, load_recovery_wrap, member_key_file, store_member_wrap,
@@ -179,7 +179,7 @@ fn a_crypto_error_comes_back_as_itself_through_an_io_error() {
     assert!(matches!(CryptoError::from(plain), CryptoError::Io(why) if why.contains("gone")));
 }
 
-// ==== The compression policy of a segment (crypto::codec) ====
+// ==== The compression of a segment (crypto::codec, over azlin-compress) ====
 
 /// Text that compresses well.
 fn text(len: usize) -> Vec<u8> {
@@ -198,6 +198,11 @@ fn noise(len: usize) -> Vec<u8> {
     bytes
 }
 
+/// The encoder a writer makes for a file under `compression`.
+fn encoder(compression: Compression) -> Encoder {
+    Encoder::new(compression.options(4096, None), None, None)
+}
+
 #[test]
 fn a_segment_stays_compressed_only_when_that_saves_five_percent() {
     assert!(worth_it(95, 100));
@@ -207,163 +212,92 @@ fn a_segment_stays_compressed_only_when_that_saves_five_percent() {
     assert!(!worth_it(100, 100));
 }
 
+/// The skip list stored PDF and Office files as they were, though their text compresses: now
+/// only dense kinds (video, archives, a JPEG's own bytes) skip the trial.
 #[test]
-fn already_compressed_formats_are_known_by_their_magic_number() {
+fn pdf_and_office_files_are_tried_and_dense_kinds_are_not() {
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    pdf.extend(text(64 * 1024));
+    assert_ne!(encoder(Compression::Auto).encode(&pdf).unwrap().codec(), Codec::Stored);
+    let mut zip = b"PK\x03\x04\x14\x00\x00\x00\x00\x00".to_vec();
+    zip.extend(text(64 * 1024));
+    assert_ne!(encoder(Compression::Auto).encode(&zip).unwrap().codec(), Codec::Stored);
+    let mut mp4 = b"\x00\x00\x00\x18ftypmp42".to_vec();
+    mp4.extend(text(64 * 1024));
+    assert_eq!(encoder(Compression::Auto).encode(&mp4).unwrap().codec(), Codec::Stored);
     let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
-    png.extend(text(100));
-    assert!(looks_compressed(&png));
-    assert!(looks_compressed(b"\xFF\xD8\xFF\xE0 a jpeg"));
-    assert!(looks_compressed(b"PK\x03\x04 a docx"));
-    assert!(looks_compressed(b"%PDF-1.7 ..."));
-    assert!(
-        looks_compressed(b"\x00\x00\x00\x18ftypheic...."),
-        "HEIC / MP4 by ftyp"
-    );
-    assert!(looks_compressed(b"RIFF\x00\x00\x00\x00WEBPVP8 "));
-    assert!(!looks_compressed(b"RIFF\x00\x00\x00\x00WAVEfmt "), "WAV is PCM");
-    assert!(!looks_compressed(&text(1000)));
-    assert!(!looks_compressed(b""));
+    png.extend(text(64 * 1024));
+    assert_eq!(encoder(Compression::Auto).encode(&png).unwrap().codec(), Codec::Stored);
 }
 
 /// "We always compress": a file whose first segment does not compress (a header of noise, an
 /// embedded image) is tried again further on, so its compressible rest is not stored as it is.
 #[test]
 fn a_file_whose_first_segment_does_not_compress_still_compresses_its_later_text() {
-    let mut encoder = Encoder::new(Compression::Auto);
+    let mut encoder = encoder(Compression::Auto);
     assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
-    let codecs: Vec<Codec> = (0..10)
+    let codecs: Vec<Codec> = (0..20)
         .map(|_| encoder.encode(&text(4096)).unwrap().codec())
         .collect();
+    let first = codecs
+        .iter()
+        .position(|c| *c != Codec::Stored)
+        .unwrap_or_else(|| panic!("twenty text segments after a noisy first one: {codecs:?}"));
     assert!(
-        codecs.contains(&Codec::Zstd),
-        "ten text segments after a noisy first one: {codecs:?}"
-    );
-    let first = codecs.iter().position(|c| *c == Codec::Zstd).unwrap();
-    assert!(
-        codecs[first..].iter().all(|c| *c == Codec::Zstd),
+        codecs[first..].iter().all(|c| *c != Codec::Stored),
         "once one compresses, every one after it is tried: {codecs:?}"
     );
-    // A format that is compressed already is still never tried.
-    let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
-    png.extend(text(4096));
-    let mut encoder = Encoder::new(Compression::Auto);
-    assert_eq!(encoder.encode(&png).unwrap().codec(), Codec::Stored);
-    for _ in 0..20 {
-        assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);
-    }
 }
 
 #[test]
-fn the_first_segment_decides_whether_the_rest_of_a_file_is_tried() {
-    // Text: the trial saves, so every segment is tried (a segment of noise stays stored).
-    let mut encoder = Encoder::new(Compression::Auto);
-    let first = encoder.encode(&text(64 * 1024)).unwrap();
-    assert_eq!(first.codec(), Codec::Zstd);
-    if let Encoded::Zstd(bytes) = &first {
-        assert!(bytes.len() < 64 * 1024 / 10, "{}", bytes.len());
-    }
-    assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
-    assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Zstd);
-
-    // Noise first: the next segment is not tried, not even text that would compress (only
-    // every RETRY_EVERY-th one is).
-    let mut encoder = Encoder::new(Compression::Auto);
-    assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
-    assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);
-
-    // A PNG is never tried, whatever follows its magic number.
-    let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
-    png.extend(text(4096));
-    let mut encoder = Encoder::new(Compression::Auto);
-    assert_eq!(encoder.encode(&png).unwrap().codec(), Codec::Stored);
-    assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);
-
-    let mut never = Encoder::new(Compression::Never);
+fn never_stores_every_segment_and_an_empty_segment_is_stored() {
+    let mut never = encoder(Compression::Never);
     assert_eq!(never.encode(&text(4096)).unwrap().codec(), Codec::Stored);
-    let mut empty = Encoder::new(Compression::Auto);
+    let mut empty = encoder(Compression::Auto);
     assert_eq!(empty.encode(&[]).unwrap().codec(), Codec::Stored);
 }
 
 #[test]
-fn a_zstd_segment_decompresses_to_exactly_its_length_and_no_further() {
-    let plain = text(10_000);
-    let mut encoder = Encoder::new(Compression::Auto);
-    let Encoded::Zstd(frame) = encoder.encode(&plain).unwrap() else {
-        panic!("text compresses");
-    };
-    let back = decompress(&frame, plain.len()).unwrap();
-    assert_eq!(back.as_slice(), plain.as_slice());
-    assert!(matches!(
-        decompress(&frame, plain.len() - 1),
-        Err(CryptoError::Damaged(_))
-    ));
-    assert!(matches!(
-        decompress(&frame, plain.len() + 1),
-        Err(CryptoError::Damaged(_))
-    ));
-    assert!(matches!(
-        decompress(b"not zstd at all", 100),
-        Err(CryptoError::Damaged(_))
-    ));
+fn a_compressed_segment_decodes_to_exactly_its_length_and_no_further() {
+    for compression in [Compression::Auto, Compression::Idle] {
+        let plain = text(10_000);
+        let encoded = encoder(compression).encode(&plain).unwrap();
+        let Encoded::Compressed { codec, data } = encoded else {
+            panic!("text compresses under {compression:?}");
+        };
+        let back = decode_segment(codec.byte(), &data, plain.len()).unwrap();
+        assert_eq!(back.as_slice(), plain.as_slice());
+        for wrong in [plain.len() - 1, plain.len() + 1] {
+            assert!(matches!(
+                decode_segment(codec.byte(), &data, wrong),
+                Err(CryptoError::Damaged(_))
+            ));
+        }
+    }
+    for codec in [1u8, 2, 4] {
+        assert!(
+            decode_segment(codec, b"not compressed data at all", 100).is_err(),
+            "codec {codec}"
+        );
+    }
 }
 
 #[test]
 fn codec_bytes_of_later_versions_are_named_not_guessed() {
-    assert_eq!(Codec::from_byte(0), Ok(Codec::Stored));
-    assert_eq!(Codec::from_byte(1), Ok(Codec::Zstd));
-    assert_eq!(Codec::Zstd.byte(), 1);
-    // The recompression pass writes brotli segments: this version reads them.
-    assert_eq!(Codec::from_byte(CODEC_BROTLI), Ok(Codec::Brotli));
-    assert_eq!(Codec::Brotli.byte(), CODEC_BROTLI);
+    assert_eq!(codec_of(0), Ok(Codec::Stored));
+    assert_eq!(codec_of(1), Ok(Codec::Zstd));
+    assert_eq!(codec_of(CODEC_BROTLI), Ok(Codec::Brotli));
+    // Small text files compress with a shipped dictionary: this version reads them.
+    assert_eq!(codec_of(CODEC_ZSTD_DICT), Ok(Codec::ZstdDict));
+    assert_eq!(Codec::ZstdDict.byte(), CODEC_ZSTD_DICT);
     assert!(matches!(
-        Codec::from_byte(CODEC_JPEG_XL),
+        codec_of(CODEC_JPEG_XL),
         Err(CryptoError::Unsupported(why)) if why.contains("JPEG XL")
     ));
-    assert!(matches!(
-        Codec::from_byte(200),
-        Err(CryptoError::Unsupported(_))
-    ));
-}
-
-#[test]
-fn the_recompression_pass_tries_every_segment_with_its_codec() {
-    // No trial on the first segment: noise first does not stop the text after it.
-    let mut brotli = Encoder::new(Compression::Recode(Recoding::Brotli));
-    assert_eq!(brotli.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
-    let Encoded::Brotli(bytes) = brotli.encode(&text(64 * 1024)).unwrap() else {
-        panic!("text recompresses with brotli");
-    };
-    assert!(bytes.len() < 64 * 1024 / 10, "{}", bytes.len());
-    assert_eq!(brotli.encode(&[]).unwrap().codec(), Codec::Stored);
-
-    let mut zstd = Encoder::new(Compression::Recode(Recoding::ZstdMax));
-    assert_eq!(zstd.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
-    let Encoded::Zstd(frame) = zstd.encode(&text(64 * 1024)).unwrap() else {
-        panic!("text recompresses with zstd");
-    };
-    // A level-19 frame is a zstd frame like any other: the upload pass's reader takes it.
-    assert_eq!(decompress(&frame, 64 * 1024).unwrap().as_slice(), text(64 * 1024).as_slice());
-}
-
-#[test]
-fn a_brotli_segment_decompresses_to_exactly_its_length_and_no_further() {
-    let plain = text(10_000);
-    let mut encoder = Encoder::new(Compression::Recode(Recoding::Brotli));
-    let Encoded::Brotli(stream) = encoder.encode(&plain).unwrap() else {
-        panic!("text compresses");
-    };
-    let back = decompress_brotli(&stream, plain.len()).unwrap();
-    assert_eq!(back.as_slice(), plain.as_slice());
-    for wrong in [plain.len() - 1, plain.len() + 1] {
-        assert!(matches!(
-            decompress_brotli(&stream, wrong),
-            Err(CryptoError::Damaged(_))
-        ));
+    // 5 is a pack member's whole container, never a segment.
+    for byte in [5u8, 6, 200] {
+        assert!(matches!(codec_of(byte), Err(CryptoError::Unsupported(_))), "{byte}");
     }
-    assert!(matches!(
-        decompress_brotli(b"not brotli at all", 100),
-        Err(CryptoError::Damaged(_))
-    ));
 }
 
 #[test]
@@ -375,6 +309,16 @@ fn a_brotli_window_holds_its_segment_and_no_more() {
     assert_eq!(brotli_window_bits(1 << 20), 20, "a default 1 MiB segment");
     assert_eq!(brotli_window_bits(1 << 24), 24, "the largest segment");
     assert_eq!(brotli_window_bits(1 << 30), 24);
+}
+
+#[test]
+fn a_drive_path_names_its_extension_for_the_detection() {
+    assert_eq!(extension_of("photos/2026/IMG_0001.JPG"), Some("JPG"));
+    assert_eq!(extension_of("report.final.pdf"), Some("pdf"));
+    assert_eq!(extension_of("notes/.profile"), None);
+    assert_eq!(extension_of("README"), None);
+    assert_eq!(extension_of("dir.d/file"), None);
+    assert_eq!(extension_of("trailing."), None);
 }
 
 // ==== The drive key sealed to members and to the recovery code (crypto::keys) ====

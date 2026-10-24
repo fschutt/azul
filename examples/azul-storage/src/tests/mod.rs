@@ -53,6 +53,15 @@ mod crypto;
 /// The AZL1 object format (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod azl1;
+/// azlin-compress's own test inputs (deflated ZIPs, PNGs, PDFs, gzip files from seeds), shared
+/// so the transformed objects here are made the way the crate's tests make them.
+#[cfg(feature = "encryption")]
+#[path = "../../../azlin-compress/tests/common/mod.rs"]
+pub(crate) mod compress_inputs;
+/// AZL1 version 2: transformed files (JPEG, Office, PNG, PDF) sealed, read back every way,
+/// refused when changed; compression on by default.
+#[cfg(feature = "encryption")]
+mod azl1_transform;
 /// A bucket in memory that counts and records its calls (the encryption tests).
 #[cfg(feature = "encryption")]
 mod mem_bucket;

@@ -7,13 +7,13 @@ use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
         azl1::{WriteOptions, HEADER_LEN},
-        codec::{Compression, Recoding},
+        codec::Compression,
         random_bytes, DriveKey, ObjectId,
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, MemoryIndex},
     recompress::{
-        recompress_one, recompress_with, recoding_for, run_pass, RecompressOutcome,
-        RecompressPolicy, RecompressState,
+        recompress_one, recompress_with, run_pass, worth_trying, RecompressOutcome,
+        RecompressPolicy, RecompressState, STATE_FORMAT,
     },
     Drive, DriveError,
 };
@@ -69,18 +69,77 @@ fn set_modified(drive: &EncryptedDrive<Arc<MemBucket>>, path: &str, modified: u6
         .unwrap();
 }
 
+const BASELINE_JPEG: &[u8] = include_bytes!("../../../azlin-compress/tests/fixtures/baseline.jpg");
+const EMBEDDED_JPEG: &[u8] = include_bytes!("../../../azlin-compress/tests/fixtures/embedded.jpg");
+
+/// Only dense kinds without a whole-file transform are left out: JPEG, PNG, PDF and Office
+/// files (stored as they were by builds with a skip list) get their transform now.
 #[test]
-fn text_goes_to_brotli_other_data_to_zstd_and_compressed_formats_nowhere() {
-    assert_eq!(recoding_for(&text(4096)), Some(Recoding::Brotli));
-    assert_eq!(recoding_for(b"<html><body>Hallo</body></html>"), Some(Recoding::Brotli));
-    // A character cut off by the end of the sniffed bytes is still text.
-    let mut cut = text(100);
-    cut.extend_from_slice(&"\u{00fc}".as_bytes()[..1]);
-    assert_eq!(recoding_for(&cut), Some(Recoding::Brotli));
-    assert_eq!(recoding_for(b"SQLite format 3\0\x10\x00"), Some(Recoding::ZstdMax));
-    assert_eq!(recoding_for(&[0xC3, 0x28, 0x41, 0x42]), Some(Recoding::ZstdMax), "not UTF-8");
-    assert_eq!(recoding_for(b"\x89PNG\r\n\x1A\n...."), None);
-    assert_eq!(recoding_for(b"PK\x03\x04 a docx"), None);
+fn every_kind_but_dense_ones_without_a_transform_is_worth_trying() {
+    let len = 200_000;
+    assert!(worth_trying(&text(4096), len, Some("txt")));
+    assert!(worth_trying(b"<html><body>Hallo</body></html>", len, None));
+    assert!(worth_trying(b"SQLite format 3\0\x10\x00", len, None));
+    assert!(worth_trying(&BASELINE_JPEG[..4096], len, Some("jpg")));
+    assert!(worth_trying(b"\x89PNG\r\n\x1A\n\x00\x00\x00\x0DIHDR", len, None));
+    assert!(worth_trying(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n", len, None));
+    assert!(worth_trying(b"PK\x03\x04\x14\x00\x00\x00\x08\x00", len, Some("docx")));
+    assert!(!worth_trying(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00", len, Some("mp4")));
+    assert!(!worth_trying(b"7z\xBC\xAF\x27\x1C\x00\x04", len, Some("7z")));
+    // A JPEG larger than the transforms take is left: its bytes are dense.
+    assert!(!worth_trying(&BASELINE_JPEG[..4096], 65 << 20, Some("jpg")));
+}
+
+/// Files an older build stored as they were (JPEG, PDF) get their transform from the pass:
+/// smaller, bit-exact, version 2 objects.
+#[test]
+fn a_jpeg_and_a_pdf_stored_as_they_were_are_replaced_by_their_transforms() {
+    let drive = uploaded_uncompressed();
+    let content = super::compress_inputs::far_repeats(&mut super::compress_inputs::Rng::new(46), 40 * 1024, 4);
+    let flate = super::compress_inputs::zlib(&content, 6);
+    let pdf = super::compress_inputs::pdf(
+        &[
+            ("/Filter /FlateDecode", &flate),
+            ("/Type /XObject /Subtype /Image /Width 560 /Height 420 /Filter /DCTDecode", EMBEDDED_JPEG),
+        ],
+        50,
+    );
+    // The fixture JPEG is small (13 KB): what is checked here is that the transform replaces
+    // the file at all, not how much the default policy asks of it.
+    let policy = RecompressPolicy {
+        min_size: 1,
+        min_saving_percent: 1,
+    };
+    for (path, plain) in [("photos/IMG_0001.jpg", BASELINE_JPEG), ("invoices/2026-10.pdf", &pdf[..])] {
+        drive.put(path, plain).unwrap();
+        let old = object_of(&drive, path);
+        let outcome = recompress_one(&drive, path, &policy).unwrap();
+        let RecompressOutcome::Replaced { before, after } = outcome else {
+            panic!("{path}: {outcome:?}");
+        };
+        assert!(after < before, "{path}: {after} of {before}");
+        assert_ne!(object_of(&drive, path), old, "{path}");
+        assert_eq!(drive.get(path).unwrap(), plain, "{path}");
+        let object = drive.inner().get(&object_of(&drive, path).bucket_key()).unwrap();
+        assert_eq!(u16::from_le_bytes([object[4], object[5]]), 2, "{path}: a version 2 object");
+        let entry = drive.entry(path).unwrap();
+        assert_eq!(entry.size, plain.len() as u64, "{path}: the size stays the file's");
+        assert!(entry.object.unwrap().compressed, "{path}");
+    }
+}
+
+#[test]
+fn a_video_is_still_not_tried() {
+    let drive = uploaded_uncompressed();
+    let mut mp4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".to_vec();
+    mp4.extend(text(200_000));
+    drive.put("films/holiday.mp4", &mp4).unwrap();
+    let puts = drive.inner().puts();
+    assert_eq!(
+        recompress_one(&drive, "films/holiday.mp4", &RecompressPolicy::default()).unwrap(),
+        RecompressOutcome::Ineligible
+    );
+    assert_eq!(drive.inner().puts(), puts);
 }
 
 #[test]
@@ -150,17 +209,27 @@ fn small_files_folders_and_compressed_formats_are_not_tried() {
     let policy = RecompressPolicy::default();
     drive.put("small.txt", &text(1000)).unwrap();
     drive.create_folder("photos/").unwrap();
-    let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
-    png.extend(noise(100_000));
-    drive.put("photos/a.png", &png).unwrap();
+    let mut archive = b"7z\xBC\xAF\x27\x1C\x00\x04".to_vec();
+    archive.extend(noise(100_000));
+    drive.put("backup/old.7z", &archive).unwrap();
     let puts = drive.inner().puts();
-    for path in ["small.txt", "photos/", "photos/a.png"] {
+    for path in ["small.txt", "photos/", "backup/old.7z"] {
         assert_eq!(
             recompress_one(&drive, path, &policy).unwrap(),
             RecompressOutcome::Ineligible,
             "{path}"
         );
     }
+    // A PNG is tried (its transform), but a damaged one gains nothing: nothing is uploaded.
+    let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
+    png.extend(noise(100_000));
+    drive.put("photos/a.png", &png).unwrap();
+    let puts_with_png = drive.inner().puts();
+    assert_eq!(
+        recompress_one(&drive, "photos/a.png", &policy).unwrap(),
+        RecompressOutcome::NotWorthIt
+    );
+    assert_eq!(drive.inner().puts(), puts_with_png);
     assert_eq!(
         recompress_one(&drive, "gone.txt", &policy).unwrap(),
         RecompressOutcome::Skipped
@@ -289,6 +358,14 @@ fn the_state_file_round_trips_and_other_files_are_refused() {
         RecompressState::from_json(r#"{"format":"azul-storage.migration","moved":0,"bytes":0}"#),
         Err(DriveError::InvalidConfig(_))
     ));
+    // The state of the pass before the transforms: refused, so the next pass starts over and
+    // every file gets the transforms once.
+    assert_ne!(STATE_FORMAT, "azul-storage.recompression");
+    assert!(matches!(
+        RecompressState::from_json(r#"{"format":"azul-storage.recompression","since":1760000000}"#),
+        Err(DriveError::InvalidConfig(_))
+    ));
+    assert_eq!(RecompressState::default().since, 0);
     assert!(RecompressPolicy::default().worth_it(100, 95));
     assert!(!RecompressPolicy::default().worth_it(100, 96));
 }
