@@ -4,7 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::command_line::{
-    classify, invocation, needs_terminal, resolve_cd, CdTarget, History, Line, Platform,
+    classify, invocation, needs_terminal, resolve_cd, shell_quote, CdTarget, History, Line,
+    Platform,
 };
 
 fn shell(line: &str) -> Line {
@@ -181,4 +182,16 @@ fn the_history_round_trips_through_its_file_keeping_the_newest() {
     assert_eq!(back.entries(), history.entries());
     let trimmed = History::from_text("one\n\ntwo\nthree\n", 2);
     assert_eq!(trimmed.entries(), ["two", "three"]);
+}
+
+/// A branch name in a switch's command line is one word for the shell, whatever it holds
+/// (git allows `$`, `;`, `&` and quotes in branch names).
+#[test]
+fn a_word_is_quoted_for_the_shell_only_when_it_needs_it() {
+    assert_eq!(shell_quote("feature/login-2", Platform::Unix), "feature/login-2");
+    assert_eq!(shell_quote("fix$HOME;rm", Platform::Unix), "'fix$HOME;rm'");
+    assert_eq!(shell_quote("it's", Platform::Unix), "'it'\\''s'");
+    assert_eq!(shell_quote("", Platform::Unix), "''");
+    assert_eq!(shell_quote("a&b", Platform::Windows), "\"a&b\"");
+    assert_eq!(shell_quote("say\"hi", Platform::Windows), "\"say\"\"hi\"");
 }
