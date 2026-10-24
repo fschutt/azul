@@ -203,6 +203,10 @@ pub(crate) struct Remote {
     pub keyring: Arc<MemKeyring>,
     /// Serializes writes: a conditional write is atomic against every device.
     writes: Mutex<()>,
+    /// Held from a write's quota check to its end while a quota is armed: the check and the
+    /// write are one step, as on a server that counts what it holds, so two writes at once
+    /// cannot both take the last room.
+    room: Mutex<()>,
     /// Faults by device name; `""` holds the ones for every device.
     faults: Mutex<BTreeMap<String, Faults>>,
     counters: Mutex<BTreeMap<String, Counters>>,
@@ -231,6 +235,7 @@ impl Remote {
             drive_name: format!("e2e-remote-{name}"),
             keyring: Arc::new(MemKeyring::default()),
             writes: Mutex::new(()),
+            room: Mutex::new(()),
             faults: Mutex::new(BTreeMap::new()),
             counters: Mutex::new(BTreeMap::new()),
             index_history: Mutex::new(Vec::new()),
@@ -511,15 +516,23 @@ impl FaultDrive {
         })
     }
 
+    /// The faults armed for this device (or for every device).
+    fn faults(&self) -> Faults {
+        let all = lock(&self.remote.faults);
+        all.get(&self.device)
+            .or_else(|| all.get(""))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The remote's room, held for one write while a quota is armed (see [`Remote::room`]).
+    fn room(&self) -> Option<std::sync::MutexGuard<'_, ()>> {
+        self.faults().quota_bytes.map(|_| lock(&self.remote.room))
+    }
+
     /// Counts the request and lets it through, or answers it as an armed fault says.
     fn basic_gate(&self, op: &str, key: &str, put_bytes: Option<u64>) -> Result<(), DriveError> {
-        let faults = {
-            let all = lock(&self.remote.faults);
-            all.get(&self.device)
-                .or_else(|| all.get(""))
-                .cloned()
-                .unwrap_or_default()
-        };
+        let faults = self.faults();
         if faults.latency_ms > 0 {
             std::thread::sleep(Duration::from_millis(faults.latency_ms));
         }
@@ -738,6 +751,7 @@ impl Drive for FaultDrive {
         if let Some(other) = self.redirected() {
             return other.put(key, bytes);
         }
+        let _room = self.room();
         self.gate("put", key, Some(bytes.len() as u64))?;
         super::b_faults::check_put(&self.remote, &self.device, key, bytes).map_err(|e| self.refuse(e))?;
         self.remote.write(key, bytes)?;
@@ -764,6 +778,7 @@ impl Drive for FaultDrive {
         if let Some(other) = self.redirected() {
             return other.put_if(key, bytes, condition);
         }
+        let _room = self.room();
         self.gate("put_if", key, Some(bytes.len() as u64))?;
         super::b_faults::check_put(&self.remote, &self.device, key, bytes).map_err(|e| self.refuse(e))?;
         {
