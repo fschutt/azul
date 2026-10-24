@@ -154,6 +154,33 @@ pub(super) fn state_load(s: &DriveState, args: &Args) -> Answer {
     Ok(serde_json::json!({ "files": files }))
 }
 
+/// `drive_corrupt_settings`: AzDrive's settings file cut off mid-write, as a crash or a full
+/// disk leaves it (its last good copy stays); `drive_upgrade` reads it as a start does.
+pub(super) fn corrupt_settings(s: &DriveState) -> Answer {
+    let drive = s
+        .settings_drive
+        .clone()
+        .ok_or("AzDrive keeps no settings file in this run")?;
+    let text = s.settings.to_json();
+    let cut = &text[..text.len() / 2];
+    azul_storage::Drive::put(&drive, crate::SETTINGS_KEY, cut.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "bytes": cut.len() }))
+}
+
+/// `drive_upgrade`: AzDrive started again (a new version's first start): the settings read
+/// from their file - the last good copy when it is damaged - and the device's sync state from
+/// its state folder.
+pub(super) fn upgrade(s: &mut DriveState, args: &Args) -> Answer {
+    let drive = s
+        .settings_drive
+        .clone()
+        .ok_or("AzDrive keeps no settings file in this run")?;
+    s.settings = crate::read_settings(&drive);
+    crate::sync_jobs::publish(s);
+    super::restart(s, args)?;
+    Ok(serde_json::json!({ "pairings": s.settings.synced.len() }))
+}
+
 /// `drive_uninstall`: AzDrive's "Remove drive" for the device's drive, confirmed - the drive
 /// leaves the source list and its keys the keyring; its pairing stops and its state folder
 /// goes. Every file of the folder stays as it is (a cloud-only one stays on the drive).
@@ -320,6 +347,22 @@ mod tests {
         rewrite(dir.path(), "newer").unwrap();
         assert!(LocalIndex::load(&dir.path().join(INDEX_FILE)).is_err());
         assert!(rewrite(dir.path(), "sideways").is_err());
+    }
+
+    #[test]
+    fn a_damaged_settings_file_is_read_from_its_last_good_copy() {
+        let dir = azul_storage::testing::TempDir::new("azdrive-e2e-settings");
+        let drive = azul_storage::LocalDrive::new(dir.path().to_path_buf());
+        let mut settings = crate::model::Settings::default();
+        let mut setup = azcloud_kit::sync::session::SyncSetup::new("e2e-b", "", Path::new("/b"));
+        setup.backup = true;
+        settings.synced.push(setup);
+        crate::write_settings(&drive, &settings.to_json()).unwrap();
+        assert_eq!(crate::read_settings(&drive), settings);
+        let text = settings.to_json();
+        azul_storage::Drive::put(&drive, crate::SETTINGS_KEY, &text.as_bytes()[..text.len() / 2]).unwrap();
+        let read = crate::read_settings(&drive);
+        assert!(read.synced.first().is_some_and(|p| p.backup), "the backup pairing kept");
     }
 
     #[test]

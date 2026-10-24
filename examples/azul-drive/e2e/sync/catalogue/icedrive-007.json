@@ -32,7 +32,6 @@
   {
     "name": "safety settings survive an upgrade, a crash and a corrupt settings file (falling back to the safest values)",
     "description": "ICEDRIVE-007 (Icedrive): settings reset to 'delete' defaults. Rules D5/D1: settings persist; a corrupt or missing settings file falls back to the safest values.",
-    "pending": "drive_setting {\"device\":\"a\",\"name\":\"<safety setting>\",\"value\":...} and drive_corrupt_settings {\"device\":\"a\"} (AzDrive's per-pairing settings file damaged or missing)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -45,8 +44,8 @@
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_setting", "device": "b", "name": "remote_deletes", "value": "keep" },
-      { "op": "drive_corrupt_settings", "device": "b" },
-      { "op": "drive_restart", "device": "b" },
+      { "op": "drive_corrupt_settings" },
+      { "op": "drive_upgrade", "device": "b" },
       { "op": "drive_rm", "device": "a", "glob": "docs/d000/f00000*" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b", "expect": "any" },

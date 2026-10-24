@@ -126,10 +126,10 @@ pub(super) fn pair(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, ar
     }))
 }
 
-/// Changes the setup of `device`'s pairing as the window's Options do (the settings kept).
+/// Changes the setup of `device`'s pairing as the window's Options do; the settings file is
+/// written before the answer (the window writes it on a thread: a step after this one reads
+/// what it says).
 pub(super) fn change_setup(
-    info: &mut CallbackInfo,
-    app: &RefAny,
     s: &mut DriveState,
     args: &Args,
     change: impl FnOnce(&mut SyncSetup),
@@ -144,26 +144,28 @@ pub(super) fn change_setup(
     change(setup);
     let after = setup.clone();
     sync_jobs::publish(s);
-    crate::save_settings(info, app, s);
+    if let Some(drive) = s.settings_drive.clone() {
+        crate::write_settings(&drive, &s.settings.to_json()).map_err(|e| e.to_string())?;
+    }
     sync_view::say_status(s, &drive_id);
     Ok(after)
 }
 
 /// `drive_select`: what this device leaves out, from its next pass on.
-pub(super) fn select(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
+pub(super) fn select(s: &mut DriveState, args: &Args) -> Answer {
     let exclude = globs(args, "exclude")?;
-    let after = change_setup(info, app, s, args, |setup| setup.exclude.clone_from(&exclude))?;
+    let after = change_setup(s, args, |setup| setup.exclude.clone_from(&exclude))?;
     Ok(serde_json::json!({ "exclude": after.exclude }))
 }
 
 /// `drive_on_demand`: on, nothing comes down until it is opened; off, every file comes down
 /// (except what the user freed up), from the next pass on.
-pub(super) fn on_demand(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
+pub(super) fn on_demand(s: &mut DriveState, args: &Args) -> Answer {
     let on = args
         .get("on")
         .and_then(serde_json::Value::as_bool)
         .ok_or("'on' is missing")?;
-    let after = change_setup(info, app, s, args, |setup| {
+    let after = change_setup(s, args, |setup| {
         setup.auto_download = if on {
             AutoDownload::Nothing
         } else {

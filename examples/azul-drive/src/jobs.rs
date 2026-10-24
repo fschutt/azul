@@ -3367,7 +3367,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drives,
         } => redeem_periods(&keyring, &store, &drives),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
-            result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
+            result: crate::write_settings(&drive, &text),
         },
         Job::Thumbnails {
             drive,

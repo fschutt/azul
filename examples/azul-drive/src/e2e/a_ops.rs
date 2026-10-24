@@ -113,11 +113,11 @@ pub(super) fn set_one(setup: &mut SyncSetup, name: &str, value: &serde_json::Val
 }
 
 /// `drive_setting`: one setting of the device's pairing, kept as the window keeps it.
-pub(super) fn setting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
+pub(super) fn setting(s: &mut DriveState, args: &Args) -> Answer {
     let name = need(args, "name")?.to_string();
     let value = args.get("value").cloned().unwrap_or(serde_json::Value::Null);
     let mut failed = None;
-    let after = change_setup(info, app, s, args, |setup| {
+    let after = change_setup(s, args, |setup| {
         if let Err(e) = set_one(setup, &name, &value) {
             failed = Some(e);
         }
@@ -130,10 +130,10 @@ pub(super) fn setting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
 
 /// `drive_settings`: the device's pairing's settings, after the ones in `set` (an object of
 /// name: value) were set.
-pub(super) fn settings(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
+pub(super) fn settings(s: &mut DriveState, args: &Args) -> Answer {
     let set = args.get("set").and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
     let mut failed = None;
-    let after = change_setup(info, app, s, args, |setup| {
+    let after = change_setup(s, args, |setup| {
         for (name, value) in &set {
             if let Err(e) = set_one(setup, name, value) {
                 failed = Some(e);

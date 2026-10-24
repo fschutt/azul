@@ -686,3 +686,18 @@ device's sync clock; `null` when nothing waits.
 | `state_size` | `device`, `max_bytes` (the state folder's files together) |
 | `system_temp_untouched` | - (no file of the engine's names left in the process's system temp folder since the sandbox was made; the script gives the process a temp folder of its own) |
 | `peak_memory` | `max_mb` (the process's peak resident set so far) |
+
+### The settings file
+
+| op | arguments | result |
+|---|---|---|
+| `drive_corrupt_settings` | - | `bytes` (what is left of the file) |
+| `drive_upgrade` | `device` | `pairings` |
+
+AzDrive writes its settings file and then its last good copy (`drive/view.json.bak`); a start
+reads the file, else the copy, else the defaults - so a settings file cut off mid-write never
+turns a backup pairing back into a two-way one. `drive_corrupt_settings` cuts the file off as a
+crash or a full disk does; `drive_upgrade` is AzDrive started again (a new version's first
+start): the settings read from their file, the device's sync state from its state folder.
+`drive_setting` / `drive_settings` / `drive_select` / `drive_on_demand` write the settings file
+before they answer.

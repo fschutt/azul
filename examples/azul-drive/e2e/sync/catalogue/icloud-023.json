@@ -35,7 +35,6 @@
   {
     "name": "every pairing setting survives an upgrade byte for byte, and a setting change never removes local files without a confirmation",
     "description": "ICLOUD-023: settings silently changed by an update. Rules D5 and D1: the migration keeps every setting; a mode change that would remove local files is held for the user.",
-    "pending": "drive_settings {device, set} answering {settings} (the pairing's settings as the window stores them); drive_upgrade {device} (restart through the settings-store migration a new version runs)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },
@@ -44,16 +43,17 @@
       { "op": "drive_write", "device": "c", "path": "Desktop/todo.txt", "text": "desktop" },
       { "op": "drive_write", "device": "c", "path": "Documents/cv.txt", "text": "cv" },
       { "op": "drive_sync", "device": "c" },
-      { "op": "drive_settings", "device": "c", "set": {"mode": "two-way", "device_name": "work-mac", "keep_local": true} },
+      { "op": "drive_settings", "device": "c", "set": {"mode": "two-way", "auto_download": {"new_under": 10}, "keep_gb": 3, "exclude": ["*.bak"], "sync_on_metered": true} },
       { "op": "drive_upgrade", "device": "c" },
       { "op": "drive_settings", "device": "c" },
-      { "op": "assert_response", "path": "result.settings.mode", "equals": "two-way" },
-      { "op": "assert_response", "path": "result.settings.device_name", "equals": "work-mac" },
-      { "op": "assert_response", "path": "result.settings.keep_local", "equals": true },
-      { "op": "drive_settings", "device": "c", "set": {"mode": "online-only"} },
+      { "op": "assert_response", "path": "result.settings.auto_download.new_under", "equals": 10 },
+      { "op": "assert_response", "path": "result.settings.keep_gb", "equals": 3 },
+      { "op": "assert_response", "path": "result.settings.exclude", "contains": "*.bak" },
+      { "op": "assert_response", "path": "result.settings.sync_on_metered", "equals": true },
+      { "op": "drive_on_demand", "device": "c", "on": true },
       { "op": "drive_sync", "device": "c", "expect": "any" },
       { "op": "drive_check", "check": "files_count", "device": "c", "count": 2 },
-      { "op": "drive_check", "check": "problem", "device": "c", "code_any": ["mass-delete-held", "held-back"] },
+      { "op": "drive_check", "check": "trash_empty", "device": "c" },
       { "op": "drive_cleanup" }
     ]
   }

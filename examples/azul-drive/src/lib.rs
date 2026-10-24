@@ -337,6 +337,41 @@ pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
 /// The view settings' key in the data tree (layout, sort, columns, panes, pins). The app theme
 /// and mode are azul-appkit's `drive/settings.json` beside it.
 pub(crate) const SETTINGS_KEY: &str = "drive/view.json";
+/// The last good copy of the settings file, written after it: a settings file cut off or
+/// damaged is read from here, so a pairing's settings (a backup's "keep") are never lost to
+/// the defaults.
+pub(crate) const SETTINGS_BACKUP_KEY: &str = "drive/view.json.bak";
+
+/// The settings as a start reads them: the settings file, else its last good copy, else the
+/// defaults.
+pub(crate) fn read_settings(drive: &LocalDrive) -> Settings {
+    let read = |key: &str| {
+        drive
+            .get(key)
+            .ok()
+            .and_then(|bytes| Settings::parse(&String::from_utf8_lossy(&bytes)))
+    };
+    match read(SETTINGS_KEY) {
+        Some(settings) => settings,
+        None => {
+            let fallback = read(SETTINGS_BACKUP_KEY);
+            if fallback.is_some() && drive.get(SETTINGS_KEY).is_ok() {
+                println!("AZDRIVE_SETTINGS_FROM_BACKUP");
+            }
+            fallback.unwrap_or_default()
+        }
+    }
+}
+
+/// Writes the settings file, then its last good copy.
+///
+/// # Errors
+///
+/// When either cannot be written.
+pub(crate) fn write_settings(drive: &LocalDrive, text: &str) -> Result<(), azul_storage::DriveError> {
+    drive.put(SETTINGS_KEY, text.as_bytes())?;
+    drive.put(SETTINGS_BACKUP_KEY, text.as_bytes())
+}
 /// The data tree's drive id (the data root, a `LocalDrive` now, the user's bucket later).
 pub(crate) const DATA_ID: &str = "azlin";
 /// What the About page and azul-appkit say about AzDrive.
@@ -3628,8 +3663,7 @@ pub fn start() {
     // The settings, read once before the window opens (no callback waits).
     let mut settings = settings_drive
         .as_ref()
-        .and_then(|d| d.get(SETTINGS_KEY).ok())
-        .map(|bytes| Settings::from_json(&String::from_utf8_lossy(&bytes)))
+        .map(read_settings)
         .unwrap_or_default();
     if let Some(layout) = args.layout {
         settings.layout = layout;

@@ -891,6 +891,13 @@ impl Settings {
         serde_json::from_str(text).unwrap_or_default()
     }
 
+    /// The settings a file says, `None` when it is no settings file at all (cut off, damaged):
+    /// the caller falls back to the last good copy rather than to the defaults.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Settings> {
+        serde_json::from_str(text).ok()
+    }
+
     /// Whether `drive` / `prefix` is pinned to Quick access.
     #[must_use]
     pub fn is_pinned(&self, drive: &str, prefix: &str) -> bool {
