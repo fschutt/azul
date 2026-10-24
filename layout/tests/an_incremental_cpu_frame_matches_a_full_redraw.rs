@@ -328,11 +328,19 @@ fn offsets(lw: &LayoutWindow) -> ScrollOffsetMap {
 }
 
 fn state(lw: &LayoutWindow, offsets: &ScrollOffsetMap) -> CpuRenderState {
-    CpuRenderState::from_gpu_cache(
+    let mut state = CpuRenderState::from_gpu_cache(
         lw.gpu_state_manager.get_cache(DomId::ROOT_ID),
         DomId::ROOT_ID,
         offsets,
-    )
+    );
+    // The views' documents, as a window composites them into its frame.
+    state.virtual_view_display_lists = lw
+        .layout_results
+        .iter()
+        .filter(|(id, _)| **id != DomId::ROOT_ID)
+        .map(|(id, r)| (*id, r.display_list.clone()))
+        .collect();
+    state
 }
 
 /// The frame painted in full through the layered compositor, as a backend's
@@ -880,4 +888,129 @@ fn a_box_moved_and_shortened_repaints_only_its_edge_strips() {
         40.0 * 8.0,
         "a moved edge",
     );
+}
+
+/// The rows a list view shows: 40 rows of 14 px, as wide as its box.
+extern "C" fn list_rows(
+    _data: azul_core::refany::RefAny,
+    info: azul_core::callbacks::VirtualViewCallbackInfo,
+) -> azul_core::callbacks::VirtualViewReturn {
+    use azul_core::geom::LogicalRect;
+    let width = info.bounds.logical_size.width;
+    let mut rows = Dom::create_div().with_css(&format!("width: {width}px;"));
+    for k in 0..40 {
+        let color = if k % 2 == 0 { "#e8f4e8" } else { "#ffffff" };
+        rows = rows.with_child(
+            Dom::create_div().with_css(&format!("height: 14px; background: {color};")),
+        );
+    }
+    let size = LogicalSize::new(width, 40.0 * 14.0);
+    azul_core::callbacks::VirtualViewReturn::with_dom(
+        rows,
+        LogicalRect::new(LogicalPosition::zero(), size),
+        LogicalRect::new(LogicalPosition::zero(), size),
+    )
+}
+
+/// What a ribbon opening over a file browser pushes down: a bordered side
+/// pane on a left-to-right gradient that scrolls its own rows, and a list
+/// view, both shortened as the bar above them grows. Each frame equals a full
+/// redraw and repaints the bar's new strip and the panes' edges, not the
+/// panes: their pixels move by a blit (a frame repainted the whole window).
+#[test]
+fn a_height_tween_moves_bordered_panes_and_a_list_view_by_a_blit() {
+    for dpi in [96u32, 192] {
+        let mut side = Dom::create_div().with_css(
+            "width: 100px; border: 1px solid #8899aa; overflow-y: auto; \
+             background: linear-gradient(to right, #f4f4f4, #d4d8dc);",
+        );
+        for k in 0..20 {
+            let color = if k % 2 == 0 { "#e8eef8" } else { "#ffffff" };
+            side = side.with_child(
+                Dom::create_div().with_css(&format!("height: 14px; background: {color};")),
+            );
+        }
+        let list = Dom::create_virtual_view(
+            azul_core::refany::RefAny::new(()),
+            azul_core::callbacks::VirtualViewCallback::create(list_rows),
+        )
+        .with_css("flex-grow: 1; background: #ffffff; overflow-y: auto;");
+        let page = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_css("margin: 0; display: flex; flex-direction: column; background: #ffffff;")
+                .with_child(
+                    Dom::create_div()
+                        .with_class("grow".into())
+                        .with_css("height: 10px; background: #446688; animation: height 260ms ease-out;"),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0;")
+                        .with_child(side)
+                        .with_child(list),
+                ),
+        );
+        let mut lw = window(dpi);
+        let ws = lw.current_window_state.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(page),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let _ = lw.prepare_frame_cpu();
+        let mut last = Presented::first(&lw);
+        let grow = NodeId::new(2);
+        let _ = lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+            dom_id: DomId::ROOT_ID,
+            node_id: grow,
+            props: vec![azul_css::props::property::CssProperty::const_height(
+                azul_css::props::layout::LayoutHeight::const_px(70),
+            )],
+            override_only: false,
+        });
+        assert_eq!(lw.css_transitions.len(), 1, "harness: the height tweens");
+        let s = dpi_factor(&lw);
+        let mut frames = 0;
+        let mut painted_total = 0.0f64;
+        while !lw.css_transitions.is_empty() && frames < 60 {
+            frames += 1;
+            let _ = lw.tick_animations(0.016);
+            if lw.take_transition_relayout() {
+                let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
+                let ws = lw.current_window_state.clone();
+                lw.layout_and_generate_display_list(
+                    result.styled_dom,
+                    &ws,
+                    &RendererResources::default(),
+                    &ExternalSystemCallbacks::rust_internal(),
+                    &mut None,
+                )
+                .expect("the frame lays out");
+            }
+            let _ = lw.take_animation_frame_work();
+            let _ = lw.prepare_frame_cpu();
+            let frame = present(&lw, &mut last);
+            let truth = full_redraw(&lw);
+            assert!(
+                first_difference(&last.pixels, &truth).is_none(),
+                "{dpi} dpi, frame {frames}: the frame differs from a full redraw in {} pixels \
+                 (first {:?})",
+                differing_pixels(&last.pixels, &truth),
+                first_difference(&last.pixels, &truth)
+            );
+            painted_total += frame.painted_px.unwrap_or(f64::from(W * H) * f64::from(s * s));
+        }
+        assert!(frames >= 8, "harness: the tween ran {frames} frames");
+        // The panes below the bar fill the window under it: what a frame
+        // repaints that does not move them.
+        let panes_area = f64::from(W) * f64::from(H - 70.0) * f64::from(s * s);
+        assert!(
+            painted_total / (frames as f64) < panes_area / 4.0,
+            "{dpi} dpi: a frame repainted {} px on average, the panes are {panes_area} px",
+            painted_total / (frames as f64)
+        );
+    }
 }
