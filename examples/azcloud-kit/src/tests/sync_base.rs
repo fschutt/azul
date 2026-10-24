@@ -125,3 +125,35 @@ fn passes_with_a_database_base_send_nothing_twice() {
     assert_eq!(second.files_up, 0, "{}", second.summary());
     assert!(!second.index_written);
 }
+
+/// A base database that cannot be read (a crash mid-write, a bad sector) is no reason to stop
+/// syncing (D5): the pass says so and pairs afresh, deleting nothing, and the next pass works
+/// from a new base - the damaged one is kept aside, never written into.
+#[test]
+fn a_damaged_base_database_is_set_aside_and_the_folder_pairs_afresh() {
+    let store = S3Bucket::new();
+    let folder = TempDir::new("base-folder");
+    let state = TempDir::new("base-state");
+    fs::write(folder.path().join("a.txt"), b"alpha").unwrap();
+    fs::write(folder.path().join("b.txt"), b"beta").unwrap();
+    let root = LocalRoot::folder(folder.path());
+    let opts = SyncOptions::new("e2e/base/", "d-test", "dev-a").unwrap();
+    let path = state.path().join("index.db");
+    sync_folder(&store, &root, &path, &opts).unwrap();
+    fs::write(&path, br#"{"generation": 3, "files": {"half": "#).unwrap();
+
+    let after = sync_folder(&store, &root, &path, &opts).unwrap();
+    assert!(
+        after.problems.iter().any(|p| p.code == crate::sync::problems::Code::StateReset),
+        "{:?}",
+        after.problems
+    );
+    assert_eq!((after.deleted_here, after.deleted_there), (0, 0), "{}", after.summary());
+    assert!(folder.path().join("a.txt").exists() && folder.path().join("b.txt").exists());
+    let kept = state.path().join("index.db.unreadable");
+    assert!(kept.exists(), "the damaged base is kept aside");
+
+    let next = sync_folder(&store, &root, &path, &opts).unwrap();
+    assert!(next.problems.is_empty(), "{:?}", next.problems);
+    assert_eq!(next.files_up, 0, "{}", next.summary());
+}
