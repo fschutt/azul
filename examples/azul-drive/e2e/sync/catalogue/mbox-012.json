@@ -1,7 +1,7 @@
 {
   "name": "a revoked share reads nothing new: the guest's old key and link fail, and files written after the revocation use a key the guest never had",
   "description": "MBOX-012 (OX App Suite behind mailbox.org Drive): guests kept access after the owner removed their permissions; other shares lost theirs. Rules M1 and S14 and the share design: revocation ends access, and new content in the folder is wrapped with a rotated key. sync-chaos share-links-and-revocation (pending: share keys in the upload transaction).",
-  "pending": "drive_share {device, path, to, link} and drive_unshare {device, path, to} (the window's share and revoke), drive_open fields share and as_user (a participant's device on the shared folder), and the check share_reads {device, key, via: \"key\"|\"link\", ok} (whether the participant's old key or link still reads an object)",
+  "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to, link}, drive_unshare {device, path, to} (a revocation: a new folder key), drive_open {as_user, share}, drive_check share_reads {device, key, via: key|link, ok}",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

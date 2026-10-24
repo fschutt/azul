@@ -68,7 +68,7 @@
   {
     "name": "a substituted share key is refused",
     "description": "SYNCCOM-023 (Sync.com): the server can replace keys in sharing (no public-key authentication). Rule M2: share keys are authenticated; a substituted one is refused and nothing new is shared under it.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"replace_share_key\",\"share\":\"team\"} (the server substitutes a recipient public key or wrapped share key)",
+    "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to}, drive_tamper replace_share_key {remote, share} (the server substitutes the recipient's public key or the wrapped folder key; the owner's client must refuse it)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -81,7 +81,7 @@
       { "op": "drive_write", "device": "a", "path": "b.txt", "text": "contents of b" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
-      { "op": "drive_share", "device": "a", "path": "team", "with": "b" },
+      { "op": "drive_share", "device": "a", "path": "team", "to": "b" },
       { "op": "drive_tamper", "remote": "r", "action": "replace_share_key", "share": "team" },
       { "op": "drive_write", "device": "a", "path": "team/new.txt", "text": "after the swap" },
       { "op": "drive_sync", "device": "a", "expect": "any" },

@@ -59,7 +59,7 @@
   {
     "name": "moving a shared folder, or a share into another share, keeps the share and its rights",
     "description": "SYNCCOM-022 (Sync.com): moving a share folder broke the share; shares could be moved into shares. Rules M1/S14 (sync-chaos share-links-and-revocation): a move of a share is refused or keeps a defined permission outcome.",
-    "pending": "drive_share {\"device\":\"a\",\"path\":\"team\",\"with\":\"b\"} and drive_unshare (shared folders between two accounts; moving a share into a share)",
+    "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to}, drive_unshare {device, path, to}; moving a shared folder into another share keeps both shares' keys and rights",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -71,8 +71,8 @@
       { "op": "drive_write", "device": "a", "path": "team/plan.txt", "text": "plan" },
       { "op": "drive_write", "device": "a", "path": "other/notes.txt", "text": "notes" },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_share", "device": "a", "path": "team", "with": "b" },
-      { "op": "drive_share", "device": "a", "path": "other", "with": "b" },
+      { "op": "drive_share", "device": "a", "path": "team", "to": "b" },
+      { "op": "drive_share", "device": "a", "path": "other", "to": "b" },
       { "op": "drive_rename", "device": "a", "from": "team", "to": "other/team" },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_sync", "device": "b" },

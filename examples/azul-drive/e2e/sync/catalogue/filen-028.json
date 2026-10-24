@@ -36,14 +36,14 @@
   {
     "name": "FILEN-028: a file uploaded into a shared folder is readable by every recipient at once, a big file too, without re-sharing",
     "description": "FILEN-028 (Filen): new files in a shared folder or behind a public link stayed invisible until the folder was re-shared. Rules M1, S14; share keys are distributed in the same commit as the file (I1). sync-chaos share-links-and-revocation (pending).",
-    "pending": "drive_share {remote, folder, with_user, link} (share a folder with another account and by a public link), drive_open arg as_participant (a device of the other account) and drive_check share_link_sees {remote, folder, count}; azul-storage shares chosen files by link only today",
+    "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to, link}, drive_open {as_user, share} (a recipient's device on the shared folder), drive_check share_link_sees {remote, folder, count} (a live folder link)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_share", "remote": "r", "folder": "shared", "with_user": "bob", "link": true },
-      { "op": "drive_open", "device": "bob", "remote": "r", "as_participant": "bob" },
+      { "op": "drive_share", "device": "a", "path": "shared", "to": "bob", "link": true },
+      { "op": "drive_open", "device": "bob", "remote": "r", "as_user": "bob", "share": "shared" },
       { "op": "drive_pair", "device": "bob" },
       { "op": "drive_wait_idle" },
       { "op": "drive_many", "device": "a", "dir": "shared", "count": 14, "text_prefix": "shared" },
