@@ -607,7 +607,19 @@ fn max_ops(h: &Harness, args: &Args) -> Verdict {
 fn remote_puts(h: &Harness, args: &Args) -> Verdict {
     let d = h.device(args)?;
     let remote = h.remote_of(args)?;
-    let puts: u64 = remote.counters(Some(&d.name)).puts.values().sum();
+    // Content only, as sync-chaos counts blobs: a plain drive's blobs, an encrypted drive's
+    // objects, a named drive's files - never the index or the drive's other bookkeeping.
+    let content = |key: &str| {
+        let rest = key.strip_prefix(remote.prefix.as_str()).unwrap_or(key);
+        !rest.starts_with(".azlin/") || rest.starts_with(".azlin/blobs/")
+    };
+    let puts: u64 = remote
+        .counters(Some(&d.name))
+        .puts
+        .iter()
+        .filter(|(key, _)| content(key))
+        .map(|(_, n)| n)
+        .sum();
     let max = args
         .get("max")
         .and_then(serde_json::Value::as_u64)

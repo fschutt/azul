@@ -134,8 +134,13 @@ pub(crate) struct Counters {
 
 impl Counters {
     pub(crate) fn to_json(&self) -> serde_json::Value {
+        // Every kind of request is named, 0 when none was made (a check reads `ops.delete`).
+        let mut ops = self.ops.clone();
+        for kind in ["get", "put", "put_if", "head", "list", "delete"] {
+            ops.entry(kind.to_string()).or_insert(0);
+        }
         serde_json::json!({
-            "ops": self.ops,
+            "ops": ops,
             "bytes_up": self.bytes_up,
             "bytes_down": self.bytes_down,
             "refused": self.refused,
