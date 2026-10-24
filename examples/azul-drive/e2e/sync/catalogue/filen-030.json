@@ -1,0 +1,25 @@
+{
+  "name": "FILEN-030: a password reset without the recovery key keeps the old encrypted data, never deletes it",
+  "description": "FILEN-030 (Filen): anyone with the e-mail inbox could reset the password without the master/recovery key and wipe the whole zero-knowledge account at once. Rules I1, D5 (no login path removes a file); the account side is crypto-keys-and-recovery (pending: the recovery flow).",
+  "pending": "drive_account_reset {remote, recovery_key: bool, second_factor: bool} (an e-mail-only password reset of the drive's account: refused without a second factor, and without the recovery key the old encrypted data stays, inaccessible, for a grace period); the stand-in remote has no account and no recovery flow",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+    { "op": "drive_many", "device": "a", "dir": "docs", "count": 5, "text_prefix": "doc" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_account_reset", "remote": "r", "recovery_key": false, "second_factor": false },
+    { "op": "assert_response", "path": "result.refused", "equals": true },
+    { "op": "drive_account_reset", "remote": "r", "recovery_key": false, "second_factor": true },
+    { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 6 },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "files_count", "device": "b", "count": 6 },
+    { "op": "drive_check", "check": "trash_empty", "device": "b" },
+    { "op": "drive_cleanup" }
+  ]
+}
