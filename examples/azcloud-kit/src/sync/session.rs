@@ -1280,6 +1280,24 @@ impl SyncSession {
         Ok(targets)
     }
 
+    /// "Send it again": files the drive deleted before this pairing knew them, kept here and
+    /// listed (`deleted-elsewhere-kept`), go up with the next pass. (To let them go, the user
+    /// deletes them here.)
+    ///
+    /// # Errors
+    ///
+    /// When the base cannot be read or kept.
+    pub fn send_kept(&self, keys: &[String]) -> CloudResult<()> {
+        let path = self.index_path();
+        let Some(mut index) = LocalIndex::load(&path)? else {
+            return Ok(());
+        };
+        for key in keys {
+            index.kept.remove(key);
+        }
+        index.save(&path)
+    }
+
     /// "These changes are mine": the next pass sends what the burst guard held back.
     ///
     /// # Errors

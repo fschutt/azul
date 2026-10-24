@@ -116,6 +116,10 @@ pub struct LocalIndex {
     /// What the disk under the folder does with names, probed at the first pass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<Volume>,
+    /// Files here the drive deleted before this pairing knew them (D5): kept, listed and not
+    /// sent until the user chooses ([`super::session::SyncSession::send_kept`]).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub kept: BTreeSet<String>,
 }
 
 impl LocalIndex {
@@ -136,6 +140,7 @@ impl LocalIndex {
             root_id: None,
             restore_epoch: 0,
             volume: None,
+            kept: BTreeSet::new(),
         }
     }
 

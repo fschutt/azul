@@ -2881,6 +2881,8 @@ fn run<R: SyncRemote + ?Sized>(
     let mut cached = load_cache(index_path, &index);
     let mut pause = None;
     let mut attempt = 0u32;
+    // The files D5 keeps (the last attempt's), remembered in the base.
+    let mut kept: BTreeSet<String> = BTreeSet::new();
     let (committed, actions, merged, etag, scan, base_after, restore_epoch) = loop {
         attempt += 1;
         report.problems.truncate(told);
@@ -2959,7 +2961,7 @@ fn run<R: SyncRemote + ?Sized>(
             };
             report.tell(code, key, format!("never written here: {why}"));
         }
-        let readable = remote.readable(&unreadable);
+        let mut readable = remote.readable(&unreadable);
         let mut scan = scanned.clone();
         let mut frozen = check_remote(
             &mut scan,
@@ -2971,6 +2973,15 @@ fn run<R: SyncRemote + ?Sized>(
         );
         // What the drive says of them cannot be read: unknown, so never a delete here either.
         frozen.extend(unreadable.keys().cloned());
+        // D5 keeps a file the drive deleted meanwhile at a fresh pairing (a re-login, a lost
+        // base). On a folder paired before, a file made here with the bytes of one deleted
+        // earlier is the user's (restored from a trash, made again): it goes up.
+        if paired {
+            readable.deleted.retain(|key, _| {
+                index.kept.contains(key)
+                    || !(scan.files.contains_key(key) && !base.contains_key(key))
+            });
+        }
         let excluded = |key: &str| {
             root.rules.excluded(key).is_some() || frozen.contains(key) || scan.hides(key)
         };
@@ -2984,10 +2995,11 @@ fn run<R: SyncRemote + ?Sized>(
             date: &date,
         };
         // D5: a file the drive deleted before this device knew it is kept, not sent again.
-        for key in merge::deleted_elsewhere(&input) {
+        kept = merge::deleted_elsewhere(&input).into_iter().collect();
+        for key in &kept {
             report.tell(
                 Code::DeletedElsewhereKept,
-                &key,
+                key,
                 "the drive deleted this file before this device was paired; it is kept here and \
                  not sent again until you choose",
             );
@@ -3152,6 +3164,7 @@ fn run<R: SyncRemote + ?Sized>(
     index.files = base;
     index.generation = committed.generation;
     index.restore_epoch = restore_epoch;
+    index.kept = kept;
     index.scanned_at_ns = scan.started_ns;
     index.remote_etag = etag.clone().filter(|e| !e.is_empty());
     hooks.point("before-base-save");

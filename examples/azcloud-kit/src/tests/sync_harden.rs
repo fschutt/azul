@@ -732,3 +732,36 @@ fn a_file_bigger_than_this_device_takes_stays_on_the_drive_and_is_listed() {
         "never a delete"
     );
 }
+
+#[test]
+fn a_file_made_again_on_a_paired_folder_goes_up_and_a_kept_one_waits_for_the_users_choice() {
+    let store = S3Bucket::new();
+    let a = Device::new("again-a");
+    a.write("note.txt", b"the note");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    a.remove("note.txt");
+    a.sync(&store);
+    // Restored from the system's trash, the same bytes: the user's, it goes up.
+    a.write("note.txt", b"the note");
+    let report = a.sync(&store);
+    assert!(
+        !lists(&report, Code::DeletedElsewhereKept, None),
+        "{:?}",
+        report.problems
+    );
+    assert!(index_of(&store).files.contains_key("note.txt"));
+    assert!(!index_of(&store).deleted.contains_key("note.txt"));
+    // A device paired afresh keeps its copy of a file deleted meanwhile until the user says.
+    a.remove("note.txt");
+    a.sync(&store);
+    let c = Device::new("again-c");
+    c.write("note.txt", b"the note");
+    c.sync(&store);
+    let report = c.sync(&store);
+    assert!(lists(&report, Code::DeletedElsewhereKept, Some("note.txt")));
+    assert!(
+        !index_of(&store).files.contains_key("note.txt"),
+        "not sent on the second pass"
+    );
+}
