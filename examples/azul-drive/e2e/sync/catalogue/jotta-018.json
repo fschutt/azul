@@ -1,0 +1,62 @@
+[
+  {
+    "name": "one file keeps failing on the server: it is named every pass, the status never says up to date, the other 20 go up, it goes up once the fault is gone",
+    "description": "JOTTA-018 (Jottacloud): status said 'Up to date' while nothing reached the server; a subtree was skipped for months without a word. Rules E6 (a file that keeps failing is listed every pass while the others go on) and O1 (no silent skips). sync-chaos res-one-file-keeps-failing.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "batch", "count": 20, "text_prefix": "item" },
+      { "op": "drive_write", "device": "a", "path": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_fault", "device": "a", "fail_keys": ["big/stuck.bin"] },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "batch/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big/stuck.bin", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "big/stuck.bin", "when": "last" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "big/stuck.bin", "absent": true, "when": "last" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a subtree that cannot be read is named and the status says so; nothing under it is deleted anywhere, the rest goes on",
+    "description": "JOTTA-018 (Jottacloud): 'backup can skip a subtree for months without a word'. Rules D6 (a folder that cannot be opened is unknown, never deleted) and O1 (unreadable is listed).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "sub/a.txt", "text": "sub a" },
+      { "op": "drive_write", "device": "a", "path": "sub/b.txt", "text": "sub b" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_chmod", "device": "a", "path": "sub", "mode": "000" },
+      { "op": "drive_write", "device": "a", "path": "other2.txt", "text": "goes on" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "unreadable", "key": "sub*" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "sub/a.txt", "text": "sub a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "other2.txt", "text": "goes on" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "sub/a.txt", "text": "sub a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_chmod", "device": "a", "path": "sub", "mode": "755" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "unreadable", "absent": true, "when": "last" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
