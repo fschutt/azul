@@ -240,7 +240,7 @@ fn answer(
 ) {
     if let Protocol::SmtpStartTls = protocol {
         if smtp_until_starttls(&mut stream).is_none() {
-            let _ = seen.send(Err("the client never asked for STARTTLS".to_string()));
+            drop(seen.send(Err("the client never asked for STARTTLS".to_string())));
             return;
         }
     }
@@ -250,27 +250,27 @@ fn answer(
     let mut tls = rustls::StreamOwned::new(conn, stream);
     while tls.conn.is_handshaking() {
         if let Err(e) = tls.conn.complete_io(&mut tls.sock) {
-            let _ = seen.send(Err(e.to_string()));
+            drop(seen.send(Err(e.to_string())));
             return;
         }
     }
     match protocol {
         Protocol::Http => answer_http(&mut tls, seen),
         Protocol::Greeting(greeting) => {
-            let _ = seen.send(Ok("handshake".to_string()));
-            let _ = tls.write_all(greeting.as_bytes());
+            drop(seen.send(Ok("handshake".to_string())));
+            drop(tls.write_all(greeting.as_bytes()));
         }
         Protocol::SmtpStartTls => {
-            let _ = seen.send(Ok("starttls".to_string()));
+            drop(seen.send(Ok("starttls".to_string())));
             let mut line = String::new();
             if BufReader::new(&mut tls).read_line(&mut line).unwrap_or(0) > 0 {
-                let _ = tls.write_all(b"250 test\r\n");
+                drop(tls.write_all(b"250 test\r\n"));
             }
         }
     }
-    let _ = tls.flush();
+    drop(tls.flush());
     tls.conn.send_close_notify();
-    let _ = tls.conn.complete_io(&mut tls.sock);
+    drop(tls.conn.complete_io(&mut tls.sock));
 }
 
 /// The plain-text part of an SMTP session up to the client's STARTTLS, answered `220`;
@@ -307,10 +307,10 @@ fn answer_http(
     let mut reader = BufReader::new(&mut *tls);
     match reader.read_line(&mut line) {
         Ok(_) => {
-            let _ = seen.send(Ok(line.trim_end().to_string()));
+            drop(seen.send(Ok(line.trim_end().to_string())));
         }
         Err(e) => {
-            let _ = seen.send(Err(e.to_string()));
+            drop(seen.send(Err(e.to_string())));
             return;
         }
     }
@@ -320,5 +320,5 @@ fn answer_http(
             break;
         }
     }
-    let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    drop(tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"));
 }
