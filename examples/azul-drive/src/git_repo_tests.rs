@@ -7,8 +7,9 @@ use std::{path::Path, process::Command, time::Duration};
 use azul_storage::testing::TempDir;
 
 use crate::git_repo::{
-    branches, chip_text, filter_branches, paths_overlap, plan_switch, probe, stamp, AheadBehind,
-    Branch, Changes, Head, Limits, SwitchPlan, Unknown,
+    branches, chip_text, filter_branches, paths_overlap, plan_switch, poll_due, probe, stamp,
+    AheadBehind, Branch, Changes, Head, Limits, SwitchPlan, Unknown, POLL_EVERY,
+    POLL_MAX_LOOK,
 };
 
 /// `git <args>` in `dir`, isolated from the user's and the system's configuration; its output.
@@ -430,4 +431,19 @@ fn the_chip_reads_the_branch_and_says_nothing_of_an_upstream_it_does_not_have() 
     assert!(!chip.dirty);
     assert!(!chip.unknown);
     assert_eq!(chip.counts, "");
+}
+
+/// Where no cheap watcher of the work tree exists (inotify needs a watch per folder, the
+/// fallback polls the whole tree), edits are found by looking again: every POLL_EVERY, and
+/// only for a repository whose last look was quick - a big one is looked at on the events
+/// alone (a folder change, F5, a command, a ref or index write).
+#[test]
+fn a_quick_repository_is_looked_at_again_now_and_then_a_slow_one_never() {
+    let quick = Duration::from_millis(40);
+    assert!(!poll_due(quick, Duration::from_secs(1)));
+    assert!(!poll_due(quick, POLL_EVERY - Duration::from_millis(1)));
+    assert!(poll_due(quick, POLL_EVERY));
+    assert!(poll_due(quick, POLL_EVERY * 3));
+    assert!(!poll_due(POLL_MAX_LOOK, POLL_EVERY * 3), "a look this long is no poll");
+    assert!(!poll_due(Duration::from_secs(4), Duration::from_secs(600)));
 }
