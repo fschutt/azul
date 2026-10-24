@@ -154,6 +154,12 @@ jobs:
             EXEMPT+=(--exempt clipboard-win)
             echo "cooldown: clipboard-win exempt until 2026-11-07 (5.4.1 yanked for an out-of-bounds read)"
           fi
+          # ctutils 0.4.4: RUSTSEC-2026-0385 fix, constant-time masks; delta audit 0.4.2 -> 0.4.4 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
+            EXEMPT+=(--exempt ctutils)
+            echo "cooldown: ctutils exempt until 2026-11-07 (RUSTSEC-2026-0385 fix, constant-time masks)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"

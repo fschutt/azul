@@ -7,6 +7,12 @@ criteria = "safe-to-deploy"
 delta = "5.4.1 -> 5.4.3"
 notes = "Fixes the out-of-bounds read in raw::get_html (the reason 5.2.0-5.4.1 were yanked): the fragment is now taken with a bounds-checked slice instead of an unchecked ptr::copy_nonoverlapping. The open retry loop sleeps 5 ms instead of 0. Otherwise docs, a clippy attribute and a test; no new unsafe, dependencies or build script."
 
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.2 -> 0.4.4"
+notes = "RUSTSEC-2026-0385 fix: Choice mask generation goes through to_u8 (black-boxed), u128 comparisons on 32-bit targets use half-width u64 predicates, ct_lt/ct_gt for u128 use them. MSRV 1.87 casts and const fns, deprecations, tests. The crate still forbids unsafe code; subtle requirement moves to 2.6 (the tree has 2.6.1)."
+
 [[audits.rustls-webpki]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"
