@@ -94,6 +94,23 @@ fn a_pairing_has_the_plans_defaults_and_a_state_folder_of_its_own() {
 }
 
 #[test]
+fn a_pass_whose_folder_is_gone_fails_and_never_makes_it_again() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("a.txt", b"a");
+    a.write("b.txt", b"b");
+    a.pass();
+    fs::remove_dir_all(a.folder.path()).unwrap();
+    let stop = AtomicBool::new(false);
+    assert!(a.session.pass(&stop, &mut |_| {}).is_err());
+    assert!(!a.folder.path().exists(), "an unplugged disk's mount point stays as it is");
+    assert!(a.session.states().last_error.is_some(), "the app says why");
+    let b = paired("dev-b", &store, |_| {});
+    b.pass();
+    assert_eq!(b.read("a.txt").as_deref(), Some(&b"a"[..]), "nothing was deleted on the drive");
+}
+
+#[test]
 fn the_auto_download_policy_takes_new_files_by_size() {
     assert!(AutoDownload::Everything.wants(10_000 * MB));
     assert!(AutoDownload::NewUnder(25).wants(25 * MB));

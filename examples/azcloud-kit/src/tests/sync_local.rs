@@ -53,16 +53,22 @@ fn a_scan_finds_the_files_the_rules_let_through_and_never_follows_a_link() {
         .skipped
         .iter()
         .any(|(k, why)| k == "notes/etc" && why.contains("link")));
+}
+
+#[test]
+fn a_scan_of_a_folder_that_is_not_there_is_an_error_never_an_empty_folder() {
+    // An unplugged disk, a deleted folder: taken for empty, its files would all be deleted on
+    // the drive and on every device.
+    let dir = TempDir::new("azcloud-scan-missing");
     let missing = local::scan(
-        &root.join("nope"),
+        &dir.path().join("nope"),
         &Rules::base(),
         &BTreeMap::new(),
         0,
         &[],
         1,
-    )
-    .unwrap();
-    assert!(missing.files.is_empty(), "a folder not there yet is empty");
+    );
+    assert!(missing.is_err(), "{missing:?}");
 }
 
 #[test]

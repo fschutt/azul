@@ -301,6 +301,110 @@ fn an_emptied_folder_does_not_delete_the_drive() {
     assert_eq!(report.deleted_there, 20);
 }
 
+/// The mark a folder's first sync leaves in it.
+const ROOT_MARK: &str = ".azlin/sync/root-id";
+
+#[test]
+fn a_deleted_folder_is_an_error_and_nothing_is_deleted_anywhere_nor_the_folder_made_again() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    a.write("vm/disk.img", b"the only copy of a big file");
+    a.write("vm/notes.txt", b"notes");
+    a.write("vm/keys.txt", b"keys");
+    a.sync(&store);
+    b.sync(&store);
+    fs::remove_dir_all(a.folder.path()).unwrap();
+    let err = a.sync_with(&store, &a.opts()).unwrap_err().to_string();
+    assert!(err.contains("not there"), "{err}");
+    assert!(!a.folder.path().exists(), "the run does not make the folder again");
+    assert_eq!(index_of(&store).files.len(), 3, "nothing was deleted on the drive");
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 3, "nor on the other device");
+}
+
+#[test]
+fn a_folders_first_sync_marks_it_and_a_folder_without_the_mark_changes_nothing() {
+    // The disk is unplugged and its mount point holds a stale copy of two of its twelve files:
+    // ten "deletes" stay under the mass-delete guard, only the mark tells it is not the folder.
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    for i in 0..12 {
+        a.write(&format!("docs/f{i:02}.txt"), format!("doc {i}").as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    assert!(a.folder.path().join(ROOT_MARK).is_file(), "the first sync marks the folder");
+    fs::remove_dir_all(a.folder.path()).unwrap();
+    a.write("docs/f00.txt", b"stale shadow copy");
+    a.write("docs/f01.txt", b"stale shadow copy 2");
+    let err = a.sync_with(&store, &a.opts()).unwrap_err().to_string();
+    assert!(err.contains("mark"), "{err}");
+    let index = index_of(&store);
+    assert_eq!(index.files.len(), 12, "nothing was deleted on the drive");
+    assert_eq!(index.files["docs/f00.txt"].hash, hash_bytes(b"doc 0"), "nor overwritten");
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 12);
+    // Another sync's mark is no better.
+    a.write(ROOT_MARK, br#"{"id":"another-sync"}"#);
+    assert!(a.sync_with(&store, &a.opts()).is_err());
+    assert_eq!(index_of(&store).files.len(), 12);
+}
+
+#[test]
+fn a_folder_synced_before_marks_existed_is_marked_while_it_holds_its_files() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    a.write("a.txt", b"a");
+    a.write("b.txt", b"b");
+    a.sync(&store);
+    let unmark = |a: &Device| {
+        let mut index: serde_json::Value =
+            serde_json::from_slice(&fs::read(a.index()).unwrap()).unwrap();
+        index.as_object_mut().unwrap().remove("root_id");
+        fs::write(a.index(), serde_json::to_vec(&index).unwrap()).unwrap();
+        let _ = fs::remove_file(a.folder.path().join(ROOT_MARK));
+    };
+    unmark(&a);
+    a.sync(&store);
+    assert!(a.folder.path().join(ROOT_MARK).is_file(), "its files are here: it is the folder");
+    // Without any file as it synced it, it may be a mount point with a stale copy: nothing
+    // changes.
+    unmark(&a);
+    a.write("a.txt", b"a stale copy");
+    a.write("b.txt", b"b stale copy");
+    assert!(a.sync_with(&store, &a.opts()).is_err());
+    assert_eq!(index_of(&store).files["a.txt"].hash, hash_bytes(b"a"));
+}
+
+#[test]
+fn emptying_a_small_folder_asks_first_and_deleting_one_subfolder_does_not() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf", "receipts.zip"] {
+        a.write(&format!("tax/{name}"), name.as_bytes());
+    }
+    a.sync(&store);
+    a.remove_folder("tax");
+    let err = a.sync_with(&store, &a.opts()).unwrap_err().to_string();
+    assert!(err.contains("--allow-mass-delete"), "{err}");
+    assert_eq!(index_of(&store).files.len(), 4, "nothing was deleted");
+
+    let store = S3Bucket::new();
+    let c = Device::new("dev-c");
+    for folder in ["alpha", "beta", "gamma"] {
+        for i in 0..5 {
+            c.write(&format!("work/{folder}/f{i}.txt"), format!("{folder} {i}").as_bytes());
+        }
+    }
+    c.sync(&store);
+    c.remove_folder("work/beta");
+    let report = c.sync(&store);
+    assert_eq!(report.deleted_there, 5, "{}", report.summary());
+    assert_eq!(index_of(&store).files.len(), 10);
+}
+
 #[test]
 fn a_dry_run_plans_without_writing_anything() {
     let store = S3Bucket::new();
