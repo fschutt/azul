@@ -274,6 +274,11 @@ pub fn code_of_error(error: &CloudError) -> Code {
     if let CloudError::Drive(azul_storage::DriveError::Transport(_)) = error.root() {
         return Code::RemoteOffline;
     }
+    // The drive's key is not on this device (a locked vault, a device not joined yet): it must
+    // be unlocked or joined, as a sign-in is - never a file's own lock.
+    if let CloudError::Drive(azul_storage::DriveError::Locked { .. }) = error.root() {
+        return Code::SignInNeeded;
+    }
     if let CloudError::Io(text) | CloudError::Drive(azul_storage::DriveError::Io(text)) =
         error.root()
     {
@@ -537,4 +542,18 @@ pub fn harness_json(list: &ProblemList) -> serde_json::Value {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_drive_whose_key_is_not_on_this_device_asks_for_a_sign_in_not_a_files_lock() {
+        let e = CloudError::Drive(azul_storage::DriveError::Locked {
+            drive: String::from("d_test"),
+        });
+        assert_eq!(code_of_error(&e), Code::SignInNeeded);
+        assert_eq!(of_failed_pass(&e).code, Code::SignInNeeded);
+    }
 }

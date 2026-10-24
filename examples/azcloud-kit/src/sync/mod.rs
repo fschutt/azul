@@ -80,6 +80,8 @@ pub mod retry;
 pub mod root;
 pub mod rules;
 pub mod session;
+// Undoing a delete from this device: the trashed files put back.
+pub mod trash;
 pub mod watcher;
 use std::{
     collections::{BTreeMap, BTreeSet},

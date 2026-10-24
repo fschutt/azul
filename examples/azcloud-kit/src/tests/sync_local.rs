@@ -198,3 +198,34 @@ fn the_local_index_lives_in_the_state_folder_one_file_per_folder_bucket_and_pref
         index_path(sync, "d-1", "azlin/data/", Path::new("/data"))
     );
 }
+
+#[test]
+fn a_file_another_app_holds_locked_waits_and_is_never_taken_for_deleted() {
+    use crate::sync::problems::Code;
+    let dir = TempDir::new("azcloud-scan-locked");
+    let root = dir.path();
+    write(root, "open-in-word.docx", b"v2 saved while open");
+    write(root, "other.txt", b"goes on");
+    // Another app's exclusive lock: a handle of its own on the file.
+    let held = fs::File::options()
+        .read(true)
+        .write(true)
+        .open(root.join("open-in-word.docx"))
+        .unwrap();
+    held.lock().unwrap();
+    let locked = scan(root, &Rules::base(), &BTreeMap::new(), 0, &[], u64::MAX).unwrap();
+    assert!(!locked.files.contains_key("open-in-word.docx"), "not read mid-write");
+    assert!(locked.unknown.contains("open-in-word.docx"), "unknown: never a delete");
+    assert!(locked
+        .problems
+        .iter()
+        .any(|p| p.key == "open-in-word.docx" && p.code == Code::Locked));
+    assert!(locked.files.contains_key("other.txt"), "the rest goes on");
+    held.unlock().unwrap();
+    drop(held);
+    let free = scan(root, &Rules::base(), &BTreeMap::new(), 0, &[], u64::MAX).unwrap();
+    assert_eq!(
+        free.files["open-in-word.docx"].hash,
+        hash_bytes(b"v2 saved while open")
+    );
+}

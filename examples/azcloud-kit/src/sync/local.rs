@@ -848,6 +848,14 @@ pub fn scan_settled(
                     out.skipped.push((key.clone(), why.clone()));
                     out.tell(code, &key, why);
                 }
+                Err(Skip::Locked) => {
+                    out.unknown.insert(key.clone());
+                    out.tell(
+                        Code::Locked,
+                        &key,
+                        "another app holds it locked; it goes up once that app lets it go",
+                    );
+                }
             }
         }
     }
@@ -883,6 +891,9 @@ enum Skip {
     Unreadable(String),
     /// It is never synced (too big, not a JSON object): the code and why.
     Refused(Code, String),
+    /// Another app holds it locked (an exclusive lock, a share-deny open): it is mid-write, so
+    /// it waits for a pass after the lock is let go - unknown meanwhile, never a delete.
+    Locked,
 }
 
 /// One regular file of `dir`, as its `lstat` `st` found it: `Ok(None)` when it vanished.
@@ -969,11 +980,26 @@ fn open_checked(
     st: &Stat,
 ) -> Result<Option<(fs::File, Stat)>, Skip> {
     match dir.open_read(name) {
-        Ok((file, at)) if at.same_file(st) => Ok(Some((file, at))),
+        Ok((file, at)) if at.same_file(st) => {
+            // An exclusive lock of another app's (flock, LockFileEx) means it is being written:
+            // a shared lock of ours, held while it is read, says so without waiting. A disk
+            // that keeps no locks answers an error, which says nothing about the file.
+            if let Err(std::fs::TryLockError::WouldBlock) = file.try_lock_shared() {
+                return Err(Skip::Locked);
+            }
+            Ok(Some((file, at)))
+        }
         Ok(_) | Err(BeneathError::ThroughLink(_)) => Err(Skip::Changed),
         Err(e) if e.is_not_found() => Ok(None),
+        Err(BeneathError::Io(io)) if held_open_elsewhere(&io) => Err(Skip::Locked),
         Err(e) => Err(Skip::Unreadable(format!("cannot be read ({e})"))),
     }
+}
+
+/// Whether opening a file failed because another app holds it open without sharing it
+/// (Windows' sharing and lock violations); other systems keep no such opens.
+fn held_open_elsewhere(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33))
 }
 
 /// After a read: the file's `fstat` must still be what it was when it was opened.
