@@ -1285,3 +1285,5 @@ mod a_card_leaving_a_transformed_column_starts_where_it_was_painted;
 mod a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is;
 #[path = "a_fixed_size_pane_keeps_its_width_through_a_resize.rs"]
 mod a_fixed_size_pane_keeps_its_width_through_a_resize;
+#[path = "a_hover_that_moves_no_text_style_keeps_the_labels_shaped.rs"]
+mod a_hover_that_moves_no_text_style_keeps_the_labels_shaped;

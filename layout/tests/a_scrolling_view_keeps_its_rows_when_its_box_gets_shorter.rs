@@ -219,3 +219,30 @@ fn a_box_of_another_width_renders_the_rows_again() {
         "the list's box changed width - its rows are as wide as the box, so it renders again"
     );
 }
+
+/// The kept rows whose box alone moved are a resize of their document: the
+/// pass takes their retained tree at the new size instead of reconciling
+/// every row again (each frame of a ribbon opening over a folder list).
+#[test]
+fn a_shorter_box_lays_the_kept_rows_out_without_a_reconcile() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut lw = window(800.0, 400.0);
+    lay_out(&mut lw, page(&calls, 0.0, LIST));
+    let rows = rows_dom(&lw);
+    for (step, height) in [380.0_f32, 350.0, 310.0].into_iter().enumerate() {
+        relayout_at(&mut lw, 800.0, height);
+        let cache = &lw.child_layout_caches[&rows];
+        assert!(
+            cache.last_reconcile_was_skipped,
+            "step {step}: only the rows' box moved ({height} px) - their pass must take the \
+             retained tree (reused {}, fresh {})",
+            cache.last_reconcile_reused,
+            cache.last_reconcile_fresh
+        );
+        assert!(
+            (rows_viewport(&lw).height - height).abs() < 0.5,
+            "step {step}: laid out for the new box: got {:?}",
+            rows_viewport(&lw)
+        );
+    }
+}
