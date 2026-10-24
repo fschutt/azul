@@ -1112,6 +1112,36 @@ pub(crate) fn encrypt_new_drive(
     );
 }
 
+/// The drives whose setup ran again in this run because they opened plain and empty.
+static NEW_DRIVE_RESUMED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// A new Azlin drive that opened plain and without files (its setup failed, or AzDrive closed
+/// before it ran) takes no file until it is encrypted (azul-storage refuses the writes): its
+/// setup runs now, once per run. A failure leaves "Encrypt this drive" in its menu.
+pub(crate) fn resume_new_drive_setup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let needs = s
+        .slot_index(&drive_id)
+        .and_then(|index| s.slots[index].auto.as_ref())
+        .is_some_and(|auto| auto.needs_encryption());
+    if !needs {
+        return;
+    }
+    {
+        let mut resumed = NEW_DRIVE_RESUMED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if resumed.contains(&drive_id) {
+            return;
+        }
+        resumed.push(drive_id.clone());
+    }
+    println!("AZDRIVE_NEW_DRIVE_NOT_ENCRYPTED {drive_id}");
+    encrypt_new_drive(info, app, s, &drive_id);
+}
+
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
 /// be opened yet.
 /// [`auto_of`] for the recovery modules: the drive's `AutoEncrypted`, opened first; `None`

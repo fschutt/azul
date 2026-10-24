@@ -2710,6 +2710,11 @@ pub(crate) extern "C" fn on_job_done(
                 return Update::DoNothing; // another folder or drive by now
             }
             scanned(&mut info, &handle, s, batch, done, error);
+            // A new Azlin drive that opened plain and empty gets its encryption set up now.
+            #[cfg(feature = "encryption")]
+            if done {
+                encryption::resume_new_drive_setup(&mut info, &handle, s);
+            }
         }
         Outcome::Stats { serial, stats } => {
             if serial != s.list_serial {
