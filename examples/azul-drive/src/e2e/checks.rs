@@ -272,6 +272,8 @@ fn trash_dirs(h: &Harness, args: &Args) -> Result<Vec<std::path::PathBuf>, Strin
         root.join(".azdrive-trash"),
         root.join(".azsync").join("trash"),
         root.join(".azlin").join("trash"),
+        // The sync engine's own trash (azcloud-kit's root::TRASH_DIR).
+        root.join(azcloud_kit::sync::root::TRASH_DIR),
     ])
 }
 
@@ -372,6 +374,7 @@ fn kept(h: &Harness, args: &Args, remote: Option<&RemoteView>, trash: bool) -> V
                 d.root.join(".azdrive-trash"),
                 d.root.join(".azsync").join("trash"),
                 d.root.join(".azlin").join("trash"),
+                d.root.join(azcloud_kit::sync::root::TRASH_DIR),
             ] {
                 for (_, p) in all_files(&dir) {
                     if let Some(b) = read(&p) {
@@ -517,6 +520,7 @@ fn remote_consistent(remote: Option<&RemoteView>) -> Verdict {
 fn problem(h: &Harness, args: &Args, now: Option<&[serde_json::Value]>) -> Verdict {
     let d = h.device(args)?;
     let seen = h.seen_problems.get(&d.name).map(Vec::as_slice).unwrap_or_default();
+    let every: Vec<serde_json::Value>;
     let list = if str_arg(args, "when") == Some("last") {
         d.last
             .as_ref()
@@ -526,12 +530,10 @@ fn problem(h: &Harness, args: &Args, now: Option<&[serde_json::Value]>) -> Verdi
             .or(now)
             .unwrap_or_default()
     } else {
-        // Every pass's list, and what the device lists now.
-        if seen.is_empty() {
-            now.unwrap_or_default()
-        } else {
-            seen
-        }
+        // Every pass's list, and what the device lists now (a check outside a pass - "Free up
+        // space" finding a damaged copy - adds to it between passes).
+        every = seen.iter().chain(now.unwrap_or_default()).cloned().collect();
+        every.as_slice()
     };
     let mut codes = texts(args, "code_any");
     if codes.is_empty() {
