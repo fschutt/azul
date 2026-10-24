@@ -725,10 +725,10 @@ pub trait Drive: Send + Sync {
         check: &checked::FileCheck,
         progress: &(dyn Fn(u64) + Sync),
     ) -> Result<checked::CheckedUpload, DriveError> {
-        if !check.matches(&std::fs::metadata(path)?) {
+        // Opened once, without a link or a FIFO, and only the file the scan saw.
+        let Some(file) = checked::open_checked(path, check)? else {
             return Ok(checked::CheckedUpload::Changed);
-        }
-        let file = std::fs::File::open(path)?;
+        };
         let mut hashed = checked::HashCheck::new(file, &check.blake3);
         let sent = {
             let mut reader = transfer::ProgressReader::new(&mut hashed, progress);

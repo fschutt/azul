@@ -6,8 +6,11 @@
 use std::{
     fs::{File, Metadata},
     io::{self, Read},
+    path::Path,
     time::UNIX_EPOCH,
 };
+
+use crate::beneath::{BeneathError, Root};
 
 /// What a local file must still be when its upload completes: what a scan found of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,6 +21,13 @@ pub struct FileCheck {
     pub modified_ns: u64,
     /// The BLAKE3 of its bytes, lowercase hex: what the upload is named by.
     pub blake3: String,
+    /// The device the scan found it on (0 when not known): with `ino`, which file it is. A file
+    /// at the same path with the same size and time is still another file when they differ -
+    /// a copy put in its place, or a folder on its way swapped for a link ([`open_checked`]).
+    pub dev: u64,
+    /// Its inode on that device (0 when not known; then only the size and the time are
+    /// compared).
+    pub ino: u64,
 }
 
 impl FileCheck {
@@ -33,6 +43,38 @@ impl FileCheck {
     pub fn names(&self, bytes: &[u8]) -> bool {
         blake3::hash(bytes).to_hex().as_str() == self.blake3
     }
+}
+
+/// Opens the file at `path` for a checked upload, once: the upload reads only this handle, so
+/// a name swapped while it runs changes nothing it sends. The file is opened from its folder
+/// through [`crate::beneath`]: a link as its last name is never followed, and a FIFO never
+/// blocks the open. `None` when what is there is no regular file, or not the file `check`
+/// describes (its size and time, and its device and inode when the check knows them).
+///
+/// # Errors
+///
+/// When it cannot be opened (gone: not found).
+pub fn open_checked(path: &Path, check: &FileCheck) -> io::Result<Option<File>> {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return Ok(None);
+    };
+    let folder = match path.parent() {
+        Some(folder) if !folder.as_os_str().is_empty() => folder,
+        _ => Path::new("."),
+    };
+    let opened = Root::open(folder)?
+        .top()
+        .and_then(|dir| dir.open_read(name));
+    let (file, st) = match opened {
+        Ok(found) => found,
+        Err(BeneathError::Io(e)) => return Err(e),
+        // A link, a FIFO, a device or a folder: nothing this upload reads.
+        Err(_) => return Ok(None),
+    };
+    let same = st.size == check.size
+        && st.mtime_ns == check.modified_ns
+        && (check.ino == 0 || (st.ino == check.ino && st.dev == check.dev));
+    Ok(same.then_some(file))
 }
 
 /// How a checked upload ended.

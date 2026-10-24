@@ -62,6 +62,8 @@ pub(super) fn scanned(path: &Path, named: &[u8]) -> FileCheck {
         size: meta.len(),
         modified_ns,
         blake3: blake3::hash(named).to_hex().to_string(),
+        dev: 0,
+        ino: 0,
     }
 }
 

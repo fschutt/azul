@@ -34,7 +34,6 @@ use std::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Mutex, MutexGuard, PoisonError, RwLock,
     },
-    time::UNIX_EPOCH,
 };
 
 use serde::{Deserialize, Serialize};
@@ -208,23 +207,48 @@ struct Fingerprint {
     prefix_blake3: String,
 }
 
+/// The fingerprint of the file at `path` (an upload the user chose, so a link is followed),
+/// opened without waiting at a FIFO or a device; an error when it is no regular file.
 fn fingerprint(path: &Path) -> Result<Fingerprint, DriveError> {
-    let meta = fs::metadata(path)?;
-    let modified_ns = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-        .unwrap_or(0);
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(DriveError::Io(format!(
+            "{} is no regular file",
+            path.display()
+        )));
+    }
+    fingerprint_of(&file)
+}
+
+/// The fingerprint of an open file: its size and time from the handle, the BLAKE3 of its first
+/// bytes read from its start.
+fn fingerprint_of(file: &File) -> Result<Fingerprint, DriveError> {
+    let meta = file.metadata()?;
     let mut prefix = Vec::new();
-    File::open(path)?
+    let mut from_start = file.try_clone()?;
+    from_start.seek(SeekFrom::Start(0))?;
+    from_start
         .take(PREFIX_CHECK_BYTES)
         .read_to_end(&mut prefix)?;
     Ok(Fingerprint {
         size: meta.len(),
-        modified_ns,
+        modified_ns: crate::checked::modified_ns(&meta),
         prefix_blake3: blake3::hash(&prefix).to_hex().to_string(),
     })
+}
+
+/// The BLAKE3 of a whole open file, read from its start.
+fn hash_whole(file: &File) -> std::io::Result<String> {
+    let mut from_start = file.try_clone()?;
+    from_start.seek(SeekFrom::Start(0))?;
+    crate::checked::hash_file(from_start)
 }
 
 /// The state file of one upload of a file.
@@ -397,12 +421,27 @@ pub(crate) fn read_part(body: &mut dyn Read, size: usize) -> Result<Vec<u8>, Dri
     Ok(part)
 }
 
-/// The bytes `[offset, offset + len)` of the file `path`.
-fn read_at(path: &Path, offset: u64, len: usize) -> Result<Vec<u8>, DriveError> {
-    let mut file = File::open(path)?;
-    file.seek(SeekFrom::Start(offset))?;
+/// The bytes `[offset, offset + len)` of an upload's file: from the file a checked upload holds
+/// open (`held`, one part's read at a time), else from `path` opened again.
+fn read_at(
+    path: &Path,
+    held: Option<&Mutex<File>>,
+    offset: u64,
+    len: usize,
+) -> Result<Vec<u8>, DriveError> {
     let mut bytes = vec![0u8; len];
-    file.read_exact(&mut bytes)?;
+    match held {
+        Some(file) => {
+            let mut file = lock(file);
+            file.seek(SeekFrom::Start(offset))?;
+            file.read_exact(&mut bytes)?;
+        }
+        None => {
+            let mut file = File::open(path)?;
+            file.seek(SeekFrom::Start(offset))?;
+            file.read_exact(&mut bytes)?;
+        }
+    }
     Ok(bytes)
 }
 
@@ -558,7 +597,19 @@ fn upload_file_with(
     progress: &(dyn Fn(u64) + Sync),
     check: Option<&FileCheck>,
 ) -> Result<FileUpload, DriveError> {
-    let before = fingerprint(path)?;
+    // A checked upload (a sync's file) opens its file once and reads only that handle: a link
+    // or a FIFO swapped in under its name is never opened, another file never read.
+    let held = match check {
+        Some(c) => match crate::checked::open_checked(path, c)? {
+            Some(file) => Some(Mutex::new(file)),
+            None => return Ok(FileUpload::Changed),
+        },
+        None => None,
+    };
+    let before = match &held {
+        Some(file) => fingerprint_of(&lock(file))?,
+        None => fingerprint(path)?,
+    };
     if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.modified_ns) {
         return Ok(FileUpload::Changed);
     }
@@ -578,7 +629,15 @@ fn upload_file_with(
         .max(size.div_ceil(MAX_PARTS as u64))
         .max(1);
     if size <= part_size {
-        let bytes = fs::read(path)?;
+        let bytes = match &held {
+            Some(file) => read_at(
+                path,
+                Some(file),
+                0,
+                usize::try_from(size).unwrap_or(usize::MAX),
+            )?,
+            None => fs::read(path)?,
+        };
         if check.is_some_and(|c| !c.names(&bytes)) {
             return Ok(FileUpload::Changed);
         }
@@ -678,7 +737,12 @@ fn upload_file_with(
         let number = missing[i];
         let start = (number as u64 - 1) * part_size;
         let len = part_size.min(size - start);
-        let bytes = read_at(path, start, usize::try_from(len).unwrap_or(usize::MAX))?;
+        let bytes = read_at(
+            path,
+            held.as_ref(),
+            start,
+            usize::try_from(len).unwrap_or(usize::MAX),
+        )?;
         let etag = drive.upload_part(key, &upload_id, number, bytes)?;
         {
             let mut state = lock(&shared);
@@ -701,11 +765,14 @@ fn upload_file_with(
     // The file must still be the one whose parts were sent - checked, its bytes hashed whole
     // once more, as the parts of an earlier run were read before this one started.
     let named = check.is_none_or(|c| {
-        File::open(path)
-            .and_then(crate::checked::hash_file)
-            .is_ok_and(|hash| hash == c.blake3)
+        held.as_ref()
+            .is_some_and(|file| hash_whole(&lock(file)).is_ok_and(|hash| hash == c.blake3))
     });
-    if !named || fingerprint(path)? != before {
+    let after = match &held {
+        Some(file) => fingerprint_of(&lock(file))?,
+        None => fingerprint(path)?,
+    };
+    if !named || after != before {
         let _ = drive.abort_multipart(key, &upload_id);
         forget(&state_file);
         return Ok(FileUpload::Changed);

@@ -1274,10 +1274,14 @@ fn upload_one<S: RemoteStore + ?Sized>(
                 Ok(open) => open,
                 Err(why) => return Ok(Outcome::Changed(why)),
             };
+            // The file held open above: the upload below opens it again by its name and
+            // refuses any other file there (another device or inode).
             let check = FileCheck {
                 size: job.size,
                 modified_ns: job.mtime_ns,
                 blake3: job.hash.clone(),
+                dev: opened.dev,
+                ino: opened.ino,
             };
             let sent = match store.put_file(&key, path, &check) {
                 Ok(Some(sent)) => sent,

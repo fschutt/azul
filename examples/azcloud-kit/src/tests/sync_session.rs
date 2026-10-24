@@ -422,6 +422,8 @@ fn an_object_cache_hands_a_file_upload_down_and_the_bucket_resumes_it() {
         size: meta.len(),
         modified_ns: modified_ns(&meta),
         blake3: crate::sync::local::hash_bytes(&bytes),
+        dev: 0,
+        ino: 0,
     };
     // The connection drops after four parts.
     s3.take_parts(Some(4));

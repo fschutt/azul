@@ -7,7 +7,7 @@
 //! dial it ([`crate::transport::IrohLane`], what [`crate::transport::CloudDrive`] sets up); any
 //! other store (a bucket in memory, a cache) implements the trait itself.
 
-use std::{fs, io::Read, path::Path};
+use std::{io::Read, path::Path};
 
 use azul_storage::checked::{FileCheck, HashCheck};
 
@@ -73,10 +73,11 @@ pub trait RemoteStore: Send + Sync {
     /// resumes an upload a dropped connection or a killed app cut off with the parts it lacks;
     /// by default the file is streamed in and hashed as it is read.
     fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
-        if !check.matches(&fs::metadata(path)?) {
+        // Opened once, without a link or a FIFO, and only the file the scan saw.
+        let Some(file) = azul_storage::checked::open_checked(path, check)? else {
             return Ok(None);
-        }
-        let mut hashed = HashCheck::new(fs::File::open(path)?, &check.blake3);
+        };
+        let mut hashed = HashCheck::new(file, &check.blake3);
         match self.put_from(key, &mut hashed, check.size) {
             Ok(_) => Ok(Some(hashed.bytes_read())),
             Err(_) if hashed.changed() => Ok(None),
