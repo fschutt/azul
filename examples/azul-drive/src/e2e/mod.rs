@@ -13,6 +13,10 @@
 
 mod c_keys;
 mod c_links;
+// Group A: cloud-only files, a pairing's modes, the window's actions and the computer around.
+mod a_cmds;
+mod a_pair;
+mod a_place;
 mod checks;
 mod files;
 mod remote;
@@ -144,6 +148,9 @@ pub(crate) fn register(config: &mut AppConfig) {
         return;
     }
     for op in OPS {
+        config.add_e2e_command(AzString::from(op.name.to_string()), op_def(op), on_command);
+    }
+    for op in a_cmds::OPS {
         config.add_e2e_command(AzString::from(op.name.to_string()), op_def(op), on_command);
     }
 }
@@ -446,6 +453,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         .unwrap_or_default();
     let args = &args;
     match name {
+        _ if a_cmds::handles(name, args) => a_cmds::run(info, app, s, name, args),
         "drive_harness" => with_harness(|h| {
             Ok(serde_json::json!({
                 "run": h.run, "outside": h.outside, "secret": h.secret,
@@ -996,6 +1004,7 @@ fn states(s: &DriveState, args: &Args) -> Answer {
                 serde_json::json!({
                     "state": state,
                     "size": record.size,
+                    "modified": record.modified,
                     "cloud_only": record.cloud_only,
                     "pinned": states.is_pinned(key),
                     "error": record.error,

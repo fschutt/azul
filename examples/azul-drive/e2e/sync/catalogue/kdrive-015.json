@@ -65,7 +65,6 @@
   {
     "name": "cloud-only copies of files another computer rewrites every few minutes stay cloud-only and are never excluded",
     "description": "KDRIVE-015 (kDrive): many files were blacklisted though never hydrated locally. Rules P13 and O1: a cloud-only file whose drive version changes stays cloud-only and listed as nothing.",
-    "pending": "drive_evict {device, path or glob}: make files cloud-only, as 'free up space'",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

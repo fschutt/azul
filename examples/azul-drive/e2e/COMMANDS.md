@@ -475,3 +475,54 @@ path.
 
 `argv_clean` (no child process carries a secret) stays sync-chaos's: AzDrive has no seam that
 records the processes it starts.
+## Group A
+
+Cloud-only files, a pairing's modes, the window's actions around a pass and the drive, and the
+computer around AzDrive (`src/e2e/a_*.rs`).
+
+### A pairing's modes
+
+| op | arguments | result |
+|---|---|---|
+| `drive_pair` | as above, plus `mode` (`two-way` default, `backup`, `camera-upload`), `remote_deletes` (`keep`: a backup's rule), `on_demand` (bool), `exclude` (globs) | as above, plus `backup`, `on_demand`, `exclude` |
+| `drive_select` | `device`, `exclude` (globs, `.azcloudignore` lines; `[]` takes everything in again) | `exclude` |
+| `drive_on_demand` | `device`, `on` (bool) | `auto_download` |
+
+A **backup** pairing (`mode: backup`, `camera-upload`, or `remote_deletes: keep`) syncs one
+way, from the folder to the drive (azcloud-kit's `sync::oneway`): a file deleted here stays on
+the drive and shows as cloud only here; a file the drive deleted or changed is sent again from
+here; a file new on the drive stays there (cloud only); nothing here is ever trashed,
+overwritten or renamed by its passes. `links` other than `skip` fails: the sync keeps no links
+yet (they are listed as `symlink-skipped`).
+
+`exclude` is selective sync: what this device leaves out is neither sent, fetched nor deleted
+on either side; taking it in again (`drive_select` with `[]`) moves nothing that is the same on
+both. `on_demand: true` (or `drive_on_demand` on) is "nothing comes down until it is opened";
+off is "everything", and the next pass brings every cloud-only file down except the ones the
+user freed up.
+
+### Cloud-only files
+
+| op | arguments | result |
+|---|---|---|
+| `drive_evict` | `device`, `path` (a file, a folder with all in it, `.` the whole folder) or `glob` | `evicted` (keys in the cloud only now), `refused` (keys still here), `reasons` (`{key: why}`) |
+| `drive_hydrate` | `device`, `path` or `glob` | `hydrated`, `failed` (keys) |
+| `drive_write_through_placeholder` | `device`, `path`, content as `drive_write` | `written` (bool), `reason`, `key` |
+| `drive_corrupt_placeholder` | `device`, `path` (a cloud-only file) | `key` |
+| `drive_scan_read` | `device`, `glob` (default `*`) | `read` (files), `bytes` |
+
+`drive_evict` is the ribbon's "Free up space": a file's bytes leave this device only once the
+drive holds that very version whole - its index names it and its copy is read back and checked
+against its BLAKE3. A file not synced yet, changed since, or whose drive copy is missing or
+damaged is refused (the damaged one listed as `hash-mismatch`); `success` is true either way.
+`drive_hydrate` is opening the files (they come down). `drive_write_through_placeholder` is an
+app saving into an on-demand pairing: a cloud-only file comes down first; a write that would
+leave less than the disk's reserve free (`drive_disk` `free_bytes` counts) is refused with
+`written: false` and listed as `disk-reserve`. `drive_corrupt_placeholder` damages what the base
+keeps of a cloud-only file (its content's name and size), as a crash mid-write does: the next
+pass takes the drive's version as cloud only again, with no download and no delete.
+`drive_scan_read` reads every matching file of the folder end to end, as a virus scanner does
+(a cloud-only file has no bytes here to read).
+
+`drive_states` answers each file's `modified` too (seconds: the drive's time of the version it
+knows), so a cloud-only file's new size and time can be checked without a download.

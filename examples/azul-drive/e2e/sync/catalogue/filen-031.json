@@ -58,7 +58,6 @@
   {
     "name": "FILEN-031: an on-demand file cache is bounded and pushes back instead of filling the disk",
     "description": "FILEN-031 (Filen): the network drive's write cache filled the local SSD. Rule P13 (a cache is bounded and pushes back), E3. sync-chaos placeholder-write-back (pending).",
-    "pending": "drive_pair arg on_demand (placeholders) and drive_write_through_placeholder {device, path, size, seed} (an app writing through the virtual drive); AzDrive has no mount or on-demand cache (P13, later work)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -66,7 +65,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_disk", "device": "a", "free_bytes": 1100000000 },
       { "op": "drive_write_through_placeholder", "device": "a", "path": "huge.bin", "size": 100000000, "seed": 1 },
-      { "op": "assert_response", "path": "result.success", "equals": false },
+      { "op": "assert_response", "path": "result.written", "equals": false },
       { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["disk-reserve", "disk-full"] },
       { "op": "drive_cleanup" }
     ]

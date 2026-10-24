@@ -32,7 +32,6 @@
   {
     "name": "a phone's upload-only media pairing: a delete in the gallery keeps the cloud copy and says so",
     "description": "MBOX-008: the Android app's upload-only media backup. Rule O1 and delete-backup-mode: a one-way pairing never propagates a gallery delete and shows the file as kept in the cloud.",
-    "pending": "drive_pair field mode: \"camera-upload\" (the mobile app's one-way media backup pairing; AzDrive has no mobile app yet, planning/mobile)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "phone", "remote": "r" },

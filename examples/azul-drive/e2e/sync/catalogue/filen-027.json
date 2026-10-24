@@ -25,7 +25,6 @@
   {
     "name": "FILEN-027: a write through an on-demand placeholder is uploaded like any save, or the user sees an error",
     "description": "FILEN-027 (Filen): the File Provider extension dropped the write silently. Rule P13 (on-demand files are later work; when they come, a write through a placeholder uploads like any save). sync-chaos placeholder-write-back (pending).",
-    "pending": "drive_pair arg on_demand (bool: macOS File Provider / Windows Cloud Files placeholders) and drive_write_through_placeholder {device, path, text} (an app writing through the placeholder); on-demand files are later work (P13)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -30,7 +30,6 @@
   {
     "name": "a file is not made cloud-only before the drive acknowledged its upload; a cloud-only file moved out of the root is whole or refused",
     "description": "KDRIVE-023 (kDrive): a file was dehydrated before its upload finished; a dehydrated placeholder moved out of the folder became an empty file. Rules P13 and D2: eviction waits for the drive's acknowledgement with a matching hash; moving a cloud-only file out of the root hydrates it first or is refused, never a 0-byte file. sync-chaos placeholder-evict-only-uploaded.",
-    "pending": "drive_evict {device, path or glob}: make files cloud-only ('free up space'); answers evicted and refused (no acknowledged upload with a matching hash)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -49,7 +49,6 @@
   {
     "name": "a backup pair never applies a remote delete to the source",
     "description": "PCLOUD-010 (pCloud): 'backup' was a two-way sync. Rules D1/D2 (sync-chaos delete-backup-mode): a one-way pair keeps the originals when the cloud copy is deleted and its trash purged.",
-    "pending": "drive_pair {\"device\":\"b\",\"mode\":\"backup\"} (a one-way backup pair: remote deletes never touch the source; v1 ships two-way pairs only)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

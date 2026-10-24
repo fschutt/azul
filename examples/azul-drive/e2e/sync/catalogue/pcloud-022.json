@@ -51,7 +51,6 @@
   {
     "name": "in a backup pair, deleting the remote copy never deletes the local originals",
     "description": "PCLOUD-022 (pCloud): backup mode was two-way. Rules D1/D2 (sync-chaos delete-backup-mode).",
-    "pending": "drive_pair {\"device\":\"a\",\"mode\":\"backup\"} (one-way backup pair; deleting the remote copy never deletes the local originals)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

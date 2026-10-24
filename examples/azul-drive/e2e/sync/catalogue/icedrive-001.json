@@ -38,7 +38,6 @@
   {
     "name": "with a 'keep' policy no remote delete happens for 1, 2 or 500 local deletes",
     "description": "ICEDRIVE-001 (Icedrive): batch deletes ignored the policy. Rules D1/D2 (sync-chaos delete-backup-mode): every path, batch APIs included, checks the policy.",
-    "pending": "drive_pair {\"device\":\"a\",\"remote_deletes\":\"keep\"} (a one-way pair whose local deletes never delete on the drive)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

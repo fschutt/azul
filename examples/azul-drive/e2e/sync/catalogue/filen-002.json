@@ -86,7 +86,6 @@
   {
     "name": "FILEN-002: in a one-way (backup) pair, deleting one local subfolder never deletes anything on the drive",
     "description": "FILEN-002 (Filen): the trigger was a one-way local-to-cloud pair. Rules D1, D2: a backup pair keeps the drive's copies, every delete path goes through one policy. sync-chaos delete-backup-mode (pending: v1 ships two-way pairs only).",
-    "pending": "drive_pair arg mode ('backup': one-way local-to-cloud, a local delete never deletes on the drive); v1 ships two-way pairs only (delete-backup-mode)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

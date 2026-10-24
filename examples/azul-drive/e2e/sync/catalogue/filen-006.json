@@ -29,7 +29,6 @@
   {
     "name": "FILEN-006: in a backup pair, a delete followed by a new file reusing the inode never destroys the kept backup",
     "description": "FILEN-006 (Filen): in the additive localBackup mode the phantom rename destroyed the kept backup of a.txt. Rules A3, D2. Needs one-way pairs.",
-    "pending": "drive_pair arg mode ('backup': one-way local-to-cloud, a local delete never deletes on the drive); v1 ships two-way pairs only (delete-backup-mode)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

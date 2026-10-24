@@ -21,7 +21,6 @@
   {
     "name": "evicting a file and downloading it again keeps every version",
     "description": "ICLOUD-001: the eviction itself. Rules P13 and D2: OS or user eviction never loses a version; after hydrating, the file is the latest version and the earlier ones are still listed.",
-    "pending": "drive_evict {device, path} (Free up space: the file becomes cloud-only); drive_hydrate {device, path} (download it again)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },

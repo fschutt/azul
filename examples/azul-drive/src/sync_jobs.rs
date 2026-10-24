@@ -839,6 +839,20 @@ pub(crate) fn pair(
     folder: &str,
     prefix: &str,
 ) -> Result<(), Text> {
+    pair_with(info, app, s, drive_id, folder, prefix, |_| {})
+}
+
+/// [`pair`] with the pairing's settings changed by `edit` before its first pass (a backup
+/// pairing, on-demand files, what this device leaves out).
+pub(crate) fn pair_with(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    folder: &str,
+    prefix: &str,
+    edit: impl FnOnce(&mut SyncSetup),
+) -> Result<(), Text> {
     if folder.is_empty() {
         return Err(Text::key("azdrive-sync-pair-type-folder"));
     }
@@ -869,9 +883,9 @@ pub(crate) fn pair(
     }
     std::fs::create_dir_all(&folder)
         .map_err(|e| Text::plain(format!("{}: {e}", folder.display())))?;
-    s.settings
-        .synced
-        .push(SyncSetup::new(drive_id, &prefix, &folder));
+    let mut setup = SyncSetup::new(drive_id, &prefix, &folder);
+    edit(&mut setup);
+    s.settings.synced.push(setup);
     publish(s);
     crate::save_settings(info, app, s);
     s.sync_view.drives.entry(drive_id.to_string()).or_default();
@@ -1021,6 +1035,39 @@ fn guards_seen(
         };
         crate::problems::drive_problem_for(info, s, drive_id, problem);
     }
+}
+
+/// "Free up space" for `keys` (files, folders ending in `/`) of synced drive `drive_id`, on a
+/// worker thread, as the ribbon's command does for the selection. Whether the job started (the
+/// drive could be opened).
+pub(crate) fn free_up(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    keys: Vec<String>,
+) -> bool {
+    let Some(work) = work_of(info, s, drive_id) else {
+        return false;
+    };
+    spawn(info, app, s, Job::Sync(SyncJob::FreeUp { work, keys }));
+    true
+}
+
+/// Cloud-only `keys` of synced drive `drive_id` brought down, on a worker thread (as a copy of
+/// them waits for). Whether the job started.
+pub(crate) fn fetch(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    keys: Vec<String>,
+) -> bool {
+    let Some(work) = work_of(info, s, drive_id) else {
+        return false;
+    };
+    spawn(info, app, s, Job::Sync(SyncJob::Fetch { work, keys }));
+    true
 }
 
 /// The answer to the burst guard's question: "these changes are mine" (the next pass sends

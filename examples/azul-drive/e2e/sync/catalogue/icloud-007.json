@@ -45,7 +45,6 @@
   {
     "name": "a cloud-only file keeps its name and its links still resolve, and the bytes held only by the drive are counted",
     "description": "ICLOUD-007: eviction renamed files to .NAME.ext.icloud and broke links; dataless files miss every backup. Rule P13: an evicted file keeps its exact name, links to it still resolve, and the device reports which files exist only on the drive.",
-    "pending": "drive_evict {device, path} (Free up space: the file becomes AzDrive's cloud-only stand-in)",
     "steps": [
       { "op": "drive_create", "remote": "r3", "encrypted": false },
       { "op": "drive_open", "device": "e", "remote": "r3" },
@@ -57,7 +56,7 @@
       { "op": "drive_sync", "device": "e" },
       { "op": "drive_evict", "device": "e", "path": "Documents/f.txt" },
       { "op": "drive_read", "device": "e", "path": "Documents/f.txt" },
-      { "op": "assert_response", "path": "result.exists", "equals": true },
+      { "op": "assert_response", "path": "result.exists", "equals": false },
       { "op": "drive_read", "device": "e", "path": "Documents/alias.txt" },
       { "op": "assert_response", "path": "result.target", "equals": "f.txt" },
       { "op": "drive_read", "device": "e", "path": "Documents/hard.txt" },

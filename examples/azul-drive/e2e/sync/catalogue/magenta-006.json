@@ -76,7 +76,6 @@
   {
     "name": "excluding a folder from this device and including it again deletes nothing and downloads nothing unchanged",
     "description": "MAGENTA-006 (selective sync of 3 GB of 500 GB on the Mac). Rule P11: excluding or including again deletes nothing, on this device or the drive.",
-    "pending": "drive_select {device, exclude: [globs]} (the pairing's selective sync, as the window's exclude list sets it)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },

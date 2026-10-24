@@ -1,7 +1,6 @@
 {
   "name": "a virus scanner reading every file of the folder does not download cloud-only files",
   "description": "ICEDRIVE-018 (Icedrive): Windows Defender's scan hydrated every cloud-only file. Rule P13 (on-demand files: a background scanner cannot hydrate a tree, the cache stays bounded): files made cloud-only stay cloud-only while a scanner reads the folder; the next pass downloads nothing. sync-chaos placeholder-write-back.",
-  "pending": "drive_evict {device, path or glob} (make files cloud-only, as 'free up space'; answers evicted and refused) and drive_scan_read {device, glob} (read every matching file of the folder end to end through the OS, as a virus scanner does)",
   "steps": [
     { "op": "drive_create", "remote": "r" },
     { "op": "drive_open", "device": "a", "remote": "r" },

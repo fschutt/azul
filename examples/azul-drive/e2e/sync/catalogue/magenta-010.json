@@ -31,7 +31,6 @@
   {
     "name": "on-demand files switched off in the middle of the first sync: zero remote deletes, the rest downloads",
     "description": "MAGENTA-010, the trigger itself. Rule P13: toggling on-demand files deletes nothing.",
-    "pending": "drive_on_demand {device, on: bool} (the pairing's cloud-only files switched on or off, as the window's setting does; azcloud-kit cloud_only)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -45,7 +44,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_write", "device": "a", "path": "late.txt", "text": "arrives after the switch" },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_sync", "device": "b", "pause_at": "download-start", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "pause_at": "after-scan", "expect": "any" },
       { "op": "drive_on_demand", "device": "b", "on": false },
       { "op": "drive_cont", "device": "b" },
       { "op": "drive_wait", "device": "b", "expect": "any" },

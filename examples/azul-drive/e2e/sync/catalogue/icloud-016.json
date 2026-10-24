@@ -54,7 +54,6 @@
   {
     "name": "making a folder cloud-only never deletes the excluded items inside it",
     "description": "ICLOUD-016: 'evicting the parent deletes .nosync children'. Rules P13 and P11: eviction drops only bytes the drive holds; an excluded child stays.",
-    "pending": "drive_evict {device, path} for a folder (Free up space on a folder: its synced files become cloud-only)",
     "steps": [
       { "op": "drive_create", "remote": "r3", "encrypted": false },
       { "op": "drive_open", "device": "e", "remote": "r3" },

@@ -28,7 +28,6 @@
   {
     "name": "wiping the cloud copy of a phone's backup never deletes the originals on the phone",
     "description": "MAGENTA-008: the user wanted to wipe the cloud copy and feared the deletion would reach the phone. Rules D1, D2 and delete-backup-mode: a backup (one-way) pairing never applies a remote delete to its source.",
-    "pending": "drive_pair field mode: \"backup\" (a one-way pairing that uploads and never applies remote deletes; v1 ships two-way pairs only, sync-chaos delete-backup-mode)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "phone", "remote": "r" },

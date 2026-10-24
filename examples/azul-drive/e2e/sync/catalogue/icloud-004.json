@@ -34,7 +34,6 @@
   {
     "name": "a folder holding cloud-only files moved out of the root: the drive keeps those files until the moved bytes are real",
     "description": "ICLOUD-004: the not-downloaded files. Rules P13 and D6: bytes are dropped only after the drive acknowledged them; a cloud-only file moved out of the root without its bytes (the OS moved only the stand-in) stays on the drive even after the user confirms the folder's delete.",
-    "pending": "drive_evict {device, path} (Free up space: the file becomes AzDrive's cloud-only stand-in)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },
