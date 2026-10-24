@@ -1048,6 +1048,11 @@ impl DomLayoutResult {
     }
 }
 
+/// The next window's key for the a11y lints (`LayoutWindow::dom_lint_scope`);
+/// 0 is a lint run outside any window.
+static NEXT_DOM_LINT_SCOPE: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(1);
+
 /// Bytes held by `layout_results`, published by the walk at the insert site so
 /// the `accounted / rss` line can say what it is missing. Cross-frame by
 /// necessity: the two are measured at different points in the frame.
@@ -1242,6 +1247,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         dom_lint_runs: _,
         // One small entry per laid-out DOM.
         dom_lint_stamps: _,
+        dom_lint_scope: _,
         a11y_tree_updates: _,
         timers: _,
         threads: _,
@@ -2244,6 +2250,9 @@ pub struct LayoutWindow {
     /// again; a new generation, a re-rendered `VirtualView` child or any
     /// other arena is.
     dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
+    /// The window's own key for the a11y lints: they say each problem once
+    /// per window, not once per node or per pass ([`NEXT_DOM_LINT_SCOPE`]).
+    dom_lint_scope: u64,
     /// How many accessibility passes ran (`update_a11y_tree`, which every
     /// layout pass ends with) - so a shell can tell whether the tree is
     /// already current after a regeneration (A11YPATCH8).
@@ -2825,6 +2834,8 @@ impl LayoutWindow {
             seat_preedit_shaped: BTreeMap::new(),
             dom_lint_runs: 0,
             dom_lint_stamps: BTreeMap::new(),
+            dom_lint_scope: NEXT_DOM_LINT_SCOPE
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed),
             a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
@@ -3434,8 +3445,11 @@ impl LayoutWindow {
                 self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
-                crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
-                crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
+                crate::dom_lint::warn_interactive_without_accessibility_in(
+                    &lr.styled_dom,
+                    self.dom_lint_scope,
+                );
+                crate::dom_lint::warn_a11y_shape_in(&lr.styled_dom, self.dom_lint_scope);
                 crate::dom_lint::warn_composite_navigation(&lr.styled_dom);
             }
             self.dom_lint_stamps
@@ -28735,9 +28749,11 @@ impl LayoutWindow {
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
-            // A counter and DOM-keyed arena stamps, no node ids.
+            // A counter, DOM-keyed arena stamps and the window's lint key, no
+            // node ids.
             dom_lint_runs: _,
             dom_lint_stamps: _,
+            dom_lint_scope: _,
             // A counter.
             a11y_tree_updates: _,
             input_interpreter: _,

@@ -494,6 +494,66 @@ fn report_once(
     azul_core::diagnostics::emit_once(key, message)
 }
 
+/// Print the nodes of one lint pass that share a problem `kind` of the lint
+/// `lint` as ONE line, once per window (`scope`: the window's, 0 outside
+/// one) through `azul_core::diagnostics::emit_once`. Twelve navigation rows
+/// built by one helper are one fix at one construction site, not twelve
+/// warnings, and a window that renders new screens with the same problem has
+/// nothing new to say. `message` gets the count and the first nodes
+/// ([`node_list`]) and is built only when it is printed. Returns whether it
+/// was.
+fn report_kind_once(
+    styled_dom: &StyledDom,
+    scope: u64,
+    lint: &str,
+    kind: u8,
+    nodes: &[NodeId],
+    message: impl FnOnce(&str) -> String,
+) -> bool {
+    if nodes.is_empty() {
+        return false;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    scope.hash(&mut hasher);
+    lint.hash(&mut hasher);
+    kind.hash(&mut hasher);
+    azul_core::diagnostics::emit_once(hasher.finish(), || {
+        message(&node_list(styled_dom, nodes))
+    })
+}
+
+/// "3 nodes: node 12 (#nav-mail "Mail"), node 14 (...) and 1 more" - how
+/// many nodes have a finding and the first of them, each with the role it
+/// declares when it declares one.
+fn node_list(styled_dom: &StyledDom, nodes: &[NodeId]) -> String {
+    const SHOWN: usize = 4;
+    let data = styled_dom.node_data.as_container();
+    let shown: Vec<String> = nodes
+        .iter()
+        .take(SHOWN)
+        .map(|&id| {
+            let who = describe_node(styled_dom, id);
+            match data.get(id).and_then(|n| n.accessibility.as_ref()).map(|i| i.role) {
+                Some(role) if !matches!(role, azul_core::a11y::AccessibilityRole::Unknown) => {
+                    format!("{who} as {role:?}")
+                }
+                _ => who,
+            }
+        })
+        .collect();
+    let count = if nodes.len() == 1 {
+        "1 node".to_string()
+    } else {
+        format!("{} nodes", nodes.len())
+    };
+    let more = nodes.len().saturating_sub(SHOWN);
+    if more > 0 {
+        format!("{count}: {} and {more} more", shown.join(", "))
+    } else {
+        format!("{count}: {}", shown.join(", "))
+    }
+}
+
 /// The part of a node that survives a DOM rebuild: what it is and how it is
 /// selected. Deliberately not its text, which may be per-frame data.
 fn hash_identity(data: &azul_core::dom::NodeData, hasher: &mut impl Hasher) {
@@ -970,13 +1030,19 @@ fn a11y_suppressed() -> bool {
 /// glyph, where a sighted user infers "mute" from a picture and a screen reader
 /// gets a private-use codepoint.
 pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
+    warn_interactive_without_accessibility_in(styled_dom, 0);
+}
+
+/// [`warn_interactive_without_accessibility`] for the window `scope`: every
+/// unnamed control of the DOM in one line, once per window.
+pub fn warn_interactive_without_accessibility_in(styled_dom: &StyledDom, scope: u64) {
     if a11y_suppressed() {
         return;
     }
 
     let nodes = styled_dom.node_data.as_container();
 
-    let mut reported = 0usize;
+    let mut unnamed = Vec::new();
     for (node_id, node) in nodes
         .linear_iter()
         .filter_map(|id| nodes.get(id).map(|n| (id, n)))
@@ -998,25 +1064,18 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
         if has_readable_text_label(styled_dom, node_id) {
             continue;
         }
-
-        if reported >= 8 {
-            break;
-        }
-        let printed = report_once(styled_dom, node_id, A11Y_SUPPRESS_TAG, || {
-            format!(
-                "[azul][a11y] {} has a callback but no accessible name, and no text child \
-                 that could serve as one — an icon-only control reads to a screen reader as a \
-                 private-use codepoint, or as nothing. Add one: \
-                 .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
-                 Some(\"...\".into()).into(), ..Default::default() }}). (suppress with \
-                 AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
-                describe_node(styled_dom, node_id)
-            )
-        });
-        if printed {
-            reported += 1;
-        }
+        unnamed.push(node_id);
     }
+    report_kind_once(styled_dom, scope, A11Y_SUPPRESS_TAG, 0, &unnamed, |list| {
+        format!(
+            "[azul][a11y] controls with a callback but no accessible name, and no text child \
+             that could serve as one ({list}). An icon-only control reads to a screen reader \
+             as a private-use codepoint, or as nothing. Add one: \
+             .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
+             Some(\"...\".into()).into(), ..Default::default() }}). (suppress with \
+             AZ_SUPPRESS={A11Y_SUPPRESS_TAG})"
+        )
+    });
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -1265,6 +1324,65 @@ mod semantic_and_a11y_lint_tests {
             "the same finding twice is printed once: {:?}",
             azul_core::diagnostics::recorded()
         );
+        azul_core::diagnostics::clear();
+    }
+
+    /// `count` navigation rows built by one helper: clickable and named, none
+    /// with a role, each with its own id - the sidebar that printed one
+    /// "role is Unknown" warning per row.
+    fn nav_rows(prefix: &str, count: usize) -> StyledDom {
+        let mut body = Dom::create_body();
+        for i in 0..count {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_id(azul_css::AzString::from(format!("{prefix}-{i}")))
+                    .with_accessibility_name(format!("Row {i}"))
+                    .with_callback(
+                        azul_core::dom::EventFilter::Hover(
+                            azul_core::dom::HoverEventFilter::MouseUp,
+                        ),
+                        azul_core::refany::RefAny::new(()),
+                        crate::callbacks::Callback::from_ptr(noop_cb),
+                    ),
+            );
+        }
+        styled(body)
+    }
+
+    /// Every node with the same problem is ONE line that says how many there
+    /// are and names the first few: they come from one construction site, and
+    /// one line per node buried the console. Another screen with the same
+    /// problem in the same window adds nothing.
+    #[test]
+    fn every_node_with_the_same_a11y_problem_is_one_line_naming_them() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_a11y_shape(&nav_rows("nav", 6));
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "six rows with one problem are one line: {lines:?}");
+        assert!(
+            lines[0].contains("role is Unknown")
+                && lines[0].contains("6 nodes")
+                && lines[0].contains("#nav-0")
+                && lines[0].contains("and 2 more"),
+            "the line says the problem, the count and the first rows: {lines:?}"
+        );
+        warn_a11y_shape(&nav_rows("tab", 3));
+        assert_eq!(a11y_lines().len(), 1, "the same problem again: {:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
+    /// The lints say each problem once per WINDOW: a window that lays out the
+    /// same shape again stays quiet, a second window says it once more.
+    #[test]
+    fn a_window_says_each_a11y_problem_once_and_the_next_window_says_it_again() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_a11y_shape_in(&nav_rows("nav", 3), 1);
+        warn_a11y_shape_in(&nav_rows("nav", 3), 1);
+        assert_eq!(printed("[azul][a11y-shape]"), 1, "{:?}", a11y_lines());
+        warn_a11y_shape_in(&nav_rows("nav", 3), 2);
+        assert_eq!(printed("[azul][a11y-shape]"), 2, "{:?}", a11y_lines());
         azul_core::diagnostics::clear();
     }
 
@@ -1799,176 +1917,193 @@ pub const A11Y_SHAPE_SUPPRESS_TAG: &str = "a11y_shape";
 ///
 /// Suppress with `AZ_SUPPRESS=a11y_shape`, or `AZ_SUPPRESS=all` for every lint.
 pub fn warn_a11y_shape(styled_dom: &StyledDom) {
+    warn_a11y_shape_in(styled_dom, 0);
+}
+
+/// [`warn_a11y_shape`] for the window `scope`: each kind of finding is one
+/// line naming its nodes, once per window.
+pub fn warn_a11y_shape_in(styled_dom: &StyledDom, scope: u64) {
     if lint_suppressed(A11Y_SHAPE_SUPPRESS_TAG) {
         return;
     }
 
-    use azul_core::a11y::{AccessibilityRole, AccessibilityState};
-
     let nodes = styled_dom.node_data.as_container();
-    let mut reported = 0usize;
-
+    let mut found: std::collections::BTreeMap<ShapeFinding, Vec<NodeId>> =
+        std::collections::BTreeMap::new();
     for (node_id, node) in nodes
         .linear_iter()
         .filter_map(|id| nodes.get(id).map(|n| (id, n)))
     {
-        if reported >= 8 {
-            break; // one screenful is enough to act on
+        if let Some(kind) = shape_finding(styled_dom, node_id, node) {
+            found.entry(kind).or_default().push(node_id);
         }
-        let interactive = is_user_interactive(node);
-        let focusable = node.get_tab_index().is_some();
+    }
+    for (kind, ids) in &found {
+        report_kind_once(styled_dom, scope, A11Y_SHAPE_SUPPRESS_TAG, *kind as u8, ids, |list| {
+            format!(
+                "[azul][a11y-shape] {} ({list}). {} (suppress with \
+                 AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})",
+                kind.problem(),
+                kind.advice()
+            )
+        });
+    }
+}
 
-        let Some(info) = node.accessibility.as_ref() else {
-            // The no-a11y case is handled by warn_interactive_without_accessibility,
-            // which already reports interactive nodes. Here, add the shapes that
-            // are worth naming even when they are not clickable.
-            if matches!(node.get_node_type(), NodeType::Image(_)) {
-                if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                    let who = describe_node(styled_dom, node_id);
-                    format!(
-                        "[azul][a11y-shape] {who} is an IMAGE with no accessibility info, so it \
-                         is absent from the accessibility tree entirely — a screen reader announces \
-                         nothing where a sighted user sees a picture. Give it \
-                         .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
-                         Some(\"what it shows\".into()).into(), role: AccessibilityRole::Graphic, \
-                         ..Default::default() }}), or, when it only decorates something named \
-                         elsewhere, mark it decorative with `role: AccessibilityRole::Nothing` and no \
-                         name. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                    )
-                }) {
-                    reported += 1;
-                }
-            } else if focusable
-                && report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                    let who = describe_node(styled_dom, node_id);
-                    format!(
-                        "[azul][a11y-shape] {who} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
-                         declares no accessibility info, so tabbing lands on something the screen \
-                         reader cannot describe. At minimum give it a `role` and an \
-                         `accessibility_name`. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                    )
-                }) {
-                    reported += 1;
-                }
-            continue;
-        };
+/// What [`warn_a11y_shape`] finds on a node: each kind is printed as one
+/// line naming its nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ShapeFinding {
+    /// An image with no accessibility info.
+    UndeclaredImage,
+    /// A tab stop with no accessibility info.
+    UndeclaredFocusable,
+    /// A control that declares accessibility and leaves its role Unknown.
+    UnknownRole,
+    /// A slider, progress bar or scroll bar without its value.
+    NoValue,
+    /// A check box, radio button or switch without its checked state.
+    NoCheckedState,
+    /// A declared node with no name, no label and no text to take one from.
+    Anonymous,
+}
 
-        // It DECLARED accessibility — now check that the declaration matches the
-        // shape. A half-filled AccessibilityInfo is the subtler failure: the node
-        // is in the tree, so nothing looks broken, and it still announces wrongly.
-        let role = info.role;
-        let has_name = info.accessibility_name.as_ref().is_some();
-        let has_value = info.accessibility_value.as_ref().is_some();
-
-        // `Unknown` means "not specified": both accessibility trees then fall
-        // back to the ELEMENT's own role (a `<button>` is a button), so only a
-        // generic element left at `Unknown` really says nothing about itself.
-        if matches!(role, AccessibilityRole::Unknown)
-            && !element_implies_a_role(node.get_node_type())
-            && (interactive || focusable)
-        {
-            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                let who = describe_node(styled_dom, node_id);
-                format!(
-                    "[azul][a11y-shape] {who} is interactive and declares accessibility, but its \
-                     `role` is Unknown — a screen reader can say its name and not what it IS. Pick \
-                     from AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, Tab, \
-                     MenuItem, …). (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                )
-            }) {
-                reported += 1;
+impl ShapeFinding {
+    /// What the nodes of this kind are.
+    const fn problem(self) -> &'static str {
+        match self {
+            Self::UndeclaredImage => "IMAGES with no accessibility info",
+            Self::UndeclaredFocusable => {
+                "KEYBOARD-FOCUSABLE nodes (they have a tab_index) that declare no accessibility \
+                 info"
             }
-            continue;
-        }
-
-        if matches!(
-            role,
-            AccessibilityRole::Slider
-                | AccessibilityRole::ProgressBar
-                | AccessibilityRole::ScrollBar
-        ) && !has_value
-        {
-            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                let who = describe_node(styled_dom, node_id);
-                format!(
-                    "[azul][a11y-shape] {who} has role {role:?} but no `accessibility_value`. \
-                     The value IS the content of these controls — without it a screen reader \
-                     announces \"slider\" and never how far along it is. Set accessibility_value on \
-                     every change, not once. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                )
-            }) {
-                reported += 1;
+            Self::UnknownRole => {
+                "interactive nodes that declare accessibility, but their role is Unknown"
             }
-            continue;
-        }
-
-        if matches!(
-            role,
-            AccessibilityRole::CheckButton
-                | AccessibilityRole::RadioButton
-                | AccessibilityRole::Switch
-        ) {
-            let states = info.states.as_ref();
-            let declares_checked = states.iter().any(|s| {
-                matches!(
-                    s,
-                    AccessibilityState::CheckedTrue
-                        | AccessibilityState::CheckedFalse
-                        | AccessibilityState::Selected
-                )
-            });
-            if !declares_checked {
-                if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                    let who = describe_node(styled_dom, node_id);
-                    format!(
-                        "[azul][a11y-shape] {who} has role {role:?} but declares no \
-                         CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked \
-                         no matter what it renders. Push the state into AccessibilityInfo::states \
-                         when the control toggles. (suppress with \
-                         AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                    )
-                }) {
-                    reported += 1;
-                }
-                continue;
+            Self::NoValue => "sliders, progress bars or scroll bars with no `accessibility_value`",
+            Self::NoCheckedState => {
+                "check boxes, radio buttons or switches that declare no CheckedTrue / \
+                 CheckedFalse / Selected state"
             }
-        }
-
-        // An explicit `role: Nothing` with no name on something nobody can click
-        // or tab to is the DECORATIVE mark (ARIA's role="presentation"): the
-        // picture is part of a whole that is named elsewhere, like one tile of a
-        // map whose container carries the name. Demanding a name here would make
-        // a screen reader read out every tile.
-        if matches!(role, AccessibilityRole::Nothing) && !has_name && !interactive && !focusable {
-            continue;
-        }
-
-        // A control whose visible label is a text node DOES announce itself —
-        // azul derives the name from that text. Reporting those was a false
-        // positive on every correctly-built labelled checkbox and slider.
-        if !has_name
-            && info.labelled_by.as_ref().is_none()
-            && !has_readable_text_label(styled_dom, node_id)
-        {
-            // Name the WIDGET when the node admits which one it is. "Slider has
-            // no name; add .with_accessibility_name(..)" is a fix someone can
-            // apply; "node 40 is anonymous" is a puzzle they have to solve
-            // first.
-            if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                let who = describe_node(styled_dom, node_id);
-                format!(
-                    "[azul][a11y-shape] {who} declares accessibility (role {role:?}) but has neither \
-                     an `accessibility_name` nor a `labelled_by`. It is in the tree and anonymous. \
-                     This control has no text of its own to derive a name from, and only the CALL \
-                     SITE knows what it is called: add `.with_accessibility_name(\"…\")` there — it \
-                     MERGES, so the role, value and states above survive — or point at the label you \
-                     already render with `.with_accessibility_labelled_by(node)`, which cannot drift \
-                     out of sync the way a copied string does. (suppress with \
-                     AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
-                )
-            }) {
-                reported += 1;
+            Self::Anonymous => {
+                "nodes that declare accessibility but have neither an `accessibility_name` nor a \
+                 `labelled_by`"
             }
         }
     }
+
+    /// Why it matters and what to declare.
+    const fn advice(self) -> &'static str {
+        match self {
+            Self::UndeclaredImage => {
+                "A screen reader announces nothing where a sighted user sees a picture. Give it \
+                 .with_accessibility_info(AccessibilityInfo::named(\"what it shows\", \
+                 AccessibilityRole::Graphic)), or, when it only decorates something named \
+                 elsewhere, mark it decorative with `role: AccessibilityRole::Nothing` and no \
+                 name."
+            }
+            Self::UndeclaredFocusable => {
+                "Tabbing lands on something the screen reader cannot describe. At minimum give \
+                 it a `role` and an `accessibility_name`."
+            }
+            Self::UnknownRole => {
+                "A screen reader can say the name and not what the control IS. Pick from \
+                 AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, PageTab, \
+                 MenuItem, ListItem, ...)."
+            }
+            Self::NoValue => {
+                "The value IS the content of these controls: without it a screen reader \
+                 announces \"slider\" and never how far along it is. Set accessibility_value on \
+                 every change, not once."
+            }
+            Self::NoCheckedState => {
+                "It always announces as unchecked no matter what it renders. Push the state into \
+                 AccessibilityInfo::states when the control toggles."
+            }
+            Self::Anonymous => {
+                "It is in the tree and anonymous, with no text of its own to derive a name from, \
+                 and only the CALL SITE knows what it is called: add \
+                 `.with_accessibility_name(\"...\")` there - it MERGES, so the role, value and \
+                 states survive - or point at the label you already render with \
+                 `.with_accessibility_labelled_by(node)`, which cannot drift out of sync the way \
+                 a copied string does."
+            }
+        }
+    }
+}
+
+/// Which [`ShapeFinding`] the node has, if any: the first that applies.
+fn shape_finding(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node: &azul_core::dom::NodeData,
+) -> Option<ShapeFinding> {
+    use azul_core::a11y::{AccessibilityRole, AccessibilityState};
+
+    let interactive = is_user_interactive(node);
+    let focusable = node.get_tab_index().is_some();
+
+    let Some(info) = node.accessibility.as_ref() else {
+        // The interactive no-a11y case is warn_interactive_without_accessibility's.
+        // Here, the shapes worth naming even when they are not clickable.
+        if matches!(node.get_node_type(), NodeType::Image(_)) {
+            return Some(ShapeFinding::UndeclaredImage);
+        }
+        return focusable.then_some(ShapeFinding::UndeclaredFocusable);
+    };
+
+    // It DECLARED accessibility - now check that the declaration matches the
+    // shape. A half-filled AccessibilityInfo is the subtler failure: the node
+    // is in the tree, so nothing looks broken, and it still announces wrongly.
+    let role = info.role;
+    let has_name = info.accessibility_name.as_ref().is_some();
+
+    // `Unknown` means "not specified": both accessibility trees then fall
+    // back to the ELEMENT's own role (a `<button>` is a button), so only a
+    // generic element left at `Unknown` really says nothing about itself.
+    if matches!(role, AccessibilityRole::Unknown)
+        && !element_implies_a_role(node.get_node_type())
+        && (interactive || focusable)
+    {
+        return Some(ShapeFinding::UnknownRole);
+    }
+
+    if matches!(
+        role,
+        AccessibilityRole::Slider | AccessibilityRole::ProgressBar | AccessibilityRole::ScrollBar
+    ) && info.accessibility_value.as_ref().is_none()
+    {
+        return Some(ShapeFinding::NoValue);
+    }
+
+    if matches!(
+        role,
+        AccessibilityRole::CheckButton | AccessibilityRole::RadioButton | AccessibilityRole::Switch
+    ) && !info.states.as_ref().iter().any(|s| {
+        matches!(
+            s,
+            AccessibilityState::CheckedTrue
+                | AccessibilityState::CheckedFalse
+                | AccessibilityState::Selected
+        )
+    }) {
+        return Some(ShapeFinding::NoCheckedState);
+    }
+
+    // An explicit `role: Nothing` with no name on something nobody can click
+    // or tab to is the DECORATIVE mark (ARIA's role="presentation"): the
+    // picture is part of a whole that is named elsewhere, like one tile of a
+    // map whose container carries the name. Demanding a name here would make
+    // a screen reader read out every tile.
+    if matches!(role, AccessibilityRole::Nothing) && !has_name && !interactive && !focusable {
+        return None;
+    }
+
+    // A control whose visible label is a text node DOES announce itself -
+    // azul derives the name from that text. Reporting those was a false
+    // positive on every correctly-built labelled checkbox and slider.
+    let anonymous = !has_name
+        && info.labelled_by.as_ref().is_none()
+        && !has_readable_text_label(styled_dom, node_id);
+    anonymous.then_some(ShapeFinding::Anonymous)
 }
