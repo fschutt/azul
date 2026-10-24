@@ -154,6 +154,10 @@ mod actions;
 mod transfer_actions;
 /// The window's close while transfers, sync passes or an encryption run.
 mod closing;
+/// When a drive's keys are read from the keychain (lazily, quietly, in rounds) and wiped.
+mod unlock;
+#[cfg(test)]
+mod unlock_tests;
 /// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
 mod picker;
 #[cfg(test)]
