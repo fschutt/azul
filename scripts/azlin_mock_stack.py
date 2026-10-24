@@ -134,7 +134,7 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
                                                     no_recovery_key)
-    POST /v1/drives/<id>/claim {"ticket"}, NO       201 {"member": "owner", "drive_token",
+    POST /v1/drives/<id>/claim {"ticket"}, NO       201 {"member": "pickup-<n>", "drive_token",
         token                                       "claims_left"}: a paid drive picked up on
                                                     another computer gets a token family of its
                                                     own by the ticket its sealed sign-up carries
@@ -2048,8 +2048,10 @@ class TokenState:
             claim['claims'] += 1
             if claim['until'] is None:
                 claim['until'] = now // 86400 * 86400 + CLAIM_WINDOW_SECS
-            token = self.new_family(drive_id, 'owner')
-            answer = {'member': 'owner', 'claims_left': CLAIMS_MAX - claim['claims']}
+            # each pick-up a member of its own (drives.rs `claim`): removable without the others
+            member = 'pickup-%d' % claim['claims']
+            token = self.new_family(drive_id, member)
+            answer = {'member': member, 'claims_left': CLAIMS_MAX - claim['claims']}
             self.keep('claim', key, caller,
                       {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201, 'body': answer})
             return dict(answer, drive_token=token)

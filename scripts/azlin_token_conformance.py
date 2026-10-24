@@ -37,8 +37,8 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     checkout id to a drive bundle - and opens for no other checkout id; a second GET answers it
     again (kept, not deleted on read); an unknown checkout is 404. The sealed sign-up carries
     `claim: {"ticket", "max": 3, "window_days": 30}`: POST /v1/drives/<id>/claim {"ticket"} (no
-    drive token) with another ticket is 401; with its ticket 201 `{"member": "owner",
-    "drive_token", "claims_left": 2}` - a family of its own, whose token refreshes - and so on
+    drive token) with another ticket is 401; with its ticket 201 `{"member": "pickup-1",
+    "drive_token", "claims_left": 2}` - a family and a member of its own, whose token refreshes - and so on
     up to three, then 409 `claims_used`; a drive from before the tickets (a development
     sign-up) is 401, and the app keeps the sealed drive token.
 10. The period tokens (AZLINSEC17 F24, F36, scripts/azlin_period.py): the sealed sign-up carries
@@ -1412,8 +1412,8 @@ def ticket_checks(suite, client, bundle):
     sealed = TOKEN.match(bundle.get('drive_token') or '')
     status, value = claim_ticket(client, drive_id, ticket)
     own = TOKEN.match(value.get('drive_token') or '')
-    suite.check('the ticket claims a token family of its own (201, owner, two left)',
-                status == 201 and value.get('member') == 'owner' and own is not None
+    suite.check('the ticket claims a token family and member of its own (201, pickup-1, two left)',
+                status == 201 and value.get('member') == 'pickup-1' and own is not None
                 and sealed is not None and own.group(1) != sealed.group(1)
                 and value.get('claims_left') == 2,
                 '(HTTP %d %r)' % (status, error_code(value) or value.get('claims_left')))
