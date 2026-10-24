@@ -2619,6 +2619,23 @@ pub fn gpu_value_damage(
     // with the scroll-shift producers): an item is painted `scrolled` up and
     // left of its display-list bounds.
     let mut stack = ScrollStack::new(scroll_offsets);
+    // The reference frames AROUND the item, as the previous frame painted
+    // them and as this one does: a toast card sliding inside the toast
+    // column (`translateX(-50%)`) is painted through the column's matrix
+    // too, and its damage left half the card unrepainted without it.
+    let mut frames_old = FrameStack::default();
+    let mut frames_new = FrameStack::default();
+    let both = |out: &mut GpuValueDamage, r: LogicalRect, old_frames: &FrameStack, new_frames: &FrameStack| {
+        match (old_frames.map(r), new_frames.map(r)) {
+            (Some(a), Some(b)) => {
+                out.rects.push(a);
+                if a != b {
+                    out.rects.push(b);
+                }
+            }
+            _ => out.needs_full = true,
+        }
+    };
     for (idx, item) in items.iter().enumerate() {
         let scrolled = stack.scrolled();
         stack.step(item);
@@ -2626,22 +2643,43 @@ pub fn gpu_value_damage(
             DisplayListItem::PushReferenceFrame {
                 transform_key,
                 bounds,
-                ..
-            } if changed_t.contains(&transform_key.id) => {
-                let content =
-                    reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner());
-                let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
-                let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
-                match (
-                    affine_rect_about(old_m, bounds.inner().origin, content),
-                    affine_rect_about(new_m, bounds.inner().origin, content),
-                ) {
-                    (Some(a), Some(b)) => {
-                        out.rects.push(moved_by(a, scrolled));
-                        out.rects.push(moved_by(b, scrolled));
+                initial_transform,
+            } => {
+                let origin = moved_by(*bounds.inner(), scrolled).origin;
+                let old_m = old_transforms
+                    .get(&transform_key.id)
+                    .copied()
+                    .unwrap_or(*initial_transform);
+                let new_m = new_transforms
+                    .get(&transform_key.id)
+                    .copied()
+                    .unwrap_or(*initial_transform);
+                if changed_t.contains(&transform_key.id) {
+                    let content = moved_by(
+                        reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner()),
+                        scrolled,
+                    );
+                    let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
+                    let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
+                    match (
+                        affine_rect_about(old_m, origin, content)
+                            .and_then(|a| frames_old.map(a)),
+                        affine_rect_about(new_m, origin, content)
+                            .and_then(|b| frames_new.map(b)),
+                    ) {
+                        (Some(a), Some(b)) => {
+                            out.rects.push(a);
+                            out.rects.push(b);
+                        }
+                        _ => out.needs_full = true,
                     }
-                    _ => out.needs_full = true,
                 }
+                frames_old.push(origin, old_m);
+                frames_new.push(origin, new_m);
+            }
+            DisplayListItem::PopReferenceFrame => {
+                frames_old.pop();
+                frames_new.pop();
             }
             DisplayListItem::ScrollBarStyled { info } => {
                 let thumb_moved = info
@@ -2651,7 +2689,7 @@ pub fn gpu_value_damage(
                 if thumb_moved || faded {
                     // The whole bar bounds cover the thumb's old AND new
                     // position — precise and cheap.
-                    out.rects.push(moved_by(info.bounds.0, scrolled));
+                    both(&mut out, moved_by(info.bounds.0, scrolled), &frames_old, &frames_new);
                 }
             }
             DisplayListItem::PushOpacity {
@@ -2663,7 +2701,7 @@ pub fn gpu_value_damage(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    out.rects.push(moved_by(*bounds.inner(), scrolled));
+                    both(&mut out, moved_by(*bounds.inner(), scrolled), &frames_old, &frames_new);
                 }
             }
             _ => {}
@@ -2698,9 +2736,9 @@ pub fn color_value_damage(
         return out;
     }
     let mut stack = ScrollStack::new(scroll_offsets);
-    // The reference frames open at the current item, outermost first: each
-    // one's origin and the matrix it is painted with.
-    let mut frames: Vec<(LogicalPosition, azul_core::transform::ComputedTransform3D)> = Vec::new();
+    // The reference frames open at the current item, each with the matrix
+    // it is painted with now.
+    let mut frames = FrameStack::default();
     for (idx, item) in display_list.items.iter().enumerate() {
         let scrolled = stack.scrolled();
         stack.step(item);
@@ -2714,7 +2752,7 @@ pub fn color_value_damage(
                     .get(&transform_key.id)
                     .copied()
                     .unwrap_or(*initial_transform);
-                frames.push((moved_by(*bounds.inner(), scrolled).origin, m));
+                frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
             }
             DisplayListItem::PopReferenceFrame => {
                 frames.pop();
@@ -2726,13 +2764,7 @@ pub fn color_value_damage(
                 if !changed(key.id) {
                     continue;
                 }
-                let mapped = frames
-                    .iter()
-                    .rev()
-                    .try_fold(moved_by(*bounds.inner(), scrolled), |r, (origin, m)| {
-                        affine_rect_about(m, *origin, r)
-                    });
-                match mapped {
+                match frames.map(moved_by(*bounds.inner(), scrolled)) {
                     Some(r) => out.rects.push(r),
                     None => out.needs_full = true,
                 }
@@ -4196,6 +4228,36 @@ impl FrameStack {
     }
 }
 
+/// The live matrices of the animated reference frames (`TransformKey.id ->
+/// matrix`, as `extract_gpu_values` reads them) in the frame before (`old`)
+/// and in this one (`new`). A frame whose key has a live value is painted
+/// with it, not with the matrix the list was built with: a change inside a
+/// sliding toast card is damaged where the card is now, not where it
+/// started. Empty maps mean "the lists' own matrices".
+#[derive(Clone, Copy, Default)]
+pub struct FrameValues<'a> {
+    pub old: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
+    pub new: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
+}
+
+impl FrameValues<'_> {
+    fn old_matrix(
+        &self,
+        key: usize,
+        built: azul_core::transform::ComputedTransform3D,
+    ) -> azul_core::transform::ComputedTransform3D {
+        self.old.and_then(|m| m.get(&key)).copied().unwrap_or(built)
+    }
+
+    fn new_matrix(
+        &self,
+        key: usize,
+        built: azul_core::transform::ComputedTransform3D,
+    ) -> azul_core::transform::ComputedTransform3D {
+        self.new.and_then(|m| m.get(&key)).copied().unwrap_or(built)
+    }
+}
+
 /// [`compute_display_list_damage`] + the translate hint. Returns
 /// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
 /// the hint (caller falls back to plain damage).
@@ -4219,6 +4281,7 @@ fn windowed_structural_damage(
     new: &DisplayList,
     old_offsets: &ScrollOffsetMap,
     new_offsets: &ScrollOffsetMap,
+    values: FrameValues<'_>,
 ) -> Option<Vec<LogicalRect>> {
     let a_shared_frame_moved = old_offsets
         .iter()
@@ -4246,8 +4309,10 @@ fn windowed_structural_damage(
     // between the frames, so one walk over the new list serves both).
     let mut stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
     // The reference frames open at the prefix boundary (the prefix items are
-    // equal in both lists, so one walk serves both).
-    let mut frames = FrameStack::default();
+    // equal in both lists, so one walk serves both - with each frame's own
+    // live matrix, which an animation may have moved in between).
+    let mut frames_old = FrameStack::default();
+    let mut frames_new = FrameStack::default();
     for item in &n[..prefix] {
         match item {
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -4261,15 +4326,20 @@ fn windowed_structural_damage(
                 }
             }
             DisplayListItem::PushReferenceFrame {
+                transform_key,
                 bounds,
                 initial_transform,
-                ..
             } => {
                 let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
                 let o = bounds.inner().origin;
-                frames.push(LogicalPosition { x: o.x - ax, y: o.y - ay }, *initial_transform);
+                let at = LogicalPosition { x: o.x - ax, y: o.y - ay };
+                frames_old.push(at, values.old_matrix(transform_key.id, *initial_transform));
+                frames_new.push(at, values.new_matrix(transform_key.id, *initial_transform));
             }
-            DisplayListItem::PopReferenceFrame => frames.pop(),
+            DisplayListItem::PopReferenceFrame => {
+                frames_old.pop();
+                frames_new.pop();
+            }
             _ => {}
         }
     }
@@ -4302,19 +4372,28 @@ fn windowed_structural_damage(
     let mut skipped_nonpainting = false;
     // A window item under a perspective transform: no rect covers its image.
     let mut unmappable = false;
-    let mut collect_window = |items: &[DisplayListItem], offsets: &ScrollOffsetMap| {
+    let mut collect_window = |items: &[DisplayListItem],
+                              offsets: &ScrollOffsetMap,
+                              frames: &FrameStack,
+                              live: &dyn Fn(
+        usize,
+        azul_core::transform::ComputedTransform3D,
+    ) -> azul_core::transform::ComputedTransform3D| {
         let mut stack = stack.clone();
         let mut frames = frames.clone();
         for item in items {
             match item {
                 DisplayListItem::PushReferenceFrame {
+                    transform_key,
                     bounds,
                     initial_transform,
-                    ..
                 } => {
                     let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
                     let o = bounds.inner().origin;
-                    frames.push(LogicalPosition { x: o.x - ax, y: o.y - ay }, *initial_transform);
+                    frames.push(
+                        LogicalPosition { x: o.x - ax, y: o.y - ay },
+                        live(transform_key.id, *initial_transform),
+                    );
                 }
                 DisplayListItem::PopReferenceFrame => frames.pop(),
                 DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -4389,8 +4468,18 @@ fn windowed_structural_damage(
         }
     };
 
-    collect_window(&o[prefix..o.len() - suffix], old_offsets);
-    collect_window(&n[prefix..n.len() - suffix], new_offsets);
+    collect_window(
+        &o[prefix..o.len() - suffix],
+        old_offsets,
+        &frames_old,
+        &|key, built| values.old_matrix(key, built),
+    );
+    collect_window(
+        &n[prefix..n.len() - suffix],
+        new_offsets,
+        &frames_new,
+        &|key, built| values.new_matrix(key, built),
+    );
     if unmappable {
         return None;
     }
@@ -4450,7 +4539,30 @@ pub fn compute_display_list_damage_translated(
     new_offsets: &ScrollOffsetMap,
     hint: Option<&TranslateHint>,
 ) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
-    compute_display_list_damage_impl(old, new, old_offsets, new_offsets, hint)
+    compute_display_list_damage_impl(
+        old,
+        new,
+        old_offsets,
+        new_offsets,
+        hint,
+        FrameValues::default(),
+    )
+}
+
+/// [`compute_display_list_damage_translated`] with the reference frames'
+/// live matrices of both frames ([`FrameValues`]) - what the CPU backends
+/// call: a change under an animated frame is damaged where the frame paints
+/// it in each of the two frames.
+#[must_use]
+pub fn compute_display_list_damage_live(
+    old: &DisplayList,
+    new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+    hint: Option<&TranslateHint>,
+    values: FrameValues<'_>,
+) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
+    compute_display_list_damage_impl(old, new, old_offsets, new_offsets, hint, values)
 }
 
 #[must_use]
@@ -4460,8 +4572,15 @@ pub fn compute_display_list_damage(
     old_offsets: &ScrollOffsetMap,
     new_offsets: &ScrollOffsetMap,
 ) -> Option<Vec<LogicalRect>> {
-    compute_display_list_damage_impl(old, new, old_offsets, new_offsets, None)
-        .map(|(damage, _moved)| damage)
+    compute_display_list_damage_impl(
+        old,
+        new,
+        old_offsets,
+        new_offsets,
+        None,
+        FrameValues::default(),
+    )
+    .map(|(damage, _moved)| damage)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -4471,6 +4590,7 @@ fn compute_display_list_damage_impl(
     old_offsets: &ScrollOffsetMap,
     new_offsets: &ScrollOffsetMap,
     hint: Option<&TranslateHint>,
+    values: FrameValues<'_>,
 ) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
     // Different item counts: a LOCALIZED structural change (a paragraph that
     // now wraps to one more line emits one more Text item, an inserted node,
@@ -4481,7 +4601,7 @@ fn compute_display_list_damage_impl(
     // macOS and red on ubuntu). The windowed fallback below damages the
     // changed middle instead.
     if old.items.len() != new.items.len() {
-        return windowed_structural_damage(old, new, old_offsets, new_offsets)
+        return windowed_structural_damage(old, new, old_offsets, new_offsets, values)
             .map(|damage| (damage, None));
     }
 
@@ -4505,7 +4625,7 @@ fn compute_display_list_damage_impl(
         if std::mem::discriminant(old_item) != std::mem::discriminant(new_item) {
             // Structural change with equal counts — same windowed fallback as
             // the count-mismatch case above.
-            return windowed_structural_damage(old, new, old_offsets, new_offsets)
+            return windowed_structural_damage(old, new, old_offsets, new_offsets, values)
                 .map(|damage| (damage, None));
         }
         if !map_through_frames(&mut damage, &mut mapped, &frames_old, &frames_new) {
@@ -4514,14 +4634,14 @@ fn compute_display_list_damage_impl(
         match (old_item, new_item) {
             (
                 DisplayListItem::PushReferenceFrame {
+                    transform_key: ok,
                     bounds: ob,
                     initial_transform: ot,
-                    ..
                 },
                 DisplayListItem::PushReferenceFrame {
+                    transform_key: nk,
                     bounds: nb,
                     initial_transform: nt,
-                    ..
                 },
             ) => {
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
@@ -4529,8 +4649,8 @@ fn compute_display_list_damage_impl(
                     x: b.x - acc.0,
                     y: b.y - acc.1,
                 };
-                frames_old.push(at(ob.inner().origin, acc_old), *ot);
-                frames_new.push(at(nb.inner().origin, acc_new), *nt);
+                frames_old.push(at(ob.inner().origin, acc_old), values.old_matrix(ok.id, *ot));
+                frames_new.push(at(nb.inner().origin, acc_new), values.new_matrix(nk.id, *nt));
                 if !old_item.is_visually_equal(new_item) {
                     // A transform that changed moves the frame's whole
                     // content: damaged where it was and where it is.

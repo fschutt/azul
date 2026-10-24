@@ -265,7 +265,9 @@ impl CpuBackend {
             .chain(zombie_rects.iter())
             .copied()
             .collect();
-        self.previous_gpu_transforms = gpu_transforms;
+        // The frame before's matrices stay for the list diff below: a change
+        // under an animated frame is damaged where each frame painted it.
+        let old_gpu_transforms = core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
         self.previous_gpu_opacities = gpu_opacities;
         self.previous_gpu_colors = gpu_colors;
 
@@ -302,12 +304,16 @@ impl CpuBackend {
                 Some(Vec::new())
             }
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
-                match cpurender::compute_display_list_damage_translated(
+                match cpurender::compute_display_list_damage_live(
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
                     &scroll_offsets,
                     patch_hint.as_ref().map(|(h, _)| h),
+                    cpurender::FrameValues {
+                        old: Some(&old_gpu_transforms),
+                        new: Some(&self.previous_gpu_transforms),
+                    },
                 ) {
                     Some((damage, moved)) => {
                         patch_moved_union = moved;

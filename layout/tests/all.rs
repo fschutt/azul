@@ -1273,3 +1273,5 @@ mod a_background_colour_fade_is_a_property_not_a_display_list;
 mod an_incremental_cpu_frame_matches_a_full_redraw;
 #[path = "a_card_leaving_a_transformed_column_starts_where_it_was_painted.rs"]
 mod a_card_leaving_a_transformed_column_starts_where_it_was_painted;
+#[path = "a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is.rs"]
+mod a_box_sliding_inside_a_transformed_column_is_repainted_where_it_is;
