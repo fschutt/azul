@@ -3,12 +3,48 @@
 //! immutable, a folder that cannot be listed for a while, a crash inside a download's body, and
 //! attributes that are not synced.
 
-use azul_storage::{AzlinError, DriveError, ServiceError};
+use std::{
+    fs,
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+};
 
+use azul_storage::{testing::TempDir, AzlinError, DriveError, ServiceError};
+
+use super::fake_s3::S3Bucket;
 use crate::{
     error::CloudError,
-    sync::problems::{code_of_error, of_failed_pass, Code, Severity},
+    store::RemoteStore,
+    sync::{
+        faults,
+        problems::{code_of_error, of_failed_pass, Code, Severity},
+        remote::{index_key, RemoteIndex},
+        session::{SyncSession, SyncSetup},
+    },
 };
+
+const PREFIX: &str = "hostile/";
+
+/// A plain pairing of `folder` whose passes hear the fault seam under it.
+fn session(folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> SyncSession {
+    let remote: Arc<dyn RemoteStore> = store.clone();
+    let root = folder.to_path_buf();
+    SyncSession::plain(
+        SyncSetup::new("d_hostile", PREFIX, folder),
+        state.to_path_buf(),
+        "dev",
+        remote,
+    )
+    .with_points(Arc::new(move |name: &str| faults::point(&root, name)))
+}
+
+fn remote_keys(store: &S3Bucket) -> Vec<String> {
+    store
+        .read(&index_key(PREFIX))
+        .and_then(|bytes| RemoteIndex::parse(&bytes).ok())
+        .map(|index| index.files.keys().cloned().collect())
+        .unwrap_or_default()
+}
 
 fn service(status: u16, code: &str, azlin: Option<AzlinError>) -> CloudError {
     CloudError::Drive(DriveError::Service(ServiceError {
@@ -73,4 +109,48 @@ fn an_immutable_file_or_folder_is_locked_not_an_io_error() {
     assert_eq!(code_of_error(&e), Code::Locked);
     let e = CloudError::Io(String::from("Permission denied (os error 13)"));
     assert_eq!(code_of_error(&e), Code::Unreadable);
+}
+
+#[test]
+fn a_folder_that_cannot_be_listed_for_one_scan_deletes_nothing_and_the_next_scan_takes_it_again() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-hostile-readdir");
+    let state = TempDir::new("azcloud-hostile-readdir-state");
+    fs::create_dir_all(folder.path().join("photos")).unwrap();
+    for i in 0..3 {
+        fs::write(folder.path().join(format!("photos/{i}.jpg")), format!("photo {i}")).unwrap();
+    }
+    let s = session(folder.path(), state.path(), &store);
+    s.pass(&AtomicBool::new(false), &mut |_| {}).expect("the first pass");
+    assert_eq!(remote_keys(&store).len(), 3);
+    let eio = faults::errno_of("EIO").expect("EIO is known");
+    faults::set_readdir_error(folder.path(), "photos", eio, 1);
+    s.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("a pass with one unreadable folder still runs");
+    assert_eq!(remote_keys(&store).len(), 3, "nothing in the unreadable folder was deleted");
+    let listed = s.problems();
+    assert!(
+        listed.problems.iter().any(|p| p.code == Code::Unreadable && p.key == "photos"),
+        "{:?}",
+        listed.problems
+    );
+    s.pass(&AtomicBool::new(false), &mut |_| {}).expect("the clean pass");
+    assert!(!s.problems().problems.iter().any(|p| p.code == Code::Unreadable));
+    assert_eq!(remote_keys(&store).len(), 3);
+    faults::clear(folder.path());
+}
+
+#[test]
+fn a_played_readdir_error_lasts_the_scans_it_was_set_for() {
+    let root = Path::new("/hostile-test/readdir");
+    faults::set_readdir_error(root, "a/b/", 5, 2);
+    assert!(faults::readdir_error(root, "a/b").is_none(), "nothing before a scan starts");
+    faults::scan_started(root);
+    assert_eq!(faults::readdir_error(root, "a/b").and_then(|e| e.raw_os_error()), Some(5));
+    assert!(faults::readdir_error(root, "a").is_none(), "only that folder");
+    faults::scan_started(root);
+    assert!(faults::readdir_error(root, "a/b").is_some(), "the second scan");
+    faults::scan_started(root);
+    assert!(faults::readdir_error(root, "a/b").is_none(), "gone after two scans");
+    faults::clear(root);
 }

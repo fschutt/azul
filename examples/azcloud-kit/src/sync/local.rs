@@ -614,10 +614,16 @@ pub fn scan_settled(
         .with_context(|| format!("the folder {}", root.display()))?;
     let settle_ns = u64::try_from(settle.as_nanos()).unwrap_or(u64::MAX);
     let here = System::here();
+    // A test harness may play a folder that cannot be listed in this scan (the fault seam).
+    super::faults::scan_started(root);
     let mut stack: Vec<(beneath::Dir, String)> = vec![(top, String::new())];
     while let Some((dir, prefix)) = stack.pop() {
         let folder = prefix.trim_end_matches('/').to_string();
-        let mut entries = match dir.names() {
+        let listed = match super::faults::readdir_error(root, &folder) {
+            Some(e) => Err(e),
+            None => dir.names(),
+        };
+        let mut entries = match listed {
             Ok(entries) => entries,
             Err(e) if prefix.is_empty() => {
                 return Err(e).with_context(|| format!("the folder {}", root.display()));

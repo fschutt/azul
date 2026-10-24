@@ -38,7 +38,6 @@
   {
     "name": "FILEN-004: an I/O error (EIO) on one folder for one scan deletes nothing; the next clean scan converges",
     "description": "FILEN-004 (Filen): the trigger was a transient EIO/EACCES/ENOTDIR on SMB or removable media. Rule D6. chmod gives only EACCES; the EIO form needs a local fault.",
-    "pending": "drive_local_fault {device, path, readdir_error: 'EIO'|'ENOTDIR'|'EACCES', passes: n} (the engine's scan meets that error on that folder for n passes, through the fault seam); only chmod (EACCES) exists",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

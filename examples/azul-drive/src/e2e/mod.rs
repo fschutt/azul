@@ -19,6 +19,7 @@ mod remote;
 mod tamper;
 // Group B of the catalogue's commands: hostile servers, networks and disks, tampering.
 mod b_faults;
+mod b_files;
 
 // The stand-in remote under azcloud-kit's real folder sync.
 #[cfg(test)]
@@ -129,6 +130,7 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_open_link", summary: "visit a share link without an account", args: &[("link", "string", true)] },
     OpDoc { name: "drive_share_expire", summary: "let every link's expiry pass", args: &[("remote", "string", false)] },
     OpDoc { name: "drive_send_again", summary: "send the files kept after the drive deleted them elsewhere", args: &[DEVICE] },
+    OpDoc { name: "drive_local_fault", summary: "a folder the scan cannot list for some passes", args: &[DEVICE, ("path", "string", false), ("readdir_error", "string", true), ("passes", "number", false)] },
 ];
 
 /// Adds the commands to `config` when a scenario or the debug server can reach them.
@@ -527,6 +529,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
                 ))
             }
         }),
+        "drive_local_fault" => b_files::local_fault(args),
         _ if name.starts_with("drive_") => files::file_op(name, args),
         _ => Err(format!("'{name}' is not one of AzDrive's commands")),
     }

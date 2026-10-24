@@ -10,6 +10,9 @@
 //!   environment; a wrong clock is `SyncSession::with_clock`.)
 //! - **The disk** a pass writes to: [`free_bytes`] is what the free-space check sees, and
 //!   [`check_write`] fails with "no space left" while the disk is played full.
+//! - **A folder that cannot be listed** for a number of scans ([`set_readdir_error`]): the
+//!   scan meets the error the system would give (an I/O error of a failing disk or a network
+//!   share, a folder swapped for a file, a permission), which `chmod` alone cannot play.
 //!
 //! Faults are kept per synced folder, the pairing's folder exactly as its setup names it, so a
 //! process that syncs several folders (AzDrive's E2E devices) faults each on its own. Nothing is
@@ -66,6 +69,11 @@ struct Faults {
     free_bytes: Option<u64>,
     /// Writes in the folder (and the pairing's state) fail with "no space left".
     disk_full: bool,
+    /// Folders (keys, `""` the top) whose listing fails with an OS error for the next scans:
+    /// the error number and how many scans are left.
+    readdir_errors: BTreeMap<String, (i32, u32)>,
+    /// The folders whose listing fails in the scan running now (taken at its start).
+    readdir_now: BTreeMap<String, i32>,
 }
 
 impl Faults {
@@ -77,6 +85,8 @@ impl Faults {
             && self.last_crash.is_none()
             && self.free_bytes.is_none()
             && !self.disk_full
+            && self.readdir_errors.is_empty()
+            && self.readdir_now.is_empty()
     }
 }
 
@@ -237,6 +247,68 @@ pub fn check_write(root: &Path) -> std::io::Result<()> {
         return Err(std::io::Error::from_raw_os_error(code));
     }
     Ok(())
+}
+
+/// The OS error number `name` stands for (`EIO`, `ENOTDIR`, `EACCES`, or a number), as this
+/// system numbers it.
+#[must_use]
+pub fn errno_of(name: &str) -> Option<i32> {
+    // Windows: ERROR_CRC for a failing disk's I/O error, ERROR_DIRECTORY, ERROR_ACCESS_DENIED.
+    #[cfg(windows)]
+    let known = [("EIO", 23), ("ENOTDIR", 267), ("EACCES", 5)];
+    #[cfg(not(windows))]
+    let known = [("EIO", 5), ("ENOTDIR", 20), ("EACCES", 13)];
+    known
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, code)| *code)
+        .or_else(|| name.parse().ok())
+}
+
+/// Makes the listing of the folder `folder` (its key in the pairing, `""` the top) fail with
+/// the OS error `errno` in the next `scans` scans of `root`.
+pub fn set_readdir_error(root: &Path, folder: &str, errno: i32, scans: u32) {
+    let folder = folder.trim_matches('/').to_string();
+    with(root, |f| {
+        if scans == 0 {
+            f.readdir_errors.remove(&folder);
+        } else {
+            f.readdir_errors.insert(folder, (errno, scans));
+        }
+    });
+}
+
+/// A scan of `root` starts: the folders whose listing fails in it are taken (one scan less
+/// left for each).
+pub fn scan_started(root: &Path) {
+    let mut all = faults();
+    if all.is_empty() {
+        return;
+    }
+    let Some(f) = all.get_mut(root) else {
+        return;
+    };
+    f.readdir_now.clear();
+    for (folder, (errno, left)) in &mut f.readdir_errors {
+        f.readdir_now.insert(folder.clone(), *errno);
+        *left -= 1;
+    }
+    f.readdir_errors.retain(|_, (_, left)| *left > 0);
+    if f.is_empty() {
+        all.remove(root);
+    }
+}
+
+/// The error the listing of `folder` meets in the scan of `root` running now, if one is played.
+#[must_use]
+pub fn readdir_error(root: &Path, folder: &str) -> Option<std::io::Error> {
+    let all = faults();
+    if all.is_empty() {
+        return None;
+    }
+    all.get(root)
+        .and_then(|f| f.readdir_now.get(folder.trim_matches('/')))
+        .map(|errno| std::io::Error::from_raw_os_error(*errno))
 }
 
 /// Every fault of `root` gone (a crash count too).

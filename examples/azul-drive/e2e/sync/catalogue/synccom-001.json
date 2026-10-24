@@ -84,7 +84,6 @@
   {
     "name": "SYNCCOM-001: an I/O error on one folder during one scan propagates zero deletions",
     "description": "SYNCCOM-001 (Sync.com): readdir() failing with EIO for one scan. Rule D6. chmod gives only EACCES.",
-    "pending": "drive_local_fault {device, path, readdir_error: 'EIO', passes: n} (the engine's scan meets EIO on that folder for n passes, through the fault seam)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

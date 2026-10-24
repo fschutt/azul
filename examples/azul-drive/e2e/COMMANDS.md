@@ -383,3 +383,14 @@ own entry replaces the one for every device, as for the basic faults):
 
 The engine names them `read-only`, `server-moved`, `too-large`, `quota-exceeded`,
 `remote-offline` (a timeout, a certificate, a cut body), `hash-mismatch` (a short success).
+
+### A folder that cannot be listed
+
+| op | arguments |
+|---|---|
+| `drive_local_fault` | `device`, `path` (a folder of the device; absent: its top), `readdir_error` (`EIO`, `ENOTDIR`, `EACCES` or an error number), `passes` (default 1; 0 ends it) |
+
+The scans of the device's next `passes` passes meet that OS error when they list the folder
+(`azcloud_kit::sync::faults::set_readdir_error`): the error of a failing disk or network
+share, a folder swapped for a file, a permission. The engine lists the folder as `unreadable`
+and takes nothing in it for deleted.
