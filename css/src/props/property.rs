@@ -5236,6 +5236,21 @@ impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
 impl_from_css_prop!(StyleCaptionSide, CssProperty::CaptionSide);
 impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
 
+/// The colour a `background-color` value shows: its colour, or the
+/// transparent of no background for a value that names none (`auto`, `none`,
+/// `initial`, `unset`); `None` for one that cannot be read without the
+/// cascade (`inherit`, `revert`) or is no colour.
+fn background_colour_or_none(v: &CssPropertyValue<StyleBackgroundContent>) -> Option<ColorU> {
+    match v {
+        CssPropertyValue::Exact(StyleBackgroundContent::Color(c)) => Some(*c),
+        CssPropertyValue::Auto
+        | CssPropertyValue::None
+        | CssPropertyValue::Initial
+        | CssPropertyValue::Unset => Some(ColorU::TRANSPARENT),
+        _ => None,
+    }
+}
+
 /// A shadow property's value on its way from `from` to `to` at `t`
 /// ([`crate::props::style::box_shadow::interpolate_shadow`]): `none`, a
 /// keyword or no value is no shadow, and no shadow is `none`.
@@ -5741,12 +5756,23 @@ impl CssProperty {
             // background fades in from `none` and out to it. Only a face that
             // cannot fade (an image) switches half way.
             // A colour tweens; a `system:` one (unresolved) switches half way.
-            (
-                Self::BackgroundColor(CssPropertyValue::Exact(StyleBackgroundContent::Color(a))),
-                Self::BackgroundColor(CssPropertyValue::Exact(StyleBackgroundContent::Color(b))),
-            ) => Self::background_color(StyleBackgroundContent::Color(
-                a.interpolate_premultiplied(*b, t),
-            )),
+            // No colour is the transparent the property starts out as, so a
+            // hover colour fades out to no background and in from it.
+            (Self::BackgroundColor(start), Self::BackgroundColor(end))
+                if matches!(
+                    (start, end),
+                    (CssPropertyValue::Exact(StyleBackgroundContent::Color(_)), _)
+                        | (_, CssPropertyValue::Exact(StyleBackgroundContent::Color(_)))
+                ) =>
+            {
+                match (background_colour_or_none(start), background_colour_or_none(end)) {
+                    (Some(a), Some(b)) => Self::background_color(StyleBackgroundContent::Color(
+                        a.interpolate_premultiplied(b, t),
+                    )),
+                    _ if t > 0.5 => other.clone(),
+                    _ => self.clone(),
+                }
+            }
             (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
                 // A fn, not a closure: the returned slice borrows the argument
                 // (closures get no input-to-output lifetime elision).
