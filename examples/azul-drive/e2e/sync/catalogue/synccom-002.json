@@ -62,7 +62,6 @@
   {
     "name": "SYNCCOM-002: a confirmed mass delete is undone in one step by a restore of the drive to a time before it",
     "description": "SYNCCOM-002 (Sync.com): the deleted-files view restored only folder by folder, with 'purge' next to 'restore'. Rules D2 (the drive keeps tombstones and versions 90 days), V4 (point-in-time restore keeps everything, the clients converge without deletes). sync-chaos srv-point-in-time-restore.",
-    "pending": "drive_tamper action 'restore' {to: a snapshot} (an announced restore of the drive): it fails until the stand-in remote has the server's restore announcement",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

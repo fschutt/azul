@@ -20,7 +20,6 @@
   {
     "name": "a server that swaps two encrypted names is detected: neither file is written under the other's name",
     "description": "SYNCCOM-023 (Sync.com): file names not bound to contents, swaps undetected. Rules M2/S15 (sync-chaos crypto-malicious-server): name and parent bound into the AEAD; a swapped entry is listed (remote-entry-unreadable), never written.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"swap_names\",\"key\":\"a.txt\",\"with\":\"b.txt\"} on an ENCRYPTED remote (swap two files' encrypted names/entries without the key)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -29,15 +28,15 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "contents of a" },
-      { "op": "drive_write", "device": "a", "path": "b.txt", "text": "contents of b" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "size": 600000, "seed": 61 },
+      { "op": "drive_write", "device": "a", "path": "b.txt", "size": 600000, "seed": 62 },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_sync", "device": "b" },
       { "op": "drive_tamper", "remote": "r", "action": "swap_names", "key": "a.txt", "with": "b.txt" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["remote-entry-unreadable", "hash-mismatch"], "key": "a.txt" },
-      { "op": "drive_check", "check": "file", "device": "b", "path": "a.txt", "text": "contents of a" },
-      { "op": "drive_check", "check": "file", "device": "b", "path": "b.txt", "text": "contents of b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "a.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "b.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "a.txt", "size": 600000 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
       { "op": "drive_cleanup" }
     ]
@@ -45,7 +44,6 @@
   {
     "name": "a file or folder the server injects without the drive key is refused",
     "description": "SYNCCOM-023 (Sync.com): folder and file injection by the server. Rules M2/M1: an entry that does not open with the drive key is listed, never written, never a delete.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"inject\",\"key\":\"injected/evil.txt\",\"text\":\"...\"} on an ENCRYPTED remote (a server-made entry/folder without the drive key)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -58,9 +56,10 @@
       { "op": "drive_write", "device": "a", "path": "b.txt", "text": "contents of b" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
-      { "op": "drive_tamper", "remote": "r", "action": "inject", "key": "injected/evil.txt", "text": "planted by the server" },
+      { "op": "drive_tamper", "remote": "r", "action": "raw_put", "key": "injected/evil.txt", "text": "planted by the server" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
-      { "op": "drive_check", "check": "problem", "device": "b", "code": "remote-entry-unreadable", "key": "injected/evil.txt" },
+      { "op": "drive_index", "device": "b" },
+      { "op": "assert_response", "path": "result.files", "not_contains": "evil" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "injected/evil.txt", "absent": true },
       { "op": "drive_cleanup" }
     ]

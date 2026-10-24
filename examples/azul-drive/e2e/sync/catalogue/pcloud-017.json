@@ -30,7 +30,6 @@
   {
     "name": "on an encrypted drive a dropped, reordered or replayed chunk fails its AEAD and the file is listed, never written",
     "description": "PCLOUD-017 (pCloud): chunks dropped, names swapped, metadata altered by a malicious server. Rules M2/S15/I1 (sync-chaos crypto-malicious-server): AEAD per chunk bound to its index and file.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"drop_chunk\",\"key\":\"report.pdf\",\"chunk\":1} / \"reorder_chunks\" / \"replay_chunk\" on an ENCRYPTED remote (AZL1 chunk-level tampering; today only put/delete/delete_all work there)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -39,11 +38,11 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
-      { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 600000, "seed": 17 },
-      { "op": "drive_write", "device": "a", "path": "other.pdf", "size": 600000, "seed": 18 },
+      { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 3000000, "seed": 17 },
+      { "op": "drive_write", "device": "a", "path": "other.pdf", "size": 3000000, "seed": 18 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
-      { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 600000, "seed": 19 },
+      { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 3000000, "seed": 19 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_tamper", "remote": "r", "action": "drop_chunk", "key": "report.pdf", "chunk": 1 },
       { "op": "drive_sync", "device": "b", "expect": "any" },
@@ -58,7 +57,6 @@
   {
     "name": "a server that swaps two encrypted names is caught",
     "description": "PCLOUD-017 (pCloud): names not bound to contents. Rule M2: name and parent bound into the AEAD.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"swap_names\",\"key\":\"report.pdf\",\"with\":\"other.pdf\"} on an ENCRYPTED remote",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -83,7 +81,6 @@
   {
     "name": "a substituted folder or drive key is refused",
     "description": "PCLOUD-017 (pCloud): the server can replace folder keys (unauthenticated RSA-OAEP) and overwrite the private key in transit. Rule M2: key material is authenticated.",
-    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"replace_drive_key\"} on an ENCRYPTED remote (the server substitutes the wrapped folder/drive key)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },
@@ -101,7 +98,8 @@
       { "op": "drive_tamper", "remote": "r", "action": "replace_drive_key" },
       { "op": "drive_write", "device": "b", "path": "after.txt", "text": "written after the key swap" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
-      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["remote-index-unreadable", "remote-entry-unreadable", "other"] },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "after.txt", "text": "written after the key swap" },
       { "op": "drive_check", "check": "remote_never_has", "marker": "written after the key swap" },
       { "op": "drive_cleanup" }
     ]

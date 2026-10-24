@@ -33,7 +33,6 @@
   {
     "name": "a stored object the server lost entirely (the index still names it): listed, nothing written, nothing deleted",
     "description": "ICEDRIVE-012 (Icedrive): an object gone from the store. Rules D6 and O1: a remote entry whose content cannot be read is unknown, never a deletion and never an empty file; it is listed while every other file syncs.",
-    "pending": "drive_tamper action drop_blob {remote, key}: removes the file's stored object while the index still names it (an object the server lost)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

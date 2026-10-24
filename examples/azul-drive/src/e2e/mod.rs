@@ -20,6 +20,7 @@ mod tamper;
 // Group B of the catalogue's commands: hostile servers, networks and disks, tampering.
 mod b_faults;
 mod b_files;
+mod b_tamper;
 
 // The stand-in remote under azcloud-kit's real folder sync.
 #[cfg(test)]
@@ -133,6 +134,7 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_local_fault", summary: "a folder the scan cannot list for some passes", args: &[DEVICE, ("path", "string", false), ("readdir_error", "string", true), ("passes", "number", false)] },
     OpDoc { name: "drive_xattr", summary: "set an extended attribute", args: &[DEVICE, PATH, ("name", "string", true), ("text", "string", false), ("hex", "string", false), ("size", "number", false), ("seed", "number", false)] },
     OpDoc { name: "drive_chflags", summary: "set BSD flags as chflags does (macOS)", args: &[DEVICE, PATH, ("flags", "string", true)] },
+    OpDoc { name: "drive_mark_objects", summary: "record a remote's stored objects under a name", args: &[("remote", "string", false), ("name", "string", true)] },
 ];
 
 /// Adds the commands to `config` when a scenario or the debug server can reach them.
@@ -511,6 +513,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         // Group C: the share server's links (a takedown, a visit's check).
         "drive_tamper" if str_arg(args, "action") == Some("takedown_link") => c_links::takedown(args),
         "drive_check" if c_links::is_link_check(args) => c_links::check(s, args),
+        "drive_tamper" if b_tamper::owns(args) => b_tamper::tamper(s, args),
         "drive_tamper" => tamper::tamper(s, args),
         "drive_snapshot" => tamper::snapshot(args),
         "drive_check" => checks::check(s, args),
@@ -534,6 +537,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_local_fault" => b_files::local_fault(args),
         "drive_xattr" => b_files::xattr(args),
         "drive_chflags" => b_files::chflags(args),
+        "drive_mark_objects" => b_tamper::mark_objects(args),
         _ if name.starts_with("drive_") => files::file_op(name, args),
         _ => Err(format!("'{name}' is not one of AzDrive's commands")),
     }
@@ -1172,6 +1176,12 @@ fn fault(args: &Args) -> Answer {
 }
 
 // ==== The sync's hooks ====
+
+/// The restore an E2E device's passes take as announced by its stand-in server (`None`: none,
+/// or not an E2E device).
+pub(crate) fn restore_of(drive_id: &str) -> Option<azcloud_kit::sync::RestoreNotice> {
+    b_tamper::restore_of(drive_id)
+}
 
 /// The device name a device's passes write in conflict copies (`None`: not an E2E device).
 pub(crate) fn device_name_of(drive_id: &str) -> Option<String> {

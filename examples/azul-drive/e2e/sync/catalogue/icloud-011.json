@@ -47,7 +47,6 @@
   {
     "name": "another account's stored object served for this file fails its authentication and is never written",
     "description": "ICLOUD-011: a derivative from another account served to this one. Rules M2, I1 and S15: an object sealed under another drive's key fails to open; the file is listed, never written.",
-    "pending": "drive_tamper action graft_blob {key, from_remote, from_key} (the server answers this file's object with another remote's stored object for from_key; on an encrypted remote too)",
     "steps": [
       { "op": "drive_create", "remote": "mine2", "encrypted": true },
       { "op": "drive_create", "remote": "theirs2", "encrypted": true },

@@ -225,7 +225,7 @@ with no announcement; `restore` (`to`) the same as an announced restore; `corrup
 `corrupt_blob` (`key`); `truncate_blob` (`key`, `keep` bytes); `raw_entry` (`key`,
 `entry_json`); `raw_key` (`key_hex`, content; a key that is not UTF-8 cannot be written in a
 JSON index and fails); `features` (a list: the index names format features this version does
-not know). `restore` fails until the stand-in remote has the server's restore announcement.
+not know). `restore` and the actions on stored objects are Group B's (below).
 On an encrypted remote only `put`, `delete` and `delete_all` work (through the remote's key,
 the engine's way); the actions that damage one stored object fail there, since an encrypted
 remote does not name its objects by the file's key, and so does `drive_snapshot`.
@@ -429,3 +429,36 @@ a negative number of nanoseconds, and `drive_read` / `drive_list` answer one as 
 hashed since `drive_open` or `drive_restart` (an unchanged file keeps its base's hash and is not
 counted). A file written within 2 s of a scan is read again by the next one (the racy window), so
 a scenario that counts lets its files age first (`{"op": "wait", "ms": 2500, "real": true}`).
+
+### A hostile server's changes to stored objects
+
+`drive_tamper` takes these actions too (`remote`; `key` is a file's key under the remote's
+prefix). A server holds no drive key: on an encrypted remote they change whole stored objects
+and their bytes, as a keyless server can. To aim at one file's object the harness reads the
+index with the remote's key, past every fault; nothing it changes needs the key.
+
+| action | fields | what changes |
+|---|---|---|
+| `raw_put` | `key`, content | an object written into the bucket past the drive's key (a web or WebDAV upload into an encrypted folder); the drive's index does not name it, so no device lists or writes it |
+| `drop_blob` | `key` | the file's stored object removed; the index still names it |
+| `purge` | `key` | a permanent delete on the server: every object any version of the file had (found in the drive's history; a plain remote's entry and tombstone too); a pack holding other files stays |
+| `graft_blob` | `key`, `from_remote`, `from_key` | the file's object replaced by another remote's (another account's) object of `from_key` |
+| `corrupt_object` | `key`, `byte` | one byte of the file's object flipped (`byte`: its offset; default the middle of the file's first segment) |
+| `truncate_object` | `key`, `keep_chunks` | an encrypted object cut after that many AZL1 segments |
+| `drop_chunk` | `key`, `chunk` | one segment taken out |
+| `swap_chunks` | `key`, `first`, `second` | two segments exchanged |
+| `reorder_chunks` | `key` | the segments in reverse |
+| `replay_chunk` | `key`, `chunk` | an earlier segment put in that one's place |
+| `splice` | `key`, `from_key` | the other file's first segment in place of this one's |
+| `swap_names` | `key`, `with` | the two files' objects exchanged (files under 512 KiB share packs: write bigger ones) |
+| `replace_drive_key` | - | every member's key file replaced by one that seals another drive key to the same member: a device that keeps its key goes on under the true one; one that unlocks from its key file is refused (it is no member under that key) |
+| `restore` | `to` (a snapshot) or `generations` | an announced restore of a plain remote: the stand-in server's announcement with the next epoch first (`<remote>/announcements/restore.json`, the token server's `restore` field, unsigned here), then the older index. Every device's passes take it (`SyncSession::with_restore`) as that restore: `server-restored`, the files the restored index lacks sent again, nothing deleted |
+
+`corrupt_entry` and `drop_folder` stay refused on an encrypted remote: its entries live in
+sealed packs of its metadata repository (a pack per change, sealed per chunk), so a keyless
+server damages a chunk, never one entry, and the stand-in cannot yet tell which chunk holds a
+path.
+
+| op | arguments | result |
+|---|---|---|
+| `drive_mark_objects` | `remote`, `name` | `objects`: records every content object (AZL1 objects and packs, plain blobs) and its BLAKE3, for the `objects_fresh` check |

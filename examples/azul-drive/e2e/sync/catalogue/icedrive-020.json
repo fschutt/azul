@@ -2,7 +2,6 @@
   {
     "name": "a malicious server truncates, reorders and splices an encrypted file's chunks: every case fails its integrity check, nothing is written",
     "description": "ICEDRIVE-020 (Icedrive): unauthenticated CBC and chunking let a malicious server truncate, reorder, remove and splice chunks and move files between names (Hofmann & Truong, CCS 2024). Rules M2, S15 and I1: every chunk is AEAD-sealed and bound to its file and position; a tampered object fails, the file is listed (hash-mismatch), the old version stays, no temp file. sync-chaos crypto-malicious-server.",
-    "pending": "drive_tamper on an encrypted remote, actions truncate_object {key, keep_chunks}, swap_chunks {key, first, second}, splice {key, from_key} (a chunk of another file's object put in) and swap_names {key, other} (two files' sealed entries exchanged); today an encrypted remote takes only put, delete and delete_all",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -29,7 +28,7 @@
       { "op": "drive_check", "check": "file", "device": "b", "path": "secret/name.txt", "text": "bound to its name" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "secret/plan.pdf", "size": 3000000 },
       { "op": "drive_check", "check": "no_temp_files", "device": "b" },
-      { "op": "drive_tamper", "remote": "r", "action": "swap_names", "key": "secret/plan.pdf", "other": "secret/other.pdf" },
+      { "op": "drive_tamper", "remote": "r", "action": "swap_names", "key": "secret/plan.pdf", "with": "secret/other.pdf" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["hash-mismatch", "remote-entry-unreadable"], "key": "secret/plan.pdf" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },

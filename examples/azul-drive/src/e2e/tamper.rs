@@ -119,12 +119,6 @@ pub(crate) fn tamper(s: &mut DriveState, args: &Args) -> Answer {
             commit(&remote, index, &writer)?
         }
         "rollback" => rollback(&remote, args)?,
-        "restore" => {
-            return Err(String::from(
-                "an announced restore needs the server's restore announcement, which the \
-                 stand-in remote does not have yet: use rollback for an unannounced one",
-            ))
-        }
         "corrupt_index" => {
             remote
                 .write(

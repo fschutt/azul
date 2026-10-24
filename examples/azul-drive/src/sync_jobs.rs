@@ -171,6 +171,11 @@ impl SyncWork {
         if !self.fault_points {
             return session;
         }
+        // An E2E device's restore announcement comes from its stand-in server.
+        let session = match crate::e2e::restore_of(&self.setup.drive_id) {
+            Some(notice) => session.with_restore(Some(notice)),
+            None => session,
+        };
         let folder = self.setup.folder.clone();
         session.with_points(Arc::new(move |name: &str| {
             azcloud_kit::sync::faults::point(&folder, name);
