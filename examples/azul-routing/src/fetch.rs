@@ -275,6 +275,40 @@ mod tests {
         Request::Get { url, query }
     }
 
+    /// A service's TLS trusts the roots the app hands over: one under a root outside them -
+    /// or under one the app's set left out, distrusted - is refused at the handshake, and
+    /// nothing is kept; one under a trusted root answers.
+    #[test]
+    fn a_service_outside_the_trusted_roots_is_refused_and_one_inside_answers() {
+        use azul_core::tls_testing::{pems, serve_tls, TestCa};
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(b.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/route");
+        let ask = |roots: Vec<String>| {
+            let fetcher = Fetcher::new(AGENT, Duration::ZERO, Arc::new(ResponseCache::in_memory(8)))
+                .trusting(&roots);
+            fetcher.fetch(&get(&url, &[]), "r", 60, &mut || false)
+        };
+        assert!(ask(vec![a.cert_pem.clone()]).is_err(), "b's server is outside the set");
+        assert!(seen.recv().expect("seen").is_err());
+        let set: Vec<String> = azul_core::tls::TrustRoots::pinned(pems(&[&a, &b]))
+            .with_distrusted(pems(&[&b]))
+            .get_certificates_pem()
+            .into_result()
+            .expect("the set")
+            .as_ref()
+            .iter()
+            .map(|pem| pem.as_str().to_string())
+            .collect();
+        assert!(ask(set).is_err(), "b is distrusted");
+        assert!(seen.recv().expect("seen").is_err());
+        let answer = ask(vec![b.cert_pem.clone()]).expect("trusted").expect("not stopped");
+        assert_eq!(answer.body, "ok");
+        let broken = ask(vec![String::from("not a pem")]).unwrap_err();
+        assert!(format!("{broken:?}").contains("trusted root 0"), "{broken:?}");
+    }
+
     #[test]
     fn a_fresh_answer_is_given_from_the_cache_without_a_request() {
         let server = Server::start(|_| (200, vec![], "{\"n\":1}".to_string()));

@@ -27,7 +27,7 @@ azul-storage = { path = "../azul-storage" }
 # credentials refreshed before they run out, the secrets file.
 azcloud-kit = { path = "../azcloud-kit" }
 # The shared Azlin config's endpoint flags (`--token-url`, `--s3-url`); plain Rust.
-azul-appkit = { path = "../azul-appkit" }
+azul-appkit = { path = "../azul-appkit", features = ["trust"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # PROPFIND / PROPPATCH / LOCK bodies: the read-only XML parser azul-storage already reads S3's
@@ -81,6 +81,8 @@ tray = ["dep:azul", "os-keyring"]
 azul-storage = { path = "../azul-storage", features = ["testing"] }
 # The one-connection SMTP sink the sending tests deliver to (azmail_core::testutil).
 azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
+# Throwaway roots and a loopback TLS server (azul-core's tls_testing) for the trust tests.
+azul-core = { path = "../../core", default-features = false, features = ["std", "tls-testing"] }
 
 [lib]
 name = "azul_bridge"

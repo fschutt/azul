@@ -39,6 +39,11 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # The localization checks every app's test runs (`l10n_check`: the resources parse). No new
 # crate: azul-layout's Fluent parser, 0.12.0 in Cargo.lock (no build.rs, no proc-macro).
 fluent-syntax = { version = "0.12", default-features = false }
+# The roots the shared config's `trust` section names, as certificates (feature `trust`):
+# azul's own TrustRoots, for a process without libazul (the Azlin Bridge, the command line).
+azul-core = { path = "../../core", default-features = false, features = ["std", "tls-roots"], optional = true }
+# The PEM lists TrustRoots takes (azul-css's StringVec, under azul-core already).
+azul-css = { path = "../../css", default-features = false, optional = true }
 
 [features]
 default = []
@@ -49,10 +54,15 @@ look = ["dep:azul"]
 # The shared UI (settings page, title row, --shot, file jobs on a Thread).
 # The apps turn it on; the unit tests of the plain modules need no libazul.
 azul = ["look", "azul/link-dynamic", "azul-icons-haiku/azul"]
+# `TrustPems::certificates_pem`: the trust section's roots for a TLS client of a process that
+# links no libazul (an app with libazul asks azul's `TrustRoots` itself).
+trust = ["dep:azul-core", "dep:azul-css"]
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# Throwaway roots for the trust section's tests (azul-core's tls_testing). Tests only.
+azul-core = { path = "../../core", default-features = false, features = ["std", "tls-testing"] }
 
 [lib]
 name = "azul_appkit"

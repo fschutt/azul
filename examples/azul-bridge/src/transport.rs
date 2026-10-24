@@ -391,4 +391,37 @@ mod tests {
             "another transport of its own knows no address"
         );
     }
+
+    /// The bridge's requests trust the roots it is given: a server under a root outside them,
+    /// or under one the set left out (distrusted), is refused at the handshake; one under a
+    /// trusted root answers.
+    #[test]
+    fn a_server_outside_the_trusted_roots_is_refused_and_one_inside_answers() {
+        use azul_core::tls_testing::{serve_tls, TestCa};
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(b.server_for_loopback());
+        let call = HttpCall {
+            method: Method::Get,
+            url: format!("https://127.0.0.1:{port}/bucket"),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
+        };
+        let only_a = UreqTransport::trusting(&[a.cert_pem.clone()]).expect("a");
+        assert!(only_a.send(&call).is_err(), "b's server is outside the set");
+        assert!(seen.recv().expect("seen").is_err(), "refused in the handshake");
+        // The shared config's set "a and b, b distrusted", as the CLI hands it over.
+        let pems = azul_appkit::azlin_config::TrustPems {
+            pinned: Some(vec![a.cert_pem.clone(), b.cert_pem.clone()]),
+            distrusted: vec![b.cert_pem.clone()],
+        }
+        .certificates_pem()
+        .expect("the set");
+        assert!(UreqTransport::trusting(&pems).expect("set").send(&call).is_err());
+        assert!(seen.recv().expect("seen").is_err(), "b is distrusted");
+        let only_b = UreqTransport::trusting(&[b.cert_pem.clone()]).expect("b");
+        assert_eq!(only_b.send(&call).expect("trusted").status, 200);
+    }
 }

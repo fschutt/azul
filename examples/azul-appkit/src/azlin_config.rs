@@ -1566,10 +1566,61 @@ mod tests {
     }
 
     #[test]
-    fn only_the_endpoints_and_the_updates_never_leave_this_computer() {
-        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY, UPDATES_KEY]);
+    fn only_the_endpoints_the_updates_and_the_trust_never_leave_this_computer() {
+        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY, UPDATES_KEY, TRUST_KEY]);
         assert!(!MACHINE_LOCAL_KEYS.contains(&THEME_KEY));
         assert!(!MACHINE_LOCAL_KEYS.contains(&MODE_KEY));
+    }
+
+    #[test]
+    fn the_trust_section_reads_its_roots_from_files_and_text_and_keeps_the_rest() {
+        let dir = azul_storage::testing::TempDir::new("azlin-config-trust");
+        let pem = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+        std::fs::create_dir_all(dir.path().join("roots")).unwrap();
+        std::fs::write(dir.path().join("roots/company.pem"), pem).unwrap();
+        std::fs::write(dir.path().join("roots/emsign.pem"), pem.replace("AAAA", "BBBB")).unwrap();
+        let json = format!(
+            r#"{{"trust": {{"pinned_roots": ["roots/company.pem", {inline:?}],
+                "distrusted_roots": ["~/emsign.pem"], "future": 1}}}}"#,
+            inline = pem.replace("AAAA", "CCCC")
+        );
+        let (c, problem) = AzlinConfig::parse(&json);
+        assert_eq!(problem, None);
+        assert_eq!(c.trust.pinned_roots.len(), 2);
+        let home = dir.path().join("roots");
+        let pems = c.trust.pems(Some(dir.path()), Some(&home)).expect("readable");
+        assert_eq!(
+            pems.pinned,
+            Some(vec![pem.to_string(), pem.replace("AAAA", "CCCC")])
+        );
+        assert_eq!(pems.distrusted, vec![pem.replace("AAAA", "BBBB")]);
+        let (again, _) = AzlinConfig::parse(&c.to_json());
+        assert_eq!(again, c, "written back as read, the unknown key kept");
+    }
+
+    #[cfg(feature = "trust")]
+    #[test]
+    fn the_trust_sections_roots_are_the_pinned_ones_without_the_distrusted_ones() {
+        use azul_core::tls_testing::TestCa;
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let pems = TrustPems {
+            pinned: Some(vec![a.cert_pem.clone(), b.cert_pem.clone()]),
+            distrusted: vec![b.cert_pem.clone()],
+        };
+        assert_eq!(pems.certificates_pem(), Ok(vec![a.cert_pem.clone()]));
+        let public = TrustPems::default().certificates_pem().expect("the public roots");
+        assert!(public.len() > 100, "no pins: Mozilla's roots");
+    }
+
+    #[test]
+    fn a_trust_section_that_names_no_pins_trusts_the_public_roots_and_a_missing_file_is_an_error() {
+        let (c, _) = AzlinConfig::parse(r#"{"trust": {"distrusted_roots": ["/nowhere/x.pem"]}}"#);
+        let why = c.trust.pems(None, None).unwrap_err();
+        assert!(why.contains("/nowhere/x.pem"), "{why}");
+        let (c, _) = AzlinConfig::parse("{}");
+        assert_eq!(c.trust.pems(None, None), Ok(TrustPems::default()));
+        assert_eq!(TrustPems::default().pinned, None, "no pins: the public roots");
     }
 
     #[test]

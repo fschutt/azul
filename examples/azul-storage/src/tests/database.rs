@@ -333,3 +333,28 @@ fn a_server_database_needs_its_host_database_and_user_and_never_shows_its_passwo
         Err(DriveError::InvalidConfig(_))
     ));
 }
+
+/// sqlx always trusts its compiled-in Mozilla roots: under an app that pinned or distrusted
+/// roots a PostgreSQL or MySQL database over TLS is refused when it opens (it would trust more
+/// than the app does); without TLS, or under the public roots, it opens.
+#[test]
+fn a_server_database_over_tls_is_refused_when_the_app_narrowed_its_trusted_roots() {
+    let mut options = BTreeMap::new();
+    options.insert("host".to_string(), "db.example".to_string());
+    options.insert("database".to_string(), "shop".to_string());
+    options.insert("user".to_string(), "ann".to_string());
+    let secrets = SecretOptions::new();
+    for (engine, tls, plain) in [
+        (DatabaseEngine::Postgres, "verify-full", "disable"),
+        (DatabaseEngine::Mysql, "verify-identity", "disabled"),
+    ] {
+        options.insert("sslmode".to_string(), tls.to_string());
+        match DatabaseDrive::open_trusting(engine, &options, &secrets, false) {
+            Err(DriveError::InvalidConfig(why)) => assert!(why.contains("trusted roots"), "{why}"),
+            other => panic!("{tls}: {:?}", other.map(|_| ())),
+        }
+        assert!(DatabaseDrive::open_trusting(engine, &options, &secrets, true).is_ok());
+        options.insert("sslmode".to_string(), plain.to_string());
+        assert!(DatabaseDrive::open_trusting(engine, &options, &secrets, false).is_ok());
+    }
+}

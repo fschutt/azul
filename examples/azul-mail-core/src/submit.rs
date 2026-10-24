@@ -728,3 +728,47 @@ mod tests {
         }
     }
 }
+
+/// Signed-in submission trusts the roots the host handed in, over STARTTLS and over implicit
+/// TLS alike: a server under any other root is refused at the handshake, before the secret
+/// leaves.
+#[cfg(test)]
+mod trust_roots_tests {
+    use std::time::Duration;
+
+    use azul_core::tls_testing::{serve_tls_with, Protocol, TestCa};
+
+    use super::{submit, SubmitSecurity, SubmitTarget};
+    use crate::account::{AuthKind, Secret};
+
+    fn saw(server: &TestCa, security: SubmitSecurity, roots: Vec<String>) -> Result<String, String> {
+        let protocol = match security {
+            SubmitSecurity::ImplicitTls => Protocol::Greeting("220 test ESMTP\r\n"),
+            _ => Protocol::SmtpStartTls,
+        };
+        let (port, seen) = serve_tls_with(server.server_for_loopback(), protocol);
+        let target = SubmitTarget {
+            host: String::from("127.0.0.1"),
+            port,
+            security,
+            username: String::from("ada"),
+            auth: AuthKind::Password,
+            secret: Secret::new(String::from("secret-that-must-not-leave")),
+            helo: String::from("example.org"),
+            extra_ca_file: None,
+            trusted_roots: Some(roots),
+        };
+        let _ = submit(&target, "ada@example.org", &[String::from("ben@example.net")], b"x\r\n");
+        seen.recv_timeout(Duration::from_secs(30)).expect("the server saw the attempt")
+    }
+
+    #[test]
+    fn submission_refuses_a_server_outside_the_trusted_roots_and_reaches_one_inside() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        for security in [SubmitSecurity::StartTls, SubmitSecurity::ImplicitTls] {
+            assert!(saw(&forged, security, vec![ours.cert_pem.clone()]).is_err(), "{security:?}");
+            assert!(saw(&forged, security, vec![forged.cert_pem.clone()]).is_ok(), "{security:?}");
+        }
+    }
+}

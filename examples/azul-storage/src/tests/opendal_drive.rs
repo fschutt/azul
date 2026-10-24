@@ -276,3 +276,43 @@ fn a_sources_secrets_reach_opendal_but_never_its_debug_output() {
     assert!(text.contains("http"), "{text}");
     assert_eq!(drive.scheme(), "http");
 }
+
+/// A transport whose app pinned or distrusted roots: its TLS trusts less than the public set.
+struct NarrowedTrust;
+
+impl Transport for NarrowedTrust {
+    fn send(&self, _call: &HttpCall) -> Result<HttpReply, String> {
+        Err("no network in this test".to_string())
+    }
+
+    fn trusts_public_roots(&self) -> bool {
+        false
+    }
+}
+
+/// FTP over TLS and Redis over TLS bring their own fixed root store (the OS's), which cannot
+/// follow an app that pinned or distrusted roots: such a source is refused when it opens,
+/// before anything connects; the same sources without TLS, or under the public roots, open.
+#[test]
+fn a_source_with_its_own_tls_roots_is_refused_when_the_app_narrowed_its_trusted_roots() {
+    let open = |scheme: &str, endpoint: &str, transport: Box<dyn Transport>| {
+        let mut options = BTreeMap::new();
+        options.insert("endpoint".to_string(), endpoint.to_string());
+        OpendalDrive::open(scheme, &options, &SecretOptions::new(), transport)
+    };
+    for (scheme, endpoint) in [
+        ("ftp", "ftps://nas.local:21"),
+        ("ftp", "nas.local:21"),
+        ("redis", "rediss://cache.local:6380"),
+    ] {
+        match open(scheme, endpoint, Box::new(NarrowedTrust)) {
+            Err(DriveError::InvalidConfig(why)) => {
+                assert!(why.contains("trusted roots"), "{scheme} {endpoint}: {why}");
+            }
+            other => panic!("{scheme} {endpoint}: {:?}", other.map(|_| ())),
+        }
+        assert!(open(scheme, endpoint, Box::new(NoNetwork)).is_ok(), "{scheme} {endpoint}");
+    }
+    assert!(open("ftp", "ftp://nas.local:21", Box::new(NarrowedTrust)).is_ok());
+    assert!(open("redis", "tcp://cache.local:6379", Box::new(NarrowedTrust)).is_ok());
+}

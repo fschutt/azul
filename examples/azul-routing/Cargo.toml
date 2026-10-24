@@ -32,6 +32,11 @@ rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
 default = []
 http = ["dep:ureq", "dep:rustls-rustcrypto"]
 
+[dev-dependencies]
+# Throwaway roots and a loopback TLS server (azul-core's tls_testing) for the trust tests of
+# the downloads. Tests only: the crate itself stays without azul types.
+azul-core = { path = "../../core", default-features = false, features = ["std", "tls-testing"] }
+
 [lib]
 name = "azul_routing"
 path = "src/lib.rs"

@@ -3443,3 +3443,60 @@ mod tests {
         assert!(outbox_files(&dir.0).is_empty());
     }
 }
+
+/// STARTTLS of a relay (and of direct delivery: the same configuration) trusts the roots the
+/// host handed in: a server under a root outside them, or under a distrusted one the host
+/// left out, is refused at the handshake; one under a trusted root is reached.
+#[cfg(test)]
+mod trust_roots_tests {
+    use std::time::Duration;
+
+    use azul_core::tls_testing::{pems, serve_tls_with, Protocol, TestCa};
+
+    use super::{micromail_config, SendSettings, TlsPolicy};
+
+    /// What the relay saw of one mail sent through it trusting `roots`.
+    fn relay_saw(server: &TestCa, roots: Vec<String>) -> Result<String, String> {
+        let (port, seen) = serve_tls_with(server.server_for_loopback(), Protocol::SmtpStartTls);
+        let settings = SendSettings {
+            tls: TlsPolicy::Required,
+            trusted_roots: Some(roots),
+            ..SendSettings::default()
+        };
+        let from = "ada@example.org";
+        let config = micromail_config(&settings, from, Some(("127.0.0.1", port))).expect("config");
+        let _ = micromail::Mailer::new(config).send_raw(
+            from,
+            &[String::from("ben@example.net")],
+            b"Subject: x\r\n\r\nhi\r\n",
+        );
+        seen.recv_timeout(Duration::from_secs(30)).expect("the relay saw the attempt")
+    }
+
+    #[test]
+    fn a_relay_outside_the_trusted_roots_is_refused_and_one_inside_reached() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        assert!(relay_saw(&forged, vec![ours.cert_pem.clone()]).is_err());
+        assert_eq!(relay_saw(&forged, vec![forged.cert_pem.clone()]).as_deref(), Ok("starttls"));
+    }
+
+    #[test]
+    fn a_relay_under_a_root_the_set_leaves_out_is_refused_and_the_others_reached() {
+        // The app's set without its distrusted root, as `TrustRoots::get_certificates_pem`
+        // hands it over.
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let set = azul_core::tls::TrustRoots::pinned(pems(&[&a, &b])).with_distrusted(pems(&[&b]));
+        let pems: Vec<String> = set
+            .get_certificates_pem()
+            .into_result()
+            .expect("the set")
+            .as_ref()
+            .iter()
+            .map(|pem| pem.as_str().to_string())
+            .collect();
+        assert!(relay_saw(&b, pems.clone()).is_err());
+        assert_eq!(relay_saw(&a, pems).as_deref(), Ok("starttls"));
+    }
+}

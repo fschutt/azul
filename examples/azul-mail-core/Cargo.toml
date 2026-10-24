@@ -44,6 +44,8 @@ microdns = "0.1"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
 rustls-rustcrypto = "0.0.2-alpha"
+# The Mozilla roots when the host hands in no set of its own (tls.rs); in Cargo.lock already.
+webpki-roots = "1.0"
 
 [features]
 # "We always encrypt and compress" (AzMail and the bridge turn it on through their own
@@ -61,6 +63,9 @@ encryption = ["azul-storage/encryption"]
 azul-storage = { path = "../azul-storage", features = ["testing"] }
 # Keyrings whose locks are in the test's folder (SharedKeyring::with_lock_root).
 azcloud-kit = { path = "../azcloud-kit", features = ["testing"] }
+# Throwaway roots and a loopback TLS server speaking SMTP (tls.rs' tests): azul-core's
+# tls_testing, the harness of every TLS client's trust tests. Tests only.
+azul-core = { path = "../../core", default-features = false, features = ["tls-testing"] }
 
 [lib]
 name = "azmail_core"
