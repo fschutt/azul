@@ -1,4 +1,5 @@
-//! A layout pass rebuilds the CPU hit tester once.
+//! A layout pass rebuilds the CPU hit tester once, and a rebuild that
+//! changed nothing does not.
 //!
 //! The pointer events of a window resolve their node through the window's shared
 //! hit tester (`CommonWindowState::cpu_hit_tester`), which every layout pass
@@ -35,6 +36,17 @@ fn a_layout_pass_rebuilds_the_hit_tester_once() {
     let mut window = make_harness_window(&state);
     window.regenerate_layout().expect("initial layout");
 
+    // A rebuild that leaves the page as it was leaves its layout, and the
+    // hit tester built from it, as they were.
+    let unchanged = hit_tester_rebuilds(|| {
+        window.regenerate_layout().expect("a rebuild");
+    });
+    assert_eq!(
+        unchanged, 0,
+        "an unchanged rebuild rebuilt the hit tester {unchanged} times"
+    );
+
+    set_label(&state, "a longer label than before");
     let rebuild = hit_tester_rebuilds(|| {
         window.regenerate_layout().expect("a rebuild");
     });

@@ -7012,10 +7012,10 @@ impl MacOSWindow {
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
-        // Rebuild the hit tester from the new layout results. Unconditional:
-        // it is the only hit tester now, so a GPU window needs it exactly as
-        // much as a CPU one.
-        self.common.rebuild_cpu_hit_tester();
+        // Rebuild the hit tester from the new layout results (a GPU window
+        // needs it exactly as much as a CPU one: it is the only one), unless
+        // the layout did not change.
+        self.common.rebuild_cpu_hit_tester_after(&result);
 
         // Mark accessibility tree for update after layout
         #[cfg(feature = "a11y")]

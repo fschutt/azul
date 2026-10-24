@@ -2844,7 +2844,7 @@ impl HeadlessWindow {
         // a button's on_click) never fire. It is the only one: the backend's
         // own `cpu_backend.hit_tester` is read by nothing here, and rebuilding
         // it too walked every laid-out node a second time per pass.
-        self.common.rebuild_cpu_hit_tester();
+        self.common.rebuild_cpu_hit_tester_after(&result);
 
         // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
         // Update/Resize) and dispatch them through the normal callback pipeline.

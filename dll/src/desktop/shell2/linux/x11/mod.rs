@@ -6707,7 +6707,7 @@ impl X11Window {
         // drag-select / wheel-scroll / focus (#46). GPU mode has
         // cpu_hit_tester == None and uses the WebRender tester instead, so the
         // is_some() guard naturally restricts this to the CPU path.
-        self.common.rebuild_cpu_hit_tester();
+        self.common.rebuild_cpu_hit_tester_after(&result);
 
         // Drain lifecycle events (Mount / AfterMount / Unmount / Resize) produced
         // by this layout's DOM reconciliation and dispatch them through the normal

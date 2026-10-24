@@ -1953,7 +1953,7 @@ impl Win32Window {
         // (e.g. a button's on_click) never fire.
         // Unconditional: the CPU tester is the only hit tester now, so a GPU
         // window needs it rebuilt exactly as much as a CPU one.
-        self.common.rebuild_cpu_hit_tester();
+        self.common.rebuild_cpu_hit_tester_after(&result);
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
         // layout's reconciliation — the SAME step headless + X11 run. Without it,

@@ -3833,6 +3833,19 @@ impl CommonWindowState {
     /// backend's full `regenerate_layout()` tail — the hit-tester is a CACHE
     /// of `layout_results`, and a cache that outlives the layout it was
     /// built from sends input to nodes that are no longer there.
+    /// [`Self::rebuild_cpu_hit_tester`] at the tail of a regenerate, except
+    /// after a `LayoutUnchanged` one: its exits leave `layout_results` as the
+    /// hit tester was built from, and building it again for the same tree
+    /// was 12 % of an unchanged rebuild of a window.
+    pub fn rebuild_cpu_hit_tester_after(
+        &mut self,
+        result: &super::layout::LayoutRegenerateResult,
+    ) {
+        if *result != super::layout::LayoutRegenerateResult::LayoutUnchanged {
+            self.rebuild_cpu_hit_tester();
+        }
+    }
+
     pub fn rebuild_cpu_hit_tester(&mut self) {
         if let (Some(cpu_ht), Some(lw)) =
             (self.cpu_hit_tester.as_mut(), self.layout_window.as_ref())
