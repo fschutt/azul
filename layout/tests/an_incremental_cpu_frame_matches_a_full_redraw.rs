@@ -660,6 +660,12 @@ fn one_change(change: impl Fn(&mut Scene), budget_px: f64, what: &str) {
         let frame = present(&lw, &mut last);
         let truth = full_redraw(&lw);
         if let Some((x, y, painted, full)) = first_difference(&last.pixels, &truth) {
+            // `AZ_HARNESS_DUMP=1`: the list of the failing frame, item by item.
+            if std::env::var_os("AZ_HARNESS_DUMP").is_some() {
+                for (i, item) in list(&lw).items.iter().enumerate() {
+                    eprintln!("[harness] {i:3} {}", format!("{item:?}").chars().take(160).collect::<String>());
+                }
+            }
             panic!(
                 "{what} at {dpi} dpi: the incremental frame differs from a full redraw in {} \
                  pixels, the first at ({x}, {y}): painted {painted:?}, full {full:?}; the frame \
