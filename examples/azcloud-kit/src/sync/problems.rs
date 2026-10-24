@@ -340,6 +340,9 @@ pub fn code_of_sentence(why: &str) -> Code {
         ("changed during the run", Code::ChangedDuringSync),
         ("cannot be read", Code::Unreadable),
         ("is damaged", Code::HashMismatch),
+        // The drive names a file whose content it no longer holds: what it says of the file
+        // cannot be read.
+        ("missing from the drive", Code::RemoteEntryUnreadable),
         ("blake3 is not", Code::HashMismatch),
         ("larger than", Code::TooLarge),
         ("too big", Code::TooLarge),

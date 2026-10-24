@@ -220,3 +220,11 @@ fn not_backed_up_since_is_the_oldest_problem_that_keeps_a_change_back() {
     list.publish(vec![Problem::new(Code::Settling, "x", "being written")], true, 9_000);
     assert_eq!(list.unsynced_since(), None, "a passing moment keeps nothing back");
 }
+
+#[test]
+fn a_file_whose_content_the_drive_lost_is_an_unreadable_entry() {
+    assert_eq!(
+        code_of_sentence("the blob .azlin/blobs/ab/abcd is missing from the drive"),
+        Code::RemoteEntryUnreadable
+    );
+}
