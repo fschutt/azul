@@ -21,7 +21,13 @@
 //! A test whose `only_on` gate excludes this host reports the raw status
 //! `"skip"` (with its `skip_reason`) and ran no step. Its verdict is SKIP
 //! whatever its `expect` says - it neither failed nor passed - and a skip
-//! never fails the gate. The summary counts it as `skipped`.
+//! never fails the gate. The summary counts it as `skipped`. So does a test
+//! marked `not_applicable`.
+//!
+//! A test marked `pending` (it waits for a command or an engine part the app
+//! does not have yet) runs no step either and reports PENDING with what it
+//! waits for: never a gate failure, never a pass. The summary counts it as
+//! `pending`.
 
 use alloc::{format, string::String, vec::Vec};
 
@@ -40,6 +46,9 @@ pub struct E2eVerdict {
     pub xpass: usize,
     /// Not run on this host (its `only_on` gate) — never a gate failure.
     pub skipped: usize,
+    /// Not run: it waits for a missing part (its `pending` marker) — never a
+    /// gate failure.
+    pub pending: usize,
 }
 
 impl E2eVerdict {
@@ -68,7 +77,7 @@ impl E2eVerdict {
         let (_, tail) = line.split_once("test result:")?;
         let mut v = Self::default();
         let mut any = false;
-        // "<word>. 3 passed; 1 failed; 0 xfailed; 0 xpassed; 2 skipped; 0 measured; ..."
+        // "<word>. 3 passed; 1 failed; 0 xfailed; 0 xpassed; 2 skipped; 1 pending; 0 measured; ..."
         for part in tail.split(';') {
             let mut words = part.split_whitespace().rev();
             let (Some(name), Some(count)) = (words.next(), words.next()) else {
@@ -83,6 +92,7 @@ impl E2eVerdict {
                 "xfailed" => &mut v.xfail,
                 "xpassed" => &mut v.xpass,
                 "skipped" => &mut v.skipped,
+                "pending" => &mut v.pending,
                 _ => continue,
             };
             *slot = count;
@@ -136,6 +146,20 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
                 "33",
                 result.duration_ms,
                 &format!(" ({reason})"),
+            ));
+            out.push('\n');
+            continue;
+        }
+        // Neither did a pending one: it waits for a part the app does not have.
+        if result.status == "pending" {
+            v.pending += 1;
+            let what = result.skip_reason.as_deref().unwrap_or("a missing part");
+            out.push_str(&verdict_line(
+                &result.name,
+                "PENDING",
+                "33",
+                result.duration_ms,
+                &format!(" (waits for: {what})"),
             ));
             out.push('\n');
             continue;
@@ -214,9 +238,9 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
         "\x1b[32mok\x1b[0m"
     };
     out.push_str(&format!(
-        "test result: {word}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped; 0 \
-         measured; 0 filtered out\n",
-        v.passed, v.failed, v.xfail, v.xpass, v.skipped
+        "test result: {word}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped; {} \
+         pending; 0 measured; 0 filtered out\n",
+        v.passed, v.failed, v.xfail, v.xpass, v.skipped, v.pending
     ));
 
     (out, v)
@@ -224,8 +248,8 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
 
 /// Load every e2e test referenced by `path`.
 ///
-/// A DIRECTORY loads each `*.json` inside it in sorted (deterministic) order; a
-/// FILE loads just that one. A file holds one test object or an ARRAY of them
+/// A DIRECTORY loads each `*.json` inside it and in its subfolders
+/// ([`e2e_files`]); a FILE loads just that one. A file holds one test object or an ARRAY of them
 /// (`examples/azul-widgets/e2e/` keeps a demo's scenarios together). Returns a
 /// `Result` instead of calling `process::exit`, so it is usable from a library
 /// and from a CLI that wants to report the error itself; the DLL's `AZ_E2E`
@@ -243,14 +267,7 @@ pub fn load_e2e_tests(path: &std::path::Path) -> Result<Vec<E2eTest>, String> {
         .map_err(|e| format!("cannot stat E2E path '{}': {e}", path.display()))?;
 
     let files: Vec<std::path::PathBuf> = if meta.is_dir() {
-        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(path)
-            .map_err(|e| format!("cannot read E2E directory '{}': {e}", path.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
-            .collect();
-        // Deterministic run order.
-        files.sort();
-        files
+        e2e_files(path)?
     } else {
         vec![path.to_path_buf()]
     };
@@ -272,4 +289,36 @@ pub fn load_e2e_tests(path: &std::path::Path) -> Result<Vec<E2eTest>, String> {
     }
 
     Ok(tests)
+}
+
+/// Every `*.json` scenario under the folder `dir`, its subfolders included (a
+/// suite keeps a catalogue in a folder of its own beside its scenarios), in
+/// sorted path order so every run goes the same way. A folder that cannot be
+/// read is an error, never a silently shorter suite.
+///
+/// # Errors
+///
+/// A message naming the folder that cannot be read.
+#[cfg(feature = "std")]
+pub fn e2e_files(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut folders = alloc::vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let entries = std::fs::read_dir(&folder)
+            .map_err(|e| format!("cannot read E2E directory '{}': {e}", folder.display()))?;
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| format!("cannot read E2E directory '{}': {e}", folder.display()))?;
+            let path = entry.path();
+            // A link to a folder is not followed: it could lead back up.
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                folders.push(path);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
 }

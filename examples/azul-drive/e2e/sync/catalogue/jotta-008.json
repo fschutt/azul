@@ -22,7 +22,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Notes.txt", "count": 1 },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "notes.txt", "count": 0 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
       { "op": "drive_cleanup" }
     ]
@@ -54,7 +54,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Photos/*", "count": 0 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_check", "check": "kept_live", "texts": ["photo one", "photo two"] },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
       { "op": "drive_cleanup" }

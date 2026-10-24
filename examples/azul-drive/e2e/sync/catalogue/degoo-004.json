@@ -18,7 +18,7 @@
       { "op": "drive_check", "check": "file", "device": "a", "path": "a.txt", "text": "content B" },
       { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "a.txt", "count": 0 },
       { "op": "drive_check", "check": "kept", "texts": ["content A", "content B"] },
-      { "op": "overwrite", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_check", "check": "max_ops", "change": "overwrite", "device": "a", "max": 1 },
       { "op": "drive_cleanup" }
     ]
   },

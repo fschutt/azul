@@ -29,7 +29,7 @@
     { "op": "drive_check", "check": "files_count", "device": "a", "glob": "F/*", "count": 6 },
     { "op": "drive_check", "check": "trash_empty", "device": "a" },
     { "op": "drive_check", "check": "trash_empty", "device": "b" },
-    { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "b", "op": "trash", "max": 0} },
+    { "op": "drive_check", "check": "max_ops", "device": "b", "change": "trash", "max": 0 },
     { "op": "drive_check", "check": "converged" },
     { "op": "drive_cleanup" }
   ]

@@ -19,7 +19,7 @@
       { "op": "drive_check", "check": "problem", "device": "a", "code": "unreadable", "key": "photos*" },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "photos/*", "count": 6 },
       { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "other.txt", "text": "other v2" },
-      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_check", "check": "max_ops", "device": "a", "change": "trash", "max": 0 },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "photos/*", "count": 6 },
       { "op": "drive_check", "check": "file", "device": "b", "path": "other.txt", "text": "other v2" },

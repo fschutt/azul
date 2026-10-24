@@ -20,7 +20,7 @@
     { "op": "drive_check", "check": "remote_count", "glob": "data/*", "count": 300 },
     { "op": "drive_check", "check": "no_temp_files", "device": "b" },
     { "op": "drive_check", "check": "trash_empty", "device": "b" },
-    { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+    { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
     { "op": "drive_check", "check": "problem", "device": "b", "code": "mass-delete-held", "absent": true },
     { "op": "drive_check", "check": "converged" },
     { "op": "drive_sync", "device": "b" },

@@ -39,10 +39,10 @@
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_index", "remote": "r" },
       { "op": "assert_response", "path": "result.deleted[\"x.txt\"].device", "equals": "b" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "trash_has", "device": "a", "text": "x" },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 1 },
       { "op": "drive_cleanup" }
     ]
   }

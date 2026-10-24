@@ -54,7 +54,7 @@
       { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "Shortcut.lnk", "count": 0 },
       { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "Shortcut.lnk", "count": 0 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "~*", "count": 0 },
       { "op": "drive_check", "check": "kept", "texts": ["v1", "v2"] },

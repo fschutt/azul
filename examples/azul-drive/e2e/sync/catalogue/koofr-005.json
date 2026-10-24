@@ -23,7 +23,7 @@
     { "op": "drive_check", "check": "file", "device": "b", "path": "inbox/film.bin", "absent": true },
     { "op": "drive_check", "check": "trash_empty", "device": "a" },
     { "op": "drive_check", "check": "trash_empty", "device": "b" },
-    { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+    { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
     { "op": "drive_check", "check": "remote_consistent" },
     { "op": "drive_check", "check": "converged" },
     { "op": "drive_cleanup" }

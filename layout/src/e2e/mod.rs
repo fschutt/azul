@@ -41,6 +41,8 @@ mod runner;
 pub use runner::run_e2e_test;
 
 mod report;
+#[cfg(feature = "std")]
+pub use report::e2e_files;
 pub use report::{load_e2e_tests, render_report, E2eVerdict};
 
 // The AzBuilder server messages (drag and drop, convert, previews), driven

@@ -262,6 +262,112 @@ fn a_summary_line_reads_back_into_the_verdict_that_wrote_it() {
     assert_eq!(E2eVerdict::parse_summary("running 2 tests"), None);
 }
 
+// ==== the `pending` and `not_applicable` markers, and the suite's subfolders ====
+
+/// A scenario whose one step fails, marked with `marker`: a verdict that is
+/// not "fail" proves no step ran.
+fn marked(name: &str, marker: &str, why: &str) -> E2eTest {
+    let mut json = serde_json::json!({
+        "name": name,
+        "steps": [ { "op": "assert_exists", "selector": "#not-here" } ]
+    });
+    json[marker] = serde_json::Value::String(why.to_string());
+    serde_json::from_value(json).expect("the scenario literal is a valid E2eTest")
+}
+
+/// AzDrive's catalogue marks a test that waits for a command the app does
+/// not have yet as `pending`. It ran anyway and FAILED on the missing
+/// command - 120 red tests that said nothing new. A pending test runs no step
+/// and reports "pending" with what it waits for.
+#[test]
+fn a_pending_test_runs_no_step_and_says_what_it_waits_for() {
+    let test = marked("waits_for_a_command", "pending", "drive_rotate_key {remote}");
+
+    let result = run_e2e_test(&test);
+
+    assert_eq!(result.status, "pending", "{:#?}", result.steps);
+    assert!(result.steps.is_empty(), "no step ran: {:#?}", result.steps);
+    assert_eq!(result.skip_reason.as_deref(), Some("drive_rotate_key {remote}"));
+}
+
+/// A `not_applicable` test has nothing to run here (often no steps at all),
+/// so it must not count as a pass: it is a SKIP with its reason.
+#[test]
+fn a_not_applicable_test_is_a_skip_with_its_reason_never_a_pass() {
+    let test = marked("server_side", "not_applicable", "the gateway's own conformance");
+
+    let result = run_e2e_test(&test);
+
+    assert_eq!(result.status, "skip", "{:#?}", result.steps);
+    assert!(result.steps.is_empty(), "no step ran: {:#?}", result.steps);
+    let reason = result.skip_reason.unwrap_or_default();
+    assert!(
+        reason.contains("not applicable") && reason.contains("the gateway's own conformance"),
+        "{reason:?}"
+    );
+}
+
+/// The tally counts a pending test on its own: not a pass, not a failure, a
+/// green gate; and the summary line reads back with the count.
+#[test]
+fn a_pending_result_is_counted_as_pending_and_reads_back_from_the_summary() {
+    use crate::e2e::E2eVerdict;
+
+    let tests = vec![marked("waits", "pending", "drive_share {device, path}")];
+    let results = vec![result(serde_json::json!({
+        "name": "waits",
+        "status": "pending",
+        "skip_reason": "drive_share {device, path}",
+        "duration_ms": 0,
+        "step_count": 1,
+        "steps_passed": 0,
+        "steps_failed": 0,
+        "steps": []
+    }))];
+
+    let (report, verdict) = render_report(&tests, &results);
+
+    assert!(!verdict.gate_failed(), "{report}");
+    assert_eq!((verdict.passed, verdict.pending), (0, 1), "{report}");
+    assert!(
+        report.contains("PENDING") && report.contains("drive_share {device, path}"),
+        "the line says PENDING and what it waits for:\n{report}"
+    );
+    let line = report
+        .lines()
+        .rev()
+        .find(|l| l.contains("test result:"))
+        .expect("the report ends in a summary line");
+    assert!(line.contains("1 pending"), "{line}");
+    assert_eq!(E2eVerdict::parse_summary(line), Some(verdict), "{line}");
+}
+
+/// AzDrive's suite keeps its 274 catalogue scenarios in `e2e/sync/catalogue/`,
+/// and the folder scan read only `e2e/sync/` itself: the catalogue never ran.
+/// The scan takes the subfolders too, in one sorted order.
+#[test]
+fn the_folder_scan_finds_the_scenarios_in_subfolders_in_sorted_order() {
+    let dir = std::env::temp_dir().join(format!("azul-e2e-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("catalogue/deeper")).expect("folders");
+    for file in ["b.json", "a.json", "notes.md", "catalogue/c.json", "catalogue/deeper/d.json"] {
+        std::fs::write(dir.join(file), "{}").expect("a file");
+    }
+
+    let files = crate::e2e::e2e_files(&dir).expect("the folder reads");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let names: Vec<String> = files
+        .iter()
+        .map(|f| f.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/"))
+        .collect();
+    assert_eq!(
+        names,
+        ["a.json", "b.json", "catalogue/c.json", "catalogue/deeper/d.json"],
+        "every scenario, the subfolders' too, and nothing else"
+    );
+}
+
 // ==== the notification op and `assert_notification`'s payload ====
 
 /// The notification tests share the process-wide mailbox and recorder.

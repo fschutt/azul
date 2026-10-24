@@ -23,7 +23,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "new-folder/*", "count": 20 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_check", "check": "max_ops", "device": "a", "change": "trash", "max": 0 },
       { "op": "drive_check", "check": "kept_live", "texts": ["original 0", "original 19", "made on b meanwhile"] },
       { "op": "drive_check", "check": "converged" },
       { "op": "drive_cleanup" }
@@ -52,7 +52,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "count": 25 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_check", "check": "max_ops", "device": "a", "change": "trash", "max": 0 },
       { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
       { "op": "drive_check", "check": "converged" },
       { "op": "drive_cleanup" }

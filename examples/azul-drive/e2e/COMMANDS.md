@@ -252,7 +252,7 @@ so a failed check fails the step with its detail. The names and fields are sync-
 | `remote_count` | `glob`, `count` |
 | `remote_consistent` | - (every indexed file's object is there and matches its hash) |
 | `problem` | `code` or `code_any`, `key` (glob), `absent`, `when` (`last`: the last pass's list, else every pass's) |
-| `max_ops` | `key`, `op` (`trash`, `delete`, `overwrite`, `conflict`, `move`), `max` (destructive changes in the device's operations log, `ops.jsonl`) |
+| `max_ops` | `key`, `change` (`trash`, `delete`, `overwrite`, `conflict`, `move`), `max` (destructive changes in the device's operations log, `ops.jsonl`; sync-chaos names the kind `op`, which a step cannot carry: its `op` is the command) |
 | `remote_puts` | `max` (the device's successful PUTs) |
 | `retry_after_respected` | - |
 | `state_private` | - (the state folder is not readable by others) |

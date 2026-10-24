@@ -20,6 +20,10 @@ mod tamper;
 #[cfg(test)]
 mod remote_tests;
 
+// The scenario files: every step one the runner and the commands can carry.
+#[cfg(test)]
+mod c_catalogue_tests;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},

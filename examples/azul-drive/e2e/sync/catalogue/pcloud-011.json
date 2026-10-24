@@ -31,7 +31,7 @@
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo 0" },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo 39" },
       { "op": "drive_check", "check": "kept", "texts": ["photo 0", "photo 39"] },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 40 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 40 },
       { "op": "drive_cleanup" }
     ]
   },

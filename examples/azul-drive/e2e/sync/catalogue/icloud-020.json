@@ -35,8 +35,8 @@
     { "op": "drive_check", "check": "remote_count", "glob": "local/*", "count": 30 },
     { "op": "drive_check", "check": "files_count", "device": "b", "glob": "cloud/*", "count": 5 },
     { "op": "drive_check", "check": "trash_empty", "device": "b" },
-    { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
-    { "op": "overwrite", "check": "max_ops", "device": "b", "max": 0 },
+    { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
+    { "op": "drive_check", "check": "max_ops", "change": "overwrite", "device": "b", "max": 0 },
     { "op": "drive_check", "check": "no_temp_files", "device": "b" },
     { "op": "drive_check", "check": "converged" },
     { "op": "drive_cleanup" }

@@ -21,7 +21,7 @@
       { "op": "drive_check", "check": "file", "device": "a", "path": "photos/p1.jpg", "absent": true },
       { "op": "drive_check", "check": "trash_has", "device": "a", "text": "photo 1" },
       { "op": "drive_check", "check": "trash_has", "device": "a", "text": "photo 2" },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 2 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 2 },
       { "op": "drive_check", "check": "file", "device": "a", "path": "photos/p3.jpg", "text": "photo 3" },
       { "op": "drive_check", "check": "kept", "texts": ["photo 1", "photo 2"] },
       { "op": "drive_cleanup" }

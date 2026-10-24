@@ -201,17 +201,14 @@ pub(crate) fn warn_about_inert_env_knobs() {
 
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn run_e2e_dispatcher(dir: &str) {
-    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
-        Ok(rd) => rd
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
-            .collect(),
+    // The folder's scenarios and its subfolders' (a catalogue kept beside them).
+    let files: Vec<std::path::PathBuf> = match debug_server::e2e_files(std::path::Path::new(dir)) {
+        Ok(files) => files,
         Err(e) => {
-            eprintln!("error: cannot read E2E directory '{}': {}", dir, e);
+            eprintln!("error: {e}");
             exit_dumping_profile(1);
         }
     };
-    files.sort();
     if files.is_empty() {
         eprintln!("error: no *.json E2E files found in directory '{}'", dir);
         exit_dumping_profile(1);
@@ -279,7 +276,13 @@ fn run_e2e_dispatcher(dir: &str) {
     let _ = std::fs::create_dir_all(target_dir);
 
     for (file, success, stdout, stderr) in rx {
-        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        // Named by its path under the folder, so two subfolders' files of one name stay apart.
+        let name = file
+            .strip_prefix(dir)
+            .unwrap_or(&file)
+            .with_extension("")
+            .to_string_lossy()
+            .into_owned();
         let child_log = String::from_utf8_lossy(&stderr);
         let verdict = child_log
             .lines()
@@ -292,6 +295,7 @@ fn run_e2e_dispatcher(dir: &str) {
                 tally.xfail += v.xfail;
                 tally.xpass += v.xpass;
                 tally.skipped += v.skipped;
+                tally.pending += v.pending;
             }
             // A child that died before its report is one failure at least.
             None if !success => tally.failed += 1,
@@ -299,23 +303,30 @@ fn run_e2e_dispatcher(dir: &str) {
         }
         let ran_any = verdict.map_or(true, |v| v.passed + v.failed + v.xfail + v.xpass > 0);
         if success && !ran_any {
-            // Nothing in the file runs on this host: SKIP, with the reasons.
-            eprintln!("test {} ... SKIP", name);
+            // Nothing in the file ran: every test is pending, not applicable or for another
+            // host. PENDING when one waits for a missing part, else SKIP; the reasons below.
+            let waits = verdict.map_or(0, |v| v.pending) > 0;
+            eprintln!("test {} ... {}", name, if waits { "PENDING" } else { "SKIP" });
             for line in child_log
                 .lines()
-                .filter(|l| l.starts_with("test ") && l.contains("SKIP"))
+                .filter(|l| l.starts_with("test ") && (l.contains("SKIP") || l.contains("PENDING")))
             {
                 eprintln!("    {line}");
             }
         } else if success {
-            match verdict.map_or(0, |v| v.skipped) {
-                0 => eprintln!("test {} ... ok", name),
-                skipped => eprintln!("test {} ... ok ({} skipped)", name, skipped),
+            let (skipped, pending) = verdict.map_or((0, 0), |v| (v.skipped, v.pending));
+            match (skipped, pending) {
+                (0, 0) => eprintln!("test {} ... ok", name),
+                (skipped, 0) => eprintln!("test {} ... ok ({} skipped)", name, skipped),
+                (skipped, pending) => eprintln!(
+                    "test {} ... ok ({} skipped, {} pending)",
+                    name, skipped, pending
+                ),
             }
         } else {
             eprintln!("test {} ... FAILED", name);
 
-            let log_path = target_dir.join(format!("{}.log", name));
+            let log_path = target_dir.join(format!("{}.log", name.replace(['/', '\\'], "-")));
             let mut log_content = String::new();
             log_content.push_str("--- STDOUT ---\n");
             log_content.push_str(&String::from_utf8_lossy(&stdout));
@@ -323,18 +334,19 @@ fn run_e2e_dispatcher(dir: &str) {
             log_content.push_str(&child_log);
             let _ = std::fs::write(&log_path, log_content);
 
-            failures.push((name.into_owned(), log_path));
+            failures.push((name, log_path));
         }
     }
 
     eprintln!(
-        "\ntest result: {}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped",
+        "\ntest result: {}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped; {} pending",
         if failures.is_empty() { "ok" } else { "FAILED" },
         tally.passed,
         tally.failed,
         tally.xfail,
         tally.xpass,
-        tally.skipped
+        tally.skipped,
+        tally.pending
     );
     
     if !failures.is_empty() {

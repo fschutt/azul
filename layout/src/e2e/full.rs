@@ -6057,6 +6057,17 @@ pub struct E2eTest {
     /// [`e2e_platform_gate`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub only_on: Option<Vec<String>>,
+    /// The test waits for something the app does not have yet (a command, an
+    /// engine feature), and this says what. A pending test runs no step and
+    /// reports PENDING with the reason: it never fails the gate, and it is not
+    /// counted as a pass either. The marker goes when the missing part lands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<String>,
+    /// The scenario has nothing this app can test (a server's or a store's
+    /// property), and this says why and where it is tested instead. It runs no
+    /// step and reports SKIP with the reason, so an empty test is never a pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_applicable: Option<String>,
     /// Optional runtime configuration (continue_on_failure, delay, …).
     #[serde(default)]
     pub config: E2eConfig,
@@ -6130,10 +6141,11 @@ pub struct E2eStep {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct E2eTestResult {
     pub name: String,
-    /// "pass", "fail", or "skip" (the test's `only_on` gate excludes this
-    /// host; `skip_reason` says why, and no step ran)
+    /// "pass", "fail", "skip" (the test's `only_on` gate excludes this host,
+    /// or it is not applicable; `skip_reason` says why, and no step ran) or
+    /// "pending" (it waits for a missing part, named in `skip_reason`)
     pub status: String,
-    /// Why a "skip" did not run. `None` for every other status.
+    /// Why a "skip" or "pending" did not run. `None` for every other status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_reason: Option<String>,
     pub duration_ms: u64,
@@ -6181,6 +6193,20 @@ pub fn e2e_host_platform() -> &'static str {
     } else {
         std::env::consts::OS
     }
+}
+
+/// The verdict a test's own marker gives it before any step runs: `pending`
+/// reports `("pending", what it waits for)`, `not_applicable` reports
+/// `("skip", why)`. `None`: the test is not marked and runs.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn e2e_marker_gate(test: &E2eTest) -> Option<(String, String)> {
+    if let Some(what) = &test.pending {
+        return Some((String::from("pending"), what.clone()));
+    }
+    test.not_applicable
+        .as_ref()
+        .map(|why| (String::from("skip"), format!("not applicable: {why}")))
 }
 
 /// Does a test gated to `only_on` run on `host`?
@@ -12730,12 +12756,16 @@ fn resume_e2e_continuation_inner(
         // step (not even its `setup`) and reports SKIP with the reason; a
         // malformed gate fails it without running anything either.
         if cont.step_idx == 0 && !cont.setup_applied {
-            let gate = e2e_platform_gate(test.only_on.as_deref(), e2e_host_platform());
+            let gate = match e2e_marker_gate(test) {
+                Some(marked) => Ok(Some(marked)),
+                None => e2e_platform_gate(test.only_on.as_deref(), e2e_host_platform())
+                    .map(|reason| reason.map(|reason| (String::from("skip"), reason))),
+            };
             let verdict = match gate {
                 Ok(None) => None,
-                Ok(Some(reason)) => Some(E2eTestResult {
+                Ok(Some((status, reason))) => Some(E2eTestResult {
                     name: test.name.clone(),
-                    status: "skip".into(),
+                    status,
                     skip_reason: Some(reason),
                     duration_ms: 0,
                     step_count: test.steps.len(),

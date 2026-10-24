@@ -18,7 +18,7 @@
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "trash_has", "device": "a", "text": "the report" },
       { "op": "drive_check", "check": "file", "device": "a", "path": "keep.txt", "text": "kept" },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 1 },
       { "op": "drive_index", "remote": "r" },
       { "op": "assert_response", "path": "result.deleted[\"shared/report.pdf\"].device", "equals": "b" },
       { "op": "drive_cleanup" }

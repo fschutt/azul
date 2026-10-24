@@ -28,7 +28,7 @@
       { "op": "drive_sync", "device": "a" },
       { "op": "assert_response", "path": "result.down", "equals": 0 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 0 },
       { "op": "drive_check", "check": "files_count", "device": "a", "glob": "DCIM/*", "count": 3 },
       { "op": "drive_cleanup" }
     ]
@@ -97,7 +97,7 @@
       { "op": "drive_sync", "device": "b" },
       { "op": "assert_response", "path": "result.down", "equals": 0 },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "big/*", "count": 20 },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_cleanup" }
     ]
   }

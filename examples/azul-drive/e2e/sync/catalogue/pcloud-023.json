@@ -30,8 +30,8 @@
       { "op": "drive_check", "check": "files_count", "device": "a", "count": 17 },
       { "op": "drive_check", "check": "files_count", "device": "b", "count": 17 },
       { "op": "drive_check", "check": "remote_count", "count": 17 },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 0 },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 3 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 3 },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "clip 1" },
       { "op": "drive_cleanup" }
     ]

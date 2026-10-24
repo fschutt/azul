@@ -26,7 +26,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "projects/beta/*", "count": 2 },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "projects/alpha/*", "count": 0 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held", "absent": true },
       { "op": "drive_check", "check": "converged" },
       { "op": "drive_cleanup" }

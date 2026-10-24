@@ -19,7 +19,7 @@
       { "op": "drive_check", "check": "file", "device": "b", "path": "contract.pdf", "absent": true },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "signed contract" },
       { "op": "drive_check", "check": "kept", "texts": ["signed contract"] },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 1 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 1 },
       { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "contract.pdf", "absent": true },
       { "op": "drive_check", "check": "file", "device": "b", "path": "other.txt", "text": "other" },
       { "op": "drive_clock", "device": "b", "jump": 2592000 },
@@ -51,7 +51,7 @@
       { "op": "drive_check", "check": "file", "device": "b", "path": "docs/two.txt", "absent": true },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "doc one" },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "doc two" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 2 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 2 },
       { "op": "drive_check", "check": "file", "device": "b", "path": "docs/keep.txt", "text": "doc keep" },
       { "op": "drive_cleanup" }
     ]
@@ -80,7 +80,7 @@
       { "op": "drive_check", "check": "files_count", "device": "b", "count": 0 },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "doc 0" },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "doc 29" },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 30 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 30 },
       { "op": "drive_cleanup" }
     ]
   }

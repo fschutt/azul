@@ -32,7 +32,7 @@
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo 0" },
       { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo 39" },
       { "op": "drive_check", "check": "kept", "texts": ["photo 0", "photo 39"] },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 40 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 40 },
       { "op": "drive_cleanup" }
     ]
   },
@@ -113,8 +113,8 @@
       { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "trash", "check": "max_ops", "device": "a", "max": 0 },
-      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "a", "max": 0 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
       { "op": "drive_cleanup" }

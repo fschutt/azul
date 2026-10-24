@@ -19,7 +19,7 @@
       { "op": "drive_check", "check": "file", "device": "a", "path": "q2.bin", "size": 400000 },
       { "op": "drive_check", "check": "file", "device": "a", "path": "q3.bin", "size": 400000 },
       { "op": "drive_check", "check": "trash_empty", "device": "a" },
-      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_check", "check": "max_ops", "device": "a", "change": "trash", "max": 0 },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "q*.bin", "count": 2 },
       { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },

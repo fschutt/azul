@@ -40,7 +40,7 @@
       { "op": "drive_check", "check": "trash_has", "device": "c", "text": "the plan" },
       { "op": "drive_check", "check": "kept", "texts": ["the plan"] },
       { "op": "drive_check", "check": "file", "device": "c", "path": "shared/budget.xlsx", "text": "the budget" },
-      { "op": "trash", "check": "max_ops", "device": "c", "max": 1 },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "c", "max": 1 },
       { "op": "drive_cleanup" }
     ]
   }

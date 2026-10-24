@@ -573,7 +573,9 @@ fn max_ops(h: &Harness, args: &Args) -> Verdict {
     let d = h.device(args)?;
     let state = d.state_dir.as_ref().ok_or("the device is not paired")?;
     let key = str_arg(args, "key");
-    let kind = str_arg(args, "op");
+    // `change`, not sync-chaos's `op`: a step's own `op` names the command, so a field of that
+    // name never reached the check.
+    let kind = str_arg(args, "change");
     let n = azcloud_kit::sync::oplog::OpLog::new(state)
         .read()
         .iter()

@@ -50,7 +50,7 @@
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "clients/*", "count": 8 },
       { "op": "drive_check", "check": "trash_empty", "device": "b" },
-      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_check", "check": "max_ops", "device": "a", "change": "trash", "max": 0 },
       { "op": "drive_chmod", "device": "a", "path": "clients", "mode": "755" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
