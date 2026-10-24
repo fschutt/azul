@@ -299,6 +299,17 @@ pub const BAN_BAR: AzString = AzString::from_const_str("__azdrive_ban_bar");
 pub const BAN_TEXT: AzString = AzString::from_const_str("__azdrive_ban_text");
 pub const BAN_COPY: AzString = AzString::from_const_str("__azdrive_ban_copy");
 pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed");
+pub const ARCHIVE_BAR: AzString = AzString::from_const_str("__azdrive_archive_bar");
+pub const ARCHIVE_TEXT: AzString = AzString::from_const_str("__azdrive_archive_text");
+pub const ARCHIVE_RESCUE: AzString = AzString::from_const_str("__azdrive_archive_rescue");
+pub const ARCHIVE_RENEW: AzString = AzString::from_const_str("__azdrive_archive_renew");
+pub const ARCHIVE_OPEN_COPY: AzString = AzString::from_const_str("__azdrive_archive_open_copy");
+pub const ARCHIVE_COPY: AzString = AzString::from_const_str("__azdrive_archive_copy");
+pub const ARCHIVE_LOCKED: AzString = AzString::from_const_str("__azdrive_archive_locked");
+pub const ARCHIVE_GET_BACK: AzString = AzString::from_const_str("__azdrive_archive_get_back");
+pub const ARCHIVE_PAY: AzString = AzString::from_const_str("__azdrive_archive_pay");
+pub const ARCHIVE_CODE: AzString = AzString::from_const_str("__azdrive_archive_code");
+pub const ARCHIVE_CODE_CONFIRM: AzString = AzString::from_const_str("__azdrive_archive_code_confirm");
 
 /// The bar over the content while drives wait for the user's Unlock, its button, and the
 /// content of a locked drive's folder (`unlock.rs`).

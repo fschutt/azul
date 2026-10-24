@@ -232,6 +232,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if let Some(bar) = crate::ban::banner(s, app) {
         area.add_child(bar);
     }
+    // An unpaid drive in view: what happens when, how far its copy to this computer got.
+    if let Some(bar) = crate::archive::banner(s, app) {
+        area.add_child(bar);
+    }
     // Drives whose keys wait for the user: which, and Unlock.
     if let Some(bar) = crate::unlock::bar(s, app) {
         area.add_child(bar);
@@ -242,10 +246,13 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     let folder = matches!(s.place, Place::Folder { .. }) || searching;
     // A closed drive in view shows when and why it was closed, and nothing else.
     let closed = crate::ban::closed_view(s);
+    // A locked drive in view is empty here: why, and Get my drive back.
+    let archived = crate::archive::locked_view(s, app);
     // A drive in view whose keys wait for the user shows that it is locked, and Unlock.
     let locked = crate::unlock::locked_view(s, app);
     let view = match &s.place {
         Place::Folder { .. } if closed.is_some() => closed.unwrap_or_else(Dom::create_div),
+        Place::Folder { .. } if archived.is_some() => archived.unwrap_or_else(Dom::create_div),
         Place::Folder { .. } if locked.is_some() => locked.unwrap_or_else(Dom::create_div),
         _ if searching => folder_view(s, app),
         Place::ThisPc => this_pc(s, app),

@@ -407,6 +407,25 @@ pub(crate) enum Job {
         key: String,
         text: String,
     },
+    /// "Get my drive back": proves the locked Azlin drive `drive_id` is this owner's - this
+    /// computer's device key, or the recovery code typed - under its keyring lock with its
+    /// newest drive token ([`crate::archive::prove`]).
+    ArchiveProve {
+        token_url: String,
+        keyring: SharedKeyring,
+        drive_id: String,
+        via: crate::archive::ProveWith,
+    },
+    /// The copy of the read-only Azlin drive `drive_id` (`source`, opened) to this computer,
+    /// into `folder`; `home`'s disk must have the room; `state` keeps how far it got
+    /// ([`crate::archive::run_rescue`]).
+    Rescue {
+        drive_id: String,
+        source: Arc<dyn Drive>,
+        folder: PathBuf,
+        home: PathBuf,
+        state: PathBuf,
+    },
     /// A look at the Azlin drives `drives` (each one's id and token server): their status (a
     /// pending recovery-key lockdown) and, when their periods near their ends, their next month
     /// from a period token kept in `store` - each under its drive's keyring lock, with its
@@ -717,6 +736,22 @@ pub(crate) enum Outcome {
         months: u32,
     },
     PlanCancelled { drive_id: String, result: Result<(), String> },
+    /// A proof of a locked drive answered (its Azlin id).
+    ArchiveProven {
+        drive_id: String,
+        result: Result<azcloud_kit::ProofAnswer, String>,
+    },
+    /// How far a read-only drive's copy to this computer got (its Azlin id).
+    RescueProgress {
+        drive_id: String,
+        copied: usize,
+        total: usize,
+    },
+    /// A read-only drive's copy to this computer ended.
+    RescueDone {
+        drive_id: String,
+        report: crate::archive::Rescue,
+    },
     NoticeSaved { key: String, result: Result<(), DriveError> },
     SettingsSaved {
         result: Result<(), DriveError>,
@@ -2808,6 +2843,17 @@ fn redeem_periods(
             continue;
         };
         let look = look_at_drive(&server, keyring, store, &tokens, now);
+        // this device's key, which proves the owner if the drive is ever locked: registered
+        // while the drive is open, once (a failure is tried again at the next look)
+        if look
+            .status
+            .as_ref()
+            .is_some_and(|status| !status.locked() && status.ban.is_none())
+        {
+            if let Err(e) = azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id) {
+                eprintln!("[azdrive] the device key of {drive_id} waits for the next look: {e}");
+            }
+        }
         renewals.push((
             drive_id.clone(),
             renewal_seen(&server, keyring, store, &tokens, &look, azlin.as_ref(), now),
@@ -3371,6 +3417,36 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             store,
             drives,
         } => redeem_periods(&keyring, &store, &drives),
+        Job::ArchiveProve {
+            token_url,
+            keyring,
+            drive_id,
+            via,
+        } => Outcome::ArchiveProven {
+            result: crate::archive::prove(&token_url, &keyring, &drive_id, &via),
+            drive_id,
+        },
+        Job::Rescue {
+            drive_id,
+            source,
+            folder,
+            home,
+            state,
+        } => {
+            let mut progress = |copied: usize, total: usize| {
+                send(
+                    sender,
+                    Outcome::RescueProgress {
+                        drive_id: drive_id.clone(),
+                        copied,
+                        total,
+                    },
+                );
+            };
+            let free = crate::archive::free_bytes(&home);
+            let report = crate::archive::run_rescue(&*source, &folder, free, &state, &mut progress);
+            Outcome::RescueDone { drive_id, report }
+        }
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: crate::write_settings(&drive, &text),
         },

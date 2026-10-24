@@ -248,6 +248,21 @@ pub(crate) fn closed_view(s: &DriveState) -> Option<Dom> {
     )
 }
 
+/// Copy everything to this computer for the drive `drive_id` (a folder picked, the whole drive
+/// downloaded into a folder named after it): the ban's bar and an unpaid drive's bar
+/// (archive.rs) offer it.
+pub(crate) fn copy_everything_button(app: &RefAny, drive_id: &str) -> Dom {
+    Button::create(label("azdrive-ban-copy-everything"))
+        .with_on_click(
+            RefAny::new(CopyRef {
+                app: app.clone(),
+                drive_id: drive_id.to_string(),
+            }),
+            on_copy_everything as ButtonOnClickCallbackType,
+        )
+        .dom()
+}
+
 /// What Copy everything carries.
 struct CopyRef {
     app: RefAny,

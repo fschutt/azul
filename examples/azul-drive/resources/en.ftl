@@ -1466,6 +1466,37 @@ azdrive-ban-copy-folder = Azlin drive
 azdrive-ban-copy-everything = Copy everything to this computer…
 azdrive-ban-copy-title = Copy everything to this computer
 azdrive-ban-copy-not-opened = The drive could not be opened to copy its files.
+azdrive-archive-grace = "{ $drive }" was paid until { $paid }. It stays writable until { $read_only }, then it is read-only. On { $locked } it is locked: its files are moved to offline storage and come back only after payment, which can take some days. Renew it to keep it as it is.
+azdrive-archive-read-only = "{ $drive }" is read-only since { $read_only } because it is unpaid: its files can still be read and copied. On { $locked } it is locked: its files are moved to offline storage and come back only after payment, which can take some days. Renew it now, or keep a copy of your files on this computer.
+azdrive-archive-rescue-running = AzDrive is copying this drive's files to { $folder }: { $copied } of { $total } so far.
+azdrive-archive-rescue-done = Every file of this drive is copied to { $folder }.
+azdrive-archive-rescue-missing = { $missing ->
+        [one] 1 file is
+       *[other] { $missing } files are
+    } not copied to { $folder } yet ({ $names }). AzDrive tries again at its next look.
+azdrive-archive-rescue-no-space = This computer has too little free space to copy the drive: { $needed } needed, { $free } free. Free some space, or copy it elsewhere with "Copy everything to this computer".
+azdrive-archive-open-copy = Open the copy
+azdrive-archive-locked = "{ $drive }" was locked on { $locked } because it stayed unpaid for 104 days after { $paid }. Its files were moved to offline storage; nothing was deleted. To get it back, prove that it is yours and pay the time it was kept for you (at least { $months ->
+        [one] 1 month
+       *[other] { $months } months
+    }). Restoring it can take some days. Files you copied to this computer stay where they are.
+azdrive-archive-locked-proven = "{ $drive }" is proven to be yours. It was locked on { $locked } after staying unpaid since { $paid }: pay at least { $months ->
+        [one] 1 month
+       *[other] { $months } months
+    } to get it back. Restoring it can take some days.
+azdrive-archive-restore-pending = Your payment arrived: "{ $drive }" is being brought back from offline storage. This can take some days; AzDrive opens it as soon as it is back.
+azdrive-archive-back = "{ $drive }" is back. Its files are where you left them.
+azdrive-archive-get-back = Get my drive back
+azdrive-archive-pay = Pay to get it back
+azdrive-archive-proving = Proving that "{ $drive }" is yours…
+azdrive-archive-proof-failed = "{ $drive }" could not be proven yours: { $why }
+azdrive-archive-no-key-here = This computer has no key of "{ $drive }". Type the drive's recovery code to prove it is yours.
+azdrive-archive-no-key-at-all = "{ $drive }" has no recovery code and no device key: nothing can prove whose it is, so it cannot be brought back.
+azdrive-archive-wrong-key = That key is not one of "{ $drive }": use the recovery code of this drive, or a computer that used it before it was locked.
+azdrive-archive-try-again = The proof for "{ $drive }" ran out of time. Try again.
+azdrive-archive-not-locked = "{ $drive }" is not locked: nothing to bring back.
+azdrive-archive-code-title = Get "{ $name }" back
+azdrive-archive-code-why = This drive was locked because it stayed unpaid. Azlin keeps no name or address of anyone, so only the drive's recovery code proves that it is yours. Type it, then pay to get the drive back.
 azdrive-usage-available = { $about ->
         [yes] about { $size } available
        *[no] { $size } available
@@ -1647,7 +1678,7 @@ azdrive-add-tier-closed = { $tier } is sold out for now.
 azdrive-renew = Renew
 azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep writing to it after that.
 azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
-azdrive-renew-closing = "{ $drive }" is closed on { $at } unless it is renewed. It stays readable after that, but its files may then be deleted. Copy what you need, or renew it now.
+azdrive-renew-closing = "{ $drive }" is locked on { $at } unless it is renewed: its files are then moved to offline storage and come back only after payment, which can take some days. Copy what you need, or renew it now.
 azdrive-months-renewed = { $months ->
         [one] 1 month was
        *[other] { $months } months were

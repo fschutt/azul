@@ -188,6 +188,11 @@ mod options_cancel_tests;
 mod ban;
 #[cfg(test)]
 mod ban_tests;
+/// An unpaid Azlin drive's last months (the bar, the copy to this computer), its lock and its
+/// way back (Get my drive back).
+mod archive;
+#[cfg(test)]
+mod archive_tests;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
 mod add_drive;
 #[cfg(test)]
@@ -1241,6 +1246,12 @@ pub(crate) struct DriveState {
     pub git: ui_git::GitView,
     /// The command bar at the folder view's foot: its line, history and output.
     pub command_bar: ui_command_bar::CommandBar,
+    /// The unpaid and the locked Azlin drives, by their Azlin id: their stage as the last look
+    /// saw it (the bar over the drive, the locked page).
+    pub archives: HashMap<String, archive::Seen>,
+    /// The copies of read-only Azlin drives to this computer, by their Azlin id: how far each
+    /// got, what it still misses.
+    pub rescues: HashMap<String, archive::Rescue>,
 }
 
 impl DriveState {
@@ -2722,6 +2733,7 @@ pub(crate) extern "C" fn on_job_done(
             }
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
+            | Outcome::RescueProgress { .. }
             | Outcome::DriveProblem { .. }
             | Outcome::Sync(sync_jobs::SyncOutcome::Progress { .. })
     );
@@ -3033,6 +3045,15 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::PlanCancelled { drive_id, result } => {
             renewals::plan_cancelled(s, &drive_id, result);
         }
+        Outcome::ArchiveProven { drive_id, result } => {
+            archive::proven(&mut info, &handle, s, &drive_id, result);
+        }
+        Outcome::RescueProgress {
+            drive_id,
+            copied,
+            total,
+        } => archive::rescue_progress(s, &drive_id, copied, total),
+        Outcome::RescueDone { drive_id, report } => archive::rescue_done(s, &drive_id, report),
         Outcome::NoticeSaved { key, result } => match result {
             Ok(()) => println!("AZDRIVE_NOTICE_SAVED {key}"),
             Err(e) => s.error(failed("azdrive-notice-not-saved", &e)),
@@ -3052,6 +3073,8 @@ pub(crate) extern "C" fn on_job_done(
             news,
         } => {
             periods::periods_redeemed(&mut info, s, results);
+            // a read-only drive's copy to this computer, when it is due
+            archive::after_look(&mut info, &handle, s);
             if let Some(news) = news {
                 renewals::tier_news_seen(&mut info, s, news);
             }
@@ -3915,6 +3938,8 @@ pub fn start() {
         bans: HashMap::new(),
         git: ui_git::GitView::default(),
         command_bar: ui_command_bar::CommandBar::default(),
+        archives: HashMap::new(),
+        rescues: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

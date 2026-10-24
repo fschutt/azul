@@ -601,6 +601,13 @@ pub(crate) enum Dialog {
         typed: Zeroizing<String>,
         error: String,
     },
+    /// "Get my drive back" on a computer without the drive's device key: the recovery code
+    /// typed, signing the token server's challenge for the locked drive.
+    GetDriveBack {
+        drive_id: String,
+        typed: Zeroizing<String>,
+        error: String,
+    },
     /// "Do you still have your recovery kit?": the code typed for a drill.
     Drill {
         drive_id: String,
@@ -877,6 +884,36 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             ]));
             (
                 t_args("azdrive-enc-cancel-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
+                body,
+            )
+        }
+        Dialog::GetDriveBack {
+            drive_id, error, ..
+        } => {
+            let mut body = column(vec![
+                line("azdrive-archive-code-why"),
+                label("azdrive-drill-code"),
+                TextInput::create()
+                    .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
+                    .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
+                    .dom()
+                    .with_id(crate::ids::ARCHIVE_CODE),
+            ]);
+            if !error.is_empty() {
+                body.add_child(line(error).with_css("color: system:danger;"));
+            }
+            body.add_child(buttons(vec![
+                button("azdrive-button-close", app, on_cancel_popup),
+                typed_button(
+                    "azdrive-archive-get-back",
+                    ButtonType::Primary,
+                    app,
+                    on_get_back_signed,
+                )
+                .with_id(crate::ids::ARCHIVE_CODE_CONFIRM),
+            ]));
+            (
+                t_args("azdrive-archive-code-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
                 body,
             )
         }
@@ -1468,6 +1505,7 @@ pub(crate) extern "C" fn on_typed(
             Dialog::Unlock { typed, error, .. }
             | Dialog::RecoveryLockdown { typed, error, .. }
             | Dialog::CancelLockdown { typed, error, .. }
+            | Dialog::GetDriveBack { typed, error, .. }
             | Dialog::ConfirmRotate { typed, error, .. }
             | Dialog::Drill { typed, error, .. },
         )) => {
@@ -3070,6 +3108,54 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
             token_url,
         };
         spawn(info, app, s, Job::Encryption(job));
+    })
+}
+
+/// "Get my drive back" on a computer without the locked drive's device key: the recovery code
+/// is asked for.
+pub(crate) fn ask_get_back(s: &mut DriveState, drive_id: &str) {
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::GetDriveBack {
+            drive_id: drive_id.to_string(),
+            typed: Zeroizing::new(String::new()),
+            error: String::new(),
+        }));
+    }
+}
+
+/// The recovery code typed for a locked drive: checked as the drive's current code where this
+/// computer knows it, then its key signs the token server's challenge ([`crate::archive`]).
+extern "C" fn on_get_back_signed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::GetDriveBack {
+            drive_id, typed, ..
+        })) = s.popup.as_ref()
+        else {
+            return;
+        };
+        let drive_id = drive_id.clone();
+        let known = crate::recovery_health::state_of(&s.settings.recovery.drives, &drive_id)
+            .and_then(|state| state.recovery_key.clone());
+        match current_code(known.as_deref(), &drive_id, typed) {
+            Ok(code) => {
+                s.popup = None;
+                crate::archive::prove_start(
+                    info,
+                    app,
+                    s,
+                    &drive_id,
+                    crate::archive::ProveWith::RecoveryCode(code),
+                );
+            }
+            Err(why) => {
+                if let Some(Popup::Encryption(Dialog::GetDriveBack { error, .. })) =
+                    s.popup.as_mut()
+                {
+                    *error = why;
+                }
+            }
+        }
     })
 }
 

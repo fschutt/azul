@@ -1464,6 +1464,37 @@ azdrive-ban-copy-folder = Azlin-Laufwerk
 azdrive-ban-copy-everything = Alles auf diesen Computer kopieren…
 azdrive-ban-copy-title = Alles auf diesen Computer kopieren
 azdrive-ban-copy-not-opened = Das Laufwerk konnte nicht geöffnet werden, um seine Dateien zu kopieren.
+azdrive-archive-grace = „{ $drive }“ war bis { $paid } bezahlt. Es bleibt bis { $read_only } beschreibbar, danach ist es schreibgeschützt. Am { $locked } wird es gesperrt: Seine Dateien kommen in einen Offline-Speicher und erst nach Bezahlung zurück, was einige Tage dauern kann. Verlängere es, damit es bleibt, wie es ist.
+azdrive-archive-read-only = „{ $drive }“ ist seit { $read_only } schreibgeschützt, weil es nicht bezahlt ist: Seine Dateien lassen sich noch lesen und kopieren. Am { $locked } wird es gesperrt: Seine Dateien kommen in einen Offline-Speicher und erst nach Bezahlung zurück, was einige Tage dauern kann. Verlängere es jetzt oder behalte eine Kopie deiner Dateien auf diesem Computer.
+azdrive-archive-rescue-running = AzDrive kopiert die Dateien dieses Laufwerks nach { $folder }: bisher { $copied } von { $total }.
+azdrive-archive-rescue-done = Alle Dateien dieses Laufwerks sind nach { $folder } kopiert.
+azdrive-archive-rescue-missing = { $missing ->
+        [one] 1 Datei ist
+       *[other] { $missing } Dateien sind
+    } noch nicht nach { $folder } kopiert ({ $names }). AzDrive versucht es beim nächsten Blick wieder.
+azdrive-archive-rescue-no-space = Auf diesem Computer ist zu wenig Platz, um das Laufwerk zu kopieren: { $needed } nötig, { $free } frei. Schaffe Platz oder kopiere es mit „Alles auf diesen Computer kopieren“ an einen anderen Ort.
+azdrive-archive-open-copy = Kopie öffnen
+azdrive-archive-locked = „{ $drive }“ wurde am { $locked } gesperrt, weil es nach dem { $paid } 104 Tage unbezahlt blieb. Seine Dateien wurden in einen Offline-Speicher verschoben; gelöscht wurde nichts. Um es zurückzubekommen, weise nach, dass es dir gehört, und bezahle die Zeit, in der es für dich aufbewahrt wurde (mindestens { $months ->
+        [one] 1 Monat
+       *[other] { $months } Monate
+    }). Die Wiederherstellung kann einige Tage dauern. Dateien, die du auf diesen Computer kopiert hast, bleiben, wo sie sind.
+azdrive-archive-locked-proven = „{ $drive }“ gehört nachweislich dir. Es wurde am { $locked } gesperrt, nachdem es seit { $paid } unbezahlt war: Bezahle mindestens { $months ->
+        [one] 1 Monat
+       *[other] { $months } Monate
+    }, um es zurückzubekommen. Die Wiederherstellung kann einige Tage dauern.
+azdrive-archive-restore-pending = Deine Zahlung ist angekommen: „{ $drive }“ wird aus dem Offline-Speicher zurückgeholt. Das kann einige Tage dauern; AzDrive öffnet es, sobald es zurück ist.
+azdrive-archive-back = „{ $drive }“ ist zurück. Seine Dateien sind dort, wo du sie gelassen hast.
+azdrive-archive-get-back = Mein Laufwerk zurückholen
+azdrive-archive-pay = Bezahlen und zurückholen
+azdrive-archive-proving = Es wird nachgewiesen, dass „{ $drive }“ dir gehört …
+azdrive-archive-proof-failed = Es ließ sich nicht nachweisen, dass „{ $drive }“ dir gehört: { $why }
+azdrive-archive-no-key-here = Dieser Computer hat keinen Schlüssel von „{ $drive }“. Gib den Wiederherstellungscode des Laufwerks ein, um nachzuweisen, dass es dir gehört.
+azdrive-archive-no-key-at-all = „{ $drive }“ hat weder einen Wiederherstellungscode noch einen Geräteschlüssel: Nichts kann nachweisen, wem es gehört, daher lässt es sich nicht zurückholen.
+azdrive-archive-wrong-key = Dieser Schlüssel gehört nicht zu „{ $drive }“: Nimm den Wiederherstellungscode dieses Laufwerks oder einen Computer, der es vor der Sperre benutzt hat.
+azdrive-archive-try-again = Der Nachweis für „{ $drive }“ hat zu lange gedauert. Versuche es noch einmal.
+azdrive-archive-not-locked = „{ $drive }“ ist nicht gesperrt: Es gibt nichts zurückzuholen.
+azdrive-archive-code-title = „{ $name }“ zurückholen
+azdrive-archive-code-why = Dieses Laufwerk wurde gesperrt, weil es unbezahlt blieb. Azlin speichert von niemandem Namen oder Adresse, daher weist nur der Wiederherstellungscode des Laufwerks nach, dass es dir gehört. Gib ihn ein und bezahle dann, um das Laufwerk zurückzubekommen.
 azdrive-usage-available = { $about ->
         [yes] etwa { $size } verfügbar
        *[no] { $size } verfügbar
@@ -1645,7 +1676,7 @@ azdrive-add-tier-closed = { $tier } ist zurzeit ausverkauft.
 azdrive-renew = Verlängern
 azdrive-renew-period-end = „{ $drive }“ ist bis { $at } bezahlt. Verlängere es, um danach weiter darauf zu schreiben.
 azdrive-renew-read-only = „{ $drive }“ wird am { $at } schreibgeschützt, wenn es nicht verlängert wird. Seine Dateien bleiben lesbar.
-azdrive-renew-closing = „{ $drive }“ wird am { $at } geschlossen, wenn es nicht verlängert wird. Danach bleibt es lesbar, seine Dateien können dann aber gelöscht werden. Kopiere, was du brauchst, oder verlängere es jetzt.
+azdrive-renew-closing = „{ $drive }“ wird am { $at } gesperrt, wenn es nicht verlängert wird: Seine Dateien kommen dann in einen Offline-Speicher und erst nach Bezahlung zurück, was einige Tage dauern kann. Kopiere, was du brauchst, oder verlängere es jetzt.
 azdrive-months-renewed = { $months ->
         [one] 1 Monat wurde
        *[other] { $months } Monate wurden
