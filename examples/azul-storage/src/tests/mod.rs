@@ -42,6 +42,9 @@ mod ui_thread;
 mod limits;
 /// The roots the Azlin apps pin for the iroh relays.
 mod trust;
+// Symbolic links are made only on Unix (Windows needs a privilege for them).
+#[cfg(unix)]
+mod confined;
 
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]

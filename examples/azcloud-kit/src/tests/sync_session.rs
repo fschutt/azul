@@ -110,6 +110,29 @@ fn a_pass_whose_folder_is_gone_fails_and_never_makes_it_again() {
     assert_eq!(b.read("a.txt").as_deref(), Some(&b"a"[..]), "nothing was deleted on the drive");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_delete_or_rename_the_user_asks_for_never_reaches_through_a_link() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |_| {});
+    b.write("inbox/x.txt", b"from b");
+    b.pass();
+    a.write("y.txt", b"y");
+    a.pass();
+    assert_eq!(a.read("inbox/x.txt").as_deref(), Some(&b"from b"[..]));
+    // a's inbox becomes a link to a folder of its own that holds an x.txt too.
+    let outside = TempDir::new("azcloud-session-outside");
+    fs::write(outside.path().join("x.txt"), b"outside").unwrap();
+    fs::remove_dir_all(a.folder.path().join("inbox")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), a.folder.path().join("inbox")).unwrap();
+    let _ = a.session.delete(&[String::from("inbox/x.txt")]);
+    let _ = a.session.rename("y.txt", "inbox/y.txt");
+    assert_eq!(fs::read(outside.path().join("x.txt")).unwrap(), b"outside");
+    assert!(!outside.path().join("y.txt").exists());
+    assert_eq!(a.read("y.txt").as_deref(), Some(&b"y"[..]));
+}
+
 #[test]
 fn the_auto_download_policy_takes_new_files_by_size() {
     assert!(AutoDownload::Everything.wants(10_000 * MB));

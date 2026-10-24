@@ -405,6 +405,64 @@ fn emptying_a_small_folder_asks_first_and_deleting_one_subfolder_does_not() {
     assert_eq!(index_of(&store).files.len(), 10);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_the_drive_has_under_a_link_here_is_never_written_through_it_and_is_listed() {
+    // b's inbox links to ~/Library/LaunchAgents; a share participant names inbox/evil.plist.
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    let outside = TempDir::new("azcloud-sync-outside");
+    a.write("inbox/readme.txt", b"a's inbox");
+    a.sync(&store);
+    std::os::unix::fs::symlink(outside.path(), b.folder.path().join("inbox")).unwrap();
+    b.sync(&store);
+    a.write("inbox/evil.plist", b"<plist>run me at login</plist>");
+    a.sync(&store);
+    let report = b.sync(&store);
+    assert_eq!(
+        fs::read_dir(outside.path()).unwrap().count(),
+        0,
+        "nothing landed through the link"
+    );
+    assert!(
+        report
+            .file_errors
+            .iter()
+            .any(|(key, why)| key == "inbox/evil.plist" && why.contains("link")),
+        "{:?}",
+        report.file_errors
+    );
+    assert!(fs::symlink_metadata(b.folder.path().join("inbox"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        index_of(&store).files["inbox/readme.txt"].hash,
+        hash_bytes(b"a's inbox")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_synced_folder_replaced_by_a_link_is_not_taken_for_deleted_nor_read_through() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let outside = TempDir::new("azcloud-sync-outside-2");
+    fs::write(outside.path().join("private.txt"), b"private").unwrap();
+    a.write("keep.txt", b"keep");
+    a.write("inbox/a.txt", b"a");
+    a.sync(&store);
+    a.remove_folder("inbox");
+    std::os::unix::fs::symlink(outside.path(), a.folder.path().join("inbox")).unwrap();
+    let report = a.sync(&store);
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    let index = index_of(&store);
+    assert!(index.files.contains_key("inbox/a.txt"), "still on the drive");
+    assert!(!index.files.contains_key("inbox/private.txt"), "nothing read through the link");
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+}
+
 #[test]
 fn a_dry_run_plans_without_writing_anything() {
     let store = S3Bucket::new();
