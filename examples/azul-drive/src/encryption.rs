@@ -1090,6 +1090,13 @@ pub(crate) fn encrypt_new_drive(
     let Some(auto) = auto_of(s, drive_id) else {
         return;
     };
+    {
+        let mut started = new_drive_set_up();
+        if started.iter().any(|d| d == drive_id) {
+            return;
+        }
+        started.push(drive_id.to_string());
+    }
     println!("AZDRIVE_ENCRYPTING_NEW_DRIVE {drive_id}");
     // Another dialog stays (a paid drive that arrived while the Add drive dialog is open): the
     // sheet waits for it to close.
@@ -1112,12 +1119,20 @@ pub(crate) fn encrypt_new_drive(
     );
 }
 
-/// The drives whose setup ran again in this run because they opened plain and empty.
-static NEW_DRIVE_RESUMED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The new drives whose setup started in this run (at their making, or when they opened plain
+/// and empty): each is set up once per run.
+static NEW_DRIVE_SET_UP: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// A new Azlin drive that opened plain and without files (its setup failed, or AzDrive closed
-/// before it ran) takes no file until it is encrypted (azul-storage refuses the writes): its
-/// setup runs now, once per run. A failure leaves "Encrypt this drive" in its menu.
+fn new_drive_set_up() -> std::sync::MutexGuard<'static, Vec<String>> {
+    NEW_DRIVE_SET_UP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A new Azlin drive that opened plain and without files (its setup failed in an earlier run,
+/// or AzDrive closed before it ran) takes no file until it is encrypted (azul-storage refuses
+/// the writes): its setup runs now. Not while this run's setup of it is under way or done; a
+/// failure leaves "Encrypt this drive" in its menu.
 pub(crate) fn resume_new_drive_setup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(drive_id) = s.current_drive_id() else {
         return;
@@ -1126,17 +1141,8 @@ pub(crate) fn resume_new_drive_setup(info: &mut CallbackInfo, app: &RefAny, s: &
         .slot_index(&drive_id)
         .and_then(|index| s.slots[index].auto.as_ref())
         .is_some_and(|auto| auto.needs_encryption());
-    if !needs {
+    if !needs || new_drive_set_up().contains(&drive_id) {
         return;
-    }
-    {
-        let mut resumed = NEW_DRIVE_RESUMED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if resumed.contains(&drive_id) {
-            return;
-        }
-        resumed.push(drive_id.clone());
     }
     println!("AZDRIVE_NEW_DRIVE_NOT_ENCRYPTED {drive_id}");
     encrypt_new_drive(info, app, s, &drive_id);
