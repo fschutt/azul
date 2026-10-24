@@ -573,6 +573,11 @@ mod tests {
         l.send_event(Event::ChildExit(std::process::ExitStatus::from_raw(3 << 8)));
         assert!(signals.exited.load(Ordering::Acquire));
         assert_eq!(signals.exit_code(), Some(3));
+        // The event loop reads the PTY to its end after the child's exit, then says Exit:
+        // only then is the output complete.
+        assert!(!signals.finished(), "the output may still be coming");
+        l.send_event(Event::Exit);
+        assert!(signals.finished());
         // SIGINT (2): ended by a signal, no code.
         let killed = Arc::new(Signals::default());
         Listener(killed.clone()).send_event(Event::ChildExit(std::process::ExitStatus::from_raw(2)));
@@ -611,11 +616,13 @@ mod tests {
             options,
         )
         .expect("a PTY");
+        // `finished`, not `exited`: the child's exit comes before the PTY is read to its end.
         let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while !session.signals.exited.load(Ordering::Acquire) && std::time::Instant::now() < until {
+        while !session.signals.finished() && std::time::Instant::now() < until {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        assert!(session.signals.exited.load(Ordering::Acquire), "the command ended");
+        assert!(session.signals.finished(), "the command ended and its output was read");
+        assert!(session.signals.exited.load(Ordering::Acquire));
         assert_eq!(session.signals.exit_code(), Some(3));
         let shown = screen_text(&session);
         assert!(shown.contains("probe-42 AzDrive"), "{shown}");
