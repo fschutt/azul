@@ -1,0 +1,63 @@
+[
+  {
+    "name": "every delete path (one, two, a burst) goes through one breaker: the burst is held, every deleted file stays recoverable",
+    "description": "ICEDRIVE-001 (Icedrive): 'Do Not Delete' was honoured for one deletion but two or more switched to a batch delete that removed the cloud copies. Rules D1/D2 (sync-chaos delete-backup-mode, delete-one-subfolder): one policy for every path; a burst over half a folder is held; deletes keep versions.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "backups", "count": 30, "text_prefix": "zip" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000000.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "backups/*", "count": 29 },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000001.txt" },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000002.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "backups/*", "count": 27 },
+      { "op": "drive_rm", "device": "a", "glob": "backups/d000/f00001*" },
+      { "op": "drive_rm", "device": "a", "glob": "backups/d000/f00002*" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "remote_count", "glob": "backups/*", "count": 27 },
+      { "op": "drive_answer", "device": "a", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "glob": "backups/*", "count": 7 },
+      { "op": "drive_check", "check": "kept", "texts": ["zip 0", "zip 1", "zip 2", "zip 10", "zip 29"] },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "zip 29" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "with a 'keep' policy no remote delete happens for 1, 2 or 500 local deletes",
+    "description": "ICEDRIVE-001 (Icedrive): batch deletes ignored the policy. Rules D1/D2 (sync-chaos delete-backup-mode): every path, batch APIs included, checks the policy.",
+    "pending": "drive_pair {\"device\":\"a\",\"remote_deletes\":\"keep\"} (a one-way pair whose local deletes never delete on the drive)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "remote_deletes": "keep" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "backups", "count": 503, "text_prefix": "zip" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000000.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000001.txt" },
+      { "op": "drive_rm", "device": "a", "path": "backups/d000/f000002.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "glob": "backups/*" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "glob": "backups/*", "count": 503 },
+      { "op": "drive_counters", "device": "a" },
+      { "op": "assert_response", "path": "result.ops.delete", "equals": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
