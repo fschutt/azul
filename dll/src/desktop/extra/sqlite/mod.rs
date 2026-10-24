@@ -1981,6 +1981,20 @@ mod tests {
         while seen.try_recv().is_ok() {}
         let accepted = sync_with(pinned(&forged));
         assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
+        while seen.try_recv().is_ok() {}
+        let both = azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![
+            AzString::from(ours.cert_pem.clone()),
+            AzString::from(forged.cert_pem.clone()),
+        ]));
+        let distrusted = sync_with(both.clone().with_distrusted(azul_css::StringVec::from_vec(
+            vec![AzString::from(forged.cert_pem.clone())],
+        )));
+        assert!(distrusted.is_err(), "its root is distrusted: {distrusted:?}");
+        while seen.try_recv().is_ok() {}
+        let other = sync_with(both.with_distrusted(azul_css::StringVec::from_vec(vec![
+            AzString::from(ours.cert_pem.clone()),
+        ])));
+        assert!(other.is_ok(), "another root is distrusted, its own stays: {other:?}");
     }
 
     fn memory_db_schema() -> DbSchema {

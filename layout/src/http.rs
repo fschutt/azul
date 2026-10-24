@@ -3822,6 +3822,54 @@ mod trust_roots_tests {
     }
 
     #[test]
+    fn a_request_and_a_pooled_client_refuse_a_distrusted_root_and_reach_the_others() {
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let set = TrustRoots::pinned(StringVec::from_vec(vec![
+            AzString::from(a.cert_pem.clone()),
+            AzString::from(b.cert_pem.clone()),
+        ]))
+        .with_distrusted(StringVec::from_vec(vec![AzString::from(b.cert_pem.clone())]));
+        let (port_a, _seen_a) = serve_tls(a.server_for_loopback());
+        let (port_b, _seen_b) = serve_tls(b.server_for_loopback());
+        let url_a = format!("https://127.0.0.1:{port_a}/a");
+        let url_b = format!("https://127.0.0.1:{port_b}/b");
+
+        let config = HttpRequestConfig::default().with_timeout(10).with_trust_roots(set.clone());
+        assert!(http_get_with_config(&url_b, &config).is_err(), "b is distrusted");
+        assert_eq!(http_get_with_config(&url_a, &config).expect("a").status_code, 200);
+
+        let client = HttpClient::create(HttpClientConfig::default().with_trust_roots(set));
+        let config = HttpRequestConfig::default().with_timeout(10).with_client(client);
+        assert!(http_get_with_config(&url_b, &config).is_err(), "b is distrusted");
+        assert_eq!(http_get_with_config(&url_a, &config).expect("a").status_code, 200);
+    }
+
+    #[test]
+    fn a_reachability_check_trusts_the_set_it_is_given() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, _seen) = serve_tls(forged.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/");
+        let trusting = |roots: TrustRoots| {
+            url_reachable_trusting(&url, root_certs_of(&roots).expect("roots load"))
+        };
+        assert!(!trusting(pinned(&ours)));
+        assert!(!trusting(pinned(&forged).with_distrusted(pinned_pems(&forged))));
+        assert!(trusting(pinned(&forged)));
+    }
+
+    #[test]
+    fn a_config_that_names_no_set_takes_the_apps() {
+        assert_eq!(HttpRequestConfig::default().trust_roots, TrustRoots::app_default());
+        assert_eq!(HttpClientConfig::default().trust_roots, TrustRoots::app_default());
+    }
+
+    fn pinned_pems(ca: &TestCa) -> StringVec {
+        StringVec::from_vec(vec![AzString::from(ca.cert_pem.clone())])
+    }
+
+    #[test]
     fn a_pinned_set_that_does_not_parse_fails_the_request_and_never_trusts_the_public_roots() {
         let broken = TrustRoots::pinned(StringVec::from_vec(vec![AzString::from("not a pem")]));
         let config = HttpRequestConfig::default().with_timeout(5).with_trust_roots(broken.clone());

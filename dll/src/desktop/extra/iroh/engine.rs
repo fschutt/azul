@@ -1334,4 +1334,25 @@ mod tests {
         let accepted = relay_lets_through(&relay, pinned(&forged), &seen);
         assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
     }
+
+    /// A distrusted root is out of the relays' set: a relay under it is refused, one under
+    /// another root of the set is reached.
+    #[test]
+    fn a_relay_under_a_distrusted_root_is_refused_and_one_under_another_root_reached() {
+        let a = azul_layout::tls_testing::TestCa::new("azul test root A");
+        let b = azul_layout::tls_testing::TestCa::new("azul test root B");
+        let set = TrustRoots::pinned(azul_css::StringVec::from_vec(vec![
+            AzString::from(a.cert_pem.clone()),
+            AzString::from(b.cert_pem.clone()),
+        ]))
+        .with_distrusted(azul_css::StringVec::from_vec(vec![AzString::from(
+            b.cert_pem.clone(),
+        )]));
+        let (port_b, seen_b) = azul_layout::tls_testing::serve_tls(b.server_for_loopback());
+        let refused = relay_lets_through(&format!("https://127.0.0.1:{port_b}"), set.clone(), &seen_b);
+        assert!(refused.is_err(), "b is distrusted: {refused:?}");
+        let (port_a, seen_a) = azul_layout::tls_testing::serve_tls(a.server_for_loopback());
+        let accepted = relay_lets_through(&format!("https://127.0.0.1:{port_a}"), set, &seen_a);
+        assert!(accepted.is_ok(), "a stays trusted: {accepted:?}");
+    }
 }

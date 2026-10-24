@@ -583,3 +583,54 @@ mod smtp_sink_tests {
         );
     }
 }
+
+/// The crash mail's STARTTLS trusts what its config says: a server under a root outside the
+/// set, or under a distrusted one, is refused at the handshake; its own root lets it through.
+#[cfg(test)]
+mod trust_roots_tests {
+    use std::time::Duration;
+
+    use azul_css::{AzString, StringVec};
+
+    use super::{send_attachments, CrashMailConfig};
+    use crate::{
+        http::TrustRoots,
+        tls_testing::{serve_tls_with, Protocol, TestCa},
+    };
+
+    fn pems(cas: &[&TestCa]) -> StringVec {
+        StringVec::from_vec(cas.iter().map(|ca| AzString::from(ca.cert_pem.clone())).collect())
+    }
+
+    /// What the server saw of one crash mail sent with `roots`.
+    fn handshake_with(server: &TestCa, roots: TrustRoots) -> Result<String, String> {
+        let (port, seen) = serve_tls_with(server.server_for_loopback(), Protocol::SmtpStartTls);
+        let config =
+            CrashMailConfig::new("crashes@localhost", "crash-reporter@localhost", "localhost")
+                .with_ports(vec![port])
+                .with_trust_roots(roots);
+        let _ = send_attachments(&config, "", &[("a.json".to_owned(), b"{}".to_vec())]);
+        seen.recv_timeout(Duration::from_secs(30)).expect("the server saw the attempt")
+    }
+
+    #[test]
+    fn starttls_refuses_a_server_outside_the_pinned_set_and_reaches_one_inside() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        assert!(handshake_with(&forged, TrustRoots::pinned(pems(&[&ours]))).is_err());
+        assert!(handshake_with(&forged, TrustRoots::public_roots()).is_err());
+        assert_eq!(
+            handshake_with(&forged, TrustRoots::pinned(pems(&[&forged]))).as_deref(),
+            Ok("starttls")
+        );
+    }
+
+    #[test]
+    fn starttls_refuses_a_distrusted_root_and_reaches_the_others() {
+        let a = TestCa::new("azul test root A");
+        let b = TestCa::new("azul test root B");
+        let set = TrustRoots::pinned(pems(&[&a, &b])).with_distrusted(pems(&[&b]));
+        assert!(handshake_with(&b, set.clone()).is_err());
+        assert_eq!(handshake_with(&a, set).as_deref(), Ok("starttls"));
+    }
+}

@@ -688,6 +688,7 @@ mod autotest_generated {
             theme,
             app_id,
             theme_font,
+            trust_roots,
             mode,
             light,
             log_level,
@@ -718,6 +719,7 @@ mod autotest_generated {
             + size_of_field(global_hotkeys_callback)
             + size_of_field(theme)
             + size_of_field(app_id)
+            + size_of_field(trust_roots)
             + size_of_field(theme_font)
             + size_of_field(mode)
             + size_of_field(light)

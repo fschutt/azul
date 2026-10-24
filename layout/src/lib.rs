@@ -413,7 +413,7 @@ pub mod http;
     feature = "http",
     not(target_arch = "wasm32")
 ))]
-pub mod tls_testing;
+pub use azul_core::tls_testing;
 pub use http::{
     download_bytes, download_bytes_with_config, http_get, http_get_with_config, http_post,
     http_post_with_config, http_put_with_config, http_request_with_config, is_url_reachable,

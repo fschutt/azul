@@ -403,6 +403,9 @@ pub mod id;
 pub mod json;
 /// Which certificate authorities a TLS connection trusts (`TrustRoots`).
 pub mod tls;
+/// Throwaway certificate authorities and a loopback TLS server, for tests only.
+#[cfg(all(feature = "tls-testing", not(target_arch = "wasm32")))]
+pub mod tls_testing;
 /// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.

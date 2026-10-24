@@ -149,9 +149,6 @@ micromail = { version = "0.2", optional = true, default-features = false, featur
 sha2 = { version = "0.10", optional = true }
 # Minisign SIGNATURE verification for update artifacts (pure Rust, zero deps).
 minisign-verify = { version = "0.2", optional = true }
-# Signs the throwaway test certificates of `tls-testing` (already in the tree through
-# rustls-rustcrypto).
-ed25519-dalek = { version = "2.2", default-features = false, optional = true }
 
 # SPMC channel — ONLY used by the e2e-server HTTP transport (feature
 # `e2e-server-http`). The core op-dispatch does not need it.
@@ -368,11 +365,11 @@ icu_chrono = ["icu", "dep:chrono"]
 fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip", "strfmt", "std"]
 
 # HTTP client support for downloading resources
-http = ["dep:ureq", "azul-core/url", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
+http = ["dep:ureq", "azul-core/url", "azul-core/tls-roots", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
 
 # Throwaway certificate authorities and a loopback TLS server for the tests of what a TLS
-# connection trusts (this crate's and the dll's); never part of an app.
-tls-testing = ["http", "dep:ed25519-dalek"]
+# connection trusts (azul-core's `tls_testing`, re-exported); never part of an app.
+tls-testing = ["http", "azul-core/tls-testing"]
 
 # ZIP file manipulation (standalone, for C API)
 zip = ["dep:zip", "std"]
@@ -600,8 +597,8 @@ webpki-roots = { version = "1.0", optional = true }
 [dev-dependencies]
 # Signing side of minisign — TESTS ONLY, to mint real signature vectors.
 minisign = "0.9"
-# The test certificates' signatures (tls_testing), TESTS ONLY.
-ed25519-dalek = { version = "2.2", default-features = false }
+# The throwaway authorities and the TLS test server (azul-core's tls_testing), TESTS ONLY.
+azul-core = { version = "0.0.16", path = "../core", default-features = false, features = ["tls-testing"] }
 # The REAL accesskit consumer, TESTS ONLY: the a11y contract test feeds every
 # TreeUpdate the manager parks through the same crate whose invariant
 # `panic!`s abort a `panic = "abort"` release build.

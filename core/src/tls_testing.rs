@@ -1,15 +1,17 @@
 //! Throwaway certificate authorities and a local TLS server, for the tests of what a TLS
-//! connection trusts (layout's HTTP client, the dll's iroh relays). Nothing here is used by an
-//! app: the keys are made at run time, the certificates live for the test only.
+//! connection trusts (layout's HTTP client, the dll's iroh relays and database sync, the apps'
+//! mail, storage and map clients). Nothing here is used by an app: the keys are made at run
+//! time, the certificates live for the test only.
 //!
 //! A [`TestCa`] is an Ed25519 root (`CN=<name>`); [`TestCa::server_for_loopback`] issues a
 //! certificate for 127.0.0.1 under it, and [`serve_tls`] answers TLS on a loopback port with it,
 //! telling the test what each connection did: the request line it read after the handshake, or
-//! why the handshake failed (the client refused the certificate).
+//! why the handshake failed (the client refused the certificate). [`serve_tls_with`] speaks
+//! the opening of the mail protocols instead, so an IMAP or SMTP client gets to its handshake.
 
 use std::{
     io::{BufRead, BufReader, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::{mpsc, Arc},
 };
 
@@ -106,29 +108,6 @@ fn certificate(
     seq(&[tbs, ed25519_algorithm(), tlv(0x03, &bits)])
 }
 
-/// `der` as PEM text of `label`.
-fn pem(label: &str, der: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::new();
-    for chunk in der.chunks(3) {
-        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
-        for i in 0..4 {
-            text.push(if i <= chunk.len() {
-                ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-    }
-    let mut out = format!("-----BEGIN {label}-----\n");
-    for line in text.as_bytes().chunks(64) {
-        out.push_str(core::str::from_utf8(line).unwrap_or_default());
-        out.push('\n');
-    }
-    out.push_str(&format!("-----END {label}-----\n"));
-    out
-}
-
 /// A throwaway root certificate authority.
 pub struct TestCa {
     name: String,
@@ -137,6 +116,16 @@ pub struct TestCa {
     pub cert_der: Vec<u8>,
     /// The root certificate, PEM: what an app pins.
     pub cert_pem: String,
+}
+
+/// The roots of `cas`, one PEM entry each: what a test pins or distrusts.
+#[must_use]
+pub fn pems(cas: &[&TestCa]) -> azul_css::StringVec {
+    azul_css::StringVec::from_vec(
+        cas.iter()
+            .map(|ca| azul_css::AzString::from(ca.cert_pem.clone()))
+            .collect(),
+    )
 }
 
 /// A server's certificate chain and its private key (PKCS#8, DER).
@@ -155,17 +144,19 @@ impl TestCa {
         let cert_der = certificate(name, &key, name, &key, &[basic_constraints, key_usage]);
         TestCa {
             name: name.to_string(),
-            cert_pem: pem("CERTIFICATE", &cert_der),
+            cert_pem: crate::tls::pem_certificate(&cert_der),
             cert_der,
             key,
         }
     }
 
-    /// A certificate for the loopback address 127.0.0.1 under this root.
+    /// A certificate for the loopback address 127.0.0.1 and the name `localhost` under this
+    /// root.
     #[must_use]
     pub fn server_for_loopback(&self) -> ServerCert {
         let key = SigningKey::from_bytes(&fresh_bytes());
-        let san = extension(&[0x55, 0x1d, 0x11], false, &seq(&[tlv(0x87, &[127, 0, 0, 1])]));
+        let names = seq(&[tlv(0x87, &[127, 0, 0, 1]), tlv(0x82, b"localhost")]);
+        let san = extension(&[0x55, 0x1d, 0x11], false, &names);
         let server_auth = [0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01];
         let eku = extension(&[0x55, 0x1d, 0x25], false, &seq(&[tlv(0x06, &server_auth)]));
         let leaf = certificate(&self.name, &self.key, "127.0.0.1", &key, &[san, eku]);
@@ -186,11 +177,32 @@ impl TestCa {
 /// the handshake failed.
 pub type Seen = Result<String, String>;
 
+/// What a server of [`serve_tls_with`] says around its handshake.
+#[derive(Debug, Clone, Copy)]
+pub enum Protocol {
+    /// HTTP: the request line is read and answered `200 ok` (what [`serve_tls`] does).
+    Http,
+    /// A protocol whose server speaks first once TLS is up (IMAP's `* OK`, SMTP's `220` on
+    /// the implicit-TLS port): the handshake is reported as `Ok("handshake")`, then this
+    /// greeting is written and the connection closed.
+    Greeting(&'static str),
+    /// SMTP with STARTTLS: a plain-text greeting, an EHLO answer offering STARTTLS, the upgrade;
+    /// the handshake is reported as `Ok("starttls")`, the EHLO after it answered, then the
+    /// connection closed.
+    SmtpStartTls,
+}
+
 /// A TLS server on a loopback port with `cert`: every connection completes the handshake (or
 /// not) and, when it did, its first line is read and answered `200 ok`. The port, and what
 /// each connection did.
 #[must_use]
 pub fn serve_tls(cert: ServerCert) -> (u16, mpsc::Receiver<Seen>) {
+    serve_tls_with(cert, Protocol::Http)
+}
+
+/// [`serve_tls`] speaking `protocol` around the handshake.
+#[must_use]
+pub fn serve_tls_with(cert: ServerCert, protocol: Protocol) -> (u16, mpsc::Receiver<Seen>) {
     let provider = Arc::new(rustls_rustcrypto::provider());
     let chain = cert
         .chain
@@ -213,42 +225,100 @@ pub fn serve_tls(cert: ServerCert) -> (u16, mpsc::Receiver<Seen>) {
             let Ok(stream) = stream else { return };
             let config = config.clone();
             let seen = seen.clone();
-            std::thread::spawn(move || {
-                let Ok(conn) = rustls::ServerConnection::new(config) else {
-                    return;
-                };
-                let mut tls = rustls::StreamOwned::new(conn, stream);
-                while tls.conn.is_handshaking() {
-                    if let Err(e) = tls.conn.complete_io(&mut tls.sock) {
-                        let _ = seen.send(Err(e.to_string()));
-                        return;
-                    }
-                }
-                let mut line = String::new();
-                let mut reader = BufReader::new(&mut tls);
-                match reader.read_line(&mut line) {
-                    Ok(_) => {
-                        let _ = seen.send(Ok(line.trim_end().to_string()));
-                    }
-                    Err(e) => {
-                        let _ = seen.send(Err(e.to_string()));
-                        return;
-                    }
-                }
-                loop {
-                    line.clear();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                        break;
-                    }
-                }
-                let _ = tls.write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-                );
-                let _ = tls.flush();
-                tls.conn.send_close_notify();
-                let _ = tls.conn.complete_io(&mut tls.sock);
-            });
+            std::thread::spawn(move || answer(stream, &config, protocol, &seen));
         }
     });
     (port, saw)
+}
+
+/// One connection of [`serve_tls_with`].
+fn answer(
+    mut stream: TcpStream,
+    config: &Arc<rustls::ServerConfig>,
+    protocol: Protocol,
+    seen: &mpsc::Sender<Seen>,
+) {
+    if let Protocol::SmtpStartTls = protocol {
+        if smtp_until_starttls(&mut stream).is_none() {
+            let _ = seen.send(Err("the client never asked for STARTTLS".to_string()));
+            return;
+        }
+    }
+    let Ok(conn) = rustls::ServerConnection::new(config.clone()) else {
+        return;
+    };
+    let mut tls = rustls::StreamOwned::new(conn, stream);
+    while tls.conn.is_handshaking() {
+        if let Err(e) = tls.conn.complete_io(&mut tls.sock) {
+            let _ = seen.send(Err(e.to_string()));
+            return;
+        }
+    }
+    match protocol {
+        Protocol::Http => answer_http(&mut tls, seen),
+        Protocol::Greeting(greeting) => {
+            let _ = seen.send(Ok("handshake".to_string()));
+            let _ = tls.write_all(greeting.as_bytes());
+        }
+        Protocol::SmtpStartTls => {
+            let _ = seen.send(Ok("starttls".to_string()));
+            let mut line = String::new();
+            if BufReader::new(&mut tls).read_line(&mut line).unwrap_or(0) > 0 {
+                let _ = tls.write_all(b"250 test\r\n");
+            }
+        }
+    }
+    let _ = tls.flush();
+    tls.conn.send_close_notify();
+    let _ = tls.conn.complete_io(&mut tls.sock);
+}
+
+/// The plain-text part of an SMTP session up to the client's STARTTLS, answered `220`;
+/// `None` when the client hung up or never asked for it.
+fn smtp_until_starttls(stream: &mut TcpStream) -> Option<()> {
+    stream.write_all(b"220 test ESMTP\r\n").ok()?;
+    // The reader is dropped before the handshake: the client sends nothing after STARTTLS
+    // until it has read the 220, so no TLS byte can be in its buffer.
+    let mut reader = BufReader::new(stream.try_clone().ok()?);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        let command = line.trim_end().to_ascii_uppercase();
+        if command.starts_with("EHLO") || command.starts_with("HELO") {
+            stream.write_all(b"250-test\r\n250 STARTTLS\r\n").ok()?;
+        } else if command == "STARTTLS" {
+            stream.write_all(b"220 go ahead\r\n").ok()?;
+            return Some(());
+        } else {
+            stream.write_all(b"502 not here\r\n").ok()?;
+        }
+    }
+}
+
+/// The request line of an HTTP request, reported, and a `200 ok` for it.
+fn answer_http(
+    tls: &mut rustls::StreamOwned<rustls::ServerConnection, TcpStream>,
+    seen: &mpsc::Sender<Seen>,
+) {
+    let mut line = String::new();
+    let mut reader = BufReader::new(&mut *tls);
+    match reader.read_line(&mut line) {
+        Ok(_) => {
+            let _ = seen.send(Ok(line.trim_end().to_string()));
+        }
+        Err(e) => {
+            let _ = seen.send(Err(e.to_string()));
+            return;
+        }
+    }
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+            break;
+        }
+    }
+    let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
 }

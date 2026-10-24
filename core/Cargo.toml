@@ -67,6 +67,31 @@ url = ["dep:url", "std"]
 # export, the debug server). Its tests: `cargo test -p azul-core --features codegen`.
 codegen = ["azul-css/codegen"]
 
+# `TrustRoots::certificates`: the trusted roots as certificates, for a TLS client to build its
+# root store from. Turned on by azul-layout's `http`, the dll's `iroh` and the apps' own clients.
+tls-roots = ["dep:rustls-pki-types", "dep:webpki-root-certs", "dep:webpki"]
+
+# Throwaway certificate authorities and a loopback TLS server (`tls_testing`) for the tests of
+# what a TLS client trusts; never part of an app. Its tests: `cargo test -p azul-core
+# --features tls-testing`.
+tls-testing = ["tls-roots", "std", "dep:rustls", "dep:rustls-rustcrypto", "dep:ed25519-dalek"]
+
+# The trusted roots as certificates (`TrustRoots::certificates`, feature `tls-roots`), the form
+# every TLS client of azul and its apps builds its root store from: PEM parsing, Mozilla's roots
+# as whole certificates (ureq's, iroh's and reqwest's stores take certificates, not trust
+# anchors) and a certificate's public key, which a distrusted root is matched by. All three are
+# in Cargo.lock already (through rustls, ureq and rustls-platform-verifier); no build script.
+# Not on wasm: a browser's `fetch` trusts the browser's roots.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rustls-pki-types = { version = "1.15", default-features = false, features = ["alloc"], optional = true }
+webpki-root-certs = { version = "1.0.9", optional = true }
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["alloc"], optional = true }
+# The test server of `tls-testing` (rustls with the pure-Rust provider azul's HTTP client uses)
+# and the throwaway certificates' signatures. Tests only; in Cargo.lock already.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
+rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+ed25519-dalek = { version = "2.2", default-features = false, optional = true }
+
 [dev-dependencies]
 proptest = "1.11.0"
 
