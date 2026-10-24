@@ -505,6 +505,8 @@ mod period {
         ];
         golden("issue_refusals.json", &refusals);
     }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct ReadOnlyRow {
     why: ReadOnlyWhy,

@@ -407,6 +407,9 @@ mod period {
         assert_eq!(IssueRefusal::IssueKeyWrong.status(), 403);
         assert_eq!(IssueRefusal::NoSuchCheckout.status(), 404);
         assert_eq!(IssueRefusal::TryAgain.status(), 503);
+    }
+}
+
 mod read_only_and_map {
     use azlin_contract::{map_epoch, AzlinError, ReadOnlyWhy, MAP_HEADER};
 
