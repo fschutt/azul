@@ -28,7 +28,7 @@
     "name": "401 photos in year folders listed by another device mid-upload, then uploaded again: never 'empty', nothing sent twice",
     "description": "ICEDRIVE-016 (Icedrive), the catalogue's repro: listings taken while an upload is half done, then a re-upload that said the files 'already exist'. Rules A7, D5 and A1: the index names a file only once its blob is stored, so a listing mid-upload shows the folder as it was, never an empty folder with committed children; after the commit every device lists all 401; a re-pairing agrees by hash and sends nothing again.",
     "steps": [
-      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_open", "device": "b", "remote": "r" },
       { "op": "drive_pair", "device": "a" },

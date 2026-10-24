@@ -9,6 +9,7 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
       { "op": "drive_write", "device": "a", "path": "films/older.mp4", "size": 1048576, "seed": 32 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },

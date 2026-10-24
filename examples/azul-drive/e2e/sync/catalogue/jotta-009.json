@@ -16,7 +16,7 @@
       { "op": "drive_sync", "device": "b", "expect": "any" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "Report.txt", "text": "upper" },
-      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "[Rr]eport.txt", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "?eport.txt", "count": 1 },
       { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "report.txt" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "Applause Samples/a.wav", "text": "sample a" },
       { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "applause samples*" },

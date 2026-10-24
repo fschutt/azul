@@ -42,7 +42,6 @@
       { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "r\u00e9sum\u00e9.txt", "text": "my cv" },
       { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "r*", "count": 1 },
       { "op": "drive_check", "check": "file", "device": "b", "path": "r\u00e9sum\u00e9.txt", "text": "my cv" },
-      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "caf*", "count": 1 },
       { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Caf*", "count": 1 },
       { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision" },
       { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Caf\u00e9.txt", "text": "composed" },

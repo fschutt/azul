@@ -9,6 +9,7 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
       { "op": "drive_write", "device": "a", "path": "huge.bin", "size": 33554432, "seed": 5 },
       { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
       { "op": "drive_cont", "device": "a" },

@@ -33,7 +33,7 @@
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x v2" },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_tamper", "remote": "r", "action": "corrupt_object", "key": "x.txt", "byte": 40 },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_object", "key": "x.txt" },
       { "op": "drive_sync", "device": "b", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "x.txt" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "x.txt", "text": "x v1" },

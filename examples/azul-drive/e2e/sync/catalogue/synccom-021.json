@@ -28,7 +28,6 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_wait_idle" },
       { "op": "drive_write", "device": "a", "path": "medical/canary-diagnosis-7f3a.pdf", "text": "private" },
-      { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "logs_never_have", "device": "a", "marker": "canary-diagnosis-7f3a" },

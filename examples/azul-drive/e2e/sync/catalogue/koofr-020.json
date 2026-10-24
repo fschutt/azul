@@ -39,6 +39,7 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
       { "op": "drive_write", "device": "a", "path": "backup.tar", "size": 50331648, "seed": 21 },
       { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
       { "op": "drive_fault", "device": "b", "cut_after_ops": 1 },

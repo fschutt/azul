@@ -5,9 +5,7 @@
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
-      { "op": "drive_open", "device": "b", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
-      { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
       { "op": "drive_many", "device": "a", "dir": "backup", "count": 20, "size": 65536, "seed": 14 },
       { "op": "drive_write", "device": "a", "path": "backup/video.mov", "size": 4194304, "seed": 15 },
@@ -59,6 +57,7 @@
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_pair", "device": "b" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_setting", "device": "b", "name": "auto_download", "value": "everything" },
       { "op": "drive_write", "device": "a", "path": "video.mov", "size": 33554432, "seed": 17 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b", "crash_at": "mid-download", "expect": "crash" },

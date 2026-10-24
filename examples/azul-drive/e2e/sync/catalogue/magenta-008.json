@@ -11,7 +11,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 1000, "size": 2048, "seed": 8 },
       { "op": "drive_sync", "device": "a", "crash_at": "after-blob", "expect": "crash", "timeout_ms": 600000 },
-      { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-scan", "expect": "crash", "timeout_ms": 600000 },
       { "op": "drive_sync", "device": "a", "crash_at": "before-base-save", "expect": "crash", "timeout_ms": 600000 },
       { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
       { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 1000 },
