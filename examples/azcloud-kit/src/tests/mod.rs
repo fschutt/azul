@@ -53,6 +53,9 @@ mod sync_harden;
 /// What a session does to the synced folder itself: the user's deletes and renames, a pass
 /// whose folder is gone, a pairing from before folder markers.
 mod sync_root_and_links;
+/// The sync's writes into the folder outside a pass: untrash, recovery, moves in.
+#[cfg(unix)]
+mod sync_folder_writes;
 /// The name policy: names no folder can hold, names other systems cannot hold, look-alikes.
 mod sync_names;
 mod sync_local;
