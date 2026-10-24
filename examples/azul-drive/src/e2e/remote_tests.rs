@@ -127,3 +127,47 @@ fn a_quota_refuses_the_write_that_would_pass_it() {
         other => panic!("the quota refuses, got {other:?}"),
     }
 }
+
+#[test]
+fn writes_at_the_same_time_cannot_both_take_the_last_room() {
+    let dir = TempDir::new("azdrive-e2e-remote-quota-race");
+    let r = remote(&dir);
+    r.set_faults("", false, &args(serde_json::json!({ "quota_bytes": 1000 })));
+    let body = vec![7u8; 600];
+    for round in 0..20 {
+        let barrier = std::sync::Barrier::new(2);
+        let sent: Vec<bool> = std::thread::scope(|scope| {
+            let writers: Vec<_> = ["a", "b"]
+                .into_iter()
+                .map(|device| {
+                    let (d, barrier, body) = (drive(&r, device), &barrier, &body);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        d.put(&format!("{round}-{device}"), body).is_ok()
+                    })
+                })
+                .collect();
+            writers.into_iter().map(|w| w.join().unwrap()).collect()
+        });
+        assert_eq!(sent.iter().filter(|s| **s).count(), 1, "round {round}: {sent:?}");
+        for device in ["a", "b"] {
+            let _ = r.remove(&format!("{round}-{device}"));
+        }
+    }
+}
+
+/// An encrypted remote's key files are what tells a device's drive it is encrypted (when its
+/// keyring holds no key, after a lock): the stand-in lists them as a bucket does, also through
+/// the retrying connection the devices open it with.
+#[cfg(feature = "encryption")]
+#[test]
+fn the_key_files_of_an_encrypted_remote_are_listed_through_a_devices_connection() {
+    let dir = TempDir::new("azdrive-e2e-remote-keys");
+    let r = Arc::new(Remote::create("r", dir.path().join("remote"), true, "").expect("a remote"));
+    r.write(".azlin/keys/recovery.key", b"wrap").unwrap();
+    r.write("data/aa/aa00", b"object").unwrap();
+    let plain = drive(&r, "a");
+    assert!(azul_storage::crypto::device::is_encrypted(plain.as_ref()).unwrap());
+    let connection = crate::connection(plain);
+    assert!(azul_storage::crypto::device::is_encrypted(connection.as_ref()).unwrap());
+}

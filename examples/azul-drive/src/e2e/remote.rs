@@ -305,16 +305,18 @@ impl Remote {
         if let Ok(entries) = fs::read_dir(self.objects()) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if let Some(stem) = name.strip_suffix(LONG_KEY_SUFFIX) {
-                    if let Ok(key) = fs::read_to_string(entry.path()) {
-                        if self.objects().join(stem).exists() {
-                            out.insert(key);
+                // A long key's object is listed through the file beside it that holds the key;
+                // any other name is its key, a ".key" file of the drive's own included.
+                if name.starts_with(LONG_PREFIX) {
+                    if let Some(stem) = name.strip_suffix(LONG_KEY_SUFFIX) {
+                        if let Ok(key) = fs::read_to_string(entry.path()) {
+                            if self.objects().join(stem).exists() {
+                                out.insert(key);
+                            }
                         }
                     }
-                } else if !name.starts_with(LONG_PREFIX) {
-                    if let Some(key) = key_of(&name) {
-                        out.insert(key);
-                    }
+                } else if let Some(key) = key_of(&name) {
+                    out.insert(key);
                 }
             }
         }
