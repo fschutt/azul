@@ -2295,11 +2295,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// before, while its taffy cache still holds what it measured since -
     /// see [`TaffyWidthOnlyAnswers`].
     fn width_only_answer_kept(&mut self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
-        if self
-            .tree
-            .warm(LayoutNodeId::new(node_idx))?
-            .taffy_cache
-            .is_empty()
+        if !self.width_only_answers_keep()
+            || self
+                .tree
+                .warm(LayoutNodeId::new(node_idx))?
+                .taffy_cache
+                .is_empty()
         {
             return None;
         }
@@ -2317,6 +2318,9 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// taffy cache means the subtree changed since anything kept was
     /// answered: that goes first.
     fn keep_width_only_answer(&mut self, node_idx: usize, inputs: &LayoutInput, width: f32) {
+        if !self.width_only_answers_keep() {
+            return;
+        }
         let primary_empty = self
             .tree
             .warm(LayoutNodeId::new(node_idx))
@@ -2332,6 +2336,19 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .taffy_width_only
             .get_or_insert_with(Box::default)
             .store(inputs, width, free_of_height);
+    }
+
+    /// Whether width-only answers are kept at all: not in a document that
+    /// uses viewport units, where a resize moves a width without emptying
+    /// any cache (the same gate as the pure-measure cache above).
+    fn width_only_answers_keep(&self) -> bool {
+        self.ctx
+            .styled_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_some_and(|cc| !cc.uses_viewport_units)
     }
 
     /// Whether `node_idx`'s subtree lays out alike at every height it is

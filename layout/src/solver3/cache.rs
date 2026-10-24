@@ -3166,8 +3166,11 @@ pub(crate) fn forwards_containing_block_height(tree: &LayoutTree, node_index: us
 /// Decided box by box and conservatively
 /// ([`box_lays_out_alike_at_every_given_height`]); a subtree is free when
 /// every box in it is. A document that declares `shape-inside` or
-/// `shape-outside` is free nowhere: its shapes are drawn into the available
-/// height. Memoised in `NodeCache::free_of_given_height`.
+/// `shape-outside` is free nowhere (its shapes are drawn into the available
+/// height), nor is one that uses viewport units anywhere (a resize keeps the
+/// per-node cache, and a length in viewport units moves with the window
+/// whatever height a box is given - the same gate as the pure-measure cache
+/// of the taffy bridge). Memoised in `NodeCache::free_of_given_height`.
 pub(crate) fn lays_out_alike_at_every_given_height(
     map: &mut LayoutCacheMap,
     tree: &LayoutTree,
@@ -3182,15 +3185,16 @@ pub(crate) fn lays_out_alike_at_every_given_height(
     if let Some(known) = entry.free_of_given_height {
         return known;
     }
-    let shapes_declared = styled_dom
+    let free_nowhere = styled_dom
         .css_property_cache
         .ptr
         .compact_cache
         .as_ref()
         .is_none_or(|cc| {
-            cc.dom_declared_flags & (DOM_HAS_SHAPE_INSIDE | DOM_HAS_SHAPE_OUTSIDE) != 0
+            cc.uses_viewport_units
+                || cc.dom_declared_flags & (DOM_HAS_SHAPE_INSIDE | DOM_HAS_SHAPE_OUTSIDE) != 0
         });
-    if shapes_declared {
+    if free_nowhere {
         map.entries[node_index].free_of_given_height = Some(false);
         return false;
     }
@@ -3234,8 +3238,8 @@ pub(crate) fn lays_out_alike_at_every_given_height(
 
 /// [`lays_out_alike_at_every_given_height`] for one box, its children
 /// aside. Not free: a box whose `height`, `min-height`, `max-height` or
-/// `flex-basis` is a percentage, a `calc()` or a viewport length (a resize
-/// keeps the per-node cache); a table box, a grid or a grid item (their
+/// `flex-basis` is a percentage or a `calc()`; a table box, a grid or a grid
+/// item (their
 /// algorithms size rows and tracks into the space); an absolutely positioned,
 /// fixed or sticky box (inset into a containing block); a scroll container
 /// (it keeps the height it is given); a replaced element (its size follows
@@ -3297,12 +3301,7 @@ fn box_lays_out_alike_at_every_given_height(
     {
         return false;
     }
-    let reads_the_space = |pv: &PixelValue| {
-        matches!(
-            pv.metric,
-            SizeMetric::Percent | SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax
-        )
-    };
+    let reads_the_space = |pv: &PixelValue| pv.metric == SizeMetric::Percent;
     let height_reads_the_space = match &style.height {
         None | Some(LayoutHeight::Auto | LayoutHeight::MinContent | LayoutHeight::MaxContent) => {
             false
@@ -3351,11 +3350,11 @@ fn box_lays_out_alike_at_every_given_height(
 /// The containing block `node_index`'s layout is cached under: the one it is
 /// laid out in, or - for a subtree that lays out alike at every definite
 /// height ([`lays_out_alike_at_every_given_height`]) - that block with its
-/// definite height replaced by a key of the viewport. A block that changed
+/// definite height replaced by one key for all of them. A block that changed
 /// only its height then finds the layout it holds. The key is negative, so
 /// the cache's "result matches request" rule never takes it for a laid-out
-/// size; it names the viewport's height because a resize keeps the per-node
-/// cache, and a font sized in viewport units still moves with it.
+/// size, and an indefinite height keeps a key of its own: a flex column
+/// sizes itself differently in a definite and an indefinite space.
 fn cache_key_block<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -3371,7 +3370,7 @@ fn cache_key_block<T: ParsedFontTrait>(
     if !lays_out_alike_at_every_given_height(&mut ctx.cache_map, tree, styled_dom, node_index) {
         return block;
     }
-    LogicalSize::new(block.width, -1.0 - ctx.viewport_size.height.max(0.0))
+    LogicalSize::new(block.width, -1.0)
 }
 
 /// Result of `prepare_layout_context`: contains the layout constraints and
