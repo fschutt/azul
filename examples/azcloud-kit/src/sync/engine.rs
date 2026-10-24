@@ -389,6 +389,52 @@ impl Engine {
         (outcome, summary)
     }
 
+    /// Runs passes until `stop` is set: one at start, one soon after the watcher hears a
+    /// change (gathered for `quiet`, so a save is one pass), a full one after the computer
+    /// slept and every 15 minutes, none while the backoff or a Retry-After says to wait.
+    /// `pass` runs one pass and is told why (`start`, `changed`, `wake`, `interval`,
+    /// `rescan`); a watcher that cannot start leaves the clock alone in charge.
+    pub fn watch(
+        &self,
+        stop: &std::sync::atomic::AtomicBool,
+        quiet: std::time::Duration,
+        mut pass: impl FnMut(&str) -> PassSummary,
+    ) {
+        use std::{
+            sync::atomic::Ordering,
+            time::{Duration, Instant, SystemTime},
+        };
+        let watcher = super::watcher::Watcher::start(&self.root).ok();
+        let mut clock = super::watcher::RescanClock::default();
+        let mut reason: Option<String> = None;
+        while !stop.load(Ordering::SeqCst) {
+            let due = clock.due(SystemTime::now(), Instant::now());
+            if let Some(why) = reason.take().or_else(|| due.map(str::to_string)) {
+                let wait = self.wait();
+                if !wait.is_zero() {
+                    // Asked to wait: the reason stays for when the wait is over.
+                    reason = Some(why);
+                    std::thread::sleep(wait.min(Duration::from_secs(1)));
+                    continue;
+                }
+                pass(&why);
+                clock.ran(Instant::now());
+            }
+            let heard = match &watcher {
+                Some(w) => w.wait(Duration::from_secs(1), quiet),
+                None => {
+                    std::thread::sleep(Duration::from_secs(1));
+                    None
+                }
+            };
+            reason = match heard {
+                Some(super::watcher::Wake::Changed(_)) => Some(String::from("changed")),
+                Some(super::watcher::Wake::Rescan(_)) => Some(String::from("rescan")),
+                None => None,
+            };
+        }
+    }
+
     fn note(&self, problem: Problem) {
         self.found
             .lock()

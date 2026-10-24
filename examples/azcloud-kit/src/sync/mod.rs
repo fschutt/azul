@@ -68,6 +68,7 @@ pub mod remote;
 pub mod retry;
 pub mod rules;
 pub mod session;
+pub mod watcher;
 
 use std::{
     collections::{BTreeMap, BTreeSet},

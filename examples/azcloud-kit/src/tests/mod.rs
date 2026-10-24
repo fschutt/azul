@@ -66,6 +66,8 @@ mod sync_oplog;
 mod sync_quarantine;
 /// Bounded retries and Retry-After.
 mod sync_retry;
+/// The watcher and the full passes' clock.
+mod sync_watcher;
 mod sync_remote;
 mod sync_rules;
 mod sync_session;
