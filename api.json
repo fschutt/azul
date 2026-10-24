@@ -11306,8 +11306,136 @@
                             "PartialEq",
                             "Default"
                         ],
+                        "struct_fields": [
+                            {
+                                "roots": {
+                                    "type": "TrustRootSet"
+                                },
+                                "distrusted": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "app_default": {
+                                "doc": [
+                                    "The app's set (`AppConfig::trust_roots`), the public roots when it set none: the",
+                                    "default of every config."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::tls::TrustRoots::app_default()"
+                            },
+                            "pinned": {
+                                "doc": [
+                                    "Only the roots in `pems` (PEM text)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "pems": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::tls::TrustRoots::pinned(pems)"
+                            },
+                            "public_roots": {
+                                "doc": [
+                                    "The public web PKI, whatever the app set."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::tls::TrustRoots::public_roots()"
+                            },
+                            "public_roots_except": {
+                                "doc": [
+                                    "The public web PKI without the roots in `pems` (PEM text): the usual hardening when a",
+                                    "public authority has lost the trust of the browsers before the compiled-in roots",
+                                    "caught up."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "pems": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::tls::TrustRoots::public_roots_except(pems)"
+                            }
+                        },
+                        "functions": {
+                            "get_certificates_pem": {
+                                "doc": [
+                                    "The root certificates a connection made now trusts, PEM (one certificate each): for a",
+                                    "TLS client of the app's own (an IMAP or SMTP client, another language's TLS library),",
+                                    "so it trusts exactly what azul's clients trust. Fails when an entry does not parse, or",
+                                    "in a build without TLS (web: the browser's roots apply)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultStringVecString"
+                                },
+                                "fn_body": "object.get_certificates_pem()"
+                            },
+                            "is_pinned": {
+                                "doc": [
+                                    "Whether a set is pinned (the public roots are not part of it)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_pinned()"
+                            },
+                            "is_public_roots": {
+                                "doc": [
+                                    "Whether a connection made now trusts the public roots as they are: no pinned set, no",
+                                    "distrusted root. A TLS client that brings its own fixed root store (a database driver)",
+                                    "can follow only this set, and refuses to connect over TLS under any other."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_public_roots()"
+                            },
+                            "with_distrusted": {
+                                "doc": [
+                                    "This set without the roots in `pems` (PEM text), in place of the ones it distrusted."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pems": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrustRoots"
+                                },
+                                "fn_body": "object.with_distrusted(pems)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TrustRootSet": {
+                        "external": "azul_core::tls::TrustRootSet",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
                         "enum_fields": [
                             {
+                                "AppDefault": {},
                                 "PublicRoots": {},
                                 "Pinned": {
                                     "type": "StringVec"
@@ -190238,6 +190366,9 @@
                                 "theme_font": {
                                     "type": "String"
                                 },
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
                                 "mode": {
                                     "type": "OptionDarkLightMode"
                                 },
@@ -190606,6 +190737,39 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_theme_font(families)"
+                            },
+                            "set_trust_roots": {
+                                "doc": [
+                                    "In-place [`Self::with_trust_roots`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "fn_body": "object.set_trust_roots(trust_roots)"
+                            },
+                            "with_trust_roots": {
+                                "doc": [
+                                    "Returns the config whose TLS connections trust `trust_roots` unless their own config",
+                                    "names a set (see [`Self::trust_roots`]): pin the app's servers' roots, or distrust a",
+                                    "public root, once for every connection."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trust_roots": "TrustRoots"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_trust_roots(trust_roots)"
                             }
                         },
                         "repr": "C"
