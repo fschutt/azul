@@ -16,6 +16,8 @@
 //! a time (the demo reveals one entry at a time); request↔result
 //! correlation by id is a future refinement.
 
+use alloc::string::ToString;
+
 use azul_css::AzString;
 
 /// Which keyring service an entry lives in: an app sees only the entries of the
