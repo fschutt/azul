@@ -1,0 +1,46 @@
+[
+  {
+    "name": "a shared folder named 'notes: 2025' made on Linux syncs here and is listed per file for the systems that cannot hold it",
+    "description": "KDRIVE-008 (kDrive): folders with colons uploaded from Linux were silently skipped on Windows, so collaborators saw different contents. Rules P5, P4 and O1: no silent skip; on macOS and Linux the folder arrives and each file is flagged portability; the drive keeps it.",
+    "only_on": ["macos", "linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes: 2025/todo.txt", "text": "todo", "writer": "linux-colleague" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes: 2025/plan.txt", "text": "plan", "writer": "linux-colleague" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "other/ok.txt", "text": "ok", "writer": "linux-colleague" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "notes: 2025/todo.txt", "text": "todo" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "notes: 2025/plan.txt", "text": "plan" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "portability", "key": "notes: 2025*" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on Windows the folder stays on the drive and every file in it is listed invalid-here",
+    "description": "KDRIVE-008 (kDrive), Windows: rules P5, P4 and O1: each item that cannot be written is listed (not only logged); the others arrive; nothing is deleted on the drive.",
+    "only_on": ["windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes: 2025/todo.txt", "text": "todo", "writer": "linux-colleague" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes: 2025/plan.txt", "text": "plan", "writer": "linux-colleague" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "other/ok.txt", "text": "ok", "writer": "linux-colleague" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "other/ok.txt", "text": "ok" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "invalid-here", "key": "notes: 2025*" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
