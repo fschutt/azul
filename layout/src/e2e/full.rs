@@ -13214,7 +13214,10 @@ fn resume_e2e_continuation_inner(
                 let cmd_json = serde_json::Value::Object(cmd);
                 match parse_debug_event(cmd_json) {
                     Ok(mut debug_event) => {
-                        // An app op learns how often it said "pending" so far.
+                        // An app op learns how often it said "pending" so far, and which test
+                        // of the file it runs in: the tests of a file share the process, so an
+                        // app that keeps state for its commands starts a new test afresh
+                        // (`_test` moved) whether or not the last one got to its own clean-up.
                         let is_app_op = matches!(debug_event, DebugEvent::CustomOp { .. });
                         if let DebugEvent::CustomOp {
                             args: serde_json::Value::Object(fields),
@@ -13222,6 +13225,7 @@ fn resume_e2e_continuation_inner(
                         } = &mut debug_event
                         {
                             fields.insert("_attempt".to_string(), cont.step_attempt.into());
+                            fields.insert("_test".to_string(), cont.test_idx.into());
                         }
                         let (step_tx, step_rx) = mpsc::channel();
                         let step_request = DebugRequest {

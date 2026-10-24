@@ -156,6 +156,8 @@ fn an_op_no_engine_op_has_reaches_the_apps_command_with_the_steps_fields_as_its_
             { "op": "assert_response", "path": "result.got.device", "equals": "a" },
             { "op": "assert_response", "path": "result.got.n", "equals": 3 },
             { "op": "assert_response", "path": "result.got._attempt", "equals": 0 },
+            // Which test of the file the step belongs to (the first: 0).
+            { "op": "assert_response", "path": "result.got._test", "equals": 0 },
             // The long spelling reaches the same command.
             { "op": "custom_op", "name": "echo", "args": { "device": "b" } },
             { "op": "assert_response", "path": "result.got.device", "equals": "b" },
