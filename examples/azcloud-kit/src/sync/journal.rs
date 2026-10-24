@@ -27,9 +27,12 @@ use std::{
     },
 };
 
+use azul_storage::{
+    beneath::{Dir, Kind, Root},
+    checked::hash_file,
+};
 use serde::{Deserialize, Serialize};
 
-use super::local;
 use crate::error::{CloudResult, Context};
 
 /// The journal's file in a pairing's state folder.
@@ -188,8 +191,17 @@ impl Journal {
     /// finds them done on disk).
     pub fn recover(&self, root: &Path) -> CloudResult<Recovery> {
         let mut out = Recovery::default();
+        // Every name is reached from the folder's root without a link: recovery finishes no
+        // step in a folder that a link below the synced folder points at.
+        let tree = Root::open(root);
         for (_, intent) in self.open_steps() {
-            recover_one(root, &intent, &mut out);
+            match &tree {
+                Ok(tree) => recover_one(tree, &intent, &mut out),
+                Err(e) => out.left.push(format!(
+                    "{}: the folder cannot be opened ({e})",
+                    intent.key()
+                )),
+            }
         }
         let _held = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
         match fs::remove_file(&self.path) {
@@ -213,24 +225,10 @@ fn read_lines(path: &Path) -> Vec<Line> {
         .collect()
 }
 
-/// The path of `key` under `root`, when every folder on the way is a real folder (never a
-/// link: recovery writes nothing through one).
-fn inside(root: &Path, key: &str) -> Option<PathBuf> {
-    let mut at = root.to_path_buf();
-    let segments: Vec<&str> = key.split('/').collect();
-    for (i, segment) in segments.iter().enumerate() {
-        if segment.is_empty() || *segment == "." || *segment == ".." {
-            return None;
-        }
-        at.push(segment);
-        if i + 1 < segments.len() {
-            let meta = fs::symlink_metadata(&at).ok()?;
-            if !meta.file_type().is_dir() {
-                return None;
-            }
-        }
-    }
-    Some(at)
+/// The folder of `key` and its name in it, reached from the root one folder at a time without
+/// a link; `None` when a folder on the way is a link, another disk, or gone.
+fn inside<'k>(tree: &Root, key: &'k str) -> Option<(Dir, &'k str)> {
+    tree.parent_of(key, false).ok()
 }
 
 /// Whether `name` is a temp file azul-storage's local writes leave beside `target_name`.
@@ -240,43 +238,51 @@ pub fn is_download_temp(name: &str, target_name: &str) -> bool {
 }
 
 /// Removes the temp files of a download of `key`.
-fn remove_temps(root: &Path, key: &str, out: &mut Recovery) {
-    let Some(path) = inside(root, key) else {
+fn remove_temps(tree: &Root, key: &str, out: &mut Recovery) {
+    let Some((dir, name)) = inside(tree, key) else {
         out.left.push(format!("{key}: its folder is a link or gone"));
         return;
     };
-    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+    let Ok(entries) = dir.names() else {
         return;
     };
-    let name = name.to_string_lossy();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let other = entry.file_name().to_string_lossy().into_owned();
-        let is_file = entry.file_type().is_ok_and(|t| t.is_file());
-        if is_file && is_download_temp(&other, &name) && fs::remove_file(entry.path()).is_ok() {
+    for other in entries {
+        let Some(other) = other.to_str() else {
+            continue;
+        };
+        let is_file = dir.lstat(other).is_ok_and(|st| st.kind == Kind::File);
+        if is_file && is_download_temp(other, name) && dir.unlink(other).is_ok() {
             out.rolled_back.push(format!("{key}: removed the half download {other}"));
         }
     }
 }
 
-fn recover_one(root: &Path, intent: &Intent, out: &mut Recovery) {
+fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
     match intent {
-        Intent::Download { key, .. } => remove_temps(root, key, out),
+        Intent::Download { key, .. } => remove_temps(tree, key, out),
         Intent::Conflict { key, copy, hash } => {
-            remove_temps(root, key, out);
-            let (Some(from), Some(to)) = (inside(root, key), inside(root, copy)) else {
+            remove_temps(tree, key, out);
+            let (Some((from_dir, from)), Some((to_dir, to))) =
+                (inside(tree, key), inside(tree, copy))
+            else {
                 out.left.push(format!("{key}: its folder is a link or gone"));
                 return;
             };
-            if fs::symlink_metadata(&to).is_ok() {
+            if to_dir.lstat(to).is_ok() {
                 return;
             }
-            let is_file = fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file());
-            if is_file && local::hash_file(&from).is_ok_and(|h| h == *hash) {
-                match fs::rename(&from, &to) {
-                    Ok(()) => out.finished.push(format!("{key}: kept as {copy}")),
+            // Opened without following a link or blocking on a FIFO, hashed from that handle.
+            let holds = from_dir
+                .open_read(from)
+                .ok()
+                .and_then(|(file, _)| hash_file(file).ok())
+                .is_some_and(|h| h == *hash);
+            if holds {
+                match from_dir.rename(from, &to_dir, to) {
+                    Ok(()) => {
+                        to_dir.sync();
+                        out.finished.push(format!("{key}: kept as {copy}"));
+                    }
                     Err(e) => out.left.push(format!("{key}: {e}")),
                 }
             } else {
@@ -287,14 +293,18 @@ fn recover_one(root: &Path, intent: &Intent, out: &mut Recovery) {
         }
         Intent::Trash { .. } => {}
         Intent::CaseRename { from, via, to } => {
-            let (Some(via_path), Some(to_path)) = (inside(root, via), inside(root, to)) else {
+            let (Some((via_dir, via_name)), Some((to_dir, to_name))) =
+                (inside(tree, via), inside(tree, to))
+            else {
                 out.left.push(format!("{from}: its folder is a link or gone"));
                 return;
             };
-            let via_there = fs::symlink_metadata(&via_path).is_ok();
-            if via_there && fs::symlink_metadata(&to_path).is_err() {
-                match fs::rename(&via_path, &to_path) {
-                    Ok(()) => out.finished.push(format!("{from}: renamed to {to}")),
+            if via_dir.lstat(via_name).is_ok() && to_dir.lstat(to_name).is_err() {
+                match via_dir.rename(via_name, &to_dir, to_name) {
+                    Ok(()) => {
+                        to_dir.sync();
+                        out.finished.push(format!("{from}: renamed to {to}"));
+                    }
                     Err(e) => out.left.push(format!("{from}: {e}")),
                 }
             }

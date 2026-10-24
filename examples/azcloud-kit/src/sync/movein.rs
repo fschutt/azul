@@ -9,14 +9,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use azul_storage::beneath::Root;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    local::{hash_file, path_of},
-    remote::RemoteIndex,
-};
+use super::{local::hash_file, remote::RemoteIndex};
 use crate::{
-    error::{fail, CloudResult, Context},
+    error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
 };
 
@@ -68,22 +66,26 @@ pub fn move_in(root: &Path, state_dir: &Path, from: &Path, key: &str) -> CloudRe
         fail!("{} is in the synced folder already", from.display());
     }
     let key = key.trim_matches('/');
-    let target = path_of(root, key);
-    if fs::symlink_metadata(&target).is_ok() {
-        fail!("{key} is there already");
+    // Every name is reached from the folder's root without a link: nothing lands in a folder
+    // that a link below the synced folder points at.
+    let tree = Root::open(root).with_context(|| root.display())?;
+    match tree.parent_of(key, false) {
+        Ok((dir, name)) if dir.lstat(name).is_ok() => fail!("{key} is there already"),
+        Err(e) if !e.is_not_found() => return Err(CloudError::from(e).context(key)),
+        _ => {}
     }
     let mut pending = PendingMoves::load(state_dir);
     let mut copied = Vec::new();
     let meta = fs::symlink_metadata(from).with_context(|| from.display())?;
     let result = if meta.is_dir() {
-        let copying = copy_tree(from, &target, key, &mut pending, &mut copied);
+        let copying = copy_tree(&tree, from, key, &mut pending, &mut copied);
         // A folder with no file in it has nothing for the drive to hold: its source stays.
         if !copied.is_empty() {
             pending.folders.push(from.to_path_buf());
         }
         copying
     } else if meta.is_file() {
-        copy_one(from, &target, key, &mut pending, &mut copied)
+        copy_one(&tree, from, key, &mut pending, &mut copied)
     } else {
         Err(crate::error::CloudError::failed(format!(
             "{} is no file or folder",
@@ -94,17 +96,27 @@ pub fn move_in(root: &Path, state_dir: &Path, from: &Path, key: &str) -> CloudRe
     result.map(|()| copied)
 }
 
+/// Copies the file `from` to `key` under `tree`: into a new file in the key's folder, synced
+/// and renamed in, with the source's permission bits (never setuid, setgid or sticky).
 fn copy_one(
+    tree: &Root,
     from: &Path,
-    to: &Path,
     key: &str,
     pending: &mut PendingMoves,
     copied: &mut Vec<String>,
 ) -> CloudResult<()> {
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent).with_context(|| parent.display())?;
-    }
-    fs::copy(from, to).with_context(|| from.display())?;
+    let mut source = fs::File::open(from).with_context(|| from.display())?;
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        source
+            .metadata()
+            .map_or(0o644, |meta| meta.permissions().mode() & 0o777)
+    };
+    #[cfg(not(unix))]
+    let mode = 0o644;
+    let (dir, name) = tree.parent_of(key, true).context(key)?;
+    dir.write_from(name, &mut source, mode).context(key)?;
     let hash = hash_file(from).with_context(|| from.display())?;
     pending.moves.push(PendingMove {
         source: from.to_path_buf(),
@@ -116,13 +128,13 @@ fn copy_one(
 }
 
 fn copy_tree(
+    tree: &Root,
     from: &Path,
-    to: &Path,
     key: &str,
     pending: &mut PendingMoves,
     copied: &mut Vec<String>,
 ) -> CloudResult<()> {
-    fs::create_dir_all(to).with_context(|| to.display())?;
+    tree.dir(key, true).context(key)?;
     let mut entries: Vec<fs::DirEntry> = fs::read_dir(from)
         .with_context(|| from.display())?
         .flatten()
@@ -136,9 +148,9 @@ fn copy_tree(
             continue;
         };
         if meta.is_dir() {
-            copy_tree(&path, &to.join(&name), &inner, pending, copied)?;
+            copy_tree(tree, &path, &inner, pending, copied)?;
         } else if meta.is_file() {
-            copy_one(&path, &to.join(&name), &inner, pending, copied)?;
+            copy_one(tree, &path, &inner, pending, copied)?;
         }
     }
     Ok(())

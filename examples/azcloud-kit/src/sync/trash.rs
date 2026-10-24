@@ -4,12 +4,11 @@
 //! bytes of one deleted earlier is the user's (the merge's D5 rule), so the undo travels to
 //! every device.
 
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{collections::BTreeSet, path::Path};
 
-use super::{
-    local::path_of,
-    oplog::{OpKind, OpLog},
-};
+use azul_storage::beneath::Root;
+
+use super::oplog::{OpKind, OpLog};
 use crate::error::{CloudResult, Context};
 
 /// Puts back what the passes of the pairing whose state folder is `state_dir` trashed of `key`
@@ -29,6 +28,9 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
     };
     let mut done: BTreeSet<String> = BTreeSet::new();
     let mut out = Vec::new();
+    // Both names are reached from the folder's root without a link: a file never goes back
+    // into a folder that a link below the synced folder points at.
+    let tree = Root::open(root).with_context(|| root.display())?;
     for op in OpLog::new(state_dir).read().into_iter().rev() {
         if op.op != OpKind::Trash || !under(&op.key) || done.contains(&op.key) {
             continue;
@@ -36,17 +38,26 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
         let Some(trashed) = op.to.as_deref() else {
             continue;
         };
-        let from = path_of(root, trashed);
-        let to = path_of(root, &op.key);
         // Gone from the trash already (purged, put back by hand), or a file is there now.
-        if fs::symlink_metadata(&from).is_err() || fs::symlink_metadata(&to).is_ok() {
+        let (source, from) = match tree.parent_of(trashed, false) {
+            Ok((dir, name)) if dir.lstat(name).is_ok() => (dir, name),
+            _ => {
+                done.insert(op.key.clone());
+                continue;
+            }
+        };
+        let (target, to) = tree
+            .parent_of(&op.key, true)
+            .with_context(|| op.key.clone())?;
+        if target.lstat(to).is_ok() {
             done.insert(op.key.clone());
             continue;
         }
-        if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent).with_context(|| parent.display())?;
-        }
-        fs::rename(&from, &to).with_context(|| from.display())?;
+        source
+            .rename(from, &target, to)
+            .with_context(|| trashed.to_string())?;
+        target.sync();
+        source.sync();
         done.insert(op.key.clone());
         out.push(op.key);
     }
@@ -56,8 +67,10 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
-    use crate::sync::oplog::Op;
+    use crate::sync::{local::path_of, oplog::Op};
     use azul_storage::testing::TempDir;
 
     #[test]
