@@ -384,7 +384,6 @@ impl LocalDrive {
             .child(name, false)
             .map_err(|e| beneath_error(prefix, e))?;
         remove_all(&folder).map_err(|e| beneath_error(prefix, e))?;
-        drop(folder);
         parent.rmdir(name).map_err(|e| beneath_error(prefix, e))?;
         parent.sync();
         Ok(true)
