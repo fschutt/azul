@@ -1293,3 +1293,5 @@ mod a_height_tween_re_emits_its_box_not_what_it_holds;
 mod a_growing_ribbon_lays_out_only_the_boxes_it_resizes;
 #[path = "a_measured_label_flows_its_text_only_at_a_new_width.rs"]
 mod a_measured_label_flows_its_text_only_at_a_new_width;
+#[path = "a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes.rs"]
+mod a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes;

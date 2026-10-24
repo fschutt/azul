@@ -98,7 +98,7 @@ fn names(places: usize) -> Vec<String> {
 
 /// Lay the window out with a rebuilt page, as an app's `RefreshDom` hands
 /// one over: the reconcile keeps what did not change.
-fn rebuild(lw: &mut LayoutWindow, mut dom: Dom) {
+pub(crate) fn rebuild(lw: &mut LayoutWindow, mut dom: Dom) {
     let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let window_state = lw.current_window_state.clone();
     lw.layout_and_generate_display_list(
@@ -111,7 +111,7 @@ fn rebuild(lw: &mut LayoutWindow, mut dom: Dom) {
     .expect("the rebuilt page lays out");
 }
 
-fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
+pub(crate) fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
     let sd = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
     let node_data = sd.node_data.as_container();
     (0..node_data.len())
@@ -125,7 +125,7 @@ fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
         .expect("the node exists")
 }
 
-fn rect(lw: &LayoutWindow, node: NodeId) -> LogicalRect {
+pub(crate) fn rect(lw: &LayoutWindow, node: NodeId) -> LogicalRect {
     lw.get_node_layout_rect(DomNodeId {
         dom: DomId::ROOT_ID,
         node: Some(node).into(),
@@ -181,7 +181,7 @@ fn final_inline_layouts(lw: &LayoutWindow) -> Vec<(usize, AvailableSpace, Vec<(f
 
 /// Every box, every painted glyph and every final inline layout of `lw` is
 /// what a fresh window, which keeps nothing, lays out for `page`.
-fn assert_lays_out_like_a_fresh_window(lw: &LayoutWindow, page: Dom, what: &str) {
+pub(crate) fn assert_lays_out_like_a_fresh_window(lw: &LayoutWindow, page: Dom, what: &str) {
     let fresh = window(page);
     let nodes = |w: &LayoutWindow| {
         w.layout_results[&DomId::ROOT_ID]
