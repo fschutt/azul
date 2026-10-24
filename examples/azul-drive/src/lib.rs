@@ -323,6 +323,10 @@ mod command_line_tests;
 mod micro_actions;
 #[cfg(test)]
 mod micro_actions_tests;
+/// The address row's branch chip and its quick switcher.
+mod ui_git;
+/// The command bar at the foot of the folder view.
+mod ui_command_bar;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
 /// This computer's client health (power, battery, network) and the background work it scales.
@@ -1233,6 +1237,10 @@ pub(crate) struct DriveState {
     pub cash_looks: periods::Schedule,
     /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
     pub bans: HashMap<String, azcloud_kit::Ban>,
+    /// The repository of the folder in view (the address row's chip) and the quick switcher.
+    pub git: ui_git::GitView,
+    /// The command bar at the folder view's foot: its line, history and output.
+    pub command_bar: ui_command_bar::CommandBar,
 }
 
 impl DriveState {
@@ -1512,7 +1520,7 @@ impl DriveState {
             };
         }
         width = self.content_pane_width(width) - 2.0 * (SPLITTER_PX - PANE_SPLITTER_PX);
-        height -= CHROME_PX + LEAF_FRAME_Y;
+        height -= CHROME_PX + LEAF_FRAME_Y + ui_command_bar::height(self);
         width -= LEAF_FRAME_X;
         if self.message.is_some() {
             height -= 52.0;
@@ -2216,6 +2224,8 @@ pub(crate) fn go(
     ui_view::scroll_view_to_top(info);
     set_window_title(info, s);
     println!("AZDRIVE_PLACE {}", s.place_line());
+    // The git chip of the new folder (a look on a worker thread).
+    ui_git::place_changed(info, app, s);
     ui_sidebar::reveal_place(info, app, s);
     if s.place == Place::ThisPc {
         count_drive_roots(info, app, s);
@@ -2233,6 +2243,8 @@ pub(crate) fn go(
 
 /// Lists the open folder again (F5), keeping the selection.
 pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    // The git chip looks again too (a commit or a checkout made elsewhere).
+    ui_git::request_probe(info, app, s);
     if s.current_drive().is_none() {
         // This PC: the drives' sizes and item counts again.
         refresh_disks(s);
@@ -3239,7 +3251,7 @@ fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
     Dom::create_div()
         .with_id(ids::CHROME)
         .with_css("display: flex; flex-direction: column;")
-        .with_child(ui_panes::address_bar(s, app, width))
+        .with_child(ui_git::address_row(s, app, ui_panes::address_bar(s, app, width)))
 }
 
 /// The DOM id of the details pane, which shares the right side with the preview pane.
@@ -3901,6 +3913,8 @@ pub fn start() {
         cash_waits: Vec::new(),
         cash_looks: periods::Schedule::default(),
         bans: HashMap::new(),
+        git: ui_git::GitView::default(),
+        command_bar: ui_command_bar::CommandBar::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

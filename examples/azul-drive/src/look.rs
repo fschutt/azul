@@ -50,6 +50,8 @@ macro_rules! themed {
         )
     };
 }
+// The git chip's and the command bar's looks (`ui_git`, `ui_command_bar`) use it too.
+pub(crate) use themed;
 
 /// One line of text, cut with an ellipsis.
 pub(crate) const CLIP: &str =

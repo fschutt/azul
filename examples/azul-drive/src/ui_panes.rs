@@ -59,7 +59,8 @@ fn bar_model(s: &DriveState, width: f32) -> AddressBar {
     };
     AddressBar::create(StringVec::from(labels))
         .with_icon(AzString::from(crumb_icon(s, &s.place)))
-        .with_available_width(width)
+        // The git chip at the row's end takes its share of the width (`ui_git`).
+        .with_available_width((width - crate::ui_git::chip_room(s)).max(1.0))
         .with_path(AzString::from(browse::path_text(&s.place, path_drive)))
         .with_search(AzString::from(s.search.as_str()))
         .with_search_placeholder(AzString::from(t_args(

@@ -204,6 +204,24 @@ pub fn invocation(line: &str, cwd: &Path, shell: Option<&str>, platform: Platfor
     }
 }
 
+/// `word` as ONE argument of the shell `platform` runs: in single quotes on Unix (a quote
+/// inside written `'\''`), in double quotes for cmd.exe (a double quote doubled). A word of
+/// plain characters (letters, digits, `-_./+@%=:,`) stays as it is.
+#[must_use]
+pub fn shell_quote(word: &str, platform: Platform) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./+@%=:,".contains(c));
+    if plain {
+        return word.to_string();
+    }
+    match platform {
+        Platform::Unix => format!("'{}'", word.replace('\'', "'\\''")),
+        Platform::Windows => format!("\"{}\"", word.replace('"', "\"\"")),
+    }
+}
+
 /// Programs that take the whole terminal (an editor, a pager, a monitor, a multiplexer, a file
 /// manager): the bar's one-line screen cannot host them.
 const FULL_SCREEN: &[&str] = &[
@@ -322,7 +340,8 @@ fn git_needing_terminal(args: &[&str]) -> Option<String> {
 }
 
 /// A program's name from how it is typed (`/usr/bin/top` is `top`).
-fn program_name(word: &str) -> &str {
+#[must_use]
+pub fn program_name(word: &str) -> &str {
     word.rsplit(['/', '\\']).next().unwrap_or(word)
 }
 
