@@ -1,0 +1,57 @@
+[
+  {
+    "name": "a large upload through a connection that keeps being reset resumes by parts and the drive's copy matches",
+    "description": "KOOFR-020 (Koofr, December 2023): uploads over about 10 GB or long-running ones were interrupted during a provider network problem and failed for days. Rules P8, E5 and E6: huge files stream in parts that resume, the index never names a missing object, bytes are checked by hash. The 6 GiB and lossy-link runs stay sync-chaos port-huge-file and res-netem-lossy-link; sync-chaos res-partition-mid-transfer.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "backup.tar", "size": 50331648, "seed": 20 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 4 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 8 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_fault", "device": "a", "error_rate": 0.2, "seed": 7 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_file", "key": "backup.tar", "same_as": "backup.tar", "device": "a" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_counters", "device": "a" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_most": 75497472 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a large download cut in the middle leaves no partial file and no temp file, and the next pass finishes it",
+    "description": "KOOFR-020, the download side. Rules A5 and E5: a download writes a temp file in the target's folder and renames it in only when the hash matches; a cut leaves nothing half-written.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "backup.tar", "size": 50331648, "seed": 21 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_fault", "device": "b", "cut_after_ops": 1 },
+      { "op": "drive_sync", "device": "b", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "backup.tar", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["remote-offline", "transient"] },
+      { "op": "drive_fault", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "backup.tar", "same_as": "{root:a}/backup.tar" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

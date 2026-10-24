@@ -1,0 +1,30 @@
+{
+  "name": "a client with an empty state finds files the drive deleted meanwhile: kept here and listed, not sent again",
+  "description": "KOOFR-017 (Koofr iOS 4.0.0, a rebuilt app with no record of the old one's uploads): a full rescan re-uploaded photos the user had deliberately deleted from Koofr. Rule D5: at a fresh pairing or a lost state, a local file the drive deleted meanwhile is kept and listed (deleted-elsewhere-kept) and is not sent again until the user chooses. sync-chaos mobile-camera-upload, state-upgrade-migration.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "photos/keep-1.jpg", "text": "kept one" },
+    { "op": "drive_write", "device": "a", "path": "photos/keep-2.jpg", "text": "kept two" },
+    { "op": "drive_write", "device": "a", "path": "photos/keep-3.jpg", "text": "kept three" },
+    { "op": "drive_write", "device": "a", "path": "photos/gone-1.jpg", "text": "deleted on the drive one" },
+    { "op": "drive_write", "device": "a", "path": "photos/gone-2.jpg", "text": "deleted on the drive two" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "photos/gone-1.jpg" },
+    { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "photos/gone-2.jpg" },
+    { "op": "drive_wipe_state", "device": "a" },
+    { "op": "drive_restart", "device": "a" },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "deleted-elsewhere-kept", "key": "photos/gone-1.jpg" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "deleted-elsewhere-kept", "key": "photos/gone-2.jpg" },
+    { "op": "drive_check", "check": "remote_count", "glob": "photos/*", "count": 3 },
+    { "op": "drive_check", "check": "remote_file", "key": "photos/gone-1.jpg", "absent": true },
+    { "op": "drive_check", "check": "files_count", "device": "a", "glob": "photos/*", "count": 5 },
+    { "op": "drive_check", "check": "trash_empty", "device": "a" },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "remote_count", "glob": "photos/*", "count": 3 },
+    { "op": "drive_cleanup" }
+  ]
+}

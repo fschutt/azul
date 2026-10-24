@@ -1,0 +1,54 @@
+[
+  {
+    "name": "a long upload cut several times resumes and finishes, the bytes match, and each small file goes up once",
+    "description": "KOOFR-018 (Koofr Android before 3.7.4): uploads longer than ten minutes were killed, and with Wi-Fi-only some photos never went up after Wi-Fi returned. Rules E5 and E6: parts resume after a cut, the index never names a missing object, and everything queued goes up once the connection is back. sync-chaos mobile-camera-upload, res-partition-mid-transfer.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "video.mp4", "size": 25165824, "seed": 5 },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 20, "size": 4096, "seed": 6 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 3 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 6 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_file", "key": "video.mp4", "same_as": "video.mp4", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mp4", "same_as": "{root:a}/video.mp4" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on a metered network uploads wait and say so; once the network is unmetered every queued photo goes up",
+    "description": "KOOFR-018 (the Wi-Fi-only half). Rule O1: a pause for a metered network is a named status (azdrive-sync-status-metered), and nothing queued is forgotten.",
+    "pending": "drive_network {device, metered: bool} (the network state AzDrive's metered pause reads, NetworkState)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_network", "device": "a", "metered": true },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 20, "size": 4096, "seed": 7 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "metered" },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 0 },
+      { "op": "drive_network", "device": "a", "metered": false },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 20 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

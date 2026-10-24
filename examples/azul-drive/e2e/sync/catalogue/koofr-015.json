@@ -1,0 +1,48 @@
+[
+  {
+    "name": "a photo seen empty by the scan and filled before its upload is never stored as a 0-byte file",
+    "description": "KOOFR-015 (Koofr Android before August 2025): auto-backup saw a new media entry before the camera finished writing it and stored zero-byte backups. Rules A6 and P7: the upload's fstat must equal what the scan saw, a file changed meanwhile is not committed (changed-during-sync), and a 0-byte version is stored only for a file that really is empty. The mobile MediaStore half waits for the app (sync-chaos mobile-camera-upload, res-growing-file).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0001.jpg", "text": "" },
+      { "op": "drive_sync", "device": "a", "pause_at": "after-scan", "expect": "any" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0001.jpg", "text": "the finished photo, many bytes of it" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.files", "not_contains": "\"size\":0" },
+      { "op": "assert_response", "path": "result.files", "not_contains": "\"size\": 0" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "DCIM/IMG_0001.jpg", "text": "the finished photo, many bytes of it" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0001.jpg", "text": "the finished photo, many bytes of it" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "DCIM/IMG_0001.jpg", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file that really is empty syncs as 0 bytes",
+    "description": "KOOFR-015, the other side of the rule. Rule P7: 0-byte files are real files and sync as 0 bytes.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "empty.txt", "text": "" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "empty.txt", "size": 0 },
+      { "op": "drive_check", "check": "remote_file", "key": "empty.txt", "text": "" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
