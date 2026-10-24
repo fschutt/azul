@@ -25,13 +25,13 @@
   {
     "name": "after a restart the hashes of unchanged files are taken from the base, not computed again",
     "description": "MBOX-005: OX's fix keeps checksums computed before an aborted sync. Rule A1: the base keeps each file's hash with its size, mtime, ctime and inode; only a changed file is hashed again.",
-    "pending": "drive_counters field hashed (the files the device's scans hashed since drive_open or drive_restart)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_wait_idle" },
       { "op": "drive_many", "device": "a", "dir": "bulk", "count": 2000, "size": 200, "seed": 3 },
+      { "op": "wait", "ms": 2500, "real": true },
       { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
       { "op": "drive_restart", "device": "a" },
       { "op": "drive_write", "device": "a", "path": "changed.txt", "text": "the one new file" },

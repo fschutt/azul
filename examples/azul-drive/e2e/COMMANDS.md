@@ -422,3 +422,10 @@ keeps its sandbox from going.
 name that is no UTF-8 (Linux and the BSDs hold one; a JSON string cannot). `mtime` (in
 `drive_write` and `drive_utime`) and the `mtime` check's `ns` are signed: a time before 1970 is
 a negative number of nanoseconds, and `drive_read` / `drive_list` answer one as such.
+
+### Files hashed
+
+`drive_counters` with a `device` also answers `hashed`: the files the device's scans read and
+hashed since `drive_open` or `drive_restart` (an unchanged file keeps its base's hash and is not
+counted). A file written within 2 s of a scan is read again by the next one (the racy window), so
+a scenario that counts lets its files age first (`{"op": "wait", "ms": 2500, "real": true}`).

@@ -634,6 +634,7 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
         h.remote_of(args)
     })?;
     let drive_id = format!("e2e-{name}");
+    b_files::reset_hashed(&drive_id);
     let device_name = str_arg(args, "device_name").unwrap_or(&name).to_string();
     let run = with_harness(|h| Ok(h.run.clone()))?;
     let root = run.join("devices").join(&name).join("root");
@@ -764,6 +765,8 @@ fn restart(s: &mut DriveState, args: &Args) -> Answer {
     if let Some(dir) = state_dir {
         s.sync_view.store.set_states(&drive_id, SyncStates::load(&dir));
     }
+    // A restarted app has hashed nothing yet.
+    b_files::reset_hashed(&drive_id);
     if let Some(sync) = s.sync_view.drives.get_mut(&drive_id) {
         sync.again = false;
     }
@@ -1120,6 +1123,7 @@ fn counters(args: &Args) -> Answer {
         if let (serde_json::Value::Object(map), Some(d)) = (&mut out, device) {
             map.insert("passes".into(), d.passes.into());
             map.insert("crashes".into(), d.crashes.into());
+            map.insert("hashed".into(), b_files::hashed_of(&d.drive_id).into());
         }
         Ok(out)
     })
@@ -1217,6 +1221,9 @@ pub(crate) fn settle_of(drive_id: &str) -> Option<Duration> {
 /// A pass of `drive_id` ended (on the UI thread, after its states were taken): the device's
 /// count, its last answer and the problems it listed.
 pub(crate) fn pass_ended(drive_id: &str, result: &Result<sync_jobs::PassDone, String>) {
+    if let Ok(done) = result {
+        b_files::note_hashed(drive_id, done.hashed as u64);
+    }
     let mut guard = harness();
     let Some(h) = guard.as_mut() else {
         return;

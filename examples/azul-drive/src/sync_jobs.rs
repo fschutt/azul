@@ -277,6 +277,8 @@ pub(crate) struct PassDone {
     pub newer_format: Vec<String>,
     /// Files whose transfer waited for a free network (a metered one held them back).
     pub held: usize,
+    /// Files the pass's scan read and hashed (the others kept their base's hash).
+    pub hashed: usize,
 }
 
 impl PassDone {
@@ -299,6 +301,7 @@ impl PassDone {
             done.deleted = report.deleted_here + report.deleted_there;
             done.paused.clone_from(&report.paused);
             done.newer_format.clone_from(&report.newer_format);
+            done.hashed = report.hashed;
         }
         done.held = pass.held.len();
         done

@@ -2,7 +2,9 @@
 //! (`drive_local_fault`), extended attributes and BSD flags (`drive_xattr`, `drive_chflags`).
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -54,6 +56,29 @@ pub(crate) fn clear_flags(top: &Path) {
         }
     }
     walk(top);
+}
+
+/// Files each E2E device's scans hashed since it was opened or restarted, by drive id.
+static HASHED: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+
+fn hashed() -> MutexGuard<'static, BTreeMap<String, u64>> {
+    HASHED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A pass of `drive_id` hashed `n` files.
+pub(crate) fn note_hashed(drive_id: &str, n: u64) {
+    *hashed().entry(drive_id.to_string()).or_default() += n;
+}
+
+/// `drive_id` was opened or restarted: it has hashed nothing yet.
+pub(crate) fn reset_hashed(drive_id: &str) {
+    hashed().remove(drive_id);
+}
+
+/// The files `drive_id`'s passes hashed since it was opened or restarted (`drive_counters`'
+/// `hashed`).
+pub(crate) fn hashed_of(drive_id: &str) -> u64 {
+    hashed().get(drive_id).copied().unwrap_or(0)
 }
 
 /// The time `t` in nanoseconds since 1970, negative before it.
@@ -145,6 +170,19 @@ fn folder_key(root: &Path, path: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hashed_count_adds_up_per_device_and_starts_again_at_a_restart() {
+        reset_hashed("e2e-hash-a");
+        note_hashed("e2e-hash-a", 2000);
+        note_hashed("e2e-hash-a", 1);
+        note_hashed("e2e-hash-b", 5);
+        assert_eq!(hashed_of("e2e-hash-a"), 2001);
+        reset_hashed("e2e-hash-a");
+        note_hashed("e2e-hash-a", 1);
+        assert_eq!(hashed_of("e2e-hash-a"), 1);
+        assert_eq!(hashed_of("e2e-hash-b"), 5);
+    }
 
     #[test]
     fn a_time_before_1970_is_a_negative_number_of_nanoseconds_both_ways() {
