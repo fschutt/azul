@@ -218,6 +218,8 @@ mod restore;
 #[cfg(test)]
 mod periods_tests;
 #[cfg(test)]
+mod devices_tests;
+#[cfg(test)]
 mod renewals_tests;
 #[cfg(test)]
 mod problems_tests;
