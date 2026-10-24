@@ -275,6 +275,9 @@ struct FrameWork {
     width_only_rows: usize,
     /// Boxes in block flow whose size the per-node cache did not hold.
     block_size_misses: usize,
+    /// Flex and grid items laid out again: taffy cache misses, and final
+    /// layouts that could not be served.
+    flex_items_laid_out: usize,
     /// Boxes whose intrinsic sizes were computed again.
     intrinsic_computes: usize,
     /// Box visits of the display list builder that painted again instead of
@@ -292,6 +295,8 @@ fn work(events: &[Event]) -> FrameWork {
         text_flows: count(events, "text_layout_flow"),
         width_only_rows: count(events, "taffy_width_only_row"),
         block_size_misses: count(events, "size_cache_miss"),
+        flex_items_laid_out: count(events, "taffy_cache_get_miss")
+            + count(events, "taffy_final_layout_stale"),
         intrinsic_computes: count(events, "intrinsic_node_compute"),
         items_painted_again: visits.saturating_sub(copies),
     }
@@ -444,8 +449,18 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
             w.intrinsic_computes
         );
         assert_eq!(
-            (w.block_size_misses, w.items_painted_again, w.width_only_rows),
-            (w2.block_size_misses, w2.items_painted_again, w2.width_only_rows),
+            (
+                w.block_size_misses,
+                w.flex_items_laid_out,
+                w.items_painted_again,
+                w.width_only_rows
+            ),
+            (
+                w2.block_size_misses,
+                w2.flex_items_laid_out,
+                w2.items_painted_again,
+                w2.width_only_rows
+            ),
             "frame {i}: a window with twice the places and rows did more work ({w:?} / {w2:?}) \
              - what only moved keeps its layout and its items"
         );
