@@ -652,6 +652,9 @@ pub struct SyncSession {
     parallel: Option<usize>,
     /// How long a pass waits for the folder to be quiet first ([`SyncSession::with_settle`]).
     settle: Duration,
+    /// The user's own devices (this one and the account's others): a download written by any
+    /// other device - a share participant's - gets the system's quarantine mark.
+    own_devices: Vec<String>,
 }
 
 impl SyncSession {
@@ -697,7 +700,37 @@ impl SyncSession {
             transfer_limit: None,
             parallel: None,
             settle: Duration::ZERO,
+            own_devices: vec![device.to_string()],
         }
+    }
+
+    /// The account's other devices, whose files need no quarantine mark (this one is always
+    /// among them).
+    #[must_use]
+    pub fn with_own_devices(mut self, devices: &[String]) -> SyncSession {
+        for device in devices {
+            if !self.own_devices.contains(device) {
+                self.own_devices.push(device.clone());
+            }
+        }
+        self
+    }
+
+    /// The pairing's problem list as the last pass left it: every file it skipped, refused,
+    /// held, froze or failed, with a code and a reason ([`super::problems`]).
+    #[must_use]
+    pub fn problems(&self) -> super::problems::ProblemList {
+        super::problems::ProblemList::load(&self.dir).unwrap_or_default()
+    }
+
+    /// The pairing's engine: its journal, operations log, loop memory and problem list live
+    /// in the pairing's state folder.
+    fn engine(&self) -> super::engine::Engine {
+        super::engine::Engine::new(
+            &self.dir,
+            &self.setup.folder,
+            Box::new(super::quarantine::OwnDevices(self.own_devices.clone())),
+        )
     }
 
     /// The session's passes first wait until nothing in the folder changed for `quiet`
@@ -868,8 +901,9 @@ impl SyncSession {
         let target = self.target();
         let mut moved: BTreeSet<String> = BTreeSet::new();
         let (sender, heard) = mpsc::channel::<SyncEvent>();
-        let (fetch, keep_both, root_ref, opts_ref, index_ref) =
-            (&fetch, &keep_both, &root, &opts, &index_path);
+        let engine = self.engine();
+        let (fetch, keep_both, root_ref, opts_ref, index_ref, engine_ref) =
+            (&fetch, &keep_both, &root, &opts, &index_path, &engine);
         let outcome = std::thread::scope(|scope| {
             let worker = scope.spawn(move || {
                 let sender = Mutex::new(sender);
@@ -884,8 +918,14 @@ impl SyncSession {
                     cancel: Some(cancel),
                     hold_mass_delete: true,
                     transfer_limit: self.transfer_limit,
+                    observer: None,
                 };
-                sync_to(target, root_ref, index_ref, opts_ref, &hooks)
+                // The engine recovers the journal first and publishes the problem list after,
+                // failed pass or not; the run's own result is what the session goes on with.
+                let (result, _summary) = engine_ref.pass(hooks, |hooks| {
+                    sync_to(target, root_ref, index_ref, opts_ref, hooks)
+                });
+                result
             });
             for event in heard {
                 if let SyncEvent::Finished {

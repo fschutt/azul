@@ -51,6 +51,7 @@
 //! [`session`] keeps an app's pairing, its settings and its files' states.
 
 pub mod drive_store;
+pub mod engine;
 pub mod guard;
 pub mod journal;
 pub mod local;
@@ -437,6 +438,9 @@ pub struct RunHooks<'a> {
     /// Files over this many bytes wait for a run without the limit, either way (an app on a
     /// metered network): the report's `held_back`. `None`: no limit.
     pub transfer_limit: Option<u64>,
+    /// The engine around the run ([`engine::Engine`]): the journal, the operations log, the
+    /// loop detector and quarantine marks hear every local step. `None`: none of them.
+    pub observer: Option<&'a dyn engine::Observer>,
 }
 
 impl RunHooks<'_> {
@@ -1071,7 +1075,11 @@ fn upload_told<S: RemoteStore + ?Sized>(
         up: true,
         bytes: job.size,
     });
+    hooks.point("mid-read");
     let outcome = upload_one(store, prefix, job);
+    if matches!(outcome, Ok(Outcome::Uploaded(_))) {
+        hooks.point("after-blob");
+    }
     let error = match &outcome {
         Ok(Outcome::Changed(why)) => Some(why.clone()),
         Ok(_) => None,
@@ -1326,6 +1334,8 @@ struct Download {
     hash: String,
     size: u64,
     expect: Option<LocalFile>,
+    /// The device that wrote the drive's version (quarantine marks on other people's files).
+    writer: String,
 }
 
 /// Applies the committed index here and updates `base`.
@@ -1398,7 +1408,22 @@ fn apply_local<R: SyncRemote + ?Sized>(
                     report.changed_during_sync.push(moved_on());
                     continue;
                 }
-                match drive.delete(key) {
+                let step = engine::Step::Delete {
+                    key,
+                    hash: scan.files.get(key).map(|f| f.hash.as_str()),
+                    trash: None,
+                };
+                let ticket = match hooks.begin(&step) {
+                    Ok(ticket) => ticket,
+                    Err(e) => {
+                        report.errors.push(format!("delete {key}: {e}"));
+                        report.file_errors.push((key.to_string(), e.to_string()));
+                        continue;
+                    }
+                };
+                let deleted = drive.delete(key);
+                hooks.finished(&step, ticket, deleted.is_ok(), None);
+                match deleted {
                     Ok(()) => {
                         local::prune_empty_parents(&root.path, key);
                         base.remove(key);
@@ -1431,15 +1456,34 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         hash: f.hash.clone(),
                         size: f.size,
                         expect,
+                        writer: f.device.clone(),
                     });
                 }
             }
             Action::Conflict { copy, .. } => {
+                hooks.point("conflict-start");
                 if !local::still_as_scanned(&root.path, key, scan.files.get(key)) {
                     report.changed_during_sync.push(moved_on());
                     continue;
                 }
-                match drive.rename(key, copy) {
+                let here_hash = scan.files.get(key).map_or("", |f| f.hash.as_str());
+                let step = engine::Step::Conflict {
+                    key,
+                    copy,
+                    hash: here_hash,
+                };
+                let ticket = match hooks.begin(&step) {
+                    Ok(ticket) => ticket,
+                    Err(e) => {
+                        report.errors.push(format!("keep {key} as {copy}: {e}"));
+                        report.file_errors.push((key.to_string(), e.to_string()));
+                        continue;
+                    }
+                };
+                let renamed = drive.rename(key, copy);
+                hooks.finished(&step, ticket, renamed.is_ok(), None);
+                hooks.point("conflict-renamed");
+                match renamed {
                     Ok(()) => {
                         // A rename keeps the time: the copy is as scanned.
                         if let Some(entry) = scanned_entry(key) {
@@ -1453,6 +1497,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                                 hash: f.hash.clone(),
                                 size: f.size,
                                 expect: None,
+                                writer: f.device.clone(),
                             });
                         }
                     }
@@ -1568,6 +1613,7 @@ fn write_download(
             error,
         });
     };
+    hooks.point("download-start");
     let blob = match blob {
         Ok(blob) => blob,
         Err(e) => {
@@ -1588,6 +1634,8 @@ fn write_download(
         }
         other => other,
     };
+    // The last look before the rename: what a pause here lets change is caught below.
+    hooks.point("before-rename");
     if !local::still_as_scanned(&root.path, &d.key, d.expect.as_ref()) {
         // Another file of the drive came down under a name this disk takes for this one's.
         let other = d
@@ -1609,12 +1657,30 @@ fn write_download(
         finished(Some(String::from("changed here during the run")));
         return;
     }
+    let step = engine::Step::Download {
+        key: &d.key,
+        hash: &hash,
+        replaces: d.expect.is_some(),
+        writer: &d.writer,
+    };
+    let ticket = match hooks.begin(&step) {
+        Ok(ticket) => ticket,
+        Err(e) => {
+            report.errors.push(format!("write {}: {e}", d.key));
+            report.file_errors.push((d.key.clone(), e.to_string()));
+            finished(Some(e.to_string()));
+            return;
+        }
+    };
     let written = match &blob {
         Blob::Bytes(bytes) => drive.put(&d.key, bytes).map(|()| bytes.len() as u64),
         Blob::File { file, .. } => fs::File::open(file.path())
             .map_err(azul_storage::DriveError::from)
             .and_then(|mut from| drive.put_from(&d.key, &mut from)),
     };
+    let path = local::path_of(&root.path, &d.key);
+    hooks.finished(&step, ticket, written.is_ok(), Some(&path));
+    hooks.point("after-rename");
     match written {
         Ok(written) => {
             if let Some(entry) = local::entry_now(&root.path, &d.key, &hash) {
@@ -1910,6 +1976,7 @@ fn run<R: SyncRemote + ?Sized>(
             date: &date,
         });
         report.held = on_demand(&mut actions, &scan, base, &remote, hooks);
+        hooks.observe_plan(&mut actions, &remote, base, &mut report.problems);
         if !opts.allow_mass_delete {
             if let Some(asked) = mass_delete(&actions, &scan, base) {
                 // An app asks the user (nothing changed); the command line stops.
@@ -1965,6 +2032,7 @@ fn run<R: SyncRemote + ?Sized>(
             hooks.tell(planned(&actions, &scan, &remote));
         }
         let merged = merge_json_files(remote_side, root, &actions, base, &remote, &mut report)?;
+        hooks.point("before-upload");
         let abandoned = remote_side.upload(
             &Uploads {
                 root,
@@ -1998,6 +2066,7 @@ fn run<R: SyncRemote + ?Sized>(
         match remote_side.commit(&remote, &next, etag.as_deref(), &mut report)? {
             Some(new_etag) => {
                 report.index_written = true;
+                hooks.point("after-commit");
                 break (next, actions, merged, reset, Some(new_etag));
             }
             None => {
@@ -2039,6 +2108,7 @@ fn run<R: SyncRemote + ?Sized>(
     index.generation = committed.generation;
     index.scanned_at_ns = scan.started_ns;
     index.remote_etag = etag.clone().filter(|e| !e.is_empty());
+    hooks.point("before-base-save");
     index.save(index_path)?;
     save_cache(index_path, index.remote_etag.as_deref(), &committed);
     report.cloud_only = index

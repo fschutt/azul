@@ -51,6 +51,8 @@ mod sync_named;
 mod sync_ondemand;
 /// The per-file problem list: codes, what stays listed, escaped names.
 mod sync_problems;
+/// The engine around real passes: loops, the operations log, problems, recovery, marks.
+mod sync_engine;
 /// The journal: steps a crash cut off are finished or rolled back.
 mod sync_journal;
 /// The loop detector.
