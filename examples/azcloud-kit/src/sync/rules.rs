@@ -53,6 +53,9 @@ pub const BASE_RULES: &[(&str, &str)] = &[
     (".#*", TEMP),
     ("*.swp", TEMP),
     ("*.swo", TEMP),
+    ("*.swx", TEMP),
+    // Word's, Excel's and PowerPoint's owner file while a document is open.
+    ("~$*", LOCK),
     (".~lock.*#", LOCK),
     ("*.lck", LOCK),
     ("LOCK", LOCK),
@@ -71,6 +74,7 @@ pub const BASE_RULES: &[(&str, &str)] = &[
     (".TemporaryItems/", OS),
     (".DocumentRevisions-V100/", OS),
     ("$RECYCLE.BIN/", OS),
+    ("System Volume Information/", OS),
     // A Linux volume's trash (one per user id) and fsck's lost files.
     (".Trash-*/", OS),
     ("lost+found/", OS),
