@@ -596,3 +596,25 @@ commit that left it as it was adds none; a re-upload of the same bytes as a new 
 `drive_restore_version` and `drive_restore_deleted` put a version back as the drive's, as one
 commit "Restore <key>" (`restore::restore_file_version`); the devices bring it down with their
 next pass. A plain drive's index names each file's current version only: the three fail there.
+
+### The state folder and the drive's removal
+
+| op | arguments | result |
+|---|---|---|
+| `drive_state_format` | `device`, `version` (`previous`, `newer`) | `version` |
+| `drive_state_save` | `device`, `name` | `files` (copied) |
+| `drive_state_load` | `device`, `name` (no pass running) | `files` |
+| `drive_uninstall` | `device` | `removed` (the drive id) |
+
+`drive_state_format` rewrites the pairing's state folder as an upgrade finds it (`previous`: the
+base and the states without the fields added since the previous release - the folder's marker
+id, the restore epoch, the volume, the kept files, the burst guard, the last ETag, each file's
+change time, inode and device - which a base reads as unknown) or as a downgrade finds it
+(`newer`: a format version above this one's: the next pass pairs afresh, deletes nothing and
+lists `state-reset`). `drive_restart` reads it. `drive_state_save` / `drive_state_load` keep a
+copy of the state folder (in `<run>/state-copies/<device>/<name>`) and put it back over what is
+there, as a restored backup or a reinstall that kept an old configuration does.
+`drive_uninstall` is the window's "Remove drive", confirmed: the drive leaves the source list,
+its pairing stops and its state folder goes; every file of the folder stays (a cloud-only one
+on the drive only). `drive_check` `no_registration` (`device`) holds when nothing of it is left:
+no source-list entry, no pairing, no state folder.

@@ -45,7 +45,6 @@
   {
     "name": "a reinstall keeping an old state while the drive moved ahead: downloads by hash, no conflict for any file",
     "description": "KDRIVE-025 (kDrive): uninstall and reinstall keeping the configuration while files changed on the web caused conflicts. Rules D5 and A1: an old base whose hashes match the local files means only the drive changed; the pass downloads the new versions, no conflict copy, nothing deleted.",
-    "pending": "drive_state_save {device, name} and drive_state_load {device, name}: keep a copy of the device's state folder and put it back later (a reinstall that keeps an old configuration)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

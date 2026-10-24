@@ -52,7 +52,6 @@
   {
     "name": "a stale state from before half of the first upload deletes nothing",
     "description": "PCLOUD-012 (pCloud): a stale or partial state DB after a big first upload. Rules D5/D6: drive entries unknown to the stale base are not deletions.",
-    "pending": "drive_state_save {\"device\":\"a\",\"name\":\"old\"} and drive_state_load {\"device\":\"a\",\"name\":\"old\"} (put a STALE copy of the pairing's state back, as a restored backup or a half-migrated cache does)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

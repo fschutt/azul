@@ -40,7 +40,6 @@
   {
     "name": "an upgrade across a state format change migrates the base: the pass after it transfers nothing",
     "description": "ICEDRIVE-023 (Icedrive), the catalogue's repro: a client's state migrated across a major version with many synced files. Rules D5 and A1: the new version migrates the base (or rebuilds it by hash), keeps the pairing, and the pass after the upgrade sends and fetches nothing for unchanged files. sync-chaos state-upgrade-migration.",
-    "pending": "drive_state_format {device, version}: rewrites the device's state folder in an older AzDrive's state format (version 'previous'), as an upgrade finds it",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

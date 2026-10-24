@@ -160,7 +160,6 @@
   {
     "name": "FILEN-024: an upgrade across a state format change keeps every pairing and sends nothing again",
     "description": "FILEN-024 (Filen): v2 to v3 used a new state format and every pair vanished; a mode change dropped all pairs. Rules D5, A1. sync-chaos state-upgrade-migration (pending there too).",
-    "pending": "drive_state_format {device, version: 'previous'}: rewrite the pairing's state folder in the previous release's format (base, journal, settings), so the next start must migrate it; the engine has no older state format to write yet",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

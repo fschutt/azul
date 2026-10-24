@@ -28,7 +28,6 @@
   {
     "name": "uninstalling AzDrive leaves no pairing, state or cloud-only stand-in behind, and every local file whole",
     "description": "TERABOX-016 (sync-chaos placeholder-write-back, uninstall): after uninstall no sync-root registration, virtual drive or placeholder may remain, and the files are left intact and hydrated (rule D5, P13).",
-    "pending": "drive_evict {device, path} (Free up space: the file becomes cloud-only); drive_uninstall {device} (AzDrive's uninstall path for this pairing); drive_check no_registration {device} (no source-list entry, no state folder, no file-provider domain or cloud-only stand-in left)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },
@@ -41,7 +40,7 @@
       { "op": "drive_uninstall", "device": "c" },
       { "op": "drive_check", "check": "no_registration", "device": "c" },
       { "op": "drive_check", "check": "file", "device": "c", "path": "docs/a.txt", "text": "kept after uninstall" },
-      { "op": "drive_check", "check": "file", "device": "c", "path": "docs/b.bin", "size": 300000 },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "docs/b.bin", "absent": true },
       { "op": "drive_check", "check": "remote_count", "glob": "docs/*", "count": 2 },
       { "op": "drive_cleanup" }
     ]

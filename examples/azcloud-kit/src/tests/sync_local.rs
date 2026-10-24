@@ -229,3 +229,17 @@ fn a_file_another_app_holds_locked_waits_and_is_never_taken_for_deleted() {
         hash_bytes(b"v2 saved while open")
     );
 }
+
+#[test]
+fn a_base_a_newer_version_wrote_is_never_read_as_this_ones() {
+    use crate::sync::local::{LocalIndex, LOCAL_VERSION};
+    let dir = TempDir::new("azcloud-newer-base");
+    let path = dir.path().join("index.json");
+    let mut index = LocalIndex::new(dir.path(), "bucket", "");
+    index.save(&path).unwrap();
+    assert!(LocalIndex::load(&path).unwrap().is_some());
+    index.version = LOCAL_VERSION + 1;
+    index.save(&path).unwrap();
+    let err = LocalIndex::load(&path).unwrap_err().to_string();
+    assert!(err.contains("newer version"), "{err}");
+}

@@ -6,7 +6,10 @@
 
 use azul::prelude::*;
 
-use super::{a_lock, a_ops, a_pair, a_place, a_verify, a_versions, Answer, Args, OpDoc, DEVICE, PATH};
+use super::{
+    a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer, Args, OpDoc,
+    DEVICE, PATH,
+};
 use crate::DriveState;
 
 /// Group A's commands, for `list_app_ops` (COMMANDS.md has the long form).
@@ -30,6 +33,10 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_versions", summary: "a file's stored versions, oldest first", args: &[DEVICE, ("remote", "string", false), ("key", "string", true)] },
     OpDoc { name: "drive_restore_version", summary: "a stored version back as the drive's", args: &[DEVICE, ("key", "string", true), ("version", "number", false), ("hash", "string", false)] },
     OpDoc { name: "drive_restore_deleted", summary: "a deleted file back as its last version was", args: &[DEVICE, ("key", "string", true)] },
+    OpDoc { name: "drive_state_format", summary: "the state folder in the previous or a newer format", args: &[DEVICE, ("version", "string", true)] },
+    OpDoc { name: "drive_state_save", summary: "a copy of the state folder", args: &[DEVICE, ("name", "string", true)] },
+    OpDoc { name: "drive_state_load", summary: "a copy of the state folder put back", args: &[DEVICE, ("name", "string", true)] },
+    OpDoc { name: "drive_uninstall", summary: "Remove drive: the drive, its pairing and state go", args: &[DEVICE] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -40,6 +47,7 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
     match name {
         "drive_pair" => a_pair::has_options(args),
         "drive_sync" => args.contains_key("verify"),
+        "drive_check" => str_arg(args, "check").is_some_and(|c| a_store::CHECKS.contains(&c)),
         _ => OPS.iter().any(|op| op.name == name),
     }
 }
@@ -57,6 +65,11 @@ pub(super) fn run(
         "drive_sync" => a_verify::sync_verified(info, app, s, args),
         "drive_verify" => a_verify::verify(info, app, s, args),
         "drive_versions" => a_versions::versions(s, args),
+        "drive_check" => a_store::check(s, args),
+        "drive_state_format" => a_store::state_format(args),
+        "drive_state_save" => a_store::state_save(args),
+        "drive_state_load" => a_store::state_load(s, args),
+        "drive_uninstall" => a_store::uninstall(info, app, s, args),
         "drive_restore_version" => a_versions::restore_version(s, args),
         "drive_restore_deleted" => a_versions::restore_deleted(s, args),
         "drive_bitrot" => a_verify::bitrot(args),

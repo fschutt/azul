@@ -118,7 +118,6 @@
   {
     "name": "an upgrade over a folder of cloud-only files: none is deleted, all stay cloud-only",
     "description": "KDRIVE-001 (kDrive): the user's files were all dehydrated placeholders when the update ran. Rules P13, D5: an upgrade over a state of cloud-only files keeps every entry.",
-    "pending": "drive_evict {device, path or glob} (make files cloud-only) and drive_state_format {device, version} (the state folder in an older AzDrive's format)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

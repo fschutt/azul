@@ -63,7 +63,6 @@
   {
     "name": "an upgrade across a state format change migrates the base: the pass after it transfers nothing and changes nothing",
     "description": "SYNCCOM-018 (Sync.com): updates reverted files and resurrected deleted ones. Rules D5/A1/A7: the new version migrates the previous format (or rebuilds it by hash); no delete, no conflict copy, no second upload.",
-    "pending": "drive_state_format {\"device\":\"a\",\"version\":\"previous\"} (rewrite the pairing's state folder in the previous release's format, as an upgrade finds it)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

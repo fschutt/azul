@@ -93,8 +93,6 @@
   {
     "name": "a state folder left by the previous AzDrive version (an older format) is migrated: no re-scan upload, no re-download, no delete",
     "description": "KOOFR-023 (Koofr): the upgrade from the old client did not carry the sync configurations over. Rules D5 and A1: the new version migrates the base or rebuilds it by hash, transfers nothing for unchanged files. sync-chaos state-upgrade-migration.",
-    "pending": "drive_state_format {\"device\": \"a\", \"version\": \"previous\"}: rewrites the device's state folder in the format the previous AzDrive release wrote (and \"newer\" for a format this build does not know)",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

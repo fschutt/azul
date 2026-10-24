@@ -41,6 +41,8 @@ use crate::{
 
 /// The `format` of a local index.
 pub const LOCAL_FORMAT: &str = "azcloud.sync-local";
+/// The newest format version of it this version reads (and the one it writes).
+pub const LOCAL_VERSION: u32 = 1;
 /// A file whose time lies this close to the scan that recorded it is read
 /// again by the next scan.
 pub const RACY_NS: u64 = 2_000_000_000;
@@ -128,7 +130,7 @@ impl LocalIndex {
     pub fn new(root: &Path, bucket: &str, prefix: &str) -> LocalIndex {
         LocalIndex {
             format: LOCAL_FORMAT.to_string(),
-            version: 1,
+            version: LOCAL_VERSION,
             root: root.display().to_string(),
             bucket: bucket.to_string(),
             prefix: prefix.to_string(),
@@ -161,6 +163,16 @@ impl LocalIndex {
         };
         if index.format != LOCAL_FORMAT {
             fail!("{} is no azcloud local index", path.display());
+        }
+        // A newer version's base may mean things this one cannot read: never taken as one of
+        // its own (a run pairs afresh and deletes nothing, D5).
+        if index.version > LOCAL_VERSION {
+            fail!(
+                "{} was written by a newer version of the app (state format {}; this one reads up \
+                 to {LOCAL_VERSION})",
+                path.display(),
+                index.version
+            );
         }
         Ok(Some(index))
     }

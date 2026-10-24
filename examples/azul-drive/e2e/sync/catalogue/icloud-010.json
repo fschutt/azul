@@ -31,7 +31,6 @@
   {
     "name": "a state folder written by a newer client version: the older one changes nothing and asks to be updated",
     "description": "ICLOUD-010 (sync-chaos state-upgrade-migration): two client versions with different on-disk state formats. Rules D5 and A1: a newer state format met by an older client is refused read-only; no delete, no upload, update-needed listed.",
-    "pending": "drive_state_format {device, version: \"newer\"} (rewrite the pairing's state as a newer client version would: a format version this build does not know)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },

@@ -20,6 +20,7 @@ mod a_ops;
 mod a_pair;
 mod a_place;
 mod a_state;
+mod a_store;
 mod a_verify;
 mod a_versions;
 mod checks;

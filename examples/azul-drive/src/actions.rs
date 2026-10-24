@@ -3886,6 +3886,14 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             return;
         }
     }
+    // A synced drive's pairing goes with it: its passes stop and its state folder (the base,
+    // the states and the logs, which name its files) is removed; the files stay where they are.
+    if let Some(setup) = crate::sync_view::setup_of(s, &drive_id).cloned() {
+        crate::sync_jobs::stop(info, app, s, &drive_id);
+        if let Some(root) = crate::sync_jobs::state_root(s) {
+            let _ = std::fs::remove_dir_all(setup.state_dir(&root));
+        }
+    }
     let mut needs_keyring = false;
     if let Some(index) = s.slot_index(&drive_id) {
         let name = s.slots[index].entry.name.clone();
