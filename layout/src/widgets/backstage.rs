@@ -1093,13 +1093,12 @@ impl Backstage {
         // The parts this build paints with, and the theme whose structure
         // (the root's marker) it has. The back button takes the backstage's
         // own theme: pinned with it, following the app theme with it.
-        let (style, structure) = match theme.into_option() {
-            Some(UiTheme::Flat) => (style, UiTheme::Flat),
-            Some(UiTheme::Flora) => (
+        let (style, structure) = match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => (style, UiTheme::Flat),
+            UiTheme::Flora => (
                 crate::widgets::themes::flora::backstage_style(style),
                 UiTheme::Flora,
             ),
-            None => (follow_style(style), UiTheme::current()),
         };
 
         // Every part resolved up front: the resolvers borrow `&style`, and
@@ -1243,53 +1242,6 @@ fn merged_style(
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
     crate::widgets::themes::theme_blocks::stack_parts(base, extra)
-}
-
-/// The parts an UNPINNED backstage renders with, so it follows the app
-/// theme: every part in BOTH looks - the flat one `style` describes and
-/// flora's (`themes::flora::backstage_style`) - through the one merge
-/// (`themes::theme_blocks::follow_props`). What both looks declare alike (the
-/// column's layout, the flex boxes, the fonts) is declared once, outside any
-/// theme block; the rest sits in its theme's `@theme(<name>)` block, and the
-/// cascade keeps the live theme's. A part the caller set is the same in both
-/// looks, so it comes back as it is.
-fn follow_style(style: BackstageStyle) -> BackstageStyle {
-    use crate::widgets::themes::theme_blocks::follow_props;
-    let flora = crate::widgets::themes::flora::backstage_style(style.clone());
-    let flat = style;
-    let both = |a: CssPropertyWithConditionsVec, b: CssPropertyWithConditionsVec| {
-        OptionCssPropertyWithConditionsVec::Some(follow_props(a.as_slice(), b.as_slice()))
-    };
-    BackstageStyle {
-        theme: flat.theme,
-        root_style: both(flat.resolved_root_style(), flora.resolved_root_style()),
-        nav_style: both(flat.resolved_nav_style(), flora.resolved_nav_style()),
-        back_button_style: both(
-            flat.resolved_back_button_style(),
-            flora.resolved_back_button_style(),
-        ),
-        back_icon_style: both(
-            flat.resolved_back_icon_style(),
-            flora.resolved_back_icon_style(),
-        ),
-        nav_item_style: both(
-            flat.resolved_nav_item_style(),
-            flora.resolved_nav_item_style(),
-        ),
-        nav_item_active_style: both(
-            flat.resolved_nav_item_active_style(),
-            flora.resolved_nav_item_active_style(),
-        ),
-        nav_item_gap_style: both(
-            flat.resolved_nav_item_gap_style(),
-            flora.resolved_nav_item_gap_style(),
-        ),
-        right_style: both(flat.resolved_right_style(), flora.resolved_right_style()),
-        content_style: both(
-            flat.resolved_content_style(),
-            flora.resolved_content_style(),
-        ),
-    }
 }
 
 // -- Nav-click / Escape plumbing --
@@ -1519,7 +1471,7 @@ mod tests {
 #[cfg(test)]
 mod flora_tests {
     use azul_css::{
-        dynamic_selector::{DynamicSelector, DynamicSelectorVec, PseudoStateType, ThemeCondition},
+        dynamic_selector::PseudoStateType,
         props::property::CssPropertyType,
     };
 
@@ -1856,84 +1808,6 @@ mod flora_tests {
                 || fixture().with_active_item(active).dom(),
                 |t| fixture().with_active_item(active).with_theme(t).dom(),
             );
-        }
-    }
-
-    /// GENERIC rules go outside the theme blocks: what both looks declare
-    /// alike - the column's layout, the flex boxes, the font, the back
-    /// button's circle - an unpinned backstage declares ONCE, unconditioned,
-    /// under either app theme.
-    #[test]
-    fn a_following_backstage_declares_what_both_looks_share_once_outside_the_theme_blocks() {
-        use CssPropertyType as T;
-        fn once_unconditioned(node: &Dom, ty: CssPropertyType) -> bool {
-            let decls: Vec<(&P, &DynamicSelectorVec)> = node
-                .root
-                .style
-                .iter_inline_properties()
-                .filter(|(p, _)| p.get_type() == ty)
-                .collect();
-            decls.len() == 1
-                && decls[0].1.as_ref().iter().all(|c| {
-                    !matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_)))
-                })
-        }
-        for app in [UiTheme::Flat, UiTheme::Flora] {
-            let dom = checks::under(app, || fixture().dom());
-            let shared: [(&str, &Dom, &[CssPropertyType]); 6] = [
-                (
-                    "root",
-                    &dom,
-                    &[
-                        T::BoxSizing,
-                        T::Display,
-                        T::FlexDirection,
-                        T::FlexGrow,
-                        T::FontFamily,
-                        T::FontSize,
-                    ],
-                ),
-                (
-                    "nav",
-                    node(&dom, NAV),
-                    &[T::Display, T::FlexDirection, T::FlexShrink, T::Width],
-                ),
-                (
-                    "nav item",
-                    plain_item(&dom),
-                    &[T::Display, T::FlexDirection, T::AlignItems, T::FontSize, T::Cursor],
-                ),
-                (
-                    "back button",
-                    node(&dom, BUTTON),
-                    &[
-                        T::Width,
-                        T::Height,
-                        T::MarginLeft,
-                        T::BorderTopWidth,
-                        T::BorderTopLeftRadius,
-                    ],
-                ),
-                (
-                    "right side",
-                    node(&dom, RIGHT),
-                    &[T::Display, T::FlexDirection, T::FlexGrow],
-                ),
-                (
-                    "content host",
-                    node(&dom, CONTENT),
-                    &[T::Display, T::FlexDirection, T::FlexGrow],
-                ),
-            ];
-            for (part, n, types) in shared {
-                for ty in types {
-                    assert!(
-                        once_unconditioned(n, *ty),
-                        "built for {app:?}: the {part}'s {ty:?} is not declared once outside \
-                         the theme blocks"
-                    );
-                }
-            }
         }
     }
 

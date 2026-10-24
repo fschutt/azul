@@ -359,9 +359,7 @@ mod autotest_generated {
     }
 
     /// The properties of a rendered node's *inline* style, in declaration
-    /// order, as the app theme the test builds for sees them (a divider with
-    /// no theme carries every theme's block; the live one reads like the
-    /// pinned divider).
+    /// order, as the app theme the test builds for sees them.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
         crate::widgets::themes::theme_blocks::checks::live_properties(node)
     }

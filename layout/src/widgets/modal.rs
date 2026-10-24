@@ -39,7 +39,7 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         dialog::{
-            build_dialog, follow_skin, skin_of, DialogClasses, DialogClosedBy, DialogCompat,
+            build_dialog, skin_of, DialogClasses, DialogClosedBy, DialogCompat,
             DialogParts, DialogSkin, OptionDialogOnCancel, OptionDialogOnClose,
         },
         themes::{OptionUiTheme, UiTheme},
@@ -258,15 +258,13 @@ impl Modal {
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
     /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
-    /// modal follows the APP theme: built in the structure of the theme its
-    /// DOM is built for, carrying every theme's blocks
-    /// (`dialog::follow_skin`).
+    /// modal follows the APP theme: built in the look of the theme its DOM is
+    /// built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::modal(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::modal(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::modal(self),
+            UiTheme::Flat => crate::widgets::themes::flat::modal(self),
         }
     }
 
@@ -494,8 +492,7 @@ mod tests {
         assert!(m.show_close_button);
         assert!(m.title.as_str().is_empty());
         assert!(m.modal_state.on_close.is_none());
-        // Flat's backdrop is the default dim (an unpinned modal answers with
-        // every theme's blocks - `dialog::follow_skin`).
+        // Flat's backdrop is the default dim.
         assert_eq!(
             m.clone().with_theme(UiTheme::Flat).resolved_backdrop_style(),
             default_backdrop_style()

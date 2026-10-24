@@ -403,26 +403,6 @@ pub(crate) fn skin_for(theme: UiTheme, horizontal: bool) -> RadioGroupSkin {
     }
 }
 
-/// The skin an UNPINNED radio group is built with, so it follows the app
-/// theme: `structure`'s theme (its marker goes on the group) and every part
-/// in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
-#[must_use]
-pub(crate) fn follow_skin(structure: UiTheme, horizontal: bool) -> RadioGroupSkin {
-    use crate::widgets::themes::theme_blocks::follow_props as both;
-    let (flat, flora) = (
-        skin_for(UiTheme::Flat, horizontal),
-        skin_for(UiTheme::Flora, horizontal),
-    );
-    RadioGroupSkin {
-        theme: structure,
-        row: both(flat.row.as_slice(), flora.row.as_slice()),
-        circle: both(flat.circle.as_slice(), flora.circle.as_slice()),
-        dot_selected: both(flat.dot_selected.as_slice(), flora.dot_selected.as_slice()),
-        dot_unselected: both(flat.dot_unselected.as_slice(), flora.dot_unselected.as_slice()),
-        label: both(flat.label.as_slice(), flora.label.as_slice()),
-    }
-}
-
 impl RadioGroup {
     /// Creates a radio group from the given options, with the first one selected.
     /// Name this control for assistive technology.
@@ -541,18 +521,13 @@ impl RadioGroup {
 
     /// Renders the group. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the group follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, carrying every theme's
-    /// blocks (`follow_skin`).
+    /// (`theme: None`), the group follows the APP theme: built in the look of
+    /// the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::radio_group(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::radio_group(self),
-            None => {
-                let horizontal = self.radio_group_state.horizontal;
-                self.build(follow_skin(UiTheme::current(), horizontal))
-            }
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::radio_group(self),
+            UiTheme::Flat => crate::widgets::themes::flat::radio_group(self),
         }
     }
 

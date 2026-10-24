@@ -387,28 +387,6 @@ pub(crate) fn skin_for(theme: UiTheme) -> SegmentedSkin {
     }
 }
 
-/// One segment in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the
-/// `segment` of an unpinned control's skin.
-#[must_use]
-fn follow_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::theme_blocks::follow_props(
-        (skin_for(UiTheme::Flat).segment)(selected, is_first, is_last).as_slice(),
-        (skin_for(UiTheme::Flora).segment)(selected, is_first, is_last).as_slice(),
-    )
-}
-
-/// The skin an UNPINNED segmented control is built with, so it follows the
-/// app theme: `structure`'s theme (its marker goes on the control, so the
-/// selection restyle writes that theme's segments - a theme switch rebuilds
-/// the DOM) and every segment in BOTH themes' blocks.
-#[must_use]
-pub(crate) const fn follow_skin(structure: UiTheme) -> SegmentedSkin {
-    SegmentedSkin {
-        theme: structure,
-        segment: follow_segment,
-    }
-}
-
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
     #[must_use]
@@ -501,15 +479,13 @@ impl Segmented {
 
     /// Renders the control. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the control follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, carrying every theme's
-    /// blocks (`follow_skin`).
+    /// (`theme: None`), the control follows the APP theme: built in the look
+    /// of the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::segmented(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::segmented(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::segmented(self),
+            UiTheme::Flat => crate::widgets::themes::flat::segmented(self),
         }
     }
 
@@ -2109,7 +2085,7 @@ mod autotest_generated {
     fn dom_styles_each_segment_by_its_position_and_selection() {
         for n in [1usize, 2, 3, 5] {
             for selected in 0..n {
-                // The flat look (an unpinned control carries every theme's blocks).
+                // The flat look.
                 let dom = Segmented::create(n_labels(n))
                     .with_selected_index(selected)
                     .with_theme(UiTheme::Flat)

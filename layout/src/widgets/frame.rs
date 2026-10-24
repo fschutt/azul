@@ -438,43 +438,15 @@ impl Frame {
 
     /// Converts this frame into its DOM (classed `__azul-native-frame`). The
     /// look comes from the theme module (`themes::flat::frame` /
-    /// `themes::flora::frame`); `None` carries both
-    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
+    /// `themes::flora::frame`); `None` follows the app theme: the look of
+    /// the theme the DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::frame(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::frame(self),
-            // No theme: follow the app theme - both looks in one DOM, each
-            // inside its `@theme(<name>)` block, and the app theme picks.
-            // Built ONCE from the merged look: the caller's content goes in
-            // as it is, never cloned for a second build.
-            None => build(self, &follow_look(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::frame(self),
+            UiTheme::Flat => crate::widgets::themes::flat::frame(self),
         }
-    }
-}
-
-/// Both themes' frame looks in one, part by part
-/// (`themes::theme_blocks::follow_props`), with the `structure` theme's
-/// marker: the look an unpinned frame is built with.
-fn follow_look(structure: crate::widgets::themes::UiTheme) -> FrameLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-    let (flat, flora) = (flat::frame_look(), flora::frame_look());
-    let both = |a: &[CssPropertyWithConditions], b: &[CssPropertyWithConditions]| {
-        follow_props(a, b).into_library_owned_vec()
-    };
-    FrameLook {
-        root: both(flat.root.as_slice(), flora.root.as_slice()),
-        header: both(flat.header.as_slice(), flora.header.as_slice()),
-        before: both(flat.before.as_slice(), flora.before.as_slice()),
-        title: both(flat.title.as_slice(), flora.title.as_slice()),
-        after: both(flat.after.as_slice(), flora.after.as_slice()),
-        content: both(flat.content.as_slice(), flora.content.as_slice()),
-        marker: match structure {
-            UiTheme::Flat => flat.marker,
-            UiTheme::Flora => flora.marker,
-        },
     }
 }
 

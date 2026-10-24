@@ -1773,9 +1773,7 @@ mod autotest_generated {
             let track = properties(&s.resolved_track_style());
             let knob = properties(&s.resolved_knob_style());
 
-            // What the live theme sees (`theme_probe::unthemed`): a switch
-            // that follows the app theme carries every theme's block, and
-            // flora's trough (paper, inset well, its night twin) is flora's.
+            // What the live theme sees (`theme_probe::unthemed`).
             let dom = s.dom();
             assert_eq!(
                 crate::widgets::theme_probe::unthemed(&dom),

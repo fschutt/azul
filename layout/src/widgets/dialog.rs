@@ -614,14 +614,13 @@ impl Dialog {
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
     /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
-    /// dialog follows the APP theme: built in the structure of the theme
-    /// its DOM is built for, carrying every theme's blocks (`follow_skin`).
+    /// dialog follows the APP theme: built in the look of the theme its DOM
+    /// is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::dialog(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::dialog(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::dialog(self),
+            UiTheme::Flat => crate::widgets::themes::flat::dialog(self),
         }
     }
 
@@ -812,42 +811,13 @@ pub(crate) fn skin_for(theme: UiTheme) -> DialogSkin {
     }
 }
 
-/// The skin an UNPINNED dialog or modal is built with, so it follows the
-/// app theme: `structure`'s theme (its marker goes on the wrapper) and every
-/// part in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the cascade
-/// keeps the live theme's.
-#[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> DialogSkin {
-    follow_skins(structure, skin_for(UiTheme::Flat), skin_for(UiTheme::Flora))
-}
-
-/// `flat` and `flora` merged part by part under `structure` - what
-/// [`follow_skin`] and the popover (which swaps in its own panels first)
-/// build with.
-#[must_use]
-pub(crate) fn follow_skins(structure: UiTheme, flat: DialogSkin, flora: DialogSkin) -> DialogSkin {
-    use crate::widgets::themes::theme_blocks::follow_props as both;
-    DialogSkin {
-        theme: structure,
-        panel: both(flat.panel.as_slice(), flora.panel.as_slice()),
-        title: both(flat.title.as_slice(), flora.title.as_slice()),
-        close_row: both(flat.close_row.as_slice(), flora.close_row.as_slice()),
-        close: both(flat.close.as_slice(), flora.close.as_slice()),
-        content: both(flat.content.as_slice(), flora.content.as_slice()),
-        backdrop: both(flat.backdrop.as_slice(), flora.backdrop.as_slice()),
-    }
-}
-
 /// The skin a dialog or modal carrying `theme` renders with: the pinned
-/// theme's, or - unpinned - [`follow_skin`] in the structure of the theme
-/// the DOM is built for. What the renders and the style resolvers
-/// (`Modal::resolved_backdrop_style`) both ask, so they cannot drift.
+/// theme's, or - unpinned - the one of the theme the DOM is built for. What
+/// the renders and the style resolvers (`Modal::resolved_backdrop_style`)
+/// both ask, so they cannot drift.
 #[must_use]
 pub(crate) fn skin_of(theme: OptionUiTheme) -> DialogSkin {
-    match theme.into_option() {
-        Some(pinned) => skin_for(pinned),
-        None => follow_skin(UiTheme::current()),
-    }
+    skin_for(crate::widgets::themes::theme_blocks::live_theme(theme))
 }
 
 /// Everything [`build_dialog`] needs; `Dialog`, `Popover` and `Modal` fill
@@ -1356,9 +1326,7 @@ pub(crate) fn backdrop_style(color: ColorU) -> CssPropertyWithConditionsVec {
 //
 // A part's layout - position, display, flex, cursor, user-select - is the
 // dialog's, not a theme's: every theme's skin (`themes::flat::dialog_skin`,
-// `themes::flora::dialog_skin`) comes AFTER its base, so the merge
-// (`themes::theme_blocks::follow_props`) declares the base once, outside
-// every `@theme` block. The close row, the content and the backdrop are one
+// `themes::flora::dialog_skin`) comes AFTER its base. The close row, the content and the backdrop are one
 // style for every theme already (below, and `backdrop_style`).
 
 /// The panel's structure: a column that never grows, and the containing

@@ -258,8 +258,7 @@ pub(crate) static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
 //
 // A theme's circle, connector and label are the base below, THEN its skin
 // (paint and metrics): `circle_style` & co. for flat, `themes::flora`'s
-// `stepper_*` for flora. The base comes first in every theme, so an unpinned
-// stepper (`follow_skin`) declares it once, outside every `@theme` block.
+// `stepper_*` for flora. The base comes first in every theme.
 
 /// A step circle's structure: a flex box that centres its number and keeps
 /// its size, any hairline a theme draws inside the box (`border-box`: the
@@ -480,48 +479,6 @@ pub(crate) fn skin_for(theme: UiTheme) -> StepperSkin {
     }
 }
 
-/// `part` of both themes' skins in BOTH themes' blocks
-/// (`themes::theme_blocks::follow_props`).
-fn follow_part(
-    part: impl Fn(StepperSkin) -> CssPropertyWithConditionsVec,
-) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::theme_blocks::follow_props(
-        part(skin_for(UiTheme::Flat)).as_slice(),
-        part(skin_for(UiTheme::Flora)).as_slice(),
-    )
-}
-
-fn follow_cell() -> CssPropertyWithConditionsVec {
-    follow_part(|s| (s.cell)())
-}
-
-fn follow_circle(reached: bool) -> CssPropertyWithConditionsVec {
-    follow_part(|s| (s.circle)(reached))
-}
-
-fn follow_connector(fill: ConnFill) -> CssPropertyWithConditionsVec {
-    follow_part(|s| (s.connector)(fill))
-}
-
-fn follow_label(reached: bool) -> CssPropertyWithConditionsVec {
-    follow_part(|s| (s.label)(reached))
-}
-
-/// The skin an UNPINNED stepper is built with, so it follows the app theme:
-/// `structure`'s theme (its marker goes on the stepper, so the click restyle
-/// writes that theme's parts - a theme switch rebuilds the DOM) and every
-/// part in BOTH themes' blocks.
-#[must_use]
-pub(crate) const fn follow_skin(structure: UiTheme) -> StepperSkin {
-    StepperSkin {
-        theme: structure,
-        cell: follow_cell,
-        circle: follow_circle,
-        connector: follow_connector,
-        label: follow_label,
-    }
-}
-
 impl Stepper {
     /// Creates a stepper from the given step labels, with the first step current.
     #[must_use]
@@ -623,15 +580,13 @@ impl Stepper {
 
     /// Renders the stepper. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the stepper follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, carrying every theme's
-    /// blocks (`follow_skin`).
+    /// (`theme: None`), the stepper follows the APP theme: built in the look
+    /// of the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::stepper(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::stepper(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::stepper(self),
+            UiTheme::Flat => crate::widgets::themes::flat::stepper(self),
         }
     }
 

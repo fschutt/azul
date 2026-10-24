@@ -2137,17 +2137,15 @@ pub(crate) struct ChartSkin {
     pub(crate) marker: Option<&'static str>,
 }
 
-/// The skins a chart is built with: the pinned theme's, or - unpinned -
-/// flat's and flora's, every part carrying both, each theme's declarations
-/// in its `@theme(<name>)` block (`theme_blocks::follow_props`). The DOM is
-/// built ONCE either way: a chart of 500k points is not decimated twice.
+/// The skin a chart is built with: the pinned theme's, or - unpinned - the
+/// one of the theme the DOM is built for. The DOM is built ONCE: a chart of
+/// 500k points is decimated once.
 #[derive(Debug, Clone)]
 pub(crate) struct ChartLook {
-    skins: Vec<ChartSkin>,
-    /// The theme marker on the root: the pinned theme's, or the one of the
-    /// theme the DOM is built for.
+    skin: ChartSkin,
+    /// The theme marker on the root.
     pub(crate) marker: Option<&'static str>,
-    /// The accent the app chose (`Chart::with_accent`), over the skins'.
+    /// The accent the app chose (`Chart::with_accent`), over the skin's.
     accent: Option<ChartColor>,
 }
 
@@ -2155,48 +2153,27 @@ impl ChartLook {
     /// The look `theme` pins, or the look that follows the app theme.
     pub(crate) fn of(theme: OptionUiTheme, accent: Option<ChartColor>) -> Self {
         use crate::widgets::themes::{flat, flora};
-        match theme.into_option() {
-            Some(UiTheme::Flat) => {
-                let s = flat::chart_skin();
-                Self {
-                    marker: s.marker,
-                    skins: alloc::vec![s],
-                    accent,
-                }
-            }
-            Some(UiTheme::Flora) => {
-                let s = flora::chart_skin();
-                Self {
-                    marker: s.marker,
-                    skins: alloc::vec![s],
-                    accent,
-                }
-            }
-            None => {
-                let (a, b) = (flat::chart_skin(), flora::chart_skin());
-                let marker = match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                };
-                Self {
-                    skins: alloc::vec![a, b],
-                    marker,
-                    accent,
-                }
-            }
+        let skin = match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => flat::chart_skin(),
+            UiTheme::Flora => flora::chart_skin(),
+        };
+        Self {
+            marker: skin.marker,
+            skin,
+            accent,
         }
     }
 
-    /// One part, built from every skin by `f` and merged.
+    /// One part, built from the skin by `f`.
     pub(crate) fn part(
         &self,
         f: impl Fn(&ChartSkin) -> Vec<CssPropertyWithConditions>,
     ) -> CssPropertyWithConditionsVec {
-        crate::widgets::themes::theme_blocks::part_of(&self.skins, f)
+        CssPropertyWithConditionsVec::from_vec(f(&self.skin))
     }
 
     /// `base` (the part's structure, the same in every theme), then the
-    /// skin's paint `f` - the base declared once, outside every block.
+    /// skin's paint `f`.
     pub(crate) fn on_base(
         &self,
         base: &[CssPropertyWithConditions],

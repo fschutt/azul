@@ -11595,8 +11595,13 @@ impl LayoutWindow {
         // Clone the user data for the callback
         let callback_data = virtual_view_node.refany.clone();
 
-        // Invoke the user's VirtualView callback
-        let callback_return = virtual_view_node.callback.invoke(callback_data, callback_info);
+        // Invoke the user's VirtualView callback. The widgets it builds are
+        // built in this window's app theme, as the window's own DOM is, also
+        // on a scroll-driven render outside the window's rebuild.
+        let callback_return = {
+            let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+            virtual_view_node.callback.invoke(callback_data, callback_info)
+        };
         #[cfg(feature = "std")]
         drop(measure_context);
 

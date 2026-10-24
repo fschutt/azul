@@ -2116,9 +2116,7 @@ pub(crate) fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> 
 
 /// `mark` (a RESTING part: the range's wash, today's ring) on `face`, and
 /// the face's state declarations (`:hover`, `:active`, `:focus`) after it
-/// again. The faces are merged parts (both themes' blocks when the picker
-/// follows the app theme), so they stack with `stack_parts`, never by
-/// appending. A resting declaration stacked after a state one wins in that
+/// again, with `stack_parts`. A resting declaration stacked after a state one wins in that
 /// state too (the last match wins): the wash hid the hover face, and
 /// today's ring - a shadow in the slot the focus halo uses (`decl::shadow`)
 /// - hid the focus halo, so a focused today showed no focus. Re-stacked,

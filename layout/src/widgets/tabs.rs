@@ -2026,44 +2026,13 @@ impl TabHeaderLook {
         }
     }
 
-    /// The look `theme` pins in `style`, or - unpinned - the look that
-    /// follows the app theme: every part carries both themes' declarations
-    /// (each in `style` as that theme answers it), each theme's in its
-    /// `@theme(<name>)` block (`theme_blocks::follow_props`); the nodes only
-    /// one look hangs (curves, the rule) and the header's marker are those of
-    /// the theme the DOM is built for.
+    /// The look `theme` pins in `style`, or - unpinned - the look of the
+    /// theme the DOM is built for, in `style` as that theme answers it.
     pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme, style: TabStyle) -> Self {
-        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-        match theme.into_option() {
-            Some(UiTheme::Flat) => flat::tab_header_look_in(style),
-            Some(UiTheme::Flora) => flora::tab_header_look_in(style),
-            None => {
-                let (a, b) = (flat::tab_header_look_in(style), flora::tab_header_look_in(style));
-                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
-                    follow_props(x.as_ref(), y.as_ref())
-                };
-                let mut look = Self::plain(
-                    both(&a.header, &b.header),
-                    both(&a.before, &b.before),
-                    both(&a.after, &b.after),
-                    both(&a.active, &b.active),
-                    both(&a.before_active, &b.before_active),
-                    both(&a.after_active, &b.after_active),
-                    both(&a.inactive, &b.inactive),
-                    None,
-                );
-                let current = match UiTheme::current() {
-                    UiTheme::Flat => a,
-                    UiTheme::Flora => b,
-                };
-                look.marker = current.marker;
-                look.selected_curves = current.selected_curves;
-                look.tab_curves = current.tab_curves;
-                look.rule = current.rule;
-                look.header_css = current.header_css;
-                look.rule_css = current.rule_css;
-                look
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => flat::tab_header_look_in(style),
+            UiTheme::Flora => flora::tab_header_look_in(style),
         }
     }
 }
@@ -2250,25 +2219,13 @@ pub(crate) struct TabContentLook {
 }
 
 impl TabContentLook {
-    /// The look `theme` pins, or - unpinned - both looks in one
-    /// (`theme_blocks::follow_props`), marked for the theme the DOM is built
-    /// for. The panel's content is the caller's and is never cloned.
+    /// The look `theme` pins, or - unpinned - the look of the theme the DOM
+    /// is built for. The panel's content is the caller's and is never cloned.
     pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
-        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-        match theme.into_option() {
-            Some(UiTheme::Flat) => flat::tab_content_look(),
-            Some(UiTheme::Flora) => flora::tab_content_look(),
-            None => {
-                let (a, b) = (flat::tab_content_look(), flora::tab_content_look());
-                Self {
-                    padded: follow_props(a.padded.as_ref(), b.padded.as_ref()),
-                    unpadded: follow_props(a.unpadded.as_ref(), b.unpadded.as_ref()),
-                    marker: match UiTheme::current() {
-                        UiTheme::Flat => a.marker,
-                        UiTheme::Flora => b.marker,
-                    },
-                }
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => flat::tab_content_look(),
+            UiTheme::Flora => flora::tab_content_look(),
         }
     }
 }

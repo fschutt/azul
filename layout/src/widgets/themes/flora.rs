@@ -4094,23 +4094,16 @@ pub(crate) const SCROLLBAR_WOOL: (ColorU, ColorU) =
 /// The parchment track: `--fl-track` by day and at night.
 pub(crate) const SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRACK);
 
-/// The sheet that gives every scroll box under it flora's scrollbars, inert
-/// in every other theme: `@theme(flora) { * { scrollbar-color: wool
-/// parchment } }`, its night twin under the dark mode. `scrollbar-color` is a
-/// scroll box's own property (azul does not inherit it), hence `*`; an app's
-/// own `scrollbar-color` on a box still wins (author order). `pinned`: for a
-/// subtree pinned to flora, which carries no `@theme` block - the same rules
-/// without the theme's condition.
+/// The sheet that gives every scroll box under it flora's scrollbars: `* {
+/// scrollbar-color: wool parchment }`, its night twin under the dark mode.
+/// `scrollbar-color` is a scroll box's own property (azul does not inherit
+/// it), hence `*`; an app's own `scrollbar-color` on a box still wins (author
+/// order).
 #[must_use]
-pub(crate) fn scrollbar_sheet(pinned: bool) -> azul_css::css::Css {
+pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
     use azul_css::{
         css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
-        dynamic_selector::{DynamicSelector, ModeCondition, ThemeCondition},
-    };
-    let flora = || {
-        (!pinned).then(|| {
-            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")))
-        })
+        dynamic_selector::{DynamicSelector, ModeCondition},
     };
     let rule = |thumb: ColorU, track: ColorU, conditions: Vec<DynamicSelector>| CssRuleBlock {
         path: CssPath {
@@ -4128,14 +4121,11 @@ pub(crate) fn scrollbar_sheet(pinned: bool) -> azul_css::css::Css {
     };
     Css {
         rules: alloc::vec![
-            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, flora().into_iter().collect()),
+            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, Vec::new()),
             rule(
                 SCROLLBAR_WOOL.1,
                 SCROLLBAR_PARCHMENT.1,
-                flora()
-                    .into_iter()
-                    .chain(core::iter::once(DynamicSelector::Mode(ModeCondition::Dark)))
-                    .collect()
+                alloc::vec![DynamicSelector::Mode(ModeCondition::Dark)]
             ),
         ]
         .into(),

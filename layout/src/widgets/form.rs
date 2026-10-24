@@ -410,18 +410,9 @@ impl Form {
         state.initial = initial_form_data(self.children.as_ref());
         let shared = RefAny::new(state);
 
-        let mut form = match self.theme.into_option() {
-            Some(UiTheme::Flat) => flat::form(self.children),
-            Some(UiTheme::Flora) => flora::form(self.children),
-            // No theme: follow the app theme - both looks of the form node,
-            // each inside its `@theme(<name>)` block. The content is the
-            // caller's and alike in every theme, so it goes in once.
-            None => theme_blocks::follow_dom(
-                UiTheme::current(),
-                flat::form(DomVec::from_const_slice(&[])),
-                flora::form(DomVec::from_const_slice(&[])),
-            )
-            .with_children(self.children),
+        let mut form = match theme_blocks::live_theme(self.theme) {
+            UiTheme::Flat => flat::form(self.children),
+            UiTheme::Flora => flora::form(self.children),
         };
         if let Some(style) = self.container_style.into_option() {
             form = form.with_css_props(style);

@@ -125,10 +125,6 @@ pub struct VideoWidgetState {
     /// "no signal" poster in it. Adopted from every rebuild (see
     /// [`merge_video_state`]).
     pub theme: UiTheme,
-    /// Whether the widget was built UNPINNED, following the app theme: the
-    /// poster then carries every theme's block (`@theme(..)`) and `theme`
-    /// is only the structure it was built in. Adopted from every rebuild.
-    pub follows_app_theme: bool,
     /// The MARKER on the `<img>` a frame renders as inside the view
     /// ([`frame_image`]). Once the view shows a frame, [`video_writeback`]
     /// finds that node by it and swaps the next frame's image into it: a
@@ -309,14 +305,12 @@ impl VideoWidget {
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does).
     /// Unpinned (`theme: None`), the widget follows the APP theme: built in
-    /// the structure (and marker) of the theme its DOM is built for, its
-    /// poster carrying every theme's block.
+    /// the look of the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::video(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::video(self),
-            None => self.build_in(UiTheme::current(), true),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::video(self),
+            UiTheme::Flat => crate::widgets::themes::flat::video(self),
         }
     }
 
@@ -325,12 +319,6 @@ impl VideoWidget {
     /// the render callback draws the poster in it.
     #[must_use]
     pub(crate) fn build(self, theme: UiTheme) -> Dom {
-        self.build_in(theme, false)
-    }
-
-    /// [`Self::build`] in the structure of `theme`; `follows_app_theme`: the
-    /// poster carries every theme's block rather than `theme`'s alone.
-    fn build_in(self, theme: UiTheme, follows_app_theme: bool) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
@@ -346,7 +334,6 @@ impl VideoWidget {
             on_mount: self.on_mount,
             setup: VideoSetup::new(),
             theme,
-            follows_app_theme,
             frame_marker: super::capture_common::next_capture_marker("video-frame"),
         };
         let dataset = RefAny::new(state);
@@ -396,19 +383,11 @@ fn poster_style(theme: UiTheme) -> azul_css::dynamic_selector::CssPropertyWithCo
     }
 }
 
-/// The poster of a widget state: its theme's, or - built unpinned - every
-/// theme's block of it (`themes::theme_blocks::follow_props`).
+/// The poster of a widget state: the look of the theme it was built in.
 fn state_poster_style(
     s: &VideoWidgetState,
 ) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
-    if s.follows_app_theme {
-        crate::widgets::themes::theme_blocks::follow_props(
-            poster_style(UiTheme::Flat).as_slice(),
-            poster_style(UiTheme::Flora).as_slice(),
-        )
-    } else {
-        poster_style(s.theme)
-    }
+    poster_style(s.theme)
 }
 
 /// The `<img>` one decoded frame renders as, filling the widget.
@@ -940,7 +919,6 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             old_g.on_mount = new_g.on_mount.clone();
             // The app's theme is adopted like its config: the poster follows it.
             old_g.theme = new_g.theme;
-            old_g.follows_app_theme = new_g.follows_app_theme;
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's
@@ -1614,7 +1592,6 @@ mod autotest_generated {
             on_mount: OptionVideoMount::None,
             setup: VideoSetup::new(),
             theme: crate::widgets::themes::UiTheme::Flat,
-            follows_app_theme: false,
             frame_marker: "azul-video-frame-test".into(),
         }
     }
@@ -4218,64 +4195,24 @@ mod autotest_generated {
         assert!(tc::has_class(&dom, "__azul-theme-flora"), "built for flora, it is flora's");
     }
 
-    /// An UNPINNED video's poster carries every theme's block: under either
-    /// app theme it paints that theme's poster, in light and in dark.
+    /// An UNPINNED video's poster is the poster of the theme its DOM was
+    /// built for, and carries no other theme's block.
     #[test]
-    fn an_unpinned_videos_poster_carries_every_themes_block() {
-        use azul_css::{
-            dynamic_selector::{CssPropertyWithConditions, DynamicSelectorContext, ThemeCondition},
-            props::property::CssProperty,
-        };
+    fn an_unpinned_videos_poster_is_the_live_themes() {
+        use crate::widgets::themes::{theme_blocks::checks, UiTheme};
 
-        use crate::widgets::themes::UiTheme;
-
-        let dom = VideoWidget::create(VideoConfig::default()).dom();
-        let dataset = dom.root.get_dataset().cloned().expect("the widget state");
-        let ret = with_virtual_view_info(320.0, 180.0, |info| {
-            video_widget_render(dataset.clone(), info)
-        });
-        let poster = match ret.dom {
-            OptionDom::Some(d) => d,
-            OptionDom::None => panic!("no frame yet must still render the poster"),
-        };
-        let decls: Vec<CssPropertyWithConditions> = poster
-            .root
-            .style
-            .iter_inline_properties()
-            .map(|(p, c)| CssPropertyWithConditions {
-                property: p.clone(),
-                apply_if: c.clone(),
-            })
-            .collect();
         for theme in [UiTheme::Flat, UiTheme::Flora] {
-            let own: Vec<CssPropertyWithConditions> = poster_of(theme)
-                .root
-                .style
-                .iter_inline_properties()
-                .map(|(p, c)| CssPropertyWithConditions {
-                    property: p.clone(),
-                    apply_if: c.clone(),
-                })
-                .collect();
-            for dark in [false, true] {
-                let ctx = DynamicSelectorContext {
-                    mode: if dark {
-                        azul_css::system::DarkLightMode::Dark
-                    } else {
-                        azul_css::system::DarkLightMode::Light
-                    },
-                    ..Default::default()
-                }
-                .with_app_theme(theme.name());
-                let bg = |v: &[CssPropertyWithConditions]| {
-                    v.iter()
-                        .filter(|p| p.matches(&ctx))
-                        .filter(|p| matches!(p.property, CssProperty::BackgroundContent(_)))
-                        .next_back()
-                        .map(|p| p.property.clone())
-                };
-                assert_eq!(bg(&decls), bg(&own), "{theme:?} dark={dark}");
-            }
+            let dom = checks::under(theme, || VideoWidget::create(VideoConfig::default()).dom());
+            let dataset = dom.root.get_dataset().cloned().expect("the widget state");
+            let ret = with_virtual_view_info(320.0, 180.0, |info| {
+                video_widget_render(dataset.clone(), info)
+            });
+            let poster = match ret.dom {
+                OptionDom::Some(d) => d,
+                OptionDom::None => panic!("no frame yet must still render the poster"),
+            };
+            assert_eq!(poster.root.style, poster_of(theme).root.style, "{theme:?}");
+            assert!(checks::theme_names(&poster).is_empty(), "{theme:?}");
         }
     }
 

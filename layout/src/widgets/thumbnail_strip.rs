@@ -408,8 +408,7 @@ impl ThumbnailStrip {
         s
     }
 
-    /// The strip's DOM, in the pinned theme's look or both looks merged
-    /// (the previews are built once).
+    /// The strip's DOM, in the look of its theme (pinned, or the app's).
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
@@ -554,35 +553,13 @@ pub(crate) static THUMBNAIL_THUMB_BASE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The look a strip with the theme option `theme` is built with: the pinned
-/// theme's own look, or both looks merged in the structure of the theme the
-/// DOM is being built for (the previews are built once).
+/// theme's own look, or the one of the theme the DOM is being built for
+/// (the previews are built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> ThumbnailStripLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::thumbnail_strip_look(),
-        Some(UiTheme::Flora) => flora::thumbnail_strip_look(),
-        None => {
-            let (a, b) = (flat::thumbnail_strip_look(), flora::thumbnail_strip_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            ThumbnailStripLook {
-                strip: both(&a.strip, &b.strip),
-                section: both(&a.section, &b.section),
-                section_icon: both(&a.section_icon, &b.section_icon),
-                item: both(&a.item, &b.item),
-                item_selected: both(&a.item_selected, &b.item_selected),
-                number: both(&a.number, &b.number),
-                badge: both(&a.badge, &b.badge),
-                thumb: both(&a.thumb, &b.thumb),
-                thumb_selected: both(&a.thumb_selected, &b.thumb_selected),
-                thumb_hidden: both(&a.thumb_hidden, &b.thumb_hidden),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::thumbnail_strip_look(),
+        UiTheme::Flora => flora::thumbnail_strip_look(),
     }
 }
 

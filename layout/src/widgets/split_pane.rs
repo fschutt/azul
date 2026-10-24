@@ -514,25 +514,6 @@ pub(crate) fn skin_for(theme: UiTheme, direction: SplitDirection) -> SplitPaneSk
     }
 }
 
-/// The skin an UNPINNED split pane is built with, so it follows the app
-/// theme: `structure`'s theme (its marker goes on the container) and the
-/// divider in BOTH themes' blocks (`themes::theme_blocks::follow_props`). The panes'
-/// content is never cloned or walked.
-#[must_use]
-pub(crate) fn follow_skin(structure: UiTheme, direction: SplitDirection) -> SplitPaneSkin {
-    let (flat, flora) = (
-        skin_for(UiTheme::Flat, direction),
-        skin_for(UiTheme::Flora, direction),
-    );
-    SplitPaneSkin {
-        theme: structure,
-        divider: crate::widgets::themes::theme_blocks::follow_props(
-            flat.divider.as_slice(),
-            flora.divider.as_slice(),
-        ),
-    }
-}
-
 impl SplitPane {
     /// Creates a split pane with the two child `Dom`s, split 50/50.
     #[must_use]
@@ -696,18 +677,13 @@ impl SplitPane {
 
     /// Renders the pane. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the pane follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, its divider carrying
-    /// every theme's blocks (`follow_skin`).
+    /// (`theme: None`), the pane follows the APP theme: built in the look of
+    /// the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::split_pane(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::split_pane(self),
-            None => {
-                let direction = self.split_pane_state.inner.direction;
-                self.build(follow_skin(UiTheme::current(), direction))
-            }
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::split_pane(self),
+            UiTheme::Flat => crate::widgets::themes::flat::split_pane(self),
         }
     }
 
@@ -2458,7 +2434,7 @@ mod autotest_generated {
     #[test]
     fn dom_divider_matches_divider_style_for_the_direction() {
         for dir in BOTH_DIRECTIONS {
-            // The flat look (an unpinned pane carries every theme's blocks).
+            // The flat look.
             let dom = plain(dir).with_theme(UiTheme::Flat).dom();
             assert_eq!(
                 resting_properties(child(&dom, 1)),

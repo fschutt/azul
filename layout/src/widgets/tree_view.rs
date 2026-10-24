@@ -541,36 +541,13 @@ pub(crate) struct TreeViewLook {
 }
 
 impl TreeViewLook {
-    /// The look `theme` pins, or - unpinned - the look that follows the app
-    /// theme: every part carries both themes' declarations, each theme's in
-    /// its `@theme(<name>)` block (`theme_blocks::follow_props`), and the root
-    /// the marker of the theme the DOM is built for.
+    /// The look `theme` pins, or - unpinned - the look of the theme the DOM
+    /// is built for.
     pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
-        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-        match theme.into_option() {
-            Some(UiTheme::Flat) => flat::tree_view_look(),
-            Some(UiTheme::Flora) => flora::tree_view_look(),
-            None => {
-                let (a, b) = (flat::tree_view_look(), flora::tree_view_look());
-                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
-                    follow_props(x.as_ref(), y.as_ref())
-                };
-                Self {
-                    container: both(&a.container, &b.container),
-                    row: both(&a.row, &b.row),
-                    row_selected: both(&a.row_selected, &b.row_selected),
-                    children: both(&a.children, &b.children),
-                    icon: both(&a.icon, &b.icon),
-                    icon_selected: both(&a.icon_selected, &b.icon_selected),
-                    leaf_spacer: both(&a.leaf_spacer, &b.leaf_spacer),
-                    label: both(&a.label, &b.label),
-                    label_selected: both(&a.label_selected, &b.label_selected),
-                    marker: match UiTheme::current() {
-                        UiTheme::Flat => a.marker,
-                        UiTheme::Flora => b.marker,
-                    },
-                }
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => flat::tree_view_look(),
+            UiTheme::Flora => flora::tree_view_look(),
         }
     }
 }
@@ -590,20 +567,10 @@ impl TreeViewBadgeLook {
     /// The badge look `theme` pins, or - unpinned - both themes' looks, each
     /// in its `@theme(<name>)` block (as [`TreeViewLook::of`]).
     pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
-        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-        match theme.into_option() {
-            Some(UiTheme::Flat) => flat::tree_view_badge_look(),
-            Some(UiTheme::Flora) => flora::tree_view_badge_look(),
-            None => {
-                let (a, b) = (flat::tree_view_badge_look(), flora::tree_view_badge_look());
-                Self {
-                    badge: follow_props(a.badge.as_ref(), b.badge.as_ref()),
-                    badge_selected: follow_props(
-                        a.badge_selected.as_ref(),
-                        b.badge_selected.as_ref(),
-                    ),
-                }
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match crate::widgets::themes::theme_blocks::live_theme(theme) {
+            UiTheme::Flat => flat::tree_view_badge_look(),
+            UiTheme::Flora => flora::tree_view_badge_look(),
         }
     }
 }

@@ -39,9 +39,9 @@
 //! `themes::flat::shell_look` and `themes::flora::shell_look`. The STRUCTURE
 //! of every part (what makes a pane a column that grows, a rail a fixed
 //! strip) is the shells' own, declared once here in the `*_BASE` statics and
-//! the same under every theme (R5). A shell that follows the app theme merges
-//! the two skins part by part ([`follow_look`]) and builds ONCE, so the app's
-//! slot content is never cloned for a second build.
+//! the same under every theme (R5). A shell that follows the app theme takes
+//! the skin of the theme its DOM is built for ([`look_for`]) and builds ONCE,
+//! so the app's slot content is never cloned for a second build.
 
 pub mod browser_shell;
 pub mod call_shell;
@@ -244,98 +244,14 @@ pub(crate) struct ShellLook {
     pub marker: Option<&'static str>,
 }
 
-/// Both themes' shell looks in one, part by part
-/// (`themes::theme_blocks::follow_props`), with the `structure` theme's
-/// marker: the look an unpinned shell is built with. Built once per `dom()`.
-#[must_use]
-pub(crate) fn follow_look(structure: UiTheme) -> ShellLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    let (a, b) = (flat::shell_look(), flora::shell_look());
-    let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-        follow_props(x, y).into_library_owned_vec()
-    };
-    macro_rules! merged {
-        ($($field:ident),* $(,)?) => {
-            ShellLook {
-                $($field: both(a.$field.as_slice(), b.$field.as_slice()),)*
-                marker: match structure {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        };
-    }
-    merged!(
-        shell_root,
-        shell_title,
-        shell_ribbon,
-        shell_body,
-        shell_pane,
-        shell_rail,
-        shell_right_bar,
-        shell_status,
-        shell_backstage,
-        nav_root,
-        nav_header,
-        nav_groups,
-        nav_modules,
-        nav_module,
-        nav_module_active,
-        nav_module_icon,
-        nav_module_label,
-        nav_footer,
-        nav_strip,
-        nav_strip_item,
-        palette_backdrop,
-        palette_panel,
-        palette_input,
-        palette_list,
-        palette_row,
-        palette_row_selected,
-        palette_row_icon,
-        palette_row_label,
-        palette_row_shortcut,
-        palette_empty,
-        settings_root,
-        settings_search,
-        settings_categories,
-        settings_category,
-        settings_category_active,
-        settings_sections,
-        settings_section,
-        settings_section_title,
-        empty_root,
-        empty_icon,
-        empty_title,
-        empty_detail,
-        empty_action,
-        scope_root,
-        toolbar_row,
-        drawer,
-        tiles_grid,
-        tile_cell,
-        app_bar,
-        app_bar_title,
-        page,
-        fab,
-        bottom_tabs,
-        bottom_tab,
-        bottom_tab_active,
-        bottom_tab_icon,
-        bottom_tab_label,
-    )
-}
-
 /// The look a shell with the theme option `theme` is built with: the pinned
-/// theme's own look, or both looks merged ([`follow_look`]) in the structure
-/// of the theme the DOM is being built for.
+/// theme's own look, or the one of the theme the DOM is being built for.
 #[must_use]
 pub(crate) fn look_for(theme: OptionUiTheme) -> ShellLook {
     use crate::widgets::themes::{flat, flora};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::shell_look(),
-        Some(UiTheme::Flora) => flora::shell_look(),
-        None => follow_look(UiTheme::current()),
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::shell_look(),
+        UiTheme::Flora => flora::shell_look(),
     }
 }
 

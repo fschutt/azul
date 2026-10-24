@@ -449,28 +449,6 @@ pub(crate) fn skin_for(theme: UiTheme) -> PaginationSkin {
     }
 }
 
-/// One button in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the
-/// `button` of an unpinned bar's skin.
-#[must_use]
-fn follow_button(face: PageFace, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::theme_blocks::follow_props(
-        (skin_for(UiTheme::Flat).button)(face, is_first, is_last).as_slice(),
-        (skin_for(UiTheme::Flora).button)(face, is_first, is_last).as_slice(),
-    )
-}
-
-/// The skin an UNPINNED pagination bar is built with, so it follows the app
-/// theme: `structure`'s theme (its marker goes on the bar, so the click
-/// restyle writes that theme's buttons - a theme switch rebuilds the DOM)
-/// and every button in BOTH themes' blocks.
-#[must_use]
-pub(crate) const fn follow_skin(structure: UiTheme) -> PaginationSkin {
-    PaginationSkin {
-        theme: structure,
-        button: follow_button,
-    }
-}
-
 impl Pagination {
     /// Creates a pager for `total_pages` pages with `current_page` (1-based)
     /// selected. `current_page` is clamped into `[1, total_pages.max(1)]`.
@@ -569,15 +547,13 @@ impl Pagination {
 
     /// Renders the bar. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the bar follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, carrying every theme's
-    /// blocks (`follow_skin`).
+    /// (`theme: None`), the bar follows the APP theme: built in the look
+    /// of the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::pagination(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::pagination(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::pagination(self),
+            UiTheme::Flat => crate::widgets::themes::flat::pagination(self),
         }
     }
 
@@ -835,7 +811,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_appends_the_dark_twins_after_the_light_face() {
-        // The flat bar (an unpinned bar carries every theme's blocks).
+        // The flat bar.
         let dom = Pagination::create(2, 3).with_theme(UiTheme::Flat).dom();
         let children = dom.children.as_ref();
         for (i, (active, disabled, first)) in [
@@ -1989,7 +1965,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_carries_the_container_style_and_the_button_styles_verbatim() {
-        // The flat bar (an unpinned bar carries every theme's blocks).
+        // The flat bar.
         let p = Pagination::create(2, 3).with_theme(UiTheme::Flat);
         let dom = p.dom();
         assert_eq!(

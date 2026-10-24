@@ -316,9 +316,8 @@ impl FileInput {
     }
 
     /// Renders the input as a [`Button`] in its theme. Unpinned (`theme:
-    /// None`), it follows the APP theme: both themes' buttons are built and
-    /// merged (`themes::theme_blocks::follow_app_theme`) in the structure of the
-    /// theme its DOM is built for, carrying every theme's blocks.
+    /// None`), it follows the APP theme: the button of the theme its DOM is
+    /// built for (`themes::theme_blocks::follow_app_theme`).
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {

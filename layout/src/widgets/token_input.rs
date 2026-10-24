@@ -487,8 +487,8 @@ impl TokenInput {
         s
     }
 
-    /// The field's DOM, in the pinned theme's look or both looks merged
-    /// (built once; the chips and the entry follow the app theme with it).
+    /// The field's DOM, in the look of its theme (pinned, or the app's; the
+    /// chips and the entry follow the app theme with it).
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
@@ -747,31 +747,12 @@ pub(crate) struct TokenInputLook {
 }
 
 /// The look a token input with the theme option `theme` is built with: the
-/// pinned theme's own look, or both looks merged part by part (the DOM is
-/// built once).
+/// pinned theme's own look, or the one of the theme the DOM is built for.
 pub(crate) fn look_for(theme: OptionUiTheme) -> TokenInputLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::token_input_look(),
-        Some(UiTheme::Flora) => flora::token_input_look(),
-        None => {
-            let (a, b) = (flat::token_input_look(), flora::token_input_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            TokenInputLook {
-                root: both(&a.root, &b.root),
-                field: both(&a.field, &b.field),
-                entry: both(&a.entry, &b.entry),
-                list: both(&a.list, &b.list),
-                option: both(&a.option, &b.option),
-                option_active: both(&a.option_active, &b.option_active),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::token_input_look(),
+        UiTheme::Flora => flora::token_input_look(),
     }
 }
 

@@ -245,7 +245,7 @@ impl DateTimeLocalPicker {
     /// widget, each reporting into the one shared state.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        use crate::widgets::themes::{flat, flora, UiTheme};
 
         let inner = self.state.inner;
         let shared = RefAny::new(self.state);
@@ -273,16 +273,9 @@ impl DateTimeLocalPicker {
             .with_accessibility_name(AzString::from_const_str("Time"))
             .dom();
 
-        let mut row = match theme {
-            Some(UiTheme::Flat) => flat::datetime_local(date, time),
-            Some(UiTheme::Flora) => flora::datetime_local(date, time),
-            // No theme: the row carries both looks, each inside its
-            // `@theme(<name>)` block (the parts, alike in both, once).
-            None => theme_blocks::follow_dom(
-                UiTheme::current(),
-                flat::datetime_local(date.clone(), time.clone()),
-                flora::datetime_local(date, time),
-            ),
+        let mut row = match theme.unwrap_or_else(UiTheme::current) {
+            UiTheme::Flat => flat::datetime_local(date, time),
+            UiTheme::Flora => flora::datetime_local(date, time),
         };
         if let Some(style) = self.container_style.into_option() {
             row = row.with_css_props(style);

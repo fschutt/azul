@@ -4742,11 +4742,7 @@ pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] = [LIGHT_OPTION_HOVER, DARK
 
 /// A part as flat builds it from a widget's const styles: the widget's
 /// `base` (its structure, the same in every theme - R5), then flat's `skin`
-/// (paint and metrics). Both are plain declarations: the `@theme` blocks of
-/// an unpinned widget are made from the whole part afterwards
-/// (`theme_blocks::follow_props`), so the part is simply the two lists one
-/// after the other - no `@theme` rank to keep (`theme_blocks::stack_parts`
-/// is for stacking parts that already carry theme blocks).
+/// (paint and metrics): the two lists one after the other.
 /// (`decl::on_base` as the vector type flat's builders answer.)
 fn on_base(
     base: &[CssPropertyWithConditions],

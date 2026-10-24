@@ -3735,25 +3735,13 @@ impl Ribbon {
     }
 
     /// `mode`'s chrome in the ribbon's theme: a pinned theme is that look;
-    /// no theme follows the app theme - the ribbon built in both looks and
-    /// merged into ONE tree in the structure of the theme the DOM is built
-    /// for (`UiTheme::current()`), every node carrying each look's
-    /// declarations in its `@theme(<name>)` block.
-    ///
-    /// The active tab's scaling is decided once, before either look is
-    /// built: both lay their parts out on the same metrics, so both build the
-    /// same structure - and the window is asked about each width once.
+    /// no theme follows the app theme - the look of the theme the DOM is
+    /// built for (`UiTheme::current()`), built once.
     fn themed(self, mode: RibbonChromeMode) -> Dom {
         let scales = self.scales_for(mode);
-        // Read once: both looks show the content as it stands.
         let view = RevealView::of(&self.reveal, self.active_tab);
-        if let Some(theme) = self.theme.into_option() {
-            self.build_in(theme, mode, &scales, &view)
-        } else {
-            let flat = self.clone().build_in(UiTheme::Flat, mode, &scales, &view);
-            let flora = self.build_in(UiTheme::Flora, mode, &scales, &view);
-            crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
-        }
+        let theme = crate::widgets::themes::theme_blocks::live_theme(self.theme);
+        self.build_in(theme, mode, &scales, &view)
     }
 
     /// How the active tab's groups are drawn (Office's ribbon scaling,

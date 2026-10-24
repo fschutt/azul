@@ -17,9 +17,8 @@ pub(crate) mod decl;
 
 // ==== W3b: the theme marker (its style builders moved to `decl`) ====
 pub mod style_kit;
-/// Widgets that follow the app theme: every theme's `@theme(<name>)` block
-/// in one DOM - the one merge (`follow_app_theme`, `follow_dom`,
-/// `follow_props`).
+/// Widgets that follow the app theme: built in the look of the theme the
+/// DOM is built for (`follow_app_theme`, `live_theme`).
 pub(crate) mod theme_blocks;
 #[cfg(test)]
 pub(crate) mod theme_checks;

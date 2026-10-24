@@ -568,8 +568,7 @@ impl Toolbar {
         s
     }
 
-    /// The toolbar's DOM, in the pinned theme's look or both looks merged
-    /// (built once).
+    /// The toolbar's DOM, in the look of its theme (pinned, or the app's).
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
@@ -795,32 +794,12 @@ pub(crate) struct ToolbarLook {
 }
 
 /// The look a toolbar with the theme option `theme` is built with: the
-/// pinned theme's own look, or both looks merged part by part (the DOM is
-/// built once).
+/// pinned theme's own look, or the one of the theme the DOM is built for.
 pub(crate) fn look_for(theme: OptionUiTheme) -> ToolbarLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::toolbar_look(),
-        Some(UiTheme::Flora) => flora::toolbar_look(),
-        None => {
-            let (a, b) = (flat::toolbar_look(), flora::toolbar_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            ToolbarLook {
-                bar: both(&a.bar, &b.bar),
-                item: both(&a.item, &b.item),
-                item_pressed: both(&a.item_pressed, &b.item_pressed),
-                label: both(&a.label, &b.label),
-                icon: both(&a.icon, &b.icon),
-                arrow: both(&a.arrow, &b.arrow),
-                separator: both(&a.separator, &b.separator),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::toolbar_look(),
+        UiTheme::Flora => flora::toolbar_look(),
     }
 }
 

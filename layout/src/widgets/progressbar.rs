@@ -440,27 +440,25 @@ impl ProgressBar {
     #[must_use]
     pub fn render_bar(self) -> Dom {
         use crate::widgets::themes::{flat, flora, UiTheme};
-        match self.theme.into_option() {
-            Some(UiTheme::Flat) => flat::progressbar_render_bar_impl(self, None),
-            Some(UiTheme::Flora) => flora::progressbar_render_bar_impl(self, None),
-            None => follow_bar(self, None),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flat => flat::progressbar_render_bar_impl(self, None),
+            UiTheme::Flora => flora::progressbar_render_bar_impl(self, None),
         }
     }
 }
 
-/// An UNPINNED bar's tree: rendered by BOTH themes and merged in the
-/// structure of the theme the DOM is built for (`themes::theme_blocks::follow_dom`).
+/// An UNPINNED bar's tree: rendered in the look of the theme the DOM is
+/// built for.
 fn follow_bar(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
-    use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
-    theme_blocks::follow_dom(
-        UiTheme::current(),
-        flat::progressbar_render_bar_impl(bar.clone(), bounds_px),
-        flora::progressbar_render_bar_impl(bar, bounds_px),
-    )
+    use crate::widgets::themes::{flat, flora, UiTheme};
+    match UiTheme::current() {
+        UiTheme::Flat => flat::progressbar_render_bar_impl(bar, bounds_px),
+        UiTheme::Flora => flora::progressbar_render_bar_impl(bar, bounds_px),
+    }
 }
 
 /// The `VirtualView` callback of an UNPINNED bar: the stored bar rendered
-/// into the node's bounds by both themes ([`follow_bar`]) - in the theme of
+/// into the node's bounds ([`follow_bar`]) - in the theme of
 /// the pass that lays it out (`UiTheme::current`).
 extern "C" fn render_virtual_view_following(
     mut data: RefAny,
@@ -1777,8 +1775,7 @@ mod autotest_generated {
     }
 
     /// An UNPINNED bar follows the app theme through its `VirtualView`: the
-    /// callback renders the bar in BOTH themes and merges them in the
-    /// structure of the theme it is rendered for.
+    /// callback renders the bar in the look of the theme it is rendered for.
     #[test]
     fn an_unpinned_bars_virtual_view_renders_every_theme_in_the_app_themes_structure() {
         use crate::widgets::themes::{flat, flora, UiTheme};
@@ -1808,11 +1805,10 @@ mod autotest_generated {
                 azul_core::dom::OptionDom::None => panic!("{theme:?}: the callback must render"),
             };
             let bounds = Some((200.0, 15.0));
-            let want = crate::widgets::themes::theme_blocks::follow_dom(
-                theme,
-                flat::progressbar_render_bar_impl(bar.clone(), bounds),
-                flora::progressbar_render_bar_impl(bar.clone(), bounds),
-            );
+            let want = match theme {
+                UiTheme::Flat => flat::progressbar_render_bar_impl(bar.clone(), bounds),
+                UiTheme::Flora => flora::progressbar_render_bar_impl(bar.clone(), bounds),
+            };
             assert!(rendered == want, "{theme:?}: {rendered:?}");
         }
     }

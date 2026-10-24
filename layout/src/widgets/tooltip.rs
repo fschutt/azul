@@ -86,8 +86,7 @@ pub(crate) static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
 //
 // A theme's tip is `TIP_BASE`, THEN its skin (paint and metrics):
 // `TOOLTIP_TIP_STYLE` for flat, `themes::flora::tooltip_skin` for flora. The
-// base comes first in every theme, so an unpinned tooltip (`follow_skin`)
-// declares it once, outside every `@theme` block. The wrapper has no skin:
+// base comes first in every theme. The wrapper has no skin:
 // `TOOLTIP_WRAPPER_STYLE` is its whole style in every theme.
 
 /// The tip's structure, placement and starting state in every theme:
@@ -182,30 +181,12 @@ pub(crate) fn skin_for(theme: UiTheme) -> TooltipSkin {
     }
 }
 
-/// The skin an UNPINNED tooltip is built with, so it follows the app theme:
-/// `structure`'s theme (its marker goes on the wrapper) and both parts in
-/// BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the cascade keeps
-/// the live theme's. The caller's anchor is never cloned or walked.
-#[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> TooltipSkin {
-    use crate::widgets::themes::theme_blocks::follow_props as both;
-    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
-    TooltipSkin {
-        theme: structure,
-        wrapper: both(flat.wrapper.as_slice(), flora.wrapper.as_slice()),
-        tip: both(flat.tip.as_slice(), flora.tip.as_slice()),
-    }
-}
-
 /// The skin a tooltip carrying `theme` renders with: the pinned theme's, or
-/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
-/// built for. What the render and the resolvers both ask.
+/// - unpinned - the one of the theme the DOM is built for. What the render
+/// and the resolvers both ask.
 #[must_use]
 pub(crate) fn skin_of(theme: OptionUiTheme) -> TooltipSkin {
-    match theme.into_option() {
-        Some(pinned) => skin_for(pinned),
-        None => follow_skin(UiTheme::current()),
-    }
+    skin_for(crate::widgets::themes::theme_blocks::live_theme(theme))
 }
 
 impl Default for Tooltip {
@@ -304,15 +285,13 @@ impl Tooltip {
 
     /// Renders the tooltip. Rendering goes through the theme modules (as
     /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
-    /// (`theme: None`), the tooltip follows the APP theme: built in the
-    /// structure of the theme its DOM is built for, carrying every theme's
-    /// blocks (`follow_skin`).
+    /// (`theme: None`), the tooltip follows the APP theme: built in the look
+    /// of the theme its DOM is built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::tooltip(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::tooltip(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::tooltip(self),
+            UiTheme::Flat => crate::widgets::themes::flat::tooltip(self),
         }
     }
 
@@ -727,7 +706,7 @@ mod autotest_generated {
 
     #[test]
     fn new_uses_the_static_style_tables() {
-        // Flat's tables (an unpinned tooltip carries every theme's blocks).
+        // Flat's tables.
         let t = Tooltip::new(Dom::create_div(), AzString::from_const_str("x"))
             .with_theme(UiTheme::Flat);
 
@@ -1104,7 +1083,7 @@ mod autotest_generated {
         let anchor = Dom::create_div().with_child(
             Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
         );
-        // Flat's tables (an unpinned tooltip carries every theme's blocks).
+        // Flat's tables.
         let dom = Tooltip::new(anchor.clone(), AzString::from_const_str("tip"))
             .with_theme(UiTheme::Flat)
             .dom();

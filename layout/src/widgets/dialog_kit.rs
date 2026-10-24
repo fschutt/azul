@@ -13,8 +13,8 @@
 //! `themes::flora::dialog_kit_look`. The STRUCTURE of every part (a row, a
 //! column that scrolls, a label that grows) is the kit's own, the `*_BASE`
 //! statics here and the shells' bases, the same under every theme (R5).
-//! A widget that follows the app theme merges the two skins part by part
-//! ([`follow_look`], the shells' shape) and builds once.
+//! A widget that follows the app theme takes the skin of the theme its DOM
+//! is built for ([`look_for`]) and builds once.
 //!
 //! Key types: [`DialogKitLook`].
 
@@ -133,76 +133,15 @@ pub(crate) struct DialogKitLook {
     pub marker: Option<&'static str>,
 }
 
-/// Both themes' kit looks in one, part by part
-/// (`themes::theme_blocks::follow_props`), with the `structure` theme's
-/// marker: the look an unpinned dialog widget is built with.
-#[must_use]
-pub(crate) fn follow_look(structure: UiTheme) -> DialogKitLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    let (a, b) = (flat::dialog_kit_look(), flora::dialog_kit_look());
-    let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-        follow_props(x, y).into_library_owned_vec()
-    };
-    macro_rules! merged {
-        ($($field:ident),* $(,)?) => {
-            DialogKitLook {
-                $($field: both(a.$field.as_slice(), b.$field.as_slice()),)*
-                marker: match structure {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        };
-    }
-    merged!(
-        page,
-        heading,
-        text,
-        hint,
-        logo,
-        block,
-        label,
-        scroll_box,
-        list_row,
-        size,
-        total,
-        check_row,
-        check_label,
-        description,
-        summary_key,
-        summary_row,
-        field_row,
-        field_label,
-        help,
-        mark,
-        modified,
-        unit,
-        recorder,
-        recorder_recording,
-        dialog,
-        icon_info,
-        icon_warning,
-        icon_error,
-        icon_question,
-        step,
-        step_number,
-        buttons,
-        button,
-        notice,
-        category_icon,
-    )
-}
-
 /// The look a dialog widget with the theme option `theme` is built with:
-/// the pinned theme's own look, or both looks merged ([`follow_look`]) in
-/// the structure of the theme the DOM is being built for.
+/// the pinned theme's own look, or the one of the theme the DOM is being
+/// built for.
 #[must_use]
 pub(crate) fn look_for(theme: OptionUiTheme) -> DialogKitLook {
     use crate::widgets::themes::{flat, flora};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::dialog_kit_look(),
-        Some(UiTheme::Flora) => flora::dialog_kit_look(),
-        None => follow_look(UiTheme::current()),
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::dialog_kit_look(),
+        UiTheme::Flora => flora::dialog_kit_look(),
     }
 }
 

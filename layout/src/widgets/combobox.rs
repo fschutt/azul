@@ -327,33 +327,12 @@ pub(crate) fn skin_for(theme: UiTheme) -> ComboBoxSkin {
     }
 }
 
-/// The skin an UNPINNED combobox is built with, so it follows the app
-/// theme: `structure`'s theme (its marker goes on the wrapper) and every
-/// part in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
-#[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> ComboBoxSkin {
-    use crate::widgets::themes::theme_blocks::follow_props as both;
-    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
-    ComboBoxSkin {
-        theme: structure,
-        wrapper: both(flat.wrapper.as_slice(), flora.wrapper.as_slice()),
-        field: both(flat.field.as_slice(), flora.field.as_slice()),
-        text: both(flat.text.as_slice(), flora.text.as_slice()),
-        arrow: both(flat.arrow.as_slice(), flora.arrow.as_slice()),
-        option: both(flat.option.as_slice(), flora.option.as_slice()),
-        list: both(flat.list.as_slice(), flora.list.as_slice()),
-    }
-}
-
 /// The skin a combobox carrying `theme` renders with: the pinned theme's, or
-/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
-/// built for. What the render and the style resolvers both ask.
+/// - unpinned - the one of the theme the DOM is built for. What the render
+/// and the style resolvers both ask.
 #[must_use]
 pub(crate) fn skin_of(theme: OptionUiTheme) -> ComboBoxSkin {
-    match theme.into_option() {
-        Some(pinned) => skin_for(pinned),
-        None => follow_skin(UiTheme::current()),
-    }
+    skin_for(crate::widgets::themes::theme_blocks::live_theme(theme))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -976,14 +955,13 @@ impl ComboBox {
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does): each
     /// hands [`Self::build`] its skin. Unpinned (`theme: None`), the combobox
-    /// follows the APP theme: built in the structure of the theme its DOM is
-    /// built for, carrying every theme's blocks (`follow_skin`).
+    /// follows the APP theme: built in the look of the theme its DOM is
+    /// built for.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::combobox(self),
-            Some(UiTheme::Flat) => crate::widgets::themes::flat::combobox(self),
-            None => self.build(follow_skin(UiTheme::current())),
+        match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
+            UiTheme::Flora => crate::widgets::themes::flora::combobox(self),
+            UiTheme::Flat => crate::widgets::themes::flat::combobox(self),
         }
     }
 

@@ -1521,35 +1521,13 @@ pub(crate) struct IconGridLook {
 }
 
 /// The look a grid with the theme option `theme` is built with: the pinned
-/// theme's own look, or both looks merged part by part (the DOM is built
-/// once - the data callback is asked once per item in view).
+/// theme's own look, or the one of the theme the DOM is built for (the data
+/// callback is asked once per item in view).
 pub(crate) fn look_for(theme: OptionUiTheme) -> IconGridLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::icon_grid_look(),
-        Some(UiTheme::Flora) => flora::icon_grid_look(),
-        None => {
-            let (a, b) = (flat::icon_grid_look(), flora::icon_grid_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            IconGridLook {
-                grid: both(&a.grid, &b.grid),
-                item: both(&a.item, &b.item),
-                item_selected: both(&a.item_selected, &b.item_selected),
-                item_focused: both(&a.item_focused, &b.item_focused),
-                icon: both(&a.icon, &b.icon),
-                label: both(&a.label, &b.label),
-                badge: both(&a.badge, &b.badge),
-                marquee: both(&a.marquee, &b.marquee),
-                track: both(&a.track, &b.track),
-                thumb: both(&a.thumb, &b.thumb),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::icon_grid_look(),
+        UiTheme::Flora => flora::icon_grid_look(),
     }
 }
 
@@ -1570,17 +1548,10 @@ pub(crate) struct IconGridExtrasLook {
 /// The extras' look a grid with the theme option `theme` is built with, as
 /// [`look_for`]: the pinned theme's own, or both merged part by part.
 pub(crate) fn extras_for(theme: OptionUiTheme) -> IconGridExtrasLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::icon_grid_extras_look(),
-        Some(UiTheme::Flora) => flora::icon_grid_extras_look(),
-        None => {
-            let (a, b) = (flat::icon_grid_extras_look(), flora::icon_grid_extras_look());
-            IconGridExtrasLook {
-                line: follow_props(&a.line, &b.line).into_library_owned_vec(),
-                placeholder: follow_props(&a.placeholder, &b.placeholder).into_library_owned_vec(),
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::icon_grid_extras_look(),
+        UiTheme::Flora => flora::icon_grid_extras_look(),
     }
 }
 

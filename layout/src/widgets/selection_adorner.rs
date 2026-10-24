@@ -667,7 +667,7 @@ impl SelectionAdorner {
     }
 
     /// The adorner's DOM: the content, then the frames, handles, guides and
-    /// marquee, in the pinned theme's look or both looks merged.
+    /// marquee, in the look of its theme (pinned, or the app's).
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
@@ -1939,34 +1939,13 @@ pub(crate) static ADORNER_STEM_BASE: &[CssPropertyWithConditions] = &[
 const EDGE_PX: f32 = 2.0;
 
 /// The look an adorner with the theme option `theme` is built with: the
-/// pinned theme's own look, or both looks merged in the structure of the
-/// theme the DOM is being built for (the app's content is built once).
+/// pinned theme's own look, or the one of the theme the DOM is being built
+/// for (the app's content is built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> SelectionAdornerLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::selection_adorner_look(),
-        Some(UiTheme::Flora) => flora::selection_adorner_look(),
-        None => {
-            let (a, b) = (flat::selection_adorner_look(), flora::selection_adorner_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            SelectionAdornerLook {
-                root: both(&a.root, &b.root),
-                frame: both(&a.frame, &b.frame),
-                group: both(&a.group, &b.group),
-                editing: both(&a.editing, &b.editing),
-                handle: both(&a.handle, &b.handle),
-                rotate: both(&a.rotate, &b.rotate),
-                stem: both(&a.stem, &b.stem),
-                guide: both(&a.guide, &b.guide),
-                marquee: both(&a.marquee, &b.marquee),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::selection_adorner_look(),
+        UiTheme::Flora => flora::selection_adorner_look(),
     }
 }
 

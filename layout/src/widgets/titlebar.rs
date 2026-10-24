@@ -1416,33 +1416,14 @@ pub(crate) struct TitlebarLook {
 }
 
 impl TitlebarLook {
-    /// `bar`'s look in its pinned theme, or - unpinned - the look that
-    /// follows the app theme: every part carries both themes' declarations,
-    /// each theme's in its `@theme(<name>)` block
-    /// (`theme_blocks::follow_props`), and the bar the marker of the theme
-    /// the DOM is built for. `show_buttons` is the CSD row (vs title-only).
+    /// `bar`'s look in its pinned theme, or - unpinned - the look of the
+    /// theme the DOM is built for. `show_buttons` is the CSD row (vs
+    /// title-only).
     pub(crate) fn of(bar: &Titlebar, show_buttons: bool) -> Self {
-        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
-        match bar.theme.into_option() {
-            Some(UiTheme::Flat) => flat::titlebar_look(bar, show_buttons),
-            Some(UiTheme::Flora) => flora::titlebar_look(bar, show_buttons),
-            None => {
-                let a = flat::titlebar_look(bar, show_buttons);
-                let b = flora::titlebar_look(bar, show_buttons);
-                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
-                    follow_props(x.as_ref(), y.as_ref())
-                };
-                Self {
-                    container: both(&a.container, &b.container),
-                    title: both(&a.title, &b.title),
-                    button: both(&a.button, &b.button),
-                    close: both(&a.close, &b.close),
-                    marker: match UiTheme::current() {
-                        UiTheme::Flat => a.marker,
-                        UiTheme::Flora => b.marker,
-                    },
-                }
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match crate::widgets::themes::theme_blocks::live_theme(bar.theme) {
+            UiTheme::Flat => flat::titlebar_look(bar, show_buttons),
+            UiTheme::Flora => flora::titlebar_look(bar, show_buttons),
         }
     }
 }

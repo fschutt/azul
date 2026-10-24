@@ -658,10 +658,88 @@ pub(crate) fn themed_structure(dom: &Dom, allowed: &[ThemedStructure]) -> Vec<St
     out
 }
 
-/// Asserts that `dom` - a widget that FOLLOWS the app theme (no
-/// `with_theme` pin), so it carries every theme's block - declares its
+/// The structure declarations of one node, as `(property, value, conditions)`
+/// lines (its inline style, then its component sheets), the `allowed` ones
+/// left out.
+fn structure_of(node: &Dom, allowed: &[ThemedStructure]) -> Vec<String> {
+    let classes: Vec<&str> = node
+        .root
+        .get_ids_and_classes()
+        .as_ref()
+        .iter()
+        .filter_map(|c| match c {
+            IdOrClass::Class(s) => Some(s.as_str()),
+            IdOrClass::Id(_) => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    let sheets = core::iter::once((true, &node.root.style))
+        .chain(node.css.as_slice().iter().map(|css| (false, css)));
+    for (inline, css) in sheets {
+        for rule in css.rules.as_slice() {
+            let selector = format!("{}", rule.path);
+            for d in rule.declarations.as_slice() {
+                let Some(ty) = d.get_type() else { continue };
+                if !STRUCTURE_PROPERTIES.contains(&ty) {
+                    continue;
+                }
+                let is_allowed = allowed.iter().any(|(who, t, _why)| {
+                    *t == ty
+                        && if inline {
+                            classes.iter().any(|c| c == who)
+                        } else {
+                            selector.contains(*who)
+                        }
+                });
+                if !is_allowed {
+                    let whom = if inline { String::from("inline") } else { selector.clone() };
+                    out.push(format!("{whom} {d:?} {:?}", rule.conditions.as_slice()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Where the structure of `a` and `b` - one widget built in two themes -
+/// differs, one line each: nodes pair by position, and where a child count
+/// differs the rest of that subtree is the theme's own (a part only one
+/// theme draws, as flora's spinner spokes).
+fn structure_differences(a: &Dom, b: &Dom, allowed: &[ThemedStructure]) -> Vec<String> {
+    fn walk(a: &Dom, b: &Dom, path: String, allowed: &[ThemedStructure], out: &mut Vec<String>) {
+        let (sa, sb) = (structure_of(a, allowed), structure_of(b, allowed));
+        if sa != sb {
+            out.push(format!("{path}: {sa:?}\n    vs {sb:?}"));
+        }
+        let (ca, cb) = (a.children.as_ref(), b.children.as_ref());
+        if ca.len() == cb.len() {
+            for (i, (x, y)) in ca.iter().zip(cb).enumerate() {
+                walk(x, y, format!("{path}/{i}"), allowed, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(a, b, String::from("root"), allowed, &mut out);
+    out
+}
+
+std::thread_local! {
+    /// The DOMs [`assert_structure_is_shared`] was handed and has not yet
+    /// compared with their other theme's build, by call site and what.
+    static STRUCTURE_SEEN: core::cell::RefCell<Vec<(String, Dom)>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// Asserts that `dom` - a widget built in one app theme - declares its
 /// structure in its base: no [`STRUCTURE_PROPERTIES`] inside a `@theme`
-/// block except the `allowed` ones.
+/// block, and the same structure as the same widget built in the other
+/// theme, except the `allowed` declarations.
+///
+/// A test hands the widget built in each theme in turn, from one call site
+/// (`for t in BOTH { .. assert_structure_is_shared(&format!(".. {t}"), ..) }`):
+/// the first build waits under its call site and `what` (the theme names
+/// taken out), the second is compared with it.
+#[track_caller]
 pub(crate) fn assert_structure_is_shared(what: &str, dom: &Dom, allowed: &[ThemedStructure]) {
     let themed = themed_structure(dom, allowed);
     assert!(
@@ -670,6 +748,29 @@ pub(crate) fn assert_structure_is_shared(what: &str, dom: &Dom, allowed: &[Theme
          the reason the themes differ):\n  {}",
         themed.join("\n  ")
     );
+    let at = core::panic::Location::caller();
+    let mut key = format!("{}:{}:{}", at.file(), at.line(), what);
+    for theme in UiTheme::ALL {
+        key = key.replace(theme.name(), "");
+    }
+    let other = STRUCTURE_SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        if let Some(i) = seen.iter().position(|(k, _)| *k == key) {
+            Some(seen.swap_remove(i).1)
+        } else {
+            seen.push((key, dom.clone()));
+            None
+        }
+    });
+    if let Some(other) = other {
+        let differs = structure_differences(&other, dom, allowed);
+        assert!(
+            differs.is_empty(),
+            "{what}: the themes lay the widget out differently (make it the widget's base, or \
+             allow it with the reason the themes differ):\n  {}",
+            differs.join("\n  ")
+        );
+    }
 }
 
 // ==== flora.css's metal and motion, as the stylesheet writes them ====
@@ -794,8 +895,7 @@ mod structure_tests {
         },
     };
 
-    use super::{themed_structure, UiTheme};
-    use crate::widgets::themes::theme_blocks::follow_dom;
+    use super::{assert_structure_is_shared, structure_differences, UiTheme};
 
     fn look(direction: LayoutFlexDirection) -> Dom {
         Dom::create_div()
@@ -814,26 +914,31 @@ mod structure_tests {
     }
 
     #[test]
-    fn a_structure_both_themes_declare_alike_is_the_base() {
-        let dom = follow_dom(
-            UiTheme::Flat,
-            look(LayoutFlexDirection::Row),
-            look(LayoutFlexDirection::Row),
-        );
-        assert!(themed_structure(&dom, &[]).is_empty());
+    fn a_structure_both_themes_declare_alike_is_shared() {
+        let (a, b) = (look(LayoutFlexDirection::Row), look(LayoutFlexDirection::Row));
+        assert!(structure_differences(&a, &b, &[]).is_empty());
     }
 
     #[test]
     fn a_structure_the_themes_declare_apart_is_reported_unless_allowed() {
-        let dom = follow_dom(
-            UiTheme::Flat,
-            look(LayoutFlexDirection::Row),
-            look(LayoutFlexDirection::Column),
-        );
-        let themed = themed_structure(&dom, &[]);
-        assert_eq!(themed.len(), 2, "{themed:?}");
-        assert!(themed.iter().all(|l| l.contains(".probe flex-direction")), "{themed:?}");
+        let (a, b) = (look(LayoutFlexDirection::Row), look(LayoutFlexDirection::Column));
+        let differs = structure_differences(&a, &b, &[]);
+        assert_eq!(differs.len(), 1, "{differs:?}");
         let allowed = [("probe", CssPropertyType::FlexDirection, "the probe differs")];
-        assert!(themed_structure(&dom, &allowed).is_empty());
+        assert!(structure_differences(&a, &b, &allowed).is_empty());
+    }
+
+    /// One call site handed both themes' builds compares them.
+    #[test]
+    #[should_panic(expected = "lay the widget out differently")]
+    fn the_assert_compares_the_two_themes_builds_of_one_call_site() {
+        for t in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = look(if t == UiTheme::Flat {
+                LayoutFlexDirection::Row
+            } else {
+                LayoutFlexDirection::Column
+            });
+            assert_structure_is_shared(&format!("probe built for {}", t.name()), &dom, &[]);
+        }
     }
 }

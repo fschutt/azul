@@ -661,8 +661,7 @@ pub(crate) struct RangeShared {
     pub(crate) today: DatePickerState,
     pub(crate) week_start: DatePickerWeekStart,
     pub(crate) on_event: OptionDateRangePickerOnEvent,
-    /// The faces the day cells were built in (both themes' blocks when the
-    /// picker follows the app theme): what a repaint writes.
+    /// The faces the day cells were built in: what a repaint writes.
     pub(crate) faces: crate::widgets::date_picker::CellFaces,
 }
 

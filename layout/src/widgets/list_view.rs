@@ -118,37 +118,14 @@ pub(crate) struct ListViewLook {
 }
 
 /// The look a list with the theme option `theme` is built with: the pinned
-/// theme's own, or - following the app theme - both looks merged part by
-/// part (`theme_blocks::follow_props`), each theme's declarations in its
-/// `@theme(<name>)` block. The DOM is built ONCE from it: the caller's cells
-/// are never cloned or walked.
+/// theme's own, or - following the app theme - the one of the theme the DOM
+/// is built for. The DOM is built ONCE from it: the caller's cells are never
+/// cloned or walked.
 pub(crate) fn look_for(theme: OptionUiTheme) -> ListViewLook {
-    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
-    match theme.into_option() {
-        Some(UiTheme::Flat) => flat::list_view_look(),
-        Some(UiTheme::Flora) => flora::list_view_look(),
-        None => {
-            let (a, b) = (flat::list_view_look(), flora::list_view_look());
-            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
-                follow_props(x, y).into_library_owned_vec()
-            };
-            ListViewLook {
-                list: both(&a.list, &b.list),
-                header: both(&a.header, &b.header),
-                column: both(&a.column, &b.column),
-                title: both(&a.title, &b.title),
-                title_sorted: both(&a.title_sorted, &b.title_sorted),
-                sort_arrow: both(&a.sort_arrow, &b.sort_arrow),
-                row: both(&a.row, &b.row),
-                row_alternate: both(&a.row_alternate, &b.row_alternate),
-                row_selected: both(&a.row_selected, &b.row_selected),
-                cell: both(&a.cell, &b.cell),
-                marker: match UiTheme::current() {
-                    UiTheme::Flat => a.marker,
-                    UiTheme::Flora => b.marker,
-                },
-            }
-        }
+    use crate::widgets::themes::{flat, flora};
+    match crate::widgets::themes::theme_blocks::live_theme(theme) {
+        UiTheme::Flat => flat::list_view_look(),
+        UiTheme::Flora => flora::list_view_look(),
     }
 }
 
