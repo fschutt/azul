@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    confined::{Folder, Kind},
     dir_read::{self, DirItem, ItemKind},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
@@ -24,6 +25,8 @@ use crate::{
 /// touched. Symbolic links inside the root are followed when listing one
 /// folder, not when walking a whole prefix (no loops).
 ///
+/// A sync's folder is opened [`LocalDrive::confined`]: its changes never go through a link.
+///
 /// [`LocalDrive::new`] is the user's DATA TREE: every put / delete / rename /
 /// copy / folder operation is recorded in `<root>/.azlin/cache` (see
 /// [`crate::manifest`]), so the later S3 sync only diffs. A folder that is
@@ -35,6 +38,11 @@ pub struct LocalDrive {
     root: PathBuf,
     /// Keeps `<root>/.azlin/cache`.
     manifest: bool,
+    /// Every change goes through [`crate::confined`]: no folder below the root is a link on
+    /// its way. A sync's folder, written for other devices: through a link it would land
+    /// anywhere (`inbox` -> `~/Library/LaunchAgents`). Off for a folder the user browses,
+    /// where a link they made is theirs to follow.
+    confined: bool,
 }
 
 /// One entry of a listing before paging.
@@ -71,16 +79,21 @@ fn file_entry(key: String, item: &DirItem) -> Entry {
 
 /// A file next to `path` to write before renaming it over `path`.
 pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    path.with_file_name(format!(
+    path.with_file_name(temp_name(&name))
+}
+
+/// The name of a temporary file for `name` in the same folder ([`is_temp_name`]: never listed).
+pub(crate) fn temp_name(name: &str) -> String {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    format!(
         ".{name}.azul-storage-{}-{}.tmp",
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::SeqCst)
-    ))
+    )
 }
 
 /// Writes `bytes` to `path` through a temporary file, so a reader never sees half
@@ -139,6 +152,7 @@ impl LocalDrive {
         LocalDrive {
             root: root.into(),
             manifest: true,
+            confined: false,
         }
     }
 
@@ -150,7 +164,17 @@ impl LocalDrive {
         LocalDrive {
             root: root.into(),
             manifest: false,
+            confined: false,
         }
+    }
+
+    /// The same folder, its changes never through a link below the root ([`crate::confined`]):
+    /// a link on the way of a put, delete, rename, copy or new folder is refused and said; a
+    /// link as the file itself is replaced or removed, never followed. A sync's folder.
+    #[must_use]
+    pub fn confined(mut self) -> Self {
+        self.confined = true;
+        self
     }
 
     #[must_use]
@@ -259,6 +283,79 @@ impl LocalDrive {
             path.push(segment);
         }
         Ok(path)
+    }
+
+    /// The folder above a (checked) key or folder name, reached without following a link
+    /// (`make`: the missing ones are made), and the key's own name in it.
+    fn parent_of<'k>(&self, key: &'k str, make: bool) -> std::io::Result<(Folder, &'k str)> {
+        let names: Vec<&str> = key.trim_end_matches('/').split('/').collect();
+        let Some((name, folders)) = names.split_last() else {
+            return Err(std::io::Error::from(ErrorKind::InvalidInput));
+        };
+        Ok((Folder::open(&self.root, folders, make)?, *name))
+    }
+
+    /// Writes the file of a (checked) key in a confined drive.
+    fn write_confined(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        let (folder, name) = self
+            .parent_of(key, true)
+            .map_err(|e| not_found_or_io(key, e))?;
+        if folder.kind(name)? == Some(Kind::Folder) {
+            return Err(DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "a folder has this name",
+            });
+        }
+        folder
+            .write(name, body)
+            .map_err(|e| DriveError::Io(format!("{key}: {e}")))
+    }
+
+    /// Removes the file of a (checked) key in a confined drive; one that is not there is fine.
+    fn delete_confined(&self, key: &str) -> Result<(), DriveError> {
+        let (folder, name) = match self.parent_of(key, false) {
+            Ok(found) => found,
+            // A folder on the way is not there: neither is the file.
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(DriveError::Io(format!("{key}: {e}"))),
+        };
+        match folder.kind(name)? {
+            None => Ok(()),
+            Some(Kind::Folder) => Err(DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "it is a folder",
+            }),
+            Some(_) => match folder.remove_file(name) {
+                Err(e) if e.kind() != ErrorKind::NotFound => {
+                    Err(DriveError::Io(format!("{key}: {e}")))
+                }
+                _ => Ok(()),
+            },
+        }
+    }
+
+    /// One rename in a confined drive, of a (checked) file or folder.
+    fn rename_confined(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        let (source, from_name) = self
+            .parent_of(from, false)
+            .map_err(|e| not_found_or_io(from, e))?;
+        if source.kind(from_name)?.is_none() {
+            return Err(DriveError::NotFound {
+                key: from.to_string(),
+            });
+        }
+        let (target, to_name) = self
+            .parent_of(to, true)
+            .map_err(|e| not_found_or_io(to, e))?;
+        if target.kind(to_name)?.is_some() {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "something has this name already",
+            });
+        }
+        source
+            .rename(from_name, &target, to_name)
+            .map_err(|e| DriveError::Io(format!("{from}: {e}")))
     }
 
     /// The directory of a (checked) folder prefix: `a/b/` -> `<root>/a/b`.
@@ -448,16 +545,20 @@ impl Drive for LocalDrive {
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+        if self.confined {
+            self.write_confined(key, &mut &bytes[..])?;
+        } else {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            if path.is_dir() {
+                return Err(DriveError::InvalidKey {
+                    key: key.to_string(),
+                    reason: "a folder has this name",
+                });
+            }
+            write_atomically(&path, bytes)?;
         }
-        if path.is_dir() {
-            return Err(DriveError::InvalidKey {
-                key: key.to_string(),
-                reason: "a folder has this name",
-            });
-        }
-        write_atomically(&path, bytes)?;
         if self.manifest {
             if let Ok(meta) = fs::metadata(&path) {
                 let info = object_info(key.to_string(), &meta);
@@ -479,6 +580,11 @@ impl Drive for LocalDrive {
     /// old one.
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         let path = self.path_of(key)?;
+        if self.confined {
+            let written = self.write_confined(key, body)?;
+            self.record_file(key);
+            return Ok(written);
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -505,6 +611,13 @@ impl Drive for LocalDrive {
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
+        if self.confined {
+            self.delete_confined(key)?;
+            self.record(&Record::Delete {
+                key: key.to_string(),
+            });
+            return Ok(());
+        }
         match fs::symlink_metadata(&path) {
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(e) => return Err(DriveError::Io(format!("{key}: {e}"))),
@@ -552,6 +665,12 @@ impl Drive for LocalDrive {
             }
             Ok(_) => {}
         }
+        if self.confined {
+            let mut body = File::open(&source).map_err(|e| not_found_or_io(from, e))?;
+            self.write_confined(to, &mut body)?;
+            self.record_file(to);
+            return Ok(());
+        }
         if target.is_dir() {
             return Err(DriveError::InvalidKey {
                 key: to.to_string(),
@@ -573,6 +692,12 @@ impl Drive for LocalDrive {
 
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         let dir = self.folder_path(prefix)?;
+        if self.confined {
+            let names: Vec<&str> = prefix.split('/').filter(|s| !s.is_empty()).collect();
+            return Folder::open(&self.root, &names, true)
+                .map(drop)
+                .map_err(|e| DriveError::Io(format!("{prefix}: {e}")));
+        }
         if dir.is_file() {
             return Err(DriveError::InvalidKey {
                 key: prefix.to_string(),
@@ -598,21 +723,25 @@ impl Drive for LocalDrive {
         }
         let source = self.any_path(from)?;
         let target = self.any_path(to)?;
-        if fs::symlink_metadata(&source).is_err() {
-            return Err(DriveError::NotFound {
-                key: from.to_string(),
-            });
+        if self.confined {
+            self.rename_confined(from, to)?;
+        } else {
+            if fs::symlink_metadata(&source).is_err() {
+                return Err(DriveError::NotFound {
+                    key: from.to_string(),
+                });
+            }
+            if fs::symlink_metadata(&target).is_ok() {
+                return Err(DriveError::InvalidKey {
+                    key: to.to_string(),
+                    reason: "something has this name already",
+                });
+            }
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::rename(&source, &target).map_err(|e| DriveError::Io(format!("{from}: {e}")))?;
         }
-        if fs::symlink_metadata(&target).is_ok() {
-            return Err(DriveError::InvalidKey {
-                key: to.to_string(),
-                reason: "something has this name already",
-            });
-        }
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::rename(&source, &target).map_err(|e| DriveError::Io(format!("{from}: {e}")))?;
         // A rename keeps the modification time: the entries move as they are.
         self.record(&Record::Rename {
             from: from.to_string(),
@@ -622,7 +751,16 @@ impl Drive for LocalDrive {
     }
 
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        let dir = self.folder_path(prefix)?;
+        let mut dir = self.folder_path(prefix)?;
+        if self.confined {
+            // The folder is reached without a link on its way; std's remove_dir_all follows
+            // none inside it.
+            match self.parent_of(prefix, false) {
+                Ok((parent, name)) => dir = parent.path().join(name),
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(DriveError::Io(format!("{prefix}: {e}"))),
+            }
+        }
         match fs::symlink_metadata(&dir) {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
             Err(e) => Err(DriveError::Io(format!("{prefix}: {e}"))),

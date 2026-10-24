@@ -8,6 +8,10 @@
 //! of that scan, when a second edit in the same clock tick could hide behind
 //! the same time (git's "racy" files); those are read again.
 //!
+//! The scan never follows a symbolic link, and nothing is written, made, renamed or removed
+//! through one: every change here goes through azul-storage's `confined` folders. A link
+//! inside the folder is listed (the scan's `links`); nothing at or under it is synced.
+//!
 //! The folder itself must be the one the base describes ([`check_root`]): it is there, and
 //! it holds the mark its first sync left ([`ROOT_MARK`]). A disk not plugged in leaves its
 //! mount point empty, or with a stale copy; taken for the folder, its files would look deleted
@@ -29,6 +33,7 @@ use std::{
 };
 
 use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
+use azul_storage::confined::Folder;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -182,6 +187,9 @@ pub struct Scan {
     pub excluded: usize,
     /// Files not synced, and why (symbolic links, unreadable, too big, ...).
     pub skipped: Vec<(String, String)>,
+    /// The symbolic links found (never followed): the run plans nothing at or under one - it
+    /// neither writes through it nor takes what lies behind it for deleted.
+    pub links: Vec<String>,
     /// Files read and hashed (the rest kept their base's hash).
     pub hashed: usize,
     /// When it started (nanoseconds).
@@ -443,7 +451,12 @@ fn mark_of(root: &Path) -> Option<String> {
 /// When the mark cannot be written.
 pub fn mark_root(root: &Path) -> CloudResult<String> {
     let id = azul_storage::ids::new_uuid();
-    write_json(&path_of(root, ROOT_MARK), &RootMark { id: id.clone() }, false)?;
+    let text = format!("{}\n", serde_json::json!({ "id": id.as_str() }));
+    let names: Vec<&str> = ROOT_MARK.split('/').collect();
+    let (name, folders) = names.split_last().unwrap_or((&ROOT_MARK, &[]));
+    Folder::open(root, folders, true)
+        .and_then(|folder| folder.write(name, &mut text.as_bytes()))
+        .with_context(|| format!("{}", path_of(root, ROOT_MARK).display()))?;
     Ok(id)
 }
 
@@ -555,6 +568,7 @@ pub fn scan(
                 continue;
             };
             if file_type.is_symlink() {
+                out.links.push(key.clone());
                 out.skipped
                     .push((key, String::from("a symbolic link (never followed)")));
                 continue;
@@ -734,15 +748,14 @@ fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
 }
 
 /// Removes the folders of `key` under `root` that a delete left empty, up to
-/// (not including) `root`.
+/// (not including) `root`; a link on the way stops it.
 pub fn prune_empty_parents(root: &Path, key: &str) {
-    let mut path = path_of(root, key);
-    while path.pop() {
-        if path == root || !path.starts_with(root) {
-            break;
-        }
-        // remove_dir only removes an empty folder; anything in it stops the walk.
-        if fs::remove_dir(&path).is_err() {
+    let names: Vec<&str> = key.split('/').collect();
+    for depth in (1..names.len()).rev() {
+        // An empty folder only goes; anything in it stops the walk.
+        let removed = Folder::open(root, &names[..depth - 1], false)
+            .and_then(|parent| parent.remove_dir(names[depth - 1]));
+        if removed.is_err() {
             break;
         }
     }

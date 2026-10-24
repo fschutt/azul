@@ -103,6 +103,9 @@ pub const SETTLE_MAX: Duration = Duration::from_secs(30);
 /// Why a file stays here unsynced ([`Action::Keep`]), in the report's `skipped`.
 pub const KEPT_HERE: &str = "the drive deleted it from another device before this device synced \
      it: it is kept here and not sent, until you edit it (then it goes up again) or delete it";
+/// Why a file of the drive is not synced here: a link lies on its way ([`local::Scan::links`]).
+pub const THROUGH_LINK: &str = "a folder on its way here is a symbolic link: nothing is \
+     written through it, and nothing behind it is taken for deleted";
 /// Below this many deletes a plan is stopped as a mass delete only when it would empty the
 /// folder ([`mass_delete`]).
 pub const MASS_DELETE_MIN: usize = 10;
@@ -196,11 +199,13 @@ impl LocalRoot {
         self
     }
 
+    /// The folder as a drive whose changes never go through a link below its root: it is
+    /// written for other devices.
     fn drive(&self) -> LocalDrive {
         if self.data_tree {
-            LocalDrive::new(&self.path)
+            LocalDrive::new(&self.path).confined()
         } else {
-            LocalDrive::without_manifest(&self.path)
+            LocalDrive::without_manifest(&self.path).confined()
         }
     }
 }
@@ -1882,7 +1887,13 @@ fn run<R: SyncRemote + ?Sized>(
     report.hashed = scan.hashed;
     report.excluded = scan.excluded;
     report.skipped = scan.skipped.clone();
-    let excluded = |key: &str| root.rules.excluded(key).is_some();
+    // A key at or under a link here is neither written through it nor taken for deleted.
+    let behind: Vec<String> = scan.links.iter().map(|link| format!("{link}/")).collect();
+    let linked = |key: &str| {
+        scan.links.iter().any(|link| link == key)
+            || behind.iter().any(|b| key.starts_with(b.as_str()))
+    };
+    let excluded = |key: &str| root.rules.excluded(key).is_some() || linked(key);
     let date = today();
     let empty_base: BTreeMap<String, BaseEntry> = BTreeMap::new();
     let mut cached = load_cache(index_path, &index);
@@ -2024,6 +2035,12 @@ fn run<R: SyncRemote + ?Sized>(
         }
     };
     report.generation = committed.generation;
+    for key in committed.files.keys().filter(|key| linked(key)) {
+        report.errors.push(format!("{key}: {THROUGH_LINK}"));
+        report
+            .file_errors
+            .push((key.clone(), String::from(THROUGH_LINK)));
+    }
     let mut base = if reset {
         BTreeMap::new()
     } else {

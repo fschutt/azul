@@ -970,9 +970,10 @@ impl SyncSession {
             });
         }
         // The folders of cloud-only files are here: the folder browses as the drive does.
+        let drive = root.drive();
         for (key, _) in states.files.iter().filter(|(_, r)| r.cloud_only) {
-            if let Some(parent) = local::path_of(&self.setup.folder, key).parent() {
-                let _ = fs::create_dir_all(parent);
+            if let Some(i) = key.rfind('/') {
+                let _ = drive.create_folder(&key[..=i]);
             }
         }
         let freed = self.keep_cap(states);
@@ -1165,12 +1166,8 @@ impl SyncSession {
                     entry.mtime_ns = 0;
                 }
             }
-            let path = local::path_of(&self.setup.folder, key);
-            match fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("{}", path.display())),
-            }
+            // Never through a link on its way (a file that is not there is fine).
+            self.root().drive().delete(key)?;
             states.files.remove(key);
         }
         if let Some(index) = &index {
@@ -1255,15 +1252,11 @@ impl SyncSession {
         for key in &cloud {
             self.open(key)?;
         }
-        let from_path = local::path_of(&self.setup.folder, from);
-        let to_path = local::path_of(&self.setup.folder, to);
-        if fs::symlink_metadata(&to_path).is_ok() {
+        if fs::symlink_metadata(local::path_of(&self.setup.folder, to)).is_ok() {
             fail!("{} is there already", to.trim_end_matches('/'));
         }
-        if let Some(parent) = to_path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("{}", parent.display()))?;
-        }
-        fs::rename(&from_path, &to_path).with_context(|| format!("{}", from_path.display()))?;
+        // One rename, never through a link on the way of either name.
+        self.root().drive().rename(from, to)?;
         // The states follow at once (the next pass makes it so on the drive).
         let mut states = self.states();
         let moved: Vec<String> = states.under(&[from.to_string()], false);
