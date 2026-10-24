@@ -231,6 +231,15 @@ pub struct NodeCache {
     /// taffy cache is empty, dropped by the first store into it after it was
     /// emptied, and by [`Self::clear`].
     pub taffy_width_only: Option<Box<super::taffy_bridge::TaffyWidthOnlyAnswers>>,
+
+    /// Whether this node's subtree lays out alike at every definite height
+    /// it is given ([`lays_out_alike_at_every_given_height`]), once decided.
+    /// Read by the cache key of [`calculate_layout_for_subtree`] (such a
+    /// subtree's layout is kept by the width of its containing block) and by
+    /// a flex row's width-only answers. A property of the subtree's styles and
+    /// shape alone, so [`Self::clear`] forgets it: a dirty mark of the node or
+    /// of anything below it clears the node.
+    pub free_of_given_height: Option<bool>,
 }
 
 impl Default for NodeCache {
@@ -244,6 +253,7 @@ impl Default for NodeCache {
             taffy_measure_spill: None,
             taffy_slots_stored: 0,
             taffy_width_only: None,
+            free_of_given_height: None,
         }
     }
 }
@@ -261,6 +271,7 @@ impl NodeCache {
         self.taffy_measure_spill = None;
         self.taffy_slots_stored = 0;
         self.taffy_width_only = None;
+        self.free_of_given_height = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -3144,6 +3155,224 @@ pub(crate) fn forwards_containing_block_height(tree: &LayoutTree, node_index: us
     !(content_sized_block && in_a_block_container)
 }
 
+/// Whether the layout of `node_index`'s subtree comes out the same at every
+/// definite height it is given: the height of the containing block its
+/// parent hands it, the space a flex container lets it take. Nothing in such
+/// a subtree is sized against that height or placed in it, so a box that
+/// only got another height around it keeps its layout - the rows of a list
+/// inside a flex item when a ribbon above grows and the item gets shorter -
+/// and a flex row's width does not follow the height it is stretched to.
+///
+/// Decided box by box and conservatively
+/// ([`box_lays_out_alike_at_every_given_height`]); a subtree is free when
+/// every box in it is. A document that declares `shape-inside` or
+/// `shape-outside` is free nowhere: its shapes are drawn into the available
+/// height. Memoised in `NodeCache::free_of_given_height`.
+pub(crate) fn lays_out_alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+) -> bool {
+    use azul_css::compact_cache::{DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE};
+
+    let Some(entry) = map.entries.get(node_index) else {
+        return false;
+    };
+    if let Some(known) = entry.free_of_given_height {
+        return known;
+    }
+    let shapes_declared = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| {
+            cc.dom_declared_flags & (DOM_HAS_SHAPE_INSIDE | DOM_HAS_SHAPE_OUTSIDE) != 0
+        });
+    if shapes_declared {
+        map.entries[node_index].free_of_given_height = Some(false);
+        return false;
+    }
+    // Post-order without recursion: a box is decided once its children are.
+    // A child outside the cache map is never decided, and its parent is not
+    // free.
+    let mut stack: Vec<(usize, bool)> = vec![(node_index, false)];
+    while let Some((idx, children_decided)) = stack.pop() {
+        if map
+            .entries
+            .get(idx)
+            .is_none_or(|e| e.free_of_given_height.is_some())
+        {
+            continue;
+        }
+        if children_decided {
+            let free = tree.children(idx).iter().all(|&child| {
+                map.entries
+                    .get(child)
+                    .and_then(|e| e.free_of_given_height)
+                    == Some(true)
+            });
+            map.entries[idx].free_of_given_height = Some(free);
+        } else if box_lays_out_alike_at_every_given_height(tree, styled_dom, idx) {
+            stack.push((idx, true));
+            for &child in tree.children(idx) {
+                if map
+                    .entries
+                    .get(child)
+                    .is_some_and(|e| e.free_of_given_height.is_none())
+                {
+                    stack.push((child, false));
+                }
+            }
+        } else {
+            map.entries[idx].free_of_given_height = Some(false);
+        }
+    }
+    map.entries[node_index].free_of_given_height == Some(true)
+}
+
+/// [`lays_out_alike_at_every_given_height`] for one box, its children
+/// aside. Not free: a box whose `height`, `min-height`, `max-height` or
+/// `flex-basis` is a percentage, a `calc()` or a viewport length (a resize
+/// keeps the per-node cache); a table box, a grid or a grid item (their
+/// algorithms size rows and tracks into the space); an absolutely positioned,
+/// fixed or sticky box (inset into a containing block); a scroll container
+/// (it keeps the height it is given); a replaced element (its size follows
+/// its aspect); a wrapping flex container or a multi-column box (they break
+/// their lines and columns in the space); a box with an aspect ratio or in a
+/// vertical writing mode. An anonymous box has no style: its children decide.
+fn box_lays_out_alike_at_every_given_height(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+) -> bool {
+    use azul_css::props::{
+        basic::{PixelValue, SizeMetric},
+        layout::{flex::LayoutFlexBasis, LayoutFlexWrap},
+        style::effects::StyleAspectRatio,
+    };
+
+    let id = LayoutNodeId::new(node_index);
+    let (Some(node), Some(warm)) = (tree.get(id), tree.warm(id)) else {
+        return false;
+    };
+    let sized_by_its_surroundings = |fc: FormattingContext| {
+        matches!(
+            fc,
+            FormattingContext::Table
+                | FormattingContext::TableRowGroup
+                | FormattingContext::TableRow
+                | FormattingContext::TableCell
+                | FormattingContext::TableColumnGroup
+                | FormattingContext::TableCaption
+                | FormattingContext::Grid
+                | FormattingContext::OutOfFlow(_)
+        )
+    };
+    if sized_by_its_surroundings(node.formatting_context)
+        || node
+            .parent
+            .and_then(|p| tree.get(LayoutNodeId::new(p)))
+            .is_some_and(|p| sized_by_its_surroundings(p.formatting_context))
+    {
+        return false;
+    }
+    let Some(dom_id) = node.dom_node_id else {
+        return true;
+    };
+    let style = &warm.computed_style;
+    if !matches!(
+        style.position,
+        LayoutPosition::Static | LayoutPosition::Relative
+    ) || style.writing_mode != LayoutWritingMode::HorizontalTb
+        || matches!(
+            style.overflow_x,
+            LayoutOverflow::Scroll | LayoutOverflow::Auto
+        )
+        || matches!(
+            style.overflow_y,
+            LayoutOverflow::Scroll | LayoutOverflow::Auto
+        )
+    {
+        return false;
+    }
+    let reads_the_space = |pv: &PixelValue| {
+        matches!(
+            pv.metric,
+            SizeMetric::Percent | SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax
+        )
+    };
+    let height_reads_the_space = match &style.height {
+        None | Some(LayoutHeight::Auto | LayoutHeight::MinContent | LayoutHeight::MaxContent) => {
+            false
+        }
+        Some(LayoutHeight::Px(pv) | LayoutHeight::FitContent(pv)) => reads_the_space(pv),
+        Some(LayoutHeight::Calc(_)) => true,
+    };
+    if height_reads_the_space
+        || style
+            .min_height
+            .as_ref()
+            .is_some_and(|m| reads_the_space(&m.inner))
+        || style
+            .max_height
+            .as_ref()
+            .is_some_and(|m| reads_the_space(&m.inner))
+    {
+        return false;
+    }
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    if node_data.is_sized_replaced_node()
+        || super::multicol::is_multicol_box(styled_dom, Some(dom_id))
+    {
+        return false;
+    }
+    let state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let cache = styled_dom.get_css_property_cache();
+    let declared = |ty: CssPropertyType| cache.get_property(node_data, &dom_id, state, &ty);
+    let wraps = matches!(
+        declared(CssPropertyType::FlexWrap),
+        Some(CssProperty::FlexWrap(v))
+            if matches!(v.get_property(), Some(LayoutFlexWrap::Wrap | LayoutFlexWrap::WrapReverse))
+    );
+    let basis_reads_the_space = matches!(
+        declared(CssPropertyType::FlexBasis),
+        Some(CssProperty::FlexBasis(v))
+            if matches!(v.get_property(), Some(LayoutFlexBasis::Exact(pv)) if reads_the_space(pv))
+    );
+    let has_an_aspect_ratio = matches!(
+        declared(CssPropertyType::AspectRatio),
+        Some(CssProperty::AspectRatio(v)) if matches!(v.get_property(), Some(StyleAspectRatio::Ratio(_)))
+    );
+    !(wraps || basis_reads_the_space || has_an_aspect_ratio)
+}
+
+/// The containing block `node_index`'s layout is cached under: the one it is
+/// laid out in, or - for a subtree that lays out alike at every definite
+/// height ([`lays_out_alike_at_every_given_height`]) - that block with its
+/// definite height replaced by a key of the viewport. A block that changed
+/// only its height then finds the layout it holds. The key is negative, so
+/// the cache's "result matches request" rule never takes it for a laid-out
+/// size; it names the viewport's height because a resize keeps the per-node
+/// cache, and a font sized in viewport units still moves with it.
+fn cache_key_block<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+    block: LogicalSize,
+) -> LogicalSize {
+    const INDEFINITE: f32 = 1.0e9;
+    if !(block.height.is_finite() && block.height.abs() < INDEFINITE) {
+        return block;
+    }
+    let styled_dom = ctx.styled_dom;
+    if !lays_out_alike_at_every_given_height(&mut ctx.cache_map, tree, styled_dom, node_index) {
+        return block;
+    }
+    LogicalSize::new(block.width, -1.0 - ctx.viewport_size.height.max(0.0))
+}
+
 /// Result of `prepare_layout_context`: contains the layout constraints and
 /// intermediate values needed for `calculate_layout_for_subtree`.
 struct PreparedLayoutContext<'a> {
@@ -4031,6 +4260,14 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Legacy flattened view for the cache keys and the not-yet-migrated
     // consumers in this body; the typed `cb` travels to sizing and recursion.
     let containing_block_size = cb.flattened();
+    // What the node's layout is cached under: the block, or for a subtree
+    // that lays out alike at every definite height, the block's width alone
+    // (`cache_key_block`). Fragment passes are never cached.
+    let cache_key_size = if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
+        cache_key_block(ctx, tree, node_index, containing_block_size)
+    } else {
+        containing_block_size
+    };
     // [g147b az-web-lift DIAG] per-node calculate_layout_for_subtree entry (0x60980+slot): records
     // the last compute_mode that reached this node (PerformLayout=2 wins, runs after
     // ComputeSize=1). If a div shows 0x...0002 here but its layout_formatting_context marker
@@ -4087,7 +4324,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // visit (indefinite height) and the final visit (definite
                 // height) land in different slots, so neither evicts the
                 // other — the slot-0 collapse made every visit a miss.
-                let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
+                let (size_slot, size_key) = NodeCache::classify_size_key(cache_key_size);
                 // This is the node's layout (its parent's Pass 1; the children
                 // are only positioned after), and whatever it leaves behind
                 // may be what the page keeps - a final layout further up can
@@ -4117,7 +4354,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 }
                 // Fall through to layout slot check
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(containing_block_size)
+                    .get_layout(cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
@@ -4186,7 +4423,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
             ComputeMode::PerformLayout => {
                 // PerformLayout: check layout slot (the single "full layout" slot)
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(containing_block_size)
+                    .get_layout(cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
@@ -4685,7 +4922,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         ctx.cache_map
             .get_mut(node_index)
             .store_layout(LayoutCacheEntry {
-                available_size: containing_block_size,
+                available_size: cache_key_size,
                 result_size: final_used_size,
                 content_size,
                 child_positions: child_positions_for_cache,
@@ -4699,7 +4936,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         // final visit must land in different slots or they evict each other
         // every pass). The canonicalized key replaces the raw containing
         // block so an indefinite axis compares equal next time.
-        let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
+        let (size_slot, size_key) = NodeCache::classify_size_key(cache_key_size);
         ctx.cache_map.get_mut(node_index).store_size(
             size_slot,
             SizingCacheEntry {
