@@ -1460,12 +1460,12 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
     for (key, hash, outcome) in outcomes {
         let outcome = match outcome {
             Ok(outcome) => outcome,
-            // A dropped connection, a busy node: this file waits for the next run with its
-            // reason, the others reach the drive now. So does a file the drive refuses for
-            // itself (too large) and one a full or unpaid drive takes no more of (its reads, its
-            // deletes and the other devices' files still sync). What the user must act on
-            // before anything works (a device removed) fails the run, which says it.
-            Err(e) if passes(&e) || waits_listed(&e) => {
+            // A dropped connection, a busy node, a server that fails this one object, a file
+            // the drive refuses for itself (too large), a full or unpaid drive that takes no
+            // more files (its reads and deletes still sync): this file waits for the next run,
+            // listed with its reason, and the others reach the drive now. What the user must
+            // act on before anything works (sign in again, unlock) fails the run, which says it.
+            Err(e) if !stops_the_run(&e) => {
                 listed_upload_failure(report, &key, &e);
                 abandoned.insert(key);
                 if passes(&e) {
@@ -1529,12 +1529,18 @@ fn listed_upload_failure(report: &mut SyncReport, key: &str, e: &CloudError) {
     report.problems.push(problems::Problem::of_error(key, e));
 }
 
-/// An upload error of the file alone (the drive refuses it: too large) or of the drive's writes
-/// alone (full, unpaid: no more uploads, reads go on): the file waits, listed with its reason,
-/// and the run goes on.
-fn waits_listed(e: &CloudError) -> bool {
-    UserError::from_cloud_error(e).is_some_and(|user| {
-        matches!(user.behaviour(), Behaviour::SkipFile | Behaviour::StopUploads)
+/// Whether an upload error stops the whole run: this device's access to the drive is gone (it
+/// must sign in again or unlock the drive), or the error is no answer of the drive at all. Any
+/// other is about the file (too large, a server failing this object), the moment (a busy
+/// node) or the drive's writes (full, unpaid, locked down: reads and deletes go on): the file
+/// waits, listed, and the rest of the run goes on.
+fn stops_the_run(e: &CloudError) -> bool {
+    UserError::from_cloud_error(e).is_none_or(|user| {
+        user.class() == Class::ReAuth
+            || matches!(
+                user.behaviour(),
+                Behaviour::SignInAgain | Behaviour::RefreshSession | Behaviour::Unlock
+            )
     })
 }
 

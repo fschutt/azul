@@ -71,6 +71,11 @@ pub(super) struct NamedFiles<'d> {
     seen: Mutex<BTreeMap<String, String>>,
     /// The drive keys (without the prefix) this run moved away: their delete is done already.
     moved: Mutex<BTreeSet<String>>,
+    /// Whether an upload of this run reached the drive, and the first that failed by itself
+    /// (no connection, a busy node): when none went through the run fails with it, as the
+    /// index sync's does - the drive cannot be reached, which "files cannot sync" would hide.
+    sent_any: AtomicBool,
+    transient: Mutex<Option<CloudError>>,
 }
 
 /// Large files a batch takes before it is sent (and named in one commit of an encrypted
@@ -169,6 +174,8 @@ impl<'d> NamedFiles<'d> {
             dirty: AtomicBool::new(false),
             seen: Mutex::new(BTreeMap::new()),
             moved: Mutex::new(BTreeSet::new()),
+            sent_any: AtomicBool::new(false),
+            transient: Mutex::new(None),
         }
     }
 
@@ -267,9 +274,12 @@ impl<'d> NamedFiles<'d> {
                 Err(e) => {
                     tell_finished(work, &b.key, bytes, Some(e.to_string()));
                     let e = CloudError::from(e);
-                    if super::waits_listed(&e) {
+                    if !super::stops_the_run(&e) {
                         super::listed_upload_failure(report, &b.key, &e);
                         abandoned.insert(b.key.clone());
+                        if super::passes(&e) {
+                            self.passing(e);
+                        }
                     } else {
                         stop.get_or_insert(e);
                     }
@@ -341,9 +351,12 @@ impl<'d> NamedFiles<'d> {
                 Err(e) => {
                     tell_finished(work, &sending.key, sending.job.size, Some(e.to_string()));
                     let e = CloudError::from(e);
-                    if super::waits_listed(&e) {
+                    if !super::stops_the_run(&e) {
                         super::listed_upload_failure(report, &sending.key, &e);
                         abandoned.insert(sending.key.clone());
+                        if super::passes(&e) {
+                            self.passing(e);
+                        }
                     } else {
                         stop.get_or_insert(e);
                     }
@@ -410,9 +423,15 @@ impl<'d> NamedFiles<'d> {
         unmoved
     }
 
+    /// An upload failed by itself (it waits for the next run, listed): the first such error.
+    fn passing(&self, e: CloudError) {
+        lock(&self.transient).get_or_insert(e);
+    }
+
     /// `target` now holds `hash` on the drive, at the version `etag` (asked of the drive when
     /// the write did not say).
     fn sent(&self, target: &str, etag: Option<String>, hash: &str) {
+        self.sent_any.store(true, Ordering::SeqCst);
         let etag = match etag {
             Some(etag) => bare(&etag),
             None => self.tag_now(target).ok().flatten().unwrap_or_default(),
@@ -667,6 +686,12 @@ impl SyncRemote for NamedFiles<'_> {
         }
         self.send_batch(small, work, report, &mut abandoned)?;
         self.send_large(large, work, report, &mut abandoned)?;
+        // Nothing went through and something failed by itself: the drive cannot be reached.
+        if !self.sent_any.load(Ordering::SeqCst) {
+            if let Some(e) = lock(&self.transient).take() {
+                return Err(e);
+            }
+        }
         Ok(abandoned)
     }
 
