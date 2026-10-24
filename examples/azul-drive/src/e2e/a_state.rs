@@ -41,6 +41,8 @@ pub(super) struct AState {
     /// The key entries `drive_lock` took off a remote's keyring, by remote (`drive_unlock`
     /// puts them back): entry name and secret.
     pub keys_aside: BTreeMap<String, Vec<(String, String)>>,
+    /// The racers swapping a device's folder for a link (`drive_racer`), by device.
+    pub racers: BTreeMap<String, super::a_files::Racer>,
 }
 
 static A: Mutex<Option<AState>> = Mutex::new(None);
@@ -59,6 +61,7 @@ pub(super) fn with_a<T>(f: impl FnOnce(&mut AState) -> T) -> Result<T, String> {
             volumes: BTreeMap::new(),
             verified: BTreeSet::new(),
             keys_aside: BTreeMap::new(),
+            racers: BTreeMap::new(),
         });
     }
     guard

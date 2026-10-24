@@ -37,7 +37,6 @@
   {
     "name": "Explorer-style I/O (the size set first, 64 KiB chunks written out of order) uploads the final bytes exactly",
     "description": "ICEDRIVE-009 (Icedrive), the catalogue's repro: out-of-order 64 KiB writes into a file extended sparsely with SetEndOfFile, then closed. Rule A6: the uploaded object's hash equals the final local content's hash, and a pass that meets the file half written commits nothing of it.",
-    "pending": "drive_write_at {device, path, offset, content as drive_write} (writes the bytes at that offset, no truncation) and drive_truncate {device, path, size} (SetEndOfFile: a sparse extension or a cut)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

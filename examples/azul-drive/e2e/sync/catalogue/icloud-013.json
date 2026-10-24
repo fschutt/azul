@@ -51,7 +51,6 @@
   {
     "name": "a process flips a folder between a real folder and a link to outside while 200 files come down into it",
     "description": "ICLOUD-013 (sync-chaos sec-toctou-racer): the same protection under a real race (rules S3, S2): nothing is written outside, no temp file is left.",
-    "pending": "drive_racer {device, path, target} (a thread that swaps the folder at path with a link to target and back, as fast as it can) and drive_racer_stop {device}",
     "steps": [
       { "op": "drive_create", "remote": "r3", "encrypted": false },
       { "op": "drive_open", "device": "d", "remote": "r3" },

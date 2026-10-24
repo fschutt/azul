@@ -268,6 +268,13 @@ pub(crate) enum SyncJob {
     /// The read-back of both sides (azcloud-kit's `sync::verify`): damaged copies healed from
     /// good ones; its report kept in the state folder.
     Verify { work: SyncWork },
+    /// Files moved into the synced folder at `key`: copied now, each source removed once a pass
+    /// committed its copy (azcloud-kit's `sync::movein`).
+    MoveIn {
+        work: SyncWork,
+        from: PathBuf,
+        key: String,
+    },
 }
 
 /// What a pass did, in counts.
@@ -332,6 +339,8 @@ pub(crate) enum SyncChange {
     SentAgain(usize),
     /// The read-back ran.
     Verified,
+    /// Files were moved in (their sources wait for the drive).
+    MovedIn,
 }
 
 /// A sync job's answer, on the UI thread.
@@ -601,6 +610,19 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Verified,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::MoveIn { work, from, key } => {
+            let session = work.session();
+            let result = session
+                .move_in(&from, &key)
+                .map(|copied| Text::plain(format!("{} {key}", copied.len())))
+                .map_err(|e| cloud_error_text(&e));
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::MovedIn,
                 result,
                 states: session.states(),
             }
@@ -1096,6 +1118,23 @@ pub(crate) fn free_up(
         return false;
     };
     spawn(info, app, s, Job::Sync(SyncJob::FreeUp { work, keys }));
+    true
+}
+
+/// `from` (outside the synced folder) moved into synced drive `drive_id` at `key`, on a worker
+/// thread. Whether the job started.
+pub(crate) fn move_in(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    from: PathBuf,
+    key: String,
+) -> bool {
+    let Some(work) = work_of(info, s, drive_id) else {
+        return false;
+    };
+    spawn(info, app, s, Job::Sync(SyncJob::MoveIn { work, from, key }));
     true
 }
 
@@ -1698,6 +1737,11 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                 }
                 (SyncChange::Verified, Ok(what)) => {
                     println!("AZDRIVE_SYNC_VERIFIED {drive_id} {what}");
+                }
+                (SyncChange::MovedIn, Ok(what)) => {
+                    println!("AZDRIVE_SYNC_MOVED_IN {drive_id} {what}");
+                    // The copies go up now; their sources go once they landed.
+                    request_pass(info, app, s, &drive_id);
                 }
                 (SyncChange::Answered, Ok(what)) => {
                     println!("AZDRIVE_SYNC_ANSWERED {drive_id} {what}");

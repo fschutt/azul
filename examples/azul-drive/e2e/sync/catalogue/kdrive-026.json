@@ -38,7 +38,6 @@
   {
     "name": "a cloud-only file's stub copied into another pairing's folder is never uploaded as a stub",
     "description": "KDRIVE-026 (kDrive): 1 KB dehydrated placeholders copied out of the folder were used to seed a new sync. Rules P13 and A6: a copy of a cloud-only file is hydrated first or refused, never uploaded as a stub.",
-    "pending": "drive_evict {device, path or glob} (make a file cloud-only) and drive_copy {device, from, to} (a plain file copy through the OS, as Explorer or Finder copies a placeholder)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_create", "remote": "r2" },

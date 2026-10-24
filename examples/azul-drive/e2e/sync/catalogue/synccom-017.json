@@ -2,7 +2,6 @@
   {
     "name": "a folder of 12,000 files reaches a new device whole, through two interruptions (no per-folder cap)",
     "description": "SYNCCOM-017 (Sync.com): a fresh install missed files in the first sync, folders were capped at 10,000 files. Rules E7/E8/A4 (sync-chaos res-many-small-files-20k, res-kill9-random): no cap, an interrupted first sync converges, nothing doubled or lost.",
-    "pending": "drive_many {\"device\":\"a\",\"dir\":\"big\",\"count\":12000,\"flat\":true,\"text_prefix\":\"rec\"} (all files in ONE folder; drive_many always splits into d000.. subfolders of 500)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r" },

@@ -146,7 +146,6 @@
   {
     "name": "a real Finder alias to a secret outside the root syncs as the small file it is, its target never read, 20 quiet cycles",
     "description": "KDRIVE-009 (kDrive): a Finder alias (bookmark data with com.apple.FinderInfo 'alis'). Rule S6: the alias's target is never resolved, the file syncs once and then nothing moves. sync-chaos sec-macos-alias.",
-    "pending": "drive_alias_file {device, path, target}: a macOS Finder alias (bookmark data plus the com.apple.FinderInfo 'alis' flag) pointing at target",
     "only_on": ["macos"],
     "steps": [
       { "op": "drive_create", "remote": "r" },

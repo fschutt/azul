@@ -7,7 +7,8 @@
 use azul::prelude::*;
 
 use super::{
-    a_drive, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer, Args,
+    a_drive, a_files, a_lock, a_ops, a_pair, a_place, a_store, a_verify, a_versions, str_arg, Answer,
+    Args,
     OpDoc,
     DEVICE, PATH,
 };
@@ -41,6 +42,16 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_browse", summary: "the window's listing of the drive", args: &[DEVICE, ("path", "string", false), ("timeout_ms", "number", false)] },
     OpDoc { name: "drive_migrate", summary: "the drive copied whole to a new backend", args: &[("remote", "string", true), ("to", "string", true)] },
     OpDoc { name: "drive_repoint", summary: "the device's drive opened at another remote", args: &[DEVICE, ("remote", "string", true)] },
+    OpDoc { name: "drive_write_at", summary: "content written at an offset, nothing cut", args: &[DEVICE, PATH, ("offset", "number", true)] },
+    OpDoc { name: "drive_patch", summary: "bytes patched in place", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false)] },
+    OpDoc { name: "drive_truncate", summary: "a file's size set", args: &[DEVICE, PATH, ("size", "number", true)] },
+    OpDoc { name: "drive_sparse", summary: "a sparse file", args: &[DEVICE, PATH, ("size", "number", true), ("data_at", "number", false)] },
+    OpDoc { name: "drive_copy", summary: "a file copied through the system", args: &[DEVICE, ("from", "string", true), ("to", "string", true)] },
+    OpDoc { name: "drive_move_in", summary: "a move into the folder: the source goes once the copy landed", args: &[DEVICE, ("from", "string", true), ("to", "string", true)] },
+    OpDoc { name: "drive_alias_file", summary: "a Finder alias (macOS)", args: &[DEVICE, PATH, ("target", "string", true)] },
+    OpDoc { name: "drive_junction", summary: "a directory junction (Windows)", args: &[DEVICE, PATH, ("target", "string", true)] },
+    OpDoc { name: "drive_racer", summary: "a folder swapped for a link and back, fast", args: &[DEVICE, PATH, ("target", "string", true)] },
+    OpDoc { name: "drive_racer_stop", summary: "the racer stops, the folder is back", args: &[DEVICE] },
     OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
     OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
@@ -51,6 +62,7 @@ pub(super) fn handles(name: &str, args: &Args) -> bool {
     match name {
         "drive_pair" => a_pair::has_options(args),
         "drive_sync" => args.contains_key("verify"),
+        "drive_many" => args.get("flat").and_then(serde_json::Value::as_bool) == Some(true),
         "drive_check" => str_arg(args, "check").is_some_and(|c| a_store::CHECKS.contains(&c)),
         _ => OPS.iter().any(|op| op.name == name),
     }
@@ -71,6 +83,16 @@ pub(super) fn run(
         "drive_versions" => a_versions::versions(s, args),
         "drive_check" => a_store::check(s, args),
         "drive_browse" => a_drive::browse(s, args),
+        "drive_many" => a_files::many_flat(args),
+        "drive_write_at" | "drive_patch" => a_files::write_at_step(args),
+        "drive_truncate" => a_files::truncate(args),
+        "drive_sparse" => a_files::sparse(args),
+        "drive_copy" => a_files::copy(info, app, s, args),
+        "drive_move_in" => a_files::move_in(info, app, s, args),
+        "drive_alias_file" => a_files::alias_file(args),
+        "drive_junction" => a_files::junction(args),
+        "drive_racer" => a_files::racer(args),
+        "drive_racer_stop" => a_files::racer_stop(args),
         "drive_migrate" => a_drive::migrate(args),
         "drive_repoint" => a_drive::repoint(s, args),
         "drive_state_format" => a_store::state_format(args),
@@ -102,5 +124,12 @@ pub(super) fn run(
 
 /// Before the sandbox goes (`drive_cleanup`): the files a scenario held locked are let go.
 pub(super) fn cleanup() {
-    super::a_state::peek(|a| a.locks.clear());
+    let racers = super::a_state::peek(|a| {
+        a.locks.clear();
+        std::mem::take(&mut a.racers)
+    });
+    // A racer stops before the sandbox goes, its folder back in place.
+    for racer in racers.unwrap_or_default().into_values() {
+        racer.stop();
+    }
 }

@@ -30,7 +30,6 @@
   {
     "name": "one byte changed in a 256 MiB file sends about one chunk",
     "description": "DEGOO-012 (sync-chaos perf-delta-upload): a 1-character change re-uploaded the whole file. Rules E7 and I1: a 1-byte change sends at most a few 4 MiB chunks (the counter is cumulative: the first upload plus at most 16 MiB).",
-    "pending": "drive_patch {device, path, offset, hex} (write bytes at an offset in place, the file otherwise unchanged); the engine's chunk-level delta upload (later work: the v1 engine sends whole files)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },

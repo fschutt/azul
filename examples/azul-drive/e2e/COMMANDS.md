@@ -634,3 +634,29 @@ for byte to a new one (the index with its tombstones, the blobs, an encrypted dr
 and keys), as a backend migration does: the drive keeps its identity and keys.
 `drive_repoint` opens the device's drive at another remote with the same pairing, state folder
 and folder.
+
+### What other programs do to the folder
+
+| op | arguments | result |
+|---|---|---|
+| `drive_write_at` / `drive_patch` | `device`, `path`, `offset`, content as `drive_write` | `written` |
+| `drive_truncate` | `device`, `path`, `size` | `size` |
+| `drive_sparse` | `device`, `path`, `size`, `data_at`, content | `size` |
+| `drive_copy` | `device`, `from`, `to` | `copied` (bytes) |
+| `drive_move_in` | `device`, `from` (outside the folder), `to` (a key) | `moved` |
+| `drive_alias_file` | `device`, `path`, `target` (macOS) | `bytes` |
+| `drive_junction` | `device`, `path`, `target` (Windows) | - |
+| `drive_racer` / `drive_racer_stop` | `device`, `path` (a folder), `target` | `racing` / `swaps` |
+| `drive_many` | as above, plus `flat` (bool: every file straight in `dir`) | `files` |
+
+`drive_write_at` writes into a file without cutting it (Explorer's out-of-order chunks), and
+`drive_truncate` sets its size (a hole of zeros when it grows). `drive_copy` copies through the
+system; a cloud-only file is brought down first, as reading it through the system does, so a
+stand-in is never copied. `drive_move_in` is AzDrive's move into a synced folder (azcloud-kit's
+`sync::movein`): the files are copied at once and a pass starts; each source is removed only
+once a pass committed its copy with the source's content, a changed source never, a folder
+once it is empty (an empty folder moved in has nothing for the drive to hold and stays).
+`drive_alias_file` makes a Finder alias (bookmark data naming the target, the Finder's alias
+flags in `com.apple.FinderInfo`), `drive_junction` a junction (`mklink /J`). `drive_racer` runs a
+thread that swaps the folder for a link to `target` and back as fast as it can (the real folder
+waiting outside the device's folder), until `drive_racer_stop` (or `drive_cleanup`) puts it back.

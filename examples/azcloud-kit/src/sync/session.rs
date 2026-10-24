@@ -1019,6 +1019,10 @@ impl SyncSession {
             Err(_) => fail!("the sync of {} stopped unexpectedly", self.setup.folder.display()),
         };
         record(states, &report, &moved);
+        // Sources moved into the folder go once the drive holds their copies.
+        if let Some(remote) = &report.remote {
+            super::movein::settle(&self.dir, remote);
+        }
         // An answer given while this pass ran (it waits for a quiet folder first) came after
         // the states it read: it is the next pass's, and the question it answered is not asked
         // again.
@@ -1291,6 +1295,23 @@ impl SyncSession {
             super::evict::note_problem(&self.dir, problem.clone());
         }
         Ok(report)
+    }
+
+    /// Moves `from` (a file or folder outside the synced folder) in at `key`: copied at once,
+    /// each source removed only after a pass committed its copy ([`super::movein`]). The keys.
+    ///
+    /// # Errors
+    ///
+    /// With encrypted local copies (no folder to move into), when `from` is in the folder, the
+    /// key is taken, or a copy fails.
+    pub fn move_in(&self, from: &Path, key: &str) -> CloudResult<Vec<String>> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!("a pairing of encrypted local copies keeps no folder to move files into");
+            }
+        }
+        super::movein::move_in(&self.setup.folder, &self.dir, from, key)
     }
 
     /// Marks `key` used now (it was opened): the size cap frees it last. A file the drive does

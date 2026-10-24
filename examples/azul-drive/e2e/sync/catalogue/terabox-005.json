@@ -32,7 +32,7 @@
   {
     "name": "a 6 GiB file is streamed both ways, never held in memory",
     "description": "TERABOX-005 (TeraBox), the size itself. Rule P8 (huge files stream in parts both ways and resume). sync-chaos port-huge-file.",
-    "pending": "drive_sparse {\"device\": \"a\", \"path\": \"backup.tar\", \"size\": 6442450944, \"data_at\": 5368709120, \"text\": \"past four gibibytes\"} (a sparse file: needs ~13 GB free, a slow run only)",
+    "pending": "heavy, run by hand: drive_sparse exists; the test moves a 6 GiB file each way (about 13 GB free on the disk of the sandbox), more than an E2E batch may take",
     "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },

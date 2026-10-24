@@ -38,19 +38,27 @@
   {
     "name": "a move into the drive removes the source only after the drive acknowledged it",
     "description": "ICEDRIVE-004 (Icedrive): move-to-cloud deleted the sources of failed uploads. Rules P13/D6 (sync-chaos placeholder-evict-only-uploaded).",
-    "pending": "drive_move_in {\"device\":\"a\",\"from\":\"{outside}/victim\",\"to\":\"moved\"} (AzDrive's move of files from outside into the drive: the source removed only after the drive's commit with a matching hash)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
       { "op": "drive_pair", "device": "a" },
       { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "{run}/incoming/report.txt", "text": "moved in" },
       { "op": "drive_fault", "device": "a", "refuse_ops": ["put"] },
-      { "op": "drive_move_in", "device": "a", "from": "{outside}/victim", "to": "moved" },
+      { "op": "drive_move_in", "device": "a", "from": "{run}/incoming", "to": "moved" },
+      { "op": "drive_move_in", "device": "a", "from": "{outside}/victim", "to": "victim" },
       { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_read", "path": "{run}/incoming/report.txt" },
+      { "op": "assert_response", "path": "result.exists", "equals": true },
+      { "op": "drive_check", "check": "remote_file", "key": "moved/report.txt", "absent": true },
       { "op": "drive_check", "check": "outside_untouched" },
       { "op": "drive_fault", "device": "a", "clear": true },
       { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "moved/report.txt", "text": "moved in" },
+      { "op": "drive_read", "path": "{run}/incoming/report.txt" },
+      { "op": "assert_response", "path": "result.exists", "equals": false },
+      { "op": "drive_check", "check": "outside_untouched" },
       { "op": "drive_cleanup" }
     ]
   }
