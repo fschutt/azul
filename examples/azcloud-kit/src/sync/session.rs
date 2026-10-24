@@ -853,8 +853,8 @@ impl SyncSession {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
-        fs::create_dir_all(&self.setup.folder)
-            .with_context(|| format!("{}", self.setup.folder.display()))?;
+        // The folder is never made here: one that is gone (a disk not plugged in) fails the
+        // pass, and nothing changes on either side.
         let root = self.root();
         let mut opts = self.options()?;
         // The user's answers, for this pass.

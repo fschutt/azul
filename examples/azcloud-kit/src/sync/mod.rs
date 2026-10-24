@@ -103,7 +103,8 @@ pub const SETTLE_MAX: Duration = Duration::from_secs(30);
 /// Why a file stays here unsynced ([`Action::Keep`]), in the report's `skipped`.
 pub const KEPT_HERE: &str = "the drive deleted it from another device before this device synced \
      it: it is kept here and not sent, until you edit it (then it goes up again) or delete it";
-/// Below this many deletes a plan is never stopped as a mass delete.
+/// Below this many deletes a plan is stopped as a mass delete only when it would empty the
+/// folder ([`mass_delete`]).
 pub const MASS_DELETE_MIN: usize = 10;
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
 /// in parts - up from its file (an upload cut off goes on from the parts the bucket holds, and
@@ -593,8 +594,9 @@ pub struct MassDelete {
 }
 
 /// The mass delete a plan would make, if it would: more than [`MASS_DELETE_MIN`] deletes and
-/// more than half of the folder here or there. A delete whose content goes up under another
-/// name in the same plan is a move, not counted.
+/// more than half of the folder here or there, or every file of it when it held two or more (a
+/// small folder emptied at once: deleted by mistake, or a disk not plugged in). A delete whose
+/// content goes up under another name in the same plan is a move, not counted.
 fn mass_delete(
     actions: &[Action],
     scan: &Scan,
@@ -605,7 +607,7 @@ fn mass_delete(
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
         .map(|a| a.key().to_string())
         .collect();
-    if here.len() > MASS_DELETE_MIN && here.len() * 2 > scan.files.len() {
+    if empties(here.len(), scan.files.len()) {
         return Some(MassDelete {
             here: true,
             count: here.len(),
@@ -620,7 +622,7 @@ fn mass_delete(
         .filter(|a| !moved.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
-    if there.len() > MASS_DELETE_MIN && there.len() * 2 > base.len() {
+    if empties(there.len(), base.len()) {
         return Some(MassDelete {
             here: false,
             count: there.len(),
@@ -629,6 +631,11 @@ fn mass_delete(
         });
     }
     None
+}
+
+/// Whether `deletes` of a folder's `files` are a mass delete ([`mass_delete`]).
+fn empties(deletes: usize, files: usize) -> bool {
+    (deletes > MASS_DELETE_MIN && deletes * 2 > files) || (deletes >= 2 && deletes >= files)
 }
 
 /// The deletes on the drive a plan makes whose bytes go up under another name in the same plan:
@@ -1848,6 +1855,11 @@ fn run<R: SyncRemote + ?Sized>(
     );
     let mut index = LocalIndex::load(index_path)?
         .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
+    // A folder that is gone or not the one synced is never taken for an emptied one.
+    local::check_root(&root.path, &index)?;
+    if index.root_id.is_none() && !opts.dry_run {
+        index.root_id = Some(local::mark_root(&root.path)?);
+    }
     // The folder as it was at one moment: a change made while it is read is read again whole.
     let scan = local::scan_unchanged(
         &root.path,
@@ -2102,6 +2114,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     key: &str,
 ) -> CloudResult<PathBuf> {
     let mut index = synced_index(root, index_path)?;
+    local::check_root(&root.path, &index)?;
     let path = local::path_of(&root.path, key);
     let kept_in_cloud = index.files.get(key).is_some_and(|e| e.cloud_only);
     if !kept_in_cloud && path.is_file() {

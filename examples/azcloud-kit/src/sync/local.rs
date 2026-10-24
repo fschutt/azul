@@ -8,6 +8,11 @@
 //! of that scan, when a second edit in the same clock tick could hide behind
 //! the same time (git's "racy" files); those are read again.
 //!
+//! The folder itself must be the one the base describes ([`check_root`]): it is there, and
+//! it holds the mark its first sync left ([`ROOT_MARK`]). A disk not plugged in leaves its
+//! mount point empty, or with a stale copy; taken for the folder, its files would look deleted
+//! and be deleted on the drive and on every device.
+//!
 //! A JSON-merge file (`config.json` of the `.azlin` folder) is synced as its
 //! object WITHOUT the machine-local keys (azul-appkit's `MACHINE_LOCAL_KEYS`:
 //! `endpoints`, `updates`), keys sorted, pretty-printed: its hash is that blob's, so a
@@ -38,6 +43,9 @@ pub const LOCAL_FORMAT: &str = "azcloud.sync-local";
 /// A file whose time lies this close to the scan that recorded it is read
 /// again by the next scan.
 pub const RACY_NS: u64 = 2_000_000_000;
+/// The mark of a folder's sync, under its root: inside `.azlin/`, which no key may name and no
+/// sync takes, so no other device can write or delete it.
+pub const ROOT_MARK: &str = ".azlin/sync/root-id";
 
 /// What both sides agreed on for one file at the last sync.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +87,11 @@ pub struct LocalIndex {
     /// The burst guard's memory, and its pause ([`super::guard`]).
     #[serde(default)]
     pub guard: Guard,
+    /// The id in the folder's mark ([`ROOT_MARK`]), written by its first sync: a folder that
+    /// does not hold it is not the one this base describes, and a run there changes nothing.
+    /// `None` before the first sync, and in an index from before marks ([`check_root`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<String>,
 }
 
 impl LocalIndex {
@@ -96,6 +109,7 @@ impl LocalIndex {
             remote_etag: None,
             files: BTreeMap::new(),
             guard: Guard::default(),
+            root_id: None,
         }
     }
 
@@ -407,16 +421,88 @@ pub fn path_of(root: &Path, key: &str) -> PathBuf {
     azul_appkit::data::local_path(root, key)
 }
 
-/// Walks `root` (symbolic links are never followed) and finds every file the
-/// `rules` let through, reusing the `base`'s hash of a file whose size and
-/// time did not move since the scan at `base_scanned_ns`. A key of
-/// `json_merge` is synced as JSON without its machine-local keys. A folder
-/// that does not exist is empty.
+/// What [`ROOT_MARK`] holds.
+#[derive(Serialize, Deserialize)]
+struct RootMark {
+    id: String,
+}
+
+/// The id of `root`'s mark; `None` when it has none (or one that cannot be read).
+fn mark_of(root: &Path) -> Option<String> {
+    read_json::<RootMark>(&path_of(root, ROOT_MARK))
+        .ok()
+        .flatten()
+        .map(|mark| mark.id)
+}
+
+/// Marks `root` as the folder of a sync with a new id, and returns the id: a folder's first
+/// sync (its pairing) does it, before anything else changes.
 ///
 /// # Errors
 ///
-/// When the folder itself cannot be read; a file that cannot be read is
-/// skipped and reported.
+/// When the mark cannot be written.
+pub fn mark_root(root: &Path) -> CloudResult<String> {
+    let id = azul_storage::ids::new_uuid();
+    write_json(&path_of(root, ROOT_MARK), &RootMark { id: id.clone() }, false)?;
+    Ok(id)
+}
+
+/// Whether `root` is the folder `index` describes, checked before a run reads it. It must be
+/// there and be a folder; once synced, it must hold the mark of that sync. An index from
+/// before marks takes the folder when one of its files is here as it was synced (or none has
+/// its bytes here), and the run marks it then; a folder without any of them may be a mount
+/// point with a stale copy, so it is refused too.
+///
+/// # Errors
+///
+/// When it is not the folder: the run changes nothing, here or on the drive.
+pub fn check_root(root: &Path, index: &LocalIndex) -> CloudResult<()> {
+    match fs::metadata(root) {
+        Err(e) if e.kind() == ErrorKind::NotFound => fail!(
+            "{} is not there (a disk not plugged in, a folder moved or deleted?): nothing was \
+             synced and nothing was deleted",
+            root.display()
+        ),
+        Err(e) => return Err(e).with_context(|| format!("the folder {}", root.display())),
+        Ok(meta) if !meta.is_dir() => fail!(
+            "{} is not a folder: nothing was synced and nothing was deleted",
+            root.display()
+        ),
+        Ok(_) => {}
+    }
+    let here: Vec<(&String, &BaseEntry)> =
+        index.files.iter().filter(|(_, e)| !e.cloud_only).collect();
+    let is_the_folder = match &index.root_id {
+        Some(id) => mark_of(root).as_deref() == Some(id.as_str()),
+        None => here.is_empty() || here.iter().any(|(key, e)| as_synced(root, key, e)),
+    };
+    if !is_the_folder {
+        fail!(
+            "{} is not the folder that was synced here: the mark its first sync left \
+             ({ROOT_MARK}) is gone or another sync's (a disk not plugged in, a folder made \
+             anew?). Nothing was synced and nothing was deleted",
+            root.display()
+        );
+    }
+    Ok(())
+}
+
+/// Whether the file of `key` is here as `entry` recorded it at the last sync.
+fn as_synced(root: &Path, key: &str, entry: &BaseEntry) -> bool {
+    fs::symlink_metadata(path_of(root, key)).is_ok_and(|meta| {
+        meta.is_file() && meta.len() == entry.size && mtime_ns(&meta) == entry.mtime_ns
+    })
+}
+
+/// Walks `root` (symbolic links are never followed) and finds every file the
+/// `rules` let through, reusing the `base`'s hash of a file whose size and
+/// time did not move since the scan at `base_scanned_ns`. A key of
+/// `json_merge` is synced as JSON without its machine-local keys.
+///
+/// # Errors
+///
+/// When the folder itself cannot be read - a folder that is not there is never taken for an
+/// empty one; a file that cannot be read is skipped and reported.
 pub fn scan(
     root: &Path,
     rules: &Rules,
@@ -429,9 +515,6 @@ pub fn scan(
         started_ns: crate::now_ns(),
         ..Scan::default()
     };
-    if !root.exists() {
-        return Ok(out);
-    }
     let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
     while let Some((dir, prefix)) = stack.pop() {
         let entries = match fs::read_dir(&dir) {

@@ -914,6 +914,11 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         }
         let index_path =
             sync::local::index_path(&state.sync_dir(), &opts.bucket, &opts.prefix, &root.path);
+        // A folder never synced is made (the drive's files come into it); one synced before
+        // that is gone fails the sync and is never made again.
+        if !root.path.exists() && sync::local::LocalIndex::load(&index_path)?.is_none() {
+            std::fs::create_dir_all(&root.path)?;
+        }
         let report = match sync::sync_folder(&drive, &root, &index_path, &opts) {
             Ok(report) => report,
             Err(e) => {
