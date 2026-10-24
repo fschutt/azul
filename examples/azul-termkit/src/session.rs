@@ -503,6 +503,81 @@ mod tests {
         assert!(signals.exited.load(Ordering::Acquire));
     }
 
+    /// A command that exits by itself tells how it ended: its exit code, kept until the app
+    /// reads it. A program ended by a signal has none.
+    #[cfg(unix)]
+    #[test]
+    fn the_listener_keeps_the_exit_code_of_the_program() {
+        use std::os::unix::process::ExitStatusExt;
+        let signals = Arc::new(Signals::default());
+        let l = Listener(signals.clone());
+        assert_eq!(signals.exit_code(), None);
+        l.send_event(Event::ChildExit(std::process::ExitStatus::from_raw(3 << 8)));
+        assert!(signals.exited.load(Ordering::Acquire));
+        assert_eq!(signals.exit_code(), Some(3));
+        // SIGINT (2): ended by a signal, no code.
+        let killed = Arc::new(Signals::default());
+        Listener(killed.clone()).send_event(Event::ChildExit(std::process::ExitStatus::from_raw(2)));
+        assert!(killed.exited.load(Ordering::Acquire));
+        assert_eq!(killed.exit_code(), None);
+    }
+
+    /// The text of the grid's screen lines, trailing blanks cut.
+    fn screen_text(session: &Session) -> String {
+        text(session).join("\n")
+    }
+
+    /// A one-shot command (AzDrive's command bar) gets the extra variables it asks for, starts
+    /// in its folder, and its last output is read before the session says it ended: nothing
+    /// it printed just before it exited is lost.
+    #[cfg(unix)]
+    #[test]
+    fn a_one_shot_command_runs_with_its_variables_in_its_folder_and_keeps_its_last_output() {
+        let dir = std::env::temp_dir();
+        let options = SpawnOptions {
+            env: vec![(String::from("AZTERM_PROBE"), String::from("probe-42"))],
+            drain_on_exit: true,
+        };
+        let mut session = Session::spawn_with(
+            "AzDrive",
+            Some((
+                String::from("/bin/sh"),
+                vec![
+                    String::from("-c"),
+                    String::from("printf '%s %s\\n' \"$AZTERM_PROBE\" \"$TERM_PROGRAM\"; pwd; exit 3"),
+                ],
+            )),
+            Some(dir.clone()),
+            GridSize::new(80, 6),
+            100,
+            options,
+        )
+        .expect("a PTY");
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !session.signals.exited.load(Ordering::Acquire) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(session.signals.exited.load(Ordering::Acquire), "the command ended");
+        assert_eq!(session.signals.exit_code(), Some(3));
+        let shown = screen_text(&session);
+        assert!(shown.contains("probe-42 AzDrive"), "{shown}");
+        let folder = dir.canonicalize().unwrap_or(dir);
+        let name = folder.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        assert!(shown.contains(&name), "{shown}");
+        assert!(!session.alternate_screen(), "a plain command stays on the main screen");
+        session.write(b"x".to_vec());
+    }
+
+    /// A full-screen program switches to the alternate screen; the session says so, so a
+    /// one-line command bar can tell the user it needs a real terminal.
+    #[test]
+    fn the_session_tells_when_a_program_took_the_alternate_screen() {
+        let plain = Session::replay(b"plain output\r\n", GridSize::new(20, 3), 10);
+        assert!(!plain.alternate_screen());
+        let full = Session::replay(b"\x1b[?1049h\x1b[2J", GridSize::new(20, 3), 10);
+        assert!(full.alternate_screen());
+    }
+
     /// OSC 52: a program (vim, tmux, over ssh) may put text on the clipboard; it never reads
     /// it - what the user copied elsewhere is not a program's to take.
     #[test]
