@@ -4883,10 +4883,15 @@ fn compute_display_list_damage_impl(
             ) = (old_item, new_item)
             {
                 if refine {
-                    let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
-                        && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
-                    if same_origin && oc == nc && obr == nbr && obr.is_zero() {
-                        let (acc_o, acc_n) = (acc_old, acc_new);
+                    // A flat fill that moved or changed size: inside both
+                    // the old and the new rect its pixels are the same
+                    // colour as before, so only what one covers and the
+                    // other does not changed. A pane whose top follows a
+                    // growing ribbon damaged the whole window per frame.
+                    // (A rect the layout pass moved by its blit's delta is
+                    // the blit's, below.)
+                    let blitted = hint.is_some_and(|h| items_equal_translated(old_item, new_item, h.delta));
+                    if oc == nc && obr == nbr && obr.is_zero() && !blitted {
                         let scrolled =
                             |r: &crate::solver3::display_list::WindowLogicalRect,
                              acc: (f32, f32)| LogicalRect {
@@ -4896,42 +4901,10 @@ fn compute_display_list_damage_impl(
                                 },
                                 size: r.0.size,
                             };
-                        let o = scrolled(ob, acc_o);
-                        let nr = scrolled(nb, acc_n);
-                        // Horizontal strip (width delta), full height of the taller.
-                        let (wx0, wx1) = (
-                            o.size.width.min(nr.size.width),
-                            o.size.width.max(nr.size.width),
-                        );
-                        if wx1 - wx0 > 0.01 {
-                            damage.push(LogicalRect {
-                                origin: LogicalPosition {
-                                    x: nr.origin.x + wx0,
-                                    y: nr.origin.y,
-                                },
-                                size: LogicalSize {
-                                    width: wx1 - wx0,
-                                    height: o.size.height.max(nr.size.height),
-                                },
-                            });
-                        }
-                        // Vertical strip (height delta), full width of the wider.
-                        let (hy0, hy1) = (
-                            o.size.height.min(nr.size.height),
-                            o.size.height.max(nr.size.height),
-                        );
-                        if hy1 - hy0 > 0.01 {
-                            damage.push(LogicalRect {
-                                origin: LogicalPosition {
-                                    x: nr.origin.x,
-                                    y: nr.origin.y + hy0,
-                                },
-                                size: LogicalSize {
-                                    width: o.size.width.max(nr.size.width),
-                                    height: hy1 - hy0,
-                                },
-                            });
-                        }
+                        let o = scrolled(ob, acc_old);
+                        let nr = scrolled(nb, acc_new);
+                        damage.extend(rect_minus(o, nr));
+                        damage.extend(rect_minus(nr, o));
                         continue;
                     }
                 } else {
@@ -5019,6 +4992,33 @@ fn compute_display_list_damage_impl(
     // Coalesce overlapping rects
     coalesce_damage_rects(&mut damage);
     Some((damage, moved_union))
+}
+
+/// What of `a` lies outside `b`: up to four rects (the bands above and
+/// below `b`, then the parts left and right of it between them).
+fn rect_minus(a: LogicalRect, b: LogicalRect) -> Vec<LogicalRect> {
+    let (ax0, ay0) = (a.origin.x, a.origin.y);
+    let (ax1, ay1) = (ax0 + a.size.width, ay0 + a.size.height);
+    let (bx0, by0) = (b.origin.x, b.origin.y);
+    let (bx1, by1) = (bx0 + b.size.width, by0 + b.size.height);
+    let r = |x0: f32, y0: f32, x1: f32, y1: f32| {
+        (x1 - x0 > 0.01 && y1 - y0 > 0.01).then(|| {
+            LogicalRect::new(LogicalPosition::new(x0, y0), LogicalSize::new(x1 - x0, y1 - y0))
+        })
+    };
+    if bx1 <= ax0 || ax1 <= bx0 || by1 <= ay0 || ay1 <= by0 {
+        return r(ax0, ay0, ax1, ay1).into_iter().collect();
+    }
+    let (my0, my1) = (ay0.max(by0), ay1.min(by1));
+    [
+        r(ax0, ay0, ax1, by0),
+        r(ax0, by1, ax1, ay1),
+        r(ax0, my0, bx0, my1),
+        r(bx1, my0, ax1, my1),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {

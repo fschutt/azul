@@ -843,3 +843,17 @@ fn a_height_tween_moves_what_it_pushes_by_a_blit() {
         );
     }
 }
+
+/// A flat box whose top edge follows a growing neighbour (a pane under a
+/// ribbon that opens) repaints the strip its edge left, not its whole box.
+#[test]
+fn a_box_moved_and_shortened_repaints_only_its_edge_strips() {
+    one_change(
+        |s| {
+            s.shapes[2].y += 6;
+            s.shapes[2].h -= 6;
+        },
+        40.0 * 8.0,
+        "a moved edge",
+    );
+}
