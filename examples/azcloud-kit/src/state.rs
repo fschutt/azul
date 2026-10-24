@@ -314,7 +314,13 @@ fn private_file_mode(_options: &mut fs::OpenOptions) {}
 pub fn write_atomic(path: &Path, bytes: &[u8], private: bool) -> std::io::Result<()> {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        fs::create_dir_all(dir)?;
+        // A private file's folder is made owner-only too (a sync's state folder names the
+        // user's files in its own name's files).
+        if private {
+            create_private_dir(dir)?;
+        } else {
+            fs::create_dir_all(dir)?;
+        }
     }
     let name = path
         .file_name()

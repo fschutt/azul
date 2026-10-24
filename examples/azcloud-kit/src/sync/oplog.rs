@@ -125,7 +125,7 @@ impl OpLog {
 /// Opens `path` to append, made owner-only when it is new.
 fn open_append(path: &Path) -> std::io::Result<fs::File> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        crate::state::create_private_dir(dir)?;
     }
     let mut options = fs::OpenOptions::new();
     options.create(true).append(true);

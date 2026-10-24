@@ -154,7 +154,7 @@ impl Journal {
         text.push('\n');
         (|| {
             if let Some(dir) = self.path.parent() {
-                fs::create_dir_all(dir)?;
+                crate::state::create_private_dir(dir)?;
             }
             let mut options = fs::OpenOptions::new();
             options.create(true).append(true);
