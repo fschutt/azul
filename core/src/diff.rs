@@ -1689,6 +1689,37 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
     }
 }
 
+/// Puts a fresh build's payloads onto the retained arena of a DOM whose
+/// fingerprints did not move (the same tree, the same styles): the image
+/// callbacks, the event callbacks and the views' callbacks and data of the
+/// fresh build - they may reference new app state - and then its datasets,
+/// merged as the full path's `transfer_states` merges them. The views go in
+/// before the datasets, so a widget whose handlers and view share one
+/// `RefAny` stays one allocation.
+pub fn adopt_fresh_payloads(node_data: &mut [NodeData], transfers: &PreCascadeTransfers) {
+    for (idx, fresh) in &transfers.image_callbacks {
+        if let Some(nd) = node_data.get_mut(*idx) {
+            nd.node_type = NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                crate::resources::ImageRef::callback(fresh.callback.clone(), fresh.refany.clone()),
+            ));
+        }
+    }
+    for (idx, fresh) in &transfers.callbacks {
+        if let Some(nd) = node_data.get_mut(*idx) {
+            nd.callbacks = fresh.clone();
+        }
+    }
+    for (idx, fresh) in &transfers.virtual_views {
+        if let Some(view) = node_data
+            .get_mut(*idx)
+            .and_then(NodeData::get_virtual_view_node)
+        {
+            *view = fresh.clone();
+        }
+    }
+    merge_fresh_datasets(node_data, transfers.datasets.clone());
+}
+
 /// Calculate a stable key for a contenteditable node using the hierarchy:
 ///
 /// 1. **Explicit Key** - If `.with_key()` was called, use that

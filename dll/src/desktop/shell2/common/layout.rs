@@ -759,55 +759,14 @@ pub fn regenerate_layout(
         // unchanged exit can put it back into the map.
         let mut retained = core::mem::take(&mut old_result.styled_dom);
 
-        // Fresh RefAny payloads onto the retained DOM (same transfer the
-        // equivalence branch has always done — the callbacks may reference
-        // new app state even though the DOM shape is identical).
-        {
-            let node_data_mut = retained.node_data.as_mut();
-            for (idx, new_cb) in &transfers.image_callbacks {
-                if let Some(nd) = node_data_mut.get_mut(*idx) {
-                    nd.node_type = azul_core::dom::NodeType::Image(
-                        azul_css::css::BoxOrStatic::heap(azul_core::resources::ImageRef::callback(
-                            new_cb.callback.clone(),
-                            new_cb.refany.clone(),
-                        )),
-                    );
-                }
-            }
-            for (idx, new_cbs) in &transfers.callbacks {
-                if let Some(nd) = node_data_mut.get_mut(*idx) {
-                    nd.callbacks = new_cbs.clone();
-                }
-            }
-            // The VirtualViews' payload too (callback and refany: the
-            // fingerprint reads neither). The retained view kept last build's
-            // refany while the callbacks above got the fresh build's, so a
-            // widget whose handlers and view share one RefAny was split in two
-            // - the handlers wrote the fresh one, the view rendered the old
-            // one (a code view stored a scroll and showed nothing move).
-            // Installed BEFORE the datasets are merged: a merge that keeps
-            // the retained allocation re-points it along with the callbacks.
-            for (idx, fresh) in &transfers.virtual_views {
-                if let Some(view) = node_data_mut
-                    .get_mut(*idx)
-                    .and_then(azul_core::dom::NodeData::get_virtual_view_node)
-                {
-                    *view = fresh.clone();
-                }
-            }
-            // The callbacks just installed are clones of the FRESH build's
-            // datasets; the retained nodes still hold last frame's. Merge
-            // them the way the full path's `transfer_states` does (merge
-            // callback when the node has one, fresh wins otherwise) and
-            // re-point the fresh callbacks at the result. Without this an
-            // identical rebuild reset every widget's callback state — a
-            // slider's drag died on its second move whenever the app's
-            // `RefreshDom` was followed by a redraw-driven relayout — and
-            // split the widget across two allocations.
-            // All at once: one widget's datasets are clones of ONE fresh
-            // allocation on several nodes (`merge_fresh_datasets`).
-            azul_core::diff::merge_fresh_datasets(node_data_mut, transfers.datasets.clone());
-        }
+        // Fresh RefAny payloads onto the retained DOM: the callbacks may
+        // reference new app state even though the DOM shape is identical. The
+        // views' payloads too (the fingerprint reads neither callback nor
+        // refany; a retained view that kept last build's refany while its
+        // handlers got the fresh one rendered a state nothing wrote any
+        // more), and the datasets merged as the full path merges them (an
+        // identical rebuild must not reset a slider's drag).
+        azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
 
         // Re-derive hover/focus/active flags from the managers. A state
         // delta concurrent with this RefreshDom must not be lost — but it

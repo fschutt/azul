@@ -1157,6 +1157,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // funnel's stash and the next re-materialization; typically empty at
         // report time.
         previous_child_arenas: _,
+        // NOT WALKED: alive within one pass only.
+        retired_child_results: _,
+        // NOT WALKED: a hash list per view.
+        child_dom_fingerprints: _,
         text_selection_drag_anchor: _,
         prev_left_down: _,
         file_drop_manager: _,
@@ -1870,6 +1874,14 @@ pub struct LayoutWindow {
             Vec<azul_core::styled_dom::NodeHierarchyItem>,
         ),
     >,
+    /// The child results of the views a new generation did not keep, set
+    /// aside for the pass: a view whose callback builds the same DOM again
+    /// takes its child back ([`Self::reclaim_unchanged_child`]) instead of
+    /// having it styled and laid out anew. Dropped at the end of the pass.
+    pub retired_child_results: BTreeMap<DomId, DomLayoutResult>,
+    /// The fingerprints of the DOM each view's callback built last, by the
+    /// child's `DomId`: what tells an identical rebuild from a new one.
+    pub child_dom_fingerprints: BTreeMap<DomId, azul_core::diff::DomFingerprints>,
     /// `left_down` as of the previous input pass, so the press EDGE can be
     /// detected where the shell does not hand over the previous window state.
     pub prev_left_down: bool,
@@ -2690,6 +2702,8 @@ impl LayoutWindow {
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             text_selection_drag_anchor: None,
             previous_child_arenas: BTreeMap::new(),
+            retired_child_results: BTreeMap::new(),
+            child_dom_fingerprints: BTreeMap::new(),
             prev_left_down: false,
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
@@ -3058,7 +3072,21 @@ impl LayoutWindow {
         }
 
         // Clear previous results for a full relayout - all but the kept
-        // views' children. A child rendered again starts from fresh content.
+        // views' children. A child rendered again starts from fresh content,
+        // unless its view builds the very same DOM again: the others' results
+        // are set aside for this pass to take back.
+        self.retired_child_results.clear();
+        let retired: Vec<DomId> = self
+            .layout_results
+            .keys()
+            .copied()
+            .filter(|d| *d != DomId::ROOT_ID && !kept_doms.contains(d))
+            .collect();
+        for dom_id in retired {
+            if let Some(result) = self.layout_results.remove(&dom_id) {
+                self.retired_child_results.insert(dom_id, result);
+            }
+        }
         self.layout_results
             .retain(|dom_id, _| kept_doms.contains(dom_id));
         self.content_changed_doms
@@ -3088,6 +3116,8 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+        // What no view took back goes now.
+        self.retired_child_results.clear();
         // A kept view this pass never reached (its host laid out no box for
         // it any more - hidden by a restyle) keeps nothing: its child result
         // goes, as the clear above took it before views were kept, and the
@@ -11592,6 +11622,41 @@ impl LayoutWindow {
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
+                // The same DOM as the view built last (a rebuild of the app
+                // that did not change what the view shows, a re-render that
+                // came to the same rows): its child stays as it was styled
+                // and laid out, with this build's callbacks and data, and
+                // follows its host and box like a kept view.
+                let child = self
+                    .virtual_view_manager
+                    .get_or_create_nested_dom_id(parent_dom_id, node_id);
+                let (fingerprints, transfers) = azul_core::diff::fingerprint_dom(&dom);
+                if self.reclaim_unchanged_child(child, &fingerprints, &transfers) {
+                    self.virtual_view_manager.update_virtual_view_info(
+                        parent_dom_id,
+                        node_id,
+                        callback_return.materialized.origin,
+                        callback_return.materialized.size,
+                        callback_return.virtual_rect.size,
+                    );
+                    self.scroll_manager.update_virtual_scroll_bounds(
+                        parent_dom_id,
+                        node_id,
+                        callback_return.virtual_rect.size,
+                        Some(callback_return.materialized.origin),
+                    );
+                    self.follow_host_in_kept_view(
+                        child,
+                        bounds.size,
+                        inherited_from_host,
+                        window_state,
+                        renderer_resources,
+                        system_callbacks,
+                        debug_messages,
+                    );
+                    return Some(child);
+                }
+                self.child_dom_fingerprints.insert(child, fingerprints);
                 // Dom → StyledDom through the window's own chokepoint, which
                 // resolves `<icon>` nodes first. Calling `create_from_dom`
                 // directly here is what made an icon inside a VirtualView
@@ -11721,6 +11786,48 @@ impl LayoutWindow {
         self.start_view_enter_tracks(child_dom_id, &entered);
 
         Some(child_dom_id)
+    }
+
+    /// Takes back the child result of the view whose child is `child`, when
+    /// its callback built the DOM it built last (`fresh` equals the stored
+    /// fingerprints on both tiers): the live result (a re-render within one
+    /// generation) or the one a new generation set aside. The fresh build's
+    /// payloads go onto the retained arena. Not for a child that holds views
+    /// of its own (their children would have to come back with it) nor for
+    /// one whose arena is not the shape of the fresh DOM (raw form controls
+    /// the styling turns into widgets): those are styled anew.
+    fn reclaim_unchanged_child(
+        &mut self,
+        child: DomId,
+        fresh: &azul_core::diff::DomFingerprints,
+        transfers: &azul_core::diff::PreCascadeTransfers,
+    ) -> bool {
+        let same = self.child_dom_fingerprints.get(&child).is_some_and(|prev| {
+            prev.structure_root == fresh.structure_root && prev.style_root == fresh.style_root
+        });
+        if !same || !transfers.virtual_views.is_empty() {
+            return false;
+        }
+        let shaped = |r: &DomLayoutResult| r.styled_dom.node_data.as_ref().len() == fresh.structure.len();
+        if let Some(live) = self.layout_results.get_mut(&child) {
+            if !shaped(live) {
+                return false;
+            }
+            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers);
+        } else {
+            let Some(mut retired) = self.retired_child_results.remove(&child) else {
+                return false;
+            };
+            if !shaped(&retired) {
+                self.retired_child_results.insert(child, retired);
+                return false;
+            }
+            azul_core::diff::adopt_fresh_payloads(retired.styled_dom.node_data.as_mut(), transfers);
+            self.layout_results.insert(child, retired);
+        }
+        // Nothing to reconcile against: the arena is the one it was.
+        self.previous_child_arenas.remove(&child);
+        true
     }
 
     /// Re-apply the uncommitted edits `content_overlay` holds for the nodes
@@ -28310,6 +28417,10 @@ impl LayoutWindow {
             // doms, keyed by DomId and holding pre-remap NodeIds on purpose.
             // Remapping it would corrupt the very diff it exists to feed.
             previous_child_arenas: _,
+            // Child documents, in their own NodeIds: a remap of another dom
+            // does not reach them.
+            retired_child_results: _,
+            child_dom_fingerprints: _,
             prev_left_down: _,
             laid_out_dock_generation: _,
             inline_tear,
