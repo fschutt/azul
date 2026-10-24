@@ -84,8 +84,9 @@ fn a_proof_signs_the_token_server_s_challenge_for_this_drive() {
             Ok(key.sign_base64(m))
         })
         .unwrap();
-    let ProofAnswer::Locked(wire) = answer else {
-        panic!("{answer:?}");
+    let wire = match answer {
+        ProofAnswer::Locked(wire) => wire,
+        other => panic!("{other:?}"),
     };
     assert!(wire.proven);
     let calls = fake.calls();
