@@ -12150,6 +12150,67 @@ mod tests {
         )
     }
 
+    /// A view glided by fractions of a pixel (a wheel's smooth scroll: 9.3 px,
+    /// 8.9 px, ...) is drawn on the device pixel grid, so each frame moves its
+    /// pixels and repaints the strip that came in - not the whole view - and
+    /// equals a full repaint.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_view_glided_by_fractions_of_a_pixel_moves_its_pixels() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::ProcessEventResult,
+            styled_dom::NodeHierarchyItemId,
+        };
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, stripes_page_layout, 200.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        let view = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| {
+                lw.virtual_view_manager
+                    .get_all_virtual_view_infos()
+                    .first()
+                    .map(|info| NodeId::new(info.parent_node_id))
+            })
+            .expect("premise: the page holds one VirtualView");
+        for x in [9.3f32, 18.6, 27.4, 36.9] {
+            let tier = PlatformWindow::apply_user_change(
+                &mut window,
+                &CallbackChange::ScrollTo {
+                    dom_id: DomId::ROOT_ID,
+                    node_id: NodeHierarchyItemId::from_crate_internal(Some(view)),
+                    position: LogicalPosition::new(x, 0.0),
+                    unclamped: false,
+                },
+            );
+            if tier > ProcessEventResult::DoNothing {
+                window.service_frame(tier);
+            }
+            let damage = window.cpu_backend.last_frame_damage.clone();
+            let area: f32 = match &damage {
+                FrameDamage::Rects(rs) => rs.iter().map(|r| r.size.width * r.size.height).sum(),
+                FrameDamage::Full => f32::INFINITY,
+                FrameDamage::None => 0.0,
+            };
+            assert!(
+                area < 120.0 * 60.0 * 0.5,
+                "scrolled to x={x}: the frame repainted {area} px^2 of the view - a glide moves \
+                 its pixels (damage {damage:?})"
+            );
+            let (diffs, first) = incremental_vs_full(&mut window);
+            assert_eq!(diffs, 0, "x={x}: {diffs} px differ from a full repaint, first at {first:?}");
+        }
+    }
+
     /// A `VirtualView` has no scroll frame: its scroll is the `content_offset`
     /// of its display-list item, which the lightweight scroll path re-points
     /// (`patch_virtual_view_content_offset`) and every relayout recomputes.
