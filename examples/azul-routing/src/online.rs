@@ -370,6 +370,14 @@ impl Valhalla {
         }
     }
 
+    /// The same server asked trusting exactly the roots in `pems` (PEM text: the app's
+    /// set) instead of the Mozilla roots ([`crate::fetch::Fetcher::trusting`]).
+    #[must_use]
+    pub fn trusting(mut self, pems: &[String]) -> Self {
+        self.fetcher = self.fetcher.trusting(pems);
+        self
+    }
+
     /// The fetcher the requests go through (offline by choice is set there).
     #[must_use]
     pub fn fetcher(&self) -> &crate::fetch::Fetcher {

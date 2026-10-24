@@ -57,14 +57,15 @@ pub fn user_agent() -> String {
 /// The routing server at `url` (a Valhalla `/route` endpoint).
 #[must_use]
 pub fn online_source(url: &str) -> Online {
-    Arc::new(Valhalla::new(url.trim(), user_agent()))
+    Arc::new(Valhalla::new(url.trim(), user_agent()).trusting(&azul_appkit::ui::trusted_roots_pem()))
 }
 
 /// The routing server at `url`, its routes kept in the session's cache of answers (on disk,
 /// so a route answers again offline); with `offline` nothing is sent.
 #[must_use]
 pub fn online_source_cached(url: &str, cache: Arc<azul_routing::cache::ResponseCache>, offline: bool) -> Online {
-    let server = Valhalla::with_cache(url.trim(), user_agent(), cache);
+    let server = Valhalla::with_cache(url.trim(), user_agent(), cache)
+        .trusting(&azul_appkit::ui::trusted_roots_pem());
     server.fetcher().set_offline(offline);
     Arc::new(server)
 }
@@ -211,7 +212,8 @@ pub fn routing_source_keeping(template: &str, cache_root: &Path, keep_days: Opti
                     eprintln!("[azmaps] removed the unused routing cache {}", gone.display());
                 }
             });
-        let http = HttpTiles::new(template, user_agent());
+        let http = HttpTiles::new(template, user_agent())
+            .trusting(&azul_appkit::ui::trusted_roots_pem());
         // The cache keeps a copy of the manifest once one was downloaded: its keep times hold
         // from the start, without asking the network.
         let manifest = Manifest::read_file(&cache.join("manifest.json")).ok();

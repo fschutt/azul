@@ -54,6 +54,9 @@ pub struct AzMailSubmitter {
     store: Arc<dyn MailStore>,
     sent: Arc<SentRegistry>,
     drain_lock: Mutex<()>,
+    /// The roots the mail's connections trust (the shared config's set); `None`: the Mozilla
+    /// roots ([`AzMailSubmitter::trusting`]).
+    trusted_roots: azmail_core::tls::TrustedRoots,
 }
 
 impl std::fmt::Debug for AzMailSubmitter {
@@ -87,7 +90,15 @@ impl AzMailSubmitter {
             store,
             sent,
             drain_lock: Mutex::new(()),
+            trusted_roots: None,
         }
+    }
+
+    /// The submitter whose relay, direct delivery and submission trust exactly `roots` (PEM).
+    #[must_use]
+    pub fn trusting(mut self, roots: Vec<String>) -> AzMailSubmitter {
+        self.trusted_roots = Some(roots);
+        self
     }
 
     /// The sending settings now, with the secrets they need in memory.
@@ -100,6 +111,7 @@ impl AzMailSubmitter {
                 .unwrap_or_default(),
             None => SendSettings::load(&self.spool, &self.account_id),
         };
+        settings.trusted_roots = self.trusted_roots.clone();
         let wants_key = settings
             .dkim
             .as_ref()

@@ -240,6 +240,26 @@ fn page_of(mut listed: Vec<Listed>, request: &ListRequest) -> ListPage {
     page
 }
 
+/// Whether `scheme` with `options` speaks TLS through a client of its own instead of the
+/// transport: FTP over TLS (`ftps://`, or an address without a scheme, which OpenDAL takes
+/// as FTPS) and Redis over TLS (`rediss://`) load the OS's roots themselves.
+fn brings_own_tls_roots(scheme: &str, options: &BTreeMap<String, String>) -> bool {
+    let address = |key: &str| {
+        options
+            .get(key)
+            .map(|value| value.trim().to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    match scheme {
+        "ftp" => !address("endpoint").starts_with("ftp://"),
+        "redis" => {
+            address("endpoint").starts_with("rediss://")
+                || address("cluster_endpoints").contains("rediss://")
+        }
+        _ => false,
+    }
+}
+
 impl OpendalDrive {
     /// The OpenDAL service `scheme` with its plain `options` and its `secrets` (both are
     /// OpenDAL's settings of the service), sending HTTP through `transport`. Checks the
@@ -250,6 +270,13 @@ impl OpendalDrive {
         secrets: &SecretOptions,
         transport: Box<dyn Transport>,
     ) -> Result<OpendalDrive, DriveError> {
+        if !transport.trusts_public_roots() && brings_own_tls_roots(scheme, options) {
+            return Err(DriveError::InvalidConfig(format!(
+                "the {scheme} source connects over TLS with its own fixed set of trusted roots, \
+                 which cannot follow this app's trusted roots (pinned or distrusted ones); \
+                 connect without TLS only inside a network you trust"
+            )));
+        }
         // The services of this build, registered once (no constructor runs before `main`).
         ::opendal::init_default_registry();
         let settings: Vec<(String, String)> = options

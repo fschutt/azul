@@ -334,9 +334,11 @@ impl DriveEntry {
                 let secrets = self.secret_options(secret, *keyring)?;
                 #[cfg(feature = "sql")]
                 {
-                    let _ = transport;
-                    Ok(Box::new(crate::database::DatabaseDrive::open(
-                        *engine, options, &secrets,
+                    Ok(Box::new(crate::database::DatabaseDrive::open_trusting(
+                        *engine,
+                        options,
+                        &secrets,
+                        transport.trusts_public_roots(),
                     )?))
                 }
                 #[cfg(not(feature = "sql"))]

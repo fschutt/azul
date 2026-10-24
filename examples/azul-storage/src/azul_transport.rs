@@ -23,7 +23,7 @@ use std::{sync::OnceLock, time::Duration};
 
 use azul::{
     error::{HttpError, ResultHttpResponseHttpError},
-    http::{HttpClient, HttpClientConfig, HttpMethod, HttpRequestConfig},
+    http::{HttpClient, HttpClientConfig, HttpMethod, HttpRequestConfig, TrustRoots},
     vec::U8Vec,
 };
 
@@ -124,6 +124,11 @@ fn method_of(method: Method) -> Result<HttpMethod, String> {
 }
 
 impl Transport for AzulTransport {
+    /// The pool trusts the app's set (`AppConfig::trust_roots`).
+    fn trusts_public_roots(&self) -> bool {
+        TrustRoots::app_default().is_public_roots()
+    }
+
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
         crate::ui_thread::assert_may_wait("AzulTransport::send");
         if crate::ui_thread::is_ui_thread() {

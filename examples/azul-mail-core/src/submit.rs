@@ -12,7 +12,7 @@ use std::{path::PathBuf, str::FromStr, time::Duration};
 use lettre::{
     transport::smtp::{
         authentication::{Credentials, Mechanism},
-        client::{Certificate, SmtpConnection, TlsParameters},
+        client::{Certificate, CertificateStore, SmtpConnection, TlsParameters},
         commands::{Data, Mail, Rcpt},
         extension::{ClientId, Extension, MailBodyParameter, MailParameter},
         Error as SmtpError,
@@ -51,8 +51,11 @@ pub struct SubmitTarget {
     pub secret: Secret,
     /// The name this computer gives in EHLO.
     pub helo: String,
-    /// A PEM certificate to trust besides the Mozilla roots (a test server's).
+    /// A PEM certificate to trust besides the trusted roots (a test server's).
     pub extra_ca_file: Option<PathBuf>,
+    /// The roots the connection trusts, PEM (`crate::tls::TrustedRoots`; `None`: the
+    /// Mozilla roots).
+    pub trusted_roots: crate::tls::TrustedRoots,
 }
 
 /// Why nothing was handed over.
@@ -164,10 +167,19 @@ fn install_crypto_provider() {
     });
 }
 
-/// TLS for the target: the Mozilla roots, plus the extra certificate the settings name.
+/// TLS for the target: its trusted roots (the Mozilla roots without them), plus the extra
+/// certificate the settings name.
 fn tls_parameters(target: &SubmitTarget) -> Result<TlsParameters, String> {
     install_crypto_provider();
     let mut builder = TlsParameters::builder(target.host.clone());
+    if let Some(pems) = &target.trusted_roots {
+        builder = builder.certificate_store(CertificateStore::None);
+        for cert in crate::tls::certificates(pems)? {
+            let cert = Certificate::from_der(cert.to_vec())
+                .map_err(|e| format!("TLS for {}: {e}", target.host))?;
+            builder = builder.add_root_certificate(cert);
+        }
+    }
     if let Some(path) = &target.extra_ca_file {
         let pem = std::fs::read(path)
             .map_err(|e| format!("the certificate file {}: {e}", path.display()))?;
@@ -390,6 +402,7 @@ mod tests {
             secret: Secret::new(secret.to_string()),
             helo: String::from("example.org"),
             extra_ca_file: None,
+            trusted_roots: None,
         }
     }
 

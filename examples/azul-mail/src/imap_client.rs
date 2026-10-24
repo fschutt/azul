@@ -10,7 +10,6 @@ use std::{
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
     path::Path,
-    sync::Arc,
     time::Duration,
 };
 
@@ -82,11 +81,14 @@ pub struct ImapSource {
 }
 
 impl ImapSource {
-    /// Connects to the account's IMAP server and signs in. `extra_ca` is a PEM certificate to
-    /// trust besides the Mozilla roots (the test server's; headless runs only).
+    /// Connects to the account's IMAP server and signs in. `roots` are the roots TLS trusts
+    /// (PEM: the app's set, `azul_appkit::ui::trusted_roots_pem`; `None`: the Mozilla roots),
+    /// `extra_ca` a PEM certificate to trust besides them (the test server's; headless runs
+    /// only).
     pub fn connect(
         account: &Account,
         secret: &Secret,
+        roots: Option<&[String]>,
         extra_ca: Option<&Path>,
     ) -> Result<ImapSource, SyncError> {
         let host = account
@@ -97,7 +99,7 @@ impl ImapSource {
             .trim_end_matches(']');
         let tcp = connect_tcp(host, account.imap.port)?;
         let transport = match account.security {
-            Security::Tls => Transport::Tls(Box::new(tls_stream(host, tcp, extra_ca)?)),
+            Security::Tls => Transport::Tls(Box::new(tls_stream(host, tcp, roots, extra_ca)?)),
             Security::Plain => Transport::Plain(tcp),
         };
         let mut client = imap::Client::new(transport);
@@ -158,32 +160,19 @@ fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, SyncError> {
     }))
 }
 
-/// The TLS stream to `host` over `tcp`, verified against the Mozilla roots (and `extra_ca`).
+/// The TLS stream to `host` over `tcp`, verified against `roots` (the Mozilla roots for
+/// `None`) and `extra_ca`: azul-mail-core's configuration, the one its SMTP clients use too.
 fn tls_stream(
     host: &str,
     tcp: TcpStream,
+    roots: Option<&[String]>,
     extra_ca: Option<&Path>,
 ) -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>, SyncError> {
     let tls_error = |e: String| SyncError::Connect(format!("TLS to {host}: {e}"));
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    if let Some(path) = extra_ca {
-        use rustls::pki_types::{pem::PemObject, CertificateDer};
-        let cert = CertificateDer::from_pem_file(path)
-            .map_err(|e| tls_error(format!("{}: {e}", path.display())))?;
-        roots
-            .add(cert)
-            .map_err(|e| tls_error(format!("{}: {e}", path.display())))?;
-    }
-    let config =
-        rustls::ClientConfig::builder_with_provider(Arc::new(rustls_rustcrypto::provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|e| tls_error(e.to_string()))?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+    let config = azmail_core::tls::client_config(roots, extra_ca).map_err(tls_error)?;
     let name = rustls::pki_types::ServerName::try_from(host.to_string())
         .map_err(|e| tls_error(e.to_string()))?;
-    let connection = rustls::ClientConnection::new(Arc::new(config), name)
+    let connection = rustls::ClientConnection::new(config, name)
         .map_err(|e| tls_error(e.to_string()))?;
     Ok(rustls::StreamOwned::new(connection, tcp))
 }

@@ -34,7 +34,8 @@ impl Services {
             CACHE_BYTES,
         ));
         let transit = transit_url.map(|url| {
-            let server = Transitous::new(url, &crate::route::user_agent(), Arc::clone(&cache));
+            let server = Transitous::new(url, &crate::route::user_agent(), Arc::clone(&cache))
+                .trusting(&azul_appkit::ui::trusted_roots_pem());
             server.fetcher().set_offline(offline);
             Arc::new(server)
         });

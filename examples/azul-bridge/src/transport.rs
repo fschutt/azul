@@ -1,6 +1,7 @@
 //! How the bridge's requests to the drive and the token server leave the process: ureq with
-//! rustls, the pure-Rust RustCrypto provider and the Mozilla roots - exactly the HTTP client
-//! azul-layout builds for the apps, without libazul. Redirects are not followed (a signed S3
+//! rustls and the pure-Rust RustCrypto provider - exactly the HTTP client azul-layout builds
+//! for the apps, without libazul - trusting the roots of the shared config's `trust` section
+//! (the Mozilla roots when it names none; [`UreqTransport::trusting`]). Redirects are not followed (a signed S3
 //! request must not go anywhere else) and every status comes back as an answer.
 //!
 //! DNS down: the drive's failover hands every transport the addresses of the nodes (and of the
@@ -130,6 +131,8 @@ pub struct UreqTransport {
     agent: ureq::Agent,
     /// Where a host is reached when its name does not resolve (the failover's addresses).
     fallback: Fallback,
+    /// It trusts the Mozilla roots as they are ([`UreqTransport::new`]), not a set of its own.
+    public_roots: bool,
 }
 
 impl Default for UreqTransport {
@@ -138,13 +141,46 @@ impl Default for UreqTransport {
     }
 }
 
+/// The root store of `pems` (PEM text, one or more certificates each): exactly these roots.
+///
+/// # Errors
+///
+/// An entry that does not parse, named by its place.
+pub fn root_certs(pems: &[String]) -> Result<ureq::tls::RootCerts, String> {
+    let certs = azmail_core::tls::certificates(pems)?
+        .iter()
+        .map(|cert| ureq::tls::Certificate::from_der(cert.as_ref()).to_owned())
+        .collect();
+    Ok(ureq::tls::RootCerts::Specific(Arc::new(certs)))
+}
+
 impl UreqTransport {
+    /// A transport trusting the Mozilla roots.
     #[must_use]
     pub fn new() -> UreqTransport {
+        UreqTransport {
+            public_roots: true,
+            ..UreqTransport::with_root_certs(ureq::tls::RootCerts::WebPki)
+        }
+    }
+
+    /// A transport trusting exactly the roots in `pems` (PEM text: the shared config's set,
+    /// `TrustPems::certificates_pem`).
+    ///
+    /// # Errors
+    ///
+    /// A root that does not parse.
+    pub fn trusting(pems: &[String]) -> Result<UreqTransport, String> {
+        Ok(UreqTransport::with_root_certs(root_certs(pems)?))
+    }
+
+    /// A transport trusting `roots` ([`root_certs`]).
+    #[must_use]
+    pub fn with_root_certs(roots: ureq::tls::RootCerts) -> UreqTransport {
         let tls = ureq::tls::TlsConfig::builder()
             .provider(ureq::tls::TlsProvider::Rustls)
             .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
-            .root_certs(ureq::tls::RootCerts::WebPki)
+            .root_certs(roots)
             .build();
         let config = ureq::Agent::config_builder()
             .tls_config(tls)
@@ -162,11 +198,19 @@ impl UreqTransport {
                 fallback: fallback.clone(),
             },
         );
-        UreqTransport { agent, fallback }
+        UreqTransport {
+            agent,
+            fallback,
+            public_roots: false,
+        }
     }
 }
 
 impl Transport for UreqTransport {
+    fn trusts_public_roots(&self) -> bool {
+        self.public_roots
+    }
+
     /// The call's limits are the request's: its overall time, the times its body may take to
     /// send and its answer to arrive, and the bytes the answer may have (the bridge's own
     /// [`MAX_BODY`] at most).

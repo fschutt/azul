@@ -301,11 +301,36 @@ impl DatabaseDrive {
         options: &BTreeMap<String, String>,
         secrets: &SecretOptions,
     ) -> Result<DatabaseDrive, DriveError> {
+        DatabaseDrive::open_trusting(engine, options, secrets, true)
+    }
+
+    /// [`DatabaseDrive::open`] for an app whose TLS trusts the public roots as they are
+    /// (`public_roots`, `Transport::trusts_public_roots`) or not. sqlx always trusts its
+    /// compiled-in Mozilla roots and cannot drop any, so under a narrowed set a PostgreSQL or
+    /// MySQL database is opened only without TLS.
+    pub fn open_trusting(
+        engine: DatabaseEngine,
+        options: &BTreeMap<String, String>,
+        secrets: &SecretOptions,
+        public_roots: bool,
+    ) -> Result<DatabaseDrive, DriveError> {
         let (connect, label) = match engine {
             DatabaseEngine::Sqlite => sqlite_connect(options)?,
             DatabaseEngine::Postgres => postgres_connect(options, secrets)?,
             DatabaseEngine::Mysql => mysql_connect(options, secrets)?,
         };
+        let tls = match &connect {
+            Connect::Sqlite(_) => false,
+            Connect::Postgres(_) => setting(options, "sslmode") != Some("disable"),
+            Connect::Mysql(_) => setting(options, "sslmode") != Some("disabled"),
+        };
+        if tls && !public_roots {
+            return Err(DriveError::InvalidConfig(format!(
+                "{label}: the database driver trusts its own fixed set of roots over TLS, which \
+                 cannot follow this app's trusted roots (pinned or distrusted ones); connect \
+                 with sslmode disable(d) only inside a network you trust"
+            )));
+        }
         Ok(DatabaseDrive {
             engine,
             dialect: Dialect::of(engine),

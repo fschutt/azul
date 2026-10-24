@@ -37,6 +37,10 @@
 //!   the `install_dir` AzInstallManager puts the apps in, the `manifest_url`
 //!   and the `root_public_key` of the manifests. Machine-local like the
 //!   endpoints: the cohort and the install folder belong to this computer.
+//! - `trust`: which certificate authorities every TLS connection of the apps
+//!   trusts ([`TrustSection`]): `pinned_roots` (only these) and
+//!   `distrusted_roots` (taken out of the set), PEM files or PEM text.
+//!   Machine-local like the endpoints.
 //! - Any other key is kept as it was: the file is the place for the next
 //!   shared preference, and an older app must not drop a newer one's key
 //!   (inside `endpoints` too).
@@ -99,6 +103,8 @@ pub struct AzlinConfig {
     pub endpoints: EndpointsSection,
     /// `updates`; empty = every app updates itself on the stable channel.
     pub updates: UpdatesSection,
+    /// `trust`; empty = the public roots.
+    pub trust: TrustSection,
     /// Every other key, as it was read.
     rest: Map<String, Value>,
 }
@@ -163,6 +169,15 @@ impl AzlinConfig {
             }
             None => UpdatesSection::default(),
         };
+        let trust = match rest.remove(TRUST_KEY) {
+            Some(Value::Object(map)) => TrustSection::parse(map, &mut problems),
+            Some(other) => {
+                problems.push(format!("{TRUST_KEY} is not an object: {other}"));
+                rest.insert(TRUST_KEY.to_string(), other);
+                TrustSection::default()
+            }
+            None => TrustSection::default(),
+        };
         let problem = (!problems.is_empty()).then(|| problems.join("; "));
         (
             AzlinConfig {
@@ -170,6 +185,7 @@ impl AzlinConfig {
                 mode,
                 endpoints,
                 updates,
+                trust,
                 rest,
             },
             problem,
@@ -192,6 +208,9 @@ impl AzlinConfig {
         }
         if let Some(updates) = self.updates.to_value() {
             map.insert(UPDATES_KEY.to_string(), updates);
+        }
+        if let Some(trust) = self.trust.to_value() {
+            map.insert(TRUST_KEY.to_string(), trust);
         }
         let mut text =
             serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string());
@@ -298,7 +317,7 @@ pub const PROFILE_FLAG: &str = "--profile";
 /// would let whoever can write the bucket send this computer's credentials
 /// to a server of their choice, and a developer's local cluster must not
 /// follow the user to the laptop.
-pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY, UPDATES_KEY];
+pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY, UPDATES_KEY, TRUST_KEY];
 /// The profile when nothing names one: the local mocked services. A real
 /// service is chosen on purpose (`"profile": "production"`), so a test that
 /// forgot its config never signs up against it.
@@ -1209,6 +1228,179 @@ pub fn resolve_endpoints(
         profile,
         profile_setting,
         endpoints,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trust: which certificate authorities the apps' TLS connections trust
+// ---------------------------------------------------------------------------
+
+/// The key of the trust section.
+pub const TRUST_KEY: &str = "trust";
+/// The key of the pinned roots in the section.
+const PINNED_ROOTS_KEY: &str = "pinned_roots";
+/// The key of the distrusted roots in the section.
+const DISTRUSTED_ROOTS_KEY: &str = "distrusted_roots";
+
+/// The `trust` section: which certificate authorities every TLS connection of the Azlin apps
+/// trusts - azul's (the token server, S3, the relays, a sync) and each app's own (AzMail's IMAP
+/// and SMTP, the Bridge's). Each entry is a PEM file's path (`~/` for the home folder, else
+/// relative to the config's folder) or PEM text itself.
+///
+/// ```json
+/// "trust": {
+///   "pinned_roots": ["~/.azlin/roots/company-ca.pem"],
+///   "distrusted_roots": ["~/.azlin/roots/emsign-root-ca-g1.pem"]
+/// }
+/// ```
+///
+/// `pinned_roots`: only these roots (none: the public roots). `distrusted_roots`: roots taken
+/// out of that set, matched by their key - the usual hardening when a public authority lost
+/// the browsers' trust before the apps' compiled-in roots caught up. Machine-local like the
+/// endpoints: the paths are this computer's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TrustSection {
+    /// `pinned_roots`: PEM files or PEM text; empty: the public roots.
+    pub pinned_roots: Vec<String>,
+    /// `distrusted_roots`: PEM files or PEM text taken out of the set.
+    pub distrusted_roots: Vec<String>,
+    /// Every other key of the section, as it was read.
+    rest: Map<String, Value>,
+}
+
+/// The `trust` section read into PEM text: what an app makes its `TrustRoots` of.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TrustPems {
+    /// The pinned roots; `None`: the public roots.
+    pub pinned: Option<Vec<String>>,
+    /// The distrusted roots.
+    pub distrusted: Vec<String>,
+}
+
+#[cfg(feature = "trust")]
+impl TrustPems {
+    /// The roots a connection trusts under this section, PEM, one certificate each: the
+    /// pinned roots (else the public ones) without the distrusted ones. azul's
+    /// `TrustRoots::certificates`, for a process without libazul (the Bridge, the command
+    /// line); an app with libazul hands the same set to `AppConfig::trust_roots`.
+    ///
+    /// # Errors
+    ///
+    /// A root that does not parse.
+    pub fn certificates_pem(&self) -> Result<Vec<String>, String> {
+        use azul_core::tls::TrustRoots;
+        let texts = |pems: &[String]| {
+            azul_css::StringVec::from_vec(
+                pems.iter().map(|pem| azul_css::AzString::from(pem.clone())).collect(),
+            )
+        };
+        let roots = match &self.pinned {
+            Some(pinned) => TrustRoots::pinned(texts(pinned)),
+            None => TrustRoots::public_roots(),
+        }
+        .with_distrusted(texts(&self.distrusted));
+        let certs = roots.certificates()?;
+        Ok(certs
+            .iter()
+            .map(|cert| azul_core::tls::pem_certificate(cert.as_ref()))
+            .collect())
+    }
+}
+
+impl TrustSection {
+    /// Whether the file says nothing about trust.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pinned_roots.is_empty() && self.distrusted_roots.is_empty() && self.rest.is_empty()
+    }
+
+    fn parse(mut map: Map<String, Value>, problems: &mut Vec<String>) -> TrustSection {
+        let mut list = |key: &str, map: &mut Map<String, Value>, rest: &mut Map<String, Value>| {
+            match map.remove(key) {
+                Some(Value::Array(items)) => {
+                    let names: Option<Vec<String>> = items
+                        .iter()
+                        .map(|item| item.as_str().map(str::to_string))
+                        .collect();
+                    names.unwrap_or_else(|| {
+                        problems.push(format!("{TRUST_KEY}.{key} holds something not a text"));
+                        rest.insert(key.to_string(), Value::Array(items));
+                        Vec::new()
+                    })
+                }
+                Some(Value::Null) | None => Vec::new(),
+                Some(other) => {
+                    problems.push(format!("{TRUST_KEY}.{key} is not a list: {other}"));
+                    rest.insert(key.to_string(), other);
+                    Vec::new()
+                }
+            }
+        };
+        let mut rest = Map::new();
+        let pinned_roots = list(PINNED_ROOTS_KEY, &mut map, &mut rest);
+        let distrusted_roots = list(DISTRUSTED_ROOTS_KEY, &mut map, &mut rest);
+        rest.extend(map);
+        TrustSection {
+            pinned_roots,
+            distrusted_roots,
+            rest,
+        }
+    }
+
+    fn to_value(&self) -> Option<Value> {
+        if self.is_empty() {
+            return None;
+        }
+        let mut map = self.rest.clone();
+        let texts = |items: &[String]| {
+            Value::Array(items.iter().map(|item| Value::String(item.clone())).collect())
+        };
+        if !self.pinned_roots.is_empty() {
+            map.insert(PINNED_ROOTS_KEY.to_string(), texts(&self.pinned_roots));
+        }
+        if !self.distrusted_roots.is_empty() {
+            map.insert(DISTRUSTED_ROOTS_KEY.to_string(), texts(&self.distrusted_roots));
+        }
+        Some(Value::Object(map))
+    }
+
+    /// The section's roots as PEM text: each entry's file read (`~/` from `home`, a relative
+    /// path from `base`, the config's folder), PEM text taken as it is.
+    ///
+    /// # Errors
+    ///
+    /// A file that cannot be read or holds no PEM certificate, named. The app then trusts
+    /// nothing rather than more than the user asked for.
+    pub fn pems(&self, base: Option<&Path>, home: Option<&Path>) -> Result<TrustPems, String> {
+        let read = |entry: &String| -> Result<String, String> {
+            if entry.contains("-----BEGIN") {
+                return Ok(entry.clone());
+            }
+            let path = match entry.strip_prefix("~/") {
+                Some(tail) => home.map_or_else(|| PathBuf::from(entry), |h| h.join(tail)),
+                None => {
+                    let path = PathBuf::from(entry);
+                    match base {
+                        Some(base) if path.is_relative() => base.join(path),
+                        _ => path,
+                    }
+                }
+            };
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("{TRUST_KEY}: {}: {e}", path.display()))?;
+            if text.contains("-----BEGIN CERTIFICATE-----") {
+                Ok(text)
+            } else {
+                Err(format!("{TRUST_KEY}: {} holds no PEM certificate", path.display()))
+            }
+        };
+        let pinned = if self.pinned_roots.is_empty() {
+            None
+        } else {
+            Some(self.pinned_roots.iter().map(read).collect::<Result<Vec<_>, _>>()?)
+        };
+        let distrusted = self.distrusted_roots.iter().map(read).collect::<Result<_, _>>()?;
+        Ok(TrustPems { pinned, distrusted })
     }
 }
 

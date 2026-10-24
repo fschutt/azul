@@ -422,10 +422,40 @@ impl CachedTiles<FolderTiles> {
 /// handed back as a response, 30 s at most per request.
 #[cfg(feature = "http")]
 pub(crate) fn http_agent() -> ureq::Agent {
+    agent_trusting(ureq::tls::RootCerts::WebPki)
+}
+
+/// [`http_agent`] trusting exactly the roots in `pems` (PEM text, one or more
+/// certificates each): the app's set, as azul's `TrustRoots::get_certificates_pem`
+/// hands it over, so the downloads trust what the app's other connections trust.
+///
+/// # Errors
+/// An entry that does not parse or holds no certificate, named by its place.
+#[cfg(feature = "http")]
+pub(crate) fn http_agent_trusting(pems: &[String]) -> Result<ureq::Agent, String> {
+    let mut certs = Vec::new();
+    for (i, pem) in pems.iter().enumerate() {
+        let before = certs.len();
+        for item in ureq::tls::parse_pem(pem.as_bytes()) {
+            match item {
+                Ok(ureq::tls::PemItem::Certificate(cert)) => certs.push(cert),
+                Ok(_) => {}
+                Err(e) => return Err(format!("trusted root {i} does not parse: {e}")),
+            }
+        }
+        if certs.len() == before {
+            return Err(format!("trusted root {i} holds no certificate"));
+        }
+    }
+    Ok(agent_trusting(ureq::tls::RootCerts::Specific(Arc::new(certs))))
+}
+
+#[cfg(feature = "http")]
+fn agent_trusting(roots: ureq::tls::RootCerts) -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
-        .root_certs(ureq::tls::RootCerts::WebPki)
+        .root_certs(roots)
         .build();
     let config = ureq::Agent::config_builder()
         .tls_config(tls)
@@ -453,6 +483,9 @@ pub struct HttpTiles {
     manifest: Mutex<Option<Manifest>>,
     /// The connection pool, shared by the fetch threads.
     agent: ureq::Agent,
+    /// Why the roots it was told to trust did not load ([`HttpTiles::trusting`]): every
+    /// download fails with it.
+    trust_error: Option<String>,
 }
 
 #[cfg(feature = "http")]
@@ -469,7 +502,20 @@ impl HttpTiles {
             user_agent: user_agent.into(),
             manifest: Mutex::new(None),
             agent: http_agent(),
+            trust_error: None,
         }
+    }
+
+    /// The same downloads trusting exactly the roots in `pems` (PEM text: the app's
+    /// set) instead of the Mozilla roots. A root that does not parse fails every
+    /// download, saying why: they never fall back to the Mozilla roots.
+    #[must_use]
+    pub fn trusting(mut self, pems: &[String]) -> Self {
+        match http_agent_trusting(pems) {
+            Ok(agent) => self.agent = agent,
+            Err(why) => self.trust_error = Some(why),
+        }
+        self
     }
 
     /// The URL of `tile`.
@@ -522,6 +568,9 @@ impl HttpTiles {
 
     /// The bytes at `url`; `None` on a 404.
     fn get(&self, url: &str) -> Result<Option<Vec<u8>>, String> {
+        if let Some(why) = &self.trust_error {
+            return Err(format!("{url}: {why}"));
+        }
         let response = self
             .agent
             .get(url)

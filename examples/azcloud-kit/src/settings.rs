@@ -125,6 +125,9 @@ pub struct Settings {
     pub data_root: PathSetting,
     /// The `.azlin` folder the Azlin sync takes.
     pub azlin_home: PathSetting,
+    /// The roots every TLS connection trusts, from the config's `trust` section (the
+    /// public roots when it has none); the error when a root it names cannot be read.
+    pub trust: Result<azul_appkit::azlin_config::TrustPems, String>,
 }
 
 fn check_transport(raw: &str) -> Result<String, String> {
@@ -237,7 +240,12 @@ impl Settings {
             env,
             check_socket_addr,
         );
+        let trust = config.trust.pems(
+            config_file.path.as_deref().and_then(Path::parent),
+            os.home.as_deref(),
+        );
         Settings {
+            trust,
             state_dir: state_dir(flags, env, os),
             data_root: data_root(flags, env, os),
             azlin_home: azlin_home(flags, env, os),

@@ -146,8 +146,12 @@ pub struct SendSettings {
     pub tls: TlsPolicy,
     /// The name this computer gives in `EHLO`; empty: the From address's domain.
     pub helo_name: String,
-    /// A PEM certificate to trust besides the Mozilla roots (a local test server's).
+    /// A PEM certificate to trust besides the trusted roots (a local test server's).
     pub extra_ca_file: Option<PathBuf>,
+    /// The roots every connection trusts, PEM: the app's set, handed in by the caller
+    /// (`crate::tls::TrustedRoots`; `None`: the Mozilla roots). Never saved.
+    #[serde(skip)]
+    pub trusted_roots: crate::tls::TrustedRoots,
     /// The port direct delivery connects to; 0 is 25. Only a test MX on this computer needs
     /// another one.
     pub direct_port: u16,
@@ -1053,6 +1057,7 @@ fn submit_target(
         secret,
         helo: helo_name(settings, from),
         extra_ca_file: settings.extra_ca_file.clone(),
+        trusted_roots: settings.trusted_roots.clone(),
     })
 }
 
@@ -1074,21 +1079,11 @@ fn micromail_config(
         Some((host, port)) => config.relay(host, port),
         None => config.ports(vec![settings.direct_port()]),
     };
-    let tls = match &settings.extra_ca_file {
-        Some(path) => {
-            let pem = std::fs::read(path)
-                .map_err(|e| format!("the certificate file {}: {e}", path.display()))?;
-            Some(
-                micromail::tls::client_config_with_roots(&pem)
-                    .map_err(|e| format!("the certificate file {}: {e}", path.display()))?,
-            )
-        }
-        None => micromail::tls::default_client_config(),
-    };
-    if let Some(tls) = tls {
-        config = config.tls_config(tls);
-    }
-    Ok(config)
+    let tls = crate::tls::client_config(
+        settings.trusted_roots.as_deref(),
+        settings.extra_ca_file.as_deref(),
+    )?;
+    Ok(config.tls_config(tls))
 }
 
 pub(crate) fn send_mail_with(

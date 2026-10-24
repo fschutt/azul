@@ -37,6 +37,7 @@ pub mod oauth;
 pub mod send;
 pub mod store;
 pub mod submit;
+pub mod tls;
 
 /// Test helpers: this crate's tests, and AzMail's through the `testing` feature.
 #[cfg(any(test, feature = "testing"))]

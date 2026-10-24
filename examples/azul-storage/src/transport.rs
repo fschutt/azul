@@ -397,4 +397,13 @@ pub trait Transport: Send + Sync {
         let _ = (host, addresses);
         false
     }
+
+    /// Whether this transport's TLS trusts the public roots as they are (no pinned set, no
+    /// distrusted root). A client that keeps a fixed root store of its own - the database
+    /// drivers, FTP and Redis over TLS - can follow only that set: under any other it
+    /// refuses to connect over TLS rather than trust more than the app does. `true` (the
+    /// default) for a transport that trusts the Mozilla roots.
+    fn trusts_public_roots(&self) -> bool {
+        true
+    }
 }

@@ -45,7 +45,9 @@ use azul::{
     css::{DarkLightMode, PhysicalPositionI32, SystemStyle, SystemStyleDependency, WindowPosition},
     dom::{DomId, DomNodeId, NodeId, VirtualKeyCode},
     file::FilePath,
+    http::TrustRoots,
     option::{OptionDarkLightMode, OptionLogicalSize},
+    vec::StringVec,
     prelude::*,
     str::String as AzString,
     task::{
@@ -136,6 +138,10 @@ pub struct Kit {
     /// The size the main window opened at (a maximized one's restored size), from
     /// [`window_options`]: what the kept place falls back to while no normal size was seen.
     window_size: (f32, f32),
+    /// The roots every TLS connection of the app trusts, from the shared config's `trust`
+    /// section ([`crate::azlin_config::TrustSection`]); the error when a root it names could
+    /// not be read. [`app_config`] makes it the app's `trust_roots`.
+    trust: Result<azlin_config::TrustPems, String>,
 }
 
 /// What an app does after Cancel put its settings back: re-read its own copies of its values
@@ -270,10 +276,15 @@ pub fn create_kit(
         )
     };
     let mut settings = settings;
+    let mut trust = Ok(azlin_config::TrustPems::default());
     if let Some(path) = config_path.as_deref() {
         let (shared, problem) = AzlinConfig::load(path);
         if let Some(problem) = problem {
             eprintln!("[{}] {}: {problem}", spec.binary, path.display());
+        }
+        trust = shared.trust.pems(path.parent(), home.as_deref());
+        if let Err(why) = &trust {
+            eprintln!("[{}] {why}: every TLS connection is refused", spec.binary);
         }
         if let Some(theme) = shared.theme {
             settings.theme = theme;
@@ -307,6 +318,7 @@ pub fn create_kit(
         updates: None,
         keeps_default_size: false,
         window_size: (0.0, 0.0),
+        trust,
     })
 }
 
@@ -350,13 +362,52 @@ pub fn app_config(kit: &RefAny) -> AppConfig {
         Some(k) => k.effective(),
         None => (Theme::default(), ModePref::default()),
     };
+    let trust = match kit.downcast_ref::<Kit>() {
+        Some(k) => k.trust.clone(),
+        None => Ok(azlin_config::TrustPems::default()),
+    };
     let mut config = AppConfig::create()
         .with_theme(theme.name())
-        .with_mode(mode_option(mode));
+        .with_mode(mode_option(mode))
+        .with_trust_roots(trust_roots(trust));
     add_kit_icons(&mut config);
     // appkit's own words (the settings page); an app adds its own with `l10n::register`.
     l10n::register(&mut config, &[]);
     config
+}
+
+/// The app's `TrustRoots` of the shared config's `trust` section: the pinned roots (else the
+/// public ones) without the distrusted ones. A root the section names but that could not be
+/// read pins an empty set: the app trusts nothing rather than more than the user asked for.
+fn trust_roots(trust: Result<azlin_config::TrustPems, String>) -> TrustRoots {
+    let texts = |pems: Vec<String>| {
+        StringVec::from_vec(pems.into_iter().map(|pem| AzString::from(pem.as_str())).collect())
+    };
+    match trust {
+        Ok(azlin_config::TrustPems { pinned, distrusted }) => match pinned {
+            Some(pinned) => TrustRoots::pinned(texts(pinned)),
+            None => TrustRoots::public_roots(),
+        }
+        .with_distrusted(texts(distrusted)),
+        Err(_) => TrustRoots::pinned(StringVec::from_vec(Vec::new())),
+    }
+}
+
+/// The roots the app's own TLS clients trust (AzMail's IMAP and SMTP, AzMaps' downloads), PEM,
+/// one certificate each: the app's set (`AppConfig::trust_roots`, [`app_config`]), exactly what
+/// azul's own connections trust. A set that does not load is empty: the app's own connections
+/// then trust nothing rather than fall back to the public roots.
+#[must_use]
+pub fn trusted_roots_pem() -> Vec<String> {
+    match TrustRoots::app_default().get_certificates_pem() {
+        azul::error::ResultStringVecString::Ok(pems) => {
+            pems.as_ref().iter().map(|pem| pem.as_str().to_string()).collect()
+        }
+        azul::error::ResultStringVecString::Err(why) => {
+            eprintln!("[azul-appkit] the trusted roots: {}: every connection is refused", why.as_str());
+            Vec::new()
+        }
+    }
 }
 
 /// The icons every Azlin app draws with besides azul's Material ones:

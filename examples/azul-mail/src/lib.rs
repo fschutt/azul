@@ -1260,6 +1260,7 @@ fn retry_outboxes(job: &SyncInit) -> Vec<(String, send::SendStatus)> {
     // Submission signs in with the secret the sync signed in with - an IMAP account's: an
     // Azlin account's secret opens its drive, it is no password of a mail server.
     settings.sign_in = (!job.account.is_azlin()).then(|| job.secret.clone());
+    settings.trusted_roots = Some(azul_appkit::ui::trusted_roots_pem());
     let mut results = send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false);
     results.extend(retry_local_outbox(&job.azmail_root));
     results
@@ -1424,7 +1425,12 @@ fn run_sync(
     receiver: &mut ThreadReceiver,
 ) -> Result<SyncReport, SyncError> {
     let mut source =
-        imap_client::ImapSource::connect(&job.account, &job.secret, job.extra_ca.as_deref())?;
+        imap_client::ImapSource::connect(
+            &job.account,
+            &job.secret,
+            Some(&azul_appkit::ui::trusted_roots_pem()),
+            job.extra_ca.as_deref(),
+        )?;
     let store = MailStore::new(job.mail_root.clone());
     let options = SyncOptions {
         now: now_unix(),
@@ -1621,7 +1627,8 @@ fn outbox_counts(results: &[(String, send::SendStatus)]) -> (usize, usize, usize
 /// Every mail waiting in Local Folders' Outbox tried again, from this computer (their own
 /// `sending.json`, else straight to the recipients' mail servers). Blocking: on a Thread.
 fn retry_local_outbox(root: &DriveFolder) -> Vec<(String, send::SendStatus)> {
-    let settings = send::SendSettings::load(root, account::LOCAL_ID);
+    let mut settings = send::SendSettings::load(root, account::LOCAL_ID);
+    settings.trusted_roots = Some(azul_appkit::ui::trusted_roots_pem());
     send::retry_outbox(root, account::LOCAL_ID, &settings, true)
 }
 

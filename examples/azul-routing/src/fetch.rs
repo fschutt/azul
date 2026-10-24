@@ -85,6 +85,9 @@ pub struct Fetcher {
     cache: Arc<ResponseCache>,
     /// Offline by choice (`--offline`): nothing goes out, the cache answers.
     offline: AtomicBool,
+    /// Why the roots it was told to trust did not load ([`Fetcher::trusting`]): every request
+    /// fails with it.
+    trust_error: Option<String>,
 }
 
 #[cfg(feature = "http")]
@@ -101,7 +104,20 @@ impl Fetcher {
             gate: Polite::new(gap),
             cache,
             offline: AtomicBool::new(false),
+            trust_error: None,
         }
+    }
+
+    /// The same service asked trusting exactly the roots in `pems` (PEM text: the app's
+    /// set) instead of the Mozilla roots. A root that does not parse fails every request,
+    /// saying why: it never falls back to the Mozilla roots.
+    #[must_use]
+    pub fn trusting(mut self, pems: &[String]) -> Self {
+        match crate::source::http_agent_trusting(pems) {
+            Ok(agent) => self.agent = agent,
+            Err(why) => self.trust_error = Some(why),
+        }
+        self
     }
 
     /// Offline by choice: nothing goes out, the cache answers what it can.
@@ -157,6 +173,9 @@ impl Fetcher {
             Turn::Go => {}
             Turn::Stopped => return Ok(None),
             Turn::BackingOff(_) => return offline(FetchError::Busy),
+        }
+        if let Some(why) = &self.trust_error {
+            return offline(FetchError::Offline(why.clone()));
         }
         let validators = kept.as_ref().filter(|e| e.can_revalidate());
         let sent = match *request {

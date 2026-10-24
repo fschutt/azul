@@ -202,8 +202,29 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
     Ok(options)
 }
 
-fn transports() -> TransportFactory {
-    Arc::new(|| Box::new(crate::transport::UreqTransport::new()) as Box<dyn Transport>)
+/// Every transport of the run, trusting `roots` (the shared config's set).
+fn transports(roots: &ureq::tls::RootCerts) -> TransportFactory {
+    let roots = roots.clone();
+    Arc::new(move || {
+        Box::new(crate::transport::UreqTransport::with_root_certs(roots.clone()))
+            as Box<dyn Transport>
+    })
+}
+
+/// The roots every connection of the run trusts, PEM: the shared config's `trust` section
+/// (the public roots when it names none).
+///
+/// # Errors
+///
+/// A root the section names that cannot be read or does not parse: the run stops rather
+/// than trust more than the user asked for.
+fn trusted_roots(options: &Options) -> Result<Vec<String>, String> {
+    settings(options).trust?.certificates_pem()
+}
+
+/// [`trusted_roots`] as ureq's root store.
+fn root_certs(options: &Options) -> Result<ureq::tls::RootCerts, String> {
+    crate::transport::root_certs(&trusted_roots(options)?)
 }
 
 /// The settings of this run, as azcloud-kit resolves them.
@@ -323,7 +344,8 @@ pub fn run(options: &Options) -> Result<(), String> {
                 .clone()
                 .unwrap_or_else(|| azcloud_kit::token::DEFAULT_TIER.to_string());
             let name = options.name.clone().unwrap_or_else(|| String::from("Azlin Bridge"));
-            let account = Account::signup(&state_dir, &token_url, transports(), &tier, &name)
+            let transports = transports(&root_certs(options)?);
+            let account = Account::signup(&state_dir, &token_url, transports, &tier, &name)
                 .map_err(|e| e.to_string())?;
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
             // "We always encrypt": the keys as the drive is made (into the bucket at this run's
@@ -347,7 +369,8 @@ pub fn run(options: &Options) -> Result<(), String> {
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             let code = JoinCode::decode(text.trim()).map_err(|e| e.to_string())?;
-            let account = Account::join(&state_dir, &token_url, transports(), &code)
+            let transports = transports(&root_certs(options)?);
+            let account = Account::join(&state_dir, &token_url, transports, &code)
                 .map_err(|e| e.to_string())?;
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
             // An encrypted drive's key rides in the code (sealed to a one-time key): the bridge
@@ -532,7 +555,7 @@ fn serve(
     } else {
         let (token_url, s3_url) = endpoints(options);
         let token_url = token_url.ok_or("no token server: pass --token-url or set AZLIN_TOKEN_URL")?;
-        let drive = AccountDrive::open(state_dir, &token_url, transports(), s3_url)
+        let drive = AccountDrive::open(state_dir, &token_url, transports(&root_certs(options)?), s3_url)
             .map_err(|e| e.to_string())?;
         // iroh to the nodes first when this build dials it, HTTPS with the failover after.
         let drive = match iroh_dialer() {
@@ -578,14 +601,17 @@ fn serve(
         limits.auth_delay,
     ));
     let sent = Arc::new(SentRegistry::new());
-    let submitter = Arc::new(AzMailSubmitter::new(
-        state.join(config::SPOOL_DIR),
-        &config.account,
-        config.sending_file.clone(),
-        secrets,
-        store.clone(),
-        sent.clone(),
-    ));
+    let submitter = Arc::new(
+        AzMailSubmitter::new(
+            state.join(config::SPOOL_DIR),
+            &config.account,
+            config.sending_file.clone(),
+            secrets,
+            store.clone(),
+            sent.clone(),
+        )
+        .trusting(trusted_roots(options)?),
+    );
     let bind = |port: u16, what: &str| {
         net::bind_loopback(port).map_err(|e| format!("{what} on 127.0.0.1:{port}: {e}"))
     };

@@ -1550,6 +1550,7 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let mut settings = send::SendSettings::load(&job.root, &job.account_id);
     settings.dkim_key = job.dkim_key.clone();
     settings.sign_in = job.sign_in.clone();
+    settings.trusted_roots = Some(azul_appkit::ui::trusted_roots_pem());
     // Without an account (Local Folders) it leaves from this computer: their `sending.json`,
     // else straight to the recipients' mail servers.
     let status = send::send_mail(&job.root, &job.account_id, &settings, &mail);
