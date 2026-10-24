@@ -1,13 +1,13 @@
 //! A widget nobody pinned follows the APP theme (`AppConfig::with_theme`,
 //! `CallbackInfo::set_theme`) - the second half of the widgets (T3).
 //!
-//! An unpinned widget (`theme: None`, no `with_theme`) is built in the
-//! STRUCTURE of the theme its DOM is built for and carries the declarations
-//! of EVERY theme, each block conditioned `@theme(<name>)`; the cascade keeps
-//! the live theme's. So an app sets its theme once and no widget can be
-//! forgotten and look out of place. A window builds its DOM inside a
-//! `ThemeScope` of its app theme; these tests do the same and never publish
-//! the app-global choice (the layout tests share one process).
+//! An unpinned widget (`theme: None`, no `with_theme`) is built in the look
+//! of the theme its DOM is built for, exactly as the widget pinned to it, and
+//! carries no other theme's declarations: a theme switch rebuilds every
+//! window, so the DOM costs one build. So an app sets its theme once and no
+//! widget can be forgotten and look out of place. A window builds its DOM
+//! inside a `ThemeScope` of its app theme; these tests do the same and never
+//! publish the app-global choice (the layout tests share one process).
 //!
 //! What every migrated widget owes, checked through the public API only
 //! ([`assert_follows_the_app_theme`]):
@@ -19,7 +19,7 @@
 //!   the app default is the chain's implicit last entry). Each compiled-in theme is a complete
 //!   look, so only the first one in the chain is live: flat must not fill the gaps of flora's
 //!   look (a property flat declares and flora does not stays flora's - undeclared);
-//! * its DOM carries BOTH themes' blocks (unless the two looks are one);
+//! * its DOM carries no `@theme` block (one look, built once);
 //! * a pinned widget ignores the app theme: no `@theme` condition anywhere, the same styles
 //!   whatever the app theme;
 //! * its accessibility tree is the same under both app themes.
@@ -200,20 +200,19 @@ fn assert_follows_the_app_theme(widget: &str, make: impl Fn(Option<UiTheme>) -> 
         }
     }
 
-    let looks_differ = styles(&built_for(UiTheme::Flat, &|| make(Some(UiTheme::Flat))))
-        != styles(&built_for(UiTheme::Flat, &|| make(Some(UiTheme::Flora))));
-    // Where the looks differ the DOM carries a theme block - but not
-    // necessarily one per theme: a look whose declarations are all generic
-    // (the same in the other theme) has nothing of its own, only the base
-    // outside every block (user ruling: generic rules stay outside `@theme`).
-    if looks_differ {
-        for theme in THEMES {
-            let names = theme_names(&built_for(theme, &|| make(None)));
-            if names.is_empty() {
-                bad.push(format!(
-                    "{widget} built for {theme:?} carries no theme block although its looks differ"
-                ));
-            }
+    for theme in THEMES {
+        let followed = built_for(theme, &|| make(None));
+        let names = theme_names(&followed);
+        if !names.is_empty() {
+            bad.push(format!(
+                "{widget} built for {theme:?} carries the theme blocks {names:?}: an unpinned \
+                 widget is built in the live theme's look only"
+            ));
+        }
+        if styles(&followed) != styles(&built_for(theme, &|| make(Some(theme)))) {
+            bad.push(format!(
+                "{widget} built for {theme:?}: its styles are not those of with_theme({theme:?})"
+            ));
         }
     }
 
