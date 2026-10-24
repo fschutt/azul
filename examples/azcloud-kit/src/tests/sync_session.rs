@@ -315,6 +315,7 @@ fn a_conflict_waits_for_a_choice_and_each_choice_does_what_it_says() {
         let mut names: Vec<String> = fs::read_dir(folder.path())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != ".azlin")
             .collect();
         names.sort();
         names
