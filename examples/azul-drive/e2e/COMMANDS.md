@@ -13,15 +13,16 @@ user's own drives: every path they create lies in the run's sandbox.
 ## How to run
 
 ```sh
-# one scenario, or a folder of them (each file runs in a process of its own)
-AZ_E2E=examples/azul-drive/e2e/sync AZLIN_DATA=$(mktemp -d) AZUL_DRIVES=$(mktemp -d)/drives.json \
-  AZDRIVE_DIALOGS=inline AZDRIVE_SYNC_POLL=3600 AZDRIVE_SYNC_SETTLE_MS=0 ./AzDrive
+# every scenario in e2e/sync (each file runs in a process of its own), or one file or folder
+examples/azul-drive/scripts/e2e_sync.sh [examples/azul-drive/e2e/sync/<id>.json] [path/to/AzDrive]
 ```
 
-The runner passes no command line to the per-file processes, so everything is set by the
-environment. `AZDRIVE_SYNC_POLL=3600` keeps the poll timer out of the way: a scenario starts its
-passes itself. `AZDRIVE_E2E_WORK` sets the sandbox's parent folder (default: the system's
-temporary folder); `AZDRIVE_E2E_KEEP=1` keeps the sandbox after the run.
+The script runs AzDrive headless with `AZ_E2E` and points everything it reads and writes at one
+temporary folder (the data root, the drives file, Home, the caches, the sandboxes), with
+`AZDRIVE_SYNC_POLL=3600` (a scenario starts its passes itself) and `AZDRIVE_SYNC_SETTLE_MS=0`.
+libazul must be built with the debug server, as for every `AZ_E2E` run. The runner passes no
+command line to its per-file processes, so all of it is environment. `AZDRIVE_E2E_WORK` sets
+the sandboxes' parent folder; `AZDRIVE_E2E_KEEP=1` keeps them.
 
 ## The engine side (every app gets these)
 

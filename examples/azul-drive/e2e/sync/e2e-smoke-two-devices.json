@@ -1,0 +1,28 @@
+{
+  "name": "two devices on one plain remote converge, and the sandbox goes away",
+  "description": "The smallest AzDrive E2E sync scenario: it proves the commands themselves (sandbox, remote, devices, pairing, passes, checks).",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "notes/one.txt", "text": "one" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "assert_response", "path": "result.up", "equals": 1 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "assert_response", "path": "result.down", "equals": 1 },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "notes/one.txt", "text": "one" },
+    { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "notes/one.txt", "text": "one" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_check", "check": "outside_untouched" },
+    { "op": "drive_check", "check": "remote_never_has" },
+    { "op": "drive_problems", "device": "b" },
+    { "op": "assert_response", "path": "result.problems", "len": 0 },
+    { "op": "list_app_ops" },
+    { "op": "assert_response", "path": "commands", "contains": "\"drive_sync\"" },
+    { "op": "drive_cleanup" }
+  ]
+}
