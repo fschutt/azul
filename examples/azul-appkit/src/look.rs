@@ -25,14 +25,15 @@
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::TabIndex,
+    dom::{AccessibilityInfo, AccessibilityRole, AccessibilityState},
     prelude::*,
+    vec::AccessibilityStateVec,
     widgets::ButtonType,
 };
 
 use crate::{
     l10n::label,
-    pieces::{column, text},
+    pieces::{column, text, Clickable},
 };
 
 /// The dialog's own surface: around the two panes and under OK / Cancel.
@@ -156,7 +157,8 @@ pub struct CategoryItem<'a> {
 }
 
 /// The category list: `items` top to bottom, the `chosen` one on the selection's colour. A
-/// click on an item - or Enter / Space on it focused - calls `on_pick` with `data(index)`.
+/// click on an item - or Enter / Space on it focused - calls `on_pick` with `data(index)`. A
+/// screen reader hears the items as tabs, the chosen one selected.
 #[must_use]
 pub fn category_list(
     id: &str,
@@ -179,17 +181,23 @@ pub fn category_list(
         } else {
             format!("{item_css} color: system:text; :hover {{ background: {HOVER_BG}; }}")
         };
-        let pick = data(index);
-        children.push(
-            Dom::create_div()
-                .with_id(item.id.as_str())
-                .with_css(css)
-                .with_tab_index(TabIndex::Auto)
-                .with_child(text(label(item.name)))
-                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), pick.clone(), on_pick)
-                // Enter / Space on the focused category (the engine's keyboard activation).
-                .with_callback(EventFilter::Hover(HoverEventFilter::Click), pick, on_pick),
-        );
+        // A category switches the pane beside the list, as a tab does; the shown one says so.
+        let mut item_dom = Dom::create_div()
+            .with_id(item.id.as_str())
+            .with_css(css)
+            .with_child(text(label(item.name)));
+        if index == chosen {
+            item_dom = item_dom.with_accessibility_info(AccessibilityInfo {
+                states: AccessibilityStateVec::from_vec(vec![AccessibilityState::Selected]),
+                ..AccessibilityInfo::default()
+            });
+        }
+        children.push(item_dom.clickable_as(
+            item.name,
+            AccessibilityRole::PageTab,
+            data(index),
+            on_pick,
+        ));
     }
     column(
         &format!(

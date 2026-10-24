@@ -8,7 +8,7 @@
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::AccessibilityRole,
+    dom::{AccessibilityInfo, AccessibilityRole},
     prelude::*,
     str::String as AzString,
     vec::{StringVec, U32Vec},
@@ -26,24 +26,28 @@ pub fn strs(items: &[&str]) -> StringVec {
 /// or a key of the resources) that runs `callback` on a click - a press and release on it, or
 /// Enter / Space while it has the focus. A row with a bare MouseUp callback answers the mouse
 /// only: it is no tab stop, and the keyboard's activation is a click, which MouseUp never
-/// hears.
+/// hears. A screen reader announces it as a button; [`clickable_as`] names another role.
 #[must_use]
 pub fn clickable(dom: Dom, name: &str, data: RefAny, callback: CallbackType) -> Dom {
-    dom.with_tab_index(azul::dom::TabIndex::Auto)
-        .with_accessibility_name(crate::l10n::label(name))
-        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
+    clickable_as(dom, name, AccessibilityRole::PushButton, data, callback)
 }
 
-/// [`clickable`] that a screen reader announces as `role`.
+/// [`clickable`] that a screen reader announces as `role`: a navigation entry is a `Link` (it
+/// goes somewhere) or a `PageTab` (it switches the pane beside it), a menu's row a `MenuItem`,
+/// a row of a list a `ListItem`. A name with no role says nothing about what the control is,
+/// and the engine's accessibility lint reports it.
 #[must_use]
 pub fn clickable_as(
     dom: Dom,
     name: &str,
-    _role: AccessibilityRole,
+    role: AccessibilityRole,
     data: RefAny,
     callback: CallbackType,
 ) -> Dom {
-    clickable(dom, name, data, callback)
+    // Assign, not replace: a state the node declares already (a tab's Selected) stays.
+    dom.with_tab_index(azul::dom::TabIndex::Auto)
+        .with_accessibility_assign(AccessibilityInfo::named(crate::l10n::label(name), role))
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
 }
 
 /// [`clickable`] and [`clickable_as`] at the end of a builder chain: `.clickable(name, data,
