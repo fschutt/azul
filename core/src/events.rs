@@ -5001,9 +5001,10 @@ pub extern "C" fn default_custom_e2e_op_extern(
     }
 }
 
-/// An E2E command's callback as `AppConfig` keeps it: the function pointer
-/// stored as a `usize`, like [`crate::callbacks::CoreCallback`], because its
-/// real type takes azul-layout's `CallbackInfo`, which this crate cannot name.
+/// An E2E command's callback as `AppConfig` keeps it.
+///
+/// The function pointer is stored as a `usize`, like [`crate::callbacks::CoreCallback`],
+/// because its real type takes azul-layout's `CallbackInfo`, which this crate cannot name.
 ///
 /// The real type is `azul_layout::callbacks::E2eCommandCallbackType`:
 /// `extern "C" fn(RefAny, CallbackInfo, AzString, AzString) -> CustomE2eOpResult`

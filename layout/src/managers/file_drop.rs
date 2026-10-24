@@ -36,7 +36,7 @@ pub struct FileDropManager {
     /// A drop set the dropped files and no pass has emitted its `FileDrop`
     /// yet. Without it every re-run of the pass emits the drop again: an app
     /// that rebuilds its page on a drop received the same drop up to the
-    /// recursion cap times (AzDrive uploaded the file and raised a notice
+    /// recursion cap times (`AzDrive` uploaded the file and raised a notice
     /// for each).
     drop_undelivered: bool,
 }

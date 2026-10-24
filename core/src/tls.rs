@@ -1,7 +1,8 @@
-//! Which certificate authorities a TLS connection trusts: the public web PKI by default, a set
-//! the app pins for a far end it knows (its token server, its relay, its database), and in
-//! either case minus the roots it distrusts (a public root that issued certificates it should
-//! not have).
+//! Which certificate authorities a TLS connection trusts.
+//!
+//! The public web PKI by default, a set the app pins for a far end it knows (its token server,
+//! its relay, its database), and in either case minus the roots it distrusts (a public root
+//! that issued certificates it should not have).
 //!
 //! The same value configures every TLS client of the framework and its apps: layout's HTTP
 //! client (`HttpRequestConfig`, `HttpClientConfig`), a database's backup sync (`DbConfig`), the
@@ -18,7 +19,7 @@ use azul_css::{AzString, StringVec};
 // repr(C, u8) FFI enum: boxing the pinned list would change the C ABI of every binding.
 #[allow(variant_size_differences)]
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum TrustRootSet {
     /// The app's set for every connection (`AppConfig::trust_roots`), the public roots when
     /// the app set none. The default, so one setting hardens the whole app.
@@ -35,7 +36,7 @@ pub enum TrustRootSet {
 /// The certificate authorities a TLS connection trusts: a set of roots minus the distrusted
 /// ones.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TrustRoots {
     /// The set the connection starts from: the app's (the default), the public roots, or a
     /// pinned set.
@@ -140,7 +141,7 @@ impl TrustRoots {
             certs
                 .iter()
                 .map(|cert| AzString::from(pem_certificate(cert.as_ref())))
-                .collect::<alloc::vec::Vec<_>>()
+                .collect::<Vec<_>>()
         });
         #[cfg(not(all(feature = "tls-roots", not(target_arch = "wasm32"))))]
         let pems: Result<alloc::vec::Vec<AzString>, alloc::string::String> =
@@ -158,17 +159,19 @@ azul_css::impl_result!(
     AzString,
     ResultStringVecString,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 /// The app's set, as [`set_app_trust_roots`] left it. Never `AppDefault`.
 #[cfg(feature = "std")]
 static APP_TRUST_ROOTS: std::sync::RwLock<Option<TrustRoots>> = std::sync::RwLock::new(None);
 
-/// Makes `roots` the set of every connection whose config names none (`AppDefault`): what
-/// `App::create` does with `AppConfig::trust_roots`; a process without an `App` (a headless
-/// service, a command line tool) calls it once at start. A pooled client or an endpoint
-/// made earlier keeps the set it was made with. `AppDefault` here means the public roots.
+/// Makes `roots` the set of every connection whose config names none (`AppDefault`).
+///
+/// What `App::create` does with `AppConfig::trust_roots`; a process without an `App` (a
+/// headless service, a command line tool) calls it once at start. A pooled client or an
+/// endpoint made earlier keeps the set it was made with. `AppDefault` here means the public
+/// roots.
 #[cfg(feature = "std")]
 pub fn set_app_trust_roots(roots: TrustRoots) {
     let roots = match roots.roots {
@@ -260,7 +263,7 @@ mod roots {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             // A root whose key cannot be read is kept: no TLS library could trust it either.
-            set.retain(|cert| public_key(cert).map_or(true, |key| !distrusted.contains(&key)));
+            set.retain(|cert| public_key(cert).is_none_or(|key| !distrusted.contains(&key)));
             Ok(set)
         }
     }

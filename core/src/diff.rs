@@ -1690,8 +1690,9 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
 }
 
 /// Puts a fresh build's payloads onto the retained arena of a DOM whose
-/// fingerprints did not move (the same tree, the same styles): the image
-/// callbacks, the event callbacks and the views' callbacks and data of the
+/// fingerprints did not move (the same tree, the same styles).
+///
+/// The image callbacks, the event callbacks and the views' callbacks and data of the
 /// fresh build - they may reference new app state - and then its datasets,
 /// merged as the full path's `transfer_states` merges them. The views go in
 /// before the datasets, so a widget whose handlers and view share one

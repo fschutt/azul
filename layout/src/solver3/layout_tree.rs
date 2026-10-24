@@ -1301,14 +1301,16 @@ impl TextStyleKey {
         dom_id: NodeId,
         styles: &mut crate::solver3::getters::StyleCache,
         system_style: Option<&Arc<azul_css::system::SystemStyle>>,
-        viewport: azul_css::props::basic::PhysicalSize,
+        viewport: PhysicalSize,
     ) -> Self {
         use crate::solver3::getters::{
             get_display_property, get_style_properties_cached, is_inline_box_display,
             propagated_text_decoration,
         };
         let hierarchy = styled_dom.node_hierarchy.as_container();
-        let parent = hierarchy.get(dom_id).and_then(|h| h.parent_id());
+        let parent = hierarchy
+            .get(dom_id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         let mut inline_boxes = Vec::new();
         let mut node = parent;
         while let Some(id) = node {
@@ -1323,7 +1325,9 @@ impl TextStyleKey {
                 system_style,
                 viewport,
             ));
-            node = hierarchy.get(id).and_then(|h| h.parent_id());
+            node = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         Self {
             own: get_style_properties_cached(styles, styled_dom, dom_id, system_style, viewport),

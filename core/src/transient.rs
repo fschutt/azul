@@ -659,7 +659,9 @@ fn bake_resolved_style(
 }
 
 /// Fits the root of a transient window's content into `cap`, the most room
-/// its window may take. A root that does not scroll needs nothing: it is as
+/// its window may take.
+///
+/// A root that does not scroll needs nothing: it is as
 /// big as its content, and the window, a viewport like a document's, scrolls
 /// what does not fit. A root that is its own scroll container on an axis
 /// (`overflow: auto | scroll`) scrolls only inside its box, so on that axis
@@ -725,16 +727,16 @@ pub fn fit_root_to(dom: &mut crate::dom::Dom, cap: LogicalSize) {
     // the node's own max in px is already tighter; a relative one resolves
     // against the window, which is never bigger.
     let fitted = |own: Option<PixelValue>, room: f32, frame: f32| -> Option<f32> {
-        let room = (room - frame).max(0.0);
-        if !room.is_finite() {
+        let inner = (room - frame).max(0.0);
+        if !inner.is_finite() {
             return None;
         }
         match own {
             Some(v) if v.to_pixels_absolute().into_option().is_some() => {
-                (px(&v) > room).then_some(room)
+                (px(&v) > inner).then_some(inner)
             }
             Some(_) => None,
-            None => Some(room),
+            None => Some(inner),
         }
     };
     if let Some(w) = fitted(own_max.0, cap.width, frame.0).filter(|_| scrolls.0) {

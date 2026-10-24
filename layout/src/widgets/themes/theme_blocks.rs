@@ -90,7 +90,7 @@ pub(crate) fn skins_of<S>(theme: OptionUiTheme, flat: fn() -> S, flora: fn() -> 
 /// The skin whose STRUCTURE the DOM carries (its theme marker class, its
 /// metrics a builder reads as numbers): the one skin of `skins`.
 #[must_use]
-pub(crate) fn structure_skin<S>(skins: &[S], _theme: OptionUiTheme) -> Option<&S> {
+pub(crate) const fn structure_skin<S>(skins: &[S], _theme: OptionUiTheme) -> Option<&S> {
     skins.first()
 }
 

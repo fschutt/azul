@@ -124,7 +124,7 @@ fn a_popover_that_fits_comes_up_at_its_own_size_and_does_not_scroll() {
     let (root, frame) = in_its_window("", 2, ROW, size);
     assert_eq!(root, size, "the root is its content's size");
     assert!(
-        frame.map_or(true, |(clip, content)| content.height <= clip.height
+        frame.is_none_or(|(clip, content)| content.height <= clip.height
             && content.width <= clip.width),
         "nothing to scroll: {frame:?}"
     );

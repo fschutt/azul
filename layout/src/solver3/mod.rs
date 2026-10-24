@@ -2069,10 +2069,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
         // The nodes are the ones of the last pass, index for index: the
         // retained tree, or a reconcile that kept the structure.
+        let (nodes_before, positions_before) =
+            (cache.previous_sizes.len(), cache.calculated_positions.len());
         let same_nodes = (cache.last_reconcile_was_skipped
             || cache.last_reconcile_structure_preserved)
-            && cache.previous_sizes.len() == new_tree.nodes.len()
-            && cache.calculated_positions.len() == calculated_positions.len();
+            && nodes_before == new_tree.nodes.len()
+            && positions_before == calculated_positions.len();
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
         }

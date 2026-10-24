@@ -23,7 +23,6 @@ use azul_layout::{
         split_pane::{SplitDirection, SplitPane},
     },
     window::LayoutWindow,
-    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 

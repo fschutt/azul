@@ -1,7 +1,8 @@
-//! Throwaway certificate authorities and a local TLS server, for the tests of what a TLS
-//! connection trusts (layout's HTTP client, the dll's iroh relays and database sync, the apps'
-//! mail, storage and map clients). Nothing here is used by an app: the keys are made at run
-//! time, the certificates live for the test only.
+//! Throwaway certificate authorities and a local TLS server, for tests only.
+//!
+//! For the tests of what a TLS connection trusts (layout's HTTP client, the dll's iroh relays
+//! and database sync, the apps' mail, storage and map clients). Nothing here is used by an app:
+//! the keys are made at run time, the certificates live for the test only.
 //!
 //! A [`TestCa`] is an Ed25519 root (`CN=<name>`); [`TestCa::server_for_loopback`] issues a
 //! certificate for 127.0.0.1 under it, and [`serve_tls`] answers TLS on a loopback port with it,
@@ -21,13 +22,17 @@ use ed25519_dalek::{Signer, SigningKey};
 fn tlv(tag: u8, body: &[u8]) -> Vec<u8> {
     let mut out = vec![tag];
     let len = body.len();
-    if len < 0x80 {
-        out.push(len as u8);
-    } else {
-        let bytes = len.to_be_bytes();
-        let first = bytes.iter().position(|b| *b != 0).unwrap_or(bytes.len() - 1);
-        out.push(0x80 | (bytes.len() - first) as u8);
-        out.extend_from_slice(&bytes[first..]);
+    match u8::try_from(len) {
+        // the short form: the length itself, below 128
+        Ok(short) if short < 0x80 => out.push(short),
+        _ => {
+            let bytes = len.to_be_bytes();
+            let first = bytes.iter().position(|b| *b != 0).unwrap_or(bytes.len() - 1);
+            // 0x80 and how many length bytes follow
+            let count = u8::try_from(bytes.len() - first).expect("a usize has at most 8 bytes");
+            out.push(0x80 | count);
+            out.extend_from_slice(&bytes[first..]);
+        }
     }
     out.extend_from_slice(body);
     out
@@ -37,7 +42,7 @@ fn seq(parts: &[Vec<u8>]) -> Vec<u8> {
     tlv(0x30, &parts.concat())
 }
 
-/// AlgorithmIdentifier of Ed25519 (1.3.101.112, no parameters).
+/// The `AlgorithmIdentifier` of Ed25519 (1.3.101.112, no parameters).
 fn ed25519_algorithm() -> Vec<u8> {
     seq(&[tlv(0x06, &[0x2b, 0x65, 0x70])])
 }
@@ -109,6 +114,7 @@ fn certificate(
 }
 
 /// A throwaway root certificate authority.
+#[derive(Debug)]
 pub struct TestCa {
     name: String,
     key: SigningKey,
@@ -129,6 +135,7 @@ pub fn pems(cas: &[&TestCa]) -> azul_css::StringVec {
 }
 
 /// A server's certificate chain and its private key (PKCS#8, DER).
+#[derive(Debug)]
 pub struct ServerCert {
     pub chain: Vec<Vec<u8>>,
     pub key_pkcs8: Vec<u8>,
@@ -137,12 +144,12 @@ pub struct ServerCert {
 impl TestCa {
     /// A new root named `name` (`CN=<name>`), with a key made now.
     #[must_use]
-    pub fn new(name: &str) -> TestCa {
+    pub fn new(name: &str) -> Self {
         let key = SigningKey::from_bytes(&fresh_bytes());
         let basic_constraints = extension(&[0x55, 0x1d, 0x13], true, &seq(&[tlv(0x01, &[0xff])]));
         let key_usage = extension(&[0x55, 0x1d, 0x0f], true, &tlv(0x03, &[0x01, 0x06]));
         let cert_der = certificate(name, &key, name, &key, &[basic_constraints, key_usage]);
-        TestCa {
+        Self {
             name: name.to_string(),
             cert_pem: crate::tls::pem_certificate(&cert_der),
             cert_der,
@@ -201,6 +208,11 @@ pub fn serve_tls(cert: ServerCert) -> (u16, mpsc::Receiver<Seen>) {
 }
 
 /// [`serve_tls`] speaking `protocol` around the handshake.
+///
+/// # Panics
+///
+/// When the test certificate does not load or no loopback port can be bound: the test cannot
+/// run.
 #[must_use]
 pub fn serve_tls_with(cert: ServerCert, protocol: Protocol) -> (u16, mpsc::Receiver<Seen>) {
     let provider = Arc::new(rustls_rustcrypto::provider());
@@ -238,11 +250,9 @@ fn answer(
     protocol: Protocol,
     seen: &mpsc::Sender<Seen>,
 ) {
-    if let Protocol::SmtpStartTls = protocol {
-        if smtp_until_starttls(&mut stream).is_none() {
-            drop(seen.send(Err("the client never asked for STARTTLS".to_string())));
-            return;
-        }
+    if matches!(protocol, Protocol::SmtpStartTls) && smtp_until_starttls(&mut stream).is_none() {
+        drop(seen.send(Err("the client never asked for STARTTLS".to_string())));
+        return;
     }
     let Ok(conn) = rustls::ServerConnection::new(config.clone()) else {
         return;

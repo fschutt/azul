@@ -1535,6 +1535,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
 /// How the reconcile reads the style of a text node under a restyled box
 /// ([`TextStyleKey::of`]): the pass's style memo and what sizes resolve
 /// against.
+#[derive(Debug)]
 pub struct TextStyleReader<'a> {
     styles: &'a mut crate::solver3::getters::StyleCache,
     system_style: Option<&'a std::sync::Arc<azul_css::system::SystemStyle>>,

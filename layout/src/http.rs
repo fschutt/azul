@@ -830,8 +830,9 @@ impl HttpRequestConfig {
         http_request_with_config(method, url.as_str(), body_opt, content_type.as_str(), self).into()
     }
 
-    /// Stub: `http` feature disabled.
+    /// Stub: `http` feature disabled. Its `self` stays: the signature is the real request's.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
+    #[allow(clippy::unused_self)]
     fn request_blocking(
         &self,
         _method: HttpMethod,

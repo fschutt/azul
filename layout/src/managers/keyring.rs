@@ -149,6 +149,7 @@ pub fn drain_keyring_requests_in() -> Vec<(KeyringNamespace, KeyringRequest)> {
 }
 
 /// [`drain_keyring_requests_in`] without the namespaces.
+#[must_use]
 pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
     drain_keyring_requests_in()
         .into_iter()

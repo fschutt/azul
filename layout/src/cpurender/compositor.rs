@@ -4282,7 +4282,7 @@ impl FrameStack {
 /// with it, not with the matrix the list was built with: a change inside a
 /// sliding toast card is damaged where the card is now, not where it
 /// started. Empty maps mean "the lists' own matrices".
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FrameValues<'a> {
     pub old: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
     pub new: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,

@@ -4281,8 +4281,9 @@ pub(crate) fn count_compact_cache_rebuild() {
 }
 
 /// How many times this thread built a DOM's compact cache (with its
-/// inheritance tables): every cascade, restyle and override refresh ends in
-/// one ([`StyledDom::recompute_inheritance_and_compact_cache`],
+/// inheritance tables).
+///
+/// Every cascade, restyle and override refresh ends in one ([`StyledDom::recompute_inheritance_and_compact_cache`],
 /// `StyledDom::restyle`). Each walks the whole DOM, so a change pays it once
 /// at most, and a change no style depends on not at all; the tests that keep
 /// it so read this count. Always 0 without `std`.

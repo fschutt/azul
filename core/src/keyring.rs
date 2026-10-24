@@ -20,8 +20,9 @@ use alloc::string::ToString;
 
 use azul_css::AzString;
 
-/// Which keyring service an entry lives in: an app sees only the entries of the
-/// namespaces it names. The default (an empty service) is the app's own id
+/// Which keyring service an entry lives in.
+///
+/// An app sees only the entries of the namespaces it names. The default (an empty service) is the app's own id
 /// (`AppConfig::app_id`, or what its bundle / package declares), so two azul
 /// apps never read each other's secrets by accident; apps that share entries
 /// (the Azlin apps, `io.azlin.shared`) name the same service.
