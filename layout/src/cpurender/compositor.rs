@@ -4021,15 +4021,20 @@ pub fn execute_translate_blit(
     hint: &TranslateHint,
     exceptions: &[LogicalRect],
     mover_rects: &[LogicalRect],
+    rider_rects: &[LogicalRect],
     new_display_list: &DisplayList,
     dpi_factor: f32,
 ) -> TranslateBlitResult {
     let mut res = TranslateBlitResult::default();
     let d = hint.delta;
-    // Where every mover now is: what lies inside one moved with it.
+    // Where every mover now is: what lies inside one moved with it. A mover
+    // that changed height while its content rode its top left counts whole:
+    // the blit moved what both its boxes show, the vacated strip and the
+    // diff repaint the rest.
     let destinations: Vec<LogicalRect> = mover_rects
         .iter()
         .map(|m| moved_by(*m, (-d.0, -d.1)))
+        .chain(rider_rects.iter().copied())
         .collect();
     if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
         eprintln!(
@@ -4144,6 +4149,9 @@ pub fn execute_translate_blit(
         res.present_extra.push(clip);
     }
     res.damage.extend(exceptions.iter().copied());
+    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+        eprintln!("[blit]   damage {:?}", res.damage);
+    }
     res
 }
 
@@ -4824,29 +4832,20 @@ fn compute_display_list_damage_impl(
             }
             // A scroll frame is an OFFSET, not a paint: the rasteriser does
             // not clip at it (the `PushClip` in front of an ordinary frame
-            // does, and damages its own size change as strips above), and the
-            // items inside carry their own damage. So the same frame, anchored
-            // where it was, whose clip only changed size paints nothing by
-            // itself - the page's frame (the viewport's, no `PushClip`, as
-            // large as the window) damaged the whole window on every resize,
-            // where the exposed strip is the resize damage.
+            // does, and damages its own change as strips below), and the items
+            // inside carry their own damage at their own (window) positions,
+            // moved or not. So the same frame paints nothing by itself, wherever
+            // its clip went - the page's frame (the viewport's, as large as the
+            // window) damaged the whole window on every resize, and a pane's
+            // frame pushed down by a growing ribbon its whole pane per frame.
+            // Its offset is the offset stack's (above).
             if refine {
                 if let (
-                    DisplayListItem::PushScrollFrame {
-                        clip_bounds: ob,
-                        scroll_id: os,
-                        ..
-                    },
-                    DisplayListItem::PushScrollFrame {
-                        clip_bounds: nb,
-                        scroll_id: ns,
-                        ..
-                    },
+                    DisplayListItem::PushScrollFrame { scroll_id: os, .. },
+                    DisplayListItem::PushScrollFrame { scroll_id: ns, .. },
                 ) = (old_item, new_item)
                 {
-                    let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
-                        && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
-                    if os == ns && same_origin {
+                    if os == ns {
                         continue;
                     }
                 }
@@ -4903,6 +4902,88 @@ fn compute_display_list_damage_impl(
                     // plain damage below
                 }
             }
+            // A square border paints its edges and nothing inside them: a
+            // bordered box that moved or changed size changed only the bands
+            // it painted and the bands it paints (what lies inside carries its
+            // own damage). A bordered pane under a growing ribbon damaged its
+            // whole box per frame. A border moved by the blit's delta is the
+            // blit's (below).
+            if let (
+                DisplayListItem::Border {
+                    bounds: ob,
+                    widths: ow,
+                    border_radius: obr,
+                    ..
+                },
+                DisplayListItem::Border {
+                    bounds: nb,
+                    widths: nw,
+                    border_radius: nbr,
+                    ..
+                },
+            ) = (old_item, new_item)
+            {
+                let blitted =
+                    hint.is_some_and(|h| items_equal_translated(old_item, new_item, h.delta));
+                if refine && !blitted && radius_is_zero(obr) && radius_is_zero(nbr) {
+                    let at = |r: LogicalRect, acc: (f32, f32)| LogicalRect {
+                        origin: LogicalPosition {
+                            x: r.origin.x - acc.0,
+                            y: r.origin.y - acc.1,
+                        },
+                        size: r.size,
+                    };
+                    damage.extend(border_bands(at(ob.0, acc_old), ow));
+                    damage.extend(border_bands(at(nb.0, acc_new), nw));
+                    continue;
+                }
+            }
+            // A gradient whose colour is constant along one axis (a left to
+            // right sheen is the same colour down every column): a box that
+            // moved or changed size ALONG that axis only shows the same colour
+            // wherever its old and new rect overlap, like a flat fill.
+            if let (
+                DisplayListItem::LinearGradient {
+                    bounds: ob,
+                    gradient: og,
+                    border_radius: obr,
+                },
+                DisplayListItem::LinearGradient {
+                    bounds: nb,
+                    gradient: ng,
+                    border_radius: nbr,
+                },
+            ) = (old_item, new_item)
+            {
+                let blitted =
+                    hint.is_some_and(|h| items_equal_translated(old_item, new_item, h.delta));
+                if refine && !blitted && og == ng && obr == nbr && obr.is_zero() {
+                    let (o, nr) = (ob.0, nb.0);
+                    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+                    let along = match gradient_constant_axis(&og.direction) {
+                        Some(GradientAxis::Vertical) => {
+                            near(o.origin.x, nr.origin.x) && near(o.size.width, nr.size.width)
+                        }
+                        Some(GradientAxis::Horizontal) => {
+                            near(o.origin.y, nr.origin.y) && near(o.size.height, nr.size.height)
+                        }
+                        None => false,
+                    };
+                    if along {
+                        let at = |r: LogicalRect, acc: (f32, f32)| LogicalRect {
+                            origin: LogicalPosition {
+                                x: r.origin.x - acc.0,
+                                y: r.origin.y - acc.1,
+                            },
+                            size: r.size,
+                        };
+                        let (o, nr) = (at(o, acc_old), at(nr, acc_new));
+                        damage.extend(rect_minus(o, nr));
+                        damage.extend(rect_minus(nr, o));
+                        continue;
+                    }
+                }
+            }
             if let (
                 DisplayListItem::Rect {
                     bounds: ob,
@@ -4943,6 +5024,74 @@ fn compute_display_list_damage_impl(
                     }
                 } else {
                     // plain damage below
+                }
+            }
+            // A view whose box moved by the blit's delta and only changed
+            // height, showing the same document at the same offset (its
+            // content rides the box's top left): the blit moved what both of
+            // its boxes show (the layout pass made that part a mover, or an
+            // exception when it could not blit it), so only what one box shows
+            // and the other does not changed. A list under a ribbon that opens
+            // repainted its whole box per frame.
+            if let (
+                DisplayListItem::VirtualView {
+                    child_dom_id: oc,
+                    bounds: ob,
+                    clip_rect: ocl,
+                    content_offset: oo,
+                },
+                DisplayListItem::VirtualView {
+                    child_dom_id: nc,
+                    bounds: nb,
+                    clip_rect: ncl,
+                    content_offset: no,
+                },
+            ) = (old_item, new_item)
+            {
+                if let (true, Some(h)) = (refine, hint) {
+                    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+                    let moved = |o: &LogicalRect, n: &LogicalRect| {
+                        near(o.origin.x + h.delta.0, n.origin.x)
+                            && near(o.origin.y + h.delta.1, n.origin.y)
+                            && near(o.size.width, n.size.width)
+                    };
+                    let shared = LogicalRect {
+                        origin: ocl.0.origin,
+                        size: LogicalSize {
+                            width: ocl.0.size.width,
+                            height: ocl.0.size.height.min(ncl.0.size.height),
+                        },
+                    };
+                    let r = &h.region_old;
+                    let inside = shared.origin.x >= r.origin.x - 0.5
+                        && shared.origin.y >= r.origin.y - 0.5
+                        && shared.origin.x + shared.size.width <= r.origin.x + r.size.width + 0.5
+                        && shared.origin.y + shared.size.height <= r.origin.y + r.size.height + 0.5;
+                    if oc == nc
+                        && near(oo.x, no.x)
+                        && near(oo.y, no.y)
+                        && moved(&ob.0, &nb.0)
+                        && moved(&ocl.0, &ncl.0)
+                        && inside
+                    {
+                        let at = |r: LogicalRect, acc: (f32, f32)| LogicalRect {
+                            origin: LogicalPosition {
+                                x: r.origin.x - acc.0,
+                                y: r.origin.y - acc.1,
+                            },
+                            size: r.size,
+                        };
+                        let old_moved = at(moved_by(ocl.0, (-h.delta.0, -h.delta.1)), acc_old);
+                        let new_clip = at(ncl.0, acc_new);
+                        damage.extend(rect_minus(old_moved, new_clip));
+                        damage.extend(rect_minus(new_clip, old_moved));
+                        let vr = at(shared, acc_old);
+                        moved_union = Some(match moved_union {
+                            None => vr,
+                            Some(m) => union_rects(m, vr),
+                        });
+                        continue;
+                    }
                 }
             }
             // Round-3: a pure translation by the hint's delta, inside its
@@ -5026,6 +5175,72 @@ fn compute_display_list_damage_impl(
     // Coalesce overlapping rects
     coalesce_damage_rects(&mut damage);
     Some((damage, moved_union))
+}
+
+/// Whether every corner of a border is square.
+fn radius_is_zero(r: &azul_css::props::style::border_radius::StyleBorderRadius) -> bool {
+    [r.top_left, r.top_right, r.bottom_left, r.bottom_right]
+        .iter()
+        .all(|v| v.number.get().abs() < f32::EPSILON)
+}
+
+/// The bands a square border of `widths` paints around `bounds`: one per side
+/// that has a width.
+fn border_bands(
+    bounds: LogicalRect,
+    widths: &crate::solver3::display_list::StyleBorderWidths,
+) -> Vec<LogicalRect> {
+    let px = |w: Option<f32>| w.unwrap_or(0.0).max(0.0);
+    let top = px(widths.top.as_ref().and_then(|v| v.get_property()).map(|x| x.inner.to_pixels_internal(0.0, 16.0, 16.0)));
+    let right = px(widths.right.as_ref().and_then(|v| v.get_property()).map(|x| x.inner.to_pixels_internal(0.0, 16.0, 16.0)));
+    let bottom = px(widths.bottom.as_ref().and_then(|v| v.get_property()).map(|x| x.inner.to_pixels_internal(0.0, 16.0, 16.0)));
+    let left = px(widths.left.as_ref().and_then(|v| v.get_property()).map(|x| x.inner.to_pixels_internal(0.0, 16.0, 16.0)));
+    let (x, y, w, h) = (bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+    let band = |x: f32, y: f32, w: f32, h: f32| {
+        (w > 0.0 && h > 0.0).then(|| LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h)))
+    };
+    [
+        band(x, y, w, top.min(h)),
+        band(x, y + h - bottom.min(h), w, bottom.min(h)),
+        band(x, y, left.min(w), h),
+        band(x + w - right.min(w), y, right.min(w), h),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// The axis along which a linear gradient's colour does NOT change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GradientAxis {
+    /// The colour changes left to right only: constant down each column.
+    Vertical,
+    /// The colour changes top to bottom only: constant along each row.
+    Horizontal,
+}
+
+/// [`GradientAxis`] of a gradient running along `direction`, `None` for a
+/// diagonal one.
+fn gradient_constant_axis(direction: &azul_css::props::basic::Direction) -> Option<GradientAxis> {
+    use azul_css::props::basic::{Direction, DirectionCorner as C};
+    match direction {
+        Direction::Angle(a) => {
+            let d = a.to_degrees();
+            let near = |t: f32| (d - t).abs() < 0.01;
+            if near(90.0) || near(270.0) {
+                Some(GradientAxis::Vertical)
+            } else if near(0.0) || near(180.0) {
+                Some(GradientAxis::Horizontal)
+            } else {
+                None
+            }
+        }
+        Direction::FromTo(c) => match (&c.dir_from, &c.dir_to) {
+            (C::Left, C::Right) | (C::Right, C::Left) => Some(GradientAxis::Vertical),
+            (C::Top, C::Bottom) | (C::Bottom, C::Top) => Some(GradientAxis::Horizontal),
+            _ => None,
+        },
+    }
 }
 
 /// What of `a` lies outside `b`: up to four rects (the bands above and
@@ -5235,14 +5450,22 @@ pub fn compute_virtual_view_damage(
 }
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
+///
+/// Two rects within 8 logical px of each other merge when their bounding box
+/// adds little that neither covers: at most half the smaller rect plus a few
+/// pixels. Two pieces of one row, a run and its fringe, a strip and the box it
+/// borders merge; a pane and a thin strip beside it do not. A bound relative
+/// to the two areas together let a big rect grow by half again with every
+/// merge, and a frame's many small rects then chained a side pane, the bar
+/// above it and the list beside it into the whole window. The same bound
+/// keeps two perpendicular strips that meet at a corner apart.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
                                    // keep explicit a*b+c
 pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
     }
-
-    // Simple O(n^2) merge — fine for typical damage counts (<20 rects)
+    let area = |r: &LogicalRect| (r.size.width.max(0.0) * r.size.height.max(0.0)).max(0.0);
     let mut changed = true;
     while changed {
         changed = false;
@@ -5250,22 +5473,13 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
         while i < rects.len() {
             let mut j = i + 1;
             while j < rects.len() {
-                // 8 logical pixels: merge rects that are close enough to avoid
-                // many tiny damage regions that would cause redundant repaints —
-                // BUT only when the merged box doesn't balloon the repaint. Two
-                // PERPENDICULAR thin strips (e.g. a vertical + a horizontal
-                // scrollbar meeting at a corner) are "adjacent" yet their bounding
-                // box is the whole viewport: merging them turns ~3k px of overdraw
-                // into ~20k. Reject a merge whose union is much larger than the two
-                // rects combined; keep them separate instead.
                 if rects_overlap_or_adjacent(&rects[i], &rects[j], 8.0) {
                     let u = union_rect(&rects[i], &rects[j]);
-                    let area_u = (u.size.width * u.size.height).max(0.0);
-                    let area_i = (rects[i].size.width * rects[i].size.height).max(0.0);
-                    let area_j = (rects[j].size.width * rects[j].size.height).max(0.0);
-                    // 1.5× slack covers genuine overlap (union < sum) and small-gap
-                    // tiling (union ≈ sum) while rejecting perpendicular-strip bboxes.
-                    if area_u <= (area_i + area_j) * 1.5 + 64.0 {
+                    let (a, b) = (area(&rects[i]), area(&rects[j]));
+                    let both = intersect_logical_rects(rects[i], rects[j]);
+                    let covered = a + b - area(&both);
+                    let added = area(&u) - covered;
+                    if added <= 0.5 * a.min(b) + 64.0 {
                         rects[i] = u;
                         rects.swap_remove(j);
                         changed = true;
@@ -5437,6 +5651,7 @@ mod translate_hint_contract {
             mover_rects_old: vec![r],
             moved_region_old: r,
             exceptions: Vec::new(),
+            rider_rects_new: Vec::new(),
         }
     }
 

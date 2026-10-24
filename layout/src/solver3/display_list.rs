@@ -1055,9 +1055,30 @@ pub(crate) fn translate_item(mut item: DisplayListItem, delta: LogicalPosition) 
             }
             shift(clip_rect);
         }
+        // The state items: never spliced into a patched run (`patchable_item`),
+        // translated for the damage diff, which asks whether an item is the
+        // previous frame's moved by a blit's delta.
+        I::PushClip { bounds, .. }
+        | I::PushStackingContext { bounds, .. }
+        | I::PushOpacity { bounds, .. } => shift(bounds),
+        I::PushImageMaskClip {
+            bounds, mask_rect, ..
+        } => {
+            shift(bounds);
+            shift(mask_rect);
+        }
+        I::PushScrollFrame { clip_bounds, .. } => shift(clip_bounds),
+        // The child content rides the view's box (`content_offset` is
+        // relative to it).
+        I::VirtualView {
+            bounds, clip_rect, ..
+        } => {
+            shift(bounds);
+            shift(clip_rect);
+        }
         // No geometry of their own.
         I::PushTextShadow { .. } | I::PopTextShadow => {}
-        // Anything else is untranslatable by contract (see patchable_item).
+        // Anything else is not translatable (see patchable_item).
         _ => {}
     }
     item
@@ -4567,6 +4588,11 @@ pub struct PatchMoveSummary {
     /// dragged visibly; a static sibling painted ABOVE would be) — each as
     /// old∪new bounds.
     pub exceptions: Vec<LogicalRect>,
+    /// NEW rects of the movers that changed height but whose content rides
+    /// their top left (a list view growing into the room a closing bar gave
+    /// up): what is painted inside them moved with the blit, and the band
+    /// they gained or lost the diff repaints.
+    pub rider_rects_new: Vec<LogicalRect>,
 }
 
 /// Compute a [`PatchMoveSummary`] from the same inputs `PatchState::build`
@@ -4586,6 +4612,10 @@ pub fn compute_patch_move_summary(
     // rect (blit eligibility for movers).
     parents: &[Option<usize>],
     opaque_bg: &[bool],
+    // riders[i] = node i paints content that rides its box's top left and is
+    // clipped by it, and that content did not change (a `VirtualView` whose
+    // document stayed): in `reemit` for a new size only.
+    riders: &[bool],
 ) -> Option<PatchMoveSummary> {
     const EPS: f32 = 0.01;
     const MAX_EXCEPTIONS: usize = 64;
@@ -4594,11 +4624,36 @@ pub fn compute_patch_move_summary(
         .min(new_positions.len())
         .min(prev_sizes.len())
         .min(new_sizes.len());
+    // A rider whose box only changed height (a list under a ribbon that
+    // opens) moves the content both boxes show: what its old box showed down
+    // to the shorter of the two heights is a mover of its own. Its new band
+    // (or the band it gave up) the diff repaints.
+    let resized_rider = |i: usize| -> bool {
+        riders.get(i).copied().unwrap_or(false)
+            && match (prev_sizes[i], new_sizes[i]) {
+                (Some(a), Some(b)) => {
+                    (a.width - b.width).abs() < EPS && (a.height - b.height).abs() >= EPS
+                }
+                _ => false,
+            }
+    };
+    let moves_as_is = |i: usize| -> bool { !reemit.contains(&i) || resized_rider(i) };
+    // The size a mover is blitted at: its own, or a resized rider's shared part.
+    let mover_size = |i: usize| -> Option<LogicalSize> {
+        if resized_rider(i) {
+            match (prev_sizes[i], new_sizes[i]) {
+                (Some(a), Some(b)) => Some(LogicalSize::new(a.width, a.height.min(b.height))),
+                _ => None,
+            }
+        } else {
+            prev_sizes[i]
+        }
+    };
 
     // Group movers by exact delta bits, weighted by new area.
     let mut groups: HashMap<(u32, u32), f32> = HashMap::new();
     for i in 0..n {
-        if reemit.contains(&i) {
+        if !moves_as_is(i) {
             continue;
         }
         let dx = new_positions[i].x - prev_positions[i].x;
@@ -4659,7 +4714,7 @@ pub fn compute_patch_move_summary(
     const MAX_MOVERS: usize = 32;
     let mut is_dominant_mover = vec![false; n];
     for i in 0..n {
-        if reemit.contains(&i) {
+        if !moves_as_is(i) {
             continue;
         }
         let dx = new_positions[i].x - prev_positions[i].x;
@@ -4687,8 +4742,8 @@ pub fn compute_patch_move_summary(
     // The ancestor whose fill backs mover `i`, if one does.
     let backing_fill = |i: usize| -> Option<usize> {
         let (Some(old), Some(new)) = (
-            rect_of(prev_positions[i], prev_sizes[i]),
-            rect_of(new_positions[i], new_sizes[i]),
+            rect_of(prev_positions[i], mover_size(i)),
+            rect_of(new_positions[i], mover_size(i)),
         ) else {
             return None;
         };
@@ -4742,7 +4797,7 @@ pub fn compute_patch_move_summary(
         if !blittable[i] || covered_by_mover_ancestor(i) {
             continue;
         }
-        let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) else {
+        let Some(r) = rect_of(prev_positions[i], mover_size(i)) else {
             continue;
         };
         moved_region = Some(union(moved_region, r));
@@ -4775,6 +4830,10 @@ pub fn compute_patch_move_summary(
     // no exception; equally, dominant movers inside a blitted ancestor are
     // fine. Everything else that touches a mover rect must repaint.
     let inside_blit = |i: usize| -> bool { blittable[i] || covered_by_mover_ancestor(i) };
+    let rider_rects_new: Vec<LogicalRect> = (0..n)
+        .filter(|&i| is_dominant_mover[i] && resized_rider(i) && inside_blit(i))
+        .filter_map(|i| rect_of(new_positions[i], new_sizes[i]))
+        .collect();
 
     // Pass 2: exceptions — re-emitted nodes, off-delta movers, non-opaque
     // dominant movers outside any blitted ancestor, and NON-ANCESTOR
@@ -4804,7 +4863,7 @@ pub fn compute_patch_move_summary(
         let is_static = dx.abs() < EPS && dy.abs() < EPS;
         let old_r = rect_of(prev_positions[i], prev_sizes[i]);
         let new_r = rect_of(new_positions[i], new_sizes[i]);
-        let needs_exception = if reemit.contains(&i) {
+        let needs_exception = if reemit.contains(&i) && !resized_rider(i) {
             // NOT an exception: a re-emitted node's items genuinely differ
             // (fresh content / new size), so the translated DIFF damages
             // them itself — old∪new bounds — which also repaints over any
@@ -4851,7 +4910,22 @@ pub fn compute_patch_move_summary(
         mover_rects_old,
         moved_region_old,
         exceptions,
+        rider_rects_new,
     })
+}
+
+/// Whether two items are of one kind - the same variant, a view's placeholder
+/// counting as the view it becomes once its document is laid out (a list keeps
+/// the swapped item, the next build emits the placeholder again).
+#[must_use]
+pub fn same_item_kind(a: &DisplayListItem, b: &DisplayListItem) -> bool {
+    use DisplayListItem as I;
+    core::mem::discriminant(a) == core::mem::discriminant(b)
+        || matches!(
+            (a, b),
+            (I::VirtualView { .. }, I::VirtualViewPlaceholder { .. })
+                | (I::VirtualViewPlaceholder { .. }, I::VirtualView { .. })
+        )
 }
 
 /// Damage for every scrollbar whose drawing differs between two builds of one

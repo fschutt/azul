@@ -463,14 +463,21 @@ fn present(lw: &LayoutWindow, last: &mut Presented) -> Frame {
         Some(mut damage) if !gpu.needs_full => {
             damage.extend(gpu.rects);
             if let (Some((h, exceptions)), Some(_)) = (hint.as_ref(), moved_union) {
-                let movers = lw
+                let (movers, riders) = lw
                     .layout_cache
                     .last_patch_move
                     .as_ref()
-                    .map(|m| m.mover_rects_old.clone())
+                    .map(|m| (m.mover_rects_old.clone(), m.rider_rects_new.clone()))
                     .unwrap_or_default();
-                let blit =
-                    cpurender::execute_translate_blit(&mut last.pixels, h, exceptions, &movers, &dl, s);
+                let blit = cpurender::execute_translate_blit(
+                    &mut last.pixels,
+                    h,
+                    exceptions,
+                    &movers,
+                    &riders,
+                    &dl,
+                    s,
+                );
                 damage.extend(blit.damage);
                 last.blits += 1;
             }

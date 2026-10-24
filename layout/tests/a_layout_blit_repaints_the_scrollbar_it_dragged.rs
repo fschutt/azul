@@ -86,7 +86,7 @@ fn a_layout_blit_repaints_the_scrollbar_it_dragged() {
 
     let mut raster = Raster::new();
     let mut presented = raster.full(&old, &at_rest);
-    let blit = cpurender::execute_translate_blit(&mut presented, &hint, &[], &[mover], &new, 1.0);
+    let blit = cpurender::execute_translate_blit(&mut presented, &hint, &[], &[mover], &[], &new, 1.0);
     raster.repaint(&new, &mut presented, &at_rest, &blit.damage);
     let expected = raster.full(&new, &at_rest);
 

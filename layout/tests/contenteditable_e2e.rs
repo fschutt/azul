@@ -2146,6 +2146,7 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
                 ),
                 exceptions: Vec::new(),
                 mover_rects_old: Vec::new(),
+                rider_rects_new: Vec::new(),
             });
     }
 

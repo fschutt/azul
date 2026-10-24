@@ -1075,7 +1075,11 @@ impl CpuBackend {
                     d.extend(p);
                     Some(d)
                 }
-                (None, P::Rects(p)) => Some(p),
+                // The diff bailed: the patch rects are the damage - or, when the
+                // lists pair and the build logged none (the diff was to decide), a
+                // full repaint.
+                (None, P::Rects(p)) if !p.is_empty() => Some(p),
+                (None, P::Rects(_)) => None,
                 // A full emission went unpresented: the item diff is the
                 // authority, and its bail is a full repaint.
                 (d, P::FullBuildSincePresent) => d,
@@ -1296,11 +1300,11 @@ impl CpuBackend {
             {
                 self.last_patch_shift_dl = dl_arc_ptr;
                 let _ = moved;
-                let mover_rects = layout_window
+                let (mover_rects, rider_rects) = layout_window
                     .layout_cache
                     .last_patch_move
                     .as_ref()
-                    .map(|m| m.mover_rects_old.clone())
+                    .map(|m| (m.mover_rects_old.clone(), m.rider_rects_new.clone()))
                     .unwrap_or_default();
                 // The whole blit (per-mover memmove, LCD fringe strips, the
                 // fringe-touching-runs rule) lives in cpurender so the e2e
@@ -1312,6 +1316,7 @@ impl CpuBackend {
                     hint,
                     exceptions,
                     &mover_rects,
+                    &rider_rects,
                     display_list,
                     dpi_factor,
                 );
@@ -1377,6 +1382,9 @@ impl CpuBackend {
         // paint/present damage (and the pixel-count metric built on it) must
         // not double-count the same region.
         if is_incremental {
+            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+                eprintln!("[HLDMG-FINAL] before merge {all_damage:?}");
+            }
             cpurender::coalesce_damage_rects(&mut all_damage);
         }
 

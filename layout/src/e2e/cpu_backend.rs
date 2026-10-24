@@ -440,7 +440,11 @@ impl CpuBackend {
                     d.extend(p);
                     Some(d)
                 }
-                (None, P::Rects(p)) => Some(p),
+                // The diff bailed: the patch rects are the damage - or, when the
+                // lists pair and the build logged none (the diff was to decide), a
+                // full repaint.
+                (None, P::Rects(p)) if !p.is_empty() => Some(p),
+                (None, P::Rects(_)) => None,
                 (d, P::FullBuildSincePresent) => d,
                 (d, P::None) => d,
                 (_, P::Unknown) => None,
@@ -564,17 +568,18 @@ impl CpuBackend {
             {
                 self.last_patch_shift_dl = dl_arc_ptr;
                 let _ = moved;
-                let mover_rects = layout_window
+                let (mover_rects, rider_rects) = layout_window
                     .layout_cache
                     .last_patch_move
                     .as_ref()
-                    .map(|m| m.mover_rects_old.clone())
+                    .map(|m| (m.mover_rects_old.clone(), m.rider_rects_new.clone()))
                     .unwrap_or_default();
                 let blit = cpurender::execute_translate_blit(
                     &mut output,
                     hint,
                     exceptions,
                     &mover_rects,
+                    &rider_rects,
                     display_list,
                     dpi_factor,
                 );

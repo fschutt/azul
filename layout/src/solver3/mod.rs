@@ -2097,6 +2097,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
             reemit_full.extend(css_dirty_reemit.iter().copied());
+            // A view's document rides its box: a view whose own items are not
+            // re-emitted moves its content with its box (a new size alone).
+            let node_data = ctx.styled_dom.node_data.as_container();
+            let riders: Vec<bool> = (0..new_tree.nodes.len())
+                .map(|i| {
+                    !reemit_full.contains(&i)
+                        && new_tree
+                            .get(LayoutNodeId::new(i))
+                            .and_then(|node| node.dom_node_id)
+                            .and_then(|dom_id| node_data.get(dom_id))
+                            .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
+                })
+                .collect();
             for (i, (prev, new)) in cache
                 .previous_sizes
                 .iter()
@@ -2128,6 +2141,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &reemit_full,
                 &parents,
                 &opaque_bg,
+                &riders,
             );
         } else {
             cache.last_patch_move = None;
@@ -2202,7 +2216,50 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // that extends outside the node box (box-shadow fringes) — the same
     // bounds the item diff damages with.
     if let Some((changed, mut rects)) = patch_damage_pending.take() {
-        {
+        // When every item of the new list belongs to the same node and paint
+        // call at the same index as in the old one, the renderers' item diff
+        // pairs the two lists right and damages exactly what changed - a
+        // moved item where it was and where it is, or nothing where the
+        // frame blits it. The changed nodes' boxes are the safety net for a
+        // list whose items shifted against each other (a node that now
+        // emits more items than before, another fewer); here they would only
+        // bury that precise damage under every box the pass moved (each
+        // frame of a ribbon opening over a page repainted the window).
+        let paired = cache
+            .cached_display_list
+            .as_ref()
+            .is_some_and(|(_, _, _, _, _, old_dl)| {
+                old_dl.items.len() == display_list.items.len()
+                    && old_dl.layout_node_mapping == display_list.layout_node_mapping
+                    && old_dl
+                        .items
+                        .iter()
+                        .zip(display_list.items.iter())
+                        .all(|(a, b)| display_list::same_item_kind(a, b))
+            });
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            let why = cache.cached_display_list.as_ref().map(|(_, _, _, _, _, old_dl)| {
+                (
+                    old_dl.items.len(),
+                    display_list.items.len(),
+                    old_dl
+                        .layout_node_mapping
+                        .iter()
+                        .zip(display_list.layout_node_mapping.iter())
+                        .position(|(a, b)| a != b),
+                    old_dl
+                        .items
+                        .iter()
+                        .zip(display_list.items.iter())
+                        .position(|(a, b)| !display_list::same_item_kind(a, b)),
+                )
+            });
+            eprintln!("[PATCHPAIR] paired={paired} (old len, new len, first owner / kind mismatch)={why:?}");
+        }
+        if paired {
+            rects.clear();
+        } else {
             let mut add_items = |dl: &DisplayList| {
                 for (i, m) in dl.layout_node_mapping.iter().enumerate() {
                     if let Some((idx, _)) = m {
@@ -2223,8 +2280,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // (stacking-context walk items), so the pass above never sees them,
         // and they change without their node: the viewport's bar runs along
         // the window, outside the root's box, and any thumb follows the
-        // content extent under it. See `changed_scrollbar_damage`.
-        if let Some((_, _, _, _, _, old_dl)) = cache.cached_display_list.as_ref() {
+        // content extent under it. See `changed_scrollbar_damage`. (A paired
+        // list's diff pairs its bars too.)
+        if let (false, Some((_, _, _, _, _, old_dl))) = (paired, cache.cached_display_list.as_ref()) {
             rects.extend(display_list::changed_scrollbar_damage(
                 old_dl,
                 &display_list,
