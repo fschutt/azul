@@ -307,9 +307,14 @@ pub(crate) struct Harness {
     pub texts: BTreeSet<String>,
     /// Every problem a device's passes listed, in order.
     pub seen_problems: BTreeMap<String, Vec<serde_json::Value>>,
+    /// The test of the file the sandbox was made for (the runner's `_test`).
+    pub test: Option<u64>,
 }
 
 static HARNESS: Mutex<Option<Harness>> = Mutex::new(None);
+
+/// AzDrive's settings as the process started, before any test: every test starts from them.
+static FIRST_SETTINGS: Mutex<Option<crate::model::Settings>> = Mutex::new(None);
 
 fn harness() -> MutexGuard<'static, Option<Harness>> {
     HARNESS.lock().unwrap_or_else(PoisonError::into_inner)
@@ -406,10 +411,34 @@ impl Harness {
     }
 }
 
-/// The sandbox, made with the defaults when no step made it yet.
-fn ensure_harness(s: &mut DriveState, args: &Args) -> Result<(), String> {
-    if harness().is_some() {
-        return Ok(());
+/// The sandbox, made with the defaults when no step made it yet. A new test of the file
+/// (`_test` moved on) gets a new one: the last test's is cleaned up first, whether or not it got
+/// to its own `drive_cleanup` (a failed step ends a test before it).
+fn ensure_harness(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    args: &Args,
+) -> Result<(), String> {
+    let test = args.get("_test").and_then(serde_json::Value::as_u64);
+    let made_for = harness().as_ref().map(|h| h.test);
+    match made_for {
+        Some(made_for) if test.is_none() || made_for == test => return Ok(()),
+        Some(_) => {
+            cleanup(info, app, s)?;
+        }
+        None => {}
+    }
+    // A test starts from the settings the process started with (a drive_setting of the last
+    // test, its safety switches, stay with it).
+    let first = FIRST_SETTINGS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(|| s.settings.clone())
+        .clone();
+    if s.settings != first {
+        s.settings = first;
+        crate::save_settings(info, app, s);
     }
     let parent = str_arg(args, "work")
         .map(PathBuf::from)
@@ -430,19 +459,20 @@ fn ensure_harness(s: &mut DriveState, args: &Args) -> Result<(), String> {
     // AzDrive's cache folder for this run: the pairings' state folders lie in the sandbox.
     s.cache_dir = Some(run.join("cache"));
     // The sandbox as a drive on this computer: a folder paired must lie in a drive the window
-    // shows.
-    if s.slot_index(SANDBOX_ID).is_none() {
-        let mut slot = Slot::new(DriveEntry {
-            id: SANDBOX_ID.to_string(),
-            name: String::from("E2E sandbox"),
-            location: DriveLocation::Local {
-                root: run.to_string_lossy().into_owned(),
-            },
-        });
-        slot.drive = Some(Arc::new(LocalDrive::new(run.clone())));
-        s.slots.push(slot);
-        sync_jobs::publish(s);
+    // shows. A sandbox of an earlier test is replaced (its folder is gone).
+    if let Some(i) = s.slot_index(SANDBOX_ID) {
+        s.slots.remove(i);
     }
+    let mut slot = Slot::new(DriveEntry {
+        id: SANDBOX_ID.to_string(),
+        name: String::from("E2E sandbox"),
+        location: DriveLocation::Local {
+            root: run.to_string_lossy().into_owned(),
+        },
+    });
+    slot.drive = Some(Arc::new(LocalDrive::new(run.clone())));
+    s.slots.push(slot);
+    sync_jobs::publish(s);
     let outside_before = files::snapshot(&outside);
     *harness() = Some(Harness {
         run,
@@ -454,13 +484,14 @@ fn ensure_harness(s: &mut DriveState, args: &Args) -> Result<(), String> {
         devices: Vec::new(),
         texts: BTreeSet::new(),
         seen_problems: BTreeMap::new(),
+        test,
     });
     Ok(())
 }
 
 /// Runs the command `name`.
 fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, raw: &Args) -> Answer {
-    ensure_harness(s, raw)?;
+    ensure_harness(info, app, s, raw)?;
     let args = harness()
         .as_ref()
         .map(|h| h.subst_args(raw))
@@ -473,7 +504,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
                 "run": h.run, "outside": h.outside, "secret": h.secret,
             }))
         }),
-        "drive_cleanup" => cleanup(s),
+        "drive_cleanup" => cleanup(info, app, s),
         "drive_create" => create(args),
         "drive_open" => open(s, args),
         "drive_pair" => pair(info, app, s, args),
@@ -576,7 +607,7 @@ pub(crate) fn with_harness<T>(f: impl FnOnce(&mut Harness) -> Result<T, String>)
     f(h)
 }
 
-fn cleanup(s: &mut DriveState) -> Answer {
+fn cleanup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> Answer {
     let Some(h) = harness().take() else {
         return Ok(serde_json::json!({}));
     };
@@ -588,14 +619,16 @@ fn cleanup(s: &mut DriveState) -> Answer {
     for r in h.remotes.values() {
         b_faults::clear_remote(r);
     }
-    // Every device stops syncing, so nothing writes into the folder while it goes.
+    // Every device stops syncing (its pass stopped, its pairing ended) and leaves the drive
+    // list, so nothing writes into the folder while it goes and the next test's device of the
+    // same name starts unpaired.
     for d in &h.devices {
-        if let Some(sync) = s.sync_view.drives.get(&d.drive_id) {
-            if let Some(running) = &sync.running {
-                running.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-            }
+        sync_jobs::stop(info, app, s, &d.drive_id);
+        if let Some(i) = s.slot_index(&d.drive_id) {
+            s.slots.remove(i);
         }
     }
+    sync_jobs::publish(s);
     // Group A's locks let go and its volumes detached before the sandbox goes.
     a_cmds::cleanup();
     if !h.keep {

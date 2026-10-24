@@ -38,6 +38,10 @@ the sandboxes' parent folder; `AZDRIVE_E2E_KEEP=1` keeps them.
   event loop and calls it again with the same arguments plus `"_attempt": <n>` (0 on the first
   call). The step fails after `timeout_ms` (a field of the step, default 60000) of wall clock.
   Over the debug server the caller re-sends the op itself.
+- **`"_test": <n>` says which test of the file runs** (0 for the first). The tests of one file
+  share the process: AzDrive's commands start a new sandbox when `_test` moves on, after the
+  clean-up of the last test's (its devices unpaired, its passes stopped, its folders gone),
+  whether or not that test got to its own `drive_cleanup`.
 - **`assert_response` reads a path.** After a step, `{"op": "assert_response", "path":
   "result.files.a.txt.size", "equals": 3}` checks one value of the previous step's response.
   The command's answer is under `result`. Comparisons: `equals` (any JSON), `not_equals`,
