@@ -4357,8 +4357,30 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         cb.height.is_definite(),
     );
 
+    // A scroll container keeps the height it was given only where its
+    // height is someone else's answer: a flex or grid item (the container's
+    // algorithm sized it, and a scroll container's automatic minimum size is
+    // 0) and an out-of-flow box (its insets did). In block flow - a page's
+    // box, the root of a popover - an auto height is the content's height,
+    // clamped by max-height below, and only what exceeds THAT scrolls (CSS
+    // 2.2 10.6.3, 10.7). Taking the containing block's leftover instead
+    // collapsed an `overflow: auto` box with nothing above it to 0 px.
+    let height_given_from_outside = dom_id.is_some_and(|id| {
+        super::layout_tree::is_out_of_flow_positioned(ctx.styled_dom, id)
+    }) || tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|n| n.parent)
+        .and_then(|p| tree.get(LayoutNodeId::new(p)))
+        .is_some_and(|p| {
+            matches!(
+                p.formatting_context,
+                FormattingContext::Flex | FormattingContext::Grid
+            )
+        });
+
     if should_use_content_height(&css_height) || percentage_height_is_auto {
         let skip_expansion = scrolls_vertically
+            && height_given_from_outside
             && containing_block_size.height.is_finite()
             && containing_block_size.height > 0.0;
 
