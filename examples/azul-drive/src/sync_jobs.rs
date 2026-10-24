@@ -265,6 +265,9 @@ pub(crate) enum SyncJob {
     AnswerMassDelete { work: SyncWork, delete_too: bool },
     /// "Send them again": files kept after the drive deleted them elsewhere go up next pass.
     SendKept { work: SyncWork, keys: Vec<String> },
+    /// The read-back of both sides (azcloud-kit's `sync::verify`): damaged copies healed from
+    /// good ones; its report kept in the state folder.
+    Verify { work: SyncWork },
 }
 
 /// What a pass did, in counts.
@@ -327,6 +330,8 @@ pub(crate) enum SyncChange {
     Answered,
     /// Kept files will go up again (the next pass sends them): how many.
     SentAgain(usize),
+    /// The read-back ran.
+    Verified,
 }
 
 /// A sync job's answer, on the UI thread.
@@ -574,6 +579,28 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::SentAgain(keys.len()),
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::Verify { work } => {
+            let session = work.session();
+            let result = session
+                .verify()
+                .map(|report| {
+                    Text::plain(format!(
+                        "checked={} mismatches={} healed={} rotted={} restored={}",
+                        report.checked,
+                        report.mismatches.len(),
+                        report.healed.len(),
+                        report.rotted.len(),
+                        report.restored.len()
+                    ))
+                })
+                .map_err(|e| cloud_error_text(&e));
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Verified,
                 result,
                 states: session.states(),
             }
@@ -1069,6 +1096,15 @@ pub(crate) fn free_up(
         return false;
     };
     spawn(info, app, s, Job::Sync(SyncJob::FreeUp { work, keys }));
+    true
+}
+
+/// The read-back of synced drive `drive_id`, on a worker thread. Whether the job started.
+pub(crate) fn verify(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) -> bool {
+    let Some(work) = work_of(info, s, drive_id) else {
+        return false;
+    };
+    spawn(info, app, s, Job::Sync(SyncJob::Verify { work }));
     true
 }
 
@@ -1659,6 +1695,9 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                         Some(waiting) => crate::actions::enqueue_routed(info, app, s, waiting),
                         None => s.info(text),
                     }
+                }
+                (SyncChange::Verified, Ok(what)) => {
+                    println!("AZDRIVE_SYNC_VERIFIED {drive_id} {what}");
                 }
                 (SyncChange::Answered, Ok(what)) => {
                     println!("AZDRIVE_SYNC_ANSWERED {drive_id} {what}");

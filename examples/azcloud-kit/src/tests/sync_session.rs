@@ -1040,3 +1040,44 @@ fn a_pairing_that_downloads_everything_brings_cloud_only_files_down_but_not_free
     assert!(b.read("one.txt").is_none());
     assert_eq!(states.state_of("one.txt"), Some(FileState::CloudOnly));
 }
+
+#[test]
+fn the_read_back_heals_a_damaged_drive_copy_and_puts_back_a_rotted_one_here() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-a", &store, |_| {});
+    a.write("a.bin", b"archive a");
+    a.write("b.bin", b"archive b");
+    a.pass();
+    let blob = |text: &[u8]| {
+        crate::sync::remote::blob_key("Documents/", &crate::sync::local::hash_bytes(text))
+    };
+    RemoteStore::put(store.as_ref(), &blob(b"archive a"), b"rotten").unwrap();
+    let report = a.session.verify().unwrap();
+    assert_eq!(report.checked, 2);
+    assert_eq!(report.mismatches, vec![String::from("a.bin")]);
+    assert_eq!(report.healed, vec![String::from("a.bin")], "sent again from the good copy here");
+    assert_eq!(store.read(&blob(b"archive a")).as_deref(), Some(&b"archive a"[..]));
+    // This device's copy rots: same size, same time, other bytes.
+    let path = path_of(a.folder.path(), "b.bin");
+    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, b"archive X").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let report = a.session.verify().unwrap();
+    assert_eq!(report.rotted, vec![String::from("b.bin")]);
+    assert_eq!(report.restored, vec![String::from("b.bin")]);
+    assert_eq!(a.read("b.bin").as_deref(), Some(&b"archive b"[..]), "the synced version is back");
+    assert!(a
+        .session
+        .problems()
+        .problems
+        .iter()
+        .any(|p| p.key == "b.bin"));
+    // The next pass sends nothing: the folder is as the drive has it.
+    a.pass();
+    assert_eq!(index_of(&store)["files"]["b.bin"]["hash"], crate::sync::local::hash_bytes(b"archive b"));
+}

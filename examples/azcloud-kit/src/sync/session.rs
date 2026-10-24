@@ -1261,6 +1261,38 @@ impl SyncSession {
         Ok(out)
     }
 
+    /// The read-back ([`super::verify`]): the drive's copies checked against their hashes
+    /// (a damaged one sent again from a good copy here), and this device's copies against the
+    /// base (a damaged one put back from the drive, its bytes in the trash). The report is kept
+    /// in the state folder ([`super::verify::VERIFY_FILE`]) and its findings listed now.
+    ///
+    /// # Errors
+    ///
+    /// When the folder was never synced, the drive's index cannot be read, or the pairing keeps
+    /// encrypted local copies (its objects are checked as they are opened).
+    pub fn verify(&self) -> CloudResult<super::verify::VerifyReport> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!(
+                    "a pairing of encrypted local copies keeps no folder to read back: its \
+                     objects are checked as they are opened"
+                );
+            }
+        }
+        let report = super::verify::verify(
+            self.target(),
+            &self.root(),
+            &self.index_path(),
+            &self.options()?,
+        )?;
+        write_json(&self.dir.join(super::verify::VERIFY_FILE), &report, true)?;
+        for problem in &report.problems {
+            super::evict::note_problem(&self.dir, problem.clone());
+        }
+        Ok(report)
+    }
+
     /// Marks `key` used now (it was opened): the size cap frees it last. A file the drive does
     /// not have changes nothing.
     ///

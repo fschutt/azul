@@ -82,6 +82,8 @@ pub mod rules;
 pub mod session;
 // Undoing a delete from this device: the trashed files put back.
 pub mod trash;
+// The read-back of both sides against the hashes the pairing knows.
+pub mod verify;
 pub mod watcher;
 use std::{
     collections::{BTreeMap, BTreeSet},
