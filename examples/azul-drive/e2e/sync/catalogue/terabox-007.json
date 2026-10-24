@@ -1,0 +1,50 @@
+[
+  {
+    "name": "a file over the drive's quota is refused per file with quota-exceeded, the files that fit go up, the local file is untouched",
+    "description": "TERABOX-007 (TeraBox): limits answered with a misleading 'not enough space' on an account with 1 TB free, and folder uploads truncated silently. Rules E4 (quota exceeded: per file, listed, the local file untouched, the files that fit go up) and O1.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 100000 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "fits" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 300000, "seed": 7 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "small.txt", "text": "fits" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.bin", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "big.bin", "when": "last" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "small.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "big.bin", "size": 300000 },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a server limit on the number of files is a distinct, named refusal per file, never a silent truncation",
+    "description": "TERABOX-007 (TeraBox): count limits (300 files per folder upload, 500 stored) truncated uploads without a word. Rule O1 (every refused file listed with its reason).",
+    "pending": "drive_fault {\"remote\": \"r\", \"max_files\": 5}: the stand-in server refuses a commit that would hold more than n files, with the storage server's own error for that limit",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_fault", "remote": "r", "max_files": 5 },
+      { "op": "drive_many", "device": "a", "dir": "many", "count": 8, "text_prefix": "n" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 5 },
+      { "op": "drive_problems", "device": "a" },
+      { "op": "assert_response", "path": "result.problems", "len": 3 },
+      { "op": "assert_response", "path": "result.problems", "contains": "quota-exceeded" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 8 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

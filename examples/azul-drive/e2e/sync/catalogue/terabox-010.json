@@ -1,0 +1,55 @@
+[
+  {
+    "name": "the machine wiped (factory reset: the folder and the app's data gone) and the drive paired again: every file comes back, nothing on the drive is deleted",
+    "description": "TERABOX-010 (TeraBox): after a reinstall or a factory reset the backed-up photos were gone (63 GB, 43 GB). Rules D5 (no login, uninstall or lost state path removes a file; an empty folder at a fresh pairing is a union, never a delete) and C4.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 10, "text_prefix": "photo" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_remove_root", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 10 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 10 },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted", "len": 0 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["photo 0", "photo 9"] },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "'free up space' drops a file's local bytes only after the drive holds it with a matching hash, and a reinstall still lists it",
+    "description": "TERABOX-010 (TeraBox): its own blog tells users to delete backed-up photos from the phone. Rule P13 (bytes are dropped only after the drive acknowledged them with a matching hash) and D5. sync-chaos mobile-camera-upload (pending there).",
+    "pending": "drive_evict {\"device\": \"a\", \"path\": \"DCIM/good.jpg\"} (AzDrive's Free up space: make a file cloud-only; refused for a file the drive does not hold with a matching hash)",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/good.jpg", "size": 30000, "seed": 10 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/bad.jpg", "size": 30000, "seed": 11 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_blob", "key": "DCIM/bad.jpg" },
+      { "op": "drive_evict", "device": "a", "path": "DCIM/good.jpg" },
+      { "op": "drive_evict", "device": "a", "path": "DCIM/bad.jpg", "expect_refused": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "hash-mismatch", "key": "DCIM/bad.jpg" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "DCIM/bad.jpg", "size": 30000 },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_states", "device": "a" },
+      { "op": "assert_response", "path": "result.files[\"DCIM/good.jpg\"].cloud_only", "equals": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

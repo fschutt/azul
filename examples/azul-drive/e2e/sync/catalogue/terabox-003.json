@@ -1,0 +1,47 @@
+[
+  {
+    "name": "an 8 MiB upload and download through a lossy, slow connection finish in one pass each and the bytes match",
+    "description": "TERABOX-003 (TeraBox): a 1 GB upload halted on eight of nine attempts with no clear error. Rules E5 (parts resume) and E6 (per-request retry with backoff inside the pass). sync-chaos res-netem-lossy-link (its netem run is the dc part).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 8388608, "seed": 8 },
+      { "op": "drive_fault", "remote": "r", "error_rate": 0.05, "seed": 3, "latency_ms": 40 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a connection that stalls mid-upload: the cause is shown, and the next pass resumes instead of starting over",
+    "description": "TERABOX-003 (TeraBox): 'large uploads can fail without clear error messages', users restarted uploads several times. Rules E5 and O1 (remote-offline named, never a silent stall).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 8388608, "seed": 9 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 3 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"], "when": "last" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_counters", "device": "a" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_most": 16777216 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

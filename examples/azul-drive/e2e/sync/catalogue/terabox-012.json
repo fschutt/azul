@@ -1,0 +1,48 @@
+[
+  {
+    "name": "the server suddenly refuses the sign-in: the device says sign in again, keeps every file and every edit, deletes nothing",
+    "description": "TERABOX-012 (TeraBox): a new mandatory e-mail verification locked a user out of the account and its data. The client's part: rule E6 (revoked credentials say 'sign in again' and keep the edits) and D5 (no login path removes a file).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "a" },
+      { "op": "drive_write", "device": "a", "path": "b.txt", "text": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "remote": "r", "auth_failed": true },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "edited while signed out" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "sign-in-needed", "when": "last" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "a.txt", "text": "edited while signed out" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 2 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "a.txt", "text": "edited while signed out" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the drive opened on a new device with the recovery code alone, without the lost sign-in channel",
+    "description": "TERABOX-012 (TeraBox): support would not change the e-mail and the account was lost. Rule I1 (the recovery wrap opens the drive key without any other channel). sync-chaos crypto-keys-and-recovery (pending there).",
+    "pending": "drive_open {\"joined\": false} (a device that does not share the remote's in-memory keyring), drive_recover {\"device\": \"c\", \"recovery_code\": \"...\"} and the {recovery:<remote>} placeholder",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "papers.txt", "text": "papers" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_open", "device": "c", "remote": "r", "joined": false },
+      { "op": "drive_recover", "device": "c", "recovery_code": "{recovery:r}" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "papers.txt", "text": "papers" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

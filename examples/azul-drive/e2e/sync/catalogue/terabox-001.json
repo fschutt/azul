@@ -1,0 +1,49 @@
+[
+  {
+    "name": "the drive suddenly lists nothing: the folder here is not emptied, the device asks",
+    "description": "TERABOX-001 (TeraBox): an account found empty, every file gone without notice. The client's part: rules D1 (the mass-delete breaker holds a remote emptying) and D6 (an empty listing is not a delete): local copies, the only survivors in such a case, stay. sync-chaos delete-remote-emptied, srv-account-never-deleted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "azdrive-sync-status-mass-delete" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "every delete on the drive names the device that made it",
+    "description": "TERABOX-001 (TeraBox): no activity log could explain the empty account. The client's part of the audit trail: a tombstone carries its device, so a delete is attributable (rule D7, every destructive step is logged).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_write", "device": "a", "path": "y.txt", "text": "y" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "b", "path": "x.txt" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted[\"x.txt\"].device", "equals": "b" },
+      { "op": "trash", "check": "max_ops", "device": "b", "max": 0 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "x" },
+      { "op": "trash", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

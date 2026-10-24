@@ -1,0 +1,72 @@
+[
+  {
+    "name": "two accounts with files of the same name and the same bytes: neither drive ever holds or shows the other's files",
+    "description": "TERABOX-011 (TeraBox): a video the user never uploaded appeared in a folder of the account. Rules M2 (responses are keyed by account; a foreign one is dropped) and I1 (no cross-account dedup).",
+    "steps": [
+      { "op": "drive_create", "remote": "r1", "encrypted": false },
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r1" },
+      { "op": "drive_open", "device": "b", "remote": "r2" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "same.txt", "text": "same bytes" },
+      { "op": "drive_write", "device": "a", "path": "only-a.txt", "text": "a's private file" },
+      { "op": "drive_write", "device": "b", "path": "same.txt", "text": "same bytes" },
+      { "op": "drive_write", "device": "b", "path": "only-b.txt", "text": "b's private file" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r1", "key": "only-b.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r2", "key": "only-a.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "only-b.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "only-a.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_count", "remote": "r1", "count": 2 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r2", "count": 2 },
+      { "op": "drive_index", "remote": "r2" },
+      { "op": "assert_response", "path": "result.files", "len": 2 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file someone else put into the drive is attributed to its writer",
+    "description": "TERABOX-011 (TeraBox): the stray file's origin was unknown. Rule M1 (other writers are untrusted input) and D7: the index names the writer of every entry.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "mine.txt", "text": "mine" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "planted.mp4", "text": "not uploaded by the owner", "writer": "stranger" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.files[\"planted.mp4\"].device", "equals": "stranger" },
+      { "op": "assert_response", "path": "result.files[\"mine.txt\"].device", "equals": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a response for another account (a cache or proxy mix-up) is dropped and named, never written into this folder",
+    "description": "TERABOX-011 (TeraBox), the cross-account path. Rule M2 (responses are keyed by account; a foreign one is dropped and reported). sync-chaos sec-never-mix-accounts (pending there).",
+    "pending": "drive_fault {\"device\": \"a\", \"cross_remote\": \"r2\"}: the fault layer answers the device's listings and reads with another remote's (another account's) objects",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r1", "encrypted": true },
+      { "op": "drive_create", "remote": "r2", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r1" },
+      { "op": "drive_open", "device": "b", "remote": "r2" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "b", "path": "only-b.txt", "text": "b's private file" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "device": "a", "cross_remote": "r2" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "only-b.txt", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-index-unreadable", "remote-entry-unreadable", "hash-mismatch"] },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
