@@ -3363,7 +3363,8 @@ fn cache_key_block<T: ParsedFontTrait>(
     block: LogicalSize,
 ) -> LogicalSize {
     const INDEFINITE: f32 = 1.0e9;
-    if !(block.height.is_finite() && block.height.abs() < INDEFINITE) {
+    let definite = block.height.is_finite() && block.height.abs() < INDEFINITE;
+    if !definite {
         return block;
     }
     let styled_dom = ctx.styled_dom;
