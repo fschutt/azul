@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Word's save of a decomposed 'Pra\u0308sentation.docx' with a pass in the middle: no delete, then one update",
+    "description": "KDRIVE-024 (kDrive): Office on macOS saving a document with accents (FS events in NFD, the disk name in another normalization) was not detected as a save and became a delete plus a create. Rules P10, P2 and D6: save-in-progress, never a delete; the other device keeps the document, then gets the new version, no conflict copy. sync-chaos port-office-save-interrupted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Pra\u0308sentation.docx", "text": "draft" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "~WRD0001.tmp", "text": "final" },
+      { "op": "drive_rename", "device": "a", "from": "Pra\u0308sentation.docx", "to": "~WRL0002.tmp" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Pra\u0308sentation.docx", "text": "draft" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "save-in-progress" },
+      { "op": "drive_rename", "device": "a", "from": "~WRD0001.tmp", "to": "Pra\u0308sentation.docx" },
+      { "op": "drive_rm", "device": "a", "path": "~WRL0002.tmp" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Pra\u0308sentation.docx", "text": "final" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "Pra\u0308sentation.docx", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a root whose path is decomposed, and an Office save that renames the new file in under the composed name: one in-place update",
+    "description": "KDRIVE-024 (kDrive), the catalogue's repro: the root at '.../Ablage-\u00dcbersicht' in NFD, the temp file renamed in as 'Pr\u00e4sentation.pptx' in NFC over an NFD original. Rules P2 and P10: names compare in NFC, so this is one edit of one file: one upload, no conflict copy, nothing trashed, one file on the drive.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "folder": "{run}/devices/a/Ablage-U\u0308bersicht" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Pra\u0308sentation.pptx", "text": "slides v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "~$temp.pptx", "text": "slides v2" },
+      { "op": "drive_rename", "device": "a", "from": "Pra\u0308sentation.pptx", "to": "~WRL0005.tmp" },
+      { "op": "drive_rename", "device": "a", "from": "~$temp.pptx", "to": "Pr\u00e4sentation.pptx" },
+      { "op": "drive_rm", "device": "a", "path": "~WRL0005.tmp" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["slides v2"] },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "Pra\u0308sentation.pptx", "count": 0 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
