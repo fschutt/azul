@@ -265,12 +265,15 @@ impl SegmentEncoder {
         let trial_started = Instant::now();
         let trial = Zeroizing::new(self.zstd_compress(TRIAL_ZSTD_LEVEL, raw)?);
         let trial_time = trial_started.elapsed();
-        if !worth_it(trial.len(), raw.len()) {
+        let total = self.total_len.unwrap_or(self.done + raw.len() as u64).max(1);
+        // Plain zstd rarely saves anything on a few hundred bytes, so a failed trial says little
+        // about a small text file: its kind's dictionary or brotli's built-in one can still pay.
+        let small = total <= DICTIONARY_MAX_LEN;
+        if !worth_it(trial.len(), raw.len()) && !(small && self.kind.is_text()) {
             self.state = State::Sparse { skipped: 0 };
             return Ok(Segment::Stored);
         }
         // The time the rest of the input would take at level 1, from this segment's pace.
-        let total = self.total_len.unwrap_or(self.done + raw.len() as u64).max(1);
         let rest = total.saturating_sub(self.done).max(raw.len() as u64);
         let level1_time = trial_time.as_secs_f64() * rest as f64 / raw.len() as f64;
         let left = self.budget.saturating_sub(self.started.elapsed()).as_secs_f64();
@@ -304,7 +307,6 @@ impl SegmentEncoder {
                     best = (choice, data);
                 }
             }
-            let small = total <= DICTIONARY_MAX_LEN;
             if let (true, true, Some(id)) = (self.dictionaries, small, dict::for_kind(self.kind)) {
                 let choice = Choice::ZstdDict(id, zstd_level);
                 let data = self.compress_with(choice, raw)?;
@@ -314,18 +316,19 @@ impl SegmentEncoder {
             }
         }
         let (choice, data) = best;
+        if !worth_it(data.len(), raw.len()) {
+            // Nothing pays (as a rule a small text file whose trial failed): it waits like any other.
+            self.state = State::Sparse { skipped: 0 };
+            return Ok(Segment::Stored);
+        }
         self.state = State::On(choice);
         if self.stats.first_choice.is_none() {
             self.stats.first_choice = Some(choice);
         }
         self.stats.last_choice = Some(choice);
-        Ok(if worth_it(data.len(), raw.len()) {
-            Segment::Compressed {
-                codec: codec_of(choice),
-                data,
-            }
-        } else {
-            Segment::Stored
+        Ok(Segment::Compressed {
+            codec: codec_of(choice),
+            data,
         })
     }
 
