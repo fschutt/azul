@@ -49,6 +49,8 @@ mod sync_local;
 mod sync_merge;
 mod sync_named;
 mod sync_ondemand;
+/// The per-file problem list: codes, what stays listed, escaped names.
+mod sync_problems;
 mod sync_remote;
 mod sync_rules;
 mod sync_session;

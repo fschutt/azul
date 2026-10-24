@@ -56,6 +56,7 @@ pub mod local;
 pub mod merge;
 pub mod named;
 pub mod objects;
+pub mod problems;
 pub mod remote;
 pub mod rules;
 pub mod session;
@@ -317,6 +318,10 @@ pub struct SyncReport {
     /// versions stay where they are, and the next run without the limit moves them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub held_back: Vec<String>,
+    /// The files' problems the run recorded with their codes (the problem list's source;
+    /// [`problems::from_report`] adds what the sentences above say).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub problems: Vec<problems::Problem>,
 }
 
 impl SyncReport {
