@@ -239,6 +239,12 @@ pub fn code_of_error(error: &CloudError) -> Code {
     if let CloudError::Drive(azul_storage::DriveError::Corrupt { .. }) = error.root() {
         return Code::HashMismatch;
     }
+    // An encrypted drive this device holds no key for (not joined yet, a forgotten passphrase,
+    // removed by a key rotation): nothing here can be read or written until it joins again
+    // with a code or unlocks with the recovery code - for the user that is signing in again.
+    if let CloudError::Drive(azul_storage::DriveError::Locked { .. }) = error.root() {
+        return Code::SignInNeeded;
+    }
     if let CloudError::Drive(azul_storage::DriveError::Transport(_)) = error.root() {
         return Code::RemoteOffline;
     }
@@ -294,6 +300,8 @@ pub fn code_of_sentence(why: &str) -> Code {
         ("quota", Code::QuotaExceeded),
         ("drive is full", Code::QuotaExceeded),
         ("sign in", Code::SignInNeeded),
+        // DriveError::Locked's sentence, when only the text came through.
+        ("has no key for", Code::SignInNeeded),
         ("cannot be reached", Code::RemoteOffline),
         ("timed out", Code::Transient),
         ("connection", Code::Transient),

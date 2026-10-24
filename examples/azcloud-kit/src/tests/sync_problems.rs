@@ -7,7 +7,8 @@ use crate::{
     error::CloudError,
     sync::{
         problems::{
-            code_of_error, escaped, from_report, harness_json, Code, Problem, ProblemList,
+            code_of_error, code_of_sentence, escaped, from_report, harness_json, Code, Problem,
+            ProblemList,
             Severity,
         },
         MassDelete, SyncReport,
@@ -114,6 +115,30 @@ fn a_failure_is_classed_by_what_it_is_not_by_its_words() {
         code_of_error(&service(503).context("upload big/stuck.bin")),
         Code::Transient,
         "the context in front changes nothing"
+    );
+}
+
+/// A device without the drive key (`joined: false` in AzDrive's scenarios, a forgotten
+/// passphrase) failed its pass as `other`: the list said nothing the user could act on. It is
+/// `sign-in-needed` (join again, or unlock with the recovery code), from the error or from its
+/// sentence alone, also as the whole pass's problem.
+#[test]
+fn a_drive_this_device_holds_no_key_for_is_sign_in_needed() {
+    let locked = CloudError::Drive(DriveError::Locked {
+        drive: String::from("e2e-remote-r"),
+    });
+    assert_eq!(code_of_error(&locked), Code::SignInNeeded);
+    assert_eq!(
+        code_of_error(&CloudError::Drive(DriveError::Locked {
+            drive: String::from("d"),
+        })
+        .context("list the drive")),
+        Code::SignInNeeded
+    );
+    assert_eq!(code_of_sentence(&locked.to_string()), Code::SignInNeeded);
+    assert_eq!(
+        crate::sync::problems::of_failed_pass(&locked).code,
+        Code::SignInNeeded
     );
 }
 
