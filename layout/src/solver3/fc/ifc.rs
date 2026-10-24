@@ -572,23 +572,15 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             Some(base) => base.hash(&mut h),
             None => inline_content.hash(&mut h),
         }
-        // Fold the constraint-relevant container properties into the validity key.
-        text3_constraints.text_align.hash(&mut h);
-        text3_constraints.text_align_last.hash(&mut h);
-        text3_constraints.white_space_mode.hash(&mut h);
-        text3_constraints.direction.hash(&mut h);
-        text3_constraints.columns.hash(&mut h);
-        // A split into a multi-column flow moves the lines: a layout of the
-        // other split (or of none) must not be reused.
-        text3_constraints.column_flow.hash(&mut h);
+        // Fold the container's styles into the validity key: everything the
+        // lines are broken with besides the room they get (alignment,
+        // white-space, direction, the split into columns or a multi-column
+        // flow, word-break, overflow-wrap, hyphens, ...), and the indent to
+        // the bit (`hash_line_inputs` rounds it to whole pixels). Most of
+        // these are inherited: a restyle above the root changes them while
+        // the root and its text keep their own data.
+        text3_constraints.hash_line_inputs(&mut h);
         text3_constraints.text_indent.to_bits().hash(&mut h);
-        match text3_constraints.line_height {
-            text3::cache::LineHeight::Normal => 0u64.hash(&mut h),
-            text3::cache::LineHeight::Px(v) => {
-                1u64.hash(&mut h);
-                v.to_bits().hash(&mut h);
-            }
-        }
         h.finish()
     };
 

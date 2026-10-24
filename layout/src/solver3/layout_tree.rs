@@ -326,10 +326,12 @@ pub struct CachedInlineLayout {
     /// Readers migrate from `layout` onto it one by one; the sparse form
     /// retires when the last reader has moved (plan §10.4).
     pub dense: Option<Arc<crate::text3::dense::DenseText>>,
-    /// Hash of the `InlineContent` this layout was shaped from. The Phase 2d
-    /// fast-path reuse in fc.rs keys cache validity on WIDTH only; without this,
-    /// a same-width `RefreshDom` whose text CHANGED would reuse the stale shaped
-    /// layout (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
+    /// Hash of the `InlineContent` this layout was shaped from and of the
+    /// container styles its lines were broken with
+    /// (`UnifiedConstraints::hash_line_inputs`). The Phase 2d fast-path reuse
+    /// in fc.rs checks the width on its own; without this, a same-width
+    /// `RefreshDom` whose text CHANGED would reuse the stale shaped layout
+    /// (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
     pub inline_content_hash: u64,
     /// The STYLE environment this layout was shaped under (fonts, sizes,
     /// spacing — not paint-only fields), written only by the fast reshape

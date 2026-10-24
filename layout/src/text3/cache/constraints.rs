@@ -443,11 +443,26 @@ impl Default for UnifiedConstraints {
 
 // UnifiedConstraints
 impl Hash for UnifiedConstraints {
-    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.shape_boundaries.hash(state);
-        self.shape_exclusions.hash(state);
         self.available_width.hash(state);
+        self.shape_exclusions.hash(state);
+        self.hash_line_inputs(state);
+    }
+}
+
+impl UnifiedConstraints {
+    /// Hashes what the lines depend on besides the room they are given: every
+    /// field of [`Hash`] but the available width and the float exclusions.
+    ///
+    /// The inline layout cache of an IFC root (`solver3::fc::layout_ifc`)
+    /// checks those two by rules of its own (a width within a tolerance, a
+    /// layout around floats kept for a request without them) and folds this
+    /// hash into its validity key: a kept layout is reused only under the
+    /// styles it was broken with - an inherited `word-break` or `hyphens`
+    /// that changed above the root included.
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    pub fn hash_line_inputs<H: Hasher>(&self, state: &mut H) {
+        self.shape_boundaries.hash(state);
         self.available_height
             .map(|h| h.round() as isize)
             .hash(state);
