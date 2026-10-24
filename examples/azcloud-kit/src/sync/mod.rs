@@ -393,6 +393,9 @@ pub struct SyncReport {
     /// (from the folder's root).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub trashed: Vec<(String, String)>,
+    /// The files the drive moved that were renamed here (`old -> new`), not fetched again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub moved: Vec<String>,
     /// Why the run changed nothing anywhere (the folder is missing or not the paired one, the
     /// drive's index went back): its problem says it too.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -707,10 +710,12 @@ fn mass_delete(
     base: &BTreeMap<String, BaseEntry>,
     remote: &RemoteIndex,
 ) -> Option<MassDelete> {
+    let moved_here: BTreeSet<&str> = local_moves(actions, scan, remote).into_values().collect();
     let here: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
         .filter(|a| !remote.deleted.get(a.key()).is_some_and(|t| t.confirmed))
+        .filter(|a| !moved_here.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
     let moved = moves(actions, scan, base);
@@ -1473,10 +1478,11 @@ fn next_index(
 ) -> RemoteIndex {
     let mut next = remote.clone();
     let generation = remote.generation + 1;
-    let entry = |hash: &str, size: u64, mtime: i64, exec: bool| RemoteFile {
+    let entry = |hash: &str, size: u64, mtime_ns: u64, exec: bool| RemoteFile {
         hash: hash.to_string(),
         size,
-        mtime,
+        mtime: i64::try_from(mtime_ns / 1_000_000_000).unwrap_or(i64::MAX),
+        mtime_ns,
         gen: generation,
         device: device.to_string(),
         exec,
@@ -1486,18 +1492,18 @@ fn next_index(
         match action {
             Action::Upload { key } => {
                 if let Some(f) = scan.files.get(key) {
-                    let mtime = (f.mtime_ns / 1_000_000_000) as i64;
                     next.files
-                        .insert(key.clone(), entry(&f.hash, f.blob_size, mtime, f.exec));
+                        .insert(key.clone(), entry(&f.hash, f.blob_size, f.mtime_ns, f.exec));
                     next.deleted.remove(key);
                     changed = true;
                 }
             }
             Action::Conflict { key, copy } => {
                 if let Some(f) = scan.files.get(key) {
-                    let mtime = (f.mtime_ns / 1_000_000_000) as i64;
-                    next.files
-                        .insert(copy.clone(), entry(&f.hash, f.blob_size, mtime, f.exec));
+                    next.files.insert(
+                        copy.clone(),
+                        entry(&f.hash, f.blob_size, f.mtime_ns, f.exec),
+                    );
                     next.deleted.remove(copy);
                     changed = true;
                 }
@@ -1506,9 +1512,14 @@ fn next_index(
                 if let Some(m) = merged.get(key) {
                     let same = remote.files.get(key).is_some_and(|f| f.hash == m.hash);
                     if !same {
+                        let now_ns = u64::try_from(now)
+                            .unwrap_or(0)
+                            .saturating_mul(1_000_000_000);
                         let exec = scan.files.get(key).is_some_and(|f| f.exec);
-                        next.files
-                            .insert(key.clone(), entry(&m.hash, m.blob.len() as u64, now, exec));
+                        next.files.insert(
+                            key.clone(),
+                            entry(&m.hash, m.blob.len() as u64, now_ns, exec),
+                        );
                         changed = true;
                     }
                 }
@@ -1554,9 +1565,10 @@ struct Download {
     expect: Option<LocalFile>,
     /// The device that wrote the drive's version (quarantine marks on other people's files).
     writer: String,
-    /// The drive's executable bit and modification time (seconds; 0: none) for the new file.
+    /// The drive's executable bit and modification time (nanoseconds; 0: none) for the new
+    /// file.
     exec: bool,
-    mtime: i64,
+    mtime_ns: u64,
 }
 
 /// The problem a failed step on this disk is.
@@ -1625,11 +1637,11 @@ fn set_mode(_file: &fs::File, _exec: bool, _old: Option<&Stat>) -> std::io::Resu
     Ok(())
 }
 
-/// Sets the drive's modification time (seconds; 0: none) on a new version: the merge never
+/// Sets the drive's modification time (nanoseconds; 0: none) on a new version: the merge never
 /// decides by it, people and other tools do.
-fn set_mtime(file: &fs::File, mtime: i64) -> std::io::Result<()> {
-    if mtime > 0 {
-        file.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(mtime as u64))?;
+fn set_mtime(file: &fs::File, mtime_ns: u64) -> std::io::Result<()> {
+    if mtime_ns > 0 {
+        file.set_modified(std::time::UNIX_EPOCH + Duration::from_nanos(mtime_ns))?;
     }
     Ok(())
 }
@@ -1661,14 +1673,14 @@ fn replace_checked(
     expect: Option<&LocalFile>,
     body: &mut dyn std::io::Read,
     exec: bool,
-    mtime: i64,
+    mtime_ns: u64,
 ) -> Result<u64, Replace> {
     let old = dir.lstat(name).ok();
     let tmp = beneath::temp_name(name);
     let mut file = dir.create_new(&tmp, 0o600).map_err(Replace::Failed)?;
     let written = std::io::copy(body, &mut file).and_then(|n| {
         set_mode(&file, exec, old.as_ref())?;
-        set_mtime(&file, mtime)?;
+        set_mtime(&file, mtime_ns)?;
         file.sync_all()?;
         Ok(n)
     });
@@ -1702,7 +1714,7 @@ fn replace_from_spool(
     name: &str,
     expect: Option<&LocalFile>,
     exec: bool,
-    mtime: i64,
+    mtime_ns: u64,
 ) -> Result<u64, Replace> {
     let spool = root::spool(tree).map_err(Replace::Failed)?;
     let spooled = blob.name();
@@ -1714,7 +1726,7 @@ fn replace_from_spool(
         .open(blob.path())
         .and_then(|file| {
             set_mode(&file, exec, old.as_ref())?;
-            set_mtime(&file, mtime)?;
+            set_mtime(&file, mtime_ns)?;
             file.sync_all()
         });
     if let Err(e) = prepared {
@@ -1726,6 +1738,106 @@ fn replace_from_spool(
     spool.rename(&spooled, dir, name).map_err(Replace::Failed)?;
     dir.sync();
     Ok(st.size)
+}
+
+/// The files the drive moved, as this plan sees them: a delete here whose content the plan
+/// downloads under a name that is free here. The download's key and the delete's.
+fn local_moves<'a>(
+    actions: &'a [Action],
+    scan: &Scan,
+    remote: &RemoteIndex,
+) -> BTreeMap<&'a str, &'a str> {
+    let mut leaving: BTreeMap<(&str, bool), Vec<&'a str>> = BTreeMap::new();
+    for action in actions {
+        if let Action::DeleteLocal { key } = action {
+            if let Some(file) = scan.files.get(key) {
+                leaving
+                    .entry((file.hash.as_str(), file.exec))
+                    .or_default()
+                    .push(key.as_str());
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    for action in actions {
+        let Action::Download { key } = action else {
+            continue;
+        };
+        if scan.files.contains_key(key) {
+            continue;
+        }
+        let Some(file) = remote.files.get(key) else {
+            continue;
+        };
+        if let Some(old) = leaving
+            .get_mut(&(file.hash.as_str(), file.exec))
+            .and_then(Vec::pop)
+        {
+            out.insert(key.as_str(), old);
+        }
+    }
+    out
+}
+
+/// Renames the file of `from` here to `to` (the drive moved it), never through a link: the
+/// source still as scanned, the target's name still free (or, on a disk that ignores case, the
+/// same file under another case - renamed through a third name). Its base entry under the new
+/// name; `None` when it changed meanwhile (the next run takes it).
+fn move_here(
+    tree: &beneath::Root,
+    drive: &LocalDrive,
+    root: &LocalRoot,
+    scan: &Scan,
+    from: &str,
+    to: &str,
+    hooks: &RunHooks<'_>,
+) -> Result<Option<BaseEntry>, BeneathError> {
+    let from_here = scan.here(from);
+    let Some(expect) = scan.files.get(from) else {
+        return Ok(None);
+    };
+    let (source, source_name) = tree.parent_of(from_here, false)?;
+    if !still_there(&source, source_name, Some(expect)) {
+        return Ok(None);
+    }
+    let (target, target_name) = tree.parent_of(to, true)?;
+    // Another name for the same file: a case-only rename on a disk that ignores case.
+    let same_file = match target.lstat(target_name) {
+        Ok(st) => {
+            if !(st.ino == expect.ino && st.dev == expect.dev && expect.ino != 0) {
+                return Ok(None);
+            }
+            true
+        }
+        Err(_) => false,
+    };
+    let via = same_file.then(|| beneath::temp_name(target_name));
+    let step = engine::Step::Move {
+        from,
+        to,
+        via: via.as_deref(),
+    };
+    let ticket = hooks.begin(&step).map_err(|e| {
+        BeneathError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
+    })?;
+    let moved = match &via {
+        Some(via) => source
+            .rename(source_name, &target, via)
+            .and_then(|()| target.rename(via, &target, target_name)),
+        None => source.rename(source_name, &target, target_name),
+    };
+    if moved.is_ok() {
+        target.sync();
+        source.sync();
+    }
+    hooks.finished(&step, ticket, moved.is_ok(), None);
+    moved?;
+    drive.note_renamed(from_here, to);
+    local::prune_empty_parents(&root.path, from_here);
+    Ok(local::entry_now(&root.path, to, &expect.hash))
 }
 
 /// Applies the committed index here and updates `base`.
@@ -1784,6 +1896,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
         true
     };
     let mut downloads = Vec::new();
+    // A3: what the drive moved (gone under one name, the same content new under another) is
+    // renamed here, never trashed and fetched again.
+    let moved_here = local_moves(actions, scan, committed);
+    let moving: BTreeSet<&str> = moved_here.values().copied().collect();
     // What this run deletes here before its downloads are written: a file the drive renamed by
     // case only comes down under its new name once the old one is gone.
     let leaving: BTreeSet<&str> = actions
@@ -1825,6 +1941,20 @@ fn apply_local<R: SyncRemote + ?Sized>(
                             ..BaseEntry::default()
                         },
                     );
+                }
+            }
+            // Moved here by the download of its new name.
+            Action::DeleteLocal { .. } if moving.contains(key) => {}
+            Action::Download { .. } if moved_here.contains_key(key) => {
+                let from = moved_here[key];
+                match move_here(&tree, &drive, root, scan, from, key, hooks) {
+                    Ok(Some(entry)) => {
+                        base.remove(from);
+                        base.insert(key.to_string(), entry);
+                        report.moved.push(format!("{from} -> {key}"));
+                    }
+                    Ok(None) => report.changed_during_sync.push(moved_on()),
+                    Err(e) => failed_here(report, "move", key, &e),
                 }
             }
             Action::DeleteLocal { .. } => {
@@ -1906,7 +2036,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         expect,
                         writer: f.device.clone(),
                         exec: f.exec,
-                        mtime: f.mtime,
+                        mtime_ns: f.modified_ns(),
                     });
                 }
             }
@@ -1973,7 +2103,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                                     expect: None,
                                     writer: f.device.clone(),
                                     exec: f.exec,
-                                    mtime: f.mtime,
+                                    mtime_ns: f.modified_ns(),
                                 });
                             }
                         }
@@ -2155,11 +2285,17 @@ fn write_download(
             d.expect.as_ref(),
             &mut &bytes[..],
             d.exec,
-            d.mtime,
+            d.mtime_ns,
         ),
-        Blob::File { file, .. } => {
-            replace_from_spool(tree, file, &dir, name, d.expect.as_ref(), d.exec, d.mtime)
-        }
+        Blob::File { file, .. } => replace_from_spool(
+            tree,
+            file,
+            &dir,
+            name,
+            d.expect.as_ref(),
+            d.exec,
+            d.mtime_ns,
+        ),
     };
     let path = local::path_of(&root.path, &here);
     hooks.finished(&step, ticket, written.is_ok(), Some(&path));
@@ -2467,12 +2603,30 @@ fn check_remote(
     remote: &RemoteIndex,
     base: &BTreeMap<String, BaseEntry>,
     volume: &names::Volume,
+    max_file_bytes: u64,
     report: &mut SyncReport,
 ) -> BTreeSet<String> {
     use problems::Code;
     let system = names::System::here();
     let mut frozen = BTreeSet::new();
-    for key in remote.files.keys() {
+    for (key, file) in &remote.files {
+        // P8, P14: more than this device takes, or than the disk can hold in one file (FAT32's
+        // 4 GiB - 1): listed, never written in part.
+        let limit = volume
+            .max_file
+            .map_or(max_file_bytes, |m| m.min(max_file_bytes));
+        if file.size > limit && !scan.files.contains_key(key) {
+            report.tell(
+                Code::TooLarge,
+                key,
+                format!(
+                    "{} bytes is more than this device or disk takes ({limit})",
+                    file.size
+                ),
+            );
+            frozen.insert(key.clone());
+            continue;
+        }
         if let Some(why) = names::here_problem(key, system, volume) {
             report.tell(
                 Code::InvalidHere,
@@ -2628,8 +2782,23 @@ fn run<R: SyncRemote + ?Sized>(
     local::settle(&root.path, &root.rules, opts.settle, SETTLE_MAX, &|| {
         hooks.cancelled()
     });
-    let mut index = LocalIndex::load(index_path)?
-        .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
+    // D5: a base that cannot be read (damaged, from a newer version) is no reason to delete
+    // anything: the run pairs afresh, a union of both sides, and says so.
+    let mut index = match LocalIndex::load(index_path) {
+        Ok(Some(index)) => index,
+        Ok(None) => LocalIndex::new(&root.path, &opts.bucket, &opts.prefix),
+        Err(e) => {
+            report.tell(
+                Code::StateReset,
+                "",
+                format!(
+                    "this folder's sync state cannot be read ({e}); this run pairs it afresh and \
+                     deletes nothing"
+                ),
+            );
+            LocalIndex::new(&root.path, &opts.bucket, &opts.prefix)
+        }
+    };
     // D3: the paired folder, or nothing changes anywhere. A missing folder, or one without the
     // marker it was paired with (an unplugged disk's empty mount point, a stale copy under it),
     // is never "every file deleted".
@@ -2788,7 +2957,14 @@ fn run<R: SyncRemote + ?Sized>(
         }
         let readable = remote.readable(&unreadable);
         let mut scan = scanned.clone();
-        let mut frozen = check_remote(&mut scan, &readable, base, &volume, &mut report);
+        let mut frozen = check_remote(
+            &mut scan,
+            &readable,
+            base,
+            &volume,
+            opts.max_file_bytes,
+            &mut report,
+        );
         // What the drive says of them cannot be read: unknown, so never a delete here either.
         frozen.extend(unreadable.keys().cloned());
         let excluded = |key: &str| {
@@ -3067,14 +3243,29 @@ fn fetch_one<R: SyncRemote + ?Sized>(
         // Into the folder's spool first, never whole in memory.
         let blob = TempBlob::for_download(&root.path, key, &file.hash)?;
         let hash = remote_side.fetch_to(key, &file.hash, file.size, blob.path())?;
-        match replace_from_spool(&tree, &blob, &dir, name, None, file.exec, file.mtime) {
+        match replace_from_spool(
+            &tree,
+            &blob,
+            &dir,
+            name,
+            None,
+            file.exec,
+            file.modified_ns(),
+        ) {
             Ok(_) => hash,
             Err(Replace::Changed) => return Err(turned_up()),
             Err(Replace::Failed(e)) => return Err(e.into()),
         }
     } else {
         let bytes = remote_side.fetch(key, &file.hash, file.size)?;
-        match replace_checked(&dir, name, None, &mut &bytes[..], file.exec, file.mtime) {
+        match replace_checked(
+            &dir,
+            name,
+            None,
+            &mut &bytes[..],
+            file.exec,
+            file.modified_ns(),
+        ) {
             Ok(_) => content_hash(&file.hash, &bytes),
             Err(Replace::Changed) => return Err(turned_up()),
             Err(Replace::Failed(e)) => return Err(e.into()),

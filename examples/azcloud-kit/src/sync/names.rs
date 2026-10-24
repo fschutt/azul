@@ -65,6 +65,9 @@ pub struct Volume {
     pub norm_insensitive: bool,
     /// The disk refuses (or quietly changes) the names Windows refuses: `:`, `?`, a trailing dot.
     pub windows_names: bool,
+    /// The largest file the disk holds, when it is small enough to matter (FAT32's 4 GiB - 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file: Option<u64>,
 }
 
 fn is_control(c: char) -> bool {

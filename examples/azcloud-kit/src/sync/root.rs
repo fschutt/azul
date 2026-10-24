@@ -239,7 +239,10 @@ pub fn spool(root: &Root) -> Result<beneath::Dir, BeneathError> {
 /// would write a stream of `a`, so that probe runs elsewhere only.
 #[must_use]
 pub fn probe_volume(root: &Path) -> Volume {
-    let mut volume = Volume::default();
+    let mut volume = Volume {
+        max_file: beneath::file_size_limit(root),
+        ..Volume::default()
+    };
     let Ok(root) = Root::open(root) else {
         return volume;
     };

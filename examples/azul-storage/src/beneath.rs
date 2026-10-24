@@ -698,6 +698,36 @@ pub fn stat_of(file: &File) -> io::Result<Stat> {
     }
 }
 
+/// The largest file the disk of `path` holds, when the file system limits it below what a sync
+/// meets (FAT32: 4 GiB - 1 byte); `None` otherwise, or where it cannot be told.
+#[must_use]
+pub fn file_size_limit(path: &Path) -> Option<u64> {
+    const FAT32_MAX: u64 = (1 << 32) - 1;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        sys::fs_type_name(path)
+            .filter(|name| name == "msdos")
+            .map(|_| FAT32_MAX)
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // MSDOS_SUPER_MAGIC: vfat; exFAT has no 4 GiB limit.
+        sys::fs_type_magic(path)
+            .filter(|magic| *magic == 0x4d44)
+            .map(|_| FAT32_MAX)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        let _ = (path, FAT32_MAX);
+        None
+    }
+}
+
 /// The bytes free for this user on the disk of `path`; `None` where it cannot be told.
 #[must_use]
 pub fn free_space(path: &Path) -> Option<u64> {
@@ -1076,6 +1106,33 @@ mod sys {
         // SAFETY: a valid stream, closed once (it closes `dup`).
         unsafe { libc::closedir(stream) };
         result.map(|()| out)
+    }
+
+    /// The file system's type name (`apfs`, `msdos`, `exfat`).
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn fs_type_name(path: &Path) -> Option<String> {
+        let c = cstr(path.as_os_str()).ok()?;
+        // SAFETY: zeroed is a valid `statfs`; statfs fills it.
+        let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
+            return None;
+        }
+        // SAFETY: f_fstypename is a NUL-terminated name inside the struct.
+        let name = unsafe { CStr::from_ptr(st.f_fstypename.as_ptr()) };
+        Some(name.to_string_lossy().into_owned())
+    }
+
+    /// The file system's magic number (`f_type`).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub fn fs_type_magic(path: &Path) -> Option<u64> {
+        let c = cstr(path.as_os_str()).ok()?;
+        // SAFETY: zeroed is a valid `statfs`; statfs fills it.
+        let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
+            return None;
+        }
+        #[allow(clippy::unnecessary_cast)]
+        Some(st.f_type as u64)
     }
 
     pub fn free_space(path: &Path) -> io::Result<u64> {

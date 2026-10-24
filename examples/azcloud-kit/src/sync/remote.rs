@@ -88,7 +88,7 @@ pub fn is_hash(s: &str) -> bool {
 }
 
 /// One file of the index.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteFile {
     /// The BLAKE3 of the blob.
     pub hash: String,
@@ -96,6 +96,10 @@ pub struct RemoteFile {
     pub size: u64,
     /// The file's modification time where it was uploaded (seconds).
     pub mtime: i64,
+    /// The same time to the nanosecond (0: an older writer's entry, `mtime` says it): a
+    /// download sets it, so a photo's time comes back as it was taken.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub mtime_ns: u64,
     /// The generation of the index that wrote it.
     pub gen: u64,
     /// The device that wrote it.
@@ -139,6 +143,24 @@ pub struct RemoteIndex {
     pub files: BTreeMap<String, RemoteFile>,
     #[serde(default)]
     pub deleted: BTreeMap<String, Tombstone>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+impl RemoteFile {
+    /// Its modification time in nanoseconds since 1970 (0: none known).
+    #[must_use]
+    pub fn modified_ns(&self) -> u64 {
+        if self.mtime_ns > 0 {
+            self.mtime_ns
+        } else {
+            u64::try_from(self.mtime)
+                .unwrap_or(0)
+                .saturating_mul(1_000_000_000)
+        }
+    }
 }
 
 impl RemoteIndex {

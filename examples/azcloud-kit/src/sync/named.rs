@@ -453,6 +453,7 @@ impl SyncRemote for NamedFiles<'_> {
                     hash,
                     size: object.size,
                     mtime: object.modified.and_then(|m| i64::try_from(m).ok()).unwrap_or(0),
+                    mtime_ns: 0,
                     gen: memo.generation,
                     device: String::new(),
                     exec: false,
