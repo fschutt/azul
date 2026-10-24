@@ -556,7 +556,28 @@ the system waking up: every synced drive that is not paused gets a full pass now
 `drive_lock` with a `path` holds that file with an exclusive lock, as another app mid-write
 does (`flock` on macOS and Linux, `LockFileEx` on Windows) until `drive_unlock` with the same
 path: a pass leaves a changed file it finds locked for later, lists it as `locked`, and never
-takes it for deleted. Without a `path` the drive's key leaves the device (an encrypted remote's
-device only): its passes fail as `sign-in-needed`, changing nothing on either side, until
-`drive_unlock` gives the key back. A `passphrase` fails: AzDrive keeps the key in the system's
-keyring and has no passphrase of its own.
+takes it for deleted. Without a `path` the drive's key leaves the device's keyring (an encrypted
+remote's device only; kept aside): its passes fail as `sign-in-needed`, changing nothing on
+either side, until `drive_unlock` puts the key back (or `drive_recover` does, with the recovery
+code). Joined devices share the remote's keyring, as one user's computers share one system
+keyring here: they lock together. A `passphrase` fails: AzDrive keeps the key in the system's
+keyring and has no passphrase of its own (a wrong recovery code is `drive_recover` with
+`expect: refused`).
+
+### The read-back
+
+| op | arguments | result |
+|---|---|---|
+| `drive_verify` | `device` | `checked`, `mismatches`, `healed`, `rotted`, `restored` (keys) |
+| `drive_sync` | as above, plus `verify` (bool): the read-back first, then the pass | as above |
+| `drive_bitrot` | `device`, `path`, `offset`, `hex` or `byte` (or content as `drive_write`) | `changed` (bytes) |
+
+`drive_verify` runs AzDrive's read-back of the pairing (azcloud-kit's `sync::verify`): every
+file the drive's index names is read back and checked against its BLAKE3 - a copy that does not
+read back whole is a mismatch, sent again from here when this device holds that version
+(`healed`) - and every synced file here whose size and time are as its last sync left them but
+whose bytes are not (`rotted`) gets the drive's version back (`restored`), the damaged bytes
+going into the folder's trash (and its operations log). Each finding is listed as
+`hash-mismatch`; the report is kept as `verify.json` in the state folder. `drive_bitrot` changes
+bytes in place as a failing disk does: the size and the modification time stay (the change time
+moves - only a raw write to the disk keeps that).

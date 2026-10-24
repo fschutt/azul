@@ -6,7 +6,7 @@
 
 use azul::prelude::*;
 
-use super::{a_lock, a_ops, a_pair, a_place, Answer, Args, OpDoc, DEVICE, PATH};
+use super::{a_lock, a_ops, a_pair, a_place, a_verify, Answer, Args, OpDoc, DEVICE, PATH};
 use crate::DriveState;
 
 /// Group A's commands, for `list_app_ops` (COMMANDS.md has the long form).
@@ -27,6 +27,8 @@ pub(super) const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_wake", summary: "the system woke: every drive gets a pass", args: &[] },
     OpDoc { name: "drive_lock", summary: "a file locked by another app, or the drive key off the device", args: &[DEVICE, ("path", "string", false)] },
     OpDoc { name: "drive_unlock", summary: "the lock let go, or the drive key back", args: &[DEVICE, ("path", "string", false)] },
+    OpDoc { name: "drive_verify", summary: "the read-back of both sides", args: &[DEVICE] },
+    OpDoc { name: "drive_bitrot", summary: "bytes changed in place under the same size and time", args: &[DEVICE, PATH, ("offset", "number", true), ("hex", "string", false), ("byte", "string", false)] },
 ];
 
 /// Whether group A answers `name` with these arguments: its own commands, and the shared ones
@@ -34,6 +36,7 @@ pub(super) const OPS: &[OpDoc] = &[
 pub(super) fn handles(name: &str, args: &Args) -> bool {
     match name {
         "drive_pair" => a_pair::has_options(args),
+        "drive_sync" => args.contains_key("verify"),
         _ => OPS.iter().any(|op| op.name == name),
     }
 }
@@ -48,6 +51,9 @@ pub(super) fn run(
 ) -> Answer {
     match name {
         "drive_pair" => a_pair::pair(info, app, s, args),
+        "drive_sync" => a_verify::sync_verified(info, app, s, args),
+        "drive_verify" => a_verify::verify(info, app, s, args),
+        "drive_bitrot" => a_verify::bitrot(args),
         "drive_select" => a_pair::select(info, app, s, args),
         "drive_on_demand" => a_pair::on_demand(info, app, s, args),
         "drive_evict" => a_place::evict(info, app, s, args),

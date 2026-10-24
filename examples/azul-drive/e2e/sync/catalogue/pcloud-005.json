@@ -1,7 +1,6 @@
 {
   "name": "a local copy whose bytes rotted under the same size and times is found by a verify pass and restored, never uploaded",
   "description": "PCLOUD-005 (pCloud): the same file was 'synced' on two Macs with equal timestamps but different MD5s; one played distorted; pause/resume did not re-fetch. Rules A1/S15 (sync-chaos port-local-bitrot): the damage is listed and the drive's version replaces it (the damaged copy to the trash); it is never sent as an edit.",
-  "pending": "drive_bitrot {\"device\":\"b\",\"path\":\"loop.wav\",\"offset\":1000,\"hex\":\"ff00ff\"} (change bytes keeping size, mtime AND ctime, as a failing disk does; a raw-device write) and drive_sync {\"verify\":true} (the engine's periodic verify pass)",
   "steps": [
     { "op": "drive_harness" },
     { "op": "drive_create", "remote": "r", "encrypted": false },

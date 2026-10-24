@@ -1,8 +1,8 @@
 //! Locks, two kinds: another app holding a file of the folder locked (`drive_lock` with a
 //! `path`: an exclusive lock, as Office takes on Windows and an app mid-write takes with
-//! `flock`), and the drive's key not on the device (`drive_lock` without one: a locked vault -
-//! the device's drive is opened again over a keyring that holds nothing for it, so every pass
-//! fails as "sign in" until `drive_unlock` gives the key back).
+//! `flock`), and the drive's key not on the device (`drive_lock` without one: a locked
+//! keyring - every pass fails as "sign in", changing nothing, until `drive_unlock` or the
+//! recovery code gives the key back).
 
 use std::fs;
 
@@ -55,53 +55,60 @@ pub(super) fn unlock(s: &mut DriveState, args: &Args) -> Answer {
     Ok(serde_json::json!({ "unlocked": key }))
 }
 
-/// The device's drive opened again: over a keyring without its key (`locked`), or over the
-/// remote's (the key back), as AzDrive opens an encrypted drive.
+/// The drive's key off the device (`locked`), or back on it: the key's keyring entries (the
+/// drive key and this device's member secret) leave the device's keyring - kept aside - or go
+/// back, and every device drive over that keyring decides again on its next call, as after
+/// the system keyring locked. A joined device shares its keyring with the remote's other
+/// joined devices (one user's computers, as one system keyring): they lock together. The
+/// recovery code (`drive_recover`) puts the key back too.
 #[cfg(feature = "encryption")]
 fn reopen(s: &mut DriveState, args: &Args, locked: bool) -> Result<(), String> {
-    use std::sync::Arc;
-
     use azul_storage::{
-        encrypted::{AutoEncrypted, IndexProvider},
+        crypto::device::{drive_key_entry, member_key_entry},
         keyring::KeyringStore,
-        Drive,
     };
 
-    use super::remote::{FaultDrive, MemKeyring};
-
-    let (name, drive_id, remote, run) = with_harness(|h| {
+    let (name, remote, sharing) = with_harness(|h| {
         let d = h.device(args)?;
-        Ok((d.name.clone(), d.drive_id.clone(), h.remote_of(args)?, h.run.clone()))
+        let remote = h.remote_of(args)?;
+        let sharing: Vec<String> = h
+            .devices
+            .iter()
+            .filter(|o| o.remote == d.remote)
+            .map(|o| o.drive_id.clone())
+            .collect();
+        Ok((d.name.clone(), remote, sharing))
     })?;
     if !remote.encrypted {
         return Err(String::from(
             "a plain remote has no drive key to lock: drive_create it with \"encrypted\": true",
         ));
     }
-    let index = s
-        .slot_index(&drive_id)
-        .ok_or_else(|| format!("AzDrive has no drive {drive_id}"))?;
-    let bucket: Arc<dyn Drive> = Arc::new(FaultDrive {
-        remote: remote.clone(),
-        device: name.clone(),
-    });
-    let keyring: Arc<dyn KeyringStore> = if locked {
-        Arc::new(MemKeyring::default())
+    let keyring = remote.keyring.clone();
+    let entries = [drive_key_entry(&remote.drive_name), member_key_entry(&remote.drive_name)];
+    if locked {
+        let mut kept = Vec::new();
+        for entry in &entries {
+            if let Some(secret) = keyring.get(entry).map_err(|e| e.to_string())? {
+                kept.push((entry.clone(), secret));
+            }
+            keyring.delete(entry).map_err(|e| e.to_string())?;
+        }
+        if kept.is_empty() {
+            return Err(format!("{name} holds no key of the drive to lock"));
+        }
+        with_a(|a| a.keys_aside.insert(remote.name.clone(), kept))?;
     } else {
-        remote.keyring.clone()
-    };
-    let index_cache = run.join("devices").join(&name).join("index-cache");
-    let provider: Arc<dyn IndexProvider> =
-        Arc::new(crate::encryption::meta_provider(Some(index_cache)));
-    let auto = Arc::new(AutoEncrypted::new(
-        bucket,
-        &remote.drive_name,
-        keyring,
-        Some(provider),
-    ));
-    let slot = &mut s.slots[index];
-    slot.drive = Some(auto.clone() as Arc<dyn Drive>);
-    slot.auto = Some(auto);
+        let kept = with_a(|a| a.keys_aside.remove(&remote.name))?.unwrap_or_default();
+        for (entry, secret) in &kept {
+            keyring.set(entry, secret).map_err(|e| e.to_string())?;
+        }
+    }
+    for drive_id in sharing {
+        if let Some(auto) = s.slot_index(&drive_id).and_then(|i| s.slots[i].auto.clone()) {
+            auto.reopen();
+        }
+    }
     Ok(())
 }
 

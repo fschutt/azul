@@ -67,7 +67,6 @@
   {
     "name": "a verify pass reads every stored object back and lists each mismatch per file",
     "description": "ICEDRIVE-010 (Icedrive), the catalogue's repro: after the bulk upload, a client-side verify pass against the plaintext hash stored in the (encrypted) entry reports 0 mismatches, and a damaged object is listed per file. Rules S15, O1, plan section 14 item 4 (the verify pass).",
-    "pending": "drive_verify {device}: a verify pass that reads every stored object of the drive back and checks it against the entry's plaintext hash; answers checked (files read) and mismatches ([{key}]), and lists each as hash-mismatch",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

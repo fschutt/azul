@@ -92,7 +92,7 @@ fn device_states(s: &DriveState, args: &Args) -> Result<(String, std::path::Path
 
 /// Starts a window's job for the device on the first call (`start` says whether it could),
 /// then answers `pending` until it landed: `None` while it waits.
-fn job(args: &Args, start: impl FnOnce(&str) -> bool) -> Result<Option<serde_json::Value>, String> {
+pub(super) fn job(args: &Args, start: impl FnOnce(&str) -> bool) -> Result<Option<serde_json::Value>, String> {
     let answer = waiting_change(args, |drive_id| {
         if start(drive_id) {
             Ok(())
@@ -106,7 +106,7 @@ fn job(args: &Args, start: impl FnOnce(&str) -> bool) -> Result<Option<serde_jso
 }
 
 /// Whether a job of the device was started and has not landed yet.
-fn job_waiting(args: &Args) -> Result<bool, String> {
+pub(super) fn job_waiting(args: &Args) -> Result<bool, String> {
     with_harness(|h| Ok(h.device(args)?.change_wanted.is_some()))
 }
 

@@ -36,6 +36,11 @@ pub(super) struct AState {
     pub auto_waits: BTreeMap<String, (Instant, u64)>,
     /// Volumes by device (`drive_volume`, `drive_mount_inside`: by device and path).
     pub volumes: BTreeMap<(String, String), Volume>,
+    /// Devices whose `drive_sync` with `verify` ran its read-back and waits for its pass.
+    pub verified: BTreeSet<String>,
+    /// The key entries `drive_lock` took off a remote's keyring, by remote (`drive_unlock`
+    /// puts them back): entry name and secret.
+    pub keys_aside: BTreeMap<String, Vec<(String, String)>>,
 }
 
 static A: Mutex<Option<AState>> = Mutex::new(None);
@@ -52,6 +57,8 @@ pub(super) fn with_a<T>(f: impl FnOnce(&mut AState) -> T) -> Result<T, String> {
             watched: BTreeSet::new(),
             auto_waits: BTreeMap::new(),
             volumes: BTreeMap::new(),
+            verified: BTreeSet::new(),
+            keys_aside: BTreeMap::new(),
         });
     }
     guard

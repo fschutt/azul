@@ -37,8 +37,6 @@
   {
     "name": "a local file whose bytes rot while its size and times stay is found by a verify pass and restored from the drive, never uploaded as an edit",
     "description": "TERABOX-004 (TeraBox), the silent-damage half. Rules A1 and S15. sync-chaos port-local-bitrot (pending there).",
-    "pending": "drive_bitrot {\"device\": \"a\", \"path\": \"thesis.pdf\", \"offset\": 5000, \"byte\": \"ff\"} (change bytes while size, mtime and ctime stay: a raw patch of an unmounted volume) and drive_verify {\"device\": \"a\"} (the periodic read-back of local files against the base)",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },
