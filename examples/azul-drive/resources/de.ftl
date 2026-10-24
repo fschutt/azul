@@ -1495,6 +1495,8 @@ azdrive-archive-try-again = Der Nachweis für „{ $drive }“ hat zu lange geda
 azdrive-archive-not-locked = „{ $drive }“ ist nicht gesperrt: Es gibt nichts zurückzuholen.
 azdrive-archive-code-title = „{ $name }“ zurückholen
 azdrive-archive-code-why = Dieses Laufwerk wurde gesperrt, weil es unbezahlt blieb. Azlin speichert von niemandem Namen oder Adresse, daher weist nur der Wiederherstellungscode des Laufwerks nach, dass es dir gehört. Gib ihn ein und bezahle dann, um das Laufwerk zurückzubekommen.
+azdrive-archive-sync-locked = Gesperrt seit { $locked }: Seine Dateien sind im Offline-Speicher, die hier bleiben
+azdrive-archive-sync-restoring = Kommt aus dem Offline-Speicher zurück
 azdrive-usage-available = { $about ->
         [yes] etwa { $size } verfügbar
        *[no] { $size } verfügbar

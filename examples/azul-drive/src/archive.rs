@@ -234,6 +234,21 @@ fn in_view(s: &DriveState) -> Option<(String, String, &Stage)> {
     Some((drive_id, azlin_id, &seen.stage))
 }
 
+/// The status line of synced drive `drive_id` (AzDrive's id) while it is locked: since when,
+/// and that its files are in offline storage, or that they are coming back.
+#[must_use]
+pub(crate) fn sync_status(s: &DriveState, drive_id: &str) -> Option<Phrase> {
+    let azlin_id = azlin_of(s, drive_id)?;
+    let Stage::Locked { wire, .. } = &s.archives.get(&azlin_id)?.stage else {
+        return None;
+    };
+    if wire.state == ArchiveState::RestorePending {
+        return Some(Phrase::new("azdrive-archive-sync-restoring"));
+    }
+    let locked = u64::try_from(wire.locked_at.unix()).unwrap_or(0);
+    Some(Phrase::new("azdrive-archive-sync-locked").arg("locked", day_of(locked)))
+}
+
 // ==== The bar over an unpaid drive ====
 
 /// The bar over the drive in view while it is unpaid and not locked yet: what happens when,

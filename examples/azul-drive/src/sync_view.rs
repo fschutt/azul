@@ -251,6 +251,9 @@ fn says_read_only(status: &Text) -> bool {
                 | "azlin-error-quota-exceeded"
                 | "azlin-error-read-only-unpaid"
                 | "azlin-error-drive-banned"
+                | "azlin-error-drive-archived"
+                | "azdrive-archive-sync-locked"
+                | "azdrive-archive-sync-restoring"
         )
     })
 }
@@ -641,6 +644,10 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> Option<Text> {
     let setup = setup_of(s, drive_id)?;
     // A banned drive's sync pauses (ban contract v1): its uploads would be refused.
     if let Some(said) = crate::ban::sync_status(s, drive_id) {
+        return Some(Text::from(said));
+    }
+    // A locked drive's sync rests: its files are in offline storage, the local ones stay.
+    if let Some(said) = crate::archive::sync_status(s, drive_id) {
         return Some(Text::from(said));
     }
     // Its keys wait for the user's Unlock: no pass reads them.

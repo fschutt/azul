@@ -1497,6 +1497,8 @@ azdrive-archive-try-again = The proof for "{ $drive }" ran out of time. Try agai
 azdrive-archive-not-locked = "{ $drive }" is not locked: nothing to bring back.
 azdrive-archive-code-title = Get "{ $name }" back
 azdrive-archive-code-why = This drive was locked because it stayed unpaid. Azlin keeps no name or address of anyone, so only the drive's recovery code proves that it is yours. Type it, then pay to get the drive back.
+azdrive-archive-sync-locked = Locked since { $locked }: its files are in offline storage, the ones here stay
+azdrive-archive-sync-restoring = Coming back from offline storage
 azdrive-usage-available = { $about ->
         [yes] about { $size } available
        *[no] { $size } available
