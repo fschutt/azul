@@ -50,6 +50,8 @@
 //! bytes here ("Free up space"), [`fetch_file`] brings a cloud-only file down (opening it);
 //! [`session`] keeps an app's pairing, its settings and its files' states.
 
+// Extended attributes and BSD flags: the sync does not carry them, a pass says so per folder.
+pub mod attrs;
 #[cfg(feature = "state-db")]
 pub mod base;
 pub mod drive_store;

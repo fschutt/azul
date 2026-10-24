@@ -22,7 +22,6 @@
     "name": "extended attributes, a resource fork and BSD flags: the content still syncs, and the folder says once that attributes are not synced",
     "description": "ICLOUD-005 (sync-chaos port-xattrs-policy): iCloud silently stripped xattrs (Skim notes, Finder comments) and files with uchg/uappnd never reached the second Mac. Rules P6 and O1: v1 does not sync attributes and says so once per folder, never silently; a flagged file's content still syncs instead of erroring forever.",
     "only_on": ["macos"],
-    "pending": "drive_xattr {device, path, name, text | hex | size+seed} (set an extended attribute; com.apple.ResourceFork for the fork); drive_chflags {device, path, flags} (BSD flags as chflags spells them, \"\" clears); a problem code for rule P6's 'extended attributes are not synced' notice, e.g. xattrs-not-synced, listed once per folder",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": false },
       { "op": "drive_open", "device": "c", "remote": "r2" },

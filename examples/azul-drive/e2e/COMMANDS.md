@@ -402,3 +402,16 @@ than one part, over 16 MiB), once its first part is in the spool and before `dow
 (which follows the fetch). A crash there stops the download as a killed process would: no
 further part is fetched, and the parts in the spool stay for the next pass to resume
 (`drive_sync` `crash_at: "mid-download"`). A download in one part never meets it.
+
+### Extended attributes and flags
+
+| op | arguments |
+|---|---|
+| `drive_xattr` | `path` (a file or folder of the device), `name`, the value as `drive_write`'s content (`text`, `hex`, `size` + `seed`) |
+| `drive_chflags` | `path`, `flags`: `chflags`'s names (`uchg`, `uappnd`, `hidden`, `nodump`, `opaque`, `arch`, `schg`, `sappnd`), comma-separated, `no` before one clears it, `""` clears all (macOS only) |
+
+The sync carries neither (rule P6): a pass lists each folder whose items carry a user's
+attribute or flag once, as the warning `xattrs-not-synced` (the folder's key), and syncs their
+content as usual. The system's own attributes (quarantine, provenance, sandbox grants, SELinux
+labels) are not counted. `drive_cleanup` clears every flag first, so an immutable file never
+keeps its sandbox from going.

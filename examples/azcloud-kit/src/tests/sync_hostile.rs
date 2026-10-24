@@ -251,3 +251,47 @@ fn a_crash_in_the_middle_of_a_download_stops_it_and_the_next_one_resumes_from_th
         "every part was fetched once: the second download resumed"
     );
 }
+
+#[test]
+fn the_systems_own_attributes_are_no_users_and_a_users_are() {
+    use crate::sync::attrs::is_system_attribute;
+    assert!(is_system_attribute("com.apple.quarantine"));
+    assert!(is_system_attribute("com.apple.provenance"));
+    assert!(is_system_attribute("security.selinux"));
+    assert!(!is_system_attribute("com.apple.FinderInfo"));
+    assert!(!is_system_attribute("com.apple.metadata:kMDItemFinderComment"));
+    assert!(!is_system_attribute("user.xdg.comment"));
+}
+
+#[test]
+fn a_folder_whose_files_carry_attributes_is_noted_once_as_a_warning_and_its_content_syncs() {
+    use crate::sync::attrs;
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-hostile-xattr");
+    let state = TempDir::new("azcloud-hostile-xattr-state");
+    fs::create_dir_all(folder.path().join("tagged")).unwrap();
+    fs::write(folder.path().join("tagged/paper.pdf"), "the paper").unwrap();
+    fs::write(folder.path().join("tagged/notes.txt"), "notes").unwrap();
+    fs::write(folder.path().join("plain.txt"), "plain").unwrap();
+    let name = if cfg!(target_os = "macos") { "com.example.notes" } else { "user.notes" };
+    for file in ["tagged/paper.pdf", "tagged/notes.txt"] {
+        if let Err(e) = attrs::set_attribute(&folder.path().join(file), name, b"read before Friday") {
+            // A disk (or a system) without extended attributes has nothing to note.
+            eprintln!("no extended attributes here ({e}): the note cannot be played");
+            return;
+        }
+    }
+    let s = session(folder.path(), state.path(), &store);
+    s.pass(&AtomicBool::new(false), &mut |_| {}).expect("the pass");
+    let list = s.problems();
+    let notes: Vec<_> = list
+        .problems
+        .iter()
+        .filter(|p| p.code == Code::XattrsNotSynced)
+        .collect();
+    assert_eq!(notes.len(), 1, "once per folder: {notes:?}");
+    assert_eq!(notes[0].key, "tagged");
+    assert_eq!(notes[0].severity, Severity::Warning);
+    assert!(list.up_to_date(), "a note leaves the folder up to date");
+    assert_eq!(remote_keys(&store).len(), 3, "the content syncs");
+}

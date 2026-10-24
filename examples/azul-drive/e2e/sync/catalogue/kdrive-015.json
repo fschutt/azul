@@ -2,7 +2,6 @@
   {
     "name": "a file another app holds locked cannot be replaced: listed and retried, the rest of the pass arrives, then it updates",
     "description": "KDRIVE-015 (kDrive): files were 'blacklisted' (excluded for good) when Windows locked them or their parent folders. Rules P9, E6 and O1: a locked file is retried with backoff and listed (locked); the other files of the pass arrive; once unlocked it updates. sync-chaos port-locked-file.",
-    "pending": "drive_chflags {device, path, flags} (macOS chflags: 'uchg' makes the file immutable, as a file held open without share-delete on Windows; 'nouchg' clears it)",
     "only_on": ["macos"],
     "steps": [
       { "op": "drive_create", "remote": "r" },
@@ -35,7 +34,6 @@
   {
     "name": "another user renames a folder whose file is open here (the folder locked): retried until the lock goes, never excluded",
     "description": "KDRIVE-015 (kDrive): Windows locks every parent folder of a file open in Excel, and a rename of one of them could not propagate. Rules P9 and E6: the rename is retried with backoff and done once the handle is closed; no item is permanently excluded.",
-    "pending": "drive_chflags {device, path, flags} (macOS chflags 'uchg' / 'nouchg' on a folder: a lock on it, as Windows holds the parents of an open file)",
     "only_on": ["macos"],
     "steps": [
       { "op": "drive_create", "remote": "r" },

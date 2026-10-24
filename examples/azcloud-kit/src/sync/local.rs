@@ -616,9 +616,14 @@ pub fn scan_settled(
     let here = System::here();
     // A test harness may play a folder that cannot be listed in this scan (the fault seam).
     super::faults::scan_started(root);
+    // The folders whose items carry attributes the sync does not carry: said once each.
+    let mut noted: BTreeSet<String> = BTreeSet::new();
     let mut stack: Vec<(beneath::Dir, String)> = vec![(top, String::new())];
     while let Some((dir, prefix)) = stack.pop() {
         let folder = prefix.trim_end_matches('/').to_string();
+        if !folder.is_empty() {
+            note_attributes(&mut out, &mut noted, root, &folder, &folder);
+        }
         let listed = match super::faults::readdir_error(root, &folder) {
             Some(e) => Err(e),
             None => dir.names(),
@@ -804,6 +809,7 @@ pub fn scan_settled(
                 note.severity = Severity::Warning;
                 out.problems.push(note);
             }
+            note_attributes(&mut out, &mut noted, root, &folder, &key);
             match scan_file(
                 &dir,
                 &name,
@@ -846,6 +852,27 @@ pub fn scan_settled(
         }
     }
     Ok(out)
+}
+
+/// Says once for `folder` that its items' extended attributes and flags are not synced, when
+/// the item `key` (in it, or the folder itself) carries any (rule P6: their content syncs).
+fn note_attributes(
+    out: &mut Scan,
+    noted: &mut BTreeSet<String>,
+    root: &Path,
+    folder: &str,
+    key: &str,
+) {
+    if noted.contains(folder) || !super::attrs::has_user_attributes(&path_of(root, key)) {
+        return;
+    }
+    noted.insert(folder.to_string());
+    out.tell(
+        Code::XattrsNotSynced,
+        folder,
+        "items here carry extended attributes, a resource fork or flags (tags, comments, \
+         hidden or locked): their content syncs, these do not",
+    );
 }
 
 /// Why a file the scan found is not taken.

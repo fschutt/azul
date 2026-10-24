@@ -31,8 +31,8 @@
   },
   {
     "name": "a file with extended attributes and a hidden flag syncs its content, and the folder says once that attributes are not synced",
+    "only_on": ["macos"],
     "description": "MAGENTA-004: folder attributes and appearance metadata. Rule P6: xattrs, resource forks and flags are not synced in v1 and the folder's status says so once, never a pending state.",
-    "pending": "drive_xattr {device, path, name, hex} and drive_chflags {device, path, flags} (sync-chaos's xattr and chflags steps), plus the engine's once-per-folder 'attributes not synced' note as a problem code or status field to check",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -131,6 +131,8 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_share_expire", summary: "let every link's expiry pass", args: &[("remote", "string", false)] },
     OpDoc { name: "drive_send_again", summary: "send the files kept after the drive deleted them elsewhere", args: &[DEVICE] },
     OpDoc { name: "drive_local_fault", summary: "a folder the scan cannot list for some passes", args: &[DEVICE, ("path", "string", false), ("readdir_error", "string", true), ("passes", "number", false)] },
+    OpDoc { name: "drive_xattr", summary: "set an extended attribute", args: &[DEVICE, PATH, ("name", "string", true), ("text", "string", false), ("hex", "string", false), ("size", "number", false), ("seed", "number", false)] },
+    OpDoc { name: "drive_chflags", summary: "set BSD flags as chflags does (macOS)", args: &[DEVICE, PATH, ("flags", "string", true)] },
 ];
 
 /// Adds the commands to `config` when a scenario or the debug server can reach them.
@@ -530,6 +532,8 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
             }
         }),
         "drive_local_fault" => b_files::local_fault(args),
+        "drive_xattr" => b_files::xattr(args),
+        "drive_chflags" => b_files::chflags(args),
         _ if name.starts_with("drive_") => files::file_op(name, args),
         _ => Err(format!("'{name}' is not one of AzDrive's commands")),
     }
@@ -565,6 +569,7 @@ fn cleanup(s: &mut DriveState) -> Answer {
         }
     }
     if !h.keep {
+        b_files::clear_flags(&h.run);
         files::clean(&h.run);
     }
     Ok(serde_json::json!({ "removed": !h.keep, "run": h.run }))
