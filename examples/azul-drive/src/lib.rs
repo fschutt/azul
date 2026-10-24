@@ -1169,6 +1169,8 @@ pub(crate) struct DriveState {
     pub quiet_keyring: azcloud_kit::SharedKeyring,
     /// Which drives' keys are wanted, read now, or wait for the user's Unlock (`unlock.rs`).
     pub unlocks: unlock::Unlocks,
+    /// The action that waits for Touch ID or the password (`presence.rs`); one at a time.
+    pub presence: Option<presence::Gated>,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
     /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
@@ -3332,6 +3334,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_keyring_result,
         )
+        // So does Touch ID's (or the password's) before an action that changes keys.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::BiometricResult),
+            app.clone(),
+            presence::on_biometric_result,
+        )
         // Explorer's keyboard, wherever the focus is (a text field keeps its keys).
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
@@ -3853,6 +3861,7 @@ pub fn start() {
         keyring,
         quiet_keyring,
         unlocks: unlock::Unlocks::default(),
+        presence: None,
         claiming: false,
         in_flight: Vec::new(),
         period_tokens,

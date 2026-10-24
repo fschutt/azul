@@ -858,7 +858,9 @@ extern "C" fn on_confirm_forget_event(
     let yes = confirmed(&event);
     with_state(&mut data, &mut info, |info, app, s| {
         if yes {
-            actions::forget_drive(info, app, s);
+            // The drive goes only after Touch ID or the password (the gated tier); the question
+            // stays open meanwhile.
+            crate::presence::ask(info, s, crate::presence::Gated::Forget);
         } else {
             actions::close_popup(info, app, s);
         }

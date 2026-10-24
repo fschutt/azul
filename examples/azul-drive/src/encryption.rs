@@ -1350,59 +1350,68 @@ pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
 }
 
 extern "C" fn on_rotate(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
-        let Some(Popup::Encryption(Dialog::ConfirmRotate {
-            drive_id, typed, ..
-        })) = s.popup.as_ref()
-        else {
-            return;
-        };
-        let drive_id = drive_id.clone();
-        // The current code, when typed, signs the new one's registration (F12 C).
-        let current = if typed.trim().is_empty() {
-            None
-        } else {
-            let known = crate::recovery_health::state_of(&s.settings.recovery.drives, &drive_id)
-                .and_then(|state| state.recovery_key.clone());
-            match current_code(known.as_deref(), &drive_id, typed) {
-                Ok(code) => Some(code.to_text()),
-                Err(why) => {
-                    if let Some(Popup::Encryption(Dialog::ConfirmRotate { error, .. })) =
-                        s.popup.as_mut()
-                    {
-                        *error = why;
-                    }
-                    return;
-                }
-            }
-        };
-        s.popup = None;
-        let Some(auto) = auto_of(s, &drive_id) else {
-            return;
-        };
-        let Some(azlin) = s
-            .slot_index(&drive_id)
-            .and_then(|index| s.slots[index].azlin.clone())
-        else {
-            s.error(Text::key("azdrive-enc-only-azlin-lockdown"));
-            return;
-        };
-        s.popup = Some(Popup::Encryption(Dialog::Busy {
-            title: t("azdrive-enc-rotating-title"),
-            text: t("azdrive-enc-rotating"),
-        }));
-        spawn(
-            info,
-            app,
-            s,
-            Job::Encryption(EncryptionJob::Rotate {
-                drive_id,
-                auto,
-                azlin,
-                current,
-            }),
-        );
+    with_state(&mut data, &mut info, |info, _app, s| {
+        if matches!(s.popup, Some(Popup::Encryption(Dialog::ConfirmRotate { .. }))) {
+            // New keys are made only after Touch ID or the password (the gated tier).
+            crate::presence::ask(info, s, crate::presence::Gated::Rotate);
+        }
     })
+}
+
+/// "I was hacked: new keys..." confirmed and the user's presence checked: the typed code is
+/// checked, the dialog says it works, the rotation runs on a worker thread.
+pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::Encryption(Dialog::ConfirmRotate {
+        drive_id, typed, ..
+    })) = s.popup.as_ref()
+    else {
+        return;
+    };
+    let drive_id = drive_id.clone();
+    // The current code, when typed, signs the new one's registration (F12 C).
+    let current = if typed.trim().is_empty() {
+        None
+    } else {
+        let known = crate::recovery_health::state_of(&s.settings.recovery.drives, &drive_id)
+            .and_then(|state| state.recovery_key.clone());
+        match current_code(known.as_deref(), &drive_id, typed) {
+            Ok(code) => Some(code.to_text()),
+            Err(why) => {
+                if let Some(Popup::Encryption(Dialog::ConfirmRotate { error, .. })) =
+                    s.popup.as_mut()
+                {
+                    *error = why;
+                }
+                return;
+            }
+        }
+    };
+    s.popup = None;
+    let Some(auto) = auto_of(s, &drive_id) else {
+        return;
+    };
+    let Some(azlin) = s
+        .slot_index(&drive_id)
+        .and_then(|index| s.slots[index].azlin.clone())
+    else {
+        s.error(Text::key("azdrive-enc-only-azlin-lockdown"));
+        return;
+    };
+    s.popup = Some(Popup::Encryption(Dialog::Busy {
+        title: t("azdrive-enc-rotating-title"),
+        text: t("azdrive-enc-rotating"),
+    }));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Encryption(EncryptionJob::Rotate {
+            drive_id,
+            auto,
+            azlin,
+            current,
+        }),
+    );
 }
 
 extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {

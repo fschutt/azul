@@ -884,7 +884,11 @@ extern "C" fn on_method(mut data: RefAny, mut info: CallbackInfo) -> Update {
             crate::encryption::count_devices(info, app, s, &drive_id);
         }
         (Method::OtherDevice, MethodAction::Add) => {
-            crate::encryption::invite_device(info, app, s, &drive_id);
+            // A join code is a key to the drive: made only after Touch ID or the password.
+            let gated = crate::presence::Gated::AddDevice {
+                drive_id: drive_id.clone(),
+            };
+            crate::presence::ask(info, s, gated);
         }
         _ => {}
     })

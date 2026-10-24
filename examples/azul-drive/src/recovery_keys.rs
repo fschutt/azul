@@ -194,6 +194,18 @@ fn ask_sign(s: &mut DriveState, drive_id: &str, action: KeyAction) {
     );
 }
 
+/// "Add another recovery code...", the user's presence checked: the page that asks for one of
+/// the drive's codes to sign the new one.
+pub(crate) fn ask_add_code(s: &mut DriveState, drive_id: &str) {
+    ask_sign(s, drive_id, KeyAction::AddCode);
+}
+
+/// "Remove" of recovery key `key_id` (`label`), the user's presence checked: the page that asks
+/// for one of the drive's codes to sign the removal.
+pub(crate) fn ask_remove_code(s: &mut DriveState, drive_id: &str, key_id: String, label: String) {
+    ask_sign(s, drive_id, KeyAction::Remove { key_id, label });
+}
+
 /// Lists the drive's recovery keys at its token server, in the background.
 pub(crate) fn check_keys(
     info: &mut CallbackInfo,
@@ -615,10 +627,19 @@ extern "C" fn on_keys_button(mut data: RefAny, mut info: CallbackInfo) -> Update
     };
     with_state(&mut app, &mut info, |info, app, s| match what {
         KeysButton::Check => check_keys(info, app, s, &drive_id),
-        KeysButton::AddCode => ask_sign(s, &drive_id, KeyAction::AddCode),
+        // A new code and a removed one change the drive's keys: only after Touch ID or the
+        // password (the gated tier).
+        KeysButton::AddCode => {
+            crate::presence::ask(info, s, crate::presence::Gated::AddCode { drive_id });
+        }
         KeysButton::MakeFindable => ask_sign(s, &drive_id, KeyAction::MakeFindable),
         KeysButton::Remove { key_id, label } => {
-            ask_sign(s, &drive_id, KeyAction::Remove { key_id, label });
+            let gated = crate::presence::Gated::RemoveCode {
+                drive_id,
+                key_id,
+                label,
+            };
+            crate::presence::ask(info, s, gated);
         }
         KeysButton::Finish => {
             let Some(pending) = s
