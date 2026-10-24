@@ -173,11 +173,14 @@ mod encrypted {
         w.put("a.bin", &bytes(600_000, 3)).expect("a");
         w.put("b.bin", &bytes(600_000, 4)).expect("b");
         w.put("c.bin", &bytes(2_100_000, 5)).expect("c");
+        // The splice's source is a file of its own: the swap leaves a.bin's object unreadable
+        // to anyone (the tamper reads the source segment's bounds from its sealed header).
+        w.put("d.bin", &bytes(600_000, 9)).expect("d");
         encrypted::tamper(&r, "swap_names", &args(serde_json::json!({ "key": "a.bin", "with": "b.bin" })))
             .expect("swapped");
         let reader = device(&r, "x");
         assert!(reader.get("a.bin").is_err() && reader.get("b.bin").is_err());
-        encrypted::tamper(&r, "splice", &args(serde_json::json!({ "key": "c.bin", "from_key": "a.bin" })))
+        encrypted::tamper(&r, "splice", &args(serde_json::json!({ "key": "c.bin", "from_key": "d.bin" })))
             .expect("spliced");
         assert!(device(&r, "y").get("c.bin").is_err());
     }

@@ -72,7 +72,12 @@ fn every_step_with_a_check_calls_drive_check() {
 /// reports it as PENDING instead of failing on the step.
 #[test]
 fn a_test_that_is_not_pending_calls_only_registered_commands() {
-    let known: Vec<&str> = super::OPS.iter().map(|op| op.name).collect();
+    // Every list `register` adds: the shared commands and Group A's.
+    let known: Vec<&str> = super::OPS
+        .iter()
+        .chain(super::a_cmds::OPS)
+        .map(|op| op.name)
+        .collect();
     let mut missing = Vec::new();
     for file in scenario_files() {
         for test in tests_of(&file) {
