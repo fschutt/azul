@@ -259,7 +259,8 @@ pub trait IndexProvider: Send + Sync {
 /// does not open with that key. When its member wrap holds the new key, the device catches up
 /// ([`device::catch_up`]): the new key goes into the keyring, and the index opens in the
 /// rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
-/// sealed under the old key still opens.
+/// sealed under the old key still opens. Its reads of packs count under `drive`
+/// ([`crate::packing::pack_reads`]).
 pub fn open_encrypted(
     bucket: Arc<dyn Drive>,
     keyring: &dyn KeyringStore,
@@ -283,6 +284,7 @@ pub fn open_encrypted(
             Ok(None) | Err(_) => return Err(e),
         },
     };
+    let opened = opened.counting_pack_reads_as(drive);
     Ok(match provider.packing(drive) {
         Some(options) => opened.with_packing(options),
         None => opened,

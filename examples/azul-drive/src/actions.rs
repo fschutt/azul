@@ -2376,6 +2376,12 @@ pub(crate) fn transfer_ran(
         "done"
     };
     println!("AZDRIVE_TRANSFER {id} {state} {}", report.done);
+    #[cfg(feature = "encryption")]
+    if let Some(job) = &job {
+        for line in crate::encryption::pack_reads_lines(&job.source_id, &job.target_id) {
+            println!("{line}");
+        }
+    }
     // The picker's fetch of a cloud object: its end answers the request.
     if job
         .as_ref()

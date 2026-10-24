@@ -38,7 +38,10 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex, MutexGuard, PoisonError,
+    },
     time::{Duration, Instant},
 };
 
@@ -796,6 +799,57 @@ impl Journal {
     }
 }
 
+/// A drive's reads of its packs for the bytes of packed files ([`pack_reads`]); the repack's
+/// reads and the hits on a pack kept whole are not counted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PackReads {
+    /// Ranged GETs of a file's record (a read cut short asks again, and counts again).
+    pub ranged: u64,
+    /// Packs fetched whole, after [`HOT_READS`] reads of one.
+    pub whole: u64,
+    /// The bytes those requests brought.
+    pub bytes: u64,
+}
+
+/// The counters behind [`PackReads`], shared by every drive opened under one id.
+#[derive(Default)]
+struct ReadCounter {
+    ranged: AtomicU64,
+    whole: AtomicU64,
+    bytes: AtomicU64,
+}
+
+impl ReadCounter {
+    fn ranged(&self, bytes: usize) {
+        self.ranged.fetch_add(1, Ordering::Relaxed);
+        self.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    fn whole(&self, bytes: usize) {
+        self.whole.fetch_add(1, Ordering::Relaxed);
+        self.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> PackReads {
+        PackReads {
+            ranged: self.ranged.load(Ordering::Relaxed),
+            whole: self.whole.load(Ordering::Relaxed),
+            bytes: self.bytes.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// The read counters of the drives opened by id in this process: an app opens a drive anew
+/// for a maintenance round or after a reopen, and its reads still add up.
+static COUNTERS: Mutex<BTreeMap<String, Arc<ReadCounter>>> = Mutex::new(BTreeMap::new());
+
+/// What the drives opened as `drive` ([`EncryptedDrive::counting_pack_reads_as`]) read of their
+/// packs since this process started; `None` when none was.
+#[must_use]
+pub fn pack_reads(drive: &str) -> Option<PackReads> {
+    lock(&COUNTERS).get(drive).map(|counter| counter.get())
+}
+
 /// Packs read recently: how often, and the whole ones kept (ciphertext).
 #[derive(Default)]
 struct Hot {
@@ -868,6 +922,8 @@ pub(crate) struct PackState {
     packer: Packer,
     /// Packs read often.
     hot: Mutex<Hot>,
+    /// Its reads of packs: its own, or those of every drive opened under its id.
+    counted: Arc<ReadCounter>,
 }
 
 impl PackState {
@@ -878,6 +934,7 @@ impl PackState {
             journal: Journal::new(dir),
             packer: Packer::default(),
             hot: Mutex::new(Hot::default()),
+            counted: Arc::new(ReadCounter::default()),
         }
     }
 }
@@ -965,7 +1022,17 @@ impl<D: Drive> EncryptedDrive<D> {
     /// per file, and still reads packed files.
     #[must_use]
     pub fn with_packing(mut self, options: PackOptions) -> EncryptedDrive<D> {
+        let counted = Arc::clone(&self.packs.counted);
         self.packs = PackState::new(Some(options));
+        self.packs.counted = counted;
+        self
+    }
+
+    /// Counts its reads of packs with every other drive opened as `drive` in this process
+    /// ([`pack_reads`]).
+    #[must_use]
+    pub fn counting_pack_reads_as(mut self, drive: &str) -> EncryptedDrive<D> {
+        self.packs.counted = Arc::clone(lock(&COUNTERS).entry(drive.to_string()).or_default());
         self
     }
 
@@ -1056,7 +1123,8 @@ impl<D: Drive> EncryptedDrive<D> {
         };
         let key = pack.id.bucket_key();
         if reads < HOT_READS {
-            return read_resumed(&self.inner, &key, offset, len).map_err(|e| match e {
+            let counted = &self.packs.counted;
+            return read_resumed(&self.inner, &key, offset, len, counted).map_err(|e| match e {
                 DriveError::InvalidRange { .. } => cut(),
                 e => read_error(ReadError::Drive(e), path),
             });
@@ -1065,6 +1133,7 @@ impl<D: Drive> EncryptedDrive<D> {
             .inner
             .get(&key)
             .map_err(|e| read_error(ReadError::Drive(e), path))?;
+        self.packs.counted.whole(whole.len());
         if whole.len() as u64 != pack.object_len {
             return Err(DriveError::Corrupt {
                 key: path.to_string(),
@@ -1673,19 +1742,23 @@ fn take_batch(waiting: &mut VecDeque<(u64, Member)>) -> Vec<(u64, Member)> {
 }
 
 /// Bytes `offset..offset + len` of `key`, in one ranged GET; a body cut short, or a request
-/// without an answer, asks for the rest, at most [`RESUME_ATTEMPTS`] times more.
+/// without an answer, asks for the rest, at most [`RESUME_ATTEMPTS`] times more. Each GET counts
+/// in `counted`.
 fn read_resumed<D: Drive + ?Sized>(
     drive: &D,
     key: &str,
     offset: u64,
     len: u64,
+    counted: &ReadCounter,
 ) -> Result<Vec<u8>, DriveError> {
     let mut out = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
     let mut retries = 0;
     while (out.len() as u64) < len {
         let from = offset + out.len() as u64;
         let range = ByteRange::new(from, Some(offset + len - 1));
-        match drive.get_range(key, range) {
+        let answer = drive.get_range(key, range);
+        counted.ranged(answer.as_ref().map_or(0, Vec::len));
+        match answer {
             Ok(bytes) if !bytes.is_empty() => {
                 let want = usize::try_from(len - out.len() as u64).unwrap_or(usize::MAX);
                 out.extend_from_slice(&bytes[..bytes.len().min(want)]);

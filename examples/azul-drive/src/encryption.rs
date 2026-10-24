@@ -69,6 +69,7 @@ use azul_storage::{
         random_bytes, CryptoError, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
+    packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
     meta::{merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo},
     migrate::{migrate, MigrationState},
@@ -334,16 +335,49 @@ fn maintained_at(drive_id: &str) -> Option<u64> {
         .copied()
 }
 
+/// The line that says a maintenance round of the drive `drive_id` ended, with what its repack
+/// did to the packs (the E2E proof waits for it and reads the counts).
+fn maintained_marker(drive_id: &str, packs: &PackUpkeep) -> String {
+    let repack = &packs.repack;
+    format!(
+        "AZDRIVE_MAINTAINED {drive_id} packs_read={} packs_written={} packs_emptied={} \
+         files_moved={}",
+        repack.packs_read, repack.packs_written, repack.packs_emptied, repack.files_moved
+    )
+}
+
+/// The `AZDRIVE_PACK_READS` lines of a transfer's drives (`source_id`, `target_id`) that
+/// opened encrypted in this process: what their reads of packs cost so far, ranged GETs, packs
+/// fetched whole and bytes (the E2E proof counts what reading one small file cost).
+pub(crate) fn pack_reads_lines(source_id: &str, target_id: &str) -> Vec<String> {
+    let mut drives = vec![source_id];
+    if target_id != source_id {
+        drives.push(target_id);
+    }
+    drives
+        .into_iter()
+        .filter_map(|drive| {
+            pack_reads(drive).map(|reads| {
+                format!(
+                    "AZDRIVE_PACK_READS {drive} ranged={} whole={} bytes={}",
+                    reads.ranged, reads.whole, reads.bytes
+                )
+            })
+        })
+        .collect()
+}
+
 /// One maintenance round of the drive `drive`'s index in `bucket`
-/// (`MetaIndexProvider::maintain`), with this computer's key from `keyring`. `None`: there
-/// is no index yet, or another computer's round holds the lease.
+/// (`MetaIndexProvider::maintain`), with this computer's key from `keyring`: what it did to the
+/// index, and to the packs of the drive's small files. `None`: there is no index yet, or
+/// another computer's round holds the lease.
 fn run_maintenance(
     provider: &MetaIndexProvider,
     bucket: &Arc<dyn Drive>,
     keyring: &dyn KeyringStore,
     drive: &str,
     rules: &Maintenance,
-) -> Result<Option<Maintained>, String> {
+) -> Result<Option<(Maintained, PackUpkeep)>, String> {
     let drive_key = device::unlock(bucket.as_ref(), keyring, drive)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
@@ -353,12 +387,13 @@ fn run_maintenance(
     // The packs of small files, when the index's round ran (there is an index): uploads a
     // crash left half done cleared up, sparse packs repacked, retired packs deleted after
     // their grace period.
-    if maintained.is_some() {
-        open_encrypted(Arc::clone(bucket), keyring, drive, provider)
-            .and_then(|encrypted| encrypted.maintain_packs(now_unix()))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(maintained)
+    let Some(index) = maintained else {
+        return Ok(None);
+    };
+    let packs = open_encrypted(Arc::clone(bucket), keyring, drive, provider)
+        .and_then(|encrypted| encrypted.maintain_packs(now_unix()))
+        .map_err(|e| e.to_string())?;
+    Ok(Some((index, packs)))
 }
 
 // ==== The dialog ====
@@ -1698,7 +1733,7 @@ pub(crate) enum EncryptionOutcome {
     /// What the round did (`None`: no index yet, or another computer's round was running).
     Maintained {
         drive_id: String,
-        result: Result<Option<Maintained>, String>,
+        result: Result<Option<(Maintained, PackUpkeep)>, String>,
     },
     /// The emergency kit is in the folder picked (its bytes), or why not.
     KitSaved {
@@ -2822,8 +2857,10 @@ pub(crate) fn on_outcome(
         // Quiet, like the recompression pass: a round that stopped runs again six hours on.
         EncryptionOutcome::Maintained { drive_id, result } => {
             MAINTAINING.store(false, Ordering::SeqCst);
-            if let Err(why) = result {
-                eprintln!("AZDRIVE_MAINTAIN_STOPPED {drive_id}: {why}");
+            match result {
+                Ok(Some((_, packs))) => println!("{}", maintained_marker(&drive_id, &packs)),
+                Ok(None) => {}
+                Err(why) => eprintln!("AZDRIVE_MAINTAIN_STOPPED {drive_id}: {why}"),
             }
         }
         EncryptionOutcome::KitSaved { path, len, result } => {
@@ -3378,9 +3415,10 @@ mod tests {
             compact_at_packs: 2,
             ..Maintenance::default()
         };
-        let done = run_maintenance(&meta_provider(None), &bucket, &keyring, "d_upkeep", &rules)
-            .unwrap()
-            .expect("no other computer holds the lease");
+        let (done, _) =
+            run_maintenance(&meta_provider(None), &bucket, &keyring, "d_upkeep", &rules)
+                .unwrap()
+                .expect("no other computer holds the lease");
         assert!(done.compacted);
         let page = drive.list(&ListRequest::folder("docs/")).unwrap();
         assert_eq!(page.objects.len(), 4, "the folder's marker and three files");
@@ -3388,6 +3426,64 @@ mod tests {
         // A computer without the drive's key maintains nothing.
         let stranger = MemoryKeyring::new();
         assert!(run_maintenance(&meta_provider(None), &bucket, &stranger, "d_upkeep", &rules).is_err());
+    }
+
+    /// The end of a maintenance round says what its repack did, in the fields the E2E pack
+    /// proof reads.
+    #[test]
+    fn a_maintenance_rounds_end_says_what_its_repack_did() {
+        let packs = PackUpkeep {
+            recovered: 9,
+            repack: azul_storage::packing::RepackReport {
+                packs_read: 3,
+                packs_written: 1,
+                files_moved: 40,
+                packs_emptied: 2,
+                ..Default::default()
+            },
+            collected: 7,
+        };
+        assert_eq!(
+            maintained_marker("d_upkeep", &packs),
+            "AZDRIVE_MAINTAINED d_upkeep packs_read=3 packs_written=1 packs_emptied=2 \
+             files_moved=40"
+        );
+    }
+
+    /// After a transfer, each of its drives opened encrypted says what its reads of packs cost
+    /// so far: a small file read back is one ranged GET of about its size, its pack not
+    /// fetched whole. A drive that never opened encrypted (a folder here) says nothing.
+    #[test]
+    fn a_transfer_says_what_its_drives_reads_of_packs_cost() {
+        use azul_storage::{crypto::DriveKey, keyring::MemoryKeyring, meta::MemoryBucket};
+        let drive = "d_pack_reads";
+        let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        device::store_drive_key(&keyring, drive, &DriveKey::generate().unwrap()).unwrap();
+        let encrypted =
+            open_encrypted(Arc::clone(&bucket), &keyring, drive, &meta_provider(None)).unwrap();
+        let note = b"a small note, packed with the others. ".repeat(10);
+        for i in 0..3 {
+            encrypted.put(&format!("notes/{i}.txt"), &note).unwrap();
+        }
+        assert_eq!(
+            pack_reads_lines(drive, "home"),
+            vec![format!("AZDRIVE_PACK_READS {drive} ranged=0 whole=0 bytes=0")],
+            "opened, nothing read yet"
+        );
+
+        assert_eq!(encrypted.get("notes/1.txt").unwrap(), note);
+        let reads = pack_reads(drive).unwrap();
+        assert_eq!((reads.ranged, reads.whole), (1, 0), "one ranged GET, no whole pack");
+        assert!(reads.bytes > 0 && reads.bytes <= note.len() as u64 + 4096, "{reads:?}");
+        assert_eq!(
+            pack_reads_lines("home", drive),
+            vec![format!(
+                "AZDRIVE_PACK_READS {drive} ranged=1 whole=0 bytes={}",
+                reads.bytes
+            )]
+        );
+        assert!(pack_reads_lines("home", "home").is_empty());
     }
 
     /// AzDrive's encrypted drives pack their small files: a sync of a folder of notes sends a
