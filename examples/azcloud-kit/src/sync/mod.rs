@@ -2798,9 +2798,13 @@ fn check_remote(
                 .find(|k| base.contains_key(k.as_str()))
                 .or_else(|| keys.iter().find(|k| scan.files.contains_key(k.as_str())))
                 .or_else(|| {
+                    // The one committed first; where the drive does not say (a drive synced by
+                    // name gives every file the same generation), the composed (NFC) spelling,
+                    // the form every system reads the same.
                     keys.iter().min_by_key(|k| {
                         (
                             remote.files.get(k.as_str()).map_or(0, |f| f.gen),
+                            names::nfc(k) != ***k,
                             (**k).clone(),
                         )
                     })
