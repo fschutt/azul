@@ -302,6 +302,23 @@ pub fn probe_volume(root: &Path) -> Volume {
     } else {
         volume.norm_insensitive = true;
     }
+    // A file made without the executable bit that shows it, or one given the bit that does
+    // not: the disk keeps no permission bits.
+    #[cfg(unix)]
+    if let Ok(file) = dir.create_new("probe-mode", 0o600) {
+        use std::os::unix::fs::PermissionsExt;
+        let executable = |file: &std::fs::File| {
+            file.metadata()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+        };
+        let shown_plain = executable(&file).unwrap_or(false);
+        let shown_set = file
+            .set_permissions(std::fs::Permissions::from_mode(0o700))
+            .and_then(|()| executable(&file));
+        volume.no_exec_bits = shown_plain || matches!(shown_set, Ok(false));
+        drop(file);
+        let _ = dir.unlink("probe-mode");
+    }
     if System::here() != System::Windows {
         for name in ["probe-a:b", "probe-q?", "probe-dot."] {
             if !touch(name) {

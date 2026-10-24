@@ -68,6 +68,10 @@ pub struct Volume {
     /// The largest file the disk holds, when it is small enough to matter (FAT32's 4 GiB - 1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_file: Option<u64>,
+    /// The disk keeps no permission bits (FAT, exFAT): every file shows the same mode, so a
+    /// file's executable bit here says nothing and its synced version's bit stands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_exec_bits: bool,
 }
 
 fn is_control(c: char) -> bool {

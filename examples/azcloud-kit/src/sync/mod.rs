@@ -2937,6 +2937,12 @@ fn run<R: SyncRemote + ?Sized>(
         for file in scanned.files.values_mut() {
             file.exec = false;
         }
+    } else if volume.no_exec_bits {
+        // The disk shows every file with one mode: a file keeps the bit of the version last
+        // synced (a new one has none), so the mode alone never makes it look changed.
+        for (key, file) in &mut scanned.files {
+            file.exec = index.files.get(key).is_some_and(|b| b.exec);
+        }
     }
     report.scanned = scanned.files.len();
     report.hashed = scanned.hashed;
@@ -3249,6 +3255,15 @@ fn run<R: SyncRemote + ?Sized>(
     guard::learn(&mut index.guard, &actions, &root.path, &scan);
     report.paused = pause;
     report.cancelled = hooks.cancelled();
+    if volume.no_exec_bits {
+        // What a download left here shows the disk's one mode: the base takes the bit of the
+        // version it is, as the drive names it.
+        for (key, entry) in &mut base {
+            if let Some(f) = committed.files.get(key).filter(|f| f.hash == entry.hash) {
+                entry.exec = f.exec;
+            }
+        }
+    }
     index.files = base;
     index.generation = committed.generation;
     index.restore_epoch = restore_epoch;
