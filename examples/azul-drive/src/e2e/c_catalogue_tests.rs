@@ -33,22 +33,19 @@ fn tests_of(path: &Path) -> Vec<serde_json::Value> {
 
 /// The steps of a test, each as the command it calls (`custom_op` spelled out) and its fields.
 fn steps_of(test: &serde_json::Value) -> Vec<(String, serde_json::Value)> {
-    test["steps"]
-        .as_array()
-        .map(|steps| {
-            steps
-                .iter()
-                .map(|step| match step["op"].as_str() {
-                    Some("custom_op") => (
-                        step["name"].as_str().unwrap_or_default().to_string(),
-                        step["args"].clone(),
-                    ),
-                    other => (other.unwrap_or_default().to_string(), step.clone()),
-                })
-                .collect()
+    let Some(steps) = test["steps"].as_array() else {
+        return Vec::new();
+    };
+    steps
+        .iter()
+        .map(|step| match step["op"].as_str() {
+            Some("custom_op") => (
+                step["name"].as_str().unwrap_or_default().to_string(),
+                step["args"].clone(),
+            ),
+            other => (other.unwrap_or_default().to_string(), step.clone()),
         })
-        .collect::<Vec<_>>()
-        .concat()
+        .collect()
 }
 
 /// A check's fields ride on a `drive_check` step. The catalogue's generator wrote max_ops's

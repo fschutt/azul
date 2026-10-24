@@ -435,6 +435,13 @@ pub(crate) fn rotate_key(_: &mut DriveState, _: &Args) -> Answer {
 mod tests {
     use super::*;
 
+    /// The tests share the process's keys: one at a time.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    fn one_at_a_time() -> MutexGuard<'static, ()> {
+        ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn args(json: serde_json::Value) -> Args {
         match json {
             serde_json::Value::Object(map) => map,
@@ -446,6 +453,7 @@ mod tests {
     /// that is the new code, and the one before is `{recovery_old:<remote>}`.
     #[test]
     fn the_recovery_placeholders_name_the_current_and_the_previous_code() {
+        let _one = one_at_a_time();
         forget();
         remember_code("r", String::from("AAAA-1111"));
         assert_eq!(subst("{recovery:r}"), "AAAA-1111");
@@ -462,6 +470,7 @@ mod tests {
     /// key never reaches it from the owner's. A plain remote has no key to be joined to.
     #[test]
     fn a_device_that_is_not_joined_has_an_empty_keyring_of_its_own() {
+        let _one = one_at_a_time();
         forget();
         let dir = azul_storage::testing::TempDir::new("azdrive-e2e-keys");
         let plain = Arc::new(
@@ -494,7 +503,10 @@ mod tests {
             Some("the owner's key"),
             "a joined device shares the owner's keyring"
         );
-        assert!(keys().own.contains_key("c") && !keys().own.contains_key("a"));
+        {
+            let k = keys();
+            assert!(k.own.contains_key("c") && !k.own.contains_key("a"));
+        }
         let unknown = keyring_for_open(
             &encrypted,
             "d",
