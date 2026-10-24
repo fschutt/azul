@@ -3323,6 +3323,9 @@ pub fn execute_virtual_view_shift(
     // whole pixel - requiring it whole sent every wheel step of AzDrive's
     // folder to a repaint of the view).
     if !integral(shift.delta.0) || !integral(shift.delta.1) {
+        if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+            eprintln!("[viewshift] delta {:?} is no whole device pixel", shift.delta);
+        }
         return whole;
     }
     let items = &display_list.items;
@@ -3369,7 +3372,14 @@ pub fn execute_virtual_view_shift(
         );
         covered_at(shift.offset) && covered_at(prev)
     });
-    if !covered && !backdrop_drags_invisibly(&backdrop, &shift.clip) {
+    let backdrop_ok = covered || backdrop_drags_invisibly(&backdrop, &shift.clip);
+    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+        eprintln!(
+            "[viewshift] clip={:?} delta={:?} covered={covered} backdrop_ok={backdrop_ok}",
+            shift.clip, shift.delta
+        );
+    }
+    if !backdrop_ok {
         return whole;
     }
     let strips = scroll_shift_region(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
