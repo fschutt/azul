@@ -112,14 +112,7 @@ pub struct PlanInput<'a> {
 /// taken.
 #[must_use]
 pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let (dir, name) = match key.rfind('/') {
-        Some(i) => (&key[..=i], &key[i + 1..]),
-        None => ("", key),
-    };
-    let (stem, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
-        _ => (name, ""),
-    };
+    let (dir, stem, ext) = name_parts(key);
     let mut n = 1u32;
     loop {
         let suffix = if n == 1 {
@@ -133,6 +126,82 @@ pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -
         }
         n += 1;
     }
+}
+
+/// `key`'s folder (with its slash), its name's stem and its extension (with its dot).
+fn name_parts(key: &str) -> (&str, &str, &str) {
+    let (dir, name) = match key.rfind('/') {
+        Some(i) => (&key[..=i], &key[i + 1..]),
+        None => ("", key),
+    };
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    (dir, stem, ext)
+}
+
+/// Whether `name` is a copy [`conflict_name`] makes of `key` for `device`, of any date and
+/// number.
+fn is_conflict_copy_of(name: &str, key: &str, device: &str) -> bool {
+    let (dir, stem, ext) = name_parts(key);
+    let Some(middle) = name
+        .strip_prefix(&format!("{dir}{stem} (conflict {device} "))
+        .and_then(|rest| rest.strip_suffix(&format!("){ext}")))
+    else {
+        return false;
+    };
+    let (date, number) = match middle.split_once(' ') {
+        Some((date, number)) => (date, Some(number)),
+        None => (middle, None),
+    };
+    let is_date = date.len() == 10
+        && date
+            .bytes()
+            .enumerate()
+            .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
+    is_date && number.is_none_or(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The conflicts a pass cut short already settled on the drive: a pass commits this side's
+/// copy before it renames the file here, so after a crash between the two the drive holds a
+/// copy of the key under this device's name, with this side's content, that this side does
+/// not know yet. Such a copy finishes that conflict (key -> copy); it is neither downloaded
+/// nor copied a second time.
+fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
+    let mut found = BTreeMap::new();
+    for (key, file) in input.local {
+        let here = ident(&file.hash, file.exec);
+        let Some(there) = input.remote.files.get(key).map(|f| ident(&f.hash, f.exec)) else {
+            continue;
+        };
+        let base = input.base.get(key).map(|e| ident(&e.hash, e.exec));
+        if here == there
+            || base == Some(here)
+            || base == Some(there)
+            || file.content == Content::JsonMerge
+        {
+            continue;
+        }
+        let (dir, stem, _) = name_parts(key);
+        let prefix = format!("{dir}{stem} (conflict {} ", input.device);
+        let copy = input
+            .remote
+            .files
+            .range(prefix.clone()..)
+            .take_while(|(name, _)| name.starts_with(&prefix))
+            .find(|(name, f)| {
+                is_conflict_copy_of(name, key, input.device)
+                    && ident(&f.hash, f.exec) == here
+                    && !input.base.contains_key(*name)
+                    && !input.local.contains_key(*name)
+                    && !(input.excluded)(name)
+            });
+        if let Some((name, _)) = copy {
+            found.insert(key.clone(), name.clone());
+        }
+    }
+    found
 }
 
 /// Whether the executable bit is part of a file's content here: a system without permission
@@ -175,9 +244,11 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
     keys.extend(input.local.keys().map(String::as_str));
     keys.extend(input.remote.files.keys().map(String::as_str));
     let mut chosen: BTreeSet<String> = BTreeSet::new();
+    let cut = cut_conflicts(input);
+    let finishing: BTreeSet<&str> = cut.values().map(String::as_str).collect();
     let mut actions = Vec::new();
     for key in keys {
-        if (input.excluded)(key) {
+        if (input.excluded)(key) || finishing.contains(key) {
             continue;
         }
         let base = input.base.get(key).map(|e| ident(&e.hash, e.exec));
@@ -217,7 +288,10 @@ pub fn plan(input: &PlanInput<'_>) -> Vec<Action> {
                             || input.remote.files.contains_key(name)
                             || chosen.contains(name)
                     };
-                    let copy = conflict_name(key, input.device, input.date, &taken);
+                    let copy = cut
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(|| conflict_name(key, input.device, input.date, &taken));
                     chosen.insert(copy.clone());
                     Action::Conflict { key: key_s, copy }
                 }
