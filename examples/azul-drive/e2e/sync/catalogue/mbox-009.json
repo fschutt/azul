@@ -2,6 +2,7 @@
   {
     "name": "remote names inside the engine's own bookkeeping are refused once, the passes stay clean, and nothing lands in the trash",
     "description": "MBOX-009 (mailbox.org OX Drive for Windows): the client's temp folder '.drive' sat inside the synced folder and every cycle reported 'path ./drive ignored (DRV-0024)'. Rules S17, P11 and O1: the engine's bookkeeping (.azlin at the root) can never be named by a remote key; such a key is listed once (bad-remote-name) and the pass otherwise ends clean; the state folder lies outside the root and is private. sync-chaos sec-reserved-names.",
+    "not_applicable": "an encrypted drive's index refuses every name under .azlin/ for every writer (the meta index's reserved names), so no device can meet one there; the engine's refusal of such names from a plain index is sync-chaos sec-reserved-names (engine adapter: passes)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "b", "remote": "r" },

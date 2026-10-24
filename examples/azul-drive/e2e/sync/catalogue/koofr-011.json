@@ -2,6 +2,7 @@
   {
     "name": "emoji and astral-plane names round-trip byte for byte; a remote backslash name is listed and stays on the drive",
     "description": "KOOFR-011 (Koofr API and desktop): a backslash was replaced by U+FF3C, invalid UTF-8 replaced, emoji refused as 'Invalid filename', Google Drive names given U+FFFD plus a random suffix. Rules P4, S8 and O1: names are kept byte for byte; emoji and astral-plane characters are valid everywhere; a backslash or invalid UTF-8 is refused and listed per file, never mapped silently. sync-chaos port-control-chars.",
+    "pending": "the stand-in writes to an encrypted remote through the drive itself, which refuses a backslash name at its own write; a hostile member's raw write of such a name into the drive index (which takes any name outside .azlin/) needs a raw index writer in the stand-in (e2e/tamper.rs tamper_encrypted). The engine's side is tested on a plain index: filen-018, sync-chaos sec-remote-traversal",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
