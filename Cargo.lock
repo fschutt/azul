@@ -153,7 +153,7 @@ dependencies = [
  "rustls-rustcrypto",
  "serde",
  "serde_json",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -1415,7 +1415,7 @@ dependencies = [
  "tungstenite",
  "ureq",
  "walkdir",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
  "zip 6.0.0",
 ]
 
@@ -1507,7 +1507,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "ureq",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
  "writeable",
  "xmlparser",
  "xmlwriter",
@@ -5879,7 +5879,7 @@ dependencies = [
  "tokio-websockets",
  "tracing",
  "url",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
  "ws_stream_wasm",
 ]
 
@@ -6208,7 +6208,7 @@ dependencies = [
  "socket2",
  "tokio",
  "url",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -6635,7 +6635,7 @@ dependencies = [
  "rustls",
  "rustls-rustcrypto",
  "thiserror 1.0.69",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -6858,7 +6858,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -12850,7 +12850,7 @@ dependencies = [
  "ureq-proto",
  "utf8-zero",
  "webpki-root-certs",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -13154,14 +13154,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
