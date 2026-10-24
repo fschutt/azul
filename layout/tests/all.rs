@@ -1289,3 +1289,5 @@ mod a_fixed_size_pane_keeps_its_width_through_a_resize;
 mod a_hover_that_moves_no_text_style_keeps_the_labels_shaped;
 #[path = "a_height_tween_re_emits_its_box_not_what_it_holds.rs"]
 mod a_height_tween_re_emits_its_box_not_what_it_holds;
+#[path = "a_growing_ribbon_lays_out_only_the_boxes_it_resizes.rs"]
+mod a_growing_ribbon_lays_out_only_the_boxes_it_resizes;
