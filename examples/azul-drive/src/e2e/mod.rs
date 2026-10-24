@@ -228,6 +228,8 @@ pub(crate) struct Device {
     pub state_dir: Option<PathBuf>,
     /// How long its passes wait for a quiet folder.
     pub settle: Duration,
+    /// Its sync engine's clock is this many seconds off the system's.
+    pub clock: f64,
     /// Passes ended, and crashed, so far.
     pub passes: u64,
     pub crashes: u64,
@@ -445,8 +447,8 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_answer" => answer_question(info, app, s, args),
         "drive_resolve" => resolve(info, app, s, args),
         "drive_problems" => {
-            let drive_id = with_harness(|h| Ok(h.device(args)?.drive_id.clone()))?;
-            Ok(serde_json::json!({ "problems": problems_of(&s.sync_view.store.states(&drive_id)) }))
+            let state_dir = with_harness(|h| Ok(h.device(args)?.state_dir.clone()))?;
+            Ok(serde_json::json!({ "problems": problems_in(state_dir.as_deref()) }))
         }
         "drive_states" => states(s, args),
         "drive_base" => base(args),
@@ -472,14 +474,14 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
             Ok(serde_json::json!({}))
         }),
         "drive_clock" => with_harness(|h| {
-            let root = h.device(args)?.pair_folder.clone();
+            let d = h.device_mut(args)?;
             if let Some(offset) = args.get("offset").and_then(serde_json::Value::as_f64) {
-                faults::set_clock_offset(&root, offset);
+                d.clock = offset;
             }
             if let Some(jump) = args.get("jump").and_then(serde_json::Value::as_f64) {
-                faults::jump_clock(&root, jump);
+                d.clock += jump;
             }
-            Ok(serde_json::json!({ "now": faults::now_unix(&root) }))
+            Ok(serde_json::json!({ "offset": d.clock }))
         }),
         "drive_tamper" => tamper::tamper(s, args),
         "drive_snapshot" => tamper::snapshot(args),
@@ -625,9 +627,10 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0),
     );
-    if let Some(clock) = args.get("clock").and_then(serde_json::Value::as_f64) {
-        faults::set_clock_offset(&root, clock);
-    }
+    let clock = args
+        .get("clock")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0);
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     with_harness(|h| {
         h.devices.push(Device {
@@ -639,6 +642,7 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
             root,
             state_dir: None,
             settle,
+            clock,
             passes: 0,
             crashes: 0,
             last: None,
@@ -1122,6 +1126,16 @@ pub(crate) fn own_devices_of(drive_id: &str) -> Option<Vec<String>> {
     })
 }
 
+/// How far a device's sync clock is off (`None`: not an E2E device).
+pub(crate) fn clock_of(drive_id: &str) -> Option<f64> {
+    harness().as_ref().and_then(|h| {
+        h.devices
+            .iter()
+            .find(|d| d.drive_id == drive_id)
+            .map(|d| d.clock)
+    })
+}
+
 /// How long a device's passes wait for a quiet folder (`None`: not an E2E device).
 pub(crate) fn settle_of(drive_id: &str) -> Option<Duration> {
     harness().as_ref().and_then(|h| {
@@ -1134,15 +1148,15 @@ pub(crate) fn settle_of(drive_id: &str) -> Option<Duration> {
 
 /// A pass of `drive_id` ended (on the UI thread, after its states were taken): the device's
 /// count, its last answer and the problems it listed.
-pub(crate) fn pass_ended(s: &DriveState, drive_id: &str, result: &Result<sync_jobs::PassDone, String>) {
+pub(crate) fn pass_ended(drive_id: &str, result: &Result<sync_jobs::PassDone, String>) {
     let mut guard = harness();
     let Some(h) = guard.as_mut() else {
         return;
     };
-    let problems = problems_of(&s.sync_view.store.states(drive_id));
     let Some(d) = h.by_drive_mut(drive_id) else {
         return;
     };
+    let problems = problems_in(d.state_dir.as_deref());
     d.passes += 1;
     let last = match result {
         Ok(done) => serde_json::json!({
@@ -1183,74 +1197,20 @@ pub(crate) fn change_ended(drive_id: &str) {
     }
 }
 
-/// The device's problem list as the scenarios name problems: one entry per file the sync could
-/// not take and per question or refusal that holds the drive.
-pub(crate) fn problems_of(states: &SyncStates) -> Vec<serde_json::Value> {
-    let mut out = Vec::new();
-    let mut add = |code: &str, key: &str, text: &str| {
-        out.push(serde_json::json!({ "code": code, "key": key, "text": text }));
+/// The pairing's problem list as the engine published it (`problems.json` in its state
+/// folder): one entry per file a pass skipped, refused, held, froze or failed, and per
+/// question or refusal that holds the drive, with the engine's codes (`symlink-skipped`,
+/// `conflict-held`, ...).
+pub(crate) fn problems_in(state_dir: Option<&Path>) -> Vec<serde_json::Value> {
+    let Some(dir) = state_dir else {
+        return Vec::new();
     };
-    for (key, why) in &states.skipped {
-        add(code_of(why), key, why);
-    }
-    for (key, record) in &states.files {
-        if let Some(why) = &record.error {
-            add(code_of(why), key, why);
-        }
-        if record.conflict.is_some() {
-            add("conflict", key, "changed here and on the drive");
-        }
-    }
-    if states.mass_delete.is_some() {
-        add("mass-delete-held", "", "a pass would delete most of the folder");
-    }
-    if states.burst.is_some() {
-        add("burst-held", "", "a burst of changes paused the uploads");
-    }
-    if !states.newer_format.is_empty() {
-        add("newer-format", "", &states.newer_format.join(", "));
-    }
-    if states.read_only {
-        add("read-only", "", "the drive takes no writes");
-    }
-    if let Some(p) = &states.last_problem {
-        let code = match p.code.as_str() {
-            "quota_exceeded" => "quota-full",
-            other => other,
-        }
-        .replace('_', "-");
-        add(&code, "", &p.detail);
-    } else if let Some(e) = &states.last_error {
-        add(code_of(e), "", e);
-    }
-    out
-}
-
-/// A problem code for the engine's words (until the engine names its own codes).
-fn code_of(why: &str) -> &'static str {
-    let w = why.to_lowercase();
-    let has = |words: &[&str]| words.iter().any(|x| w.contains(x));
-    if has(&["symbolic link", "symlink"]) {
-        "symlink-skipped"
-    } else if has(&["not a regular file", "fifo", "socket", "device file"]) {
-        "special-file"
-    } else if has(&["cannot be a key", "not utf-8", "not a valid name", "reserved name"]) {
-        "bad-name"
-    } else if has(&["same name"]) {
-        "name-collision"
-    } else if has(&["no space", "disk full", "disk is full"]) {
-        "disk-full"
-    } else if has(&["quota"]) {
-        "quota-full"
-    } else if has(&["cannot be read", "permission denied"]) {
-        "unreadable"
-    } else if has(&["changed"]) {
-        "changed-during-sync"
-    } else if has(&["would delete", "mass"]) {
-        "mass-delete-held"
-    } else if has(&["root", "folder is gone", "not mounted"]) {
-        "root-missing"
-    } else {
-        "other"
-    }
+    azcloud_kit::sync::problems::ProblemList::load(dir)
+        .map(|list| {
+            list.problems
+                .iter()
+                .filter_map(|p| serde_json::to_value(p).ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }

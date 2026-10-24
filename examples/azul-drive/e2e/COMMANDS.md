@@ -62,9 +62,12 @@ temporary folder); `AZDRIVE_E2E_KEEP=1` keeps the sandbox after the run.
   `.ssh/authorized_keys`, `Library/LaunchAgents/`, `secret.txt` (holding `{secret}`),
   `target.txt`, `victim/`. `drive_check` `outside_untouched` compares it with its state at
   `drive_harness`.
-- **Crash and pause points** are named places in a pass: `after-scan`, `after-blob`,
-  `after-commit`, `before-rename`, `conflict-start`, `before-trash`, `before-base-save`. A crash
-  stops the pass thread there by unwinding it: nothing after the point runs, no error handler
+- **Crash and pause points** are the places the sync engine names in a pass, in the order a
+  pass meets them: `start`, `after-scan`, `before-upload`, `mid-read`, `after-blob`,
+  `after-commit`, `download-start`, `before-rename`, `after-rename`, `before-trash`,
+  `conflict-start`, `conflict-renamed`, `before-base-save`. An E2E device's sessions hear them
+  through `SyncSession::with_points`; the commands arm them in `azcloud_kit::sync::faults`. A
+  crash stops the pass thread there by unwinding it: nothing after the point runs, no error handler
   runs, only destructors (so a temp file a guard owns is removed, unlike after `kill -9`; the
   sync-chaos `engine` adapter covers a real `kill -9`). The device's in-memory sync state is
   dropped and read again from its state folder, as a restarted app would. A pause blocks the
@@ -77,18 +80,20 @@ Every answer below is the `result` object; `success` is left out where it is sim
 | op | arguments | result |
 |---|---|---|
 | `drive_harness` | `work` (folder, default `$AZDRIVE_E2E_WORK` or the temp folder), `keep` (bool) | `run`, `outside`, `secret` |
+| `drive_cleanup` | - | `removed`, `run` |
 
 Makes the run's sandbox: `outside/`, `remote/`, `devices/`, `cache/` (AzDrive's cache folder for
 this run: the pairings' state folders). It adds a local drive "e2e" whose root is the sandbox,
 so pairing a folder in it is allowed. Any other command calls it first with the defaults when
-no scenario did.
+no scenario did. Every scenario ends with `drive_cleanup`: it stops the devices' passes and
+removes the sandbox (unless `keep`), since the process does not tell the commands it ends.
 
 ## Remotes and devices
 
 | op | arguments | result |
 |---|---|---|
 | `drive_create` | `remote` (name), `encrypted` (bool, default true), `prefix` (default `""`) | `remote`, `path`, `encrypted` |
-| `drive_open` | `device`, `remote`, `device_name` (default the device), `settle_ms` (default 0), `clock` (seconds, default 0) | `device`, `drive_id` |
+| `drive_open` | `device`, `remote`, `device_name` (default the device), `settle_ms` (default 0), `clock` (seconds the sync clock is off, default 0) | `device`, `drive_id` |
 | `drive_pair` | `device`, `folder` (default `{root:<device>}`), `prefix` (default the remote's) | `folder`, `state_dir` |
 | `drive_unpair` | `device` | - |
 | `drive_restart` | `device` | - |
@@ -118,7 +123,7 @@ reads it again from its state folder, like quitting and starting AzDrive.
 
 AzDrive holds a file changed on both sides for the user (the window asks keep mine / take
 theirs / keep both) instead of making a conflict copy by itself: the pass counts it in
-`conflicts`, `drive_problems` lists it as `conflict`, and `drive_resolve` answers it the way the
+`conflicts`, `drive_problems` lists it as `conflict-held`, and `drive_resolve` answers it the way the
 dialog does (`both` makes the conflict copy on the next pass).
 
 `drive_sync` asks AzDrive for a pass (the same request as Sync now), then answers `pending`
@@ -132,21 +137,31 @@ answers when it ended. `drive_sync_bg` starts a pass and answers at once.
 
 | op | arguments | result |
 |---|---|---|
-| `drive_problems` | `device` | `problems`: `[{code, key, text}]` |
+| `drive_problems` | `device` | `problems`: the engine's list, `[{code, key, detail, severity, since}]` |
 | `drive_states` | `device` | `files`: `{key: {state, size, cloud_only, pinned, error}}`, `read_only`, `last_problem` |
 | `drive_base` | `device` | `entries`: `{key: {hash, size, mtime}}`, `generation` |
 | `drive_index` | `device` or `remote` | `generation`, `features`, `files`: `{key: {hash, size, mtime, device}}`, `deleted`: `{key: {hash, at, device}}` |
 | `drive_counters` | `device` (absent: the remote's total) | `ops`: `{get, put, put_if, head, list, delete}`, `bytes_up`, `bytes_down`, `refused`, `puts`: `{key: n}`, `passes`, `crashes` |
-| `drive_list` | `device` | `files`: `{path: {kind, size, sha256, mode}}` (the folder as it is, AzDrive's bookkeeping left out) |
-| `drive_read` | `path` (+ `device`) | `exists`, `kind` (`file`, `dir`, `link`, `special`), `size`, `text` (when UTF-8), `sha256`, `mode`, `target` (a link's) |
+| `drive_list` | `device` | `files`: `{path: {kind, size, hash, text, mode, mtime_ns}}` (the folder as it is, the engine's bookkeeping left out; `hash` is the BLAKE3) |
+| `drive_read` | `path` (+ `device`) | `exists`, `kind` (`file`, `dir`, `link`, `special`), `size`, `text` (when UTF-8), `hash`, `mode`, `mtime_ns`, `target` (a link's) |
 
-Problem codes are the sync engine's (`symlink-skipped`, `special-file`, `bad-name`,
-`name-collision`, `unreadable`, `changed-during-sync`, `mass-delete-held`, `burst-held`,
-`root-missing`, `disk-full`, `quota-full`, `read-only`, `newer-format`, `rollback-refused`,
-`loop-frozen`, `quarantined`, `conflict`, ...). `drive_index` with a `device` reads the index as
-that device's engine sees it (through its fault layer and, on an encrypted drive, its key);
-with a `remote` it reads past every fault. On an encrypted remote `hash` is the plaintext
-BLAKE3 the engine recorded, never a stored object's name.
+`drive_problems` is the pairing's problem list exactly as the engine published it
+(`SyncSession::problems`, `problems.json` in the state folder), with the engine's codes:
+`symlink-skipped`, `special-file`, `bad-name`, `bad-remote-name`, `invalid-here`,
+`portability`, `display-risk`, `name-collision`, `type-conflict`, `through-link`,
+`link-refused`, `mount-point`, `hardlink`, `unreadable`, `changed-during-sync`, `settling`,
+`save-in-progress`, `locked`, `too-large`, `disk-reserve`, `disk-full`, `quota-exceeded`,
+`transient`, `rate-limited`, `remote-offline`, `sign-in-needed`, `update-needed`,
+`remote-entry-unreadable`, `remote-index-unreadable`, `remote-rollback`, `server-restored`,
+`hash-mismatch`, `decompression-bomb`, `mass-delete-held`, `loop-frozen`,
+`deleted-elsewhere-kept`, `root-missing`, `root-replaced`, `state-reset`, `ignore-change`,
+`renamed-to-invalid`, `busy`, `io-error`, `conflict-held`, `uploads-paused`, `held-back`,
+`other`. A key is the file's key as the engine keeps it (escaped only for display).
+
+`drive_index` with a `device` reads a plain remote's index through that device's fault layer;
+with a `remote` (or neither) it reads past every fault. An encrypted remote has no plain index:
+there `drive_index` answers only `files`, `{key: {size}}`, listed through the first device's
+key.
 
 ## Files on a device
 
@@ -183,15 +198,17 @@ OS error. `text` content also counts as a "live text" for `kept_live`.
 | `drive_fault` | `device` (absent: every device of the remote) or `remote`; any of `partition` (bool), `error_rate` (0..1) + `seed`, `rate_limit_every` (n) + `retry_after` (s), `cut_after_ops` (n), `quota_bytes`, `fail_keys` (globs), `refuse_ops` (`get`, `put`, `put_if`, `head`, `list`, `delete`), `auth_failed` (bool), `latency_ms`; `clear` (bool, first) |
 | `drive_crash_at` | `device`, `point` (armed for the next pass; `drive_sync` `crash_at` is the same) |
 | `drive_disk` | `device`, `free_bytes` (what the engine's free-space check sees) or `full` (bool: writes in the folder and the state folder fail with "no space"); `clear` |
-| `drive_clock` | `device`, `offset` (seconds from now, as the engine's clock reads it) or `jump` (seconds added to the offset) |
+| `drive_clock` | `device`, `offset` (seconds the device's sync clock is off) or `jump` (seconds added to the offset); answers `offset` |
 
 The fault layer sits between the device's engine and the remote: a partitioned device gets a
 connection error for every request, `error_rate` a 503 for that share of requests (seeded,
 repeatable), `rate_limit_every` a 429 with `Retry-After` for every n-th, `cut_after_ops` a
 connection error for every request after the n-th from now, `quota_bytes` a "quota exceeded"
 for a PUT that would pass it, `fail_keys` and `refuse_ops` a 500 for the matching requests,
-`auth_failed` a 401. The disk and clock faults are read by the engine itself, through the sync
-module's fault seam (`azcloud_kit::sync::faults`).
+`auth_failed` a 401. The clock is the device's sync engine clock (`SyncSession::with_clock`, as
+the command line's `AZSYNC_CLOCK_OFFSET`), from the device's next pass on. The disk fault is
+what the engine's free-space check and local writes see through the fault seam
+(`azcloud_kit::sync::faults::free_bytes` and `check_write`).
 
 ## Tampering with a remote
 
@@ -205,9 +222,12 @@ Actions (a hostile or broken server, past every device's fault layer): `put` (`k
 `delete_all`; `rollback` (`to`: a snapshot's name, or `generations`) puts an older index back
 with no announcement; `restore` (`to`) the same as an announced restore; `corrupt_index`;
 `corrupt_blob` (`key`); `truncate_blob` (`key`, `keep` bytes); `raw_entry` (`key`,
-`entry_json`); `raw_key` (`key_hex`, content); `features` (a list: the index names format
-features this version does not know). On an encrypted remote `put` and `delete` go through the
-remote's key; `corrupt_blob` and `truncate_blob` damage the stored object.
+`entry_json`); `raw_key` (`key_hex`, content; a key that is not UTF-8 cannot be written in a
+JSON index and fails); `features` (a list: the index names format features this version does
+not know). `restore` fails until the stand-in remote has the server's restore announcement.
+On an encrypted remote only `put`, `delete` and `delete_all` work (through the remote's key,
+the engine's way); the actions that damage one stored object fail there, since an encrypted
+remote does not name its objects by the file's key, and so does `drive_snapshot`.
 
 ## Checks
 
@@ -231,13 +251,15 @@ so a failed check fails the step with its detail. The names and fields are sync-
 | `remote_count` | `glob`, `count` |
 | `remote_consistent` | - (every indexed file's object is there and matches its hash) |
 | `problem` | `code` or `code_any`, `key` (glob), `absent`, `when` (`last`: the last pass's list, else every pass's) |
-| `max_ops` | `key`, `op`, `max` (destructive changes in the device's operations log) |
+| `max_ops` | `key`, `op` (`trash`, `delete`, `overwrite`, `conflict`, `move`), `max` (destructive changes in the device's operations log, `ops.jsonl`) |
 | `remote_puts` | `max` (the device's successful PUTs) |
 | `retry_after_respected` | - |
 | `state_private` | - (the state folder is not readable by others) |
 | `mtime` | `path`, `ns`, `tolerance_ns` |
 | `last_pass_quiet` | - (the device's last pass changed nothing) |
-| `free_at_least` | `bytes` |
+
+`free_at_least`, `kept_soak` and `run_ok` stay sync-chaos checks (they need the real disk, a
+soak, a shell) and fail here with that reason.
 
 ## An example
 
@@ -264,7 +286,8 @@ so a failed check fails the step with its detail. The names and fields are sync-
     { "op": "drive_sync", "device": "a" },
     { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "f.txt", "count": 1 },
     { "op": "drive_check", "check": "kept_live", "texts": ["a's", "b's"] },
-    { "op": "drive_check", "check": "converged" }
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
   ]
 }
 ```

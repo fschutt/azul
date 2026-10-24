@@ -8,7 +8,7 @@ use azcloud_kit::sync::remote::{blob_key, index_key, RemoteIndex};
 
 use super::{
     files::{all_files, hash, snapshot, user_files},
-    named_files, need, problems_of, remote::glob, str_arg, with_harness, Answer, Args, Harness,
+    named_files, need, problems_in, remote::glob, str_arg, with_harness, Answer, Args, Harness,
 };
 use crate::DriveState;
 
@@ -27,8 +27,8 @@ pub(crate) fn check(s: &mut DriveState, args: &Args) -> Answer {
     };
     let problems_now = match name.as_str() {
         "problem" => {
-            let drive_id = with_harness(|h| Ok(h.device(args)?.drive_id.clone()))?;
-            Some(problems_of(&s.sync_view.store.states(&drive_id)))
+            let state_dir = with_harness(|h| Ok(h.device(args)?.state_dir.clone()))?;
+            Some(problems_in(state_dir.as_deref()))
         }
         _ => None,
     };
@@ -59,9 +59,10 @@ pub(crate) fn check(s: &mut DriveState, args: &Args) -> Answer {
             "state_private" => state_private(h, args),
             "mtime" => mtime(h, args),
             "last_pass_quiet" => last_pass_quiet(last_quiet.flatten()),
-            "max_ops" | "free_at_least" | "kept_soak" | "run_ok" => Err(format!(
-                "check '{name}' needs what AzDrive's E2E commands do not have yet (the \
-                 operations log, the real disk's free space, a soak, a shell)"
+            "max_ops" => max_ops(h, args),
+            "free_at_least" | "kept_soak" | "run_ok" => Err(format!(
+                "check '{name}' needs what AzDrive's E2E commands do not have (the real \
+                 disk's free space, a soak, a shell): it is a sync-chaos check only"
             )),
             other => Err(format!("no check '{other}'")),
         })
@@ -564,6 +565,38 @@ fn problem(h: &Harness, args: &Args, now: Option<&[serde_json::Value]>) -> Verdi
             key.map(|k| format!(" for {k}")).unwrap_or_default()
         )),
         _ => Ok(()),
+    }
+}
+
+/// At most `max` destructive changes (of `key`, of kind `op`) in the device's operations log.
+fn max_ops(h: &Harness, args: &Args) -> Verdict {
+    let d = h.device(args)?;
+    let state = d.state_dir.as_ref().ok_or("the device is not paired")?;
+    let key = str_arg(args, "key");
+    let kind = str_arg(args, "op");
+    let n = azcloud_kit::sync::oplog::OpLog::new(state)
+        .read()
+        .iter()
+        .filter(|o| key.is_none_or(|k| o.key == k))
+        .filter(|o| {
+            kind.is_none_or(|want| {
+                serde_json::to_value(o.op).ok().and_then(|v| v.as_str().map(str::to_string))
+                    == Some(want.to_string())
+            })
+        })
+        .count();
+    let max = args
+        .get("max")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("'max' is missing")?;
+    if n as u64 <= max {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} made {n} destructive changes to {}, at most {max} allowed",
+            d.name,
+            key.unwrap_or("files")
+        ))
     }
 }
 

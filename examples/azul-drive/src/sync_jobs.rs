@@ -119,6 +119,11 @@ pub(crate) struct SyncWork {
     pub device: Option<String>,
     /// How long a pass waits for a quiet folder instead of [`settle`]: an E2E device's.
     pub settle: Option<StdDuration>,
+    /// Its passes tell their named points to the sync's fault seam, where a scenario crashes
+    /// or pauses them: an E2E device's (never a user's drive).
+    pub fault_points: bool,
+    /// Its sync engine's clock is this many seconds off this computer's: an E2E device's.
+    pub clock: f64,
 }
 
 impl SyncWork {
@@ -136,6 +141,8 @@ impl SyncWork {
             own_devices: Vec::new(),
             device: None,
             settle: None,
+            fault_points: false,
+            clock: 0.0,
         }
     }
 
@@ -147,11 +154,20 @@ impl SyncWork {
     /// encrypted), with the work's transfer limit, its transfers at once and the settle time
     /// that lets a burst of changes (a checkout, an unzip) go as one batch.
     pub(crate) fn session(&self) -> SyncSession {
-        self.drive_session()
+        let session = self
+            .drive_session()
             .with_own_devices(&self.own_devices)
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
             .with_settle(self.settle.unwrap_or_else(settle))
+            .with_clock(self.clock);
+        if !self.fault_points {
+            return session;
+        }
+        let folder = self.setup.folder.clone();
+        session.with_points(Arc::new(move |name: &str| {
+            azcloud_kit::sync::faults::point(&folder, name);
+        }))
     }
 
     /// The session of the drive's kind.
@@ -364,7 +380,12 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = match caught {
                 Ok(result) => result,
                 Err(payload) => {
-                    let why = match azcloud_kit::sync::faults::crashed_at(payload.as_ref()) {
+                    // A crash on one of the pass's worker threads arrives as its scope's panic:
+                    // the seam still knows the point.
+                    let recorded = azcloud_kit::sync::faults::take_crashed(&work.setup.folder);
+                    let point =
+                        azcloud_kit::sync::faults::crashed_at(payload.as_ref()).or(recorded);
+                    let why = match point {
                         Some(point) => format!("{}{point}", crate::e2e::CRASHED),
                         None => format!(
                             "the pass panicked: {}",
@@ -722,6 +743,8 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
     }
     work.device = crate::e2e::device_name_of(drive_id);
     work.settle = crate::e2e::settle_of(drive_id);
+    work.fault_points = work.device.is_some();
+    work.clock = crate::e2e::clock_of(drive_id).unwrap_or(0.0);
     // An E2E device's fellow devices on its remote are the same user's.
     if let Some(devices) = crate::e2e::own_devices_of(drive_id) {
         work.own_devices = devices;
@@ -1411,7 +1434,7 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
             let before = s.sync_view.store.states(&drive_id);
             s.sync_view.store.set_moving(&drive_id, None);
             s.sync_view.store.set_states(&drive_id, states);
-            crate::e2e::pass_ended(s, &drive_id, &result);
+            crate::e2e::pass_ended(&drive_id, &result);
             match &result {
                 Ok(done) => println!(
                     "AZDRIVE_SYNC_DONE {drive_id} up={} down={} deleted={} conflicts={} \
