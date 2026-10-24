@@ -6851,6 +6851,18 @@ mod autotest_generated {
     }
 
     #[test]
+    fn coalesce_does_not_let_a_big_rect_swallow_its_neighbours() {
+        // A side pane's repaint next to a thin strip of the bar above: the
+        // union is half again the pane, yet nearly all of the added area was
+        // never damaged. Merge after merge such unions grew into the window.
+        let pane = lr(0.0, 0.0, 500.0, 800.0);
+        let strip = lr(505.0, 30.0, 160.0, 7.0);
+        let mut v = vec![pane, strip];
+        coalesce_damage_rects(&mut v);
+        assert_eq!(v.len(), 2, "the strip stays its own rect: {v:?}");
+    }
+
+    #[test]
     fn coalesce_with_nan_rects_terminates() {
         // NaN comparisons are always false → no merge, and the fixpoint loop
         // must still terminate rather than spin.

@@ -919,6 +919,21 @@ extern "C" fn list_rows(
 /// panes: their pixels move by a blit (a frame repainted the whole window).
 #[test]
 fn a_height_tween_moves_bordered_panes_and_a_list_view_by_a_blit() {
+    tween_the_bar_over_the_panes(10, 70);
+}
+
+/// The ribbon closing again: the panes move up and the list view grows into
+/// the room the bar gave up. The grown view rides its pane, so the blit moves
+/// its pixels and only its new band repaints (each such frame repainted the
+/// whole list, and the many rects of a frame then merged into the window).
+#[test]
+fn a_closing_bar_moves_the_growing_list_view_by_a_blit() {
+    tween_the_bar_over_the_panes(70, 10);
+}
+
+/// Tweens the bar above the panes from `from` to `to` px: every frame equals a
+/// full redraw and repaints less than a quarter of the panes on average.
+fn tween_the_bar_over_the_panes(from: isize, to: isize) {
     for dpi in [96u32, 192] {
         let mut side = Dom::create_div().with_css(
             "width: 100px; border: 1px solid #8899aa; overflow-y: auto; \
@@ -941,7 +956,9 @@ fn a_height_tween_moves_bordered_panes_and_a_list_view_by_a_blit() {
                 .with_child(
                     Dom::create_div()
                         .with_class("grow".into())
-                        .with_css("height: 10px; background: #446688; animation: height 260ms ease-out;"),
+                        .with_css(&format!(
+                            "height: {from}px; background: #446688; animation: height 260ms ease-out;"
+                        )),
                 )
                 .with_child(
                     Dom::create_div()
@@ -967,7 +984,7 @@ fn a_height_tween_moves_bordered_panes_and_a_list_view_by_a_blit() {
             dom_id: DomId::ROOT_ID,
             node_id: grow,
             props: vec![azul_css::props::property::CssProperty::const_height(
-                azul_css::props::layout::LayoutHeight::const_px(70),
+                azul_css::props::layout::LayoutHeight::const_px(to),
             )],
             override_only: false,
         });
