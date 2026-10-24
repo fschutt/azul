@@ -229,6 +229,7 @@ fn small_files_folders_and_compressed_formats_are_not_tried() {
             "{path}"
         );
     }
+    assert_eq!(drive.inner().puts(), puts, "nothing uploaded for them");
     // A PNG is tried (its transform), but a damaged one gains nothing: nothing is uploaded.
     let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
     png.extend(noise(100_000));
@@ -243,7 +244,7 @@ fn small_files_folders_and_compressed_formats_are_not_tried() {
         recompress_one(&drive, "gone.txt", &policy).unwrap(),
         RecompressOutcome::Skipped
     );
-    // The PNG's own write is the only upload since the first count.
+    // A file that is gone uploads nothing either.
     assert_eq!(drive.inner().puts(), puts_with_png);
 }
 
