@@ -6,6 +6,7 @@ use std::{fmt::Debug, path::PathBuf};
 use azlin_contract::{
     AppName, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState, ArchiveWire,
     AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, ClientTooOld,
+    DeviceKeyAnswer, DeviceKeyRegistration,
     Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
     Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
@@ -224,6 +225,8 @@ struct ArchiveFixture {
     challenge: ArchiveChallenge,
     proofs: Vec<ArchiveProof>,
     refusals: Vec<ArchiveRefusal>,
+    device_key: DeviceKeyRegistration,
+    device_key_answer: DeviceKeyAnswer,
 }
 
 #[test]
@@ -267,6 +270,13 @@ fn a_locked_drive_its_challenge_its_proofs_and_their_refusals_read_and_write_the
             ArchiveRefusal::CheckoutNotPaid,
             ArchiveRefusal::CheckoutOtherTier,
         ],
+        device_key: DeviceKeyRegistration {
+            public_key: "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=".into(),
+            signature: "c2lnbmF0dXJl".into(),
+        },
+        device_key_answer: DeviceKeyAnswer {
+            key_id: "dk_k3f9x2mq7a".into(),
+        },
     };
     golden("archive.json", &fixture);
 }

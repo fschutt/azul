@@ -57,5 +57,12 @@
     {
       "error": "checkout_other_tier"
     }
-  ]
+  ],
+  "device_key": {
+    "public_key": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+    "signature": "c2lnbmF0dXJl"
+  },
+  "device_key_answer": {
+    "key_id": "dk_k3f9x2mq7a"
+  }
 }

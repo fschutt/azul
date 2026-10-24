@@ -1,8 +1,9 @@
 //! A locked drive's way back. A drive unpaid past its read-only time is locked and its files
 //! move to offline storage; the token server gives it back only to its owner, and it keeps no
 //! name or address to know the owner by. So the owner proves it with a key only the owner has:
-//! one of the drive's recovery keys - the recovery code's, or this device's own key registered as
-//! one while the code was at hand ([`crate::device_key`]). The signature covers the token
+//! one of the drive's recovery keys (the recovery code's), or this device's own key, registered
+//! for restores only while the device held the drive key ([`crate::device_key`]). The signature
+//! covers the token
 //! server's challenge as an [`archive_statement`] - its purpose, the drive, the nonce, the expiry
 //! and the paid checkout it unlocks - and counts once; the checkout pays the three months the
 //! drive owes, and the files come back.
@@ -10,6 +11,7 @@
 use super::*;
 use azlin_contract::{
     archive_statement, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveWire,
+    DeviceKeyAnswer, DeviceKeyRegistration,
 };
 
 /// What a proof came to.
@@ -112,5 +114,34 @@ impl TokenServer<'_> {
         serde_json::from_value(value)
             .map(ProofAnswer::Locked)
             .map_err(|_| TokenError::Protocol(String::from("the answer names no archive")))
+    }
+
+    /// This device's key for the open drive `drive_id` (`POST /v1/drives/{id}/device_keys`,
+    /// the drive token): its id (`dk_...`), which a proof may name. The same key again answers
+    /// its id. A device key proves ownership for a restore only.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusals (403 `drive_archived`: a locked drive takes no key; 401
+    /// `bad_signature`; 409 `too_many_keys`).
+    pub fn register_device_key(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        registration: &DeviceKeyRegistration,
+    ) -> Result<DeviceKeyAnswer, TokenError> {
+        let path = format!("/v1/drives/{}/device_keys", check_id(drive_id)?);
+        let body = serde_json::to_value(registration)
+            .map_err(|_| TokenError::Protocol(String::from("the key does not write")))?;
+        let reply = self.exchange(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;
+        if !reply.is_success() {
+            // a bad signature here is the device key's, not its drive token's
+            if reply.status == 401 {
+                return Err(proof_refusal(&reply));
+            }
+            return Err(refusal(&reply, true));
+        }
+        serde_json::from_slice(&reply.body)
+            .map_err(|_| TokenError::Protocol(String::from("the answer names no key")))
     }
 }

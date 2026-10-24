@@ -3,12 +3,14 @@
 //! An Ed25519 key made on this computer and kept in its keyring. It exists for one moment: if
 //! the drive is ever locked (unpaid past its read-only time, its files moved to offline
 //! storage), the token server gives it back only to its owner, and it keeps no name or address
-//! to know the owner by - only the drive's recovery keys. So this key is registered as one of
-//! them (labelled [`DEVICE_LABEL`]) while the recovery code is at hand, signed by the code's key
-//! as every new recovery key is ([`register_as_recovery_key`]); then this computer proves the
-//! drive is its owner's without the code being typed again
-//! ([`crate::TokenServer::archive_prove`]). There is one way the token server checks such a
-//! signature: the drive's recovery keys.
+//! to know the owner by. This key's signature over the server's statement shows that this
+//! computer is one of the drive's own devices ([`crate::TokenServer::archive_prove`]) - for a
+//! restore and nothing else: the token server keeps device keys apart from the recovery keys,
+//! so a device key never signs a recovery lockdown or a change of the recovery keys.
+//!
+//! The key is registered once, while the drive is open, by a device that holds the drive key:
+//! when it joined or was paired, or unlocked the drive ([`ensure_registered`]). The keyring keeps
+//! the key and the id the server gave it.
 
 use std::fmt;
 
@@ -22,9 +24,6 @@ use crate::{
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
 };
-
-/// The label a device's key carries among the drive's recovery keys.
-pub const DEVICE_LABEL: &str = "this device";
 
 /// The keyring entry of `drive_id`'s device key, beside the drive's session.
 #[must_use]
@@ -91,10 +90,22 @@ impl DeviceKey {
         STANDARD.encode(self.signing.sign(message).to_bytes())
     }
 
-    /// Its id among the drive's recovery keys; `None` before it is registered.
+    /// The id the token server gave it (`dk_...`); `None` before it is registered.
     #[must_use]
     pub fn key_id(&self) -> Option<&str> {
         self.key_id.as_deref()
+    }
+
+    /// Its registration for `drive_id`: the public half, signed by the key itself over
+    /// [`azlin_contract::device_key_statement`].
+    #[must_use]
+    pub fn registration(&self, drive_id: &str) -> azlin_contract::DeviceKeyRegistration {
+        let public_key = self.public_base64();
+        let statement = azlin_contract::device_key_statement(drive_id, &public_key);
+        azlin_contract::DeviceKeyRegistration {
+            signature: self.sign_base64(statement.as_bytes()),
+            public_key,
+        }
     }
 
     fn to_text(&self) -> Zeroizing<String> {
@@ -131,22 +142,20 @@ impl DeviceKey {
     }
 }
 
-/// Registers this device's key of `drive_id` as one of the drive's recovery keys, once: the key
-/// the keyring keeps (a new one is made and kept first) is added through
-/// [`TokenServer::add_recovery_key`], `sign` signing the addition with a current recovery key
-/// (the code's: the caller has the code at hand), under the drive's lock with its newest drive
-/// token and an idempotency key the outbox keeps; its id is kept with it. The key's id; one
-/// registered before answers its id at once.
+/// Makes sure this device's key of the open drive `drive_id` is registered, with the drive token
+/// `token` the caller holds under the drive's lock: the key the keyring keeps (a new one is made
+/// and kept first), sent once; its id is kept with it. The key's id; one registered before
+/// answers its id at once.
 ///
 /// # Errors
 ///
-/// No random source, no keyring or no session of the drive (said as [`TokenError::Config`]);
-/// the token server's refusals (401 a signature by no key of the drive, 409 too many keys).
-pub fn register_as_recovery_key(
+/// No random source or no keyring (said as [`TokenError::Config`]); the token server's refusal
+/// (a locked drive takes no key: 403 `drive_archived`).
+pub fn register_with(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
     drive_id: &str,
-    sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    token: &str,
 ) -> Result<String, TokenError> {
     let config = |e: crate::error::CloudError| TokenError::Config(e.to_string());
     let kept = DeviceKey::load(shared, drive_id).map_err(config)?;
@@ -162,23 +171,25 @@ pub fn register_as_recovery_key(
     if let Some(id) = key.key_id() {
         return Ok(id.to_string());
     }
-    let public = key.public_base64();
-    let what = format!("add:{public}");
-    let outbox = shared.outbox();
-    let added = shared
-        .with_drive_token(drive_id, |token| {
-            outbox.send(
-                azlin_contract::IdempotentScope::RecoveryKey,
-                drive_id,
-                &what,
-                |idempotency| {
-                    server.add_recovery_key(drive_id, token, &public, DEVICE_LABEL, idempotency, sign)
-                },
-            )
-        })
-        .map_err(config)??;
-    key.key_id = Some(added.key_id.clone());
-    // an id not kept is added again next time: the token server answers the key it has
+    let answer = server.register_device_key(drive_id, token, &key.registration(drive_id))?;
+    key.key_id = Some(answer.key_id.clone());
+    // an id not kept is asked again next time: the server answers the same id
     let _ = key.save(shared, drive_id);
-    Ok(added.key_id)
+    Ok(answer.key_id)
+}
+
+/// [`register_with`] under the drive's lock with its newest drive token
+/// ([`SharedKeyring::with_drive_token`]): what AzDrive runs once a device holds the drive key.
+///
+/// # Errors
+///
+/// No session of the drive, its lock, or [`register_with`]'s.
+pub fn ensure_registered(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    drive_id: &str,
+) -> Result<String, TokenError> {
+    shared
+        .with_drive_token(drive_id, |token| register_with(server, shared, drive_id, token))
+        .map_err(|e| TokenError::Config(e.to_string()))?
 }

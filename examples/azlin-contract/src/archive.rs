@@ -8,8 +8,10 @@
 //!
 //! Its owner gets the drive back in two steps, in either order:
 //! - **Proof**: the drive holds no name or address of anyone, so the only way to know the
-//!   owner is a key only the owner has: one of the drive's recovery keys - the recovery code's,
-//!   a passkey, or the key of one of its devices registered as one while the code was at hand.
+//!   owner is a key only the owner has: one of the drive's recovery keys (the recovery code's,
+//!   a passkey), or a device key - the key a device of the drive registered while it held the
+//!   drive key ([`DeviceKeyRegistration`]). A device key proves ownership for a restore and for
+//!   nothing else: it never signs a recovery lockdown or a change of the recovery keys.
 //!   The app asks the token server for a challenge ([`ArchiveChallenge`]) and signs its
 //!   [`archive_statement`] ([`ArchiveProof`]): the statement names its purpose, the drive, the
 //!   server's nonce, the expiry and the paid checkout it unlocks, a signature counts once and
@@ -45,6 +47,17 @@ pub const ARCHIVE_CHALLENGE_SECS: i64 = 300;
 
 /// The first line of an [`archive_statement`]: what the signature is for, and nothing else.
 pub const ARCHIVE_STATEMENT_FORMAT: &str = "azlin-archive-restore-v1";
+
+/// The first line of a [`device_key_statement`].
+pub const DEVICE_KEY_STATEMENT_FORMAT: &str = "azlin-device-key-v1";
+
+/// What a device signs with its new key when it registers it for a drive: the purpose, the
+/// drive and the key, each line ending in a newline. It holds the private half; the statement
+/// is good for nothing but this registration.
+#[must_use]
+pub fn device_key_statement(drive_id: &str, public_key: &str) -> String {
+    format!("{DEVICE_KEY_STATEMENT_FORMAT}\ndrive={drive_id}\nkey={public_key}\n")
+}
 
 /// What the owner's key signs to get a locked drive back: the purpose, then `key=value` lines in
 /// this order, each ending in a newline - the drive, the token server's nonce, the challenge's
@@ -138,7 +151,7 @@ pub struct ArchiveChallenge {
     pub expires_at: Rfc3339,
 }
 
-/// `POST /v1/drives/{id}/archive/proof`: a recovery key's signature over the
+/// `POST /v1/drives/{id}/archive/proof`: a recovery key's or a device key's signature over the
 /// [`archive_statement`] of a challenge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveProof {
@@ -147,7 +160,8 @@ pub struct ArchiveProof {
     /// pay what the drive owes at once. None: the proof alone; the months come as period tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkout_id: Option<String>,
-    /// Which of the drive's recovery keys signed, when the app knows; else every one is tried.
+    /// Which key signed - one of the drive's recovery keys (`rk_...`) or a device key
+    /// (`dk_...`) - when the app knows; else every one of them is tried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_id: Option<String>,
     /// Ed25519, standard base64.
@@ -215,4 +229,20 @@ impl ArchiveRefusal {
             ArchiveRefusal::Unknown => 500,
         }
     }
+}
+
+/// `POST /v1/drives/{id}/device_keys`: a device's own key for the drive, registered while the
+/// drive is open by a device that holds the drive key (at its join, its pairing, an unlock), and
+/// its signature over [`device_key_statement`]. It proves ownership for a restore only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceKeyRegistration {
+    /// Ed25519, 32 bytes in standard base64.
+    pub public_key: String,
+    pub signature: String,
+}
+
+/// The answer to a registration: the key's id (`dk_...`), which a proof may name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceKeyAnswer {
+    pub key_id: String,
 }

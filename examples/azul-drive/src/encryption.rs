@@ -2738,6 +2738,8 @@ pub(crate) fn on_outcome(
             Ok(code) => {
                 crate::recovery::code_made(s, &drive_id, &code);
                 crate::save_settings(info, app, s);
+                // this computer made the drive key: its own key is registered for a restore
+                crate::archive::register_device_key(info, app, s, &drive_id);
                 // registered while the sheet shows: its kit is offered once the server has it
                 begin_registration(info, app, s, &drive_id, &code, None);
                 let sheet = Sheet::new(&drive_id, code);
@@ -2793,6 +2795,9 @@ pub(crate) fn on_outcome(
                 }
                 let name = drive_name(s, &drive_id);
                 s.info(Phrase::new("azdrive-enc-unlocked").arg("name", name));
+                // this computer holds the drive key again: its own key is registered for a
+                // restore (once)
+                crate::archive::register_device_key(info, app, s, &drive_id);
             }
             Err(why) => {
                 s.popup = Some(Popup::Encryption(Dialog::Message {

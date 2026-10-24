@@ -10,10 +10,10 @@
 //!   `Azlin rescue/<drive>` in the home folder, so nothing is lost when it locks; the bar shows
 //!   how far that got and which files are still missing, and the copy runs again at every look;
 //! - once it is locked, the drive is empty in AzDrive: a page says why and offers "Get my drive
-//!   back" - this computer's own key, one of the drive's recovery keys, signs the token server's
-//!   statement (or the recovery code, typed, on a computer without one), then Renew pays the
-//!   three months the drive owes, and the paid checkout is named in a second proof so its months
-//!   count at once;
+//!   back" - this computer's own device key (registered for restores only when it joined the
+//!   drive, set up its encryption or unlocked it) signs the token server's statement, or the
+//!   recovery code, typed, on a computer without one; then Renew pays the three months the drive
+//!   owes, and the paid checkout is named in a second proof so its months count at once;
 //! - when its files are back, the drive opens again and AzDrive says so once.
 //!
 //! On stdout, for scripts: `AZDRIVE_ARCHIVE_STAGE <drive> <grace|read_only|locked|restore_pending>`,
@@ -486,15 +486,15 @@ pub(crate) fn renewed(
     prove_start(info, app, s, &slot, ProveWith::DeviceKey, Some(checkout_id.to_string()));
 }
 
-/// This computer's own key of AzDrive's drive `drive_id` registered as one of its recovery keys,
-/// `signer` (the recovery code's key, the code at hand) signing the addition; a job. Once: a key
-/// registered before answers its id without asking.
+/// This computer's own key of AzDrive's drive `drive_id` registered for restores, now that this
+/// computer holds the drive (it joined it, set up its encryption or unlocked it); a job. Once: a
+/// key registered before answers its id without asking. A device key proves ownership for a
+/// restore only, never a recovery lockdown.
 pub(crate) fn register_device_key(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
-    signer: azcloud_kit::RecoveryKey,
 ) {
     let fallback = s.token.url.clone();
     let Some((azlin_id, token_url)) = s
@@ -507,30 +507,24 @@ pub(crate) fn register_device_key(
         token_url,
         keyring: s.keyring.clone(),
         drive_id: azlin_id,
-        signer,
     };
     spawn(info, app, s, job);
 }
 
-/// The registration of this computer's key, run in a job: its id among the drive's recovery
-/// keys.
+/// The registration of this computer's key, run in a job: its id (`dk_...`).
 pub(crate) fn register_device_key_now(
     token_url: &str,
     keyring: &SharedKeyring,
     drive_id: &str,
-    signer: &azcloud_kit::RecoveryKey,
 ) -> Result<String, String> {
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
-    azcloud_kit::device_key::register_as_recovery_key(&server, keyring, drive_id, |message| {
-        Ok(signer.sign_base64(message))
-    })
-    .map_err(|e| e.to_string())
+    azcloud_kit::device_key::ensure_registered(&server, keyring, drive_id).map_err(|e| e.to_string())
 }
 
 /// How the owner proves a locked drive is theirs.
 pub(crate) enum ProveWith {
-    /// This computer's own key, one of the drive's recovery keys.
+    /// This computer's own device key (for restores only).
     DeviceKey,
     /// The drive's recovery code, typed.
     #[cfg(feature = "encryption")]
@@ -571,8 +565,7 @@ const NO_DEVICE_KEY: &str = "azdrive-archive-no-key-here";
 
 /// A proof of the locked drive `drive_id` (its Azlin id) at `token_url`, naming the paid
 /// `checkout` it unlocks: under the drive's keyring lock with its newest drive token, the token
-/// server's statement signed with `via`. With the recovery code at hand, this computer's own key
-/// becomes one of the drive's recovery keys too, so the next proof needs no code. Runs in a job.
+/// server's statement signed with `via`. Runs in a job.
 pub(crate) fn prove(
     token_url: &str,
     keyring: &SharedKeyring,
@@ -613,20 +606,7 @@ pub(crate) fn prove(
                 .map_err(proof_error)
         }
     });
-    let answer = answered.map_err(|e| e.to_string())?;
-    #[cfg(feature = "encryption")]
-    if let (Ok(_), ProveWith::RecoveryCode(code)) = (&answer, via) {
-        let key = crate::encryption::recovery_key_of(code, drive_id);
-        if let Err(e) = azcloud_kit::device_key::register_as_recovery_key(
-            &server,
-            keyring,
-            drive_id,
-            |message| Ok(key.sign_base64(message)),
-        ) {
-            eprintln!("[azdrive] this computer's key of {drive_id} is not registered: {e}");
-        }
-    }
-    answer
+    answered.map_err(|e| e.to_string())?
 }
 
 /// A refused proof's words: the contract's refusals as message keys.

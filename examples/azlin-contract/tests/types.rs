@@ -549,7 +549,8 @@ mod renewal {
 
 mod archive {
     use azlin_contract::{
-        archive_statement, months_owed, paid_through, pay_through, ARCHIVE_STATEMENT_FORMAT,
+        archive_statement, device_key_statement, months_owed, paid_through, pay_through,
+        ARCHIVE_STATEMENT_FORMAT, DEVICE_KEY_STATEMENT_FORMAT,
         period_after_restore, ArchiveRefusal, ArchiveState, ArchiveWire, RedeemRefusal,
         RefreshRefusal, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, LOCK_AFTER_SECS, READ_ONLY_SECS,
         RESTORE_OWED_SECS, WRITABLE_GRACE_SECS,
@@ -603,6 +604,17 @@ mod archive {
             assert_ne!(other, statement);
         }
         assert!(archive_statement("d_x", "n", 1, None).ends_with("checkout=\n"));
+    }
+
+    #[test]
+    fn a_device_key_s_registration_signs_its_own_purpose_drive_and_key() {
+        let statement = device_key_statement("d_x", "pk==");
+        assert_eq!(statement, "azlin-device-key-v1\ndrive=d_x\nkey=pk==\n");
+        assert!(statement.starts_with(DEVICE_KEY_STATEMENT_FORMAT));
+        assert_ne!(statement, device_key_statement("d_y", "pk=="));
+        // never a restore's statement, never a lockdown's
+        assert_ne!(DEVICE_KEY_STATEMENT_FORMAT, ARCHIVE_STATEMENT_FORMAT);
+        assert!(!statement.starts_with("lockdown:"));
     }
 
     #[test]

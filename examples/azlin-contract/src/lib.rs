@@ -40,9 +40,10 @@ mod renewal;
 mod time;
 
 pub use archive::{
-    archive_statement, months_owed, paid_through, pay_through, period_after_restore,
-    ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState, ArchiveWire,
-    ARCHIVE_CHALLENGE_SECS, ARCHIVE_KEEP_SECS, ARCHIVE_STATEMENT_FORMAT, LOCK_AFTER_SECS,
+    archive_statement, device_key_statement, months_owed, paid_through, pay_through,
+    period_after_restore, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState,
+    ArchiveWire, DeviceKeyAnswer, DeviceKeyRegistration, ARCHIVE_CHALLENGE_SECS,
+    ARCHIVE_KEEP_SECS, ARCHIVE_STATEMENT_FORMAT, DEVICE_KEY_STATEMENT_FORMAT, LOCK_AFTER_SECS,
     RESTORE_OWED_SECS,
 };
 pub use checkout::{

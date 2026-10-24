@@ -418,14 +418,12 @@ pub(crate) enum Job {
         /// The paid checkout the proof unlocks (its months count at once), when there is one.
         checkout: Option<String>,
     },
-    /// This computer's own key of the Azlin drive `drive_id` registered as one of its recovery
-    /// keys, `signer` (the recovery code's key) signing the addition
-    /// ([`crate::archive::register_device_key_now`]).
+    /// This computer's own key of the Azlin drive `drive_id` registered for restores, once it
+    /// holds the drive ([`crate::archive::register_device_key_now`]).
     RegisterDeviceKey {
         token_url: String,
         keyring: SharedKeyring,
         drive_id: String,
-        signer: azcloud_kit::RecoveryKey,
     },
     /// The copy of the read-only Azlin drive `drive_id` (`source`, opened) to this computer,
     /// into `folder`; `home`'s disk must have the room; `state` keeps how far it got
@@ -753,7 +751,7 @@ pub(crate) enum Outcome {
         checkout: Option<String>,
         result: Result<azcloud_kit::ProofAnswer, String>,
     },
-    /// This computer's key of an Azlin drive registered as one of its recovery keys (its id).
+    /// This computer's key of an Azlin drive registered for restores (its id).
     DeviceKeyRegistered {
         drive_id: String,
         result: Result<String, String>,
@@ -3438,9 +3436,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             token_url,
             keyring,
             drive_id,
-            signer,
         } => Outcome::DeviceKeyRegistered {
-            result: crate::archive::register_device_key_now(&token_url, &keyring, &drive_id, &signer),
+            result: crate::archive::register_device_key_now(&token_url, &keyring, &drive_id),
             drive_id,
         },
         Job::Rescue {

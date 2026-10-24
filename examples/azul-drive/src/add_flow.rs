@@ -1941,6 +1941,9 @@ pub(crate) fn joined(
     let in_keyring = joined.saved.is_ok();
     let secret = joined.session.to_keyring_secret();
     add_slot(info, app, s, entry, Some(secret), from_dialog, in_keyring);
+    // this computer joined the drive: its own key is registered for a restore, should the drive
+    // ever be locked
+    crate::archive::register_device_key(info, app, s, &drive_id);
     if let Err(problem) = saved {
         s.error(Phrase::new("azdrive-add-unsaved").arg("problem", problem));
     }
