@@ -1014,3 +1014,79 @@ fn a_height_tween_moves_bordered_panes_and_a_list_view_by_a_blit() {
         );
     }
 }
+
+/// A patched frame whose list pairs item for item with the list before it
+/// (every item the same node's, at the same index) logs no node boxes as its
+/// damage: the renderers' item diff is exact for it, and the boxes of all the
+/// frame moved buried that under the whole page (each frame of a ribbon
+/// opening over a file browser repainted the window).
+#[test]
+fn a_patched_frame_whose_list_pairs_logs_no_node_boxes() {
+    let mut rows = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; background: #ffffff;");
+    for k in 0..14 {
+        let color = if k % 2 == 0 { "#e8eef8" } else { "#ffffff" };
+        rows = rows.with_child(
+            Dom::create_div().with_css(&format!("height: 14px; background: {color};")),
+        );
+    }
+    let page = Dom::create_html().with_child(
+        Dom::create_body()
+            .with_css("margin: 0; display: flex; flex-direction: column; background: #ffffff;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("height: 10px; background: #446688; animation: height 260ms ease-out;"),
+            )
+            .with_child(rows),
+    );
+    let mut lw = window(96);
+    let ws = lw.current_window_state.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(page),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let _ = lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+        dom_id: DomId::ROOT_ID,
+        node_id: NodeId::new(2),
+        props: vec![azul_css::props::property::CssProperty::const_height(
+            azul_css::props::layout::LayoutHeight::const_px(70),
+        )],
+        override_only: false,
+    });
+    let mut patched = 0;
+    let mut frames = 0;
+    while !lw.css_transitions.is_empty() && frames < 60 {
+        frames += 1;
+        let _ = lw.tick_animations(0.016);
+        if lw.take_transition_relayout() {
+            let previous = list(&lw);
+            let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
+            let ws = lw.current_window_state.clone();
+            lw.layout_and_generate_display_list(
+                result.styled_dom,
+                &ws,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("the frame lays out");
+            let now = list(&lw);
+            let pairs = previous.items.len() == now.items.len()
+                && previous.layout_node_mapping == now.layout_node_mapping;
+            if lw.layout_cache.last_build_was_patched && pairs {
+                patched += 1;
+                assert_eq!(
+                    lw.layout_cache.last_patch_damage.as_deref(),
+                    Some(&[][..]),
+                    "frame {frames}: the list pairs with the one before it - the diff decides"
+                );
+            }
+        }
+        let _ = lw.take_animation_frame_work();
+    }
+    assert!(patched >= 4, "harness: {patched} paired patched frames of {frames}");
+}
