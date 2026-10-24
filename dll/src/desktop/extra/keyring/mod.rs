@@ -43,6 +43,11 @@
 //! on a test stack, in a real window, then shares no entry with the same app
 //! of the user's own (the system keyring's entries are the app's, not the
 //! stack's). The file holds the secrets in plain text: test stacks only.
+//!
+//! A debug build of libazul keeps its secrets in memory as well: every rebuild
+//! is a new code signature, and the macOS keychain asks the user again for each
+//! entry such a binary reads. `AZ_KEYRING` picks the keyring outright: `system`,
+//! `file` (the one `AZ_KEYRING_FILE` names) or `memory` ([`backend_for`]).
 
 use std::{
     collections::BTreeSet,
@@ -70,6 +75,10 @@ mod tests;
 /// system's (a test stack's runs, windowed or headless).
 pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
 
+/// The variable that picks a run's keyring: `system`, `file` (the one
+/// [`KEYRING_FILE_VAR`] names) or `memory`.
+pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
+
 /// Where a run's keyring ops go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Backend {
@@ -81,22 +90,81 @@ pub(crate) enum Backend {
     File(PathBuf),
 }
 
-/// The keyring of this run ([`backend_for`] of its environment).
-fn backend_of_run() -> Backend {
-    let headless = std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-        || std::env::var("AZ_E2E_TEST").is_ok();
-    backend_for(headless, std::env::var_os(KEYRING_FILE_VAR))
+/// What decides which keyring a run uses.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RunFacts {
+    /// `AZ_KEYRING`: `system`, `file` or `memory` (any case); another word
+    /// chooses nothing.
+    pub choice: Option<std::ffi::OsString>,
+    /// `AZ_KEYRING_FILE`: the stand-in's file; a blank name is none.
+    pub file: Option<std::ffi::OsString>,
+    /// A headless or E2E run: it never reaches the system keyring.
+    pub headless: bool,
+    /// libazul is a debug build, whose secrets stay in memory unless the run
+    /// asks for the system keyring.
+    pub debug_build: bool,
 }
 
-/// The keyring of a run: the file it names (`file`, a blank name is none),
-/// windowed or headless; else the in-memory stand-in in a `headless` / E2E
-/// run (the dispatcher is keyed on `target_os`, so a headless test on a dev
-/// Mac would otherwise write to the real login Keychain under
-/// "com.azul.keyring"); else the platform's.
-pub(crate) fn backend_for(headless: bool, file: Option<std::ffi::OsString>) -> Backend {
-    match file.filter(|path| !path.is_empty()) {
-        Some(path) => Backend::File(PathBuf::from(path)),
-        None if headless => Backend::Memory,
+impl RunFacts {
+    /// The facts of this process: its environment and how libazul was built.
+    fn of_this_run() -> Self {
+        Self {
+            choice: std::env::var_os(KEYRING_CHOICE_VAR),
+            file: std::env::var_os(KEYRING_FILE_VAR),
+            headless: std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
+                || std::env::var("AZ_E2E_TEST").is_ok(),
+            debug_build: cfg!(debug_assertions),
+        }
+    }
+}
+
+/// The keyring of this run ([`backend_for`] of its facts). A debug build that
+/// keeps its secrets in memory says so once on stderr, so a developer knows
+/// why a drive added in another build is not there.
+fn backend_of_run() -> Backend {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let run = RunFacts::of_this_run();
+    let backend = backend_for(&run);
+    if backend == Backend::Memory
+        && run.debug_build
+        && !run.headless
+        && !SAID.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        eprintln!(
+            "[azul] keyring: this debug build keeps its secrets in memory, not in the system \
+             keyring ({KEYRING_CHOICE_VAR}=system uses it, {KEYRING_FILE_VAR}=<file> keeps them in a file)"
+        );
+    }
+    backend
+}
+
+/// The keyring of a run. `AZ_KEYRING` decides first: `memory`; `file`, the
+/// file `AZ_KEYRING_FILE` names (memory without one); `system`, the platform's
+/// - except in a headless or E2E run, which never reaches it. Without a choice:
+/// the named file, windowed or headless; else memory in a headless / E2E run
+/// (the dispatcher is keyed on `target_os`, so a headless test on a dev Mac
+/// would otherwise write to the real login Keychain) and in a debug build;
+/// else the platform's.
+pub(crate) fn backend_for(run: &RunFacts) -> Backend {
+    let file = run
+        .file
+        .clone()
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    let choice = run
+        .choice
+        .as_ref()
+        .and_then(|choice| choice.to_str())
+        .map(|choice| choice.trim().to_ascii_lowercase());
+    match choice.as_deref() {
+        Some("memory") => return Backend::Memory,
+        Some("file") => return file.map_or(Backend::Memory, Backend::File),
+        Some("system") if !run.headless => return Backend::Platform,
+        _ => {}
+    }
+    match file {
+        Some(path) => Backend::File(path),
+        None if run.headless || run.debug_build => Backend::Memory,
         None => Backend::Platform,
     }
 }
