@@ -658,6 +658,97 @@ fn bake_resolved_style(
     }
 }
 
+/// Fits the root of a transient window's content into `cap`, the most room
+/// its window may take. A root that does not scroll needs nothing: it is as
+/// big as its content, and the window, a viewport like a document's, scrolls
+/// what does not fit. A root that is its own scroll container on an axis
+/// (`overflow: auto | scroll`) scrolls only inside its box, so on that axis
+/// its border box is at most `cap` (its own `max-width` / `max-height` win
+/// when smaller); a box bigger than its window would leave its overflow out
+/// of reach.
+///
+/// The same cap goes in when the content is measured (the room on the
+/// screen) and when its window lays it out (the size it was measured at).
+pub fn fit_root_to(dom: &mut crate::dom::Dom, cap: LogicalSize) {
+    use azul_css::props::{
+        basic::pixel::PixelValue,
+        layout::{LayoutBoxSizing, LayoutMaxHeight, LayoutMaxWidth, LayoutOverflow},
+        property::CssProperty,
+    };
+
+    let root = &mut dom.root;
+    // The node's own unconditional values, the last one of each winning.
+    let mut own_max = (None::<PixelValue>, None::<PixelValue>);
+    let mut scrolls = (false, false);
+    let mut border_box = false;
+    let mut frame = (0.0f32, 0.0f32);
+    let px = |v: &PixelValue| v.to_pixels_absolute().into_option().unwrap_or(0.0).max(0.0);
+    let is_scroll_container = |o: Option<&LayoutOverflow>| {
+        matches!(o, Some(LayoutOverflow::Auto | LayoutOverflow::Scroll))
+    };
+    for (p, conditions) in root.style.iter_inline_properties() {
+        if !conditions.as_ref().is_empty() {
+            continue;
+        }
+        let side = |v: Option<f32>| v.unwrap_or(0.0);
+        match p {
+            CssProperty::MaxWidth(v) => own_max.0 = v.get_property().map(|m| m.inner),
+            CssProperty::MaxHeight(v) => own_max.1 = v.get_property().map(|m| m.inner),
+            CssProperty::OverflowX(v) => scrolls.0 = is_scroll_container(v.get_property()),
+            CssProperty::OverflowY(v) => scrolls.1 = is_scroll_container(v.get_property()),
+            CssProperty::BoxSizing(v) => {
+                border_box = v.get_property() == Some(&LayoutBoxSizing::BorderBox);
+            }
+            CssProperty::PaddingLeft(v) => frame.0 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::PaddingRight(v) => frame.0 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::BorderLeftWidth(v) => {
+                frame.0 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::BorderRightWidth(v) => {
+                frame.0 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::PaddingTop(v) => frame.1 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::PaddingBottom(v) => frame.1 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::BorderTopWidth(v) => {
+                frame.1 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::BorderBottomWidth(v) => {
+                frame.1 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            _ => {}
+        }
+    }
+    if border_box {
+        frame = (0.0, 0.0);
+    }
+    // The max a scrolling axis gets: the room less the box's frame, unless
+    // the node's own max in px is already tighter; a relative one resolves
+    // against the window, which is never bigger.
+    let fitted = |own: Option<PixelValue>, room: f32, frame: f32| -> Option<f32> {
+        let room = (room - frame).max(0.0);
+        if !room.is_finite() {
+            return None;
+        }
+        match own {
+            Some(v) if v.to_pixels_absolute().into_option().is_some() => {
+                (px(&v) > room).then_some(room)
+            }
+            Some(_) => None,
+            None => Some(room),
+        }
+    };
+    if let Some(w) = fitted(own_max.0, cap.width, frame.0).filter(|_| scrolls.0) {
+        root.upsert_inline_css_property(CssProperty::const_max_width(LayoutMaxWidth {
+            inner: PixelValue::px(w),
+        }));
+    }
+    if let Some(h) = fitted(own_max.1, cap.height, frame.1).filter(|_| scrolls.1) {
+        root.upsert_inline_css_property(CssProperty::const_max_height(LayoutMaxHeight {
+            inner: PixelValue::px(h),
+        }));
+    }
+}
+
 #[cfg(test)]
 #[path = "transient_test.rs"]
 mod transient_test;

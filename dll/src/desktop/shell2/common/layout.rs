@@ -2402,12 +2402,29 @@ pub(crate) fn reconcile_transient_windows(
             .get_focused_node()
             .copied()
             .map(|n| (n, layout_window.focus_manager.focus_is_visible));
+        // The room on the screen, asked once a pass and only when a popup is measured.
+        let mut room_on_screen = None;
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
+            let room = *room_on_screen
+                .get_or_insert_with(|| super::transient::popup_room(current_window_state));
+            // A window with a title bar has that much less room for its content.
+            let titled = layout_window
+                .layout_results
+                .get(&DomId::ROOT_ID)
+                .is_some_and(|r| {
+                    super::transient::transient_has_titlebar(
+                        &r.styled_dom,
+                        placement.node,
+                        placement.anchor,
+                    )
+                });
+            let room = super::transient::content_room(room, titled);
             let measured = layout_window.layout_transient_content(
                 placement.node,
                 content_dom,
                 placement.size,
                 current_window_state,
+                room,
             )?;
             // A DROP-DOWN IS AT LEAST AS WIDE AS THE CONTROL IT DROPS OUT OF.
             // A popup on the top or bottom edge is the `<select>` shape - a
@@ -2424,7 +2441,10 @@ pub(crate) fn reconcile_transient_windows(
                     | azul_core::transient::TransientAnchor::Top
             ) {
                 azul_core::geom::LogicalSize::new(
-                    measured.width.max(placement.anchor_rect.size.width),
+                    measured
+                        .width
+                        .max(placement.anchor_rect.size.width)
+                        .min(room.width.max(measured.width)),
                     measured.height,
                 )
             } else {

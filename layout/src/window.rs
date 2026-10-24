@@ -7043,7 +7043,13 @@ impl LayoutWindow {
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this
     /// window's dynamic-selector context, and laid out on SCRATCH caches —
-    /// shrink-to-fit within the parent window (or at `requested`, if given).
+    /// shrink-to-fit within `room`, the most the popup's window may take on
+    /// the screen (or at `requested`, if given: the app's own size stands).
+    /// The content is never measured bigger than `room` (nor than the node's
+    /// own `max-width` / `max-height`); what does not fit scrolls in its
+    /// window ([`azul_core::transient::fit_root_to`]). A side of `room` that
+    /// is not finite (no screen to go by) leaves that side as it measures,
+    /// laid out against the parent window.
     ///
     /// Nothing is written into `layout_results`: the popup is a separate
     /// window that lays the same subtree out itself, and every consumer of
@@ -7057,6 +7063,7 @@ impl LayoutWindow {
         content_dom: DomId,
         requested: azul_core::geom::OptionLogicalSize,
         window_state: &FullWindowState,
+        room: LogicalSize,
     ) -> Option<LogicalSize> {
         use azul_core::geom::OptionLogicalSize;
 
@@ -7064,11 +7071,20 @@ impl LayoutWindow {
             return Some(sz);
         }
         let parent = self.layout_results.get(&DomId::ROOT_ID)?;
-        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        let mut dom =
+            azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        azul_core::transient::fit_root_to(&mut dom, room);
         let mut styled = StyledDom::create_from_dom(dom);
         styled.dom_id = content_dom;
         styled.set_dynamic_selector_context(self.dynamic_selector_context(window_state));
-        self.measure_styled_dom_shrink_to_fit(&styled, window_state.size.dimensions)
+        let window = window_state.size.dimensions;
+        let side = |room: f32, window: f32| if room.is_finite() { room } else { window };
+        let bound = LogicalSize::new(side(room.width, window.width), side(room.height, window.height));
+        let measured = self.measure_styled_dom_shrink_to_fit(&styled, bound)?;
+        Some(LogicalSize::new(
+            measured.width.min(room.width),
+            measured.height.min(room.height),
+        ))
     }
 
     pub fn layout_dom_recursive(

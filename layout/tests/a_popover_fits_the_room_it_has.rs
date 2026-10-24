@@ -1,10 +1,11 @@
 //! A popover fits the room it has.
 //!
 //! A `<transient-window>` comes up at its content's size, but never bigger
-//! than the room on the screen (or than its own `max-width` /
-//! `max-height`): what does not fit then scrolls inside the window, so no
-//! part of the popover lands off the screen and nothing in it is out of
-//! reach. One that fits is untouched.
+//! than the room on the screen: what does not fit then scrolls in the
+//! window, a viewport like a document's, so no part of the popover lands
+//! off the screen and nothing in it is out of reach. An app caps it smaller
+//! with CSS on the node (`max-height` and a scrolling `overflow`); a cap
+//! bigger than the room gives way to the room. One that fits is untouched.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeData, NodeId, NodeType},
@@ -121,7 +122,7 @@ fn a_popover_that_fits_comes_up_at_its_own_size_and_does_not_scroll() {
     let size = measured("", 2, ROW);
     assert_eq!(size, LogicalSize::new(120.0, 40.0), "two 120 x 20 rows");
     let (root, frame) = in_its_window("", 2, ROW, size);
-    assert_eq!(root, size, "the root fills its window");
+    assert_eq!(root, size, "the root is its content's size");
     assert!(
         frame.map_or(true, |(clip, content)| content.height <= clip.height
             && content.width <= clip.width),
@@ -134,14 +135,11 @@ fn a_popover_taller_than_its_room_comes_up_at_the_room_and_scrolls() {
     let size = measured("", 50, ROW);
     assert_eq!(size.height, ROOM.height, "50 rows of 20 px are capped at the room: {size:?}");
     assert!(size.width <= ROOM.width && size.width >= 120.0, "{size:?}");
-    let (root, frame) = in_its_window("", 50, ROW, size);
-    assert_eq!(root.height, ROOM.height, "the root is its window's height");
-    let (clip, content) = frame.expect("the root scrolls");
+    // The window is a viewport like a document's: it scrolls the rows.
+    let (_, frame) = in_its_window("", 50, ROW, size);
+    let (clip, content) = frame.expect("the window scrolls");
+    assert!(clip.height <= ROOM.height + 0.5, "the scrollport is the window: {clip:?}");
     assert!(content.height >= 1000.0, "all 50 rows are in the scroll frame: {content:?}");
-    assert!(
-        content.width <= clip.width + 0.5,
-        "the rows are not cut off at the side by the scroll bar: clip {clip:?}, content {content:?}"
-    );
 }
 
 #[test]
@@ -151,11 +149,14 @@ fn a_popover_wider_than_its_room_is_as_wide_as_the_room() {
     assert!(size.height <= ROOM.height, "{size:?}");
 }
 
+/// The app caps its popover with CSS: `max-height` and a scrolling
+/// `overflow` on the `<transient-window>` node.
 #[test]
 fn a_popovers_own_max_height_caps_it_and_its_content_scrolls() {
-    let size = measured("max-height: 120px;", 50, ROW);
+    let css = "max-height: 120px; overflow-y: auto;";
+    let size = measured(css, 50, ROW);
     assert_eq!(size.height, 120.0, "{size:?}");
-    let (root, frame) = in_its_window("max-height: 120px;", 50, ROW, size);
+    let (root, frame) = in_its_window(css, 50, ROW, size);
     assert_eq!(root.height, 120.0);
     let (_, content) = frame.expect("the root scrolls");
     assert!(content.height >= 1000.0, "{content:?}");
@@ -163,16 +164,20 @@ fn a_popovers_own_max_height_caps_it_and_its_content_scrolls() {
 
 #[test]
 fn a_popovers_own_max_height_beyond_the_room_gives_way_to_the_room() {
-    let size = measured("max-height: 2000px;", 50, ROW);
+    let css = "max-height: 2000px; overflow-y: auto;";
+    let size = measured(css, 50, ROW);
     assert_eq!(size.height, ROOM.height, "{size:?}");
-    let (root, _) = in_its_window("max-height: 2000px;", 50, ROW, size);
+    let (root, frame) = in_its_window(css, 50, ROW, size);
     assert_eq!(root.height, ROOM.height, "the root's own max gives way to its window");
+    let (_, content) = frame.expect("the root scrolls");
+    assert!(content.height >= 1000.0, "{content:?}");
 }
 
 #[test]
-fn a_padded_popover_fits_the_room_with_its_padding() {
-    let size = measured("padding: 10px;", 50, ROW);
+fn a_scrolling_popover_fits_the_room_with_its_padding() {
+    let css = "padding: 10px; overflow-y: auto;";
+    let size = measured(css, 50, ROW);
     assert_eq!(size.height, ROOM.height, "the border box fits the room: {size:?}");
-    let (root, _) = in_its_window("padding: 10px;", 50, ROW, size);
+    let (root, _) = in_its_window(css, 50, ROW, size);
     assert_eq!(root.height, ROOM.height, "padding included, the root is its window's height");
 }

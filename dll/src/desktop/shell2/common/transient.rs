@@ -565,9 +565,50 @@ pub fn toplevel_create_options(
 /// positioner does its own constraint adjustment there anyway.
 fn placement_bounds(parent: &FullWindowState) -> azul_core::geom::LogicalRect {
     use azul_core::geom::LogicalRect;
-    let own = LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions);
+    screen_work_area(parent)
+        .unwrap_or_else(|| LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions))
+}
+
+/// How far a popup stays off the edges of the screen's work area.
+const POPUP_SCREEN_MARGIN: f32 = 8.0;
+
+/// The most room a popup of `parent` may take: the work area of the
+/// parent's screen less a margin on every side, so a popover too big for
+/// the screen comes up at the screen's size and scrolls (the placement then
+/// keeps it on the screen). Without a screen to go by - Wayland, which never
+/// tells, or a layout pass off the main thread - the width is the parent's
+/// (what a popup was always measured against there) and the height is not
+/// limited; the compositor's positioner keeps the popup on screen there.
+pub fn popup_room(parent: &FullWindowState) -> LogicalSize {
+    match screen_work_area(parent) {
+        Some(wa) => LogicalSize::new(
+            (wa.size.width - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
+            (wa.size.height - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
+        ),
+        None => LogicalSize::new(parent.size.dimensions.width, f32::INFINITY),
+    }
+}
+
+/// Room enough for a title bar: 28 pt on macOS, about 31 px on Windows, up
+/// to 46 px for a GNOME header bar.
+const TITLE_BAR_ROOM: f32 = 48.0;
+
+/// The room a popup's content has in `room`: less a title bar, when its
+/// window has one.
+pub fn content_room(room: LogicalSize, titled: bool) -> LogicalSize {
+    if titled {
+        LogicalSize::new(room.width, (room.height - TITLE_BAR_ROOM).max(1.0))
+    } else {
+        room
+    }
+}
+
+/// The work area of the screen `parent` is on, in the parent's own
+/// coordinates; `None` when the parent's screen position is unknown.
+fn screen_work_area(parent: &FullWindowState) -> Option<azul_core::geom::LogicalRect> {
+    use azul_core::geom::LogicalRect;
     let WindowPosition::Initialized(pos) = parent.position else {
-        return own;
+        return None;
     };
     #[allow(clippy::cast_precision_loss)] // screen coordinates
     let parent_origin = LogicalPosition::new(pos.x as f32, pos.y as f32);
@@ -575,18 +616,15 @@ fn placement_bounds(parent: &FullWindowState) -> azul_core::geom::LogicalRect {
     // pass off it (headless tests) keeps the parent-rect bound.
     #[cfg(target_os = "macos")]
     if objc2_foundation::MainThreadMarker::new().is_none() {
-        return own;
+        return None;
     }
-    let Some(display) =
-        crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions)
-    else {
-        return own;
-    };
+    let display =
+        crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions)?;
     let wa = display.work_area;
-    LogicalRect::new(
+    Some(LogicalRect::new(
         LogicalPosition::new(wa.origin.x - parent_origin.x, wa.origin.y - parent_origin.y),
         wa.size,
-    )
+    ))
 }
 
 /// The window state every popup window starts from — a transient window
@@ -655,7 +693,7 @@ pub fn as_dialog_window(window_state: &mut FullWindowState, title: &str) {
 /// Whether the window of the `<transient-window>` at `node` has a title bar:
 /// its `titlebar` attribute, else a dialog window (`anchor="dialog"`) has
 /// one and a popover none.
-fn transient_has_titlebar(
+pub(crate) fn transient_has_titlebar(
     styled: &azul_core::styled_dom::StyledDom,
     node: NodeId,
     anchor: TransientAnchor,
@@ -859,10 +897,14 @@ pub fn sync_parent(
             continue;
         }
         let Some(styled) = root.as_ref() else { break };
-        let Some(content) = azul_core::transient::extract_subtree_as_dom(styled, w.source_node)
+        let Some(mut content) =
+            azul_core::transient::extract_subtree_as_dom(styled, w.source_node)
         else {
             continue;
         };
+        // Laid out in its window as it was measured: no bigger than the
+        // window, the rest scrolling.
+        azul_core::transient::fit_root_to(&mut content, w.content_size);
         match &w.surface {
             OptionRefAny::None => {
                 // Just opened (or a surface never attached): create the
