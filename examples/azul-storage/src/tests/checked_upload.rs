@@ -23,7 +23,7 @@ use crate::{
 const NOW: u64 = 1_791_590_400;
 const PART: usize = 1024;
 
-fn drive_on(s3: &Arc<FakeBucket>, resume: &Path) -> S3Drive {
+pub(super) fn drive_on(s3: &Arc<FakeBucket>, resume: &Path) -> S3Drive {
     S3Drive::new(
         S3Config {
             endpoint: String::from("http://127.0.0.1:9000"),
@@ -40,7 +40,7 @@ fn drive_on(s3: &Arc<FakeBucket>, resume: &Path) -> S3Drive {
     .with_resume_dir(resume)
 }
 
-fn file_with(dir: &TempDir, name: &str, parts: usize, seed: u8) -> (PathBuf, Vec<u8>) {
+pub(super) fn file_with(dir: &TempDir, name: &str, parts: usize, seed: u8) -> (PathBuf, Vec<u8>) {
     let bytes: Vec<u8> = (0..parts * PART + 7)
         .map(|i| (i % 251) as u8 ^ seed)
         .collect();
@@ -50,7 +50,7 @@ fn file_with(dir: &TempDir, name: &str, parts: usize, seed: u8) -> (PathBuf, Vec
 }
 
 /// What a scan found of `path` with the bytes `named` (their BLAKE3).
-fn scanned(path: &Path, named: &[u8]) -> FileCheck {
+pub(super) fn scanned(path: &Path, named: &[u8]) -> FileCheck {
     let meta = std::fs::metadata(path).unwrap();
     let modified_ns = meta
         .modified()
@@ -65,7 +65,7 @@ fn scanned(path: &Path, named: &[u8]) -> FileCheck {
     }
 }
 
-fn no_progress(_: u64) {}
+pub(super) fn no_progress(_: u64) {}
 
 #[test]
 fn a_checked_upload_cut_off_resumes_with_the_missing_parts_and_completes_once() {

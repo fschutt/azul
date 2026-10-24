@@ -34,6 +34,9 @@ mod fake_bucket;
 mod multipart;
 /// Uploads that must hold the bytes a scan named, resumed after a dropped connection.
 mod checked_upload;
+/// A checked upload opens its file once: no link, no FIFO, only the file the scan saw.
+#[cfg(unix)]
+mod checked_open;
 /// A request refused because this computer's clock is off, with or without a body.
 mod clock_skew;
 /// An S3 drive's requests through a router (the endpoint failover's seam).
