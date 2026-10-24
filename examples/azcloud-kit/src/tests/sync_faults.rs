@@ -107,3 +107,31 @@ fn a_pass_paused_at_a_point_waits_there_and_finishes_once_released() {
     assert!(store.read(&index_key(PREFIX)).is_some());
     faults::clear(folder.path());
 }
+
+#[test]
+fn a_pass_crashed_before_it_moved_a_file_here_keeps_the_old_name_and_the_next_pass_moves_it() {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (TempDir::new("azcloud-faults-move-a"), TempDir::new("azcloud-faults-move-a-state"));
+    let (b, b_state) = (TempDir::new("azcloud-faults-move-b"), TempDir::new("azcloud-faults-move-b-state"));
+    let on_a = faulted(a.path(), a_state.path(), &store);
+    let on_b = faulted(b.path(), b_state.path(), &store);
+    fs::create_dir_all(a.path().join("docs")).unwrap();
+    fs::write(a.path().join("docs/report.txt"), "the report").unwrap();
+    pass(&on_a).expect("a sends the file");
+    pass(&on_b).expect("b gets the file");
+    fs::create_dir_all(a.path().join("archive")).unwrap();
+    fs::rename(a.path().join("docs/report.txt"), a.path().join("archive/final.txt")).unwrap();
+    pass(&on_a).expect("a sends the move");
+    faults::arm_crash(b.path(), "before-rename");
+    let payload = pass(&on_b).expect_err("b's pass crashes before it moves the file");
+    assert_eq!(faults::crashed_at(payload.as_ref()).as_deref(), Some("before-rename"));
+    assert!(b.path().join("docs/report.txt").exists(), "the file is still under its old name");
+    pass(&on_b).expect("the next pass runs through");
+    assert_eq!(
+        fs::read_to_string(b.path().join("archive/final.txt")).unwrap(),
+        "the report"
+    );
+    assert!(!b.path().join("docs/report.txt").exists());
+    faults::clear(a.path());
+    faults::clear(b.path());
+}

@@ -1914,6 +1914,9 @@ fn move_here(
             e.to_string(),
         ))
     })?;
+    // A move is a rename into place as a download's is: a crash on either side of it is one
+    // the next run must converge from.
+    hooks.point("before-rename");
     let moved = match &via {
         Some(via) => source
             .rename(source_name, &target, via)
@@ -1925,6 +1928,7 @@ fn move_here(
         source.sync();
     }
     hooks.finished(&step, ticket, moved.is_ok(), None);
+    hooks.point("after-rename");
     moved?;
     drive.note_renamed(from_here, to);
     local::prune_empty_parents(&root.path, from_here);
