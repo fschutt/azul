@@ -1,0 +1,54 @@
+[
+  {
+    "name": "SYNCCOM-006: a stored object cut to two-thirds is refused on a restore by its hash and listed, never saved as a success",
+    "description": "SYNCCOM-006 (Sync.com): a 2 TB restore downloaded about 0.1 % of the files 'successfully' at two-thirds of their size; the data was lost. Rules A5/S15 (a short body is refused, the old version stays), O1. sync-chaos res-truncated-download.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "videos/v1.mp4", "size": 300000, "seed": 31 },
+      { "op": "drive_write", "device": "a", "path": "videos/v2.mp4", "size": 300000, "seed": 32 },
+      { "op": "drive_write", "device": "a", "path": "videos/v3.mp4", "size": 300000, "seed": 33 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "videos/v2.mp4", "keep": 200000 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "videos/v2.mp4" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "videos/v2.mp4", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "videos/v1.mp4", "same_as": "{root:a}/videos/v1.mp4" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "videos/v3.mp4", "same_as": "{root:a}/videos/v3.mp4" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "videos/v2.mp4", "when": "last" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "videos/v2.mp4", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-006: an upload cut in the middle never leaves the drive's index naming an object that is not stored",
+    "description": "SYNCCOM-006 (Sync.com): the last chunk upload dropped but the file was still committed. Rules E5 (the index never names a blob that is not stored), A7, V1. sync-chaos res-partition-mid-transfer, srv-node-lost-during-upload.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 12000000, "seed": 4 },
+      { "op": "drive_many", "device": "a", "dir": "small", "count": 10, "size": 4000, "seed": 5 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 3 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -1,0 +1,33 @@
+{
+  "name": "SYNCCOM-010: a cloud-only file evicted by the system while it is uploaded or downloaded: no deadlock, no loop, no lost version",
+  "description": "SYNCCOM-010 (Sync.com): Windows dehydrating cached files deadlocked the app; corrupt placeholder data looped; Cloud-Only reverted to local. Rule P13 (bytes dropped only after the drive acknowledged them with a matching hash, OS eviction never loses a version, toggling deletes nothing). sync-chaos placeholder-write-back, placeholder-evict-only-uploaded (pending: on-demand files are later work).",
+  "pending": "drive_evict {device, path} (the system or the user makes a synced file cloud-only, as 'Free up space'), drive_hydrate {device, path} and drive_corrupt_placeholder {device, path} (its stored identity damaged); AzDrive's cloud_only files exist in azcloud-kit but no command evicts or hydrates one",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 500000, "seed": 41 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_evict", "device": "b", "path": "report.pdf" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.pdf\"].cloud_only", "equals": true },
+    { "op": "drive_write", "device": "a", "path": "report.pdf", "size": 500000, "seed": 42 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync_bg", "device": "b", "pause_at": "download-start" },
+    { "op": "drive_evict", "device": "b", "path": "report.pdf" },
+    { "op": "drive_cont", "device": "b" },
+    { "op": "drive_wait", "device": "b", "expect": "any" },
+    { "op": "drive_corrupt_placeholder", "device": "b", "path": "report.pdf" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_hydrate", "device": "b", "path": "report.pdf" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "report.pdf", "same_as": "{root:a}/report.pdf" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_cleanup" }
+  ]
+}

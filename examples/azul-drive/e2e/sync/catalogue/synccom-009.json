@@ -1,0 +1,95 @@
+[
+  {
+    "name": "SYNCCOM-009: the server rate-limits with 429 and Retry-After: the client waits as told, never asks early, and still finishes",
+    "description": "SYNCCOM-009 (Sync.com): certain server errors made the app retry the same operation indefinitely with no backoff. Rule E6: Retry-After honoured for 429, never asked early. sync-chaos res-429-retry-after.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "batch", "count": 15, "text_prefix": "item" },
+      { "op": "drive_fault", "device": "a", "rate_limit_every": 4, "retry_after": 1 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 90000 },
+      { "op": "drive_check", "check": "retry_after_respected", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "batch/*", "count": 15 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-009: 30 % of requests fail: each is retried with backoff, a failing file never stops the others, three passes get everything up",
+    "description": "SYNCCOM-009 (Sync.com): failed chunks re-queued endlessly. Rule E6: per-file retry with exponential backoff, never a global stall. sync-chaos res-5xx-per-file-retry.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "batch", "count": 40, "text_prefix": "item" },
+      { "op": "drive_fault", "device": "a", "error_rate": 0.3, "seed": 7 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "batch/*", "count": 40 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-009: one file that keeps failing is listed every pass while the other 20 go up, and goes up once the fault is gone",
+    "description": "SYNCCOM-009 (Sync.com): files left permanently stuck, re-uploaded endlessly. Rules E6 (a file that keeps failing is listed every pass while the others go on), O1. sync-chaos res-one-file-keeps-failing.",
+    "pending": "drive_fault arg fail_files (globs over FILE keys): fail every request for the objects of those files; fail_keys matches the raw request keys, and blobs are named by hash, so no glob can pick one file today",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "batch", "count": 20, "text_prefix": "item" },
+      { "op": "drive_write", "device": "a", "path": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_fault", "device": "a", "fail_files": ["big/stuck.bin"] },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "batch/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big/stuck.bin", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "big/stuck.bin", "when": "last" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "big/stuck.bin", "absent": true, "when": "last" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-009: uploads refused for many passes: nothing is lost, the problem is listed, and the edits go up once the server takes them",
+    "description": "SYNCCOM-009 (Sync.com): brief server interruptions left uploads stuck forever. Rules E6, D6. sync-chaos res-server-down-long.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "device": "a", "refuse_ops": ["put", "put_if"] },
+      { "op": "drive_write", "device": "a", "path": "new.txt", "text": "written during the outage" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x v2" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "new.txt", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["transient", "remote-offline"], "when": "last" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "new.txt", "text": "written during the outage" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "x.txt", "text": "x v2" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "x.txt", "text": "x v2" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "x.txt", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
