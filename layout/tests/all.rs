@@ -1047,6 +1047,8 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "a_popover_fits_the_room_it_has.rs"]
 mod a_popover_fits_the_room_it_has;
+#[path = "a_frame_does_not_hand_freed_memory_back_to_the_system.rs"]
+mod a_frame_does_not_hand_freed_memory_back_to_the_system;
 #[path = "an_auto_height_scroll_box_is_as_tall_as_its_content.rs"]
 mod an_auto_height_scroll_box_is_as_tall_as_its_content;
 #[path = "the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words.rs"]

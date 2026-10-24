@@ -2121,6 +2121,9 @@ pub fn run(
         // WaitMessage() waits for ANY message in the thread's queue (all windows share the same
         // thread)
         if !had_messages {
+            // Idle until the next message: what the layouts freed goes back
+            // to the system first.
+            azul_layout::probe::return_freed_memory();
             unsafe {
                 // Get any window to access Win32 libraries
                 if let Some(first_hwnd) = window_handles.first() {
@@ -2787,6 +2790,9 @@ fn run_linux_windows(
             // emptiness check exits instead of blocking on a dead set.
             0 => {}
             1 => {
+                // Idle until the next event: what the layouts freed goes back
+                // to the system first.
+                azul_layout::probe::return_freed_memory();
                 // Single window: Block on XNextEvent (efficient)
                 if let Some(win_ptr) = unsafe { registry::get_window(live_window_ids[0]) } {
                     let window = unsafe { &mut *win_ptr };
@@ -2907,6 +2913,9 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     // keeps timers firing - one frame of the fastest window, not a fixed
     // 16 ms.
     let cap_ms = i32::try_from(frame_ms.unwrap_or(16)).unwrap_or(16).max(1);
+    // Idle until the next event: what the layouts freed goes back to the
+    // system first.
+    azul_layout::probe::return_freed_memory();
     unsafe {
         let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, cap_ms);
 

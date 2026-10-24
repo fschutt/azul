@@ -1569,9 +1569,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 ));
             }
 
-            // Purge after intrinsic sizing — frees child_intrinsics Vecs,
-            // IntrinsicSizeCalculator temporaries, text measurement caches.
-            crate::probe::hint_purge_allocator();
+            // Intrinsic sizing freed its temporaries (child_intrinsics Vecs,
+            // IntrinsicSizeCalculator, text measurement caches): handed back
+            // to the system when the window goes idle.
+            crate::probe::note_freed_memory();
             crate::probe::sample_peak_rss("rss:before_root_layout");
             crate::probe::reset_peak();
             // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.

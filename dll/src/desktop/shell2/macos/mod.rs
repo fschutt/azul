@@ -5678,6 +5678,9 @@ impl MacOSWindow {
                             TickAction::Stop => {
                                 pace_trace("display-link-stop");
                                 win.stop_display_link();
+                                // The frames are over: what their layouts
+                                // freed goes back to the system now.
+                                azul_layout::probe::return_freed_memory();
                             }
                         }
                     }

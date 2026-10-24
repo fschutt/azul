@@ -8071,9 +8071,9 @@ impl LayoutWindow {
             );
         }
 
-        // Hint the allocator to return freed pages after the layout pass
-        // drops its transient allocations (intrinsic sizing Vecs, etc.).
-        crate::probe::hint_purge_allocator();
+        // The pass dropped its transient allocations (intrinsic sizing Vecs,
+        // etc.): handed back to the system when the window goes idle.
+        crate::probe::note_freed_memory();
 
         // The sizes exist now: resolve every CSS transform's percentages
         // against the node's REAL box (see `synchronize_with_sizes`). Both

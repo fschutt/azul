@@ -840,6 +840,41 @@ fn peak_rss_bytes_self() -> u64 {
     }
 }
 
+std::thread_local! {
+    /// How often this thread asked the allocator to return freed pages.
+    static ALLOCATOR_PURGES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// How often this thread asked the allocator to return its freed pages to
+/// the system ([`hint_purge_allocator`]): what a test of a frame's work counts.
+#[doc(hidden)]
+#[must_use]
+pub fn allocator_purges_on_this_thread() -> u64 {
+    ALLOCATOR_PURGES.with(core::cell::Cell::get)
+}
+
+std::thread_local! {
+    /// A layout pass of this thread freed memory since it was last handed back.
+    static FREED_MEMORY_OWED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// A layout pass dropped its transient allocations (intrinsic sizes, the old
+/// tree): the memory goes back to the system once the window is idle
+/// ([`return_freed_memory`]), not in the frame. Handing pages back walks the
+/// allocator's free lists and unmaps pages the next frame faults in again.
+pub fn note_freed_memory() {
+    FREED_MEMORY_OWED.with(|owed| owed.set(true));
+}
+
+/// Hand the memory this thread's layout passes freed back to the system,
+/// once: what a window does when it goes idle (its frame pump stopped, its
+/// event loop is about to wait).
+pub fn return_freed_memory() {
+    if FREED_MEMORY_OWED.with(|owed| owed.replace(false)) {
+        hint_purge_allocator();
+    }
+}
+
 /// Ask the active global allocator to return freed pages to the OS.
 ///
 /// - With `allocator_mimalloc` feature: calls `mi_collect(true)`, which aggressively returns pages
@@ -856,6 +891,7 @@ fn peak_rss_bytes_self() -> u64 {
 // jemalloc / macOS `malloc_zone_pressure_relief` bodies call non-const fns
 #[allow(clippy::missing_const_for_fn)]
 pub fn hint_purge_allocator() {
+    ALLOCATOR_PURGES.with(|n| n.set(n.get() + 1));
     #[cfg(feature = "allocator_mimalloc")]
     {
         // Aggressive purge — returns arenas to the OS when possible.
