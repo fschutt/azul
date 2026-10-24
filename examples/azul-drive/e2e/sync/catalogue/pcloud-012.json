@@ -1,0 +1,77 @@
+[
+  {
+    "name": "after a large first upload a cut-off state is a reset: nothing on the drive is deleted",
+    "description": "PCLOUD-012 (pCloud): days after a week-long first upload the whole synced folder vanished on the server. Rules D5/D6 (sync-chaos delete-state-lost): remote files unknown to a broken state are never local deletions to push.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "tree", "count": 600, "text_prefix": "file" },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_corrupt_state", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "state-reset" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "tree/*", "count": 600 },
+      { "op": "drive_check", "check": "remote_count", "glob": "tree/*", "count": 600 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "tree/*", "count": 600 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "*conflict*", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a lost state at a restart deletes nothing on the drive",
+    "description": "PCLOUD-012 (pCloud): the folder vanished on the server after the first upload. Rule D5: lost state is a fresh pairing, a union, never a delete.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "tree", "count": 600, "text_prefix": "file" },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "glob": "tree/*", "count": 600 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "tree/*", "count": 600 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "tree/*", "count": 600 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a stale state from before half of the first upload deletes nothing",
+    "description": "PCLOUD-012 (pCloud): a stale or partial state DB after a big first upload. Rules D5/D6: drive entries unknown to the stale base are not deletions.",
+    "pending": "drive_state_save {\"device\":\"a\",\"name\":\"old\"} and drive_state_load {\"device\":\"a\",\"name\":\"old\"} (put a STALE copy of the pairing's state back, as a restored backup or a half-migrated cache does)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "tree/first", "count": 300, "text_prefix": "first" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_state_save", "device": "a", "name": "old" },
+      { "op": "drive_many", "device": "a", "dir": "tree/second", "count": 300, "text_prefix": "second" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_state_load", "device": "a", "name": "old" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "glob": "tree/*", "count": 600 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "tree/*", "count": 600 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

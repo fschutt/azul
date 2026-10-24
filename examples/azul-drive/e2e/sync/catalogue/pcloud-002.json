@@ -1,0 +1,60 @@
+[
+  {
+    "name": "uploads failing for weeks are listed every pass, and a reinstall keeps every file that never reached the drive",
+    "description": "PCLOUD-002 (pCloud): uploads stalled silently for 32 days while the client showed the files as present; a reinstall discarded the cache and the work was gone. Rules O1/E6/D5: every failing file is listed every pass (no silent stall), and no login path (unpair, lost state, pair again) removes a local file.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "work/day01.psd", "text": "day 1 work" },
+      { "op": "drive_write", "device": "a", "path": "work/day02.png", "text": "day 2 work" },
+      { "op": "drive_write", "device": "a", "path": "work/day03.mpeg", "text": "day 3 work" },
+      { "op": "drive_fault", "device": "a", "refuse_ops": ["put"] },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["transient", "io-error"], "key": "work/day01.psd", "when": "last" },
+      { "op": "drive_clock", "device": "a", "jump": 1382400 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["transient", "io-error"], "key": "work/day03.mpeg", "when": "last" },
+      { "op": "drive_clock", "device": "a", "jump": 1382400 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["transient", "io-error"], "key": "work/day02.png", "when": "last" },
+      { "op": "drive_check", "check": "remote_count", "glob": "work/*", "count": 0 },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "work/*", "count": 3 },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "work/*", "count": 3 },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "work/day01.psd", "text": "day 1 work" },
+      { "op": "drive_check", "check": "remote_file", "key": "work/day02.png", "text": "day 2 work" },
+      { "op": "drive_check", "check": "remote_file", "key": "work/day03.mpeg", "text": "day 3 work" },
+      { "op": "drive_check", "check": "kept_live", "texts": ["day 1 work", "day 2 work", "day 3 work"] },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a device that has not reached the drive for a month says so, loudly and by date",
+    "description": "PCLOUD-002 (pCloud): 32 days without an upload and no alarm. Rule O1: 'up to date' means nothing is pending; the status names how long the files have waited.",
+    "pending": "drive_status answer \"unsynced_for_s\" (how long the oldest local change not on the drive has waited, by the device's sync clock), so a scenario can assert the \"not backed up since\" alarm after drive_clock jumps",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "work/day01.psd", "text": "day 1 work" },
+      { "op": "drive_fault", "device": "a", "refuse_ops": ["put"] },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_clock", "device": "a", "jump": 2764800 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_equals": "up-to-date" },
+      { "op": "assert_response", "path": "result.unsynced_for_s", "at_least": 2764800 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

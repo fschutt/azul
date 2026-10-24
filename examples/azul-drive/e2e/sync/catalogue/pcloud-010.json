@@ -1,0 +1,68 @@
+[
+  {
+    "name": "files deleted on the drive (the web, a phone) go into this device's trash, never hard-deleted",
+    "description": "PCLOUD-010 (pCloud): a cloud-side delete of a 'backup' propagated to the computer and removed the originals; with the cloud trash emptied nothing was left. Rules D2/D7 (sync-chaos delete-goes-to-trash): a delete here is a move into the root's trash, logged.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "photos/p1.jpg", "text": "photo 1" },
+      { "op": "drive_write", "device": "a", "path": "photos/p2.jpg", "text": "photo 2" },
+      { "op": "drive_write", "device": "a", "path": "photos/p3.jpg", "text": "photo 3" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "photos/p1.jpg" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "photos/p2.jpg" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "photos/p1.jpg", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "photo 1" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "photo 2" },
+      { "op": "trash", "check": "max_ops", "device": "a", "max": 2 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "photos/p3.jpg", "text": "photo 3" },
+      { "op": "drive_check", "check": "kept", "texts": ["photo 1", "photo 2"] },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the whole folder deleted on the drive is held for the user, the originals untouched",
+    "description": "PCLOUD-010 (pCloud): deleting the cloud copy of a 'backup' wiped the local originals. Rules D1/D6 (sync-chaos delete-remote-emptied): a plan deleting every file is held (mass-delete-held), nothing goes until the user confirms.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Backup", "count": 12, "text_prefix": "original" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a backup pair never applies a remote delete to the source",
+    "description": "PCLOUD-010 (pCloud): 'backup' was a two-way sync. Rules D1/D2 (sync-chaos delete-backup-mode): a one-way pair keeps the originals when the cloud copy is deleted and its trash purged.",
+    "pending": "drive_pair {\"device\":\"b\",\"mode\":\"backup\"} (a one-way backup pair: remote deletes never touch the source; v1 ships two-way pairs only)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "mode": "backup" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Documents", "count": 12, "text_prefix": "original" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
