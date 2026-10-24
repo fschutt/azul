@@ -1,0 +1,57 @@
+[
+  {
+    "name": "FILEN-001: the drive's quota runs out half way: the files that fit go up, the rest stay here and are listed, nothing is deleted",
+    "description": "FILEN-001 (Filen): an account filled to its paid limit, with a usage counter that lagged, was taken for over quota and every file was deleted server-side. Rule E4: quota exceeded is per file and listed, the local file untouched, the files that fit go up; nothing is ever deleted for it. sync-chaos res-quota-exceeded.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 1000000 },
+      { "op": "drive_write", "device": "a", "path": "q1.bin", "size": 400000, "seed": 1 },
+      { "op": "drive_write", "device": "a", "path": "q2.bin", "size": 400000, "seed": 2 },
+      { "op": "drive_write", "device": "a", "path": "q3.bin", "size": 400000, "seed": 3 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "q*.bin", "count": 2 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "q?.bin" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "q1.bin", "size": 400000 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "q2.bin", "size": 400000 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "q3.bin", "size": 400000 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "custom_op", "name": "drive_check", "args": {"check": "max_ops", "device": "a", "op": "trash", "max": 0} },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "q*.bin", "count": 2 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "q*.bin", "count": 3 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "absent": true, "when": "last" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-001: an active account pushed past its plan by a lagging usage counter goes read-only, and nothing is ever deleted",
+    "description": "FILEN-001 (Filen): the over-quota process meant for expired plans deleted an active paying account after four weeks of warnings. Rule V7: quota overage, expiry and the rest lead to read-only with notices, never to a deletion while a subscription is active. sync-chaos srv-account-never-deleted (a token-server test).",
+    "pending": "drive_account {remote, plan_bytes, usage_lag_ms, subscription: 'active'|'expired', advance_days} (the account's plan and a usage counter that lags) and drive_check account_state {remote, state: 'read-only', deletion_scheduled: false}; V7 is the token server's policy (srv-account-never-deleted, azctl test money), the stand-in remote has no account",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_account", "remote": "r", "plan_bytes": 1000000, "usage_lag_ms": 60000, "subscription": "active" },
+      { "op": "drive_write", "device": "a", "path": "q1.bin", "size": 400000, "seed": 1 },
+      { "op": "drive_write", "device": "a", "path": "q2.bin", "size": 400000, "seed": 2 },
+      { "op": "drive_write", "device": "a", "path": "q3.bin", "size": 400000, "seed": 3 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "account_state", "remote": "r", "state": "read-only", "deletion_scheduled": false },
+      { "op": "drive_account", "remote": "r", "advance_days": 30 },
+      { "op": "drive_check", "check": "account_state", "remote": "r", "state": "read-only", "deletion_scheduled": false },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "q*.bin", "count": 2 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
