@@ -3884,9 +3884,23 @@ impl LayoutWindow {
             .scroll_manager
             .get_current_offset(dom_id, node_id)
             .unwrap_or_else(LogicalPosition::zero);
+        // On the device pixel grid: a view's content is drawn at whole device
+        // pixels however far a smooth scroll has glided, so its text stays
+        // crisp and a frame moves its pixels by whole pixels - a CPU frame
+        // then moves the view's pixels and paints the strip that came in
+        // (`execute_virtual_view_shift`) instead of the whole view, which it
+        // did for every frame of a wheel glide (9.3 px, 8.9 px, ...).
+        let s = self.current_window_state.size.get_hidpi_factor().inner.get();
+        let snap = |v: f32| {
+            if s.is_finite() && s > 0.0 {
+                (v * s).round() / s
+            } else {
+                v
+            }
+        };
         LogicalPosition::new(
-            window_origin.x - current_offset.x,
-            window_origin.y - current_offset.y,
+            snap(window_origin.x - current_offset.x),
+            snap(window_origin.y - current_offset.y),
         )
     }
 
