@@ -128,6 +128,11 @@ pub fn synced_link<S: RemoteStore + ?Sized>(
         .files
         .get(path)
         .ok_or_else(|| CloudError::failed(format!("{path:?} is not synced to {prefix:?}")))?;
+    // The index keeps entries another device wrote as they are; one that names no content
+    // never becomes a link to some other key of the bucket.
+    if !remote::is_hash(&file.hash) {
+        fail!("the drive's entry for {path:?} names no content (a damaged hash)");
+    }
     let mut link = public_link(
         account,
         endpoint,
