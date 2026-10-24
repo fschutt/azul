@@ -69,7 +69,7 @@ fn group(g: usize) -> Dom {
 
 /// The ribbon: its tab row over its content band, `band_px` tall, the band
 /// holding `groups` groups in a row that fills it. The band tweens its height.
-fn ribbon(groups: usize, band_px: isize) -> Dom {
+fn ribbon(groups: usize, band_px: f32) -> Dom {
     let mut tabs = Dom::create_div().with_css(
         "display: flex; flex-direction: row; height: 28px; align-items: center; flex-shrink: 0;",
     );
@@ -120,14 +120,14 @@ fn pane(places: usize) -> Dom {
 }
 
 /// The folder list: a scrolling block of `rows` rows in block flow, each a
-/// name, a size and a date.
-fn list(rows: usize) -> Dom {
+/// name, a size and a date, `row_css` added to every row's style.
+fn list(rows: usize, row_css: &str) -> Dom {
     let mut list = Dom::create_div()
         .with_css("display: block; flex-grow: 1; overflow-y: auto; background: #ffffff;");
     for r in 0..rows {
         list = list.with_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; padding: 3px 6px;")
+                .with_css(&format!("display: flex; flex-direction: row; padding: 3px 6px; {row_css}"))
                 .with_child(
                     Dom::create_div_with_text(format!("Document {r}.pdf"))
                         .with_css("flex-grow: 1;"),
@@ -144,6 +144,12 @@ fn list(rows: usize) -> Dom {
 /// The window: the ribbon over the row of the pane and the list, the two
 /// filling the window's height under the ribbon.
 fn page(groups: usize, places: usize, rows: usize, band_px: isize) -> Dom {
+    page_with(groups, places, rows, band_px as f32, "")
+}
+
+/// [`page`] with the band `band_px` tall and `row_css` added to the style of
+/// every row of the list.
+fn page_with(groups: usize, places: usize, rows: usize, band_px: f32, row_css: &str) -> Dom {
     Dom::create_html().with_child(
         Dom::create_body()
             .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
@@ -152,7 +158,7 @@ fn page(groups: usize, places: usize, rows: usize, band_px: isize) -> Dom {
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
                     .with_child(pane(places))
-                    .with_child(list(rows)),
+                    .with_child(list(rows, row_css)),
             ),
     )
 }
@@ -162,7 +168,7 @@ fn ribbon_page(groups: usize, band_px: isize) -> Dom {
     Dom::create_html().with_child(
         Dom::create_body()
             .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
-            .with_child(ribbon(groups, band_px))
+            .with_child(ribbon(groups, band_px as f32))
             .with_child(Dom::create_div().with_css("flex-grow: 1; background: #ffffff;")),
     )
 }
@@ -181,6 +187,41 @@ fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
                 .any(|c| c.as_class() == Some(class))
         })
         .expect("the node exists")
+}
+
+/// Every node of `lw` is laid out where `fresh` (the same window, laid out
+/// from scratch) puts it.
+fn assert_same_layout(lw: &LayoutWindow, fresh: &LayoutWindow, what: &str) {
+    let nodes = |w: &LayoutWindow| {
+        w.layout_results[&DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container()
+            .len()
+    };
+    assert_eq!(nodes(lw), nodes(fresh), "harness: {what}: the same window");
+    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+    for n in 0..nodes(lw) {
+        let id = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: Some(NodeId::new(n)).into(),
+        };
+        let (is, fresh_box) = (lw.get_node_layout_rect(id), fresh.get_node_layout_rect(id));
+        let same = match (is, fresh_box) {
+            (Some(a), Some(b)) => {
+                close(a.origin.x, b.origin.x)
+                    && close(a.origin.y, b.origin.y)
+                    && close(a.size.width, b.size.width)
+                    && close(a.size.height, b.size.height)
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        assert!(
+            same,
+            "{what}: node {n} is laid out at {is:?}, a fresh window puts it at {fresh_box:?}"
+        );
+    }
 }
 
 /// A window showing `page` (its ribbon closed), the band's opening tween
@@ -425,35 +466,39 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
         "harness: the band's tween ends"
     );
     let fresh = window(page(groups, places, rows, OPEN_PX));
-    let nodes = |w: &LayoutWindow| {
-        w.layout_results[&DomId::ROOT_ID]
-            .styled_dom
-            .node_data
-            .as_container()
-            .len()
-    };
-    assert_eq!(nodes(&lw), nodes(&fresh), "harness: the same window");
-    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
-    for n in 0..nodes(&lw) {
-        let id = DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: Some(NodeId::new(n)).into(),
-        };
-        let (is, open) = (lw.get_node_layout_rect(id), fresh.get_node_layout_rect(id));
-        let same = match (is, open) {
-            (Some(a), Some(b)) => {
-                close(a.origin.x, b.origin.x)
-                    && close(a.origin.y, b.origin.y)
-                    && close(a.size.width, b.size.width)
-                    && close(a.size.height, b.size.height)
-            }
-            (None, None) => true,
-            _ => false,
-        };
-        assert!(
-            same,
-            "node {n} is laid out at {is:?} once the band opened, a window opened open puts it \
-             at {open:?}"
-        );
+    assert_same_layout(&lw, &fresh, "the band opened");
+}
+}
+
+/// What a frame keeps is what a fresh window lays out: at three heights of
+/// the band mid-tween, every box of the window is where a window opened with
+/// the band at that height puts it. The list's rows are sized by the list
+/// here (`height: 6%` of its height, which the band moves): they must follow
+/// it, while everything that only moved keeps its layout.
+#[test]
+fn every_frame_of_the_opening_lays_out_as_a_fresh_window() {
+    let _serialised = crate::probe_lock();
+    let (groups, places, rows) = (4, 12, 12);
+    let sized_by_the_list = "height: 6%;";
+    let mut lw = opening(page_with(
+        groups,
+        places,
+        rows,
+        CLOSED_PX as f32,
+        sized_by_the_list,
+    ));
+    for i in 0..3 {
+        let _ = frame(&mut lw);
+        let band = node_with_class(&lw, "band");
+        let band_box = lw
+            .get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: Some(band).into(),
+            })
+            .expect("the band is laid out");
+        // The band's height: its border box less its 4 px top padding.
+        let band_px = band_box.size.height - 4.0;
+        let fresh = window(page_with(groups, places, rows, band_px, sized_by_the_list));
+        assert_same_layout(&lw, &fresh, &format!("frame {i}, the band {band_px} px tall"));
     }
 }
