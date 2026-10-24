@@ -195,6 +195,30 @@ fn a_folder_synced_by_name_keeps_each_file_under_its_own_key_and_no_sync_index()
     assert_eq!(b.tree(), a.tree());
 }
 
+/// Only `.azlin/` at the prefix's root is a sync's bookkeeping: a user's folder of that name
+/// deeper down syncs as any other.
+#[test]
+fn a_users_azlin_folder_below_the_root_syncs_by_name_too() {
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-a-nested");
+    let b = Device::new("dev-b-nested");
+    a.write("projects/.azlin/notes.txt", b"not the root's .azlin");
+    a.sync(&*drive);
+    assert_eq!(
+        s3.read("Documents/projects/.azlin/notes.txt").as_deref(),
+        Some(&b"not the root's .azlin"[..])
+    );
+    let got = b.sync(&*drive);
+    assert_eq!(got.files_down, 1, "{}", got.summary());
+    assert_eq!(
+        b.read("projects/.azlin/notes.txt").as_deref(),
+        Some(&b"not the root's .azlin"[..])
+    );
+    let again = a.sync(&*drive);
+    assert_eq!((again.files_up, again.files_down), (0, 0), "{}", again.summary());
+}
+
 #[test]
 fn devices_synced_by_name_converge_on_edits_and_deletes() {
     let s3 = FakeS3::new();

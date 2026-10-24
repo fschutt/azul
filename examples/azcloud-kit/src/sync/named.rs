@@ -472,10 +472,11 @@ impl SyncRemote for NamedFiles<'_> {
             let Some(key) = object.key.strip_prefix(&self.prefix) else {
                 continue;
             };
-            // Folder markers, and the bookkeeping of a plain sync under the same prefix.
+            // Folder markers, and the bookkeeping of a plain sync under the same prefix (its
+            // `.azlin/` at the prefix's root; a `.azlin` folder deeper down is the user's).
             if key.is_empty()
                 || key.ends_with('/')
-                || key.split('/').any(|segment| segment == remote::META_DIR)
+                || key.split('/').next() == Some(remote::META_DIR)
             {
                 continue;
             }
