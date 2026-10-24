@@ -1,0 +1,24 @@
+{
+  "name": "a link to a big folder lists exactly its files; files added from another device while the owner is offline are named as pending, never a decryption failure",
+  "description": "SYNCCOM-024 (Sync.com): link recipients saw 'Failed Decryption' until the owner's client finished link encryption; links to big folders left files out. Rules M1/S14/I1 (sync-chaos share-links-and-revocation): share keys go with the upload's commit.",
+  "pending": "drive_share_link {\"device\":\"a\",\"path\":\"big\",\"name\":\"l\"} and drive_open_link {\"link\":\"l\"} (answers files, pending) - AzDrive's link sharing driven from a scenario",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "big", "count": 2000, "text_prefix": "file" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_share_link", "device": "a", "path": "big", "name": "l" },
+    { "op": "drive_fault", "device": "a", "partition": true },
+    { "op": "drive_many", "device": "b", "dir": "big/added", "count": 100, "text_prefix": "added" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_open_link", "link": "l" },
+    { "op": "assert_response", "path": "result.files", "len": 2100 },
+    { "op": "assert_response", "path": "result", "not_contains": "decryption" },
+    { "op": "drive_cleanup" }
+  ]
+}

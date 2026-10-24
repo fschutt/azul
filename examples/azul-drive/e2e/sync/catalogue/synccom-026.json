@@ -1,0 +1,81 @@
+[
+  {
+    "name": "links to outside folders and link loops in the root are listed and never followed; the pass ends at once",
+    "description": "SYNCCOM-026 (Sync.com): symlinks/aliases/junctions unsupported, 'circular path' errors, linked folders synced every 20 minutes. Rules S1/S2/O1 (sync-chaos sec-symlink-out-file, sec-write-through-local-link): one policy, links inert and listed, a loop ends the scan.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "plain" },
+      { "op": "drive_symlink", "device": "a", "path": "linked", "target": "{outside}/victim" },
+      { "op": "drive_symlink", "device": "a", "path": "key.txt", "target": "{outside}/secret.txt" },
+      { "op": "drive_symlink", "device": "a", "path": "loop", "target": "." },
+      { "op": "drive_symlink", "device": "a", "path": "up", "target": ".." },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 20000 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "linked" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "key.txt" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "loop" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "up" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "linked", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "ok.txt", "text": "plain" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a remote file under a folder this device has as a link to outside is refused, never written through",
+    "description": "SYNCCOM-026 (Sync.com) via sync-chaos sec-write-through-local-link. Rules S2/O1: nothing is written through a link (through-link listed).",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "inbox/readme.txt", "text": "a's inbox" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_symlink", "device": "b", "path": "inbox", "target": "{outside}/Library/LaunchAgents" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_write", "device": "a", "path": "inbox/evil.plist", "text": "<plist>run me at login</plist>" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "through-link", "key": "inbox/evil.plist" },
+      { "op": "drive_check", "check": "link", "device": "b", "path": "inbox" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "names another system cannot hold and paths past 254 characters are listed per file before anything is lost",
+    "description": "SYNCCOM-026 (Sync.com): paths over 254 characters and some characters rejected for cross-OS compatibility. Rules P3/P4/P5/O1 (sync-chaos port-long-names, port-windows-ntfs): synced where valid, listed (portability) for the system that cannot hold them, never a silent skip.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "what?.txt", "text": "question" },
+      { "op": "drive_write", "device": "a", "path": "a:b.txt", "text": "colon" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "what?.txt", "text": "question" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "portability", "key": "what?.txt" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "portability", "key": "a:b.txt" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "folder-with-a-long-name-0/folder-with-a-long-name-1/folder-with-a-long-name-2/folder-with-a-long-name-3/folder-with-a-long-name-4/folder-with-a-long-name-5/folder-with-a-long-name-6/folder-with-a-long-name-7/folder-with-a-long-name-8/file.txt", "text": "deep" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "folder-with-a-long-name-0/folder-with-a-long-name-1/folder-with-a-long-name-2/folder-with-a-long-name-3/folder-with-a-long-name-4/folder-with-a-long-name-5/folder-with-a-long-name-6/folder-with-a-long-name-7/folder-with-a-long-name-8/file.txt", "text": "deep" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "portability", "key": "folder-with-a-long-name-0/folder-with-a-long-name-1/folder-with-a-long-name-2/folder-with-a-long-name-3/folder-with-a-long-name-4/folder-with-a-long-name-5/folder-with-a-long-name-6/folder-with-a-long-name-7/folder-with-a-long-name-8/file.txt" },
+      { "op": "drive_check", "check": "remote_count", "count": 3 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

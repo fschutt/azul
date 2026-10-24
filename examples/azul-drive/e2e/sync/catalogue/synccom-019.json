@@ -1,0 +1,30 @@
+{
+  "name": "a cloud-only file edited elsewhere takes the new size and time without being downloaded",
+  "description": "SYNCCOM-019 (Sync.com): a cloud-only placeholder kept a wrong modified date after a web edit. Rules P13/P6: a cloud-only file's size and mtime follow the drive's version, it stays cloud-only.",
+  "pending": "drive_evict {\"device\":\"b\",\"path\":\"report.txt\"} (AzDrive's \"Free up space\": the synced file becomes cloud-only)",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "report.txt", "text": "first", "mtime": 1767225600000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_evict", "device": "b", "path": "report.txt" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].cloud_only", "equals": true },
+    { "op": "drive_write", "device": "a", "path": "report.txt", "text": "edited later on a", "mtime": 1769904000000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].cloud_only", "equals": true },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].size", "equals": 17 },
+    { "op": "drive_base", "device": "b" },
+    { "op": "assert_response", "path": "result.entries[\"report.txt\"].mtime", "equals": 1769904000000000000 },
+    { "op": "assert_response", "path": "result.entries[\"report.txt\"].size", "equals": 17 },
+    { "op": "drive_cleanup" }
+  ]
+}

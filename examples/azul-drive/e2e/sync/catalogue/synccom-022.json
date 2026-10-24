@@ -1,0 +1,83 @@
+[
+  {
+    "name": "a move into a folder where another device just made a file of the same name keeps both",
+    "description": "SYNCCOM-022 (Sync.com): a move into a folder holding a file of the same name overwrote it. Rules C1/A3 (sync-chaos merge-rename-compose): never overwrite; the move and the new file both survive (the drive's first committer keeps the name).",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "old/x.txt", "text": "a's x" },
+      { "op": "drive_mkdir", "device": "a", "path": "inbox" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "inbox/x.txt", "text": "b's x" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "old/x.txt", "to": "inbox/x.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.conflicts", "equals": 1 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "conflict-held", "key": "inbox/x.txt" },
+      { "op": "drive_resolve", "device": "a", "key": "inbox/x.txt", "choice": "both" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "inbox/x.txt", "count": 1 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["a's x", "b's x"] },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old/x.txt", "absent": true },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a local move that replaces a synced file keeps the replaced version on the drive",
+    "description": "SYNCCOM-022 (Sync.com): a move silently replaced the existing file of the same name. Rules D2/C1: the replaced version stays in the drive's versions or the other device's trash; the moved file arrives under the name.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "dir1/x.txt", "text": "the moved x" },
+      { "op": "drive_write", "device": "a", "path": "dir2/x.txt", "text": "the x that was replaced" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "dir1/x.txt", "to": "dir2/x.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "dir2/x.txt", "text": "the moved x" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "dir1/x.txt", "absent": true },
+      { "op": "drive_check", "check": "kept", "texts": ["the x that was replaced"] },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "moving a shared folder, or a share into another share, keeps the share and its rights",
+    "description": "SYNCCOM-022 (Sync.com): moving a share folder broke the share; shares could be moved into shares. Rules M1/S14 (sync-chaos share-links-and-revocation): a move of a share is refused or keeps a defined permission outcome.",
+    "pending": "drive_share {\"device\":\"a\",\"path\":\"team\",\"with\":\"b\"} and drive_unshare (shared folders between two accounts; moving a share into a share)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "team/plan.txt", "text": "plan" },
+      { "op": "drive_write", "device": "a", "path": "other/notes.txt", "text": "notes" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_share", "device": "a", "path": "team", "with": "b" },
+      { "op": "drive_share", "device": "a", "path": "other", "with": "b" },
+      { "op": "drive_rename", "device": "a", "from": "team", "to": "other/team" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "team/plan.txt", "text": "plan" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

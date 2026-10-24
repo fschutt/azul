@@ -1,0 +1,49 @@
+[
+  {
+    "name": "a burst of 300 photos, two with the same name, is uploaded exactly once through two crashes",
+    "description": "SYNCCOM-020 (Sync.com): background camera uploads stopped after 200 photos, only half of a selection went up, files went up without names. Rules E8/O1 (sync-chaos mobile-camera-upload), on the desktop engine: a pass killed twice converges, the drive holds every selected file once, under its name.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 300, "size": 4096, "seed": 20 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/100APPLE/IMG_0001.HEIC", "size": 200000, "seed": 21 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/101APPLE/IMG_0001.HEIC", "size": 200000, "seed": 22 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/101APPLE/IMG_0002.MOV", "size": 900000, "seed": 23 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-blob", "expect": "crash" },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 303 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_check", "check": "remote_file", "key": "DCIM/100APPLE/IMG_0001.HEIC", "same_as": "DCIM/100APPLE/IMG_0001.HEIC", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "DCIM/101APPLE/IMG_0001.HEIC", "same_as": "DCIM/101APPLE/IMG_0001.HEIC", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "DCIM/*", "count": 303 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the phone's camera upload queue survives background limits and kills: server count equals the selection",
+    "description": "SYNCCOM-020 (Sync.com iOS/Android): uploads stalled, half-uploaded selections, nameless files. Rule E8 for the mobile queue: persistent, keyed by asset and hash, every asset once.",
+    "pending": "drive_camera_upload {\"device\":\"phone\",\"assets\":1000,\"kinds\":[\"heic\",\"live\",\"mov\"],\"background_limit_s\":30} (AzDrive has no mobile upload queue yet; planning/mobile)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "phone", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "phone" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_camera_upload", "device": "phone", "assets": 1000, "kinds": ["heic", "live", "mov"], "background_limit_s": 30, "kills": 3, "seed": 7 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 3600000 },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 1000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "DCIM/*", "count": 1000 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
