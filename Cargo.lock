@@ -3338,7 +3338,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.4",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -6706,6 +6706,7 @@ checksum = "19341fa84c1ef1c7da6a873178de38b7a19daf03ee62133870a222a56e7c0397"
 name = "micromail"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9bd89dad6c53c3957513eb3896d7fef8b124c01e6933878ee3c828e2b44ed86"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10585,6 +10586,7 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 name = "rustls-rustcrypto-azul"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3946088625fc81b5a2180e90a3f205957169ada51dbda2acce175b0d41bbebf6"
 dependencies = [
  "aead 0.6.1",
  "aes-gcm 0.11.1",
@@ -12025,7 +12027,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
