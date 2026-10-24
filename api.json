@@ -38891,6 +38891,10 @@
                     },
                     "E2eCommandCallback": {
                         "external": "azul_layout::callbacks::E2eCommandCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "struct_fields": [
                             {
                                 "cb": {
@@ -38930,6 +38934,32 @@
                                 "fn_body": "object.to_core()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "E2eCommandVecSlice": {
+                        "external": "azul_core::events::E2eCommandVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "E2eCommand",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -176561,6 +176591,11 @@
                     },
                     "E2eCommandVec": {
                         "external": "azul_core::events::E2eCommandVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -176584,6 +176619,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `E2eCommandVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "E2eCommandVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `E2eCommandVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "E2eCommandVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "e2e_command_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "e2e_command_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "e2e_command_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `E2eCommandVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "E2eCommand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "E2eCommandVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `E2eCommandVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const E2eCommand"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "E2eCommandVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionE2eCommand"
+                                },
+                                "fn_body": "e2e_command_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `E2eCommandVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "E2eCommandVecSlice"
+                                },
+                                "fn_body": "e2e_command_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "E2eCommandVecSlice"
+                                },
+                                "fn_body": "e2e_command_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "E2eCommandVecDestructor": {
@@ -187797,6 +187982,30 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionE2eCommand": {
+                        "external": "azul_core::events::OptionE2eCommand",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "E2eCommand",
+                                    "doc": [
+                                        "Some value of type E2eCommand"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -191089,10 +191298,10 @@
                                         "op_def": "Json"
                                     },
                                     {
-                                        "callback": "CoreE2eCommandCallback"
+                                        "callback": "E2eCommandCallbackType"
                                     }
                                 ],
-                                "fn_body": "object.add_e2e_command(name, op_def, callback)"
+                                "fn_body": "object.add_e2e_command(name, op_def, azul_layout::callbacks::E2eCommandCallback::create(callback).to_core())"
                             }
                         },
                         "repr": "C"
