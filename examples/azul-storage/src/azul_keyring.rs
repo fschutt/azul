@@ -6,6 +6,10 @@
 //! reads and writes on the UI thread (in a headless or E2E run azul's stand-in, which both
 //! reach). Call it from an azul `Thread`, never from a UI callback: a read may wait for the
 //! system's unlock prompt.
+//!
+//! A quiet keyring ([`AzulKeyring::quiet`]: azul's `*_quietly_in` ops) never shows a prompt:
+//! where the system would have to ask the user it answers [`KeyringError::Denied`]. Background
+//! work reads and writes with it, so a start or a timer never raises a dialog.
 
 use azul::{
     error::KeyringResult,
@@ -19,13 +23,35 @@ use crate::keyring::{KeyringError, KeyringNamespace, KeyringStore};
 pub struct AzulKeyring {
     /// The keyring service every entry of this keyring lives in.
     namespace: KeyringNamespace,
+    /// Never show the system's prompt ([`AzulKeyring::quiet`]): background work's keyring.
+    quiet: bool,
 }
 
 impl AzulKeyring {
-    /// The keyring of `namespace` (the Azlin apps: [`KeyringNamespace::azlin_shared`]).
+    /// The keyring of `namespace` (the Azlin apps: [`KeyringNamespace::azlin_shared`]); an op
+    /// may show the system's prompt.
     #[must_use]
     pub fn new(namespace: KeyringNamespace) -> Self {
-        AzulKeyring { namespace }
+        AzulKeyring {
+            namespace,
+            quiet: false,
+        }
+    }
+
+    /// The keyring of `namespace` that never shows a prompt: an op the system would have to
+    /// ask the user for answers [`KeyringError::Denied`].
+    #[must_use]
+    pub fn quiet(namespace: KeyringNamespace) -> Self {
+        AzulKeyring {
+            namespace,
+            quiet: true,
+        }
+    }
+
+    /// Whether this keyring never shows a prompt.
+    #[must_use]
+    pub fn is_quiet(&self) -> bool {
+        self.quiet
     }
 
     /// The namespace this keyring reads and writes.
@@ -59,7 +85,12 @@ fn error_of(answer: &KeyringResult) -> KeyringError {
 
 impl KeyringStore for AzulKeyring {
     fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
-        match Keyring::get_blocking_in(self.service(), key) {
+        let answer = if self.quiet {
+            Keyring::get_quietly_in(self.service(), key)
+        } else {
+            Keyring::get_blocking_in(self.service(), key)
+        };
+        match answer {
             KeyringResult::Retrieved(secret) => Ok(Some(secret.as_str().to_string())),
             KeyringResult::NotFound => Ok(None),
             other => Err(error_of(&other)),
@@ -67,14 +98,24 @@ impl KeyringStore for AzulKeyring {
     }
 
     fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
-        match Keyring::store_blocking_in(self.service(), key, secret, false) {
+        let answer = if self.quiet {
+            Keyring::store_quietly_in(self.service(), key, secret, false)
+        } else {
+            Keyring::store_blocking_in(self.service(), key, secret, false)
+        };
+        match answer {
             KeyringResult::Stored => Ok(()),
             other => Err(error_of(&other)),
         }
     }
 
     fn delete(&self, key: &str) -> Result<(), KeyringError> {
-        match Keyring::delete_blocking_in(self.service(), key) {
+        let answer = if self.quiet {
+            Keyring::delete_quietly_in(self.service(), key)
+        } else {
+            Keyring::delete_blocking_in(self.service(), key)
+        };
+        match answer {
             KeyringResult::Deleted | KeyringResult::NotFound => Ok(()),
             other => Err(error_of(&other)),
         }

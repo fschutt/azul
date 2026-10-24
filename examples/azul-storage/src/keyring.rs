@@ -96,6 +96,41 @@ pub trait KeyringStore: Send + Sync {
     fn delete(&self, key: &str) -> Result<(), KeyringError>;
 }
 
+/// Whether a keyring read may ask the user (the system's unlock or "allow" dialog, Touch ID).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asking {
+    /// The user asked for what the read serves (opened a drive, chose "Unlock").
+    User,
+    /// Background work (a start, a timer): a keyring that never asks (azul's quiet ops) answers
+    /// [`KeyringError::Denied`] where it would have had to.
+    Never,
+}
+
+/// Reads `keys` one after the other, each once, and answers each (in order). Asking the user,
+/// their first refusal ends the round: the entries after it answer [`KeyringError::Denied`]
+/// unread, so one "No" is never followed by one more prompt per entry. A quiet round (`keyring`
+/// never asks) reads every entry: one that would need the user does not hold back the rest.
+pub fn read_entries(
+    keyring: &dyn KeyringStore,
+    keys: &[String],
+    asking: Asking,
+) -> Vec<(String, Result<Option<String>, KeyringError>)> {
+    let mut refused = false;
+    keys.iter()
+        .map(|key| {
+            let answer = if refused {
+                Err(KeyringError::Denied)
+            } else {
+                keyring.get(key)
+            };
+            if asking == Asking::User && answer == Err(KeyringError::Denied) {
+                refused = true;
+            }
+            (key.clone(), answer)
+        })
+        .collect()
+}
+
 /// A keyring in a map, for tests: what every clone of an `Arc` of it shares. `Debug` shows the
 /// entry names, never a text.
 #[cfg(any(test, feature = "testing"))]
