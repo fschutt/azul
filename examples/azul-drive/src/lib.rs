@@ -57,7 +57,15 @@
 //! InfoBar over the content.
 //!
 //! The drives list is `<config dir>/azul-storage/drives.json` WITHOUT
-//! secrets (shared with AzMail); the keys go to the OS keyring. The Azlin
+//! secrets (shared with AzMail); the keys go to the OS keyring. They are read when something
+//! needs them, never by the start ([`mod@unlock`]): what the window does by itself (its start, the
+//! sync's timers) reads them quietly, all its drives in one round, and a drive whose keys the
+//! keychain hands over only after asking waits for the user's Unlock (the bar over the
+//! content, the drive's menu); the keys stay for the session and leave memory with Lock and the
+//! window's close. Two tiers: the keys sync needs are plain keychain items (no Touch ID), and
+//! Touch ID or the password are asked only before an action that reveals or changes keys
+//! ([`presence`]). A debug build and the test and dev profiles keep their keys in memory or in
+//! `AZ_KEYRING_FILE`, never in the system keychain (`AZ_KEYRING=system` asks for it). The Azlin
 //! data tree (azul-appkit's data root: `--data-dir`, `$AZLIN_DATA`, else
 //! `<data dir>/Azlin`) is a drive of its own, "Azlin", and holds AzDrive's
 //! files: `drive/settings.json` (the app theme and mode, azul-appkit's) and

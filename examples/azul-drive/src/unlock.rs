@@ -26,7 +26,7 @@
 //!   false for them). A signed, installed AzDrive syncs without a prompt.
 //! - GATED: Touch ID or the computer's password are asked only before an action that reveals
 //!   or changes keys - a new recovery code, another device added, new keys after a hack, a
-//!   drive removed (the presence check, `presence.rs`).
+//!   drive removed ([`crate::presence`]).
 //!
 //! Debug builds and the test or dev profiles never reach the system keychain: azul's keyring
 //! keeps their secrets in memory, or in the file `AZ_KEYRING_FILE` names (`AZ_KEYRING=system`
