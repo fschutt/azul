@@ -410,7 +410,7 @@ impl SyncStates {
     ///
     /// When the file cannot be written.
     pub fn save(&self, dir: &Path) -> CloudResult<()> {
-        write_json(&dir.join(STATES_FILE), self, false)
+        write_json(&dir.join(STATES_FILE), self, true)
     }
 
     /// Whether `key` (a file, or a folder ending in `/`) is always kept on this device: it is

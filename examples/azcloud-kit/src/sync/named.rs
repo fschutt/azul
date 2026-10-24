@@ -410,7 +410,7 @@ impl<'d> NamedFiles<'d> {
 impl Drop for NamedFiles<'_> {
     fn drop(&mut self) {
         if self.dirty.load(Ordering::SeqCst) {
-            let _ = write_json(&self.memo_path, &*lock(&self.memo), false);
+            let _ = write_json(&self.memo_path, &*lock(&self.memo), true);
         }
     }
 }

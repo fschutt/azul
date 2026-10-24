@@ -214,7 +214,7 @@ impl LocalIndex {
         if super::base::is_database(path) {
             return super::base::save(path, self);
         }
-        write_json(path, self, false)
+        write_json(path, self, true)
     }
 }
 

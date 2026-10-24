@@ -649,7 +649,7 @@ fn save_cache(index_path: &Path, etag: Option<&str>, index: &RemoteIndex) {
                 etag: etag.to_string(),
                 index: index.clone(),
             };
-            let _ = write_json(&path, &cached, false);
+            let _ = write_json(&path, &cached, true);
         }
         None => {
             let _ = fs::remove_file(path);
