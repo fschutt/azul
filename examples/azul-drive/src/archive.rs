@@ -637,6 +637,8 @@ fn proof_error(e: TokenError) -> String {
             "bad_signature" => String::from("azdrive-archive-wrong-key"),
             "bad_challenge" | "challenge_used" => String::from("azdrive-archive-try-again"),
             "not_archived" => String::from("azdrive-archive-not-locked"),
+            "checkout_not_paid" => String::from("azdrive-archive-not-paid"),
+            "checkout_other_tier" => String::from("azdrive-archive-other-tier"),
             _ => e.to_string(),
         },
         _ => e.to_string(),
