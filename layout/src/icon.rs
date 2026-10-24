@@ -45,6 +45,7 @@ use alloc::{
 };
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
     dom::{Dom, NodeData, NodeType},
     icon::{IconMeta, IconProviderHandle, IconRecolor},
     refany::{OptionRefAny, RefAny},
@@ -571,10 +572,17 @@ fn image_icon_in_box(
         );
         dom.root.set_style(azul_css::css::Css::new(rules));
 
-        // Copy accessibility info
-        if let Some(a11y) = original_node.get_accessibility_info() {
-            dom = dom.with_accessibility_info(a11y.clone());
-        }
+        // The icon's own accessibility, or none declared: then the picture
+        // decorates the control or the words beside it, which carry the name,
+        // and says so (a font icon's glyph is never announced either). An
+        // unnamed image would read as "image" and nothing else.
+        let a11y = original_node.get_accessibility_info().cloned().unwrap_or_else(|| {
+            AccessibilityInfo {
+                role: AccessibilityRole::Nothing,
+                ..AccessibilityInfo::default()
+            }
+        });
+        dom = dom.with_accessibility_info(a11y);
     }
 
     dom
