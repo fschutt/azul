@@ -75,7 +75,6 @@ pub mod root;
 pub mod rules;
 pub mod session;
 pub mod watcher;
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -1870,12 +1869,13 @@ fn apply_local<R: SyncRemote + ?Sized>(
     let scanned_entry = |key: &str| scan.files.get(key).map(LocalFile::base_entry);
     let stamp = root::trash_stamp(crate::now());
     // E3: what the downloads planned so far take of the disk's free space.
-    let free = beneath::free_space(&root.path);
+    // The disk's own answer, as a test harness may play it (sync::faults); none known: no limit.
+    let free = faults::free_bytes(
+        &root.path,
+        beneath::free_space(&root.path).unwrap_or(u64::MAX),
+    );
     let mut pending: u64 = 0;
     let mut fits = |key: &str, size: u64, report: &mut SyncReport| -> bool {
-        let Some(free) = free else {
-            return true;
-        };
         if free.saturating_sub(pending) < size.saturating_add(opts.disk_reserve) {
             report.tell(
                 Code::DiskReserve,
@@ -2114,9 +2114,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
             Action::MergeJson { .. } => {
                 let Some(m) = merged.get(key) else { continue };
                 let expect = scan.files.get(key);
-                let written = tree
-                    .parent_of(here, false)
-                    .map_err(Replace::Failed)
+                let written = faults::check_write(&root.path)
+                    .map_err(|e| Replace::Failed(e.into()))
+                    .and_then(|()| tree.parent_of(here, false).map_err(Replace::Failed))
                     .and_then(|(dir, name)| {
                         let exec = expect.is_some_and(|f| f.exec);
                         replace_checked(&dir, name, expect, &mut &m.file[..], exec, 0)
@@ -2278,24 +2278,28 @@ fn write_download(
     // The last look before the rename (in replace_checked): what a pause here lets change is
     // caught there.
     hooks.point("before-rename");
-    let written = match &blob {
-        Blob::Bytes(bytes) => replace_checked(
-            &dir,
-            name,
-            d.expect.as_ref(),
-            &mut &bytes[..],
-            d.exec,
-            d.mtime_ns,
-        ),
-        Blob::File { file, .. } => replace_from_spool(
-            tree,
-            file,
-            &dir,
-            name,
-            d.expect.as_ref(),
-            d.exec,
-            d.mtime_ns,
-        ),
+    // A disk played full by a test harness fails the write as a full disk does.
+    let written = match faults::check_write(&root.path) {
+        Err(e) => Err(Replace::Failed(e.into())),
+        Ok(()) => match &blob {
+            Blob::Bytes(bytes) => replace_checked(
+                &dir,
+                name,
+                d.expect.as_ref(),
+                &mut &bytes[..],
+                d.exec,
+                d.mtime_ns,
+            ),
+            Blob::File { file, .. } => replace_from_spool(
+                tree,
+                file,
+                &dir,
+                name,
+                d.expect.as_ref(),
+                d.exec,
+                d.mtime_ns,
+            ),
+        },
     };
     let path = local::path_of(&root.path, &here);
     hooks.finished(&step, ticket, written.is_ok(), Some(&path));
@@ -3239,6 +3243,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
             "{key} turned up on this device meanwhile; it is left as it is"
         ))
     };
+    faults::check_write(&root.path)?;
     let hash = if file.size > BIG_BLOB {
         // Into the folder's spool first, never whole in memory.
         let blob = TempBlob::for_download(&root.path, key, &file.hash)?;
