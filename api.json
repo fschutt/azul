@@ -196104,6 +196104,69 @@
                                     "type": "KeyringResult"
                                 },
                                 "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret, require_biometry)"
+                            },
+                            "delete_quietly_in": {
+                                "doc": [
+                                    "[`Self::delete_blocking_in`] without ever showing a prompt (`Denied`",
+                                    "where the system would have to ask)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::delete_quietly_in(namespace, key)"
+                            },
+                            "get_quietly_in": {
+                                "doc": [
+                                    "[`Self::get_blocking_in`] without ever showing a prompt: where the system",
+                                    "would have to ask the user (an item behind Touch ID, another app's item,",
+                                    "a locked keychain) the answer is `Denied` and nothing shows. For",
+                                    "background work - a sync at the start, a timer's poll - which must not",
+                                    "raise a dialog the user did not ask for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::get_quietly_in(namespace, key)"
+                            },
+                            "store_quietly_in": {
+                                "doc": [
+                                    "[`Self::store_blocking_in`] without ever showing a prompt (`Denied` where",
+                                    "the system would have to ask)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_quietly_in(namespace, key, secret, require_biometry)"
                             }
                         },
                         "repr": "C"
