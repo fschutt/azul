@@ -746,12 +746,30 @@ fn a_page_that_gains_or_loses_a_scroll_box_repaints_only_the_box() {
 /// equals a full redraw and repaints far less than the rows it moved.
 #[test]
 fn a_height_tween_moves_what_it_pushes_by_a_blit() {
+    height_tween_blits(true);
+}
+
+/// The same with rows that paint no background of their own over a white
+/// list (a file list's rows): what is behind them is one flat colour where
+/// they were and where they are, so they blit as well.
+#[test]
+fn a_height_tween_moves_rows_without_a_background_by_a_blit() {
+    height_tween_blits(false);
+}
+
+fn height_tween_blits(rows_have_backgrounds: bool) {
     for dpi in [96u32, 192] {
-        let mut rows = Dom::create_div().with_css("display: flex; flex-direction: column;");
+        let mut rows = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; background: #ffffff;");
         for k in 0..14 {
             let color = if k % 2 == 0 { "#e8eef8" } else { "#ffffff" };
+            let background = if rows_have_backgrounds {
+                format!("background: {color};")
+            } else {
+                String::new()
+            };
             rows = rows.with_child(Dom::create_div().with_css(&format!(
-                "height: 14px; background: {color}; border-bottom: 1px solid #c0c8d8;"
+                "height: 14px; {background} border-bottom: 1px solid #c0c8d8;"
             )));
         }
         let page = Dom::create_html().with_child(
