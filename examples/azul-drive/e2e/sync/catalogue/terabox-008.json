@@ -34,8 +34,6 @@
   {
     "name": "a drive gone read-only after its paid period: reads and the owner's deletes still work, uploads are refused with the read-only reason",
     "description": "TERABOX-008 (TeraBox). Rule V7 (Azlin's unpaid drive goes read-only: reads and deletes by the owner still work).",
-    "pending": "drive_fault {\"remote\": \"r\", \"read_only\": true}: the stand-in server takes reads and deletes and refuses new bytes with the storage server's read-only (unpaid) error",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

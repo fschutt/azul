@@ -17,10 +17,15 @@ mod checks;
 mod files;
 mod remote;
 mod tamper;
+// Group B of the catalogue's commands: hostile servers, networks and disks, tampering.
+mod b_faults;
 
 // The stand-in remote under azcloud-kit's real folder sync.
 #[cfg(test)]
 mod remote_tests;
+// The hostile server's and network's faults on the stand-in remote's requests.
+#[cfg(test)]
+mod b_faults_tests;
 
 // The scenario files: every step one the runner and the commands can carry.
 #[cfg(test)]
@@ -109,7 +114,7 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_replace_root", summary: "an empty folder in the synced folder's place", args: &[DEVICE] },
     OpDoc { name: "drive_wipe_state", summary: "lose the pairing's state files", args: &[DEVICE] },
     OpDoc { name: "drive_corrupt_state", summary: "cut the pairing's base off mid-write", args: &[DEVICE] },
-    OpDoc { name: "drive_fault", summary: "faults between a device and its remote", args: &[DEVICE, ("remote", "string", false), ("clear", "bool", false), ("partition", "any", false), ("error_rate", "number", false), ("seed", "number", false), ("rate_limit_every", "number", false), ("retry_after", "number", false), ("cut_after_ops", "number", false), ("quota_bytes", "number", false), ("fail_keys", "array", false), ("refuse_ops", "array", false), ("auth_failed", "bool", false), ("latency_ms", "number", false)] },
+    OpDoc { name: "drive_fault", summary: "faults between a device and its remote", args: &[DEVICE, ("remote", "string", false), ("clear", "bool", false), ("partition", "any", false), ("error_rate", "number", false), ("seed", "number", false), ("rate_limit_every", "number", false), ("retry_after", "number", false), ("cut_after_ops", "number", false), ("quota_bytes", "number", false), ("fail_keys", "array", false), ("refuse_ops", "array", false), ("auth_failed", "bool", false), ("latency_ms", "number", false), ("read_only", "any", false), ("moved", "any", false), ("hang", "bool", false), ("hang_ms", "number", false), ("tls_untrusted", "bool", false), ("short_body_after_bytes", "number", false), ("report_ok", "bool", false), ("fail_files", "array", false), ("answer_from", "string", false), ("max_files", "number", false), ("max_object_bytes", "number", false)] },
     OpDoc { name: "drive_crash_at", summary: "crash the device's next pass at a point", args: &[DEVICE, ("point", "string", true)] },
     OpDoc { name: "drive_disk", summary: "the device's disk as the sync sees it", args: &[DEVICE, ("free_bytes", "number", false), ("full", "bool", false), ("clear", "bool", false)] },
     OpDoc { name: "drive_clock", summary: "the device's clock as the sync reads it", args: &[DEVICE, ("offset", "number", false), ("jump", "number", false)] },
@@ -545,6 +550,9 @@ fn cleanup(s: &mut DriveState) -> Answer {
     for d in &h.devices {
         faults::clear(&d.pair_folder);
     }
+    for r in h.remotes.values() {
+        b_faults::clear_remote(r);
+    }
     // Every device stops syncing, so nothing writes into the folder while it goes.
     for d in &h.devices {
         if let Some(sync) = s.sync_view.drives.get(&d.drive_id) {
@@ -664,6 +672,8 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
         s.slots.remove(i);
     }
     s.slots.push(slot);
+    // An encrypted device's calls by file key, where `fail_files` finds them.
+    b_faults::wrap_files(s.slots.last_mut(), &remote, &name);
     let settle = Duration::from_millis(
         args.get("settle_ms")
             .and_then(serde_json::Value::as_u64)
@@ -1114,6 +1124,14 @@ fn fault(args: &Args) -> Answer {
         let mut fields = args.clone();
         for k in ["device", "remote", "clear", "_attempt", "timeout_ms"] {
             fields.remove(k);
+        }
+        // The hostile server's and network's faults are kept apart (b_faults).
+        b_faults::set(h, &remote, args)?;
+        for k in b_faults::FIELDS {
+            fields.remove(*k);
+        }
+        if !clear && fields.is_empty() {
+            return Ok(serde_json::json!({}));
         }
         // `partition` may name the devices it cuts off.
         if let Some(names) = args.get("partition").and_then(serde_json::Value::as_array) {

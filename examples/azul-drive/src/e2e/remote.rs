@@ -271,6 +271,12 @@ impl Remote {
         lock(&self.faults).clear();
     }
 
+    /// A request of `device` a fault refused above the fault layer (a failing file's call to
+    /// an encrypted drive).
+    pub(crate) fn note_refused(&self, device: &str) {
+        lock(&self.counters).entry(device.to_string()).or_default().refused += 1;
+    }
+
     /// The counters of `device`, or (`None`) of every device together.
     pub(crate) fn counters(&self, device: Option<&str>) -> Counters {
         let all = lock(&self.counters);
@@ -499,7 +505,7 @@ impl FaultDrive {
     }
 
     /// Counts the request and lets it through, or answers it as an armed fault says.
-    fn gate(&self, op: &str, key: &str, put_bytes: Option<u64>) -> Result<(), DriveError> {
+    fn basic_gate(&self, op: &str, key: &str, put_bytes: Option<u64>) -> Result<(), DriveError> {
         let faults = {
             let all = lock(&self.remote.faults);
             all.get(&self.device)
@@ -578,6 +584,38 @@ impl FaultDrive {
         Ok(())
     }
 
+    /// [`Self::basic_gate`], then the hostile server's and network's faults (`b_faults`): a
+    /// hang waits there, once the basic gate let go of its locks.
+    fn gate(&self, op: &str, key: &str, put_bytes: Option<u64>) -> Result<(), DriveError> {
+        self.basic_gate(op, key, put_bytes)?;
+        super::b_faults::gate(&self.remote, &self.device, key).map_err(|e| self.refuse(e))
+    }
+
+    /// `e`, counted as a refused request.
+    fn refuse(&self, e: DriveError) -> DriveError {
+        self.counted(|c| c.refused += 1);
+        e
+    }
+
+    /// The connection of this device to the remote that answers it instead (`answer_from`).
+    fn redirected(&self) -> Option<FaultDrive> {
+        super::b_faults::answered_by(&self.remote, &self.device).map(|other| FaultDrive {
+            remote: other,
+            device: format!("{}@{}", self.device, self.remote.name),
+        })
+    }
+
+    /// A GET's body as the device receives it (`short_body_after_bytes`).
+    fn received(&self, bytes: Vec<u8>) -> Result<Vec<u8>, DriveError> {
+        super::b_faults::short_body(&self.remote, &self.device, bytes).map_err(|(sent, e)| {
+            self.counted(|c| {
+                c.bytes_down += sent;
+                c.refused += 1;
+            });
+            e
+        })
+    }
+
     fn counted(&self, f: impl FnOnce(&mut Counters)) {
         f(lock(&self.remote.counters).entry(self.device.clone()).or_default());
     }
@@ -600,6 +638,9 @@ fn draw(seed: u64, n: u64) -> f64 {
 
 impl Drive for FaultDrive {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.list(request);
+        }
         self.gate("list", &request.prefix, None)?;
         let max = if request.max_keys == 0 {
             DEFAULT_PAGE_SIZE
@@ -655,13 +696,20 @@ impl Drive for FaultDrive {
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.get(key);
+        }
         self.gate("get", key, None)?;
         let bytes = self.remote.read(key).ok_or_else(|| Self::not_found(key))?;
+        let bytes = self.received(bytes)?;
         self.counted(|c| c.bytes_down += bytes.len() as u64);
         Ok(bytes)
     }
 
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.get_range(key, range);
+        }
         self.gate("get", key, None)?;
         let bytes = self.remote.read(key).ok_or_else(|| Self::not_found(key))?;
         let start = usize::try_from(range.start).unwrap_or(usize::MAX);
@@ -674,13 +722,17 @@ impl Drive for FaultDrive {
             .end
             .map_or(bytes.len(), |e| (usize::try_from(e).unwrap_or(usize::MAX)).saturating_add(1))
             .min(bytes.len());
-        let part = bytes[start..end.max(start)].to_vec();
+        let part = self.received(bytes[start..end.max(start)].to_vec())?;
         self.counted(|c| c.bytes_down += part.len() as u64);
         Ok(part)
     }
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.put(key, bytes);
+        }
         self.gate("put", key, Some(bytes.len() as u64))?;
+        super::b_faults::check_put(&self.remote, &self.device, key, bytes).map_err(|e| self.refuse(e))?;
         self.remote.write(key, bytes)?;
         self.counted(|c| {
             c.bytes_up += bytes.len() as u64;
@@ -702,7 +754,11 @@ impl Drive for FaultDrive {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.put_if(key, bytes, condition);
+        }
         self.gate("put_if", key, Some(bytes.len() as u64))?;
+        super::b_faults::check_put(&self.remote, &self.device, key, bytes).map_err(|e| self.refuse(e))?;
         {
             let _w = lock(&self.remote.writes);
             let now = self.remote.read(key).map(|b| Remote::etag_of(&b));
@@ -725,12 +781,18 @@ impl Drive for FaultDrive {
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.delete(key);
+        }
         self.gate("delete", key, None)?;
         self.remote.remove(key)?;
         Ok(())
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        if let Some(other) = self.redirected() {
+            return other.head(key);
+        }
         self.gate("head", key, None)?;
         self.remote.info(key).ok_or_else(|| Self::not_found(key))
     }

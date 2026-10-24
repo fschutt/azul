@@ -2,7 +2,6 @@
   {
     "name": "a request that never answers (a blackholed SYN) times out: the pass ends with remote-offline, the next one completes",
     "description": "KDRIVE-021 (kDrive): a request without a timeout (to a DNS-blocked analytics host) blocked the worker queue and the sync sat at step 1 forever. Rules E6 and O1: every network call has a timeout; a hung connection ends the pass with a listed problem, never a silent stall; the other device syncs on.",
-    "pending": "drive_fault {device, hang: true}: every request of the device is accepted and never answered (a blackholed connection), until cleared",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

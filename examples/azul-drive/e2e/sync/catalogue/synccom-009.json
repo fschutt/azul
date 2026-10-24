@@ -36,7 +36,6 @@
   {
     "name": "SYNCCOM-009: one file that keeps failing is listed every pass while the other 20 go up, and goes up once the fault is gone",
     "description": "SYNCCOM-009 (Sync.com): files left permanently stuck, re-uploaded endlessly. Rules E6 (a file that keeps failing is listed every pass while the others go on), O1. sync-chaos res-one-file-keeps-failing.",
-    "pending": "drive_fault arg fail_files (globs over FILE keys): fail every request for the objects of those files; fail_keys matches the raw request keys, and blobs are named by hash, so no glob can pick one file today",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

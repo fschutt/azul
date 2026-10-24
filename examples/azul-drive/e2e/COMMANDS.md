@@ -361,3 +361,25 @@ the run. `"expect": "fail"` is a known failure (XFAIL), and a pass of it fails t
 Scenarios live in `examples/azul-drive/e2e/sync/`, one file per sync-chaos scenario or catalogue
 entry, named after it (`res-crash-points.json`), with the scenario's id and sources in its
 `description`.
+
+## Group B: hostile servers, networks and disks; tampering
+
+### More faults between a device and its remote
+
+`drive_fault` also takes these fields (with `device`, `remote` and `clear` as above; a device's
+own entry replaces the one for every device, as for the basic faults):
+
+| field | what the device meets |
+|---|---|
+| `read_only` | `true` or why (`payment-failed` / `unpaid`, `lockdown`, `operator`, `banned`): a write of new content (a blob, an encrypted data object, a plain file) answers 403 with that `x-azlin-error`; reads, deletes and the drive's bookkeeping (its index, its encrypted metadata) still work, so the owner's deletes commit (rule V7) |
+| `moved` | `true` or the new address: every request answers 301 `PermanentRedirect` (problem `server-moved`) |
+| `hang` / `hang_ms` | every request is taken and never answered; the transport's timeout (60 s, or `hang_ms`) ends it with a connection error. Clearing the fault lets a hanging request give up at once |
+| `tls_untrusted` | every connection meets a certificate the device does not trust (an intercepting proxy): a connection error that names the certificate |
+| `short_body_after_bytes` + `report_ok` | a GET's body ends after that many bytes: as a connection error, or (`report_ok: true`) as a short success, the way a client that ignores Content-Length takes it |
+| `fail_files` | globs over FILE keys (under the remote's prefix): every request for those files' objects answers 500. On a plain remote a file's blob is found by its BLAKE3, in the index or in a device's folder; on an encrypted remote the calls are failed above the encryption, where they still name the file |
+| `answer_from` | another remote's name: it answers every request of the device instead (a wrong or hijacked address) |
+| `max_files` | a plain index commit naming more files than this answers 507 `QuotaExceeded` (encrypted remotes refuse the field: their commits are sealed) |
+| `max_object_bytes` | a content object over this many bytes answers 413 `EntityTooLarge` (`object_too_large`) |
+
+The engine names them `read-only`, `server-moved`, `too-large`, `quota-exceeded`,
+`remote-offline` (a timeout, a certificate, a cut body), `hash-mismatch` (a short success).

@@ -93,7 +93,6 @@
   {
     "name": "FILEN-009: on an encrypted drive, a body that ends early and is reported as complete is refused and retried",
     "description": "FILEN-009 (Filen): the SDK resolved an aborted stream as a success. Rules A5, S15. truncate_blob works only on a plain remote, and no fault cuts a body mid-stream.",
-    "pending": "drive_fault arg short_body_after_bytes (n) with report_ok (bool): a GET body ends after n bytes, as an error or (report_ok) as a short success; no fault cuts a body mid-stream and truncate_blob fails on an encrypted remote",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

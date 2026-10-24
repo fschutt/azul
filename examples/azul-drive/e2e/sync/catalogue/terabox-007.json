@@ -27,8 +27,6 @@
   {
     "name": "a server limit on the number of files is a distinct, named refusal per file, never a silent truncation",
     "description": "TERABOX-007 (TeraBox): count limits (300 files per folder upload, 500 stored) truncated uploads without a word. Rule O1 (every refused file listed with its reason).",
-    "pending": "drive_fault {\"remote\": \"r\", \"max_files\": 5}: the stand-in server refuses a commit that would hold more than n files, with the storage server's own error for that limit",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

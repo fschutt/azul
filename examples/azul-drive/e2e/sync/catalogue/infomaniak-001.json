@@ -47,7 +47,6 @@
   {
     "name": "a wrong host answers for the drive (DNS pointing elsewhere): its answers are refused, nothing here changes",
     "description": "INFOMANIAK-001 (Infomaniak): a wrong name server could send clients to another host. Rules M2 and D6: a response that is not the drive's (another drive's index, an unknown key) is refused and listed; nothing is deleted or overwritten here.",
-    "pending": "drive_fault {device, answer_from: <remote>}: the device's requests are answered by another remote (a hijacked or wrong DNS name)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

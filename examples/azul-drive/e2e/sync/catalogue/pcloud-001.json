@@ -35,7 +35,6 @@
   {
     "name": "a listing the server answers with another account's index is dropped and reported",
     "description": "PCLOUD-001 (pCloud): an authorization edge case served foreign trees. Rule M2: a response for another account is dropped and listed; no node, name or time of it is shown or written.",
-    "pending": "drive_fault {\"device\":\"a2\",\"answer_from\":\"r1\"} (the server answers this device's listing/index with another account's, as an authorization edge case would)",
     "steps": [
       { "op": "drive_harness" },
       { "op": "drive_create", "remote": "r1", "encrypted": false },

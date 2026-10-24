@@ -1,7 +1,6 @@
 {
   "name": "a file over the server's per-file cap is listed as too large on every pass, the rest goes up, and it goes up once the cap is lifted",
   "description": "DEGOO-006 (sync-chaos res-one-file-keeps-failing, srv-account-never-deleted): Degoo introduced a per-file cap and backups silently became incomplete. Rules E6 and O1: the refused file is a persistent, named problem (too-large), never a silent skip; the others go up.",
-  "pending": "drive_fault max_object_bytes (n): a 413 'entity too large' for any PUT of an object over n bytes, as a server's per-file cap",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": false },
     { "op": "drive_open", "device": "a", "remote": "r" },

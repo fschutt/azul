@@ -114,7 +114,6 @@
   {
     "name": "FILEN-025: a connection through a TLS-intercepting proxy is a visible error, never 'up to date'",
     "description": "FILEN-025 (Filen): behind a TLS-intercepting corporate proxy nothing synced while the status said everything was up to date. Rules E6, O1. sync-chaos res-hostile-network (pending there too).",
-    "pending": "drive_fault arg tls_untrusted (bool): the device's connection meets a certificate it does not trust (a MITM proxy), plus the problem code the engine lists for it; and the status key drive_status answers for 'up to date' (assumed 'up-to-date' here)",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

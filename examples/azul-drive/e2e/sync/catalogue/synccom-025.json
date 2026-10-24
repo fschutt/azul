@@ -1,7 +1,6 @@
 {
   "name": "a drive gone read-only after a failed payment deletes nothing here, keeps new work and says why",
   "description": "SYNCCOM-025 (Sync.com): after a failed renewal the account was closed and all data deleted. Rule V7 (sync-chaos srv-account-never-deleted, the server side stays there): read-only with notices, never deletion; the client keeps every file and lists the held uploads.",
-  "pending": "drive_fault {\"remote\":\"r\",\"read_only\":\"payment-failed\"} (the server answers writes as a drive gone read-only after a failed payment; reads and the owner's deletes still work)",
   "steps": [
     { "op": "drive_harness" },
     { "op": "drive_create", "remote": "r" },
@@ -18,7 +17,7 @@
     { "op": "drive_sync", "device": "a", "expect": "any" },
     { "op": "drive_states", "device": "a" },
     { "op": "assert_response", "path": "result.read_only", "equals": true },
-    { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["uploads-paused", "held-back", "quota-exceeded"], "key": "new.tex" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["uploads-paused", "held-back", "quota-exceeded", "read-only"], "key": "new.tex" },
     { "op": "drive_check", "check": "file", "device": "a", "path": "new.tex", "text": "written after the payment failed" },
     { "op": "drive_check", "check": "file", "device": "a", "path": "thesis.tex", "text": "years of work" },
     { "op": "drive_sync", "device": "b", "expect": "any" },

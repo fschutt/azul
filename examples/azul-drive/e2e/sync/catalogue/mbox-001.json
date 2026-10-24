@@ -40,7 +40,6 @@
   {
     "name": "a drive that answers 'moved permanently' is reported as moved, the folder and its queue are kept, and the pass resumes at the new address",
     "description": "MBOX-001: the client kept the old server URL. Rule O1 and D5: a moved server is a named state (not a silent pause), keeps the local tree and queue, and needs no full re-sync.",
-    "pending": "drive_fault field moved (bool: every request answers 301 Moved Permanently to another base address, as an account moved to a new suite) and an engine problem code for it (the list has no 'server-moved')",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
