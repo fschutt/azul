@@ -5,7 +5,13 @@
 //! pattern with a slash at its start or in its middle matches the path from
 //! the folder's root (`/.azlin/`, `meet/*/cache/`), `**` standing for any
 //! number of folders; a trailing slash matches folders only (and so
-//! everything in them). `*` matches within a name, `?` one character.
+//! everything in them). `*` matches within a name, `?` one character. A
+//! pattern starting with `!` takes back what the rules before it excluded
+//! (`node_modules/` then `!keep/node_modules/`): the last rule that matches an
+//! entry decides, as in `.gitignore`. A folder excluded keeps everything in it
+//! excluded, so a `!` re-includes a folder, not one file inside an excluded
+//! one. No `!` takes back the folder's own bookkeeping (`/.azlin/`, a state
+//! folder). `\!` starts a pattern with a literal `!`.
 //!
 //! Every sync has [`BASE_RULES`]: temporary and lock files, the operating
 //! system's bookkeeping, database journals (a database syncs closed, as its
@@ -65,6 +71,9 @@ pub const BASE_RULES: &[(&str, &str)] = &[
     (".TemporaryItems/", OS),
     (".DocumentRevisions-V100/", OS),
     ("$RECYCLE.BIN/", OS),
+    // A Linux volume's trash (one per user id) and fsck's lost files.
+    (".Trash-*/", OS),
+    ("lost+found/", OS),
     ("*-wal", DB_SIDE),
     ("*-shm", DB_SIDE),
     ("*-journal", DB_SIDE),
@@ -118,6 +127,8 @@ pub struct Rule {
     /// Matched against the whole path from the root (a slash at its start or
     /// in its middle), else against the last name.
     path: bool,
+    /// A `!` rule: it takes back what the rules before it excluded.
+    negated: bool,
 }
 
 impl Rule {
@@ -128,9 +139,15 @@ impl Rule {
         if p.is_empty() || p.starts_with('#') {
             return None;
         }
-        let anchored = p.starts_with('/');
-        let dir_only = p.ends_with('/');
-        let core = p.trim_start_matches('/').trim_end_matches('/');
+        let negated = p.starts_with('!');
+        let body = if negated {
+            &p[1..]
+        } else {
+            p.strip_prefix('\\').filter(|rest| rest.starts_with('!')).unwrap_or(p)
+        };
+        let anchored = body.starts_with('/');
+        let dir_only = body.ends_with('/');
+        let core = body.trim_start_matches('/').trim_end_matches('/');
         if core.is_empty() {
             return None;
         }
@@ -142,7 +159,13 @@ impl Rule {
             segments,
             dir_only,
             path,
+            negated,
         })
+    }
+
+    /// A rule no `!` takes back: the folder's own bookkeeping.
+    fn protected(&self) -> bool {
+        !self.negated && (self.reason == BOOKKEEPING || self.reason == STATE)
     }
 
     /// Whether the rule takes the entry whose path from the root is `parts`
@@ -268,6 +291,23 @@ impl Rules {
         }
     }
 
+    /// The rule that excludes the entry `parts` (`is_dir`: a folder) itself,
+    /// its folders left out: the first rule that takes it after the last `!`
+    /// that took it back (a protected rule stays whatever comes after it).
+    fn verdict(&self, parts: &[&str], is_dir: bool) -> Option<&Rule> {
+        let mut hit: Option<&Rule> = None;
+        for rule in self.rules.iter().filter(|r| r.matches(parts, is_dir)) {
+            if rule.negated {
+                if hit.is_some_and(|h| !h.protected()) {
+                    hit = None;
+                }
+            } else if hit.is_none() {
+                hit = Some(rule);
+            }
+        }
+        hit
+    }
+
     /// Why the file `key` is not synced (a rule took it or one of its
     /// folders); `None` = it is.
     #[must_use]
@@ -275,7 +315,7 @@ impl Rules {
         let parts: Vec<&str> = key.split('/').filter(|s| !s.is_empty()).collect();
         for i in 0..parts.len() {
             let is_dir = i + 1 < parts.len();
-            if let Some(rule) = self.rules.iter().find(|r| r.matches(&parts[..=i], is_dir)) {
+            if let Some(rule) = self.verdict(&parts[..=i], is_dir) {
                 return Some(&rule.reason);
             }
         }
@@ -288,7 +328,7 @@ impl Rules {
     pub fn excluded_dir(&self, dir: &str) -> Option<&str> {
         let parts: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
         for i in 0..parts.len() {
-            if let Some(rule) = self.rules.iter().find(|r| r.matches(&parts[..=i], true)) {
+            if let Some(rule) = self.verdict(&parts[..=i], true) {
                 return Some(&rule.reason);
             }
         }

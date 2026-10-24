@@ -574,3 +574,34 @@ fn the_azlin_tree_is_the_data_root_and_the_dot_azlin_folder_each_once() {
     );
     assert!(apart[1].0.rules.excluded("data/notes/a.md").is_none());
 }
+
+/// S16: Code::IgnoreChange existed but no pass ever listed it, so a synced file that an edit
+/// of the ignore file (here, or by someone on another device) took out of the sync was
+/// quietly left behind. It is listed - per file - and both copies stay; a file the rules
+/// excluded from the start is no change and is not listed.
+#[test]
+fn a_synced_file_the_ignore_file_now_excludes_is_listed_and_kept_on_both_sides() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    a.write("notes/a.txt", b"a");
+    a.write("notes/b.txt", b"b");
+    a.write("other.txt", b"o");
+    a.sync(&store);
+
+    let mut root = a.root();
+    root.rules.add_ignore_file("notes/\nnever-synced/\n");
+    a.write("never-synced/x.txt", b"x");
+    let report = sync_folder(&store, &root, &a.index(), &a.opts()).unwrap();
+
+    let listed: Vec<&str> = report
+        .problems
+        .iter()
+        .filter(|p| p.code == Code::IgnoreChange)
+        .map(|p| p.key.as_str())
+        .collect();
+    assert_eq!(listed, ["notes/a.txt", "notes/b.txt"], "{report:?}");
+    let index = index_of(&store);
+    assert!(index.files.contains_key("notes/a.txt"), "the drive keeps it");
+    assert_eq!(a.read("notes/a.txt").as_deref(), Some(&b"a"[..]), "this folder keeps it");
+    assert!(!index.files.contains_key("never-synced/x.txt"));
+}

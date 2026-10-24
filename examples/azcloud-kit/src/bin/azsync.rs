@@ -63,8 +63,6 @@ struct Config {
     own_devices: Vec<String>,
 }
 
-/// The harness's own ignore file, read besides the engine's.
-const HARNESS_IGNORE: &str = ".azsyncignore";
 /// The longest a pass the user asked for waits for the drive's Retry-After before it gives up
 /// for now (the next one waits for the rest).
 const MAX_SERVER_WAIT: Duration = Duration::from_secs(45);
@@ -252,12 +250,10 @@ struct HarnessReport<'a> {
     pass: &'a PassSummary,
 }
 
+/// The device's folder with the engine's rules and the folder's own ignore file
+/// (`.azcloudignore`, the one AzDrive reads: sync-chaos's scenarios write that name too).
 fn root_of(config: &Config) -> LocalRoot {
-    let mut root = LocalRoot::folder(&config.root);
-    if let Ok(text) = fs::read_to_string(config.root.join(HARNESS_IGNORE)) {
-        root.rules.add_ignore_file(&text);
-    }
-    root
+    LocalRoot::folder(&config.root)
 }
 
 fn options(config: &Config, confirm: bool) -> SyncOptions {

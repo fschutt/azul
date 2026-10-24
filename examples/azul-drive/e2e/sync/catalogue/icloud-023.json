@@ -11,7 +11,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_write", "device": "a", "path": "Desktop/todo.txt", "text": "desktop" },
       { "op": "drive_write", "device": "a", "path": "Documents/cv.pdf", "size": 50000, "seed": 62 },
-      { "op": "drive_write", "device": "a", "path": ".azsyncignore", "text": "*.tmp\n" },
+      { "op": "drive_write", "device": "a", "path": ".azcloudignore", "text": "*.tmp\n" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_restart", "device": "a" },

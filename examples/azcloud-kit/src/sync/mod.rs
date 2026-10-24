@@ -2985,6 +2985,22 @@ fn run<R: SyncRemote + ?Sized>(
         let excluded = |key: &str| {
             root.rules.excluded(key).is_some() || frozen.contains(key) || scan.hides(key)
         };
+        // S16: a synced file the folder's ignore file now excludes (someone edited it, here or
+        // on another device) stops syncing. It is listed, never quietly left behind; both
+        // copies stay where they are.
+        for key in base.keys() {
+            if root.rules.excluded(key) == Some(rules::IGNORED) {
+                report.tell(
+                    Code::IgnoreChange,
+                    key,
+                    format!(
+                        "no longer synced: the folder's {} excludes it now; it stays here and on \
+                         the drive",
+                        rules::IGNORE_FILE
+                    ),
+                );
+            }
+        }
         let here = with_cloud_only(&scan.files, base);
         let input = merge::PlanInput {
             base,
