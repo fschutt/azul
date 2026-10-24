@@ -290,6 +290,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
+    // A folder's command bar at the leaf's foot.
+    if let Some(bar) = crate::ui_command_bar::bar(s, app) {
+        area.add_child(bar);
+    }
     Dom::create_div()
         .with_id(ids::CONTENT)
         .with_css(look::PAGE)

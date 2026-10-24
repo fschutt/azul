@@ -281,7 +281,7 @@ impl Deadline {
         }
         let (hang_up, wait) = mpsc::channel::<()>();
         let spawned = std::thread::Builder::new()
-            .name(String::from("azdrive-git-deadline"))
+            .name(String::from("git-scan-deadline"))
             .spawn(move || {
                 if let Err(mpsc::RecvTimeoutError::Timeout) = wait.recv_timeout(after) {
                     flag.store(true, Ordering::Release);

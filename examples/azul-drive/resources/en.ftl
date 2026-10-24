@@ -2391,3 +2391,113 @@ azdrive-pick-cloud-only = Choose a file of a cloud drive.
 azdrive-pick-fetching = Fetching the file...
 azdrive-pick-fetch-failed = The file could not be fetched.
 azdrive-pick-drive-closed = The drive could not be opened.
+
+## The git chip at the end of the address row and its quick switcher
+azdrive-git-chip-detached = { $id } (detached)
+azdrive-git-chip-unreadable = git ?
+azdrive-git-tip-branch = This folder is in a git repository, on the branch { $branch }.
+azdrive-git-tip-unborn = This folder is in a new git repository; its branch { $branch } has no commits yet.
+azdrive-git-tip-detached = This folder is in a git repository at the commit { $id }, on no branch (a detached HEAD).
+azdrive-git-tip-bare = This folder is a bare git repository on { $branch }: it has no working files, so there is nothing to switch here.
+azdrive-git-tip-linked = It is a linked worktree of another repository.
+azdrive-git-tip-clean = Everything is committed.
+azdrive-git-tip-dirty = Not committed yet: { $changed ->
+        [0] no changed files
+        [one] one changed file
+       *[other] { $changed } changed files
+    } and { $untracked ->
+        [0] no new files
+        [one] one new file
+       *[other] { $untracked } new files
+    }.
+azdrive-git-tip-too-big = This repository is too big to check for uncommitted changes quickly, so AzDrive does not show them.
+azdrive-git-tip-timed-out = Checking for uncommitted changes took too long, so AzDrive does not show them.
+azdrive-git-tip-scan-failed = AzDrive could not check for uncommitted changes: { $detail }
+azdrive-git-tip-upstream = Compared with { $upstream }: { $ahead } commits ahead and { $behind } behind.
+azdrive-git-tip-upstream-capped = Compared with { $upstream }: at least { $ahead } commits ahead and { $behind } behind.
+azdrive-git-tip-click = Click to switch to another branch ({ $keys }).
+azdrive-git-tip-unreadable = This folder is in a git repository AzDrive cannot read: { $detail }
+azdrive-git-no-repository = This folder is not in a git repository, so there are no branches to switch to.
+azdrive-git-switcher-title = Switch branch
+azdrive-git-switcher-filter = Filter branches
+azdrive-git-switcher-info = These are the branches of this repository: the one you are on first, then the ones with the newest commits. Type to filter them, choose one with the arrow keys and press Return to switch. AzDrive checks your uncommitted changes first and never switches over them.
+azdrive-git-switcher-loading = Reading the branches…
+azdrive-git-switcher-failed = The branches could not be read: { $detail }
+azdrive-git-switcher-none = No branch matches what you typed.
+azdrive-git-switcher-current = current
+azdrive-git-switcher-keys = ↑ ↓ choose · ↩ switch · esc close
+azdrive-git-row-tip = Switch to { $branch }.
+azdrive-git-row-current-tip = You are on { $branch }.
+azdrive-git-changes = { $changed ->
+        [0] no changed files
+        [one] one changed file
+       *[other] { $changed } changed files
+    } and { $untracked ->
+        [0] no new files
+        [one] one new file
+       *[other] { $untracked } new files
+    }
+azdrive-git-switch-checking = Checking your uncommitted changes before switching to { $branch }…
+azdrive-git-switch-carry = This folder has uncommitted changes ({ $changes }). None of their files is different on { $branch }, so git keeps them as they are when you switch.
+azdrive-git-carry = Switch anyway (carry changes)
+azdrive-git-carry-tip = Runs git switch { $branch } in the command bar. git keeps your uncommitted changes.
+azdrive-git-switch-blocked = Your uncommitted changes to { $files } are different on { $branch }. Switching would overwrite them, so AzDrive does not switch. Commit or stash them first.
+azdrive-git-switch-blocked-more = { $count ->
+        [one] one more file
+       *[other] { $count } more files
+    }
+azdrive-git-switch-unknown = AzDrive could not check your uncommitted changes ({ $why }), so it does not switch. To let git decide, run git switch { $branch } in the command bar yourself.
+azdrive-git-why-too-big = the repository is too big
+azdrive-git-why-timed-out = it took too long
+azdrive-git-switch-gone = The branch { $branch } is gone. Close the list and open it again to see the branches as they are now.
+azdrive-git-switch-bare = A bare repository has no working files, so there is nothing to switch.
+azdrive-git-switch-failed = AzDrive could not check the switch: { $detail }
+azdrive-git-show-changes = Show changes
+azdrive-git-show-changes-tip = Runs git status in the command bar, which lists your uncommitted changes.
+azdrive-git-back = Back
+azdrive-git-back-tip = Goes back to the list of branches without switching.
+
+## The command bar at the foot of a folder
+azdrive-cli-placeholder = Run a command in { $folder } ({ $keys }), or type /help
+azdrive-cli-field = Command
+azdrive-cli-folder-tip = Commands run in { $folder }.
+azdrive-cli-info = The command bar runs one command at a time in the folder shown, in your own shell: your login shell, with your rights and your settings, nothing more. The output shows above the line, Ctrl+C stops a command, and the arrow keys bring back earlier lines. A line that starts with / runs one of AzDrive's own actions; type /help to list them. Programs that take the whole screen, such as vim or less, need a real terminal: use Open in Terminal for them.
+azdrive-cli-run = Run
+azdrive-cli-run-tip = Runs the command in { $folder } (Return).
+azdrive-cli-why-empty = Type a command first.
+azdrive-cli-stop = Stop
+azdrive-cli-stop-tip = Interrupts the command, as Ctrl+C does. A second click ends it at once.
+azdrive-cli-show-output = Show output
+azdrive-cli-hide-output = Hide output
+azdrive-cli-output-tip = Shows or hides the output of the last command.
+azdrive-cli-why-no-output = No command has run yet.
+azdrive-cli-open-terminal = Open in Terminal
+azdrive-cli-open-terminal-tip = Opens your system's terminal in this folder, for programs that need a whole terminal.
+azdrive-cli-fold = Hide
+azdrive-cli-fold-tip = Folds the command bar into a thin line (Escape). The last output is kept.
+azdrive-cli-dismiss = Close
+azdrive-cli-dismiss-tip = Closes this message.
+azdrive-cli-output = Output of the command
+azdrive-cli-typing-info = The command is still running. To answer a question it asks, click into its output and type there. Ctrl+C stops it.
+azdrive-cli-running = Running…
+azdrive-cli-done = Done
+azdrive-cli-exit-code = Ended with code { $code }
+azdrive-cli-ended = Ended
+azdrive-cli-stopped = Stopped
+azdrive-cli-busy = A command is still running. Wait for it to end, or stop it with Ctrl+C.
+azdrive-cli-needs-terminal = { $program } takes the whole screen, so it needs a real terminal. Open one in this folder with Open in Terminal.
+azdrive-cli-spawn-failed = The command could not be started: { $detail }
+azdrive-cli-why-cloud = Commands run in folders on this computer, and this folder is in a cloud drive.
+azdrive-cli-why-no-folder = Open a folder on this computer to run commands in it.
+azdrive-cli-cd-no-home = There is no home folder to go to.
+azdrive-cli-cd-missing = There is no folder { $folder }.
+azdrive-cli-cd-outside = { $folder } is not in a drive on this computer that AzDrive shows. Add the folder as a drive to go there.
+azdrive-cli-help-intro = The command bar runs a line in your shell, in the folder shown. These actions start with a /:
+azdrive-cli-action-help = Lists these actions.
+azdrive-cli-action-status = Shows the branch and the uncommitted changes (git status, short).
+azdrive-cli-action-log = Shows the last 30 commits as a graph.
+azdrive-cli-action-git = Runs git with what you type after it.
+azdrive-cli-action-switch = Opens the quick switcher, filtered by what you type.
+azdrive-cli-action-clear = Empties the output.
+azdrive-cli-action-terminal = Opens your system's terminal in this folder.
+azdrive-cli-action-unknown = There is no action /{ $name }. Type /help to list them.

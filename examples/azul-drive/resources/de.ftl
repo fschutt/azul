@@ -2389,3 +2389,113 @@ azdrive-pick-cloud-only = Wählen Sie eine Datei eines Cloud-Laufwerks.
 azdrive-pick-fetching = Die Datei wird geholt...
 azdrive-pick-fetch-failed = Die Datei konnte nicht geholt werden.
 azdrive-pick-drive-closed = Das Laufwerk konnte nicht geöffnet werden.
+
+## Der git-Chip am Ende der Adresszeile und sein Schnellwechsler
+azdrive-git-chip-detached = { $id } (losgelöst)
+azdrive-git-chip-unreadable = git ?
+azdrive-git-tip-branch = Dieser Ordner liegt in einem git-Repository, auf dem Branch { $branch }.
+azdrive-git-tip-unborn = Dieser Ordner liegt in einem neuen git-Repository; sein Branch { $branch } hat noch keine Commits.
+azdrive-git-tip-detached = Dieser Ordner liegt in einem git-Repository beim Commit { $id }, auf keinem Branch (ein losgelöster HEAD).
+azdrive-git-tip-bare = Dieser Ordner ist ein Bare-Repository auf { $branch }: Es hat keine Arbeitsdateien, hier gibt es also nichts zu wechseln.
+azdrive-git-tip-linked = Es ist ein verknüpfter Arbeitsbaum eines anderen Repositorys.
+azdrive-git-tip-clean = Alles ist committet.
+azdrive-git-tip-dirty = Noch nicht committet: { $changed ->
+        [0] keine geänderten Dateien
+        [one] eine geänderte Datei
+       *[other] { $changed } geänderte Dateien
+    } und { $untracked ->
+        [0] keine neuen Dateien
+        [one] eine neue Datei
+       *[other] { $untracked } neue Dateien
+    }.
+azdrive-git-tip-too-big = Dieses Repository ist zu groß, um es schnell auf nicht committete Änderungen zu prüfen; AzDrive zeigt sie deshalb nicht.
+azdrive-git-tip-timed-out = Die Prüfung auf nicht committete Änderungen hat zu lange gedauert; AzDrive zeigt sie deshalb nicht.
+azdrive-git-tip-scan-failed = AzDrive konnte nicht auf nicht committete Änderungen prüfen: { $detail }
+azdrive-git-tip-upstream = Verglichen mit { $upstream }: { $ahead } Commits voraus und { $behind } zurück.
+azdrive-git-tip-upstream-capped = Verglichen mit { $upstream }: mindestens { $ahead } Commits voraus und { $behind } zurück.
+azdrive-git-tip-click = Klicke, um zu einem anderen Branch zu wechseln ({ $keys }).
+azdrive-git-tip-unreadable = Dieser Ordner liegt in einem git-Repository, das AzDrive nicht lesen kann: { $detail }
+azdrive-git-no-repository = Dieser Ordner liegt in keinem git-Repository, es gibt also keine Branches zum Wechseln.
+azdrive-git-switcher-title = Branch wechseln
+azdrive-git-switcher-filter = Branches filtern
+azdrive-git-switcher-info = Das sind die Branches dieses Repositorys: zuerst der, auf dem du bist, dann die mit den neuesten Commits. Tippe, um sie zu filtern, wähle einen mit den Pfeiltasten und drücke die Eingabetaste, um zu wechseln. AzDrive prüft vorher deine nicht committeten Änderungen und wechselt nie über sie hinweg.
+azdrive-git-switcher-loading = Die Branches werden gelesen…
+azdrive-git-switcher-failed = Die Branches konnten nicht gelesen werden: { $detail }
+azdrive-git-switcher-none = Kein Branch passt zu deiner Eingabe.
+azdrive-git-switcher-current = aktuell
+azdrive-git-switcher-keys = ↑ ↓ wählen · ↩ wechseln · esc schließen
+azdrive-git-row-tip = Zu { $branch } wechseln.
+azdrive-git-row-current-tip = Du bist auf { $branch }.
+azdrive-git-changes = { $changed ->
+        [0] keine geänderten Dateien
+        [one] eine geänderte Datei
+       *[other] { $changed } geänderte Dateien
+    } und { $untracked ->
+        [0] keine neuen Dateien
+        [one] eine neue Datei
+       *[other] { $untracked } neue Dateien
+    }
+azdrive-git-switch-checking = Deine nicht committeten Änderungen werden geprüft, bevor zu { $branch } gewechselt wird…
+azdrive-git-switch-carry = Dieser Ordner hat nicht committete Änderungen ({ $changes }). Keine ihrer Dateien ist auf { $branch } anders, deshalb behält git sie beim Wechseln, wie sie sind.
+azdrive-git-carry = Trotzdem wechseln (Änderungen mitnehmen)
+azdrive-git-carry-tip = Führt git switch { $branch } in der Befehlszeile aus. git behält deine nicht committeten Änderungen.
+azdrive-git-switch-blocked = Deine nicht committeten Änderungen an { $files } sind auf { $branch } anders. Ein Wechsel würde sie überschreiben, deshalb wechselt AzDrive nicht. Committe oder stashe sie zuerst.
+azdrive-git-switch-blocked-more = { $count ->
+        [one] einer weiteren Datei
+       *[other] { $count } weiteren Dateien
+    }
+azdrive-git-switch-unknown = AzDrive konnte deine nicht committeten Änderungen nicht prüfen ({ $why }) und wechselt deshalb nicht. Wenn git entscheiden soll, führe git switch { $branch } selbst in der Befehlszeile aus.
+azdrive-git-why-too-big = das Repository ist zu groß
+azdrive-git-why-timed-out = es hat zu lange gedauert
+azdrive-git-switch-gone = Den Branch { $branch } gibt es nicht mehr. Schließe die Liste und öffne sie erneut, um die Branches zu sehen, wie sie jetzt sind.
+azdrive-git-switch-bare = Ein Bare-Repository hat keine Arbeitsdateien, es gibt also nichts zu wechseln.
+azdrive-git-switch-failed = AzDrive konnte den Wechsel nicht prüfen: { $detail }
+azdrive-git-show-changes = Änderungen zeigen
+azdrive-git-show-changes-tip = Führt git status in der Befehlszeile aus; das listet deine nicht committeten Änderungen.
+azdrive-git-back = Zurück
+azdrive-git-back-tip = Geht ohne Wechsel zurück zur Liste der Branches.
+
+## Die Befehlszeile am Fuß eines Ordners
+azdrive-cli-placeholder = Einen Befehl in { $folder } ausführen ({ $keys }), oder /help tippen
+azdrive-cli-field = Befehl
+azdrive-cli-folder-tip = Befehle laufen in { $folder }.
+azdrive-cli-info = Die Befehlszeile führt einen Befehl nach dem anderen im gezeigten Ordner aus, in deiner eigenen Shell: deiner Login-Shell, mit deinen Rechten und deinen Einstellungen, nicht mehr. Die Ausgabe erscheint über der Zeile, Strg+C hält einen Befehl an, und die Pfeiltasten holen frühere Zeilen zurück. Eine Zeile, die mit / beginnt, führt eine von AzDrives eigenen Aktionen aus; /help listet sie. Programme, die den ganzen Bildschirm brauchen, etwa vim oder less, brauchen ein echtes Terminal: Öffne dafür eins mit Im Terminal öffnen.
+azdrive-cli-run = Ausführen
+azdrive-cli-run-tip = Führt den Befehl in { $folder } aus (Eingabetaste).
+azdrive-cli-why-empty = Tippe zuerst einen Befehl.
+azdrive-cli-stop = Anhalten
+azdrive-cli-stop-tip = Unterbricht den Befehl wie Strg+C. Ein zweiter Klick beendet ihn sofort.
+azdrive-cli-show-output = Ausgabe zeigen
+azdrive-cli-hide-output = Ausgabe ausblenden
+azdrive-cli-output-tip = Zeigt die Ausgabe des letzten Befehls oder blendet sie aus.
+azdrive-cli-why-no-output = Es lief noch kein Befehl.
+azdrive-cli-open-terminal = Im Terminal öffnen
+azdrive-cli-open-terminal-tip = Öffnet das Terminal deines Systems in diesem Ordner, für Programme, die ein ganzes Terminal brauchen.
+azdrive-cli-fold = Einklappen
+azdrive-cli-fold-tip = Klappt die Befehlszeile zu einer schmalen Linie ein (Escape). Die letzte Ausgabe bleibt erhalten.
+azdrive-cli-dismiss = Schließen
+azdrive-cli-dismiss-tip = Schließt diese Meldung.
+azdrive-cli-output = Ausgabe des Befehls
+azdrive-cli-typing-info = Der Befehl läuft noch. Um eine Frage von ihm zu beantworten, klicke in seine Ausgabe und tippe dort. Strg+C hält ihn an.
+azdrive-cli-running = Läuft…
+azdrive-cli-done = Fertig
+azdrive-cli-exit-code = Beendet mit Code { $code }
+azdrive-cli-ended = Beendet
+azdrive-cli-stopped = Angehalten
+azdrive-cli-busy = Ein Befehl läuft noch. Warte, bis er fertig ist, oder halte ihn mit Strg+C an.
+azdrive-cli-needs-terminal = { $program } braucht den ganzen Bildschirm und damit ein echtes Terminal. Öffne eins in diesem Ordner mit Im Terminal öffnen.
+azdrive-cli-spawn-failed = Der Befehl konnte nicht gestartet werden: { $detail }
+azdrive-cli-why-cloud = Befehle laufen in Ordnern auf diesem Computer, und dieser Ordner liegt in einem Cloud-Laufwerk.
+azdrive-cli-why-no-folder = Öffne einen Ordner auf diesem Computer, um darin Befehle auszuführen.
+azdrive-cli-cd-no-home = Es gibt keinen Benutzerordner, zu dem gewechselt werden kann.
+azdrive-cli-cd-missing = Es gibt keinen Ordner { $folder }.
+azdrive-cli-cd-outside = { $folder } liegt in keinem Laufwerk dieses Computers, das AzDrive zeigt. Füge den Ordner als Laufwerk hinzu, um dorthin zu gehen.
+azdrive-cli-help-intro = Die Befehlszeile führt eine Zeile in deiner Shell aus, im gezeigten Ordner. Diese Aktionen beginnen mit einem /:
+azdrive-cli-action-help = Listet diese Aktionen.
+azdrive-cli-action-status = Zeigt den Branch und die nicht committeten Änderungen (git status, kurz).
+azdrive-cli-action-log = Zeigt die letzten 30 Commits als Graph.
+azdrive-cli-action-git = Führt git mit dem aus, was du dahinter tippst.
+azdrive-cli-action-switch = Öffnet den Schnellwechsler, gefiltert nach dem, was du tippst.
+azdrive-cli-action-clear = Leert die Ausgabe.
+azdrive-cli-action-terminal = Öffnet das Terminal deines Systems in diesem Ordner.
+azdrive-cli-action-unknown = Es gibt keine Aktion /{ $name }. Tippe /help, um sie zu listen.
