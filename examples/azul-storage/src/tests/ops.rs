@@ -12,7 +12,7 @@ use std::{
 
 use super::TempDir;
 use crate::{
-    ops::{exists, folder_exists, list_all, list_folder_all},
+    ops::{exists, folder_exists, list_all, list_all_fresh, list_folder_all},
     transfer::copy_object,
     ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
 };
@@ -24,6 +24,8 @@ use crate::{
 #[derive(Default)]
 struct Bucket {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    /// Whether each listing call asked the bucket afresh, in order.
+    refreshes: Mutex<Vec<bool>>,
     puts: AtomicU32,
     gets: AtomicU32,
     ranges: AtomicU32,
@@ -49,6 +51,7 @@ impl Bucket {
 
 impl Drive for Bucket {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.refreshes.lock().unwrap().push(request.refresh);
         let objects = self.objects.lock().unwrap();
         let mut entries: Vec<(String, Option<ObjectInfo>)> = Vec::new();
         for (key, bytes) in objects.iter() {
@@ -474,4 +477,17 @@ fn a_copy_within_one_drive_keeps_the_source_and_refuses_a_folder() {
     bucket.copy("a", "b/a").unwrap();
     assert_eq!(bucket.get("b/a").unwrap(), b"1");
     assert_eq!(bucket.get("a").unwrap(), b"1");
+}
+
+/// A sync pass lists what the bucket holds now: its first page asks afresh (a drive answering
+/// from a polled copy pulls first), the pages after it follow from that copy.
+#[test]
+fn a_fresh_listing_asks_afresh_once_and_pages_on_from_there() {
+    let bucket = Bucket::with(&[("a", b"1"), ("b", b"2"), ("c", b"3"), ("d", b"4"), ("e", b"5")]);
+    let keys: Vec<String> = list_all_fresh(&bucket, "").unwrap().into_iter().map(|o| o.key).collect();
+    assert_eq!(keys, ["a", "b", "c", "d", "e"]);
+    assert_eq!(*bucket.refreshes.lock().unwrap(), [true, false, false]);
+    bucket.refreshes.lock().unwrap().clear();
+    list_all(&bucket, "").unwrap();
+    assert!(bucket.refreshes.lock().unwrap().iter().all(|r| !r), "a plain listing never asks afresh");
 }

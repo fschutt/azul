@@ -1571,7 +1571,7 @@ impl SyncSession {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
-        let listing = azul_storage::ops::list_all(drive, &self.setup.prefix)?;
+        let listing = azul_storage::ops::list_all_fresh(drive, &self.setup.prefix)?;
         let now = crate::now();
         let mut files = BTreeMap::new();
         let mut wanted: Vec<(String, String, u64)> = Vec::new();

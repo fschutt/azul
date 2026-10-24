@@ -21,6 +21,16 @@ pub fn list_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<Vec<Object
     list_all_paged(drive, prefix, DEFAULT_PAGE_SIZE)
 }
 
+/// [`list_all`] as the bucket has it now: a drive that answers from a copy it polls (an
+/// encrypted drive's index) asks the bucket first ([`ListRequest::refresh`]). What a sync pass
+/// works from: a copy up to a poll time old would miss what another device just committed.
+pub fn list_all_fresh<D: Drive + ?Sized>(
+    drive: &D,
+    prefix: &str,
+) -> Result<Vec<ObjectInfo>, DriveError> {
+    list_from(drive, ListRequest::recursive(prefix).with_max_keys(DEFAULT_PAGE_SIZE).refreshed())
+}
+
 /// [`list_all`] with `page_size` keys per listing call (a test of the paging asks for small
 /// pages).
 pub fn list_all_paged<D: Drive + ?Sized>(
@@ -28,13 +38,24 @@ pub fn list_all_paged<D: Drive + ?Sized>(
     prefix: &str,
     page_size: u32,
 ) -> Result<Vec<ObjectInfo>, DriveError> {
+    list_from(drive, ListRequest::recursive(prefix).with_max_keys(page_size))
+}
+
+/// Every page from `request` on.
+fn list_from<D: Drive + ?Sized>(
+    drive: &D,
+    mut request: ListRequest,
+) -> Result<Vec<ObjectInfo>, DriveError> {
     let mut out = Vec::new();
-    let mut request = ListRequest::recursive(prefix).with_max_keys(page_size);
     loop {
         let page = drive.list(&request)?;
         out.extend(page.objects);
         match page.next {
-            Some(token) => request = request.with_continuation(token),
+            // The pages after the first come from the copy the first one polled.
+            Some(token) => {
+                request = request.with_continuation(token);
+                request.refresh = false;
+            }
             None => break,
         }
     }

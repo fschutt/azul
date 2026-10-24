@@ -443,7 +443,8 @@ impl SyncRemote for NamedFiles<'_> {
         &self,
         _cached: Option<&(String, RemoteIndex)>,
     ) -> CloudResult<(RemoteIndex, Option<String>)> {
-        let objects = ops::list_all(self.drive, &self.prefix)?;
+        // The drive as it is now: a pass must see what another device committed a moment ago.
+        let objects = ops::list_all_fresh(self.drive, &self.prefix)?;
         let mut memo = lock(&self.memo);
         let mut index = RemoteIndex::empty();
         index.generation = memo.generation;
