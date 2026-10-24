@@ -550,3 +550,34 @@ fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
     }
     assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
 }
+
+#[test]
+fn the_token_servers_restore_announcement_reaches_the_sync_and_the_account_record() {
+    // V3: the token server answers the drive's newest verified restore announcement in every
+    // refresh; the sync takes it as its restore notice.
+    let bundle = |restore: &str| {
+        crate::bundle::DriveBundle::parse(&format!(
+            r#"{{"drive": {{"id": "d_42", "name": "Docs",
+                  "location": {{"kind": "s3", "endpoint": "http://127.0.0.1:19000",
+                                "region": "us-east-1", "bucket": "d-42", "path_style": true,
+                                "auth": {{"type": "azlin", "drive_id": "d_42"}}}}}},
+                "credentials": {{"access_key_id": "AK", "secret_access_key": "SK"}},
+                "drive_token": "dt", "restore": {restore}}}"#
+        ))
+        .unwrap()
+    };
+    let announced = bundle(
+        r#"{"epoch": 3, "kind": "offsite", "as_of": null, "prefix": "",
+            "announced_at": "2026-10-24T10:00:00Z", "generation": 1, "sig": "c2ln"}"#,
+    );
+    assert_eq!(
+        announced.restore,
+        Some(crate::sync::RestoreNotice {
+            epoch: 3,
+            prefix: String::new()
+        })
+    );
+    assert_eq!(bundle("null").restore, None);
+    let grant = crate::account::grant_of(&announced, "http://127.0.0.1:18081", "owner", 1).unwrap();
+    assert_eq!(grant.record.restore, announced.restore);
+}
