@@ -52,6 +52,10 @@ pub struct Signals {
     /// How the program ended: its exit code (`None` until it ended, and for a program a signal
     /// ended). A one-shot command's caller says from it whether the command worked.
     exit_code: Mutex<Option<i32>>,
+    /// The event loop is done: the program ended and (with drain on exit) its PTY was read to
+    /// its end. `exited` comes earlier, with the child's exit, while output may still be
+    /// unread; a one-shot command's output is complete only now.
+    finished: AtomicBool,
     /// Where a program's answers go (set once the event loop exists).
     sender: Mutex<Option<EventLoopSender>>,
 }
@@ -81,6 +85,11 @@ impl Signals {
     /// signal ended it).
     pub fn exit_code(&self) -> Option<i32> {
         self.exit_code.lock().ok().and_then(|c| *c)
+    }
+
+    /// Whether the program ended and all its output is in the screen.
+    pub fn finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
     }
 }
 
@@ -116,6 +125,7 @@ impl EventListener for Listener {
             }
             Event::Exit => {
                 s.exited.store(true, Ordering::Release);
+                s.finished.store(true, Ordering::Release);
                 s.dirty.store(true, Ordering::Release);
             }
             Event::PtyWrite(text) => {
