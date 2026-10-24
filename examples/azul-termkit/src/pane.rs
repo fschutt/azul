@@ -166,12 +166,17 @@ pub fn shell_title(shell: Option<&str>, cwd: Option<&Path>, home: Option<&Path>)
     let Some(cwd) = cwd else {
         return name.to_string();
     };
-    let folder = match home.and_then(|h| cwd.strip_prefix(h).ok()) {
+    format!("{name} {}", tilde_folder(cwd, home))
+}
+
+/// `cwd` as a prompt writes it: inside `home` from `~` (`~`, `~/src`), elsewhere in full.
+#[must_use]
+pub fn tilde_folder(cwd: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| cwd.strip_prefix(h).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Some(rest) => format!("~/{}", rest.display()),
         None => cwd.display().to_string(),
-    };
-    format!("{name} {folder}")
+    }
 }
 
 /// The user's home folder (where a shell starts without a folder of its
@@ -195,6 +200,15 @@ mod tests {
         let drawn: Vec<bool> = (FLOOD_TICKS + 1..FLOOD_TICKS + 9).map(renders_now).collect();
         assert_eq!(drawn.iter().filter(|d| **d).count(), 4);
         assert!(drawn.windows(2).all(|w| w[0] || w[1]));
+    }
+
+    #[test]
+    fn a_folder_in_home_is_written_from_the_tilde() {
+        let home = Path::new("/home/u");
+        assert_eq!(tilde_folder(home, Some(home)), "~");
+        assert_eq!(tilde_folder(&home.join("src/azul"), Some(home)), "~/src/azul");
+        assert_eq!(tilde_folder(Path::new("/srv/data"), Some(home)), "/srv/data");
+        assert_eq!(tilde_folder(Path::new("/srv/data"), None), "/srv/data");
     }
 
     #[test]
