@@ -10,7 +10,6 @@ pub const NONLEN_CODE_COUNT: usize = LITERAL_COUNT + 1; // EOB
 pub const LEN_CODE_COUNT: usize = 29;
 pub const LITLEN_CODE_COUNT: usize = NONLEN_CODE_COUNT + LEN_CODE_COUNT;
 pub const DIST_CODE_COUNT: usize = 30;
-pub const LITLENDIST_CODE_COUNT: usize = LITLEN_CODE_COUNT + DIST_CODE_COUNT;
 pub const CODETREE_CODE_COUNT: usize = 19;
 
 pub const MIN_MATCH: u32 = 3;

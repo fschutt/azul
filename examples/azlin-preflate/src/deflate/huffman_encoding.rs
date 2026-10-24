@@ -109,6 +109,30 @@ fn is_valid_huffman_code_lengths(code_lengths: &[u8]) -> bool {
     internal_nodes == 0
 }
 
+/// azlin-preflate: a child link that no code reaches. A tree holds at most 2 x 288 links, so
+/// this is never the index of a node.
+const NO_CODE: u16 = 0x7FFF;
+
+/// The decoding tree of a block's literal/length or distance alphabet. Besides complete codes,
+/// RFC 1951 allows such an alphabet a single code of one bit (miniz writes one for a run of
+/// equal bytes, whose only distance is 1) or no code at all (a block of literals has no
+/// distances). zlib reads both, so they are read here too: the bit pattern no code has is then
+/// an error when it occurs, as in zlib.
+fn calculate_lit_dist_code_tree(code_lengths: &[u8]) -> Result<HuffmanTree> {
+    let mut used = code_lengths.iter().enumerate().filter(|(_, length)| **length != 0);
+    let tree = match (used.next(), used.next()) {
+        (None, _) => vec![NO_CODE, NO_CODE],
+        (Some((symbol, 1)), None) => vec![!(symbol as u16), NO_CODE],
+        _ => return calculate_huffman_code_tree(code_lengths),
+    };
+    // every byte decodes by its first bit
+    let mut fast_decode = [(1u8, NO_CODE); 256];
+    for (byte, entry) in fast_decode.iter_mut().enumerate() {
+        entry.1 = tree[byte & 1];
+    }
+    Ok(HuffmanTree { tree, fast_decode })
+}
+
 /// Calculates Huffman code array given an array of Huffman Code Lengths using the RFC 1951 algorithm
 /// Huffman tree will be returned in tree where:
 /// 1. when N is an even number tree[N] is the array index of the '0' child and
@@ -209,6 +233,9 @@ fn decode_symbol(
         if (node & 0x8000) != 0 {
             return Ok(!node);
         }
+        if node == NO_CODE {
+            return err_exit_code(ExitCode::InvalidDeflate, "a code the block's alphabet does not have");
+        }
 
         // Use next bit of input to decide next node
         node = huffman_tree.tree[bit_reader.get(1, reader)? as usize + node as usize];
@@ -229,6 +256,9 @@ fn decode_symbol_slow(
         // High bit indicates a leaf node, return alphabet char for this leaf
         if (node & 0x8000) != 0 {
             return Ok(!node);
+        }
+        if node == NO_CODE {
+            return err_exit_code(ExitCode::InvalidDeflate, "a code the block's alphabet does not have");
         }
 
         i_node_cur = node as usize;
@@ -588,8 +618,8 @@ impl HuffmanReader {
         let (lit_lengths, dist_lengths) = huffman_original_encoding.get_literal_distance_lengths();
 
         Ok(HuffmanReader {
-            lit_huff_code_tree: calculate_huffman_code_tree(&lit_lengths)?,
-            dist_huff_code_tree: calculate_huffman_code_tree(&dist_lengths)?,
+            lit_huff_code_tree: calculate_lit_dist_code_tree(&lit_lengths)?,
+            dist_huff_code_tree: calculate_lit_dist_code_tree(&dist_lengths)?,
         })
     }
 

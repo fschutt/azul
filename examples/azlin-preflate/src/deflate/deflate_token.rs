@@ -6,7 +6,7 @@
 use crate::deflate::huffman_encoding::HuffmanOriginalEncoding;
 
 use super::deflate_constants::{
-    DIST_CODE_COUNT, LITLENDIST_CODE_COUNT, NONLEN_CODE_COUNT, quantize_distance, quantize_length,
+    DIST_CODE_COUNT, LITLEN_CODE_COUNT, NONLEN_CODE_COUNT, quantize_distance, quantize_length,
 };
 
 /// In a DEFLATE stream, tokens are either literals (bytes) or references to previous bytes
@@ -126,14 +126,15 @@ pub struct DeflateTokenBlock {
 /// which are later used to build the huffman encoding.
 #[derive(Debug)]
 pub struct TokenFrequency {
-    pub literal_codes: [u16; LITLENDIST_CODE_COUNT],
+    // azlin-preflate: one count per literal/length code; the distances are counted apart.
+    pub literal_codes: [u16; LITLEN_CODE_COUNT],
     pub distance_codes: [u16; DIST_CODE_COUNT],
 }
 
 impl Default for TokenFrequency {
     fn default() -> Self {
         let mut t = TokenFrequency {
-            literal_codes: [0; LITLENDIST_CODE_COUNT],
+            literal_codes: [0; LITLEN_CODE_COUNT],
             distance_codes: [0; DIST_CODE_COUNT],
         };
 
