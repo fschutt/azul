@@ -3254,28 +3254,44 @@ pub fn render_single_item(
             let opacity = &opacity_key
                 .and_then(|k| render_state.opacities.get(&k.id).copied())
                 .unwrap_or(*opacity);
-            let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
-            if let Some(r) = rect {
-                let snap = snapshot_region(
-                    pixmap,
-                    r.x as i32,
-                    r.y as i32,
-                    r.width as u32,
-                    r.height as u32,
-                );
-                mask_stack.push(MaskEntry::Opacity {
-                    snapshot: snap,
-                    rect: r,
-                    opacity: *opacity,
-                });
-            }
+            // The group blends over the region it can paint in: the clip
+            // open around it (a damage rect, on the incremental path), else
+            // its own box. Its box alone left what the group paints outside
+            // it (its shadow) unblended, and a group with an empty box pushed
+            // nothing - its pop then took the entry of the frame around it
+            // (a translated box: every later item painted moved by it).
+            let rect = clip_stack
+                .last()
+                .copied()
+                .flatten()
+                .or_else(|| logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor))
+                .unwrap_or(AzRect::DENY_ALL);
+            let snap = snapshot_region(
+                pixmap,
+                rect.x as i32,
+                rect.y as i32,
+                rect.width as u32,
+                rect.height as u32,
+            );
+            mask_stack.push(MaskEntry::Opacity {
+                snapshot: snap,
+                rect,
+                opacity: *opacity,
+            });
         }
         DisplayListItem::PopOpacity => {
+            // Only an opacity group's own entry: the pop never takes the
+            // entry of a frame or clip around it.
+            let entry = if matches!(mask_stack.last(), Some(MaskEntry::Opacity { .. })) {
+                mask_stack.pop()
+            } else {
+                None
+            };
             if let Some(MaskEntry::Opacity {
                 snapshot,
                 rect,
                 opacity,
-            }) = mask_stack.pop()
+            }) = entry
             {
                 let x = rect.x as i32;
                 let y = rect.y as i32;
