@@ -639,8 +639,11 @@ fn every_object_gets_its_own_keys_and_nonces() {
     let drive = drive_key();
     let object_id = new_id();
     let plain = text(10_000);
-    let (a, a_summary) = encrypt(&plain, object_id, &drive, &WriteOptions::default()).unwrap();
-    let (b, b_summary) = encrypt(&plain, object_id, &drive, &WriteOptions::default()).unwrap();
+    // Stored segments: the codecs pick their levels by the time they take, so two compressed
+    // objects of one file may differ in length; the keys and nonces are what is compared here.
+    let stored = stored(DEFAULT_SEGMENT_SIZE);
+    let (a, a_summary) = encrypt(&plain, object_id, &drive, &stored).unwrap();
+    let (b, b_summary) = encrypt(&plain, object_id, &drive, &stored).unwrap();
     assert_eq!(a.len(), b.len());
     assert_ne!(&a[HEADER_LEN..], &b[HEADER_LEN..], "a fresh file key per object");
     assert_ne!(&a[32..51], &b[32..51], "a fresh nonce prefix");
