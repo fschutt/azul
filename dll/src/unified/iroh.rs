@@ -106,6 +106,10 @@ mod wasm_stub {
         pub fn disconnect(&self, _peer: u64) -> bool {
             false
         }
+        /// Nothing is bound on wasm: nothing changes.
+        pub fn set_allowed_peers(&self, _peers: StringVec) -> bool {
+            false
+        }
         pub fn peer_count(&self) -> usize {
             0
         }
