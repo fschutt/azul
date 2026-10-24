@@ -232,14 +232,21 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if let Some(bar) = crate::ban::banner(s, app) {
         area.add_child(bar);
     }
+    // Drives whose keys wait for the user: which, and Unlock.
+    if let Some(bar) = crate::unlock::bar(s, app) {
+        area.add_child(bar);
+    }
     let grid = uses_icon_grid(s);
     // The search view (of This PC and Quick access too) is a folder's view of rows.
     let searching = s.search_open || s.find.is_some();
     let folder = matches!(s.place, Place::Folder { .. }) || searching;
     // A closed drive in view shows when and why it was closed, and nothing else.
     let closed = crate::ban::closed_view(s);
+    // A drive in view whose keys wait for the user shows that it is locked, and Unlock.
+    let locked = crate::unlock::locked_view(s, app);
     let view = match &s.place {
         Place::Folder { .. } if closed.is_some() => closed.unwrap_or_else(Dom::create_div),
+        Place::Folder { .. } if locked.is_some() => locked.unwrap_or_else(Dom::create_div),
         _ if searching => folder_view(s, app),
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),

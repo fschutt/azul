@@ -756,10 +756,14 @@ extern "C" fn on_watch_timer(mut data: RefAny, info: TimerCallbackInfo) -> Timer
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
+    // The drives heard at once read their keys (if they must) in one quiet round.
+    s.unlocks.gathering = true;
     for drive_id in heard_changes(&mut *s) {
         println!("AZDRIVE_SYNC_HEARD {drive_id}");
         request_pass(&mut callback_info, &app, &mut *s, &drive_id);
     }
+    s.unlocks.gathering = false;
+    crate::unlock::flush(&mut callback_info, &app, &mut *s);
     TimerCallbackReturn::continue_unchanged()
 }
 
@@ -813,9 +817,13 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
         .filter(|p| !p.paused && polled(&s.sync_view.store.states(&p.drive_id)))
         .map(|p| p.drive_id.clone())
         .collect();
+    // The poll's drives read their keys (if they must) in one quiet round.
+    s.unlocks.gathering = true;
     for drive_id in due {
         request_pass(&mut callback_info, &app, &mut *s, &drive_id);
     }
+    s.unlocks.gathering = false;
+    crate::unlock::flush(&mut callback_info, &app, &mut *s);
     if changed {
         TimerCallbackReturn::continue_and_refresh_dom()
     } else {
@@ -934,6 +942,14 @@ pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             sync.again = true;
             return;
         }
+    }
+    // A pass never asks for the drive's keys: they are read quietly (the start's and a poll's
+    // drives in one round), and the pass follows once they are in; keys only a prompt hands
+    // over wait for the user's Unlock (`unlock.rs`).
+    if s.slot_index(drive_id).is_some_and(|index| s.slots[index].locked()) {
+        crate::unlock::read_quietly(info, app, s, &[drive_id.to_string()]);
+        sync_view::say_status(s, drive_id);
+        return;
     }
     let Some(mut work) = work_of(info, s, drive_id) else {
         return;
@@ -1531,6 +1547,13 @@ pub(crate) fn run_action(
     match what {
         SyncAction::Pair => sync_view::ask_pair(s, &drive_id),
         SyncAction::Now => {
+            // The user's own "Sync now" of a drive whose keys wait for them: read them, asking.
+            if crate::unlock::waits_for_user(s, &drive_id) {
+                if let Some(index) = s.slot_index(&drive_id) {
+                    crate::unlock(info, s, index);
+                }
+                return;
+            }
             // A guard's question waiting: asked again.
             let states = s.sync_view.store.states(&drive_id);
             if states.burst.is_some() || states.mass_delete.is_some() {

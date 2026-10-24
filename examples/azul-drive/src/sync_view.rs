@@ -643,6 +643,10 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> Option<Text> {
     if let Some(said) = crate::ban::sync_status(s, drive_id) {
         return Some(Text::from(said));
     }
+    // Its keys wait for the user's Unlock: no pass reads them.
+    if crate::unlock::waits_for_user(s, drive_id) {
+        return Some(Text::key(crate::unlock::WAIT_STATUS));
+    }
     let azlin = s
         .slot_index(drive_id)
         .is_some_and(|i| s.slots[i].entry.azlin().is_some());
@@ -663,7 +667,9 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
         .drives
         .get(drive_id)
         .is_some_and(|d| d.running.is_some());
-    let glyph = if setup.paused || status.keys() == [METERED_STATUS] {
+    let glyph = if status.keys() == [crate::unlock::WAIT_STATUS] {
+        "lock"
+    } else if setup.paused || status.keys() == [METERED_STATUS] {
         "pause_circle"
     } else if says_read_only(&status) {
         "cloud_off"

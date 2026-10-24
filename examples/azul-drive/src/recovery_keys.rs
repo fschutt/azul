@@ -201,6 +201,29 @@ pub(crate) fn check_keys(
     s: &mut DriveState,
     drive_id: &str,
 ) {
+    let keyring = s.keyring.clone();
+    list_keys(info, app, s, drive_id, keyring);
+}
+
+/// [`check_keys`] for the window's own work (the start, the daily look): its keyring reads
+/// never show a prompt.
+pub(crate) fn check_keys_quietly(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let keyring = s.quiet_keyring.clone();
+    list_keys(info, app, s, drive_id, keyring);
+}
+
+fn list_keys(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    keyring: azcloud_kit::SharedKeyring,
+) {
     let Some(token_url) = crate::encryption::token_url_of(s, drive_id) else {
         s.error(Phrase::new("azdrive-no-token-server"));
         return;
@@ -208,7 +231,7 @@ pub(crate) fn check_keys(
     let job = KeysJob::List {
         drive_id: drive_id.to_string(),
         token_url,
-        keyring: s.keyring.clone(),
+        keyring,
     };
     spawn(info, app, s, Job::Encryption(EncryptionJob::Keys(job)));
 }

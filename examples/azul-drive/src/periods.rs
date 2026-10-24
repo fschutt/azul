@@ -220,8 +220,15 @@ pub(crate) fn start_redemptions(
             (id, url, azlin)
         })
         .collect();
+    // The daily look runs by itself and reads quietly; the look after a paid checkout follows
+    // the user's purchase.
+    let keyring = if only.is_none() {
+        s.quiet_keyring.clone()
+    } else {
+        s.keyring.clone()
+    };
     let job = Job::RedeemPeriods {
-        keyring: s.keyring.clone(),
+        keyring,
         store: s.period_tokens.clone(),
         drives,
     };

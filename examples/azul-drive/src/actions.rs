@@ -3902,6 +3902,7 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         s.info(Phrase::new("azdrive-drive-removed").arg("name", name.as_str()));
     }
     s.selected_drive = None;
+    s.unlocks.unlocked(&drive_id);
     s.tree.expanded.retain(|node| node.0 != drive_id);
     s.tree.loaded.retain(|node, _| node.0 != drive_id);
     s.root_counts.remove(&drive_id);

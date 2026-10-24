@@ -2541,10 +2541,11 @@ pub(crate) fn retry_registrations(
             continue;
         }
         println!("AZDRIVE_RECOVERY_KEY_RETRY {drive_id}");
+        // At the start and with the daily look: quietly (a refused read is sent next time).
         let job = EncryptionJob::RegisterRecoveryKey {
             drive_id,
             token_url,
-            keyring: s.keyring.clone(),
+            keyring: s.quiet_keyring.clone(),
             pending,
         };
         spawn(info, app, s, Job::Encryption(job));
@@ -2564,7 +2565,7 @@ pub(crate) fn retry_registrations(
         .collect();
     for drive_id in unknown {
         if token_url_of(s, &drive_id).is_some() {
-            crate::recovery_keys::check_keys(info, app, s, &drive_id);
+            crate::recovery_keys::check_keys_quietly(info, app, s, &drive_id);
         }
     }
 }

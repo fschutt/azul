@@ -424,8 +424,9 @@ pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<Rotated>>>;
 pub(crate) struct Slot {
     pub entry: DriveEntry,
     /// The text of the drive's keyring entry, once read or typed in: an S3 drive's keys, an
-    /// Azlin drive's session, a data source's secret settings. Never printed.
-    pub secret: Option<String>,
+    /// Azlin drive's session, a data source's secret settings. Kept for the session, zeroed when
+    /// dropped (a Lock, the window's close: `unlock::wipe`). Never printed.
+    pub secret: Option<azcloud_kit::Zeroizing<String>>,
     /// The drive, once it could be opened; shared with the worker threads.
     pub drive: Option<Arc<dyn Drive>>,
     /// An Azlin drive's encryption seam (the same drive as `drive`): its plain bucket for the
@@ -477,7 +478,7 @@ impl Slot {
             return Ok(drive.clone());
         }
         let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
-            let secret = self.secret.as_deref().ok_or_else(|| DriveError::Denied {
+            let secret = self.secret.as_deref().map(String::as_str).ok_or_else(|| DriveError::Denied {
                 message: format!(
                     "\"{}\" has no session (the keyring has no entry for it)",
                     self.entry.name
@@ -569,7 +570,7 @@ impl Slot {
                 }
             });
             Arc::from(self.entry.open_with_secret_rotating(
-                self.secret.as_deref(),
+                self.secret.as_deref().map(String::as_str),
                 Box::new(AzulTransport::new(USER_AGENT)),
                 Some(keep),
             )?)
@@ -584,7 +585,7 @@ impl Slot {
             DriveLocation::S3 { .. } => self
                 .secret
                 .as_deref()
-                .and_then(|s| Credentials::from_keyring_secret(s).ok()),
+                .and_then(|s| Credentials::from_keyring_secret(s.as_str()).ok()),
             _ => None,
         }
     }
@@ -1157,6 +1158,13 @@ pub(crate) struct DriveState {
     /// with the locks every AzDrive of this user shares beside the drives file: an Azlin
     /// drive's session (its refreshes), the unfinished checkouts.
     pub keyring: azcloud_kit::SharedKeyring,
+    /// The same keyring for the window's background work (the claims of the checkouts, the
+    /// daily look at the periods, the recovery registrations sent again): it never shows a
+    /// prompt - an entry the keychain hands over only after asking fails, and the work tries
+    /// again later.
+    pub quiet_keyring: azcloud_kit::SharedKeyring,
+    /// Which drives' keys are wanted, read now, or wait for the user's Unlock (`unlock.rs`).
+    pub unlocks: unlock::Unlocks,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
     /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
@@ -1871,6 +1879,8 @@ pub(crate) fn update_index(
     }
     let source = match s.local_root(slot) {
         Some(root) => jobs::IndexSource::Folder(root),
+        // Its keys are not read for an index: a search or the user's next look updates it.
+        None if s.slots[slot].locked() => return,
         None => {
             let Some(drive) = open_slot(s, slot) else {
                 return;
@@ -2085,7 +2095,9 @@ pub(crate) fn count_drive_roots(info: &mut CallbackInfo, app: &RefAny, s: &mut D
     }
 }
 
-/// Reads an S3 drive's keys from the keyring (once at a time).
+/// Reads a drive's keys from the keyring for the user (once at a time); the system may ask
+/// them. While the window's start gathers, the keys join its quiet round instead
+/// ([`unlock::Unlocks`]): nothing the window does by itself shows a prompt.
 pub(crate) fn unlock(info: &mut CallbackInfo, s: &mut DriveState, index: usize) {
     let drive_id = s.slots[index].entry.id.clone();
     if matches!(&s.keyring_waiting, Some(KeyringOp::Unlock { drive_id: id }) if *id == drive_id)
@@ -2093,7 +2105,12 @@ pub(crate) fn unlock(info: &mut CallbackInfo, s: &mut DriveState, index: usize) 
             .keyring_queue
             .iter()
             .any(|(op, _)| matches!(op, KeyringOp::Unlock { drive_id: id } if *id == drive_id))
+        || s.unlocks.is_reading(&drive_id)
     {
+        return;
+    }
+    if s.unlocks.gathering {
+        s.unlocks.want(&drive_id);
         return;
     }
     let name = s.slots[index].entry.name.clone();
@@ -2370,7 +2387,7 @@ pub(crate) fn take_rotated(s: &mut DriveState) {
         let Some(index) = s.slot_index(&session.drive_id) else {
             continue;
         };
-        s.slots[index].secret = Some(session.secret.to_string());
+        s.slots[index].secret = Some(session.secret.clone());
         if let Some(why) = session.unsaved {
             let name = s.slots[index].name();
             s.error(
@@ -2451,75 +2468,8 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
     };
     match op {
         KeyringOp::Unlock { drive_id } => {
-            let Some(index) = s.slot_index(&drive_id) else {
-                return Update::RefreshDom;
-            };
-            let name = s.slots[index].entry.name.clone();
-            let is_current = s.current_drive() == Some(index);
-            match &result {
-                KeyringResult::Retrieved(secret) => {
-                    match check_secret(&s.slots[index].entry, secret.as_str()) {
-                        Ok(()) => {
-                            s.slots[index].secret = Some(secret.as_str().to_string());
-                            s.clear_notice();
-                            if is_current {
-                                start_listing(&mut info, &app, s, false);
-                            }
-                            let pending: Vec<TreeKey> = s
-                                .tree
-                                .pending
-                                .iter()
-                                .filter(|node| node.0 == drive_id)
-                                .cloned()
-                                .collect();
-                            s.tree.pending.retain(|node| node.0 != drive_id);
-                            for node in pending {
-                                start_tree_listing(&mut info, &app, s, node);
-                            }
-                        }
-                        Err(e) => {
-                            s.loading = false;
-                            if is_current {
-                                // No listing follows: the folder waits for nothing.
-                                s.listing_done = true;
-                                s.listing_failed = true;
-                            }
-                            s.error(
-                                Phrase::new("azdrive-keyring-unreadable")
-                                    .arg("name", name.as_str())
-                                    .arg("detail", e),
-                            );
-                        }
-                    }
-                }
-                other => {
-                    s.loading = false;
-                    if is_current {
-                        // No listing follows: the folder waits for nothing.
-                        s.listing_done = true;
-                        s.listing_failed = true;
-                    }
-                    s.tree.pending.retain(|node| node.0 != drive_id);
-                    if s.slots[index].entry.azlin().is_some() {
-                        // A drive token cannot be typed in: a join code from another device of
-                        // the drive brings it back (Add a drive), else it is added again.
-                        s.error(keyring_text(
-                            Phrase::new("azdrive-keyring-cannot-open").arg("name", name.as_str()),
-                            other,
-                            "azdrive-keyring-token-gone",
-                        ));
-                    } else {
-                        s.error(keyring_text(
-                            Phrase::new("azdrive-keyring-cannot-open").arg("name", name.as_str()),
-                            other,
-                            "azdrive-keyring-enter-keys",
-                        ));
-                        if is_current && matches!(other, KeyringResult::NotFound) {
-                            actions::open_drive_form(s, Some(index));
-                        }
-                    }
-                }
-            }
+            let read = unlock::Read::of_result(&result);
+            unlock::answered(&mut info, &app, s, &drive_id, read, true);
         }
         KeyringOp::Store { drive_id } => {
             let name = s
@@ -3203,6 +3153,7 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Sync(outcome) => {
             refresh = sync_jobs::on_outcome(&mut info, &handle, s, outcome);
         }
+        Outcome::KeysRead(read) => unlock::round_read(&mut info, &handle, s, read),
         Outcome::DriveRestored {
             drive_id,
             as_of,
@@ -3481,6 +3432,9 @@ fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
 
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
+        // What the start opens by itself - the place it shows, the synced drives - reads its
+        // drives' keys quietly, in one round when the start is done: never a prompt.
+        s.unlocks.gathering = true;
         azul_appkit::ui::on_window_created(&s.kit, info);
         // The size the window opened at (a window manager may have changed it).
         let size = info.get_current_window_state().size.dimensions;
@@ -3517,6 +3471,8 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         }
         // The synced drives show their kept states, and sync.
         sync_jobs::start(info, app, s);
+        s.unlocks.gathering = false;
+        unlock::flush(info, app, s);
     })
 }
 
@@ -3759,6 +3715,13 @@ pub fn start() {
         )),
         KeyringNamespace::azlin_shared(),
     );
+    // The same entries and locks, for background work: never a prompt.
+    let quiet_keyring = azcloud_kit::SharedKeyring::new(
+        Arc::new(azul_storage::azul_keyring::AzulKeyring::quiet(
+            KeyringNamespace::azlin_shared(),
+        )),
+        KeyringNamespace::azlin_shared(),
+    );
     let period_tokens =
         azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     // The caches' folder: `--cache-dir`, else AzDrive's in the user's cache folder; none in a
@@ -3884,6 +3847,8 @@ pub fn start() {
         token,
         rotated: RotatedSessions::default(),
         keyring,
+        quiet_keyring,
+        unlocks: unlock::Unlocks::default(),
         claiming: false,
         in_flight: Vec::new(),
         period_tokens,

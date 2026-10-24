@@ -1054,6 +1054,15 @@ azdrive-keyring-not-saved = The keys of "{ $name }" could not be saved:
 azdrive-keyring-kept-until-close = They are kept until AzDrive closes.
 azdrive-keyring-bridge-unreadable = The bridge's password could not be read:
 azdrive-keyring-bridge-new = "azul-bridge password" makes a new one.
+azdrive-unlock = Unlock
+azdrive-unlock-drives = Unlock drives
+azdrive-unlock-bar-one = "{ $name }" is locked: its keys are in this computer's keychain, and AzDrive reads them when you unlock it.
+azdrive-unlock-bar-many = { $count } drives are locked: their keys are in this computer's keychain, and AzDrive reads them when you unlock them.
+azdrive-unlock-locked = This drive is locked
+azdrive-unlock-locked-detail = Its keys are in this computer's keychain. Unlock reads them; the system may ask for your password or Touch ID.
+azdrive-locked = "{ $name }" is locked: its keys left AzDrive's memory.
+azdrive-side-unlock-keys = Unlock
+azdrive-side-lock-keys = Lock
 azdrive-os-cannot-open = The system could not open { $path }.
 azdrive-os-not-a-url = { $url } is not a URL: { $detail }
 azdrive-list-folder-failed = Could not list the folder:
@@ -1393,6 +1402,7 @@ azdrive-err-unsupported = Not supported yet: { $detail }
 ## The sync on a metered network
 
 azdrive-sync-status-metered = Paused (metered network)
+azdrive-sync-status-locked = Locked (waits for Unlock)
 
 ## Encrypted drives at the purchase
 

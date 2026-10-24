@@ -1052,6 +1052,15 @@ azdrive-keyring-not-saved = Die Schlüssel von „{ $name }“ konnten nicht ges
 azdrive-keyring-kept-until-close = Sie bleiben erhalten, bis AzDrive geschlossen wird.
 azdrive-keyring-bridge-unreadable = Das Kennwort der Brücke konnte nicht gelesen werden:
 azdrive-keyring-bridge-new = „azul-bridge password“ erstellt ein neues.
+azdrive-unlock = Entsperren
+azdrive-unlock-drives = Laufwerke entsperren
+azdrive-unlock-bar-one = „{ $name }“ ist gesperrt: Seine Schlüssel liegen im Schlüsselbund dieses Computers, und AzDrive liest sie, wenn Sie es entsperren.
+azdrive-unlock-bar-many = { $count } Laufwerke sind gesperrt: Ihre Schlüssel liegen im Schlüsselbund dieses Computers, und AzDrive liest sie, wenn Sie sie entsperren.
+azdrive-unlock-locked = Dieses Laufwerk ist gesperrt
+azdrive-unlock-locked-detail = Seine Schlüssel liegen im Schlüsselbund dieses Computers. „Entsperren“ liest sie; das System fragt dabei eventuell nach Ihrem Passwort oder Touch ID.
+azdrive-locked = „{ $name }“ ist gesperrt: Seine Schlüssel sind nicht mehr im Speicher von AzDrive.
+azdrive-side-unlock-keys = Entsperren
+azdrive-side-lock-keys = Sperren
 azdrive-os-cannot-open = Das System konnte { $path } nicht öffnen.
 azdrive-os-not-a-url = { $url } ist keine URL: { $detail }
 azdrive-list-folder-failed = Der Ordner konnte nicht aufgelistet werden:
@@ -1391,6 +1400,7 @@ azdrive-err-unsupported = Noch nicht unterstützt: { $detail }
 ## The sync on a metered network
 
 azdrive-sync-status-metered = Angehalten (getaktetes Netzwerk)
+azdrive-sync-status-locked = Gesperrt (wartet auf „Entsperren“)
 
 ## Encrypted drives at the purchase
 

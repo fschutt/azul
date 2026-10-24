@@ -300,6 +300,12 @@ pub const BAN_TEXT: AzString = AzString::from_const_str("__azdrive_ban_text");
 pub const BAN_COPY: AzString = AzString::from_const_str("__azdrive_ban_copy");
 pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed");
 
+/// The bar over the content while drives wait for the user's Unlock, its button, and the
+/// content of a locked drive's folder (`unlock.rs`).
+pub const UNLOCK_BAR: AzString = AzString::from_const_str("__azdrive_unlock_bar");
+pub const UNLOCK_BUTTON: AzString = AzString::from_const_str("__azdrive_unlock_button");
+pub const UNLOCK_VIEW: AzString = AzString::from_const_str("__azdrive_unlock_view");
+
 /// Cash by post: Add drive's "Pick up a paid drive with a claim code" (the first page's
 /// button, the code's box, Pick up), the posted order's waiting line and claim code, its pages'
 /// buttons.

@@ -692,7 +692,7 @@ pub(crate) fn add_slot(
             s.slots.len() - 1
         }
     };
-    s.slots[index].secret = secret.clone();
+    s.slots[index].secret = secret.clone().map(azcloud_kit::Zeroizing::new);
     if from_dialog {
         cancel(s);
         s.selected_drive = Some(index);
@@ -1666,7 +1666,8 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     s.claiming = true;
     // The cash orders are asked in this run: their next daily look is a day from now.
     crate::cash::looked(s);
-    let keyring = s.keyring.clone();
+    // Background work: an entry only a prompt would hand over waits for the next start.
+    let keyring = s.quiet_keyring.clone();
     let token_url = s.token.url.clone();
     let store = s.period_tokens.clone();
     let cash_every = s.cash_looks.every();

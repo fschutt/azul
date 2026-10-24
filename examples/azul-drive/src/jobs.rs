@@ -490,6 +490,9 @@ pub(crate) enum Job {
     },
     /// The folder sync: a pass, a file opened through it, pins, "Free up space", an answer.
     Sync(crate::sync_jobs::SyncJob),
+    /// A round of drives' keyring entries, read one after the other (`unlock.rs`): quietly for
+    /// the window's own work, asking for the user's Unlock.
+    ReadKeys(crate::unlock::KeysRound),
     /// "Restore as of...": the Azlin drive `drive_id` put back as it was at `as_of` (seconds
     /// since 1970) - an encrypted one by its own restore (`encrypted`), else its bucket by the
     /// token server at `token_url` ([`crate::restore::run`]).
@@ -777,6 +780,8 @@ pub(crate) enum Outcome {
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
+    /// What a [`Job::ReadKeys`] round read, drive by drive.
+    KeysRead(crate::unlock::KeysRead),
     /// What "Restore as of..." of `drive_id` as of `as_of` came to, or why not.
     DriveRestored {
         drive_id: String,
@@ -3492,6 +3497,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             let mut emit = |outcome: Outcome| send(sender, outcome);
             crate::sync_jobs::run(job, &mut emit)
         }
+        Job::ReadKeys(round) => Outcome::KeysRead(crate::unlock::read_round(round)),
         Job::RestoreDrive {
             drive_id,
             as_of,

@@ -502,6 +502,10 @@ enum SideAction {
     Unpin(usize),
     /// The drive's properties.
     Properties(String),
+    /// "Unlock": the drive's keys read from the keychain (the system may ask).
+    UnlockKeys(String),
+    /// "Lock": the drive's keys leave AzDrive's memory until Unlock.
+    LockKeys(String),
     /// "Encrypt this drive...": the question, then keys, the recovery sheet, the move.
     #[cfg(feature = "encryption")]
     Encrypt(String),
@@ -568,6 +572,19 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
             String::from("azdrive-menu-properties"),
             SideAction::Properties(slot.entry.id.clone()),
         ));
+        if slot.entry.needs_keyring() {
+            entries.push(if slot.locked() {
+                (
+                    String::from("azdrive-side-unlock-keys"),
+                    SideAction::UnlockKeys(slot.entry.id.clone()),
+                )
+            } else {
+                (
+                    String::from("azdrive-side-lock-keys"),
+                    SideAction::LockKeys(slot.entry.id.clone()),
+                )
+            });
+        }
         #[cfg(feature = "encryption")]
         if slot.entry.azlin().is_some() && crate::encryption::offered() {
             entries.push((
@@ -668,6 +685,12 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
                 actions::open_properties(info, app, s, Vec::new(), Some(index));
             }
         }
+        SideAction::UnlockKeys(drive_id) => {
+            if let Some(index) = s.slot_index(&drive_id) {
+                crate::unlock(info, s, index);
+            }
+        }
+        SideAction::LockKeys(drive_id) => crate::unlock::lock(s, &drive_id),
         #[cfg(feature = "encryption")]
         SideAction::Encrypt(drive_id) => crate::encryption::ask_encrypt(s, &drive_id),
         #[cfg(feature = "encryption")]

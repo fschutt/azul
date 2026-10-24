@@ -79,6 +79,8 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
     match drive_close(work, s.closing) {
         DriveClose::Close => {
             let_spends_land();
+            // The drives' keys leave memory with the window (zeroed, not just freed).
+            crate::unlock::wipe_all(s);
             Update::DoNothing
         }
         DriveClose::Wait => {
@@ -92,6 +94,7 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
             stop_work(s);
             println!("AZDRIVE_CLOSE_STOPPED {work}");
             let_spends_land();
+            crate::unlock::wipe_all(s);
             Update::DoNothing
         }
     }
@@ -137,6 +140,7 @@ pub(crate) fn after_job(info: &mut CallbackInfo, s: &mut DriveState) {
     if s.closing && work_running(s) == 0 {
         s.closing = false;
         println!("AZDRIVE_CLOSED_AFTER_WORK");
+        crate::unlock::wipe_all(s);
         info.close_window();
     }
 }
