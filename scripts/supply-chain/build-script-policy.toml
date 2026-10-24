@@ -565,7 +565,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.2:6c956636db5c9c150be53cf2c8fb51ac7cf4556686b24b54cc5f2fe2af558f9a"]
+reviewed = ["0.4.5:fc186dbae230d052f27122fe55a46fbefc297d8ab9d128038615bc638ead53a0"]
 
 [crate."curve25519-dalek"]  # build-script
 allow = true
@@ -2000,7 +2000,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.102.8:16a0090879d3947da26501d819d39f6f12c1a51a1a80f18a812d88c5da690743", "0.103.15:95e0d99c3977ac0617075bce29019e3dccd574be1c6febd724bc1082e9773d8b"]
+reviewed = ["0.103.16:b64fcb649b06924cc515bffef4d46e8b86e7f9dc4d4c49b454228794d4c54953"]
 
 [crate."rustversion"]  # build-script+proc-macro
 allow = true
@@ -2560,7 +2560,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.26.11:57ac6e5f264b9b499df7548ed37cbd221792dc5607224ca4cf55e84227e4d41d", "1.0.9:5078597a8f8ac1b19398fe27da3544ed8fa4cc412360fa70324ad873516ebac6"]
+reviewed = ["0.26.11:57ac6e5f264b9b499df7548ed37cbd221792dc5607224ca4cf55e84227e4d41d", "1.0.10:62e51a217ee6a7a793076027ae5c9945707c0063c813fef3d65ad375fc568ddf"]
 
 [crate."which"]  # build-dependency
 allow = true
