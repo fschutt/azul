@@ -658,6 +658,8 @@ pub struct SyncSession {
     /// Hears every named point of a pass (`after-scan`, `before-trash`, ...): an app's test
     /// commands stop or crash a pass there ([`super::engine::Observer::point`]).
     points: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// The engine's clock is this many seconds off the system's ([`SyncSession::with_clock`]).
+    clock_offset: f64,
 }
 
 impl SyncSession {
@@ -705,6 +707,7 @@ impl SyncSession {
             settle: Duration::ZERO,
             own_devices: vec![device.to_string()],
             points: None,
+            clock_offset: 0.0,
         }
     }
 
@@ -712,6 +715,14 @@ impl SyncSession {
     #[must_use]
     pub fn with_points(mut self, points: Arc<dyn Fn(&str) + Send + Sync>) -> SyncSession {
         self.points = Some(points);
+        self
+    }
+
+    /// The session's engine reads a clock `offset` seconds off the system's: a test harness's
+    /// device whose clock is wrong (the command line's `AZSYNC_CLOCK_OFFSET`).
+    #[must_use]
+    pub fn with_clock(mut self, offset: f64) -> SyncSession {
+        self.clock_offset = offset;
         self
     }
 
@@ -741,7 +752,8 @@ impl SyncSession {
             &self.dir,
             &self.setup.folder,
             Box::new(super::quarantine::OwnDevices(self.own_devices.clone())),
-        );
+        )
+        .with_clock(self.clock_offset);
         match &self.points {
             Some(points) => {
                 let points = Arc::clone(points);

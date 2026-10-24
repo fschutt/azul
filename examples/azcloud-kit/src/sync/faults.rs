@@ -4,12 +4,10 @@
 //!   points hook (`SyncSession::with_points`); an app that wants its passes faulted hands it a
 //!   hook that calls [`point`] with the pairing's folder. A harness arms a point to CRASH the
 //!   pass there (the pass thread unwinds with a [`Crashed`] payload: nothing after the point
-//!   runs, no error handler sees it, only destructors), to ABORT the process (`kill -9`'s
-//!   stand-in, armed from `$AZSYNC_CRASH_AT` by [`arm_from_env`]) or to PAUSE it until
-//!   [`release`] (a laptop lid closed mid-pass). Each is one-shot: the pass after it runs
-//!   through.
-//! - **The clock** a pass reads ([`now_unix`]): the real one plus a per-folder offset, so a
-//!   device whose clock is wrong can be played without changing the machine's.
+//!   runs, no error handler sees it, only destructors) or to PAUSE it until [`release`] (a
+//!   laptop lid closed mid-pass). Each is one-shot: the pass after it runs through. (The
+//!   `azsync` command line kills and stops itself at points on its own, from its
+//!   environment; a wrong clock is `SyncSession::with_clock`.)
 //! - **The disk** a pass writes to: [`free_bytes`] is what the free-space check sees, and
 //!   [`check_write`] fails with "no space left" while the disk is played full.
 //!
@@ -21,7 +19,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Condvar, Mutex, MutexGuard, PoisonError},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 /// The points the engine names, in the order a pass meets them.
@@ -48,20 +46,11 @@ pub struct Crashed {
     pub point: String,
 }
 
-/// What an armed point does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
-    /// The pass thread unwinds with [`Crashed`].
-    Crash,
-    /// The process ends at once (`std::process::abort`), as a `kill -9` would end it.
-    Abort,
-}
-
 /// One folder's faults.
 #[derive(Debug, Default)]
 struct Faults {
-    /// The point that crashes or aborts the next pass to reach it.
-    crash_at: Option<(String, Action)>,
+    /// The point that crashes the next pass to reach it.
+    crash_at: Option<String>,
     /// The point the next pass to reach it waits at.
     pause_at: Option<String>,
     /// Where a pass waits now (a harness waits for it to get there).
@@ -73,8 +62,6 @@ struct Faults {
     /// the [`Crashed`] payload ([`take_crashed`]).
     crashes: u64,
     last_crash: Option<String>,
-    /// Added to the real clock, in milliseconds.
-    clock_offset_ms: i64,
     /// What the free-space check sees instead of the disk's answer.
     free_bytes: Option<u64>,
     /// Writes in the folder (and the pairing's state) fail with "no space left".
@@ -88,13 +75,12 @@ impl Faults {
             && self.paused_at.is_none()
             && self.crashes == 0
             && self.last_crash.is_none()
-            && self.clock_offset_ms == 0
             && self.free_bytes.is_none()
             && !self.disk_full
     }
 }
 
-/// Every folder's faults; the key `""` holds the ones armed for every folder.
+/// Every folder's faults.
 static FAULTS: Mutex<BTreeMap<PathBuf, Faults>> = Mutex::new(BTreeMap::new());
 /// Wakes a paused pass at [`release`], and a harness waiting in [`wait_paused`].
 static PAUSES: Condvar = Condvar::new();
@@ -114,7 +100,7 @@ fn with<T>(root: &Path, f: impl FnOnce(&mut Faults) -> T) -> T {
 
 /// Crashes the next pass of `root` that reaches `point` (one-shot).
 pub fn arm_crash(root: &Path, point: &str) {
-    with(root, |f| f.crash_at = Some((point.to_string(), Action::Crash)));
+    with(root, |f| f.crash_at = Some(point.to_string()));
 }
 
 /// Makes the next pass of `root` that reaches `point` wait there until [`release`] (one-shot).
@@ -123,16 +109,6 @@ pub fn arm_pause(root: &Path, point: &str) {
         f.pause_at = Some(point.to_string());
         f.released = false;
     });
-}
-
-/// `$AZSYNC_CRASH_AT=<point>` ends this process at that point of its first pass, whatever folder
-/// it syncs: what a harness's `kill -9` at a named step needs from a command line.
-pub fn arm_from_env() {
-    if let Some(point) = std::env::var("AZSYNC_CRASH_AT").ok().filter(|p| !p.trim().is_empty()) {
-        with(Path::new(""), |f| {
-            f.crash_at = Some((point.trim().to_string(), Action::Abort));
-        });
-    }
 }
 
 /// The point a pass of `root` waits at now.
@@ -168,8 +144,8 @@ pub fn crashes(root: &Path) -> u64 {
     faults().get(root).map_or(0, |f| f.crashes)
 }
 
-/// The pass of `root` reached `point`: crashes, aborts or waits there when a harness armed it,
-/// else returns at once.
+/// The pass of `root` reached `point`: crashes or waits there when a harness armed it, else
+/// returns at once.
 ///
 /// # Panics
 ///
@@ -179,32 +155,20 @@ pub fn point(root: &Path, point: &str) {
     if all.is_empty() {
         return;
     }
-    // A fault armed for this folder, else one armed for every folder.
-    let key = [root, Path::new("")]
-        .into_iter()
-        .find(|k| all.get(*k).is_some_and(|f| armed_here(f, point)))
-        .map(Path::to_path_buf);
-    let Some(key) = key else {
-        return;
-    };
+    let key = root.to_path_buf();
     let Some(f) = all.get_mut(&key) else {
         return;
     };
-    if let Some((at, action)) = f.crash_at.clone() {
-        if at == point {
-            f.crash_at = None;
-            f.crashes += 1;
-            f.last_crash = Some(point.to_string());
-            drop(all);
-            match action {
-                Action::Abort => std::process::abort(),
-                // resume_unwind: no panic hook runs, so a crash prints nothing and is not
-                // reported as a bug.
-                Action::Crash => std::panic::resume_unwind(Box::new(Crashed {
-                    point: point.to_string(),
-                })),
-            }
-        }
+    if f.crash_at.as_deref() == Some(point) {
+        f.crash_at = None;
+        f.crashes += 1;
+        f.last_crash = Some(point.to_string());
+        drop(all);
+        // resume_unwind: no panic hook runs, so a crash prints nothing and is not reported as
+        // a bug.
+        std::panic::resume_unwind(Box::new(Crashed {
+            point: point.to_string(),
+        }));
     }
     if f.pause_at.as_deref() == Some(point) {
         f.pause_at = None;
@@ -225,10 +189,6 @@ pub fn point(root: &Path, point: &str) {
     }
 }
 
-fn armed_here(f: &Faults, point: &str) -> bool {
-    f.crash_at.as_ref().is_some_and(|(at, _)| at == point) || f.pause_at.as_deref() == Some(point)
-}
-
 /// The point the last crash of `root` happened at, once (a caught unwind that is no
 /// [`Crashed`] - a worker thread's crash, re-raised by its scope - is still known as one).
 #[must_use]
@@ -240,39 +200,6 @@ pub fn take_crashed(root: &Path) -> Option<String> {
 #[must_use]
 pub fn crashed_at(payload: &(dyn std::any::Any + Send)) -> Option<String> {
     payload.downcast_ref::<Crashed>().map(|c| c.point.clone())
-}
-
-/// Plays `root`'s clock `offset_secs` away from the real one (negative: behind).
-pub fn set_clock_offset(root: &Path, offset_secs: f64) {
-    with(root, |f| f.clock_offset_ms = (offset_secs * 1000.0).round() as i64);
-}
-
-/// Moves `root`'s clock by `secs` more (a jump, as after a sleep or an NTP correction).
-pub fn jump_clock(root: &Path, secs: f64) {
-    with(root, |f| {
-        f.clock_offset_ms = f.clock_offset_ms.saturating_add((secs * 1000.0).round() as i64);
-    });
-}
-
-/// The time as a pass of `root` reads it.
-#[must_use]
-pub fn now(root: &Path) -> SystemTime {
-    let offset = faults().get(root).map_or(0, |f| f.clock_offset_ms);
-    let real = SystemTime::now();
-    let delta = Duration::from_millis(offset.unsigned_abs());
-    if offset >= 0 {
-        real + delta
-    } else {
-        real.checked_sub(delta).unwrap_or(UNIX_EPOCH)
-    }
-}
-
-/// [`now`] in seconds since 1970.
-#[must_use]
-pub fn now_unix(root: &Path) -> i64 {
-    now(root)
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 /// Makes the free-space check of `root` see `bytes` (`None`: the disk's own answer).
@@ -373,16 +300,6 @@ mod tests {
         release(&r);
         assert_eq!(pass.join().expect("the pass ends"), "went on");
         assert_eq!(paused_at(&r), None);
-        clear(&r);
-    }
-
-    #[test]
-    fn the_clock_offset_and_its_jumps_move_the_folders_time_only() {
-        let r = root("clock");
-        set_clock_offset(&r, -3600.0);
-        jump_clock(&r, 600.0);
-        let behind = now_unix(&root("clock-other")) - now_unix(&r);
-        assert!((2999..=3001).contains(&behind), "3000 s behind, got {behind}");
         clear(&r);
     }
 
