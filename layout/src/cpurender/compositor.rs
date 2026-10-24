@@ -3317,9 +3317,12 @@ pub fn execute_virtual_view_shift(
     };
     let device = |v: f32| v * dpi_factor;
     let integral = |v: f32| (device(v) - device(v).round()).abs() < 1e-3;
-    if !integral(shift.delta.0) || !integral(shift.delta.1) || !integral(shift.offset.0)
-        || !integral(shift.offset.1)
-    {
+    // A move by whole device pixels keeps every pixel's phase, wherever the
+    // content's origin falls: only the move must be whole (a view's content
+    // offset is its materialized window's origin minus the scroll, rarely a
+    // whole pixel - requiring it whole sent every wheel step of AzDrive's
+    // folder to a repaint of the view).
+    if !integral(shift.delta.0) || !integral(shift.delta.1) {
         return whole;
     }
     let items = &display_list.items;
