@@ -823,5 +823,16 @@ pub fn sync(
     opts: &SyncOptions,
     hooks: &RunHooks<'_>,
 ) -> CloudResult<SyncReport> {
-    super::run(remote, root, index_path, opts, hooks)
+    // The harness's restore stands for the token server's announcement: its epoch is in the
+    // index. The run takes an older index after it as that restore, not as a rollback.
+    let mut opts = opts.clone();
+    if let Ok(Some(index)) = remote.read_harness() {
+        if index.restore_epoch > 0 {
+            opts.restore = Some(super::RestoreNotice {
+                epoch: index.restore_epoch,
+                prefix: String::new(),
+            });
+        }
+    }
+    super::run(remote, root, index_path, &opts, hooks)
 }

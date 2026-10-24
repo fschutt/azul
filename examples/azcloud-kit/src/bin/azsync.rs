@@ -265,6 +265,10 @@ fn options(config: &Config, confirm: bool) -> SyncOptions {
     opts.max_file_bytes = config.max_file;
     opts.allow_mass_delete = confirm;
     opts.settle = Duration::from_millis(config.settle_ms);
+    // A file written within the settle time waits for a later pass; downloads keep the disk's
+    // reserve the harness gives the device (the engine's default is 1 GiB).
+    opts.file_settle = Duration::from_millis(config.settle_ms);
+    opts.disk_reserve = config.reserve;
     opts
 }
 
