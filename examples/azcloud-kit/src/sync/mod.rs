@@ -54,6 +54,7 @@
 pub mod base;
 pub mod drive_store;
 pub mod engine;
+pub mod folder_remote;
 pub mod guard;
 pub mod journal;
 pub mod local;

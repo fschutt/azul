@@ -239,6 +239,9 @@ pub fn code_of_error(error: &CloudError) -> Code {
     if let CloudError::Drive(azul_storage::DriveError::Corrupt { .. }) = error.root() {
         return Code::HashMismatch;
     }
+    if let CloudError::Drive(azul_storage::DriveError::Transport(_)) = error.root() {
+        return Code::RemoteOffline;
+    }
     if let CloudError::Io(text) | CloudError::Drive(azul_storage::DriveError::Io(text)) =
         error.root()
     {
@@ -370,11 +373,7 @@ pub fn from_report(report: &SyncReport) -> Vec<Problem> {
 #[must_use]
 pub fn of_failed_pass(error: &CloudError) -> Problem {
     let code = match code_of_error(error) {
-        Code::Transient | Code::IoError | Code::Other
-            if error.to_string().contains("index cannot be read") =>
-        {
-            Code::RemoteIndexUnreadable
-        }
+        _ if error.to_string().contains("index cannot be read") => Code::RemoteIndexUnreadable,
         Code::Other if error.to_string().contains("--allow-mass-delete") => Code::MassDeleteHeld,
         code => code,
     };

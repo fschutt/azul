@@ -89,3 +89,9 @@ testing = []
 [lib]
 name = "azcloud_kit"
 path = "src/lib.rs"
+
+# The sync engine's command line, the client the sync test harness drives (adapter `engine`).
+[[bin]]
+name = "azsync"
+path = "src/bin/azsync.rs"
+required-features = ["state-db"]

@@ -272,8 +272,12 @@ impl<S: RemoteStore> RemoteStore for Retrying<S> {
 pub struct PassBackoff {
     /// Passes that failed in a row.
     pub failures: u32,
-    /// No pass before this (seconds since 1970).
+    /// No pass before this (seconds since 1970): the backoff, or the drive's own wait.
     pub not_before: f64,
+    /// No request before this (seconds since 1970): the drive's `Retry-After` alone. Even a
+    /// pass the user asks for waits for it.
+    #[serde(default)]
+    pub server_not_before: f64,
     /// Why the last one failed.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub last_error: String,
@@ -321,7 +325,10 @@ impl PassBackoff {
         let wait = match classify(error) {
             // The drive's own wait is the wait; otherwise half fixed, half jitter, so a pass
             // never comes back right away.
-            Verdict::Retry(Some(server)) => server,
+            Verdict::Retry(Some(server)) => {
+                self.server_not_before = self.server_not_before.max(now + server.as_secs_f64());
+                server
+            }
             Verdict::Retry(None) => policy.delay(self.failures, 0.5 + jitter / 2.0),
             Verdict::GiveUp => Self::CEILING,
         };
@@ -331,9 +338,14 @@ impl PassBackoff {
 
     /// A 429 seen inside a pass that otherwise went through: the next pass still waits for it.
     pub fn hold_until(&mut self, at: f64) {
-        if at > self.not_before {
-            self.not_before = at;
-        }
+        self.not_before = self.not_before.max(at);
+        self.server_not_before = self.server_not_before.max(at);
+    }
+
+    /// How long a pass the user asked for waits at `now`: only for the drive's `Retry-After`.
+    #[must_use]
+    pub fn server_wait(&self, now: f64) -> Duration {
+        Duration::from_secs_f64((self.server_not_before - now).max(0.0))
     }
 
     /// How long to wait before the next pass, at `now`.

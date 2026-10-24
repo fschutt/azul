@@ -56,6 +56,8 @@ mod sync_problems;
 mod sync_base;
 /// The engine around real passes: loops, the operations log, problems, recovery, marks.
 mod sync_engine;
+/// The sync test harness's drive folder as a drive side.
+mod sync_folder_remote;
 /// The journal: steps a crash cut off are finished or rolled back.
 mod sync_journal;
 /// The loop detector.
