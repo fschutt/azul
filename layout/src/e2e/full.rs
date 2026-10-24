@@ -4959,6 +4959,26 @@ struct E2eContinuation {
 #[cfg(feature = "std")]
 const E2E_PENDING_TIMEOUT_MS: u64 = 60_000;
 
+/// How long a whole run of `tests` may take before the runner gives it up as
+/// hung: every step's own limit (its `timeout_ms`, else
+/// [`E2E_PENDING_TIMEOUT_MS`]) added up, never less than ten minutes. A run of
+/// long steps (a sync of 100,000 files) is no hang; a hung event loop still ends.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn e2e_run_budget(tests: &[E2eTest]) -> std::time::Duration {
+    let steps = tests
+        .iter()
+        .flat_map(|test| test.steps.iter())
+        .map(|step| {
+            step.params
+                .get("timeout_ms")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(E2E_PENDING_TIMEOUT_MS)
+        })
+        .fold(0u64, u64::saturating_add);
+    std::time::Duration::from_millis(steps.max(600_000))
+}
+
 // ==================== Debug Server Handle ====================
 
 /// Handle to the debug server for clean shutdown

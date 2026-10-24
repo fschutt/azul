@@ -791,3 +791,27 @@ fn assert_notification_checks_when_a_scheduled_notification_shows() {
     );
     assert_eq!(not_scheduled.status, "fail", "a post shown at once is not scheduled");
 }
+
+// ==== the whole run's time limit ====
+
+/// A run waits as long as its steps may take (each step's `timeout_ms`, a
+/// minute when it names none), and never less than ten minutes.
+#[test]
+fn a_run_may_take_as_long_as_its_steps_and_at_least_ten_minutes() {
+    use std::time::Duration;
+    let long: Vec<E2eTest> = serde_json::from_value(serde_json::json!([
+        { "name": "a sync of 100,000 files", "steps": [
+            { "op": "drive_sync", "timeout_ms": 7_200_000 },
+            { "op": "drive_check" }
+        ] }
+    ]))
+    .unwrap();
+    assert_eq!(
+        crate::e2e::e2e_run_budget(&long),
+        Duration::from_millis(7_200_000 + 60_000)
+    );
+    let short: Vec<E2eTest> =
+        serde_json::from_value(serde_json::json!([{ "name": "quick", "steps": [{ "op": "x" }] }]))
+            .unwrap();
+    assert_eq!(crate::e2e::e2e_run_budget(&short), Duration::from_secs(600));
+}

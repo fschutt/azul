@@ -389,6 +389,7 @@ fn setup_e2e_runner(test_file: &str) {
     // Kept BEFORE the tests are moved into the queue: the report pairs each
     // result with its test (the `expect` marker) by name.
     let report_tests = tests.clone();
+    let budget = debug_server::e2e_run_budget(&tests);
 
     let total = tests.len();
     eprintln!(
@@ -414,10 +415,10 @@ fn setup_e2e_runner(test_file: &str) {
             // it into `Err(_)` printed "E2E test timeout (600 s)" the instant
             // the compositor disconnected us, which reads as "the harness hung
             // for ten minutes" when nothing waited at all.
-            let response = match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+            let response = match rx.recv_timeout(budget) {
                 Ok(r) => r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    eprintln!("\nerror: E2E test timeout (600 s)");
+                    eprintln!("\nerror: E2E test timeout ({} s)", budget.as_secs());
                     end_process_from_worker(1);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
