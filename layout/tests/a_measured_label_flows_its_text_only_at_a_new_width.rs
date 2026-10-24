@@ -134,7 +134,7 @@ pub(crate) fn rect(lw: &LayoutWindow, node: NodeId) -> LogicalRect {
 }
 
 /// Every glyph the window paints: `(glyph, x, y)`.
-fn painted_glyphs(lw: &LayoutWindow) -> Vec<(u32, f32, f32)> {
+pub(crate) fn painted_glyphs(lw: &LayoutWindow) -> Vec<(u32, f32, f32)> {
     lw.layout_results[&DomId::ROOT_ID]
         .display_list
         .items
