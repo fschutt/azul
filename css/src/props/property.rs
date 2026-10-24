@@ -10442,6 +10442,37 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_background_colour_fades_to_and_from_no_background() {
+        use crate::props::style::background::StyleBackgroundContent as B;
+        let r = resolver();
+        let blue = ColorU {
+            r: 11,
+            g: 94,
+            b: 215,
+            a: 255,
+        };
+        let colour = CssProperty::background_color(B::Color(blue));
+        let unset = CssProperty::auto(CssPropertyType::BackgroundColor);
+        // A tab whose hover colour goes away when the pointer leaves: the
+        // colour fades out to the transparent a background without one
+        // shows, hue kept, instead of the tween holding no value for its whole
+        // duration (which restyled the tab on every frame and showed nothing).
+        for (from, to, alpha) in [(&colour, &unset, 191), (&unset, &colour, 64)] {
+            let quarter = from.interpolate(to, 0.25, &r);
+            let CssProperty::BackgroundColor(CssPropertyValue::Exact(B::Color(c))) = quarter else {
+                panic!("expected a colour a quarter of the way, got {quarter:?}");
+            };
+            assert!(
+                c.a.abs_diff(alpha) <= 1 && (c.r, c.g, c.b) == (11, 94, 215),
+                "a quarter of the way the colour shows at alpha {alpha}, got {c:?}"
+            );
+        }
+        // The ends are the ends.
+        assert_eq!(colour.interpolate(&unset, 1.0, &r), unset);
+        assert_eq!(unset.interpolate(&colour, 0.0, &r), unset);
+    }
+
+    #[test]
     fn interpolate_nan_t_does_not_panic_and_keeps_the_property_type() {
         let r = resolver();
         let a = font_size(10.0);
