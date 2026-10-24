@@ -11,6 +11,7 @@
 //! counts) is the [`Harness`], one per process like the window it drives. The sync's own hooks
 //! report into it: [`pass_ended`] when a pass ends, [`change_ended`] when an answer landed.
 
+mod c_keys;
 mod checks;
 mod files;
 mod remote;
@@ -68,7 +69,7 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_harness", summary: "make the run's sandbox", args: &[("work", "string", false), ("keep", "bool", false)] },
     OpDoc { name: "drive_cleanup", summary: "remove the sandbox (unless kept)", args: &[] },
     OpDoc { name: "drive_create", summary: "a new remote", args: &[("remote", "string", true), ("encrypted", "bool", false), ("prefix", "string", false)] },
-    OpDoc { name: "drive_open", summary: "a device on a remote", args: &[("device", "string", true), ("remote", "string", true), ("device_name", "string", false), ("settle_ms", "number", false), ("clock", "number", false)] },
+    OpDoc { name: "drive_open", summary: "a device on a remote", args: &[("device", "string", true), ("remote", "string", true), ("device_name", "string", false), ("settle_ms", "number", false), ("clock", "number", false), ("joined", "bool", false), ("key_from", "string", false), ("recovery_code", "string", false)] },
     OpDoc { name: "drive_pair", summary: "pair the device's folder (AzDrive's Sync with a folder)", args: &[("device", "string", true), ("folder", "string", false), ("prefix", "string", false)] },
     OpDoc { name: "drive_unpair", summary: "stop syncing the device", args: &[("device", "string", true)] },
     OpDoc { name: "drive_restart", summary: "drop the device's in-memory sync state, read it again", args: &[("device", "string", true)] },
@@ -114,6 +115,10 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_tamper", summary: "change a remote past every device", args: &[("remote", "string", false), ("action", "string", true)] },
     OpDoc { name: "drive_snapshot", summary: "keep the remote's index under a name", args: &[("remote", "string", false), ("name", "string", true)] },
     OpDoc { name: "drive_check", summary: "a sync-chaos check", args: &[("check", "string", true)] },
+    // Group C: keys, recovery, share links.
+    OpDoc { name: "drive_recover", summary: "unlock the drive with a recovery code", args: &[DEVICE, ("recovery_code", "string", false), ("expect", "string", false)] },
+    OpDoc { name: "drive_join", summary: "join with another device's approval", args: &[DEVICE, ("approver", "string", true), ("pause_at", "string", false)] },
+    OpDoc { name: "drive_rotate_key", summary: "rotate an encrypted remote's drive key", args: &[("remote", "string", false)] },
 ];
 
 /// Adds the commands to `config` when a scenario or the debug server can reach them.
@@ -333,7 +338,7 @@ impl Harness {
         for (name, r) in &self.remotes {
             out = out.replace(&format!("{{remote:{name}}}"), &r.dir.to_string_lossy());
         }
-        out
+        c_keys::subst(&out)
     }
 
     /// The arguments with every string substituted ([`Self::subst`]).
@@ -441,6 +446,8 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_restart" => restart(s, args),
         "drive_sync" => sync(info, app, s, args, true),
         "drive_sync_bg" => sync(info, app, s, args, false),
+        // Group C: a join waiting at its approval goes on with drive_cont.
+        "drive_cont" if c_keys::join_waits(args) => c_keys::cont_join(s, args),
         "drive_cont" => with_harness(|h| {
             faults::release(&h.device(args)?.pair_folder);
             Ok(serde_json::json!({}))
@@ -490,6 +497,10 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_tamper" => tamper::tamper(s, args),
         "drive_snapshot" => tamper::snapshot(args),
         "drive_check" => checks::check(s, args),
+        // Group C: keys, recovery, share links.
+        "drive_recover" => c_keys::recover(s, args),
+        "drive_join" => c_keys::join(s, args),
+        "drive_rotate_key" => c_keys::rotate_key(s, args),
         _ if name.starts_with("drive_") => files::file_op(name, args),
         _ => Err(format!("'{name}' is not one of AzDrive's commands")),
     }
@@ -508,6 +519,7 @@ fn cleanup(s: &mut DriveState) -> Answer {
     let Some(h) = harness().take() else {
         return Ok(serde_json::json!({}));
     };
+    c_keys::forget();
     for d in &h.devices {
         faults::clear(&d.pair_folder);
     }
@@ -563,7 +575,8 @@ fn set_up_keys(remote: &Arc<Remote>) -> Result<(), String> {
     };
     let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
     device::setup_new_drive(&bucket, remote.keyring.as_ref(), &remote.drive_name, kdf)
-        .map(|_| ())
+        // The recovery sheet's code: `{recovery:<remote>}`, drive_recover's default.
+        .map(|(_, code)| c_keys::remember_code(&remote.name, code.to_text().to_string()))
         .map_err(|e| format!("the encrypted remote's keys: {e}"))
 }
 
@@ -590,6 +603,9 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
         remote: remote.clone(),
         device: name.clone(),
     });
+    // The remote's keyring (a joined device), or one of its own (`joined`, `key_from`).
+    #[cfg_attr(not(feature = "encryption"), allow(unused_variables))]
+    let keyring = c_keys::keyring_for_open(&remote, &name, args, bucket.as_ref())?;
     // A cloud drive in the source list; its drive is set here, so nothing ever opens the
     // address (`.invalid` names no host).
     let mut slot = Slot::new(DriveEntry {
@@ -613,7 +629,7 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
             let auto = Arc::new(azul_storage::encrypted::AutoEncrypted::new(
                 bucket,
                 &remote.drive_name,
-                remote.keyring.clone(),
+                keyring,
                 Some(provider),
             ));
             slot.drive = Some(auto.clone() as Arc<dyn Drive>);

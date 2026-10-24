@@ -46,7 +46,6 @@
   {
     "name": "a client without the drive key uploads no plaintext and downloads no ciphertext",
     "description": "KOOFR-013 (Koofr desktop pointed at a Vault Safe Box): it downloaded ciphertext with random names and uploaded local files unencrypted into the encrypted folder. Rules I1 and S15: an encrypted drive holds only AZL1 objects; plaintext never reaches it and a client without the key syncs nothing. sync-chaos crypto-no-plaintext-no-dedup.",
-    "pending": "drive_open field keyless (bool: a device on an encrypted remote without the drive key, as a desktop app without vault support)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -54,7 +53,7 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_write", "device": "a", "path": "ok.txt", "text": "ok" },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_open", "device": "k", "remote": "r", "keyless": true },
+      { "op": "drive_open", "device": "k", "remote": "r", "joined": false },
       { "op": "drive_pair", "device": "k" },
       { "op": "drive_wait_idle" },
       { "op": "drive_write", "device": "k", "path": "local.txt", "text": "PLAINTEXT-MARKER-KEYLESS" },

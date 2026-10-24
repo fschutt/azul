@@ -1,7 +1,7 @@
 {
   "name": "after the drive key is rotated, a file version and a trashed file from before the rotation still decrypt",
   "description": "KOOFR-014 (Koofr Vault): deleting a Safe Box to replace a weak key made restored files unreadable; only re-creating the box with the old name, password and salt helped. Rule I1 and the key vault: files and trash from before a key rotation still decrypt (old keys stay wrapped by the new one). sync-chaos crypto-keys-and-recovery.",
-  "pending": "drive_rotate_key {remote} (rotate the drive key, old keys rewrapped), drive_restore_version {device, key, version} and drive_restore_deleted {device, key} (the window's restore of a stored version and of a deleted file from the drive)",
+  "pending": "drive_restore_version {device, key, version} and drive_restore_deleted {device, key} (the window's restore of a stored version and of a deleted file from the drive); drive_rotate_key exists",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

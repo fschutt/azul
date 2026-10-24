@@ -28,7 +28,6 @@
   {
     "name": "the drive opened on a new device with the recovery code alone, without the lost sign-in channel",
     "description": "TERABOX-012 (TeraBox): support would not change the e-mail and the account was lost. Rule I1 (the recovery wrap opens the drive key without any other channel). sync-chaos crypto-keys-and-recovery (pending there).",
-    "pending": "drive_open {\"joined\": false} (a device that does not share the remote's in-memory keyring), drive_recover {\"device\": \"c\", \"recovery_code\": \"...\"} and the {recovery:<remote>} placeholder",
     "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },

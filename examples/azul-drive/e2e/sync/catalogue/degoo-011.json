@@ -1,7 +1,6 @@
 {
   "name": "a device without the drive key (a forgotten passphrase) changes nothing; the recovery code gives every file back",
   "description": "DEGOO-011 (sync-chaos crypto-keys-and-recovery): Degoo's Top Secret files were lost for good with a forgotten passphrase. Rules I1 and D5: the recovery code made at the drive's creation unwraps the drive key, every encrypted file decrypts again; a device without the key reads nothing and deletes nothing meanwhile.",
-  "pending": "drive_open joined:false (a device whose keyring lacks the remote's drive key, as after a forgotten passphrase); drive_recover {device} (AzDrive's recovery flow: unwrap the drive key from the recovery wrap with the recovery code drive_create made)",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

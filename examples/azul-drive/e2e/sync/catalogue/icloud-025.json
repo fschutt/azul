@@ -34,7 +34,6 @@
   {
     "name": "a new device whose approving device goes offline mid-handshake: a clear error, the recovery code still works, nothing is deleted",
     "description": "ICLOUD-025: 'Your device hasn't given access to display your files' with no way through. Rules I1 and O1: a join that cannot finish says so (sign-in-needed), the recovery code is the way through, and the drive is untouched meanwhile.",
-    "pending": "drive_open joined:false (a device without the drive key); drive_join {device, approver, pause_at: \"approve\"} (AzDrive's device approval: the approver wraps the drive key for the new device; paused before the approval lands, drive_cont finishes it); drive_recover {device} (the recovery-code flow)",
     "steps": [
       { "op": "drive_create", "remote": "r2", "encrypted": true },
       { "op": "drive_open", "device": "c", "remote": "r2" },
@@ -51,6 +50,7 @@
       { "op": "drive_sync", "device": "d", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "d", "code": "sign-in-needed", "when": "last" },
       { "op": "drive_check", "check": "files_count", "device": "d", "count": 0 },
+      { "op": "drive_fault", "device": "c", "clear": true },
       { "op": "drive_check", "check": "remote_count", "count": 1 },
       { "op": "drive_recover", "device": "d" },
       { "op": "drive_sync", "device": "d" },

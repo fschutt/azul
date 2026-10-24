@@ -41,9 +41,8 @@
     "steps": []
   },
   {
-    "name": "a device that joins with the recovery code alone reads every file, also after the drive key was rotated",
-    "description": "INFOMANIAK-006 (trigger d): a lost restic/Acronis password made the encrypted backups unrecoverable and the key could not be changed. Rule I1 and the key vault: the drive key has a recovery wrap, a rotation keeps old files readable, and a new device opened from the recovery code alone decrypts everything. sync-chaos crypto-keys-and-recovery.",
-    "pending": "drive_open {device, remote, key_from: \"recovery\"} (a device that joins with the drive's recovery code alone, not the shared in-memory keyring) and drive_rotate_key {remote} (rotate the drive key, old file keys rewrapped)",
+    "name": "a device that joins with the recovery code alone reads every file; a key rotation removes it until it unlocks with the new code, and the old code no longer opens the drive",
+    "description": "INFOMANIAK-006 (trigger d): a lost restic/Acronis password made the encrypted backups unrecoverable and the key could not be changed. Rule I1 and the key vault: the drive key has a recovery wrap, a rotation keeps old files readable, and a new device opened from the recovery code alone decrypts everything. sync-chaos crypto-keys-and-recovery. The rotation is the compromise flow (azul-storage rotation.rs): every other member leaves and comes back with the new recovery code, which the rotation made; the old code is refused.",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -57,14 +56,22 @@
       { "op": "drive_wait_idle" },
       { "op": "drive_check", "check": "file", "device": "c", "path": "taxes/2025.pdf", "text": "the tax return" },
       { "op": "drive_rotate_key", "remote": "r" },
+      { "op": "assert_response", "path": "result.members_removed", "at_least": 1 },
       { "op": "drive_write", "device": "a", "path": "after-rotation.txt", "text": "written under the new key" },
       { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "after-rotation.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "taxes/2025.pdf", "text": "the tax return" },
+      { "op": "drive_recover", "device": "c", "recovery_code": "{recovery_old:r}", "expect": "refused" },
+      { "op": "drive_recover", "device": "c" },
       { "op": "drive_sync", "device": "c" },
       { "op": "drive_check", "check": "file", "device": "c", "path": "after-rotation.txt", "text": "written under the new key" },
       { "op": "drive_open", "device": "d", "remote": "r", "key_from": "recovery" },
       { "op": "drive_pair", "device": "d" },
       { "op": "drive_wait_idle" },
       { "op": "drive_check", "check": "file", "device": "d", "path": "photos/kid.jpg", "text": "a photo" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "after-rotation.txt", "text": "written under the new key" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "the tax return" },
       { "op": "drive_check", "check": "converged" },
       { "op": "drive_cleanup" }
     ]
