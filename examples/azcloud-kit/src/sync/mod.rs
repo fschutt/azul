@@ -54,6 +54,9 @@
 pub mod base;
 pub mod drive_store;
 pub mod engine;
+// Where a test harness crashes or pauses a pass (through SyncSession::with_points), and the
+// clock and disk a pass sees.
+pub mod faults;
 pub mod folder_remote;
 pub mod guard;
 pub mod journal;
