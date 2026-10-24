@@ -25618,6 +25618,28 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "E2eCommandCallbackType": {
+                        "external": "azul_layout::callbacks::E2eCommandCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "String"
+                                },
+                                {
+                                    "type": "String"
+                                }
+                            ],
+                            "returns": {
+                                "type": "CustomE2eOpResult"
+                            }
+                        }
                     }
                 }
             },
@@ -38820,6 +38842,94 @@
                                 "Woke": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "CoreE2eCommandCallback": {
+                        "external": "azul_core::events::CoreE2eCommandCallback",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "usize"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "E2eCommand": {
+                        "external": "azul_core::events::E2eCommand",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "op_def": {
+                                    "type": "Json"
+                                },
+                                "callback": {
+                                    "type": "CoreE2eCommandCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "E2eCommandCallback": {
+                        "external": "azul_layout::callbacks::E2eCommandCallback",
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "E2eCommandCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A command callback from a bare function pointer (no host callable)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cb": "E2eCommandCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::callbacks::E2eCommandCallback::create(cb)"
+                            }
+                        },
+                        "functions": {
+                            "to_core": {
+                                "doc": [
+                                    "The form `AppConfig` stores (the pointer as a `usize`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CoreE2eCommandCallback"
+                                },
+                                "fn_body": "object.to_core()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -176448,6 +176558,64 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "E2eCommandVec": {
+                        "external": "azul_core::events::E2eCommandVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "E2eCommand",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "E2eCommandVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "E2eCommandVecDestructor": {
+                        "external": "azul_core::events::E2eCommandVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "E2eCommandVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "E2eCommandVecDestructorType": {
+                        "external": "azul_core::events::E2eCommandVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "E2eCommandVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -190462,6 +190630,9 @@
                                 "custom_e2e_op": {
                                     "type": "CustomE2eOpCallback"
                                 },
+                                "e2e_commands": {
+                                    "type": "E2eCommandVec"
+                                },
                                 "updates": {
                                     "type": "UpdateSettings"
                                 },
@@ -190899,6 +191070,29 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_trust_roots(trust_roots)"
+                            },
+                            "add_e2e_command": {
+                                "doc": [
+                                    "Add an E2E command `name`: a scenario step or a debug-server request",
+                                    "with that op runs `callback` (see [`crate::events::E2eCommand`]).",
+                                    "`op_def` describes it for `list_app_ops`. Replaces an earlier command",
+                                    "of the same name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "op_def": "Json"
+                                    },
+                                    {
+                                        "callback": "CoreE2eCommandCallback"
+                                    }
+                                ],
+                                "fn_body": "object.add_e2e_command(name, op_def, callback)"
                             }
                         },
                         "repr": "C"
