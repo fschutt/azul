@@ -12,12 +12,15 @@
 //!
 //! What the disk does with names ([`Volume`]) is probed in the same folder.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use azul_storage::beneath::{self, BeneathError, Kind, Root};
 use serde::{Deserialize, Serialize};
 
-use super::names::{System, Volume};
+use super::{
+    local::BaseEntry,
+    names::{System, Volume},
+};
 
 /// The bookkeeping folder of a synced folder, from its root.
 pub const SYNC_DIR: &str = ".azlin/sync";
@@ -93,18 +96,24 @@ pub fn write_marker(root: &Path) -> Result<Marker, BeneathError> {
 }
 
 /// Checks the folder at `root` against the marker its base names (`expected`; `None`: a
-/// pairing without one yet - a new pairing, or one made before markers existed). `paired`: the
-/// base knows files or a generation. A folder that is missing when nothing is paired yet is
-/// made; a folder without a marker and without an expected one gets one.
+/// pairing without one yet - a new pairing, or one made before markers existed). `base`: the
+/// files the pairing synced, `None` while nothing is paired (the base knows no file and no
+/// generation). A folder that is missing when nothing is paired yet is made; a folder without
+/// a marker and without an expected one gets one - when the pairing is older than markers,
+/// only while it holds one of its files as it was synced (its size and time).
 ///
 /// # Errors
 ///
 /// When the folder or its marker cannot be made.
-pub fn check(root: &Path, expected: Option<&str>, paired: bool) -> Result<RootCheck, BeneathError> {
+pub fn check(
+    root: &Path,
+    expected: Option<&str>,
+    base: Option<&BTreeMap<String, BaseEntry>>,
+) -> Result<RootCheck, BeneathError> {
     let meta = match std::fs::metadata(root) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            if expected.is_some() || paired {
+            if expected.is_some() || base.is_some() {
                 return Ok(RootCheck::Missing);
             }
             std::fs::create_dir_all(root)?;
@@ -128,10 +137,42 @@ pub fn check(root: &Path, expected: Option<&str>, paired: bool) -> Result<RootCh
             "{} lacks the marker it was paired with (a disk not mounted, or another folder)",
             root.display()
         ))),
+        // A pairing from before markers: only its files tell its folder. An empty mount point,
+        // or a stale copy written under it, holds none of them as synced.
+        (_, None) if base.is_some_and(|files| !holds_synced(root, files)) => {
+            Ok(RootCheck::Replaced(format!(
+                "{} holds none of the files synced from it as they were, and no marker (a disk \
+                 not mounted, or another folder)",
+                root.display()
+            )))
+        }
         // A folder synced elsewhere before (moved here, plugged in again) keeps its identity.
         (Some(marker), None) => Ok(RootCheck::Paired(marker)),
         (None, None) => Ok(RootCheck::Paired(write_marker(root)?)),
     }
+}
+
+/// Whether the folder `root` holds one of the files `base` synced from it as it was synced (its
+/// size and time), or `base` synced none here (all in the cloud only): the evidence a pairing
+/// without a marker has that this is its folder. Inode numbers are not compared: FAT and
+/// exFAT give a file another one after a remount.
+fn holds_synced(root: &Path, base: &BTreeMap<String, BaseEntry>) -> bool {
+    let mut here = base.iter().filter(|(_, e)| !e.cloud_only).peekable();
+    if here.peek().is_none() {
+        return true;
+    }
+    let Ok(tree) = Root::open(root) else {
+        return false;
+    };
+    here.any(|(key, entry)| {
+        let (folder, name) = beneath::split_key(key);
+        tree.dir(folder, false)
+            .ok()
+            .and_then(|dir| dir.lstat(name).ok())
+            .is_some_and(|st| {
+                st.kind == Kind::File && st.size == entry.size && st.mtime_ns == entry.mtime_ns
+            })
+    })
 }
 
 /// The trash folder of one pass: `20261024-101500-a1b2c3`, so passes never mix their files.

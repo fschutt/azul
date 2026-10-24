@@ -1018,6 +1018,12 @@ impl SyncSession {
             Ok(result) => result?,
             Err(_) => fail!("the sync of {} stopped unexpectedly", self.setup.folder.display()),
         };
+        // A run that changed nothing because the folder or the drive is not the one paired (a
+        // disk not mounted, a rolled-back index) is no pass: the app says why, and the last
+        // pass stays the last one that synced.
+        if let Some(why) = &report.refused {
+            fail!("{why}");
+        }
         record(states, &report, &moved);
         // Sources moved into the folder go once the drive holds their copies.
         if let Some(remote) = &report.remote {

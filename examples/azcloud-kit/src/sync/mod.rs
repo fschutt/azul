@@ -2852,7 +2852,11 @@ fn run<R: SyncRemote + ?Sized>(
     // is never "every file deleted".
     let paired = index.generation > 0 || !index.files.is_empty() || index.root_id.is_some();
     if paired || !opts.dry_run {
-        match root::check(&root.path, index.root_id.as_deref(), paired) {
+        match root::check(
+            &root.path,
+            index.root_id.as_deref(),
+            paired.then_some(&index.files),
+        ) {
             Ok(root::RootCheck::Paired(marker)) => index.root_id = Some(marker.id),
             Ok(root::RootCheck::Missing) => {
                 report.refuse(
