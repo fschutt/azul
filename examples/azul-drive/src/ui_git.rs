@@ -5,8 +5,10 @@
 //! commit of a detached HEAD), a dot when something is not committed, and how far the branch
 //! is from its upstream. A cloud folder never gets a chip. The chip is looked at again when the
 //! folder changes, after F5, after a command of the command bar, and when the repository's
-//! files change (a one-second watch: HEAD, the index and the refs by their stamps, the work
-//! tree through azcloud-kit's watcher).
+//! files change (a one-second watch: HEAD, the index and the refs by their stamps; the work
+//! tree's edits through azcloud-kit's watcher on macOS, where FSEvents watches a tree in one
+//! stream, and elsewhere by looking again every ten seconds while a look is quick - inotify
+//! would need a watch per folder, an ignored `node_modules` included).
 //!
 //! A click on the chip (or Cmd/Ctrl+B, or `/switch`) opens the quick switcher: azul's Dialog
 //! as a popover under the chip, its filter field taking the keyboard, the local branches
@@ -76,7 +78,11 @@ pub(crate) struct GitView {
     pub again: bool,
     /// The stamps of the repository's watched files at the last look (the watch compares).
     pub stamp: Option<Stamp>,
-    /// The work tree's watcher (its edits), and the root it watches; dropped off a repository.
+    /// When the last look ended and how long it took: the poll for edits where no work tree
+    /// watcher runs (`git_repo::poll_due`).
+    pub last_look: Option<(std::time::Instant, StdDuration)>,
+    /// The work tree's watcher (its edits; macOS only), and the root it watches; dropped off a
+    /// repository.
     pub watcher: Option<(PathBuf, azcloud_kit::sync::watcher::Watcher)>,
     /// The watch timer runs (it ends itself when there is no repository).
     pub timer: bool,
@@ -172,6 +178,8 @@ enum GitDone {
         dir: PathBuf,
         stamp: Option<Stamp>,
         result: Result<Option<RepoInfo>, String>,
+        /// How long the look took.
+        took: StdDuration,
     },
     Branches {
         serial: u64,
@@ -215,13 +223,20 @@ extern "C" fn git_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: 
     let limits = Limits::default();
     let done = match job {
         GitJob::Probe { dir } => {
+            let started = std::time::Instant::now();
             let result = git_repo::probe(&dir, &limits);
+            let took = started.elapsed();
             // The stamps right after the look: a change after this one is the watch's.
             let stamp = match &result {
                 Ok(Some(info)) => Some(git_repo::stamp(&info.watched_files())),
                 _ => None,
             };
-            GitDone::Probed { dir, stamp, result }
+            GitDone::Probed {
+                dir,
+                stamp,
+                result,
+                took,
+            }
         }
         GitJob::Branches { serial, dir } => GitDone::Branches {
             serial,
@@ -256,9 +271,15 @@ extern "C" fn on_git_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     };
     let s = &mut *guard;
     match done {
-        GitDone::Probed { dir, stamp, result } => {
+        GitDone::Probed {
+            dir,
+            stamp,
+            result,
+            took,
+        } => {
             s.git.probing = false;
             if s.git.dir.as_deref() == Some(dir.as_path()) {
+                s.git.last_look = Some((std::time::Instant::now(), took));
                 s.git.repo = match result {
                     Ok(None) => None,
                     Ok(Some(found)) => Some(Ok(found)),
@@ -333,8 +354,9 @@ fn start_watch(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 }
 
 /// Every second while a repository shows: a look again when HEAD, the index or a ref was
-/// written (their stamps), or the work tree's watcher heard an edit outside `.git`'s objects
-/// and logs. A repository too big to scan gets no work tree watcher.
+/// written (their stamps), or - on macOS - the work tree's watcher heard an edit outside
+/// `.git`'s objects and logs; elsewhere when the poll is due. A repository too big to scan
+/// gets no work tree watcher.
 extern "C" fn on_watch_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut callback_info = info.callback_info;
     let app = data.clone();
@@ -355,8 +377,13 @@ extern "C" fn on_watch_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
         .stamp
         .as_ref()
         .is_some_and(|before| *before != git_repo::stamp(&found.watched_files()));
+    // Only FSEvents watches a whole tree cheaply (one stream, started at once): azcloud-kit's
+    // inotify watcher walks the tree here, on the UI thread, with a watch per folder, and its
+    // fallback reads the whole tree every two seconds.
     let watch_root = match (&found.work_dir, &found.changes) {
-        (Some(root), Changes::Clean | Changes::Dirty { .. }) => Some(root.clone()),
+        (Some(root), Changes::Clean | Changes::Dirty { .. }) if cfg!(target_os = "macos") => {
+            Some(root.clone())
+        }
         _ => None,
     };
     if s.git.watcher.as_ref().map(|(root, _)| root) != watch_root.as_ref() {
@@ -370,6 +397,8 @@ extern "C" fn on_watch_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
         if let Some(wake) = watcher.wait(StdDuration::ZERO, StdDuration::ZERO) {
             changed |= heard_an_edit(&wake);
         }
+    } else if let (false, Some((at, took))) = (s.git.probing, s.git.last_look) {
+        changed |= git_repo::poll_due(took, at.elapsed());
     }
     if changed {
         request_probe(&mut callback_info, &app, s);
