@@ -777,6 +777,13 @@ review = "audited"
 reason = "proc macro expanding #[php_class]/#[php_function] into PHP extension glue"
 reviewed = ["0.11.14:d3963faf480a138a81e67af71997d959f1daf28ffe41171cbbb237321c12ddf9"]
 
+[crate."faster-hex"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "build.rs is one autocfg probe (emit_path_cfg core::error::Error -> has_core_error): it compiles a test snippet with rustc into OUT_DIR; no fs, env, net or other process"
+reviewed = ["0.10.1:8fa387ed0df905366c03d6082a57d34b454234c4f121ef6d9a4c1cf87dcd3a38"]
+
 [crate."fastrand"]  # build-dependency
 allow = true
 risk = "low"
@@ -923,6 +930,13 @@ risk = "low"
 review = "audited"
 reason = "git_version! for lepton_jpeg: runs `git -C $CARGO_MANIFEST_DIR describe --abbrev=40 --always --dirty=M` with fallback '0' (no shell). lepton_jpeg parses the result as a u32, which a 40-digit hash never is, so nothing of it reaches the Lepton header. git_submodule_versions! (git submodule foreach through a shell) is not used by anything in the tree (read 0.3.9)"
 reviewed = ["0.3.9:0195e991d2ee1851c1290b16cdf98d03b0ff8e8081073282fa38aa0f7468b6d0"]
+
+[crate."gix-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "gitoxide's momo (monomorphization helper) and bisync attribute macros: syn/quote rewriting of the annotated item only; no fs, env, net or subprocess"
+reviewed = ["0.2.0:d59804ac360570245c225aa41ba9ea5a5910e5e0631e0f57e0c3c18ba6f3eaf4"]
 
 [crate."glob"]  # build-dependency
 allow = true
