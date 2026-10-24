@@ -39,21 +39,21 @@ const fn container(name: &'static str, original_blake3: &'static str, transform:
 
 /// Format version 1. A line here is never changed or removed.
 const V1: &[Vector] = &[
-    container("v1-stored", "", TransformId::None, &[0]),
-    container("v1-zstd", "", TransformId::None, &[1]),
-    container("v1-brotli", "", TransformId::None, &[2]),
-    container("v1-dictionary", "", TransformId::None, &[4]),
-    container("v1-jpeg", "", TransformId::Jpeg, &[0]),
-    container("v1-gzip", "", TransformId::Containers, &[1]),
-    container("v1-png", "", TransformId::Containers, &[1]),
-    container("v1-docx", "", TransformId::Containers, &[0, 1]),
-    container("v1-pdf", "", TransformId::Containers, &[0, 1]),
+    container("v1-stored", "955163ebb448815d7d9b6b6d0a5708f9a469ed6721c4310c89acc23e156e4d38", TransformId::None, &[0]),
+    container("v1-zstd", "8a2fa2344e4e5eeb6d43f10ae9b50795638e157fe431addce0948ebb82fea277", TransformId::None, &[1]),
+    container("v1-brotli", "4c9d3fd2c0414c37bc3874e50e3b06d87c1b69dec1389f122ca0ee6dd868fd0f", TransformId::None, &[2]),
+    container("v1-dictionary", "995ae898dec25d1d74dd3585ac596b04eb8eeb9fb7f3b390c2af382cdc3f294d", TransformId::None, &[4]),
+    container("v1-jpeg", "d1ed31e6936feb0fb690a9a07412aea67d78ba71eadef760b044865c0022170b", TransformId::Jpeg, &[0]),
+    container("v1-gzip", "037f9b46fdfc853ee884a8a07788a3849852954e13e7b3e0075d0301a855ccc4", TransformId::Containers, &[1]),
+    container("v1-png", "f73830055a337a1e134ae03a1d360f56e8b094da77861531f08bc7f99420ddb2", TransformId::Containers, &[1]),
+    container("v1-docx", "c6eb703a28820171b9026ee718b1f07d50c5adb286073f53c39106833f2ebfb9", TransformId::Containers, &[1]),
+    container("v1-pdf", "d37c144ad953b60f45381b5cdb24202e62a21db52890ed0521beff49d87e8fb6", TransformId::Containers, &[1]),
 ];
 
 /// Pack member records of format version 1: `<name>.member` is the codec byte, then the data.
 const V1_MEMBERS: &[Vector] = &[
-    container("v1-member-dictionary", "", TransformId::None, &[4]),
-    container("v1-member-jpeg", "", TransformId::Jpeg, &[MEMBER_CONTAINER]),
+    container("v1-member-dictionary", "0fb7bf501d5d6d2b9fee88600f04bf4a8a422ee9fc95cc217ba64893a4bd8ccf", TransformId::None, &[4]),
+    container("v1-member-jpeg", "fc5bc8ef913710e81309abd29b8457207a02a6c09610449a44812e4bb3618471", TransformId::Jpeg, &[MEMBER_CONTAINER]),
 ];
 
 fn dir() -> PathBuf {
