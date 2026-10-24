@@ -1,7 +1,10 @@
 //! Group B's steps on a device's folder and disk: a folder the scan cannot list for a while
 //! (`drive_local_fault`), extended attributes and BSD flags (`drive_xattr`, `drive_chflags`).
 
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use azcloud_kit::sync::{attrs, faults};
 
@@ -53,6 +56,60 @@ pub(crate) fn clear_flags(top: &Path) {
     walk(top);
 }
 
+/// The time `t` in nanoseconds since 1970, negative before it.
+pub(crate) fn signed_ns(t: SystemTime) -> i64 {
+    match t.duration_since(UNIX_EPOCH) {
+        Ok(after) => i64::try_from(after.as_nanos()).unwrap_or(i64::MAX),
+        Err(before) => i64::try_from(before.duration().as_nanos()).map_or(i64::MIN, |ns| -ns),
+    }
+}
+
+/// The time `ns` nanoseconds after 1970 (before it when negative).
+pub(crate) fn time_of_ns(ns: i64) -> SystemTime {
+    let span = Duration::from_nanos(ns.unsigned_abs());
+    if ns < 0 {
+        UNIX_EPOCH - span
+    } else {
+        UNIX_EPOCH + span
+    }
+}
+
+/// Sets the modification time of `path` to `ns` nanoseconds after 1970 (negative: before).
+pub(crate) fn set_mtime_signed(path: &Path, ns: i64) -> std::io::Result<()> {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.set_modified(time_of_ns(ns)))
+}
+
+/// The path of a name of raw bytes (`hex`, a relative path with `/` between its folders) in
+/// the folder `root`: a name that is no UTF-8 exists on Linux and the BSDs, never in a JSON
+/// string.
+pub(crate) fn raw_path(root: &Path, hex: &str) -> Result<PathBuf, String> {
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect::<Option<_>>()
+        .ok_or_else(|| format!("path_hex '{hex}' is not hex"))?;
+    if bytes.is_empty() || bytes.contains(&0) || bytes.first() == Some(&b'/') {
+        return Err(String::from("path_hex names no relative path (empty, a NUL, or absolute)"));
+    }
+    raw_name(root, &bytes)
+}
+
+#[cfg(unix)]
+fn raw_name(root: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(root.join(std::ffi::OsStr::from_bytes(bytes)))
+}
+
+#[cfg(not(unix))]
+fn raw_name(root: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    String::from_utf8(bytes.to_vec())
+        .map(|name| root.join(name))
+        .map_err(|_| String::from("this system's names are Unicode: a name of raw bytes cannot be made"))
+}
+
 /// `drive_local_fault`: the scan of the device's folder meets `readdir_error` (`EIO`,
 /// `ENOTDIR`, `EACCES` or an error number) when it lists `path` (a folder of the device, `""`
 /// or absent: its top), for the next `passes` passes (default 1; 0 ends it).
@@ -88,6 +145,36 @@ fn folder_key(root: &Path, path: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_time_before_1970_is_a_negative_number_of_nanoseconds_both_ways() {
+        let ns = -31_536_000_000_000_000_i64;
+        assert_eq!(signed_ns(time_of_ns(ns)), ns);
+        assert_eq!(signed_ns(time_of_ns(5)), 5);
+        assert_eq!(signed_ns(UNIX_EPOCH), 0);
+    }
+
+    #[test]
+    fn a_file_written_with_a_time_before_1970_keeps_it() {
+        let dir = azul_storage::testing::TempDir::new("azdrive-b-old-mtime");
+        let path = dir.path().join("IMG_1969.JPG");
+        std::fs::write(&path, b"old").unwrap();
+        let ns = -31_536_000_000_000_000_i64;
+        set_mtime_signed(&path, ns).expect("a time before 1970 can be set");
+        let back = signed_ns(std::fs::metadata(&path).unwrap().modified().unwrap());
+        assert!((back - ns).abs() < 2_000_000_000, "{back} is {ns}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_raw_name_keeps_its_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let root = Path::new("/sandbox/root");
+        let path = raw_path(root, "696e76616c6964ff2e747874").unwrap();
+        assert_eq!(path.file_name().unwrap().as_bytes(), b"invalid\xff.txt");
+        assert!(raw_path(root, "2f6574632f706173737764").is_err(), "absolute");
+        assert!(raw_path(root, "zz").is_err());
+    }
 
     #[test]
     fn chflags_names_set_and_clear_flags_as_the_command_does() {

@@ -7,7 +7,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use super::{bool_arg, need, str_arg, with_harness, Answer, Args, Harness};
@@ -199,15 +199,6 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::write(path, bytes).map_err(|e| io(e, path))
 }
 
-fn set_mtime_ns(path: &Path, ns: u64) -> Result<(), String> {
-    let when = UNIX_EPOCH + Duration::from_nanos(ns);
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .and_then(|f| f.set_modified(when))
-        .map_err(|e| io(e, path))
-}
-
 #[cfg(unix)]
 fn set_mode(path: &Path, mode: u32) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
@@ -232,13 +223,18 @@ pub(crate) fn file_op(name: &str, args: &Args) -> Answer {
     with_harness(|h| {
         match name {
             "drive_write" => {
-                let path = h.path(args, "path")?;
+                // `path_hex`: a name of raw bytes (one that is no UTF-8 cannot be a JSON string).
+                let path = match str_arg(args, "path_hex") {
+                    Some(hex) => super::b_files::raw_path(&h.device(args)?.root, hex)?,
+                    None => h.path(args, "path")?,
+                };
                 write_file(&path, &content_of(args)?)?;
                 if bool_arg(args, "exec") {
                     set_mode(&path, 0o755)?;
                 }
-                if let Some(ns) = args.get("mtime").and_then(serde_json::Value::as_u64) {
-                    set_mtime_ns(&path, ns)?;
+                // A time before 1970 is a negative number of nanoseconds.
+                if let Some(ns) = args.get("mtime").and_then(serde_json::Value::as_i64) {
+                    super::b_files::set_mtime_signed(&path, ns).map_err(|e| io(e, &path))?;
                 }
                 remember_text(h, args);
             }
@@ -329,21 +325,21 @@ pub(crate) fn file_op(name: &str, args: &Args) -> Answer {
             }
             "drive_utime" => {
                 let path = h.path(args, "path")?;
+                // Nanoseconds since 1970, negative before it (a photo from 1969).
                 let ns = match str_arg(args, "like") {
                     Some(_) => {
                         let like = h.path(args, "like")?;
                         let t = fs::metadata(&like)
                             .and_then(|m| m.modified())
                             .map_err(|e| io(e, &like))?;
-                        t.duration_since(UNIX_EPOCH)
-                            .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                        super::b_files::signed_ns(t)
                     }
                     None => args
                         .get("mtime")
-                        .and_then(serde_json::Value::as_u64)
+                        .and_then(serde_json::Value::as_i64)
                         .ok_or("'mtime' or 'like' is missing")?,
                 };
-                set_mtime_ns(&path, ns)?;
+                super::b_files::set_mtime_signed(&path, ns).map_err(|e| io(e, &path))?;
             }
             "drive_many" => {
                 let dir = h.path(args, "dir")?;
@@ -500,11 +496,7 @@ fn entry_json(path: &Path, meta: &fs::Metadata) -> serde_json::Value {
         "hash": hash(&bytes),
         "text": String::from_utf8(bytes).ok(),
         "mode": format!("{:o}", mode(meta)),
-        "mtime_ns": meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)),
+        "mtime_ns": meta.modified().ok().map(super::b_files::signed_ns),
     })
 }
 

@@ -656,11 +656,11 @@ fn state_private(h: &Harness, args: &Args) -> Verdict {
 
 fn mtime(h: &Harness, args: &Args) -> Verdict {
     let path = h.path(args, "path")?;
-    let ns = fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .map_err(|e| e.to_string())?
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos() as i128);
+    let ns = i128::from(super::b_files::signed_ns(
+        fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .map_err(|e| e.to_string())?,
+    ));
     let want = args.get("ns").and_then(serde_json::Value::as_i64).ok_or("'ns' is missing")?;
     let tolerance = args
         .get("tolerance_ns")

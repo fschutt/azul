@@ -69,8 +69,6 @@
     "name": "a local file whose name is not valid UTF-8 is listed as bad-name and never uploaded or retried in a loop",
     "description": "JOTTA-011 (Jottacloud): 'sync looping if file/folder names contain invalid utf8 characters' (fixed 2026-08). Rule P4 (invalid UTF-8 refused everywhere) and O1.",
     "only_on": ["linux"],
-    "pending": "drive_write {\"device\": \"a\", \"path_hex\": \"696e76616c6964ff2e747874\", \"text\": \"not utf-8\"}: a file whose name is raw bytes (not UTF-8), Linux only",
-    "expect": "fail",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": false },
       { "op": "drive_open", "device": "a", "remote": "r" },

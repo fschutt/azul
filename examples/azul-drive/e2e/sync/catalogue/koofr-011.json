@@ -47,7 +47,6 @@
   {
     "name": "a local name that is not valid UTF-8 is listed and stays here",
     "description": "KOOFR-011 (Koofr API and desktop): a backslash was replaced by U+FF3C, invalid UTF-8 replaced, emoji refused as 'Invalid filename', Google Drive names given U+FFFD plus a random suffix. Rules P4, S8 and O1: names are kept byte for byte; emoji and astral-plane characters are valid everywhere; a backslash or invalid UTF-8 is refused and listed per file, never mapped silently. sync-chaos port-control-chars. Linux file names are bytes; 0xFF cannot be written in a JSON path.",
-    "pending": "drive_write field path_hex (a file name given as raw bytes, so a name that is not UTF-8 can be made)",
     "only_on": ["linux"],
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },

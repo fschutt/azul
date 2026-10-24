@@ -415,3 +415,10 @@ attribute or flag once, as the warning `xattrs-not-synced` (the folder's key), a
 content as usual. The system's own attributes (quarantine, provenance, sandbox grants, SELinux
 labels) are not counted. `drive_cleanup` clears every flag first, so an immutable file never
 keeps its sandbox from going.
+
+### Raw names and times before 1970
+
+`drive_write` also takes `path_hex` instead of `path`: the relative path as hex bytes, for a
+name that is no UTF-8 (Linux and the BSDs hold one; a JSON string cannot). `mtime` (in
+`drive_write` and `drive_utime`) and the `mtime` check's `ns` are signed: a time before 1970 is
+a negative number of nanoseconds, and `drive_read` / `drive_list` answer one as such.

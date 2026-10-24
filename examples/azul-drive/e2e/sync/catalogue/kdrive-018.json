@@ -49,7 +49,6 @@
   {
     "name": "a photo dated 1969 syncs like any file",
     "description": "KDRIVE-018 (kDrive): photos dated before 1970 were not synced. Rules P12 and O1: a time is a hint; a file is never skipped silently for its date.",
-    "pending": "drive_write {mtime} as a negative number of nanoseconds (a time before 1970; today the command reads mtime as unsigned and ignores a negative one) and drive_check mtime {ns} negative",
     "steps": [
       { "op": "drive_create", "remote": "r" },
       { "op": "drive_open", "device": "a", "remote": "r" },

@@ -95,7 +95,7 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_counters", summary: "requests and bytes between devices and remote", args: &[DEVICE, ("remote", "string", false)] },
     OpDoc { name: "drive_list", summary: "the device's folder as it is", args: &[DEVICE] },
     OpDoc { name: "drive_read", summary: "one path on the device", args: &[DEVICE, PATH] },
-    OpDoc { name: "drive_write", summary: "write a file", args: &[DEVICE, PATH, ("text", "string", false), ("hex", "string", false), ("size", "number", false), ("seed", "number", false), ("fill", "string", false), ("mtime", "number", false), ("exec", "bool", false)] },
+    OpDoc { name: "drive_write", summary: "write a file", args: &[DEVICE, ("path", "string", false), ("path_hex", "string", false), ("text", "string", false), ("hex", "string", false), ("size", "number", false), ("seed", "number", false), ("fill", "string", false), ("mtime", "number", false), ("exec", "bool", false)] },
     OpDoc { name: "drive_overwrite_in_place", summary: "overwrite a file in place", args: &[DEVICE, PATH, ("text", "string", false)] },
     OpDoc { name: "drive_append", summary: "append to a file", args: &[DEVICE, PATH, ("text", "string", false)] },
     OpDoc { name: "drive_mkdir", summary: "make a folder", args: &[DEVICE, PATH] },
