@@ -48,6 +48,16 @@
 //! is a new code signature, and the macOS keychain asks the user again for each
 //! entry such a binary reads. `AZ_KEYRING` picks the keyring outright: `system`,
 //! `file` (the one `AZ_KEYRING_FILE` names) or `memory` ([`backend_for`]).
+//!
+//! [`request_quietly_blocking`] (the C API's `Keyring::get_quietly_in`,
+//! `store_quietly_in` and `delete_quietly_in`) runs
+//! an op that never shows a prompt - what an app's background work uses, so a
+//! start, a timer or a poll never raises the keychain's dialog. Where the
+//! system would have to ask (an item behind Touch ID, another app's item, a
+//! locked keychain) it answers `Denied`, and the app waits for the user's own
+//! action to ask. Only the Apple keychain prompts per item; the Credential
+//! Manager never asks, and libsecret asks only to unlock a locked collection
+//! (the login keyring is unlocked at login), which a quiet op cannot leave out.
 
 use std::{
     collections::BTreeSet,
@@ -78,6 +88,16 @@ pub const KEYRING_FILE_VAR: &str = "AZ_KEYRING_FILE";
 /// The variable that picks a run's keyring: `system`, `file` (the one
 /// [`KEYRING_FILE_VAR`] names) or `memory`.
 pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
+
+/// Whether a keyring op may show the system's prompt (a keychain unlock, an
+/// "allow this app" dialog, Touch ID).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Prompts {
+    /// The user asked for what the op serves: the system may ask them.
+    Allowed,
+    /// Background work: an op the system would have to ask for answers `Denied`.
+    Never,
+}
 
 /// Where a run's keyring ops go.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,15 +267,40 @@ pub fn request_blocking(namespace: &KeyringNamespace, req: &KeyringRequest) -> K
     answer_in(&service_of(namespace), req, &backend_of_run())
 }
 
+/// [`request_blocking`] that never shows a prompt: an op the system would have
+/// to ask the user for answers `Denied` (see the module). For background work,
+/// which must not raise a dialog the user did not ask for.
+#[must_use]
+pub fn request_quietly_blocking(namespace: &KeyringNamespace, req: &KeyringRequest) -> KeyringResult {
+    answer_with(&service_of(namespace), req, &backend_of_run(), Prompts::Never)
+}
+
 /// One op in `service` on `backend`, answered on this thread. The entry of the
 /// same name in the service every azul app shared before namespaces moves into
 /// `service` first ([`fold_legacy`]), so an app's entries survive the change
 /// and no other app finds them there any more.
 pub(crate) fn answer_in(service: &str, req: &KeyringRequest, backend: &Backend) -> KeyringResult {
-    if service != KeyringNamespace::LEGACY_SERVICE && namespaces_apply(backend) {
-        fold_legacy(service, key_of(req), backend);
+    answer_with(service, req, backend, Prompts::Allowed)
+}
+
+/// [`answer_in`], the system's prompts allowed or not. On the platform's keyring
+/// the move and the op run as one turn ([`platform_turn`]).
+pub(crate) fn answer_with(
+    service: &str,
+    req: &KeyringRequest,
+    backend: &Backend,
+    prompts: Prompts,
+) -> KeyringResult {
+    let run = || {
+        if service != KeyringNamespace::LEGACY_SERVICE && namespaces_apply(backend) {
+            fold_legacy(service, key_of(req), backend, prompts);
+        }
+        op_in(service, req, backend, prompts)
+    };
+    match backend {
+        Backend::Platform => platform_turn(prompts, run),
+        _ => run(),
     }
-    op_in(service, req, backend)
 }
 
 /// Whether `backend` keeps namespaces apart. Android's keyring is the app's
@@ -273,9 +318,9 @@ fn key_of(req: &KeyringRequest) -> &AzString {
 }
 
 /// One op in `service` on `backend`, nothing moved.
-fn op_in(service: &str, req: &KeyringRequest, backend: &Backend) -> KeyringResult {
+fn op_in(service: &str, req: &KeyringRequest, backend: &Backend, prompts: Prompts) -> KeyringResult {
     match backend {
-        Backend::Platform => platform_blocking(service, req),
+        Backend::Platform => platform_blocking(service, req, prompts),
         Backend::Memory => memory::answer(service, req),
         Backend::File(path) => memory::answer_in_file(service, req, path),
     }
@@ -293,7 +338,7 @@ static FOLDED: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
 /// goes). Before a store too, so a stale secret never stays readable there, and before a
 /// delete, so a deleted entry never comes back from it. A move that fails (a locked keyring)
 /// is tried again by the next op.
-fn fold_legacy(service: &str, key: &AzString, backend: &Backend) {
+fn fold_legacy(service: &str, key: &AzString, backend: &Backend, prompts: Prompts) {
     let marker = (service.to_string(), key.as_str().to_string());
     let mut folded = FOLDED.lock().unwrap_or_else(PoisonError::into_inner);
     let platform = *backend == Backend::Platform;
@@ -301,8 +346,8 @@ fn fold_legacy(service: &str, key: &AzString, backend: &Backend) {
         return;
     }
     let moved = match backend {
-        Backend::Platform => platform_move(key, service),
-        stand_in => move_by_copy(key, service, stand_in),
+        Backend::Platform => platform_move(key, service, prompts),
+        stand_in => move_by_copy(key, service, stand_in, prompts),
     };
     if moved && platform {
         folded.insert(marker);
@@ -312,14 +357,14 @@ fn fold_legacy(service: &str, key: &AzString, backend: &Backend) {
 /// [`fold_legacy`] by reading the old entry, storing it in `service` and deleting it: for the
 /// keyrings with no other way (and no biometry binding to keep). `true` when nothing is left
 /// in the old service.
-fn move_by_copy(key: &AzString, service: &str, backend: &Backend) -> bool {
+fn move_by_copy(key: &AzString, service: &str, backend: &Backend, prompts: Prompts) -> bool {
     let legacy = KeyringNamespace::LEGACY_SERVICE;
-    let secret = match op_in(legacy, &KeyringRequest::Get { key: key.clone() }, backend) {
+    let secret = match op_in(legacy, &KeyringRequest::Get { key: key.clone() }, backend, prompts) {
         KeyringResult::Retrieved(secret) => secret,
         KeyringResult::NotFound => return true,
         _ => return false,
     };
-    match op_in(service, &KeyringRequest::Get { key: key.clone() }, backend) {
+    match op_in(service, &KeyringRequest::Get { key: key.clone() }, backend, prompts) {
         KeyringResult::Retrieved(_) => {}
         KeyringResult::NotFound => {
             let store = KeyringRequest::Store {
@@ -327,27 +372,30 @@ fn move_by_copy(key: &AzString, service: &str, backend: &Backend) -> bool {
                 secret,
                 require_biometry: false,
             };
-            if op_in(service, &store, backend) != KeyringResult::Stored {
+            if op_in(service, &store, backend, prompts) != KeyringResult::Stored {
                 return false;
             }
         }
         _ => return false,
     }
-    op_in(legacy, &KeyringRequest::Delete { key: key.clone() }, backend) == KeyringResult::Deleted
+    op_in(legacy, &KeyringRequest::Delete { key: key.clone() }, backend, prompts)
+        == KeyringResult::Deleted
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn platform_blocking(service: &str, req: &KeyringRequest) -> KeyringResult {
-    apple::handle(service, req)
+fn platform_blocking(service: &str, req: &KeyringRequest, prompts: Prompts) -> KeyringResult {
+    apple::handle(service, req, prompts == Prompts::Never)
 }
 
+/// The Credential Manager never asks.
 #[cfg(target_os = "windows")]
-fn platform_blocking(service: &str, req: &KeyringRequest) -> KeyringResult {
+fn platform_blocking(service: &str, req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
     windows::handle(service, req)
 }
 
+/// libsecret asks only to unlock a locked collection (see the module).
 #[cfg(target_os = "linux")]
-fn platform_blocking(service: &str, req: &KeyringRequest) -> KeyringResult {
+fn platform_blocking(service: &str, req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
     linux::handle(service, req)
 }
 
@@ -359,21 +407,36 @@ fn platform_blocking(service: &str, req: &KeyringRequest) -> KeyringResult {
     target_os = "windows",
     target_os = "linux"
 )))]
-fn platform_blocking(_service: &str, _req: &KeyringRequest) -> KeyringResult {
+fn platform_blocking(_service: &str, _req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
     KeyringResult::Unavailable
 }
 
-/// The Keychain moves an item by changing its service: the secret is not read
-/// (no prompt) and a biometry-bound item stays bound.
+/// One turn at the Apple keychain: the ops of this process take turns there, as
+/// a quiet op turns the keychain's prompts off for the whole process while it
+/// runs ([`apple::in_turn`]).
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn platform_move(key: &AzString, service: &str) -> bool {
+fn platform_turn<T>(prompts: Prompts, op: impl FnOnce() -> T) -> T {
+    apple::in_turn(prompts == Prompts::Never, op)
+}
+
+/// The other keyrings need no turns.
+#[cfg(not(any(target_os = "ios", target_os = "macos")))]
+fn platform_turn<T>(_prompts: Prompts, op: impl FnOnce() -> T) -> T {
+    op()
+}
+
+/// The Keychain moves an item by changing its service: the secret is not read
+/// and a biometry-bound item stays bound. A quiet move runs with the prompts
+/// off already ([`platform_turn`]).
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn platform_move(key: &AzString, service: &str, _prompts: Prompts) -> bool {
     apple::move_entry(key.as_str(), KeyringNamespace::LEGACY_SERVICE, service)
 }
 
 /// libsecret and the Credential Manager have no biometry binding to keep.
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-fn platform_move(key: &AzString, service: &str) -> bool {
-    move_by_copy(key, service, &Backend::Platform)
+fn platform_move(key: &AzString, service: &str, prompts: Prompts) -> bool {
+    move_by_copy(key, service, &Backend::Platform, prompts)
 }
 
 /// The system keyring as a worker thread uses it: every call runs its op
@@ -464,5 +527,43 @@ impl Keyring {
     #[must_use]
     pub fn delete_blocking_in(namespace: KeyringNamespace, key: AzString) -> KeyringResult {
         request_blocking(&namespace, &KeyringRequest::Delete { key })
+    }
+
+    /// [`Self::get_blocking_in`] without ever showing a prompt: where the system
+    /// would have to ask the user (an item behind Touch ID, another app's item,
+    /// a locked keychain) the answer is `Denied` and nothing shows. For
+    /// background work - a sync at the start, a timer's poll - which must not
+    /// raise a dialog the user did not ask for.
+    #[must_use]
+    pub fn get_quietly_in(namespace: KeyringNamespace, key: AzString) -> KeyringResult {
+        request_quietly_blocking(&namespace, &KeyringRequest::Get { key })
+    }
+
+    /// [`Self::store_blocking_in`] without ever showing a prompt (`Denied` where
+    /// the system would have to ask).
+    #[must_use]
+    pub fn store_quietly_in(
+        namespace: KeyringNamespace,
+        key: AzString,
+        secret: AzString,
+        require_biometry: bool,
+    ) -> KeyringResult {
+        let mut secret = secret;
+        secret.set_secret(true);
+        request_quietly_blocking(
+            &namespace,
+            &KeyringRequest::Store {
+                key,
+                secret,
+                require_biometry,
+            },
+        )
+    }
+
+    /// [`Self::delete_blocking_in`] without ever showing a prompt (`Denied`
+    /// where the system would have to ask).
+    #[must_use]
+    pub fn delete_quietly_in(namespace: KeyringNamespace, key: AzString) -> KeyringResult {
+        request_quietly_blocking(&namespace, &KeyringRequest::Delete { key })
     }
 }

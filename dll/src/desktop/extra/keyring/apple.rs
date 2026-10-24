@@ -11,10 +11,20 @@
 //! A callback's op runs on a spawned thread (the dispatcher's): a biometry-bound
 //! `Get` calls `SecItemCopyMatching`, which **blocks synchronously** on the OS
 //! prompt — doing that on the layout thread would freeze rendering.
+//!
+//! A quiet op (background work) never shows a prompt: on macOS the keychain's
+//! dialogs are off while it runs ([`in_turn`]), so an item only that dialog
+//! would hand over (another app's, an unsigned build's, a locked keychain's)
+//! fails with `errSecInteractionNotAllowed`; a quiet read skips the items behind
+//! Touch ID or a passcode. Both answer `Denied`.
+
+use std::sync::{Mutex, PoisonError};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
+#[cfg(target_os = "macos")]
+use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::{
-    item::{update_item, ItemClass, ItemSearchOptions, ItemUpdateOptions},
+    item::{update_item, ItemClass, ItemSearchOptions, ItemUpdateOptions, Limit, SearchResult},
     passwords::{
         delete_generic_password, get_generic_password, set_generic_password,
         set_generic_password_options, AccessControlOptions, PasswordOptions,
@@ -26,11 +36,35 @@ const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 const ERR_SEC_DUPLICATE_ITEM: i32 = -25299;
 const ERR_SEC_USER_CANCELED: i32 = -128;
 const ERR_SEC_AUTH_FAILED: i32 = -25293;
+const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
+const ERR_SEC_PARAM: i32 = -50;
+
+/// The keychain ops of this process take turns: turning the prompts off is one switch for the
+/// whole process (`SecKeychainSetUserInteractionAllowed`), which must not catch another thread's
+/// op that may ask. An op that waits for the user holds the turn; a quiet one waits behind it.
+static TURN: Mutex<()> = Mutex::new(());
+
+/// Runs `op` in this process's turn at the keychain; `quiet`: with the keychain's prompts off
+/// (macOS), on again before the turn passes.
+pub(super) fn in_turn<T>(quiet: bool, op: impl FnOnce() -> T) -> T {
+    let _turn = TURN.lock().unwrap_or_else(PoisonError::into_inner);
+    // Dropped before the turn: the prompts are on again when the next op runs.
+    #[cfg(target_os = "macos")]
+    let _prompts_off = if quiet {
+        SecKeychain::disable_user_interaction().ok()
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = quiet;
+    op()
+}
 
 /// One op on the items of `service`, on the calling thread (a biometry-bound read waits for
-/// the OS prompt here).
-pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
+/// the OS prompt here; a `quiet` read never does).
+pub(super) fn handle(service: &str, req: &KeyringRequest, quiet: bool) -> KeyringResult {
     match req {
+        KeyringRequest::Get { key } if quiet => get_quietly(service, key.as_str()),
         KeyringRequest::Store {
             key,
             secret,
@@ -50,12 +84,7 @@ pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
             }
         }
         KeyringRequest::Get { key } => match get_generic_password(service, key.as_str()) {
-            Ok(bytes) => match String::from_utf8(bytes) {
-                Ok(s) => KeyringResult::Retrieved(s.into()),
-                // A non-UTF-8 blob was stored out-of-band; the AzString
-                // surface can't represent it.
-                Err(_) => KeyringResult::Error,
-            },
+            Ok(bytes) => text_of(bytes),
             Err(e) => map_err(e),
         },
         KeyringRequest::Delete { key } => match delete_generic_password(service, key.as_str()) {
@@ -90,11 +119,72 @@ pub(super) fn move_entry(key: &str, from: &str, to: &str) -> bool {
     }
 }
 
+/// A read that never shows a prompt: the search skips an item behind Touch ID or a passcode
+/// (`kSecUseAuthenticationUISkip`), so an item that is there but was not read answers `Denied`,
+/// as does one only the keychain's dialog would hand over while the prompts are off. A keychain
+/// that does not take the skip (`errSecParam`) is read plainly - on macOS with the prompts off.
+fn get_quietly(service: &str, key: &str) -> KeyringResult {
+    let mut search = ItemSearchOptions::new();
+    search
+        .class(ItemClass::generic_password())
+        .service(service)
+        .account(key)
+        .load_data(true)
+        .limit(Limit::Max(1))
+        .skip_authenticated_items(true);
+    match search.search() {
+        Ok(found) => {
+            let data = found.into_iter().find_map(|item| match item {
+                SearchResult::Data(bytes) => Some(bytes),
+                _ => None,
+            });
+            match data {
+                Some(bytes) => text_of(bytes),
+                None => absent_or_denied(service, key),
+            }
+        }
+        Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => absent_or_denied(service, key),
+        Err(e) if e.code() == ERR_SEC_PARAM => match get_generic_password(service, key) {
+            Ok(bytes) => text_of(bytes),
+            Err(e) => map_err(e),
+        },
+        Err(e) => map_err(e),
+    }
+}
+
+/// What a quiet read that got no secret says: `Denied` when the item is there (its attributes
+/// are read without a prompt), else `NotFound`.
+fn absent_or_denied(service: &str, key: &str) -> KeyringResult {
+    let mut search = ItemSearchOptions::new();
+    search
+        .class(ItemClass::generic_password())
+        .service(service)
+        .account(key)
+        .load_attributes(true)
+        .limit(Limit::Max(1));
+    match search.search() {
+        Ok(found) if !found.is_empty() => KeyringResult::Denied,
+        _ => KeyringResult::NotFound,
+    }
+}
+
+/// A secret as text; a non-UTF-8 blob was stored out-of-band, which the `AzString` surface
+/// cannot carry.
+fn text_of(bytes: Vec<u8>) -> KeyringResult {
+    match String::from_utf8(bytes) {
+        Ok(s) => KeyringResult::Retrieved(s.into()),
+        Err(_) => KeyringResult::Error,
+    }
+}
+
 fn map_err(e: security_framework::base::Error) -> KeyringResult {
     match e.code() {
         ERR_SEC_ITEM_NOT_FOUND => KeyringResult::NotFound,
-        // User cancelled or failed the biometric gate on a protected read.
-        ERR_SEC_USER_CANCELED | ERR_SEC_AUTH_FAILED => KeyringResult::Denied,
+        // User cancelled or failed the biometric gate on a protected read; or a quiet op met an
+        // item only a prompt would have handed over.
+        ERR_SEC_USER_CANCELED | ERR_SEC_AUTH_FAILED | ERR_SEC_INTERACTION_NOT_ALLOWED => {
+            KeyringResult::Denied
+        }
         _ => KeyringResult::Error,
     }
 }

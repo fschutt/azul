@@ -337,11 +337,14 @@ fn a_quiet_op_answers_like_a_plain_one_on_the_stand_ins() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// The C API's quiet op: one request in a namespace, answered on the calling thread. Only its
-/// shape is checked here - a call would reach this run's keyring.
+/// The C API's quiet ops, beside the blocking ones of a namespace. Only their shapes are checked
+/// here - a call would reach this run's keyring.
 #[test]
-fn the_keyring_offers_a_quiet_op_in_a_namespace() {
-    let quiet: fn(KeyringNamespace, KeyringRequest) -> KeyringResult =
-        super::Keyring::request_quietly_in;
-    let _ = quiet;
+fn the_keyring_offers_quiet_ops_in_a_namespace() {
+    let get: fn(KeyringNamespace, AzString) -> KeyringResult = super::Keyring::get_quietly_in;
+    let store: fn(KeyringNamespace, AzString, AzString, bool) -> KeyringResult =
+        super::Keyring::store_quietly_in;
+    let delete: fn(KeyringNamespace, AzString) -> KeyringResult =
+        super::Keyring::delete_quietly_in;
+    let _ = (get, store, delete);
 }

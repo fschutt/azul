@@ -59,4 +59,21 @@ impl Keyring {
     pub fn delete_blocking_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
         KeyringResult::Unavailable
     }
+    /// No keyring on wasm.
+    pub fn get_quietly_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn store_quietly_in(
+        _namespace: KeyringNamespace,
+        _key: AzString,
+        _secret: AzString,
+        _require_biometry: bool,
+    ) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn delete_quietly_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
+        KeyringResult::Unavailable
+    }
 }
