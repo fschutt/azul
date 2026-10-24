@@ -141,27 +141,68 @@ fn a_keyring_file_keeps_the_headless_keyring_for_the_next_run_and_the_other_proc
     let _ = std::fs::remove_file(&path);
 }
 
+/// The keyring a run with these facts uses: `choice` is `AZ_KEYRING`, `file` is
+/// `AZ_KEYRING_FILE`.
+fn backend(choice: Option<&str>, file: Option<&str>, headless: bool, debug_build: bool) -> Backend {
+    super::backend_for(&super::RunFacts {
+        choice: choice.map(std::ffi::OsString::from),
+        file: file.map(std::ffi::OsString::from),
+        headless,
+        debug_build,
+    })
+}
+
 /// A run that names a keyring file keeps its keyring there, windowed or headless: two real
 /// windows of one app on a test stack (two AzDrive profiles, say) would otherwise share the
 /// system keyring's entries - and with them each other's unfinished checkouts. Without a file a
-/// windowed run uses the system keyring and a headless one the in-memory stand-in; a blank name
-/// is no file.
+/// windowed release run uses the system keyring and a headless one the in-memory stand-in; a
+/// blank name is no file.
 #[test]
 fn a_keyring_file_is_the_keyring_of_a_windowed_run_too() {
-    let file = std::ffi::OsString::from("/tmp/a-test-stack-keyring.json");
+    let file = "/tmp/a-test-stack-keyring.json";
+    assert_eq!(backend(None, Some(file), false, false), Backend::File(PathBuf::from(file)));
+    assert_eq!(backend(None, Some(file), true, false), Backend::File(PathBuf::from(file)));
+    assert_eq!(backend(None, None, false, false), Backend::Platform);
+    assert_eq!(backend(None, None, true, false), Backend::Memory);
+    assert_eq!(backend(None, Some(""), false, false), Backend::Platform);
+}
+
+/// Every rebuild of a debug build is a new code signature, which the system keychain asks the
+/// user about again (one password prompt per entry and run): a debug build keeps its secrets in
+/// memory unless `AZ_KEYRING=system` asks for the system keyring, or a file is named.
+#[test]
+fn a_debug_build_keeps_its_secrets_in_memory_unless_told_to_use_the_system_keyring() {
+    assert_eq!(backend(None, None, false, true), Backend::Memory);
+    assert_eq!(backend(Some("system"), None, false, true), Backend::Platform);
     assert_eq!(
-        super::backend_for(false, Some(file.clone())),
-        Backend::File(PathBuf::from(&file))
+        backend(None, Some("/tmp/dev.json"), false, true),
+        Backend::File(PathBuf::from("/tmp/dev.json"))
     );
+    // A word it does not know chooses nothing: the build decides.
+    assert_eq!(backend(Some("keychain"), None, false, true), Backend::Memory);
+    assert_eq!(backend(Some("keychain"), None, false, false), Backend::Platform);
+}
+
+/// `AZ_KEYRING` picks the keyring outright: `memory`, `file` (the one `AZ_KEYRING_FILE` names;
+/// memory without one) or `system` - in any case and with spaces around it.
+#[test]
+fn az_keyring_picks_the_system_keyring_a_file_or_memory() {
+    let file = "/tmp/a-profile/keyring.json";
+    assert_eq!(backend(Some("memory"), None, false, false), Backend::Memory);
+    assert_eq!(backend(Some("memory"), Some(file), false, false), Backend::Memory);
+    assert_eq!(backend(Some(" File "), Some(file), false, false), Backend::File(PathBuf::from(file)));
+    assert_eq!(backend(Some("file"), None, false, false), Backend::Memory);
+    assert_eq!(backend(Some("SYSTEM"), Some(file), false, false), Backend::Platform);
+}
+
+/// A headless or E2E run never reaches the system keyring, whatever `AZ_KEYRING` says: a test on
+/// a developer's Mac would otherwise raise the keychain's prompts.
+#[test]
+fn a_headless_run_never_reaches_the_system_keyring_even_when_told_to() {
+    assert_eq!(backend(Some("system"), None, true, false), Backend::Memory);
     assert_eq!(
-        super::backend_for(true, Some(file.clone())),
-        Backend::File(PathBuf::from(&file))
-    );
-    assert_eq!(super::backend_for(false, None), Backend::Platform);
-    assert_eq!(super::backend_for(true, None), Backend::Memory);
-    assert_eq!(
-        super::backend_for(false, Some(std::ffi::OsString::new())),
-        Backend::Platform
+        backend(Some("system"), Some("/tmp/t.json"), true, false),
+        Backend::File(PathBuf::from("/tmp/t.json"))
     );
 }
 
