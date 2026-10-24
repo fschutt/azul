@@ -233,7 +233,7 @@ pub struct NodeCache {
     pub taffy_width_only: Option<Box<super::taffy_bridge::TaffyWidthOnlyAnswers>>,
 
     /// Whether this node's subtree lays out alike at every definite height
-    /// it is given ([`lays_out_alike_at_every_given_height`]), once decided.
+    /// it is given (`lays_out_alike_at_every_given_height`), once decided.
     /// Read by the cache key of [`calculate_layout_for_subtree`] (such a
     /// subtree's layout is kept by the width of its containing block) and by
     /// a flex row's width-only answers. A property of the subtree's styles and

@@ -3056,7 +3056,7 @@ impl TaffyMeasureSpill {
 }
 
 /// The widths one flex row answered to width-only questions
-/// ([`TaffyBridge::compute_child_layout`]): a parent asking for its min- or
+/// (`TaffyBridge::compute_child_layout`): a parent asking for its min- or
 /// max-content width, or for its width at a known height. Such a question
 /// runs the row algorithm over every item with the items' heights stubbed,
 /// and its answer stays out of taffy's own cache, whose key ignores the
