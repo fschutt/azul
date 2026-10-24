@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    beneath::{self, BeneathError, Kind},
     dir_read::{self, DirItem, ItemKind},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
@@ -22,7 +23,8 @@ use crate::{
 /// A folder on disk: the key `a/b.txt` is the file `<root>/a/b.txt`. Keys that
 /// would leave the root (`..`, absolute paths) are refused before any file is
 /// touched. Symbolic links inside the root are followed when listing one
-/// folder, not when walking a whole prefix (no loops).
+/// folder, not when walking a whole prefix (no loops). A [`LocalDrive::contained`]
+/// drive follows none: its reads and writes walk the key from the root without a link.
 ///
 /// [`LocalDrive::new`] is the user's DATA TREE: every put / delete / rename /
 /// copy / folder operation is recorded in `<root>/.azlin/cache` (see
@@ -35,6 +37,8 @@ pub struct LocalDrive {
     root: PathBuf,
     /// Keeps `<root>/.azlin/cache`.
     manifest: bool,
+    /// Reads and writes walk the key from the root without following a link ([`beneath`]).
+    contained: bool,
 }
 
 /// One entry of a listing before paging.
@@ -84,18 +88,63 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
 }
 
 /// Writes `bytes` to `path` through a temporary file, so a reader never sees half
-/// a file and a failure leaves the old one.
+/// a file and a failure leaves the old one. The file is on the disk before it is renamed
+/// in and the folder after: a power cut leaves the old version or the new one, never an
+/// empty file under the real name.
 pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
     let tmp = temp_sibling(path);
-    if let Err(e) = fs::write(&tmp, bytes) {
+    let written = File::create(&tmp).and_then(|mut file| {
+        file.write_all(bytes)?;
+        file.sync_all()
+    });
+    if let Err(e) = written {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
     fs::rename(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         e
-    })
+    })?;
+    sync_parent(path);
+    Ok(())
 }
+
+/// Makes a rename into the folder of `path` durable (some file systems refuse a folder's
+/// fsync: no failure of the write).
+pub(crate) fn sync_parent(path: &Path) {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = path.parent() {
+            if let Ok(dir) = File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// A walk of a contained drive that failed, as the drive says it.
+fn beneath_error(key: &str, e: BeneathError) -> DriveError {
+    match e {
+        BeneathError::ThroughLink(_) | BeneathError::CrossesMount(_) => DriveError::InvalidKey {
+            key: key.to_string(),
+            reason: THROUGH_LINK,
+        },
+        BeneathError::BadName(_) => DriveError::InvalidKey {
+            key: key.to_string(),
+            reason: "it has a name that cannot be a file name",
+        },
+        BeneathError::Io(e) => not_found_or_io(key, e),
+    }
+}
+
+/// Why a contained drive refuses a key whose folder here is a link or another disk.
+pub const THROUGH_LINK: &str =
+    "a folder of its path here is a link or another disk: nothing is written or read through it";
 
 /// A temporary file of [`temp_sibling`] (left over by a crash): not listed.
 fn is_temp_name(name: &str) -> bool {
@@ -139,6 +188,7 @@ impl LocalDrive {
         LocalDrive {
             root: root.into(),
             manifest: true,
+            contained: false,
         }
     }
 
@@ -150,7 +200,115 @@ impl LocalDrive {
         LocalDrive {
             root: root.into(),
             manifest: false,
+            contained: false,
         }
+    }
+
+    /// The same folder, every read and write walked from the root without following a link
+    /// ([`beneath`]): a key under a folder that is a link (or another disk mounted there) is
+    /// refused ([`THROUGH_LINK`]), so nothing a key names is read or written outside the root.
+    /// A synced folder's view of itself: its names come from other devices and other people.
+    #[must_use]
+    pub fn contained(mut self) -> Self {
+        self.contained = true;
+        self
+    }
+
+    /// Whether reads and writes follow no link ([`LocalDrive::contained`]).
+    #[must_use]
+    pub fn is_contained(&self) -> bool {
+        self.contained
+    }
+
+    /// Records in the manifest a file the caller wrote under the root itself (a folder sync
+    /// writes through [`beneath`]): the file of `key` as it is now.
+    pub fn note_written(&self, key: &str) {
+        self.record_file(key);
+    }
+
+    /// Records in the manifest that the caller removed (or moved away) the file of `key`.
+    pub fn note_deleted(&self, key: &str) {
+        self.record(&Record::Delete {
+            key: key.to_string(),
+        });
+    }
+
+    /// Records in the manifest that the caller renamed the file `from` to `to`.
+    pub fn note_renamed(&self, from: &str, to: &str) {
+        self.record(&Record::Rename {
+            from: from.to_string(),
+            to: to.to_string(),
+        });
+    }
+
+    /// The folder of a (checked) key, walked from the root without a link, and the key's name.
+    fn contained_parent(&self, key: &str, create: bool) -> Result<(beneath::Dir, String), DriveError> {
+        self.path_of(key)?;
+        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
+        let (dir, name) = root
+            .parent_of(key, create)
+            .map_err(|e| beneath_error(key, e))?;
+        Ok((dir, name.to_string()))
+    }
+
+    /// A contained drive's file of `key`, opened for reading.
+    fn contained_open(&self, key: &str) -> Result<File, DriveError> {
+        let (dir, name) = self.contained_parent(key, false)?;
+        match dir.open_read(&name) {
+            Ok((file, _)) => Ok(file),
+            // A folder (or a link) of this name is no object of the drive.
+            Err(BeneathError::ThroughLink(_)) => Err(DriveError::NotFound {
+                key: key.to_string(),
+            }),
+            Err(e) => Err(beneath_error(key, e)),
+        }
+    }
+
+    /// A contained drive's write of `key` from `body`: through a new file in the key's own
+    /// folder, synced, renamed in, the folder synced.
+    fn contained_write(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        let (dir, name) = self.contained_parent(key, true)?;
+        if dir.lstat(&name).is_ok_and(|st| st.kind == Kind::Dir) {
+            return Err(DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "a folder has this name",
+            });
+        }
+        dir.write_from(&name, body, 0o666)
+            .map_err(|e| beneath_error(key, e))
+    }
+
+    /// A contained drive's rename: both folders walked without a link, nothing replaced.
+    fn contained_rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        let (from_key, to_key) = (from.trim_end_matches('/'), to.trim_end_matches('/'));
+        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(from, e))?;
+        let (source, from_name) = root
+            .parent_of(from_key, false)
+            .map_err(|e| beneath_error(from, e))?;
+        if source.lstat(from_name).is_err() {
+            return Err(DriveError::NotFound {
+                key: from.to_string(),
+            });
+        }
+        let (target, to_name) = root
+            .parent_of(to_key, true)
+            .map_err(|e| beneath_error(to, e))?;
+        if target.lstat(to_name).is_ok() {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "something has this name already",
+            });
+        }
+        source
+            .rename(from_name, &target, to_name)
+            .map_err(|e| beneath_error(from, e))?;
+        target.sync();
+        source.sync();
+        self.record(&Record::Rename {
+            from: from.to_string(),
+            to: to.to_string(),
+        });
+        Ok(())
     }
 
     #[must_use]
@@ -411,6 +569,13 @@ impl Drive for LocalDrive {
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        if self.contained {
+            let mut bytes = Vec::new();
+            self.contained_open(key)?
+                .read_to_end(&mut bytes)
+                .map_err(|e| not_found_or_io(key, e))?;
+            return Ok(bytes);
+        }
         let path = self.path_of(key)?;
         if path.is_dir() {
             return Err(DriveError::NotFound {
@@ -422,7 +587,11 @@ impl Drive for LocalDrive {
 
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         let path = self.path_of(key)?;
-        let mut file = File::open(&path).map_err(|e| not_found_or_io(key, e))?;
+        let mut file = if self.contained {
+            self.contained_open(key)?
+        } else {
+            File::open(&path).map_err(|e| not_found_or_io(key, e))?
+        };
         let meta = file.metadata()?;
         if meta.is_dir() {
             return Err(DriveError::NotFound {
@@ -448,6 +617,23 @@ impl Drive for LocalDrive {
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
+        if self.contained {
+            self.contained_write(key, &mut &bytes[..])?;
+            if self.manifest {
+                if let Ok(meta) = fs::symlink_metadata(&path) {
+                    let info = object_info(key.to_string(), &meta);
+                    self.record(&Record::Put {
+                        key: key.to_string(),
+                        entry: ManifestEntry {
+                            size: info.size,
+                            modified: info.modified,
+                            hash: sha256_hex(bytes),
+                        },
+                    });
+                }
+            }
+            return Ok(());
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -479,6 +665,11 @@ impl Drive for LocalDrive {
     /// old one.
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         let path = self.path_of(key)?;
+        if self.contained {
+            let written = self.contained_write(key, body)?;
+            self.record_file(key);
+            return Ok(written);
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -490,7 +681,11 @@ impl Drive for LocalDrive {
         }
         let tmp = temp_sibling(&path);
         let written = File::create(&tmp)
-            .and_then(|mut file| std::io::copy(body, &mut file))
+            .and_then(|mut file| {
+                let written = std::io::copy(body, &mut file)?;
+                file.sync_all()?;
+                Ok(written)
+            })
             .and_then(|written| fs::rename(&tmp, &path).map(|()| written));
         let written = match written {
             Ok(written) => written,
@@ -499,12 +694,39 @@ impl Drive for LocalDrive {
                 return Err(DriveError::Io(format!("{key}: {e}")));
             }
         };
+        sync_parent(&path);
         self.record_file(key);
         Ok(written)
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
+        if self.contained {
+            let (dir, name) = match self.contained_parent(key, false) {
+                Ok(found) => found,
+                // No folder of it: nothing to delete.
+                Err(DriveError::NotFound { .. }) => return Ok(()),
+                Err(e) => return Err(e),
+            };
+            match dir.lstat(&name) {
+                Err(e) if e.kind() == ErrorKind::NotFound => {}
+                Err(e) => return Err(DriveError::Io(format!("{key}: {e}"))),
+                Ok(st) if st.kind == Kind::Dir => {
+                    return Err(DriveError::InvalidKey {
+                        key: key.to_string(),
+                        reason: "it is a folder",
+                    })
+                }
+                Ok(_) => match dir.unlink(&name) {
+                    Err(e) if !e.is_not_found() => return Err(beneath_error(key, e)),
+                    _ => dir.sync(),
+                },
+            }
+            self.record(&Record::Delete {
+                key: key.to_string(),
+            });
+            return Ok(());
+        }
         match fs::symlink_metadata(&path) {
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(e) => return Err(DriveError::Io(format!("{key}: {e}"))),
@@ -529,6 +751,13 @@ impl Drive for LocalDrive {
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         let path = self.path_of(key)?;
+        if self.contained {
+            let meta = self
+                .contained_open(key)?
+                .metadata()
+                .map_err(|e| not_found_or_io(key, e))?;
+            return Ok(object_info(key.to_string(), &meta));
+        }
         let meta = fs::metadata(&path).map_err(|e| not_found_or_io(key, e))?;
         if !meta.is_file() {
             return Err(DriveError::NotFound {
@@ -542,6 +771,12 @@ impl Drive for LocalDrive {
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         let source = self.path_of(from)?;
         let target = self.path_of(to)?;
+        if self.contained {
+            let mut file = self.contained_open(from)?;
+            self.contained_write(to, &mut file)?;
+            self.record_file(to);
+            return Ok(());
+        }
         match fs::metadata(&source) {
             Err(e) => return Err(not_found_or_io(from, e)),
             Ok(meta) if !meta.is_file() => {
@@ -598,6 +833,9 @@ impl Drive for LocalDrive {
         }
         let source = self.any_path(from)?;
         let target = self.any_path(to)?;
+        if self.contained {
+            return self.contained_rename(from, to);
+        }
         if fs::symlink_metadata(&source).is_err() {
             return Err(DriveError::NotFound {
                 key: from.to_string(),

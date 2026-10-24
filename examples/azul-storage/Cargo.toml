@@ -128,8 +128,9 @@ aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "al
 hkdf = { version = "0.12", optional = true }
 
 # macOS: `getattrlistbulk`, a folder's names, kinds, sizes and dates in one call per batch
-# (src/dir_read.rs). libc 0.2.189 is in Cargo.lock already.
-[target.'cfg(target_os = "macos")'.dependencies]
+# (src/dir_read.rs); every Unix: `openat` and friends, a synced folder's files reached without
+# a link (src/beneath.rs). libc 0.2.189 is in Cargo.lock already.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

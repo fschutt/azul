@@ -46,6 +46,8 @@
 //! [`catalog`]. Nothing here logs a secret or puts one in `Debug` output.
 
 pub mod base32;
+/// Files under a root reached without a link: descriptor-relative opens, renames and deletes.
+pub mod beneath;
 pub mod catalog;
 pub mod checked;
 pub mod config;
