@@ -1752,6 +1752,30 @@ mod autotest_generated {
         );
     }
 
+    /// An image icon whose `<icon>` declares no accessibility decorates the
+    /// control or the words beside it, which carry the name: it is marked
+    /// decorative, as a font icon's glyph is never announced. Left without
+    /// accessibility it was an unnamed picture - a screen reader says "image"
+    /// - and the a11y lint reported every icon of an image icon pack.
+    #[test]
+    fn an_image_icon_that_declares_no_accessibility_is_decorative() {
+        let out = resolve(
+            RefAny::new(image_icon(16.0, 16.0)),
+            &Dom::create_div().root,
+            &SystemStyle::default(),
+        );
+        let nodes = all_nodes(&out);
+        let image = nodes
+            .iter()
+            .find(|n| matches!(n.get_node_type(), NodeType::Image(_)))
+            .expect("an image icon resolves to an image node");
+        let info = image
+            .get_accessibility_info()
+            .expect("the image declares itself decorative");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Nothing);
+        assert!(info.accessibility_name.as_ref().is_none(), "decorative means unnamed");
+    }
+
     // ---------------------------------------------------------------------
     // apply_icon_style_filters
     // ---------------------------------------------------------------------
