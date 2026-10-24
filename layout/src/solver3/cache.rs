@@ -3239,13 +3239,13 @@ pub(crate) fn lays_out_alike_at_every_given_height(
 /// [`lays_out_alike_at_every_given_height`] for one box, its children
 /// aside. Not free: a box whose `height`, `min-height`, `max-height` or
 /// `flex-basis` is a percentage or a `calc()`; a table box, a grid or a grid
-/// item (their
-/// algorithms size rows and tracks into the space); an absolutely positioned,
-/// fixed or sticky box (inset into a containing block); a scroll container
-/// (it keeps the height it is given); a replaced element (its size follows
-/// its aspect); a wrapping flex container or a multi-column box (they break
-/// their lines and columns in the space); a box with an aspect ratio or in a
-/// vertical writing mode. An anonymous box has no style: its children decide.
+/// item (their algorithms size rows and tracks into the space); an
+/// absolutely positioned, fixed or sticky box (inset into a containing
+/// block); a scroll container (it keeps the height it is given); a replaced
+/// element (its size follows its aspect); a wrapping flex container or a
+/// multi-column box (they break their lines and columns in the space); a box
+/// with an aspect ratio or in a vertical writing mode. An anonymous box has
+/// no style: its children decide.
 fn box_lays_out_alike_at_every_given_height(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
