@@ -1,0 +1,72 @@
+[
+  {
+    "name": "deleting files on a drive whose quota is full still commits, and the files that do not fit are listed one by one",
+    "description": "INFOMANIAK-006 (Infomaniak Swiss Backup, trigger a): with the quota full, old backups could not be deleted and no space was freed. Rules V7 and E4 of planning/sync-engine-v1.md: a full quota turns the drive read-only for new bytes, never for the owner's deletes; a file that does not fit is listed (quota-exceeded) and stays here untouched while the rest of the pass goes on. sync-chaos srv-s3-conformance (server side) and res-quota-exceeded.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "old-backup-1.txt", "text": "the first old backup" },
+      { "op": "drive_write", "device": "a", "path": "old-backup-2.txt", "text": "the second old backup" },
+      { "op": "drive_write", "device": "a", "path": "keep.txt", "text": "kept" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 1 },
+      { "op": "drive_write", "device": "a", "path": "new.txt", "text": "does not fit any more" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "new.txt" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "new.txt", "text": "does not fit any more" },
+      { "op": "drive_rm", "device": "a", "path": "old-backup-1.txt" },
+      { "op": "drive_rm", "device": "a", "path": "old-backup-2.txt" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_file", "key": "old-backup-1.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "key": "old-backup-2.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "key": "keep.txt", "text": "kept" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old-backup-1.txt", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "the first old backup" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "new.txt", "text": "does not fit any more" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the S3 gateway's own conformance (aws-chunked uploads, Duplicati, restic) is a server property",
+    "description": "INFOMANIAK-006 (triggers b and c): the AWS CLI's aws-chunked uploads were refused and Duplicati got 502 on two clusters. Rule V1 is the S3 service's, proven by sync-chaos srv-s3-conformance in dc mode (azctl test e2e --only aws --only rclone, s3tests).",
+    "not_applicable": "AzDrive's sync talks to its drive through the engine's own Drive interface, not through an S3 client; the gateway's aws-chunked, trailing-checksum and third-party-client conformance is the server's test (sync-chaos srv-s3-conformance, dc mode)",
+    "steps": []
+  },
+  {
+    "name": "a device that joins with the recovery code alone reads every file, also after the drive key was rotated",
+    "description": "INFOMANIAK-006 (trigger d): a lost restic/Acronis password made the encrypted backups unrecoverable and the key could not be changed. Rule I1 and the key vault: the drive key has a recovery wrap, a rotation keeps old files readable, and a new device opened from the recovery code alone decrypts everything. sync-chaos crypto-keys-and-recovery.",
+    "pending": "drive_open {device, remote, key_from: \"recovery\"} (a device that joins with the drive's recovery code alone, not the shared in-memory keyring) and drive_rotate_key {remote} (rotate the drive key, old file keys rewrapped)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "taxes/2025.pdf", "text": "the tax return" },
+      { "op": "drive_write", "device": "a", "path": "photos/kid.jpg", "text": "a photo" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_open", "device": "c", "remote": "r", "key_from": "recovery" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "taxes/2025.pdf", "text": "the tax return" },
+      { "op": "drive_rotate_key", "remote": "r" },
+      { "op": "drive_write", "device": "a", "path": "after-rotation.txt", "text": "written under the new key" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "after-rotation.txt", "text": "written under the new key" },
+      { "op": "drive_open", "device": "d", "remote": "r", "key_from": "recovery" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "photos/kid.jpg", "text": "a photo" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

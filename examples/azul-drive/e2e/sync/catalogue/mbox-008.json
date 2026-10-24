@@ -1,0 +1,51 @@
+[
+  {
+    "name": "every delete path is propagated into a trash: a delete in a folder, a delete on the drive",
+    "description": "MBOX-008 (mailbox.org OX Drive for Android): a delete on the phone left the cloud copy, a delete in the app went to the Drive trash; nobody could tell which delete does what. Rules D2 and O1: on a two-way pairing a delete here or on the drive reaches every device's trash; nothing is silently kept or silently dropped. sync-chaos mobile-camera-upload (pending: no mobile app).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "photos/1.jpg", "text": "photo one" },
+      { "op": "drive_write", "device": "a", "path": "photos/2.jpg", "text": "photo two" },
+      { "op": "drive_write", "device": "a", "path": "photos/3.jpg", "text": "photo three" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "path": "photos/1.jpg" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "photos/1.jpg", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo one" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "photos/2.jpg" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "photo two" },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "photo two" },
+      { "op": "drive_check", "check": "remote_file", "key": "photos/3.jpg", "text": "photo three" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a phone's upload-only media pairing: a delete in the gallery keeps the cloud copy and says so",
+    "description": "MBOX-008: the Android app's upload-only media backup. Rule O1 and delete-backup-mode: a one-way pairing never propagates a gallery delete and shows the file as kept in the cloud.",
+    "pending": "drive_pair field mode: \"camera-upload\" (the mobile app's one-way media backup pairing; AzDrive has no mobile app yet, planning/mobile)",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "phone", "remote": "r" },
+      { "op": "drive_pair", "device": "phone", "mode": "camera-upload" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "phone", "path": "DCIM/IMG_0001.jpg", "text": "a photo" },
+      { "op": "drive_sync", "device": "phone" },
+      { "op": "drive_rm", "device": "phone", "path": "DCIM/IMG_0001.jpg" },
+      { "op": "drive_sync", "device": "phone" },
+      { "op": "drive_check", "check": "remote_file", "key": "DCIM/IMG_0001.jpg", "text": "a photo" },
+      { "op": "drive_states", "device": "phone" },
+      { "op": "assert_response", "path": "result.files[\"DCIM/IMG_0001.jpg\"].cloud_only", "equals": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

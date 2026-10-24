@@ -1,0 +1,53 @@
+[
+  {
+    "name": "a file deleted on another device lands in this device's trash, and the drive's tombstone names the device that deleted it",
+    "description": "MBOX-007 (mailbox.org OX Drive): files vanished from Drive folders on their own, cause never found. Rules D2 and D7: every delete is recoverable and logged, and a tombstone records its actor; nothing disappears without a device that deleted it. sync-chaos share-links-and-revocation, srv-account-never-deleted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared/report.pdf", "text": "the report" },
+      { "op": "drive_write", "device": "a", "path": "keep.txt", "text": "kept" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "b", "path": "shared/report.pdf" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "the report" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "keep.txt", "text": "kept" },
+      { "op": "trash", "check": "max_ops", "device": "a", "max": 1 },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted[\"shared/report.pdf\"].device", "equals": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a share link that expires revokes only the link: the file and its versions stay on the drive and on every device",
+    "description": "MBOX-007: suspected Drive Mail links deleting files at their expiry. Rule V7 and the share rules: an expiring link deletes nothing.",
+    "pending": "drive_share {device, path, link: true, expires_s} (a share link as the window makes it) and drive_share_expire {remote} (let every link's expiry pass on the stand-in server)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared/report.pdf", "text": "the report" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_share", "device": "a", "path": "shared/report.pdf", "link": true, "expires_s": 1 },
+      { "op": "drive_share_expire", "remote": "r" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "key": "shared/report.pdf", "text": "the report" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "shared/report.pdf", "text": "the report" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "shared/report.pdf", "text": "the report" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
