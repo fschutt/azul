@@ -179,13 +179,16 @@ def bucket_objects(drives_file, keyring_file, drive_id):
 
 
 def copy_between(app, source_click, source_listed, names, target_click, target_listed,
-                 during=None):
+                 during=None, source_shown=False):
     """Copies the items `names` of one folder (opened by `source_click`, listed when the
     AZDRIVE_LISTED line matches `source_listed`) into another (`target_click`,
     `target_listed`), one item at a time, and waits for each paste to finish. `during` runs
-    while the first paste is under way (after its "planned" line, before its "done" one)."""
-    for name in names:
-        app.after("the source folder", "AZDRIVE_LISTED", source_listed, source_click)
+    while the first paste is under way (after its "planned" line, before its "done" one).
+    `source_shown`: the source folder shows and is listed already, so the first item is taken
+    from it as it is (a click on the folder that shows lists nothing again)."""
+    for i, name in enumerate(names):
+        if not (source_shown and i == 0):
+            app.after("the source folder", "AZDRIVE_LISTED", source_listed, source_click)
         app.after("%s selected" % name, "AZDRIVE_SELECTED", r"1 .*%s/?" % re.escape(name),
                   lambda: select_item(app, name))
         app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
@@ -710,13 +713,18 @@ def run(args, logs):
         popup = e2e.modal_window(second)
         popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
         popup.text_input("#__azdrive_unlock_code", recovery)
-        popup.click_exact("Unlock")
+        # The unlock opens the drive: its bucket lists.
+        second.after("the unlocked drive's listing", "AZDRIVE_LISTED",
+                     r"%s / \d+" % re.escape(drive_id),
+                     lambda: popup.click_exact("Unlock"))
         second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
         names = tops + (["after-the-step.txt"] if args.after_upload else [])
+        # The drive shows already: its first file is copied from there, the others after a
+        # click on the drive opens it again.
         copy_between(second, lambda: second.click(selector=side_drive(drive_id)),
                      r"%s / \d+" % re.escape(drive_id), names,
                      lambda: second.click(selector="#" + I("side-fav-documents")),
-                     r"home Documents/ \d+")
+                     r"home Documents/ \d+", source_shown=True)
         shot(second, os.path.join(out, "07-second-computer.png"), False)
         if args.pack_files:
             pack_delete_drop(second, drive_id, args.pack_files, result)
