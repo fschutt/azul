@@ -1396,6 +1396,7 @@ impl CpuHitTester {
                 });
             }
 
+            let clip_axes = overflow_clip_axes(styled_dom, nodes);
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {
                 // Only include nodes that map to a real DOM node
@@ -1431,7 +1432,7 @@ impl CpuHitTester {
                 // containing block, and the display list does not clip it.
                 let scroll_chain = scroll_chains.box_chain(LayoutNodeId::new(idx));
                 let clips = compute_node_clips(
-                    styled_dom,
+                    &clip_axes,
                     nodes,
                     positions,
                     idx,
@@ -1473,6 +1474,7 @@ impl CpuHitTester {
             // `scrollbar_entries`.
             let bars = scrollbar_entries(
                 layout_result,
+                &clip_axes,
                 offset,
                 &dom_clips,
                 &chain_of,
@@ -1969,6 +1971,7 @@ fn push_inline_fragment_entries(
 /// untransformed too, so it is an approximation on both sides alike.
 fn scrollbar_entries(
     layout_result: &DomLayoutResult,
+    clip_axes: &[(bool, bool)],
     offset: LogicalPosition,
     dom_clips: &[(LogicalRect, u32)],
     chain_of: &[u32],
@@ -2010,7 +2013,7 @@ fn scrollbar_entries(
         let idx = layout_idx.index();
         let scroll_chain = scroll_chains.box_chain(layout_idx);
         let clips = compute_node_clips(
-            &layout_result.styled_dom,
+            clip_axes,
             &layout_result.layout_tree.nodes,
             &layout_result.calculated_positions,
             idx,
@@ -2382,6 +2385,27 @@ pub fn compute_scroll_child_rect(
     )
 }
 
+/// Per layout node, whether its `overflow` clips what it contains along x and
+/// along y. Read once per rebuild: the clip walk of every node up its
+/// ancestors then looks no style up, where it read each ancestor's style once
+/// per descendant.
+fn overflow_clip_axes(styled_dom: &StyledDom, nodes: &[LayoutNodeHot]) -> Vec<(bool, bool)> {
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    nodes
+        .iter()
+        .map(|n| {
+            n.dom_node_id
+                .and_then(|d| styled_nodes.get(d).map(|sn| (d, &sn.styled_node_state)))
+                .map_or((false, false), |(d, st)| {
+                    (
+                        get_overflow_x(styled_dom, d, st).is_clipped(),
+                        get_overflow_y(styled_dom, d, st).is_clipped(),
+                    )
+                })
+        })
+        .collect()
+}
+
 /// Compute the hit-test clip boxes for a layout node: the enclosing
 /// `VirtualView` VIEWPORTS (`dom_clips`, outermost host first) plus every
 /// clipping ancestor's border box (any `overflow` other than `visible`), each
@@ -2402,7 +2426,7 @@ pub fn compute_scroll_child_rect(
 /// target.
 #[allow(clippy::similar_names, clippy::too_many_arguments)] // domain-standard coordinate/geometry/short-lived names
 fn compute_node_clips(
-    styled_dom: &StyledDom,
+    clip_axes: &[(bool, bool)],
     nodes: &[LayoutNodeHot],
     positions: &PositionVec,
     node_index: usize,
@@ -2452,7 +2476,6 @@ fn compute_node_clips(
     // Walk ancestors. A node's own overflow clips its descendants, not itself, so
     // we start at the parent. `guard` bounds the loop in case `parent` links ever
     // form a cycle (they shouldn't, but a hit-test rebuild must never hang).
-    let styled_nodes = styled_dom.styled_nodes.as_container();
     let mut cur = nodes.get(node_index).and_then(|n| n.parent);
     let mut guard = 0usize;
     while let Some(anc) = cur {
@@ -2465,17 +2488,15 @@ fn compute_node_clips(
         };
         cur = anc_node.parent;
 
-        let Some(anc_dom_id) = anc_node.dom_node_id else {
+        if anc_node.dom_node_id.is_none() {
             continue;
-        };
+        }
         // An ancestor whose frames the node is not painted in - one between
         // an out-of-flow node and its containing block - does not clip it.
         if !clips_it(anc) {
             continue;
         }
-        let node_state = &styled_nodes[anc_dom_id].styled_node_state;
-        let clips_x = get_overflow_x(styled_dom, anc_dom_id, node_state).is_clipped();
-        let clips_y = get_overflow_y(styled_dom, anc_dom_id, node_state).is_clipped();
+        let (clips_x, clips_y) = clip_axes.get(anc).copied().unwrap_or((false, false));
         if !clips_x && !clips_y {
             continue;
         }
@@ -2523,7 +2544,7 @@ fn compute_node_clip(
 ) -> Option<LogicalRect> {
     let chain_of = vec![0u32; nodes.len()];
     let clips = compute_node_clips(
-        styled_dom,
+        &overflow_clip_axes(styled_dom, nodes),
         nodes,
         positions,
         node_index,

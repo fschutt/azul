@@ -17734,6 +17734,13 @@ impl LayoutWindow {
                             restyle_fonts |= tr.prop_type.can_trigger_relayout()
                                 || tr.prop_type.is_inheritable();
                         }
+                        if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+                            eprintln!(
+                                "[tween] restyle path: node {:?} {:?} scope {:?} compact {patched} \
+                                 shown {shown:?} from {:?} to {:?}",
+                                tr.node, tr.prop_type, tr.scope, tr.from, tr.to
+                            );
+                        }
                         dirty.push((tr.node, tr.scope));
                         if tr.scope == azul_css::props::property::RelayoutScope::None {
                             paint_restyled = true;

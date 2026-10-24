@@ -1313,7 +1313,7 @@ impl A11yManager {
         // The root window node.
         order.push(root_id);
         let root_inputs = {
-            let mut h = azul_core::hash::DefaultHasher::new();
+            let mut h = azul_core::hash::FastHasher::new();
             inputs.window_title.as_str().hash(&mut h);
             inputs.language.hash(&mut h);
             inputs.language_is_rtl.hash(&mut h);
@@ -1802,7 +1802,7 @@ impl A11yManager {
     }
 
     /// A signature never `0` (`0` = "unknown, build it").
-    fn finish_signature(h: &azul_core::hash::DefaultHasher) -> u64 {
+    fn finish_signature(h: &azul_core::hash::FastHasher) -> u64 {
         use core::hash::Hasher;
         h.finish().max(1)
     }
@@ -1832,7 +1832,7 @@ impl A11yManager {
     ) -> u64 {
         use core::hash::Hash;
 
-        let mut h = azul_core::hash::DefaultHasher::new();
+        let mut h = azul_core::hash::FastHasher::new();
         // A declared key reads in the window's language: a switch rebuilds.
         language.hash(&mut h);
         // A label elsewhere in the DOM names the node: its text is content.

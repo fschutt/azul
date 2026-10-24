@@ -1876,8 +1876,9 @@ pub(super) fn incremental_relayout(
         // and the next full regeneration would mis-detect what changed.
         layout_window.current_window_state = current_window_state.clone();
     }
-
-    register_scroll_nodes(layout_window);
+    // The scroll nodes of this pass are registered: the layout funnel
+    // (`layout_and_generate_display_list`) does it before it returns, and a
+    // second registration here ran on every frame of a tween for nothing.
 
     log_debug!(LogCategory::Layout, "[incremental_relayout] COMPLETE");
 

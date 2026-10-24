@@ -9533,23 +9533,10 @@ impl MacOSWindow {
                             },
                         })
                         .collect();
-
-                    // Update hit tester after render - WebRender now has valid scene data
-                    if let Some(layout_window) = self.common.layout_window.as_ref() {
-                        let doc_id = wr_translate_document_id(layout_window.document_id);
-                        let new_hit_tester = self
-                            .common
-                            .render_api
-                            .as_ref()
-                            .unwrap()
-                            .request_hit_tester(doc_id)
-                            .resolve();
-                        self.common.hit_tester = Some(AsyncHitTester::Resolved(new_hit_tester));
-                        log_trace!(
-                            LogCategory::Rendering,
-                            "[WebRender] Hit tester updated after render"
-                        );
-                    }
+                    // No WebRender hit tester is fetched here: hit testing reads
+                    // the layout's own tester on every backend
+                    // (`perform_hit_test`), and waiting for WebRender's after each
+                    // frame blocked the draw on its render backend thread.
                 }
                 Err(errors) => {
                     log_error!(
