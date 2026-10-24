@@ -4,7 +4,8 @@
 use std::{fmt::Debug, path::PathBuf};
 
 use azlin_contract::{
-    AppName, AzlinError, BanWire, BucketName, Cents, CheckoutId, ClientHello, ClientTooOld,
+    AppName, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState, ArchiveWire,
+    AzlinError, BanWire, BucketName, DeviceKeyAnswer, DeviceKeyRegistration, ProofKey, Cents, CheckoutId, ClientHello, ClientTooOld,
     Currency, Deadline,
     DeadlineKind, DriveId, FamilyId, IdempotencyKey, IdempotentScope, LogicalBytes, MemberId,
     Months, ReadOnlyWhy, RefreshRefusal, Rfc3339, SemVer, StoredBytes, TierId, FIXTURES,
@@ -197,12 +198,83 @@ fn every_refresh_refusal_reads_and_writes_its_fixture() {
             ban_reason: Some("spam distribution".into()),
             ban_until: Some(Rfc3339::parse("2026-10-22T08:00:00Z").expect("time")),
         }),
+        RefreshRefusal::DriveArchived(locked_wire(false)),
         RefreshRefusal::NotVerified,
         RefreshRefusal::TryAgain,
         RefreshRefusal::Unavailable { spent: Some(false) },
         RefreshRefusal::Unavailable { spent: None },
     ];
     golden("refresh_refusals.json", &refusals);
+}
+
+/// A drive locked on 2026-10-24, its owner's proof given or not.
+fn locked_wire(proven: bool) -> ArchiveWire {
+    let locked = Rfc3339::parse("2026-10-24T00:00:00Z").expect("time");
+    ArchiveWire {
+        state: ArchiveState::Locked,
+        locked_at: locked.clone(),
+        pay_through: locked,
+        proven,
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct ArchiveFixture {
+    wires: Vec<ArchiveWire>,
+    challenge: ArchiveChallenge,
+    proofs: Vec<ArchiveProof>,
+    refusals: Vec<ArchiveRefusal>,
+    device_key: DeviceKeyRegistration,
+    device_key_answer: DeviceKeyAnswer,
+}
+
+#[test]
+fn a_locked_drive_its_challenge_its_proofs_and_their_refusals_read_and_write_their_fixture() {
+    let challenge = "ac1.d_k3f9x2mq7a.1792569900.q3Zx0aB1cD2eF3gH4iJ5kL6m.g1:00ff".to_string();
+    let fixture = ArchiveFixture {
+        wires: vec![
+            locked_wire(false),
+            ArchiveWire {
+                state: ArchiveState::RestorePending,
+                ..locked_wire(true)
+            },
+        ],
+        challenge: ArchiveChallenge {
+            challenge: challenge.clone(),
+            expires_at: Rfc3339::parse("2026-10-21T08:05:00Z").expect("time"),
+        },
+        proofs: vec![
+            ArchiveProof {
+                challenge: challenge.clone(),
+                key: ProofKey::RecoveryKey,
+                key_id: Some("rk_legacy".into()),
+                signature: "c2lnbmF0dXJl".into(),
+            },
+            ArchiveProof {
+                challenge,
+                key: ProofKey::DeviceKey,
+                key_id: None,
+                signature: "c2lnbmF0dXJl".into(),
+            },
+        ],
+        refusals: vec![
+            ArchiveRefusal::BadRequest,
+            ArchiveRefusal::BadChallenge,
+            ArchiveRefusal::ChallengeUsed,
+            ArchiveRefusal::BadSignature,
+            ArchiveRefusal::NoKey,
+            ArchiveRefusal::NotArchived,
+            ArchiveRefusal::NotVerified,
+        ],
+        device_key: DeviceKeyRegistration {
+            public_key: "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=".into(),
+            signature: "c2lnbmF0dXJl".into(),
+        },
+        device_key_answer: DeviceKeyAnswer {
+            key_id: "dk_k3f9x2mq7a".into(),
+        },
+    };
+    golden("archive.json", &fixture);
 }
 
 #[test]
@@ -564,11 +636,21 @@ mod renewal {
                 period_until: Rfc3339::parse("2026-11-21T00:00:00Z").expect("time"),
                 tier: None,
                 credited_days: None,
+                archive: None,
             },
             RedeemAnswer {
                 period_until: Rfc3339::parse("2026-12-05T00:00:00Z").expect("time"),
                 tier: Some("1TB".into()),
                 credited_days: Some(14),
+                archive: None,
+            },
+            // a locked drive: the month counts from its old period end, which is still short
+            // of the day it was locked
+            RedeemAnswer {
+                period_until: Rfc3339::parse("2026-08-12T00:00:00Z").expect("time"),
+                tier: None,
+                credited_days: None,
+                archive: Some(super::locked_wire(true)),
             },
         ];
         golden("redeem_answers.json", &answers);
@@ -592,6 +674,7 @@ mod renewal {
             },
             RedeemRefusal::StoredBytesRequired,
             RedeemRefusal::TryAgain,
+            RedeemRefusal::ArchiveProofRequired,
         ];
         golden("redeem_refusals.json", &refusals);
     }

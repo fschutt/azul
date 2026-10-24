@@ -134,11 +134,15 @@ pub enum Code {
     ReadOnlyLockdown,
     /// Azlin Storage made the drive read-only for now (`read_only_operator`).
     ReadOnlyOperator,
+    /// The drive was unpaid past its read-only time and is locked: nothing is read or written,
+    /// its files are in offline storage until its owner proves it is theirs and pays
+    /// (`drive_archived`).
+    DriveArchived,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 33] = [
+    pub const ALL: [Code; 34] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -172,6 +176,7 @@ impl Code {
         Code::AlreadyAnswered,
         Code::ReadOnlyLockdown,
         Code::ReadOnlyOperator,
+        Code::DriveArchived,
     ];
 
     /// `quota_exceeded`, ...
@@ -209,6 +214,7 @@ impl Code {
             Code::AlreadyAnswered => azlin_contract::ALREADY_ANSWERED,
             Code::ReadOnlyLockdown => "read_only_lockdown",
             Code::ReadOnlyOperator => "read_only_operator",
+            Code::DriveArchived => "drive_archived",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -272,6 +278,7 @@ impl From<AzlinError> for Code {
             AzlinError::BadChallenge => Code::BadChallenge,
             AzlinError::ReadOnlyLockdown => Code::ReadOnlyLockdown,
             AzlinError::ReadOnlyOperator => Code::ReadOnlyOperator,
+            AzlinError::DriveArchived => Code::DriveArchived,
         }
     }
 }
@@ -583,6 +590,18 @@ pub const ROWS: &[Row] = &[
         de: "Azlin Storage hat dieses Laufwerk vorübergehend schreibgeschützt. Deine Dateien \
              sind sicher und lesbar; die Synchronisierung geht weiter, sobald es wieder \
              Änderungen annimmt.",
+    },
+    Row {
+        code: Code::DriveArchived,
+        class: Class::Fatal,
+        behaviour: Behaviour::StopUploads,
+        en: "This drive is locked: it went unpaid for 104 days after its last paid day, so its \
+             files were moved to offline storage. Nothing was deleted. Prove it is yours and pay \
+             for it to get it back; restoring it can take some days.",
+        de: "Dieses Laufwerk ist gesperrt: Es blieb nach seinem letzten bezahlten Tag 104 Tage \
+             unbezahlt, deshalb wurden seine Dateien in einen Offline-Speicher verschoben. \
+             Gelöscht wurde nichts. Weise nach, dass es dir gehört, und bezahle es, um es \
+             zurückzubekommen; die Wiederherstellung kann einige Tage dauern.",
     },
     Row {
         code: Code::BadChallenge,

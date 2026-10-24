@@ -10,5 +10,9 @@
   {
     "why": "operator",
     "code": "read_only_operator"
+  },
+  {
+    "why": "archived",
+    "code": "drive_archived"
   }
 ]

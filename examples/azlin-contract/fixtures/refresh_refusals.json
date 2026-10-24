@@ -18,6 +18,12 @@
     "ban_until": "2026-10-22T08:00:00Z"
   },
   {
+    "error": "drive_archived",
+    "state": "locked",
+    "locked_at": "2026-10-24T00:00:00Z",
+    "pay_through": "2026-10-24T00:00:00Z"
+  },
+  {
     "error": "not_verified"
   },
   {

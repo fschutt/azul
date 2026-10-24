@@ -6,5 +6,14 @@
     "period_until": "2026-12-05T00:00:00Z",
     "tier": "1TB",
     "credited_days": 14
+  },
+  {
+    "period_until": "2026-08-12T00:00:00Z",
+    "archive": {
+      "state": "locked",
+      "locked_at": "2026-10-24T00:00:00Z",
+      "pay_through": "2026-10-24T00:00:00Z",
+      "proven": true
+    }
   }
 ]

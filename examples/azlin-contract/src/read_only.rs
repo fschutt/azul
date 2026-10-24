@@ -1,5 +1,5 @@
-//! Why a bucket takes no writes, and what a node answers for each reason; the cluster map's
-//! epoch the requests name.
+//! Why a bucket takes no writes (or, once it is locked, nothing at all), and what a node answers
+//! for each reason; the cluster map's epoch the requests name.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,10 @@ pub enum ReadOnlyWhy {
     LockdownPending,
     /// The operator froze it (a move between blocks, `azctl bucket set`).
     Operator,
+    /// Unpaid past its read-only time: the drive is locked. Nothing is read or written any
+    /// more, its files are moved to offline storage, and only its owner who proves it and pays
+    /// gets it back ([`crate::ArchiveWire`]).
+    Archived,
     /// A reason this build does not know: a newer service wrote it. Never written.
     #[serde(other)]
     Unknown,
@@ -25,10 +29,11 @@ pub enum ReadOnlyWhy {
 
 impl ReadOnlyWhy {
     /// Every reason a service writes ([`ReadOnlyWhy::Unknown`] is not one).
-    pub const ALL: [ReadOnlyWhy; 3] = [
+    pub const ALL: [ReadOnlyWhy; 4] = [
         ReadOnlyWhy::Unpaid,
         ReadOnlyWhy::LockdownPending,
         ReadOnlyWhy::Operator,
+        ReadOnlyWhy::Archived,
     ];
 
     /// The reason as the wire and the bucket row write it.
@@ -38,6 +43,7 @@ impl ReadOnlyWhy {
             ReadOnlyWhy::Unpaid => "unpaid",
             ReadOnlyWhy::LockdownPending => "lockdown_pending",
             ReadOnlyWhy::Operator => "operator",
+            ReadOnlyWhy::Archived => "archived",
             ReadOnlyWhy::Unknown => "unknown",
         }
     }
@@ -64,7 +70,15 @@ impl ReadOnlyWhy {
             ReadOnlyWhy::Unpaid => AzlinError::ReadOnlyUnpaid,
             ReadOnlyWhy::LockdownPending => AzlinError::ReadOnlyLockdown,
             ReadOnlyWhy::Operator | ReadOnlyWhy::Unknown => AzlinError::ReadOnlyOperator,
+            ReadOnlyWhy::Archived => AzlinError::DriveArchived,
         }
+    }
+
+    /// Whether reads stop too: a locked drive serves nothing to anyone but the operator who
+    /// moves its files to offline storage and back.
+    #[must_use]
+    pub fn blocks_reads(self) -> bool {
+        self == ReadOnlyWhy::Archived
     }
 }
 

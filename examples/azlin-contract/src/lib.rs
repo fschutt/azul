@@ -18,11 +18,15 @@
 //!   [`INSTALMENT_SECS`]), the [`IssueAnswer`] and the [`IssueRefusal`]s, final or not.
 //! - [`ReadOnlyWhy`]: why a drive takes no writes, each reason with its node code; the cluster
 //!   map's epoch in [`MAP_HEADER`].
+//! - A locked drive ([`ArchiveWire`]): unpaid past its read-only time, its files in offline
+//!   storage; its owner gets it back with a signed [`ArchiveProof`] of an [`ArchiveChallenge`]
+//!   and by paying the time it was kept ([`ARCHIVE_DEBT_SECS`]).
 //!
 //! [`FIXTURES`] are the golden JSON answers: the crate's tests prove the types read and write
 //! exactly them, and the services check [`fixtures_digest`] against the digest they were built
 //! for, so both sides cannot drift apart unnoticed.
 
+mod archive;
 mod checkout;
 mod error;
 mod hello;
@@ -34,6 +38,12 @@ mod refresh;
 mod renewal;
 mod time;
 
+pub use archive::{
+    archive_proof_message, device_key_message, months_owed, paid_through_lock,
+    period_after_restore, ArchiveChallenge, ArchiveProof, ArchiveRefusal, ArchiveState,
+    ArchiveWire, DeviceKeyAnswer, DeviceKeyRegistration, ProofKey, ARCHIVE_CHALLENGE_SECS,
+    ARCHIVE_DEBT_SECS, ARCHIVE_KEEP_SECS,
+};
 pub use checkout::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
     LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange, Settles,
@@ -84,6 +94,7 @@ pub const FIXTURES: &[(&str, &str)] = &[
     ("redeem_refusals.json", include_str!("../fixtures/redeem_refusals.json")),
     ("renewal_signups.json", include_str!("../fixtures/renewal_signups.json")),
     ("client_too_old.json", include_str!("../fixtures/client_too_old.json")),
+    ("archive.json", include_str!("../fixtures/archive.json")),
 ];
 
 /// The digest of [`FIXTURES`] (`fnv1a64:<16 hex digits>`): the services keep the one they were

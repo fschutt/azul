@@ -56,6 +56,10 @@ pub enum AzlinError {
     ReadOnlyLockdown,
     /// A node refuses a write: the operator made the drive read-only for now.
     ReadOnlyOperator,
+    /// The drive was unpaid past its read-only time and is locked: nothing is read or written,
+    /// its files are in offline storage. Its owner gets it back by proving it is theirs and
+    /// paying; restoring it can take some days.
+    DriveArchived,
     /// A code this build does not know: a newer service sent it. Never sent.
     #[serde(other)]
     Unknown,
@@ -63,7 +67,7 @@ pub enum AzlinError {
 
 impl AzlinError {
     /// Every code a service sends ([`AzlinError::Unknown`] is not one).
-    pub const ALL: [AzlinError; 24] = [
+    pub const ALL: [AzlinError; 25] = [
         AzlinError::Unavailable,
         AzlinError::Maintenance,
         AzlinError::QuotaExceeded,
@@ -88,6 +92,7 @@ impl AzlinError {
         AzlinError::BadChallenge,
         AzlinError::ReadOnlyLockdown,
         AzlinError::ReadOnlyOperator,
+        AzlinError::DriveArchived,
     ];
 
     /// The code as the wire writes it (`quota_exceeded`).
@@ -118,6 +123,7 @@ impl AzlinError {
             AzlinError::BadChallenge => "bad_challenge",
             AzlinError::ReadOnlyLockdown => "read_only_lockdown",
             AzlinError::ReadOnlyOperator => "read_only_operator",
+            AzlinError::DriveArchived => "drive_archived",
             AzlinError::Unknown => "unknown",
         }
     }
@@ -165,6 +171,7 @@ impl AzlinError {
             AzlinError::BadChallenge => (401, "AccessDenied"),
             AzlinError::ReadOnlyLockdown => (403, "AccessDenied"),
             AzlinError::ReadOnlyOperator => (403, "AccessDenied"),
+            AzlinError::DriveArchived => (403, "AccessDenied"),
             AzlinError::Unknown => (500, "InternalError"),
         }
     }

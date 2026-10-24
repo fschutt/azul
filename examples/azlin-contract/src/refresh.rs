@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::archive::ArchiveWire;
 use crate::time::Rfc3339;
 
 /// A refused refresh: the `{"error": ...}` body the token server answers with (its `message`
@@ -20,6 +21,9 @@ pub enum RefreshRefusal {
     LockdownPending { pending_until: Option<Rfc3339> },
     /// The drive is banned and its grace is over (403).
     DriveBanned(BanWire),
+    /// The drive was unpaid past its read-only time and is locked: its files are in offline
+    /// storage until its owner proves it is theirs and pays (403). The token is kept.
+    DriveArchived(ArchiveWire),
     /// The token family is not verified yet (an upgrade); nothing was spent (503).
     NotVerified,
     /// The family changed between the check and the rotation; nothing was spent (503).
@@ -52,7 +56,9 @@ impl RefreshRefusal {
             RefreshRefusal::Unauthorized
             | RefreshRefusal::TokenReuse
             | RefreshRefusal::CredentialsRevoked => 401,
-            RefreshRefusal::LockdownPending { .. } | RefreshRefusal::DriveBanned(_) => 403,
+            RefreshRefusal::LockdownPending { .. }
+            | RefreshRefusal::DriveBanned(_)
+            | RefreshRefusal::DriveArchived(_) => 403,
             RefreshRefusal::NotVerified
             | RefreshRefusal::TryAgain
             | RefreshRefusal::Unavailable { .. } => 503,

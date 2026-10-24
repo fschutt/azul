@@ -432,10 +432,28 @@ mod read_only_and_map {
     }
 
     #[test]
+    fn only_a_locked_drive_stops_reads_and_says_so_with_its_own_code() {
+        assert_eq!(ReadOnlyWhy::Archived.code(), AzlinError::DriveArchived);
+        assert_eq!(ReadOnlyWhy::parse("archived"), Some(ReadOnlyWhy::Archived));
+        assert_eq!(AzlinError::DriveArchived.as_str(), "drive_archived");
+        assert_eq!(AzlinError::DriveArchived.s3(), (403, "AccessDenied"));
+        assert!(!AzlinError::DriveArchived.is_transient(), "asking again changes nothing");
+        for why in ReadOnlyWhy::ALL {
+            assert_eq!(why.blocks_reads(), why == ReadOnlyWhy::Archived, "{why:?}");
+        }
+        // a reason a newer server wrote stops writes only, never reads
+        assert!(!ReadOnlyWhy::Unknown.blocks_reads());
+    }
+
+    #[test]
     fn the_new_read_only_codes_come_after_the_old_ones() {
         let n = AzlinError::ALL.len();
-        let newest = [AzlinError::ReadOnlyLockdown, AzlinError::ReadOnlyOperator];
-        assert_eq!(&AzlinError::ALL[n - 2..], &newest[..]);
+        let newest = [
+            AzlinError::ReadOnlyLockdown,
+            AzlinError::ReadOnlyOperator,
+            AzlinError::DriveArchived,
+        ];
+        assert_eq!(&AzlinError::ALL[n - 3..], &newest[..]);
         for code in [AzlinError::ReadOnlyLockdown, AzlinError::ReadOnlyOperator] {
             assert_eq!(code.s3(), (403, "AccessDenied"), "{code}");
             assert_eq!(code.retry_after(), None, "{code}");
@@ -483,16 +501,16 @@ mod renewal {
     }
 
     #[test]
-    fn an_unpaid_drive_turns_read_only_then_closes() {
+    fn an_unpaid_drive_turns_read_only_then_locks() {
         let until = APPROVED;
-        let [end, read_only, closed] = expiry(until);
+        let [end, read_only, locked] = expiry(until);
         assert_eq!(end.kind, DeadlineKind::PeriodEnd);
         assert_eq!(end.at.unix(), until);
         assert_eq!(read_only.kind, DeadlineKind::ReadOnlyStart);
         assert_eq!(read_only.at.unix(), until + WRITABLE_GRACE_SECS);
         assert_eq!(WRITABLE_GRACE_SECS, 14 * DAY);
-        assert_eq!(closed.kind, DeadlineKind::ReadOnlyEnd);
-        assert_eq!(closed.at.unix(), until + WRITABLE_GRACE_SECS + READ_ONLY_SECS);
+        assert_eq!(locked.kind, DeadlineKind::ReadOnlyEnd);
+        assert_eq!(locked.at.unix(), until + WRITABLE_GRACE_SECS + READ_ONLY_SECS);
     }
 
     #[test]
@@ -526,5 +544,86 @@ mod renewal {
         let newer: RedeemRefusal =
             serde_json::from_str(r#"{"error":"a_new_word"}"#).expect("reads");
         assert_eq!(newer, RedeemRefusal::Unknown);
+    }
+}
+
+mod archive {
+    use azlin_contract::{
+        archive_proof_message, device_key_message, months_owed, paid_through_lock,
+        period_after_restore, ArchiveRefusal, ArchiveState, ArchiveWire, RedeemRefusal,
+        RefreshRefusal, ARCHIVE_DEBT_SECS, ARCHIVE_KEEP_SECS, INSTALMENT_SECS, READ_ONLY_SECS,
+        WRITABLE_GRACE_SECS,
+    };
+
+    const DAY: i64 = 86_400;
+    const UNTIL: i64 = 1_791_255_600;
+
+    #[test]
+    fn a_locked_drive_owes_its_grace_and_its_read_only_time_and_nothing_for_the_archive() {
+        assert_eq!(ARCHIVE_DEBT_SECS, WRITABLE_GRACE_SECS + READ_ONLY_SECS);
+        assert_eq!(ARCHIVE_DEBT_SECS, 104 * DAY);
+        let locked = UNTIL + ARCHIVE_DEBT_SECS;
+        // 104 days are three months and a half: four months of 30 days pay them
+        assert_eq!(months_owed(UNTIL, locked), 4);
+        assert_eq!(months_owed(UNTIL + 3 * INSTALMENT_SECS, locked), 1);
+        assert_eq!(months_owed(locked, locked), 0);
+        assert!(!paid_through_lock(UNTIL + 3 * INSTALMENT_SECS, locked));
+        assert!(paid_through_lock(UNTIL + 4 * INSTALMENT_SECS, locked));
+        // back two years later: the 16 days paid beyond the lock start now, the two years in
+        // offline storage cost nothing
+        let now = locked + 730 * DAY;
+        let paid = UNTIL + 4 * INSTALMENT_SECS;
+        assert_eq!(period_after_restore(paid, locked, now), now + 16 * DAY);
+        assert_eq!(period_after_restore(locked, locked, now), now);
+    }
+
+    #[test]
+    fn an_archive_is_kept_for_years() {
+        assert!(ARCHIVE_KEEP_SECS >= 10 * 365 * DAY);
+    }
+
+    #[test]
+    fn a_proof_and_a_device_key_sign_their_drive_by_name() {
+        assert_eq!(
+            archive_proof_message("d_x", "ac1.c"),
+            "archive-restore:d_x:ac1.c"
+        );
+        assert_ne!(archive_proof_message("d_x", "c"), archive_proof_message("d_y", "c"));
+        assert_eq!(device_key_message("d_x", "pk"), "device-key:d_x:pk");
+    }
+
+    #[test]
+    fn a_refused_refresh_of_a_locked_drive_says_where_it_stands_and_keeps_the_token() {
+        let body = r#"{"error":"drive_archived","message":"locked","state":"restore_pending","locked_at":"2026-10-24T00:00:00Z","pay_through":"2026-10-24T00:00:00Z","proven":true}"#;
+        let read: RefreshRefusal = serde_json::from_str(body).expect("reads");
+        let RefreshRefusal::DriveArchived(ref wire) = read else {
+            panic!("{read:?}");
+        };
+        assert_eq!(wire.state, ArchiveState::RestorePending);
+        assert!(wire.proven);
+        assert_eq!(read.status(), 403);
+        assert!(!read.spent_nothing(), "nothing to send again: the drive is locked");
+        let newer: ArchiveWire = serde_json::from_str(
+            r#"{"state":"in_the_vault","locked_at":"2026-10-24T00:00:00Z","pay_through":"2026-10-24T00:00:00Z"}"#,
+        )
+        .expect("reads");
+        assert_eq!(newer.state, ArchiveState::Unknown);
+        assert!(!newer.proven, "no proof said is none");
+    }
+
+    #[test]
+    fn a_wrong_key_a_replay_and_a_payment_without_proof_are_refused_in_their_own_words() {
+        assert_eq!(ArchiveRefusal::BadSignature.status(), 401);
+        assert_eq!(ArchiveRefusal::ChallengeUsed.status(), 409);
+        assert_eq!(ArchiveRefusal::NoKey.status(), 403);
+        let read: ArchiveRefusal =
+            serde_json::from_str(r#"{"error":"challenge_used","message":"x"}"#).expect("reads");
+        assert_eq!(read, ArchiveRefusal::ChallengeUsed);
+        assert_eq!(read.as_str(), "challenge_used");
+        let read: ArchiveRefusal = serde_json::from_str(r#"{"error":"teapot"}"#).expect("reads");
+        assert_eq!(read, ArchiveRefusal::Unknown);
+        let unpaid = RedeemRefusal::ArchiveProofRequired;
+        assert_eq!(unpaid.status(), 403);
+        assert!(!unpaid.is_useless(), "the token is kept for after the proof");
     }
 }

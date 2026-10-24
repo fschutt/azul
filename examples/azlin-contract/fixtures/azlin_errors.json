@@ -142,5 +142,11 @@
     "status": 403,
     "s3": "AccessDenied",
     "retry_after": null
+  },
+  {
+    "code": "drive_archived",
+    "status": 403,
+    "s3": "AccessDenied",
+    "retry_after": null
   }
 ]

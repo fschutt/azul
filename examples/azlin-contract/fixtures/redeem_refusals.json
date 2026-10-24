@@ -31,5 +31,8 @@
   },
   {
     "error": "try_again"
+  },
+  {
+    "error": "archive_proof_required"
   }
 ]
