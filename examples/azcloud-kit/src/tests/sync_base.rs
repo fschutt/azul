@@ -158,6 +158,33 @@ fn a_damaged_base_database_is_set_aside_and_the_folder_pairs_afresh() {
     assert_eq!(next.files_up, 0, "{}", next.summary());
 }
 
+/// A synced folder whose sync state is gone (deleted, a lost cache) holds the marker of its
+/// pairing: the pass says so, matches both sides by content and deletes nothing; a folder
+/// never synced says nothing.
+#[test]
+fn a_synced_folder_whose_state_is_gone_says_so_and_deletes_nothing() {
+    let store = S3Bucket::new();
+    let folder = TempDir::new("base-folder");
+    let state = TempDir::new("base-state");
+    fs::write(folder.path().join("a.txt"), b"alpha").unwrap();
+    let root = LocalRoot::folder(folder.path());
+    let opts = SyncOptions::new("e2e/lost/", "d-test", "dev-a").unwrap();
+    let path = state.path().join("index.json");
+    let first = sync_folder(&store, &root, &path, &opts).unwrap();
+    assert!(first.problems.is_empty(), "a new pairing: {:?}", first.problems);
+    fs::remove_file(&path).unwrap();
+
+    let after = sync_folder(&store, &root, &path, &opts).unwrap();
+    assert!(
+        after.problems.iter().any(|p| p.code == crate::sync::problems::Code::StateReset),
+        "{:?}",
+        after.problems
+    );
+    assert_eq!((after.files_up, after.deleted_here, after.deleted_there), (0, 0, 0), "{}", after.summary());
+    let next = sync_folder(&store, &root, &path, &opts).unwrap();
+    assert!(next.problems.is_empty(), "{:?}", next.problems);
+}
+
 /// Everything a pass keeps in the device's state folder names the user's files (the base, the
 /// drive's index it caches): readable by its owner only, whichever base it keeps.
 #[cfg(unix)]

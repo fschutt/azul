@@ -2887,7 +2887,20 @@ fn run<R: SyncRemote + ?Sized>(
     // anything: the run pairs afresh, a union of both sides, and says so.
     let mut index = match LocalIndex::load(index_path) {
         Ok(Some(index)) => index,
-        Ok(None) => LocalIndex::new(&root.path, &opts.bucket, &opts.prefix),
+        Ok(None) => {
+            // No base, in a folder that holds the marker of a pairing: it was synced before and
+            // its sync state is gone (deleted, a lost cache, paired again). Said, as for a
+            // damaged base: the run matches both sides by content and deletes nothing.
+            if root::read_marker(&root.path).is_some() {
+                report.tell(
+                    Code::StateReset,
+                    "",
+                    "this folder was synced before and its sync state is gone; this run matches \
+                     it with the drive by content and deletes nothing",
+                );
+            }
+            LocalIndex::new(&root.path, &opts.bucket, &opts.prefix)
+        }
         Err(e) => {
             report.tell(
                 Code::StateReset,
