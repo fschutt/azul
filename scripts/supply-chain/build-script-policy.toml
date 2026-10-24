@@ -2552,8 +2552,8 @@ reviewed = ["1.1.0:7a035197ea432c18c85fdb1198c968dfc7d2fd67180b8de94534103eb1f03
 allow = true
 risk = "medium"
 review = "audited"
-reason = "no build-time code; a generated const of 121 Mozilla root certificates as DER bytes"
-reviewed = ["1.0.9:91634c47dfb208195ef065b721d8d10437087cecc49eff1bd4a635e2abac14d4"]
+reason = "no build-time code; a generated const of 120 Mozilla root certificates as DER bytes"
+reviewed = ["1.0.10:5bbef20f249591fef2a5c11215e2397716a2021564099400d3915b7ce9a2289c"]
 
 [crate."webpki-roots"]  # build-dependency
 allow = true

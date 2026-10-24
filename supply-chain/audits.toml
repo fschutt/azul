@@ -31,6 +31,12 @@ criteria = "safe-to-deploy"
 delta = "1.53.1 -> 1.53.3"
 notes = "RUSTSEC-2026-0386: AsyncFd::new/with_interest/try_* are deprecated in favour of the unsafe register/register_with_interest that state the I/O-safety contract (azul calls none of them). Also: wakers woken or dropped outside locks (semaphore close, DuplexStream, broadcast, JoinSet idle set), mpsc block index wraparound, MAX_PERMITS check, buffered seek overflow, paused-time unpark on current_thread, timer expiry at shutdown, io_uring op lifetime (tokio_unstable only). Added unsafe is limited to the new register API, tokio_unstable io_uring and taskdump paths, and tests. No new dependencies or build script."
 
+[[audits.webpki-root-certs]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "1.0.9 -> 1.0.10"
+notes = "RUSTSEC-2026-0383 fix: the emSign ECC Root CA - G3 certificate is removed from the bundled DER list (121 -> 120); data only, MSRV 1.71."
+
 [[audits.webpki-roots]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"

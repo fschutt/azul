@@ -148,6 +148,12 @@ jobs:
             EXEMPT+=(--exempt webpki-roots)
             echo "cooldown: webpki-roots exempt until 2026-11-03 (RUSTSEC-2026-0381 fix, emSign roots removed)"
           fi
+          # webpki-root-certs 1.0.10: RUSTSEC-2026-0383 fix, emSign root removed; delta audit 1.0.9 -> 1.0.10 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-03" ]]; then
+            EXEMPT+=(--exempt webpki-root-certs)
+            echo "cooldown: webpki-root-certs exempt until 2026-11-03 (RUSTSEC-2026-0383 fix, emSign root removed)"
+          fi
           # clipboard-win 5.4.3: 5.4.1 yanked for an out-of-bounds read; delta audit 5.4.1 -> 5.4.3 in supply-chain/audits.toml.
           # Exempt until it is 14 days old on every hour of the day.
           if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
