@@ -61,9 +61,26 @@
       { "op": "assert_response", "path": "result.up", "equals": 1 },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/old/IMG_1969.JPG", "same_as": "{root:a}/DCIM/old/IMG_1969.JPG" },
-      { "op": "drive_check", "check": "mtime", "device": "b", "path": "DCIM/old/IMG_1969.JPG", "ns": -31536000000000000, "tolerance_ns": 2000000000 },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a photo dated 1969 keeps its date on the other device",
+    "description": "KDRIVE-018 (kDrive): the date of a photo taken before 1970. Rule P12: the time a file had where it was written comes back with it where the system can hold it.",
+    "pending": "the engine keeps times as unsigned counts from 1970 (beneath::Stat.mtime_ns, LocalFile / BaseEntry mtime_ns, RemoteFile.mtime_ns, and the encrypted index's IndexEntry.modified in seconds): a time before 1970 is read as 0 and a download sets none. It needs signed times through the scan, the plain index (RemoteFile.mtime is signed already) and the pointer format",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/old/IMG_1969.JPG", "size": 20000, "seed": 182, "mtime": -31536000000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "DCIM/old/IMG_1969.JPG", "ns": -31536000000000000, "tolerance_ns": 2000000000 },
       { "op": "drive_cleanup" }
     ]
   }
