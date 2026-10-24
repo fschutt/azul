@@ -1332,14 +1332,24 @@ impl core::fmt::Debug for E2eCommandCallback {
     }
 }
 
-impl E2eCommandCallback {
-    /// A command callback from a bare function pointer (no host callable).
-    #[must_use]
-    pub fn create(cb: E2eCommandCallbackType) -> Self {
+/// A bare function pointer is a command callback with no host callable.
+impl From<E2eCommandCallbackType> for E2eCommandCallback {
+    fn from(cb: E2eCommandCallbackType) -> Self {
         Self {
             cb,
             ctx: OptionRefAny::None,
         }
+    }
+}
+
+impl E2eCommandCallback {
+    /// A command callback from a bare function pointer (no host callable),
+    /// or the callback itself. Like [`Callback::create`] it takes both, since
+    /// the generated C API hands `AppConfig::add_e2e_command` the callback
+    /// already paired with its host callable.
+    #[must_use]
+    pub fn create<C: Into<Self>>(cb: C) -> Self {
+        cb.into()
     }
 
     /// The form `AppConfig` stores (the pointer as a `usize`).

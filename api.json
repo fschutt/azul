@@ -38893,7 +38893,8 @@
                         "external": "azul_layout::callbacks::E2eCommandCallback",
                         "custom_impls": [
                             "Clone",
-                            "Debug"
+                            "Debug",
+                            "From"
                         ],
                         "struct_fields": [
                             {
