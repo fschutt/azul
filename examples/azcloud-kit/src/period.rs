@@ -1079,17 +1079,18 @@ pub enum TierChanged {
 
 /// Moves `tokens`' drive to the tier a checkout bought for it (decision 5): under the drive's
 /// lock with its newest drive token, the drive's status is asked and a token of the change's
-/// tier - issued first when none is kept - redeemed as a change of tier, with the drive's
-/// `stored` bytes when known. The token server takes a bigger tier at once (the remaining days
-/// credited) and a smaller one from [`azlin_contract::CHANGE_AHEAD_SECS`] before the period
-/// ends, when the stored bytes fit; until then the token waits unspent. A change the drive
-/// already has is marked done.
+/// tier - issued first when none is kept - redeemed as a change of tier, with the node's signed
+/// count of the drive's bytes (`usage`, asked only while a change is open: HeadBucket's
+/// [`azlin_contract::USAGE_PROOF_HEADER`]). The token server takes a bigger tier at once (the
+/// remaining days credited) and a smaller one from [`azlin_contract::CHANGE_AHEAD_SECS`] before
+/// the period ends, when the node's count fits; until then the token waits unspent. A change
+/// the drive already has is marked done.
 #[must_use]
 pub fn change_due(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
     tokens: &DriveTokens,
-    stored: Option<u64>,
+    usage: impl FnOnce() -> Option<String>,
     now: u64,
 ) -> TierChanged {
     let state = match tokens.state() {
@@ -1100,6 +1101,9 @@ pub fn change_due(
         return TierChanged::Nothing;
     };
     let drive_id = tokens.drive_id();
+    // asked before the drive's lock: the HeadBucket may refresh the drive's credentials, which
+    // spends the drive token under that same lock
+    let usage = usage();
     shared
         .with_drive_token(drive_id, |token| {
             let status = match server.drive_status(drive_id, token) {
@@ -1115,7 +1119,7 @@ pub fn change_due(
                     Err(why) => TierChanged::Kept(why),
                 };
             }
-            change_with(server, tokens, token, &change, stored, now)
+            change_with(server, tokens, token, &change, usage, now)
         })
         .unwrap_or_else(|e| TierChanged::Kept(e.to_string()))
 }
@@ -1132,7 +1136,7 @@ fn change_with(
     tokens: &DriveTokens,
     token: &str,
     change: &VaultGrant,
-    stored: Option<u64>,
+    usage: Option<String>,
     now: u64,
 ) -> TierChanged {
     let drive_id = tokens.drive_id();
@@ -1151,7 +1155,7 @@ fn change_with(
                 Err(e) => return TierChanged::Kept(e.to_string()),
             }
         };
-        match server.redeem_as(drive_id, token, &candidate, Some(stored)) {
+        match server.redeem_as(drive_id, token, &candidate, Some(usage.clone())) {
             Ok(Ok(answer)) => {
                 let _ = tokens.spend(&candidate.nonce);
                 if let Err(why) = mark_changed(tokens, change) {
@@ -1180,7 +1184,7 @@ fn change_with(
             }
             Ok(Err(RedeemRefusal::StoredBytesRequired)) => {
                 return TierChanged::Kept(String::from(
-                    "the drive's stored bytes are not known yet: a smaller tier needs them",
+                    "the node's count of the drive's bytes is not known yet: a smaller tier needs it",
                 ))
             }
             Ok(Err(refused)) => return TierChanged::Kept(refused.as_str().to_string()),

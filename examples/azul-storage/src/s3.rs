@@ -773,6 +773,33 @@ impl S3Drive {
         })
     }
 
+    /// An Azlin node's signed count of the bytes the bucket holds (HeadBucket's
+    /// [`azlin_contract::USAGE_PROOF_HEADER`]), as it came: the token server judges a move to a
+    /// smaller tier by it. `None` from another S3 or an older node.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer, as every request's.
+    pub fn usage_proof(&self) -> Result<Option<String>, DriveError> {
+        let reply = self.request(
+            Method::Head,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "",
+            CallLimits::json(),
+            Idempotency::Safe,
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, None));
+        }
+        Ok(reply
+            .header(azlin_contract::USAGE_PROOF_HEADER)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()))
+    }
+
     /// The host the requests to `endpoint` go to.
     fn host_at(&self, endpoint: &Endpoint) -> String {
         if self.config.path_style {

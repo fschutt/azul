@@ -164,9 +164,10 @@ impl<'a> TokenServer<'a> {
     }
 
     /// Redeems `token` on `drive_id` as [`Self::redeem_period_token`] does, or - `change` set -
-    /// as the move of the drive to the token's tier (`"change_tier": true`, with the drive's
-    /// stored bytes when known: a smaller tier is taken only when they fit). The token server's
-    /// refusal is read as the contract's: a change that waits or does not fit keeps the token.
+    /// as the move of the drive to the token's tier (`"change_tier": true`, with the node's
+    /// signed count of the drive's bytes when there is one: a smaller tier is taken only when
+    /// that count fits). The token server's refusal is read as the contract's: a change that
+    /// waits or does not fit keeps the token.
     ///
     /// # Errors
     ///
@@ -177,7 +178,7 @@ impl<'a> TokenServer<'a> {
         drive_id: &str,
         drive_token: &str,
         token: &PeriodToken,
-        change: Option<Option<u64>>,
+        change: Option<Option<String>>,
     ) -> Result<Result<RedeemAnswer, RedeemRefusal>, TokenError> {
         let path = format!("/v1/drives/{}/redeem", check_id(drive_id)?);
         let mut body = json!({
@@ -187,10 +188,10 @@ impl<'a> TokenServer<'a> {
             "signature": token.signature,
             "randomizer": token.randomizer,
         });
-        if let Some(stored) = change {
+        if let Some(usage) = change {
             body["change_tier"] = json!(true);
-            if let Some(stored) = stored {
-                body["stored_bytes"] = json!(stored);
+            if let Some(usage) = usage {
+                body["usage_proof"] = json!(usage);
             }
         }
         let reply = self.exchange(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;

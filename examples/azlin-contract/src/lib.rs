@@ -52,7 +52,7 @@ pub use read_only::{map_epoch, ReadOnlyWhy, MAP_HEADER};
 pub use refresh::{BanWire, RefreshRefusal};
 pub use renewal::{
     expiry, GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup, CHANGE_AHEAD_SECS,
-    READ_ONLY_SECS, REMIND_BEFORE_DAYS, WRITABLE_GRACE_SECS,
+    READ_ONLY_SECS, REMIND_BEFORE_DAYS, USAGE_PROOF_HEADER, WRITABLE_GRACE_SECS,
 };
 pub use ids::{
     BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue, LogicalBytes,

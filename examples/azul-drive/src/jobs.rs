@@ -417,8 +417,6 @@ pub(crate) enum Job {
         /// Each drive's id, its token server and, when it is open, the drive itself (its
         /// period tokens are kept in its vault then).
         drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)>,
-        /// Each drive's stored bytes as last counted: a move to a smaller tier needs them.
-        stored: HashMap<String, u64>,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -2777,7 +2775,6 @@ fn redeem_periods(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
     drives: &[(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)],
-    stored: &HashMap<String, u64>,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let now = crate::actions::now_secs();
@@ -2794,7 +2791,7 @@ fn redeem_periods(
         let look = look_at_drive(&server, keyring, store, &tokens, now);
         renewals.push((
             drive_id.clone(),
-            renewal_seen(&server, keyring, store, &tokens, &look, azlin.as_ref(), stored.get(drive_id).copied(), now),
+            renewal_seen(&server, keyring, store, &tokens, &look, azlin.as_ref(), now),
         ));
         // The tier list once a look (its news: a full drive's offer, the price notices).
         if news.is_none() {
@@ -2820,11 +2817,13 @@ fn renewal_seen(
     tokens: &DriveTokens,
     look: &azcloud_kit::Look,
     azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
-    stored: Option<u64>,
     now: u64,
 ) -> crate::renewals::RenewalSeen {
     use crate::renewals::{ChangeSeen, RenewalSeen};
-    let change = match change_due(server, keyring, tokens, stored, now) {
+    // a smaller tier is judged on the node's signed count of the drive's bytes, asked from the
+    // open drive only while a change is open
+    let usage = || azlin.and_then(|drive| drive.usage_proof().ok().flatten());
+    let change = match change_due(server, keyring, tokens, usage, now) {
         TierChanged::Changed {
             tier,
             credited_days,
@@ -3352,8 +3351,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             store,
             drives,
-            stored,
-        } => redeem_periods(&keyring, &store, &drives, &stored),
+        } => redeem_periods(&keyring, &store, &drives),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },

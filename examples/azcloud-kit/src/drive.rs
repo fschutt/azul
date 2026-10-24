@@ -539,6 +539,16 @@ impl AzlinDrive {
         self.with_bucket(S3Drive::space)
     }
 
+    /// The drive's node's signed count of the bytes its bucket holds ([`S3Drive::usage_proof`]):
+    /// what a move to a smaller tier hands the token server.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer.
+    pub fn usage_proof(&self) -> Result<Option<String>, DriveError> {
+        self.with_bucket(S3Drive::usage_proof)
+    }
+
     /// Runs the batch `call` on the bucket; the items the bucket refused for their credentials
     /// (they expired half way) run once more with fresh ones. A batch always answers per item,
     /// so even a bucket that cannot be reached answers every item with that.

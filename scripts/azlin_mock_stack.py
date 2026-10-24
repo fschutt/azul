@@ -706,6 +706,8 @@ class TokenState:
         self.s3_url = s3_url
         self.ttl = ttl
         self.lock = threading.Lock()
+        # Signs HeadBucket's count of a bucket's bytes (usage_proof), as a node's identity does.
+        self.usage_key = secrets.token_bytes(32)
         # The node list and the failover URLs every bundle names (set_nodes).
         self.nodes = [node_entry('n1', s3_url)]
         self.failover = []
@@ -1775,9 +1777,10 @@ class TokenState:
                     if drive['period_until'] - now > 7 * 86400:
                         raise ApiError(409, 'change_not_due', 'a smaller tier at the period end',
                                        {'from': rfc3339(drive['period_until'] - 7 * 86400)})
-                    stored = body.get('stored_bytes')
-                    if not isinstance(stored, int):
-                        raise ApiError(400, 'stored_bytes_required', 'the stored bytes')
+                    stored = self.node_count(drive['bucket'], body.get('usage_proof'), now)
+                    if stored is None:
+                        raise ApiError(400, 'stored_bytes_required',
+                                       "a node's fresh signed count of the drive's bytes")
                     if stored > TIERS[new]:
                         raise ApiError(409, 'does_not_fit', 'free space first',
                                        {'stored': stored, 'quota': TIERS[new]})
@@ -1825,6 +1828,28 @@ class TokenState:
                     'lockdown_pending_until': rfc3339(pending) if pending else None,
                     'you': state.get('member', 'owner'), 'members': members,
                     'usage_bytes': None, **self.ban_fields(drive)}
+
+    def usage_proof(self, bucket, held, at=None):
+        """The node's signed count of `bucket`'s bytes (HeadBucket's x-azlin-usage-proof,
+        azlin-proto usage.rs): `<node id>.<at>.<held>.<signature>`, here an HMAC with the
+        stack's own key in place of the node's Ed25519 identity."""
+        at = int(time.time()) if at is None else at
+        msg = f'{bucket}.{held}.{at}'.encode()
+        sig = base64.b64encode(hmac.new(self.usage_key, msg, hashlib.sha256).digest()).decode()
+        return f'1.{at}.{held}.{sig}'
+
+    def node_count(self, bucket, proof, now):
+        """The bytes `proof` says `bucket` holds, when the node signed it within 15 minutes
+        (USAGE_PROOF_MAX_AGE_SECS); None otherwise. The app's own figure decides nothing."""
+        parts = str(proof or '').split('.', 3)
+        if len(parts) != 4 or not all(p.lstrip('-').isdigit() for p in parts[:3]):
+            return None
+        at, held = int(parts[1]), int(parts[2])
+        if held < 0 or at > now + 60 or now - at > 15 * 60:
+            return None
+        if not hmac.compare_digest(self.usage_proof(bucket, held, at), str(proof)):
+            return None
+        return held
 
     def quota_of_bucket(self, bucket):
         """The quota of the drive whose bucket `bucket` is (its tier's, in stored bytes); None
@@ -2913,6 +2938,7 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier,
     # and keeps every write to that quota as a node does (parts of unfinished uploads count).
     s3.space_quota = state.quota_of_bucket
+    s3.usage_proof = state.usage_proof
     s3.enforce_quota = True
     # The node codes' statuses and S3 codes: the contract crate's.
     s3.azlin_errors = azlin_contract.azlin_errors()

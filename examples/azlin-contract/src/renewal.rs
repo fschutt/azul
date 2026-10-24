@@ -18,6 +18,12 @@ pub const REMIND_BEFORE_DAYS: [i64; 3] = [30, 7, 1];
 /// period keeps the tier it was paid for.
 pub const CHANGE_AHEAD_SECS: i64 = 7 * 86_400;
 
+/// A node's HeadBucket header with its signed count of the bytes the bucket holds
+/// (`<node id>.<at>.<held>.<signature>`): an app hands it on unread as the redeem's
+/// `usage_proof` when it moves its drive to a smaller tier, and the token server takes the
+/// smaller tier only when the node's count fits. The app's own figure decides nothing.
+pub const USAGE_PROOF_HEADER: &str = "x-azlin-usage-proof";
+
 /// What happens to a drive paid until `period_until` (seconds since 1970) when no month is
 /// bought: the period ends, the drive turns read-only, then it is closed.
 #[must_use]

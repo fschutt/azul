@@ -380,6 +380,22 @@ class AzlinSpace(ServerTest):
         self.assertEqual(headers.get("x-azlin-used-bytes"), "12")
         self.assertNotIn("x-azlin-quota-bytes", headers, "no quota known: none said")
 
+    def test_head_bucket_counts_unfinished_parts_and_signs_its_count(self):
+        """The count is what the quota holds (an unfinished upload's parts too), and with a
+        signer the node's signed word on it goes along (x-azlin-usage-proof)."""
+        self.seed("data/a", b"x" * 10)
+        self.server.space_quota = lambda bucket: 1000
+        status, _, body = self.client.request("POST", BUCKET, "big", query={"uploads": ""})
+        upload = xml_values(body, "UploadId")[0]
+        self.client.request(
+            "PUT", BUCKET, "big", query={"partNumber": "1", "uploadId": upload}, body=b"p" * 20)
+        _, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(headers.get("x-azlin-used-bytes"), "30", "the part counts")
+        self.assertNotIn("x-azlin-usage-proof", headers, "no signer: no statement")
+        self.server.usage_proof = lambda bucket, held: f"1.0.{held}.sig-of-{bucket}"
+        _, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(headers.get("x-azlin-usage-proof"), f"1.0.30.sig-of-{BUCKET}")
+
 
 class AzlinQuota(ServerTest):
     """An Azlin node's quota (`enforce_quota` with `space_quota`): a write is refused 403

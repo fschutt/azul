@@ -959,10 +959,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         quota_of = self.server.space_quota
         if quota_of is None:
             return {}
-        headers = {"x-azlin-used-bytes": self.server.store.stored_bytes(bucket)}
+        store = self.server.store
+        # what the quota holds: the stored bytes and the parts of unfinished uploads
+        held = store.stored_bytes(bucket) + store.reserved_bytes(bucket)
+        headers = {"x-azlin-used-bytes": held}
         quota = quota_of(bucket)
         if quota is not None:
             headers["x-azlin-quota-bytes"] = int(quota)
+        # the node's signed word on those bytes, which a move to a smaller tier hands on
+        if self.server.usage_proof is not None:
+            headers["x-azlin-usage-proof"] = self.server.usage_proof(bucket, held)
         return headers
 
     def multipart(self, bucket, key, query, body):
@@ -1119,6 +1125,8 @@ class Server(http.server.ThreadingHTTPServer):
         # An Azlin node's HeadBucket headers (SRV17: x-azlin-used-bytes, x-azlin-quota-bytes):
         # None for a plain S3, else a bucket's quota of stored bytes (None: not known).
         self.space_quota = None
+        # With it HeadBucket signs its count (x-azlin-usage-proof): (bucket, held) -> header.
+        self.usage_proof = None
         # With it the writes keep to that quota as a node's do (check_quota).
         self.enforce_quota = False
         # The node codes' statuses and S3 codes (NODE_ERRORS; the mock stack's: the contract's).
