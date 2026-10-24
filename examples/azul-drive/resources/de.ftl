@@ -1645,7 +1645,7 @@ azdrive-add-tier-closed = { $tier } ist zurzeit ausverkauft.
 azdrive-renew = Verlängern
 azdrive-renew-period-end = „{ $drive }“ ist bis { $at } bezahlt. Verlängere es, um danach weiter darauf zu schreiben.
 azdrive-renew-read-only = „{ $drive }“ wird am { $at } schreibgeschützt, wenn es nicht verlängert wird. Seine Dateien bleiben lesbar.
-azdrive-renew-closing = „{ $drive }“ wird am { $at } geschlossen und seine Dateien werden gelöscht, wenn es nicht verlängert wird. Kopiere, was du brauchst, oder verlängere es jetzt.
+azdrive-renew-closing = „{ $drive }“ wird am { $at } geschlossen, wenn es nicht verlängert wird. Danach bleibt es lesbar, seine Dateien können dann aber gelöscht werden. Kopiere, was du brauchst, oder verlängere es jetzt.
 azdrive-months-renewed = { $months ->
         [one] 1 Monat wurde
        *[other] { $months } Monate wurden

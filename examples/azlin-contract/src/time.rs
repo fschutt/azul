@@ -189,7 +189,8 @@ pub enum DeadlineKind {
     FamilyIdle,
     /// The paid period ends: the drive turns read-only after it.
     PeriodEnd,
-    /// The read-only time of an unpaid drive ends: it is closed and its data deleted then.
+    /// The read-only time of an unpaid drive ends: it is closed then and handed to an operator's review,
+    /// which may delete it; nothing is deleted by the deadline itself.
     ReadOnlyEnd,
     /// A paid drive can be picked up until then.
     ClaimWindow,

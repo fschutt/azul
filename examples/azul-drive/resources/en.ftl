@@ -1647,7 +1647,7 @@ azdrive-add-tier-closed = { $tier } is sold out for now.
 azdrive-renew = Renew
 azdrive-renew-period-end = "{ $drive }" is paid until { $at }. Renew it to keep writing to it after that.
 azdrive-renew-read-only = "{ $drive }" turns read-only on { $at } unless it is renewed. Its files stay readable.
-azdrive-renew-closing = "{ $drive }" is closed on { $at } and its files are deleted unless it is renewed. Copy what you need, or renew it now.
+azdrive-renew-closing = "{ $drive }" is closed on { $at } unless it is renewed. It stays readable after that, but its files may then be deleted. Copy what you need, or renew it now.
 azdrive-months-renewed = { $months ->
         [one] 1 month was
        *[other] { $months } months were
