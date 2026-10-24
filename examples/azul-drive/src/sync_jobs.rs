@@ -192,7 +192,20 @@ impl SyncWork {
             if let Some(auto) = &self.auto {
                 if auto.is_encrypted().is_none() {
                     let probe = azul_storage::ListRequest::folder("").with_max_keys(1);
-                    let _ = self.drive.list(&probe);
+                    // A drive that cannot be opened (its key is not on this device, no
+                    // connection) is of no known kind: no session may guess one (a plain one
+                    // reads an encrypted drive as one without an index), so the pass fails
+                    // with the drive's own answer and changes nothing.
+                    if let Err(e) = self.drive.list(&probe) {
+                        if auto.is_encrypted().is_none() {
+                            return SyncSession::plain(
+                                self.setup.clone(),
+                                self.dir.clone(),
+                                &device,
+                                Arc::new(Unopened(e)),
+                            );
+                        }
+                    }
                 }
                 if auto.is_encrypted() == Some(true) {
                     let encrypted = self.setup.local_copies
@@ -384,6 +397,57 @@ fn freed_text(freed: &Freed) -> Text {
                 .arg("why", why.as_str()),
         ),
         None => text,
+    }
+}
+
+/// A drive that could not be opened: every call answers why it could not.
+#[cfg(feature = "encryption")]
+struct Unopened(azul_storage::DriveError);
+
+#[cfg(feature = "encryption")]
+impl Unopened {
+    fn refused<T>(&self) -> azcloud_kit::CloudResult<T> {
+        Err(azcloud_kit::CloudError::Drive(self.0.clone()))
+    }
+}
+
+#[cfg(feature = "encryption")]
+impl azcloud_kit::RemoteStore for Unopened {
+    fn get_unless(
+        &self,
+        _key: &str,
+        _etag: Option<&str>,
+    ) -> azcloud_kit::CloudResult<azcloud_kit::store::Conditional> {
+        self.refused()
+    }
+
+    fn fetch(&self, _key: &str, _size: u64) -> azcloud_kit::CloudResult<Option<Vec<u8>>> {
+        self.refused()
+    }
+
+    fn put(&self, _key: &str, _data: &[u8]) -> azcloud_kit::CloudResult<String> {
+        self.refused()
+    }
+
+    fn put_if(
+        &self,
+        _key: &str,
+        _data: &[u8],
+        _if_match: Option<&str>,
+    ) -> azcloud_kit::CloudResult<Option<String>> {
+        self.refused()
+    }
+
+    fn head(&self, _key: &str) -> azcloud_kit::CloudResult<Option<u64>> {
+        self.refused()
+    }
+
+    fn delete(&self, _key: &str) -> azcloud_kit::CloudResult<()> {
+        self.refused()
+    }
+
+    fn list(&self, _prefix: &str) -> azcloud_kit::CloudResult<Vec<azcloud_kit::store::RemoteObject>> {
+        self.refused()
     }
 }
 
