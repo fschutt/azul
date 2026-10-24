@@ -559,7 +559,7 @@ impl Slot {
                 },
             );
             self.azlin = Some(concrete.clone());
-            let azlin: Arc<dyn Drive> = concrete;
+            let azlin: Arc<dyn Drive> = connection(concrete);
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
             let azlin: Arc<dyn Drive> = {
@@ -607,11 +607,11 @@ impl Slot {
                     });
                 }
             });
-            Arc::from(self.entry.open_with_secret_rotating(
+            connection(Arc::from(self.entry.open_with_secret_rotating(
                 self.secret.as_deref().map(String::as_str),
                 Box::new(AzulTransport::new(USER_AGENT)),
                 Some(keep),
-            )?)
+            )?))
         };
         self.drive = Some(drive.clone());
         Ok(drive)
@@ -1611,6 +1611,14 @@ pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Driv
             None
         }
     }
+}
+
+/// A drive's bucket as every request of the app reaches it: what fails for a moment (a 5xx, a
+/// dropped connection) is sent again, and after a 429 nothing goes out before its
+/// `Retry-After`. It sits below the encryption, so each index page, pack and blob is retried
+/// on its own.
+pub(crate) fn connection(bucket: Arc<dyn Drive>) -> Arc<dyn Drive> {
+    Arc::new(azcloud_kit::sync::retry::RetryingDrive::new(bucket))
 }
 
 /// The drive with id `drive_id`, opened on first use.

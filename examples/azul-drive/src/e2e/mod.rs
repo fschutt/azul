@@ -701,10 +701,11 @@ fn open(s: &mut DriveState, args: &Args) -> Answer {
     let device_name = str_arg(args, "device_name").unwrap_or(&name).to_string();
     let run = with_harness(|h| Ok(h.run.clone()))?;
     let root = run.join("devices").join(&name).join("root");
-    let bucket: Arc<dyn Drive> = Arc::new(FaultDrive {
+    // The device's connection to the remote, retried as the app retries a bucket.
+    let bucket = crate::connection(Arc::new(FaultDrive {
         remote: remote.clone(),
         device: name.clone(),
-    });
+    }));
     // The remote's keyring (a joined device), or one of its own (`joined`, `key_from`).
     #[cfg_attr(not(feature = "encryption"), allow(unused_variables))]
     let keyring = c_keys::keyring_for_open(&remote, &name, args, bucket.as_ref())?;

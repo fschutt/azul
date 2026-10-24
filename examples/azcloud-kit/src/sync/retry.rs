@@ -7,6 +7,8 @@
 //! - [`with_retries`] runs one request under a [`RetryPolicy`] and a shared [`Gate`] (after a
 //!   429 every thread of the pass waits for the gate, not only the one that got it).
 //! - [`Retrying`] wraps any [`RemoteStore`] so every call of a pass goes through it.
+//! - [`RetryingDrive`] does the same below a drive's encryption: every request to the bucket
+//!   (an index page, a pack, a blob) waits for the gate and is tried again on its own.
 //! - [`PassBackoff`] spaces whole passes out after failures (the watch loop's schedule) and
 //!   keeps a `Retry-After` past the process, so the next pass does not ask early either.
 
@@ -18,6 +20,12 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+
+use azul_storage::{
+    checked::{CheckedUpload, FileCheck},
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
+    ListRequest, ObjectInfo, Precondition,
+};
 
 use crate::{
     error::{CloudError, CloudResult},
@@ -76,16 +84,25 @@ pub enum Verdict {
 /// Whether `error` passes by itself.
 #[must_use]
 pub fn classify(error: &CloudError) -> Verdict {
-    use azul_storage::DriveError;
     match error.root() {
-        CloudError::Drive(DriveError::Service(service)) => match service.status {
+        CloudError::Drive(e) => classify_drive(e),
+        _ => Verdict::GiveUp,
+    }
+}
+
+/// Whether the drive's answer `error` passes by itself: a 429, a 5xx other than a full drive,
+/// a dropped connection.
+#[must_use]
+pub fn classify_drive(error: &DriveError) -> Verdict {
+    match error {
+        DriveError::Service(service) => match service.status {
             429 => Verdict::Retry(Some(Duration::from_secs(service.retry_after.unwrap_or(1)))),
             500..=599 if service.status != 507 => {
                 Verdict::Retry(service.retry_after.map(Duration::from_secs))
             }
             _ => Verdict::GiveUp,
         },
-        CloudError::Drive(DriveError::Transport(_)) => Verdict::Retry(None),
+        DriveError::Transport(_) => Verdict::Retry(None),
         _ => Verdict::GiveUp,
     }
 }
@@ -142,7 +159,12 @@ pub fn random_jitter() -> f64 {
 /// The error a request refused before it was sent: the gate stays closed longer than a pass
 /// waits. It is a 429 (the server's own answer, kept).
 fn gate_closed(left: Duration) -> CloudError {
-    CloudError::Drive(azul_storage::DriveError::Service(azul_storage::ServiceError {
+    CloudError::Drive(drive_gate_closed(left))
+}
+
+/// [`gate_closed`] as the drive's own error.
+fn drive_gate_closed(left: Duration) -> DriveError {
+    DriveError::Service(azul_storage::ServiceError {
         status: 429,
         code: String::from("SlowDown"),
         message: format!(
@@ -151,7 +173,7 @@ fn gate_closed(left: Duration) -> CloudError {
         ),
         retry_after: Some(left.as_secs().max(1)),
         ..azul_storage::ServiceError::default()
-    }))
+    })
 }
 
 /// Runs `request` under `policy`: waits for the `gate` before every try, retries what
@@ -165,22 +187,30 @@ pub fn with_retries<T>(
     policy: &RetryPolicy,
     gate: &Gate,
     jitter: &dyn Fn() -> f64,
-    mut request: impl FnMut() -> CloudResult<T>,
+    request: impl FnMut() -> CloudResult<T>,
 ) -> CloudResult<T> {
+    retry_loop(policy, gate, jitter, &classify, &gate_closed, request)
+}
+
+/// [`with_retries`] for any error: `verdict` tells what passes by itself, `closed` is the
+/// error of a request the gate keeps back longer than a pass waits.
+fn retry_loop<T, E>(
+    policy: &RetryPolicy,
+    gate: &Gate,
+    jitter: &dyn Fn() -> f64,
+    verdict: &dyn Fn(&E) -> Verdict,
+    closed: &dyn Fn(Duration) -> E,
+    mut request: impl FnMut() -> Result<T, E>,
+) -> Result<T, E> {
     let mut attempt = 0u32;
     loop {
-        if let Some(left) = gate.remaining() {
-            if left > policy.max_wait {
-                return Err(gate_closed(left));
-            }
-            gate.wait();
-        }
+        wait_for_gate(policy, gate).map_err(closed)?;
         attempt += 1;
         let error = match request() {
             Ok(value) => return Ok(value),
             Err(e) => e,
         };
-        let Verdict::Retry(server_wait) = classify(&error) else {
+        let Verdict::Retry(server_wait) = verdict(&error) else {
             return Err(error);
         };
         if let Some(wait) = server_wait {
@@ -193,6 +223,17 @@ pub fn with_retries<T>(
             std::thread::sleep(policy.delay(attempt, jitter()));
         }
     }
+}
+
+/// Waits for the gate; `Err(left)` when it stays closed longer than a pass waits.
+fn wait_for_gate(policy: &RetryPolicy, gate: &Gate) -> Result<(), Duration> {
+    if let Some(left) = gate.remaining() {
+        if left > policy.max_wait {
+            return Err(left);
+        }
+        gate.wait();
+    }
+    Ok(())
 }
 
 /// A store whose every call goes through [`with_retries`] (one gate for all of them).
@@ -256,13 +297,236 @@ impl<S: RemoteStore> RemoteStore for Retrying<S> {
 
     fn put_from(&self, key: &str, body: &mut dyn Read, size: u64) -> CloudResult<String> {
         // A body read once cannot be sent again: one try (the pass retries the file).
-        if let Some(left) = self.gate.remaining() {
-            if left > self.policy.max_wait {
-                return Err(gate_closed(left));
+        wait_for_gate(&self.policy, &self.gate).map_err(gate_closed)?;
+        let sent = self.inner.put_from(key, body, size);
+        if let Err(e) = &sent {
+            if let Verdict::Retry(Some(wait)) = classify(e) {
+                self.gate.hold_for(wait);
             }
-            self.gate.wait();
         }
-        self.inner.put_from(key, body, size)
+        sent
+    }
+}
+
+/// A drive whose every request goes through [`retry_loop`] under one gate: what passes by
+/// itself is tried again, a 429 holds every request back for its `Retry-After`. It sits
+/// right on the bucket, below the encryption, so each index page, pack and blob is retried
+/// alone and nothing goes out while the drive asked to wait. A body read from a stream cannot
+/// be sent twice: it waits for the gate and gets one try (the pass retries its file).
+pub struct RetryingDrive {
+    pub inner: Arc<dyn Drive>,
+    pub policy: RetryPolicy,
+    pub gate: Arc<Gate>,
+}
+
+impl RetryingDrive {
+    /// `inner` under the request policy and a gate of its own.
+    #[must_use]
+    pub fn new(inner: Arc<dyn Drive>) -> RetryingDrive {
+        RetryingDrive {
+            inner,
+            policy: RetryPolicy::REQUEST,
+            gate: Arc::new(Gate::new()),
+        }
+    }
+
+    fn call<T>(&self, request: impl FnMut() -> Result<T, DriveError>) -> Result<T, DriveError> {
+        retry_loop(
+            &self.policy,
+            &self.gate,
+            &random_jitter,
+            &classify_drive,
+            &drive_gate_closed,
+            request,
+        )
+    }
+
+    /// One try after the gate (a body that cannot be read twice); a 429 still closes the gate.
+    fn once<T>(&self, request: impl FnOnce() -> Result<T, DriveError>) -> Result<T, DriveError> {
+        wait_for_gate(&self.policy, &self.gate).map_err(drive_gate_closed)?;
+        let sent = request();
+        if let Err(e) = &sent {
+            if let Verdict::Retry(Some(wait)) = classify_drive(e) {
+                self.gate.hold_for(wait);
+            }
+        }
+        sent
+    }
+
+    /// A batch: sent whole, then only its items that failed for a moment are sent again
+    /// (together, after the gate or the backoff), as often as the policy allows.
+    fn batch<I: Copy, T>(
+        &self,
+        items: &[I],
+        send: impl Fn(&[I]) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let mut results: Vec<Option<Result<T, DriveError>>> = items.iter().map(|_| None).collect();
+        let mut open: Vec<usize> = (0..items.len()).collect();
+        let mut attempt = 0u32;
+        while !open.is_empty() {
+            if let Err(left) = wait_for_gate(&self.policy, &self.gate) {
+                for i in open.drain(..) {
+                    results[i] = Some(Err(drive_gate_closed(left)));
+                }
+                break;
+            }
+            attempt += 1;
+            let round: Vec<I> = open.iter().map(|&i| items[i]).collect();
+            let mut answers = send(&round).into_iter();
+            let mut again = Vec::new();
+            let mut backoff = false;
+            for i in open.drain(..) {
+                let answer = answers.next().unwrap_or_else(|| {
+                    Err(DriveError::Transport(String::from("the batch gave no answer")))
+                });
+                if let Err(e) = &answer {
+                    if let Verdict::Retry(server_wait) = classify_drive(e) {
+                        match server_wait {
+                            Some(wait) => self.gate.hold_for(wait),
+                            None => backoff = true,
+                        }
+                        if attempt < self.policy.attempts {
+                            again.push(i);
+                            continue;
+                        }
+                    }
+                }
+                results[i] = Some(answer);
+            }
+            open = again;
+            if backoff && !open.is_empty() {
+                std::thread::sleep(self.policy.delay(attempt, random_jitter()));
+            }
+        }
+        results
+            .into_iter()
+            .map(|r| r.unwrap_or_else(|| Err(DriveError::Transport(String::from("not sent")))))
+            .collect()
+    }
+}
+
+impl Drive for RetryingDrive {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.call(|| self.inner.list(request))
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.call(|| self.inner.get(key))
+    }
+
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.call(|| self.inner.get_range(key, range))
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.call(|| self.inner.put(key, bytes))
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.call(|| self.inner.delete(key))
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.call(|| self.inner.head(key))
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.once(|| self.inner.put_from(key, body))
+    }
+
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        // A lost answer may have landed: a retry that then loses the race reads the index
+        // again, as any lost compare-and-swap does.
+        self.call(|| self.inner.put_if(key, bytes, condition))
+    }
+
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.call(|| self.inner.copy(from, to))
+    }
+
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.call(|| self.inner.create_folder(prefix))
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.call(|| self.inner.rename(from, to))
+    }
+
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.call(|| self.inner.delete_folder(prefix))
+    }
+
+    fn local_path(&self, key: &str) -> Option<std::path::PathBuf> {
+        self.inner.local_path(key)
+    }
+
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.call(|| self.inner.metadata(key))
+    }
+
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        // The file is opened again for every try.
+        self.call(|| self.inner.put_file(key, path, progress))
+    }
+
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<CheckedUpload, DriveError> {
+        // Opened and checked again for every try: a file that changed meanwhile says so.
+        self.call(|| self.inner.put_file_checked(key, path, check, progress))
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.once(|| self.inner.put_from_if(key, body, condition))
+    }
+
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        self.batch(items, |round| self.inner.put_many(round))
+    }
+
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        self.batch(items, |round| self.inner.delete_many(round))
+    }
+
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        self.batch(items, |round| self.inner.move_many(round))
+    }
+
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        match wait_for_gate(&self.policy, &self.gate) {
+            Ok(()) => {
+                let sent = self.inner.put_from_many(items);
+                for e in sent.iter().filter_map(|r| r.as_ref().err()) {
+                    if let Verdict::Retry(Some(wait)) = classify_drive(e) {
+                        self.gate.hold_for(wait);
+                    }
+                }
+                sent
+            }
+            Err(left) => items.iter().map(|_| Err(drive_gate_closed(left))).collect(),
+        }
     }
 }
 

@@ -145,3 +145,159 @@ fn passes_are_spaced_out_after_failures_and_a_retry_after_outlives_the_process()
     b.succeeded();
     assert_eq!(b.wait(2000.0), Duration::ZERO);
 }
+
+/// A bucket that answers each request with the next planned failure, if any, and otherwise
+/// as the local drive below it does; it notes when each request came and which keys a batch
+/// held.
+struct Flaky {
+    inner: azul_storage::LocalDrive,
+    planned: std::sync::Mutex<std::collections::VecDeque<Option<DriveError>>>,
+    sent: std::sync::Mutex<Vec<Instant>>,
+    batches: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+impl Flaky {
+    fn new(dir: &azul_storage::testing::TempDir, planned: Vec<Option<DriveError>>) -> Flaky {
+        Flaky {
+            inner: azul_storage::LocalDrive::new(dir.path().to_path_buf()),
+            planned: std::sync::Mutex::new(planned.into()),
+            sent: std::sync::Mutex::new(Vec::new()),
+            batches: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn answer(&self) -> Result<(), DriveError> {
+        self.sent.lock().unwrap().push(Instant::now());
+        match self.planned.lock().unwrap().pop_front().flatten() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+}
+
+impl azul_storage::Drive for Flaky {
+    fn list(
+        &self,
+        request: &azul_storage::ListRequest,
+    ) -> Result<azul_storage::ListPage, DriveError> {
+        self.answer()?;
+        self.inner.list(request)
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.answer()?;
+        self.inner.get(key)
+    }
+
+    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.answer()?;
+        self.inner.get_range(key, range)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.answer()?;
+        self.inner.put(key, bytes)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.answer()?;
+        self.inner.delete(key)
+    }
+
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+        self.answer()?;
+        self.inner.head(key)
+    }
+
+    fn put_many(
+        &self,
+        items: &[azul_storage::BatchPut<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        self.batches
+            .lock()
+            .unwrap()
+            .push(items.iter().map(|i| i.key.to_string()).collect());
+        items
+            .iter()
+            .map(|i| self.put(i.key, i.bytes).map(|()| None))
+            .collect()
+    }
+}
+
+fn drive_service(status: u16, retry_after: Option<u64>) -> Option<DriveError> {
+    match service(status, retry_after) {
+        CloudError::Drive(e) => Some(e),
+        _ => None,
+    }
+}
+
+fn retrying(flaky: Flaky) -> (std::sync::Arc<Flaky>, crate::sync::retry::RetryingDrive) {
+    let flaky = std::sync::Arc::new(flaky);
+    let mut drive = crate::sync::retry::RetryingDrive::new(flaky.clone());
+    drive.policy = FAST;
+    (flaky, drive)
+}
+
+#[test]
+fn a_bucket_request_that_fails_for_a_moment_is_sent_again_and_lands() {
+    use azul_storage::Drive;
+    let dir = azul_storage::testing::TempDir::new("retry-drive");
+    let (flaky, drive) = retrying(Flaky::new(
+        &dir,
+        vec![drive_service(503, None), drive_service(500, None)],
+    ));
+    drive.put("a.txt", b"a").unwrap();
+    assert_eq!(flaky.sent.lock().unwrap().len(), 3);
+    assert_eq!(drive.get("a.txt").unwrap(), b"a");
+    // What the user must fix is answered at once.
+    flaky.planned.lock().unwrap().push_back(drive_service(403, None));
+    assert!(drive.get("a.txt").is_err());
+    assert_eq!(flaky.sent.lock().unwrap().len(), 5);
+}
+
+#[test]
+fn after_a_429_the_bucket_gets_nothing_before_its_retry_after() {
+    use azul_storage::Drive;
+    let dir = azul_storage::testing::TempDir::new("retry-drive-429");
+    let (flaky, drive) = retrying(Flaky::new(&dir, vec![drive_service(429, Some(1))]));
+    let start = Instant::now();
+    drive.put("a.txt", b"a").unwrap();
+    drive.head("a.txt").unwrap();
+    let sent = flaky.sent.lock().unwrap();
+    assert_eq!(sent.len(), 3);
+    assert!(sent[1].duration_since(start) >= Duration::from_secs(1), "asked early");
+}
+
+#[test]
+fn a_batch_sends_again_only_the_items_that_failed_for_a_moment() {
+    use azul_storage::{BatchPut, Drive};
+    let dir = azul_storage::testing::TempDir::new("retry-drive-batch");
+    // The second item's put fails once.
+    let (flaky, drive) = retrying(Flaky::new(&dir, vec![None, drive_service(503, None)]));
+    let items = [
+        BatchPut::new("a.txt", b"a"),
+        BatchPut::new("b.txt", b"b"),
+        BatchPut::new("c.txt", b"c"),
+    ];
+    let out = drive.put_many(&items);
+    assert!(out.iter().all(Result::is_ok), "{out:?}");
+    assert_eq!(
+        *flaky.batches.lock().unwrap(),
+        vec![
+            vec![String::from("a.txt"), String::from("b.txt"), String::from("c.txt")],
+            vec![String::from("b.txt")],
+        ]
+    );
+    assert_eq!(drive.get("b.txt").unwrap(), b"b");
+}
+
+#[test]
+fn a_streamed_body_gets_one_try_and_its_429_still_holds_every_request_back() {
+    use azul_storage::Drive;
+    let dir = azul_storage::testing::TempDir::new("retry-drive-stream");
+    let (flaky, drive) = retrying(Flaky::new(&dir, vec![drive_service(429, Some(1))]));
+    let mut body: &[u8] = b"streamed";
+    assert!(drive.put_from("s.txt", &mut body).is_err());
+    assert_eq!(flaky.sent.lock().unwrap().len(), 1, "a read body is not sent twice");
+    assert!(drive.gate.remaining().is_some());
+}

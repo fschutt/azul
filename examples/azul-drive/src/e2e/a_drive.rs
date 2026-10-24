@@ -112,10 +112,10 @@ pub(super) fn repoint(s: &mut DriveState, args: &Args) -> Answer {
     let index = s
         .slot_index(&drive_id)
         .ok_or_else(|| format!("AzDrive has no drive {drive_id}"))?;
-    let bucket: Arc<dyn Drive> = Arc::new(FaultDrive {
+    let bucket = crate::connection(Arc::new(FaultDrive {
         remote: remote.clone(),
         device: name.clone(),
-    });
+    }));
     if remote.encrypted {
         let cache = run.join("devices").join(&name).join("index-cache");
         open_encrypted(s, index, bucket, &remote, keyring, &cache)?;
