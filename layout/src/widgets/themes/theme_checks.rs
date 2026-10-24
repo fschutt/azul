@@ -662,9 +662,8 @@ pub(crate) fn themed_structure(dom: &Dom, allowed: &[ThemedStructure]) -> Vec<St
 /// lines (its inline style, then its component sheets), the `allowed` ones
 /// left out.
 fn structure_of(node: &Dom, allowed: &[ThemedStructure]) -> Vec<String> {
-    let classes: Vec<&str> = node
-        .root
-        .get_ids_and_classes()
+    let ids_and_classes = node.root.get_ids_and_classes();
+    let classes: Vec<&str> = ids_and_classes
         .as_ref()
         .iter()
         .filter_map(|c| match c {
