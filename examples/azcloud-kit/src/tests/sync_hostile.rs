@@ -82,6 +82,8 @@ fn a_read_only_drive_says_so_instead_of_asking_to_sign_in_again() {
         AzlinError::ReadOnlyLockdown,
         AzlinError::ReadOnlyOperator,
         AzlinError::DriveBanned,
+        // locked, its files in offline storage: signing in again changes nothing either
+        AzlinError::DriveArchived,
     ] {
         let e = service(403, "AccessDenied", Some(azlin));
         assert_eq!(code_of_error(&e), Code::ReadOnly, "{e}");

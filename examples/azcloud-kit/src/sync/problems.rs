@@ -262,7 +262,8 @@ pub fn code_of_error(error: &CloudError) -> Code {
                 azul_storage::AzlinError::ReadOnlyUnpaid
                 | azul_storage::AzlinError::ReadOnlyLockdown
                 | azul_storage::AzlinError::ReadOnlyOperator
-                | azul_storage::AzlinError::DriveBanned,
+                | azul_storage::AzlinError::DriveBanned
+                | azul_storage::AzlinError::DriveArchived,
             ) => return Code::ReadOnly,
             Some(azul_storage::AzlinError::ObjectTooLarge) => return Code::TooLarge,
             Some(azul_storage::AzlinError::QuotaExceeded) => return Code::QuotaExceeded,
