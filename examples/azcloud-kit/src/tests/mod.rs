@@ -50,6 +50,8 @@ mod sync_guard;
 /// The shipped sync made safe: links, a missing folder, the trash, the breaker, whole downloads,
 /// permissions, the disk's reserve, saves, settling files, the drive's bad entries.
 mod sync_harden;
+/// What a session does to the synced folder itself: the user's deletes and renames.
+mod sync_root_and_links;
 /// The name policy: names no folder can hold, names other systems cannot hold, look-alikes.
 mod sync_names;
 mod sync_local;

@@ -5,6 +5,8 @@
 mod beneath;
 mod catalog;
 mod config;
+/// A contained drive's folders made and removed without a link; a link as the file itself.
+mod contained_links;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
 #[cfg(feature = "sql")]
