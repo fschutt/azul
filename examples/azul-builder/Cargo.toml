@@ -3,6 +3,7 @@ name = "AzBuilder"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
