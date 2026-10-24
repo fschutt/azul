@@ -490,12 +490,16 @@ impl Slot {
             return Ok(drive.clone());
         }
         let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
-            let secret = self.secret.as_deref().map(String::as_str).ok_or_else(|| DriveError::Denied {
-                message: format!(
-                    "\"{}\" has no session (the keyring has no entry for it)",
-                    self.entry.name
-                ),
-            })?;
+            let secret = self
+                .secret
+                .as_deref()
+                .map(String::as_str)
+                .ok_or_else(|| DriveError::Denied {
+                    message: format!(
+                        "\"{}\" has no session (the keyring has no entry for it)",
+                        self.entry.name
+                    ),
+                })?;
             let session = azcloud_kit::AzlinSession::from_keyring_secret(secret)
                 .map_err(|e| DriveError::InvalidConfig(e.to_string()))?;
             let queue = rotated.clone();
