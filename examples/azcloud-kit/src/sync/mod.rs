@@ -50,6 +50,8 @@
 //! bytes here ("Free up space"), [`fetch_file`] brings a cloud-only file down (opening it);
 //! [`session`] keeps an app's pairing, its settings and its files' states.
 
+#[cfg(feature = "state-db")]
+pub mod base;
 pub mod drive_store;
 pub mod engine;
 pub mod guard;

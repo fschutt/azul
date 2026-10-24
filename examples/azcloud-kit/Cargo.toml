@@ -57,6 +57,9 @@ num-bigint-dig = { version = "0.8", default-features = false }
 # features (Cargo.lock has 2.2.0).
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
 
+# The sync's base database (feature `state-db`).
+turso = { package = "turso-azul", version = "0.7.2", default-features = false, optional = true }
+
 # The sync engine's system calls (no new crate: libc 0.2 is in Cargo.lock): the quarantine
 # attribute on macOS (setxattr), the inotify watcher on Linux.
 [target.'cfg(unix)'.dependencies]
@@ -75,6 +78,10 @@ default = []
 # code's key seal. Off in the kit itself; the apps on it (AzDrive, AzMail, the mail core,
 # azcloud) turn it on by default - "we always encrypt and compress".
 encryption = ["azul-storage/encryption"]
+# The sync's base as a SQLite state database (sync/base.rs): a `.db` local index. turso, the
+# pure-Rust SQLite azul's `Db` and azul-storage's index cache run on (turso-azul 0.7.2, default
+# features off; in Cargo.lock already). Not for 32-bit Linux, like the dll's `db-sqlite`.
+state-db = ["dep:turso"]
 # For other crates' tests: a keyring whose locks are in a folder of the test's own
 # (SharedKeyring::with_lock_root), never in the user's.
 testing = []

@@ -1206,6 +1206,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "turso-azul",
  "x25519-dalek 2.0.1",
  "zeroize",
 ]

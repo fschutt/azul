@@ -105,6 +105,12 @@ impl LocalIndex {
     ///
     /// When it cannot be read or is no local index.
     pub fn load(path: &Path) -> CloudResult<Option<LocalIndex>> {
+        // A `.db` path is the base as a state database (an older JSON base beside it is
+        // imported once).
+        #[cfg(feature = "state-db")]
+        if super::base::is_database(path) {
+            return super::base::load(path);
+        }
         let Some(index) = read_json::<LocalIndex>(path)? else {
             return Ok(None);
         };
@@ -120,6 +126,10 @@ impl LocalIndex {
     ///
     /// When it cannot be written.
     pub fn save(&self, path: &Path) -> CloudResult<()> {
+        #[cfg(feature = "state-db")]
+        if super::base::is_database(path) {
+            return super::base::save(path, self);
+        }
         write_json(path, self, false)
     }
 }
