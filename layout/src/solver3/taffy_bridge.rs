@@ -2103,6 +2103,26 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             }
         }
 
+        // A WIDTH-ONLY measure of a flex COLUMN (a row returned above) whose
+        // width does not follow the height it is given
+        // (`cache::lays_out_alike_at_every_given_height`): kept like a row's
+        // (`TaffyWidthOnlyAnswers`) and found again at any height. A ribbon
+        // group's flex basis is asked with the height the ribbon stretches it
+        // to as a known height, a new one on every frame of the ribbon
+        // opening: taffy's cache, keyed by it, missed each time and the
+        // column ran its algorithm over its items again.
+        let free_column_width_query = inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none()
+            && self.lays_out_alike_at_every_given_height(node_idx);
+        if free_column_width_query {
+            if let Some(width) = self.width_only_answer_kept(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_column_hit"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
+        }
+
         // PURE CONTENT MEASURE cache (min-/max-content, no known dimensions).
         // These answers are viewport-independent, but taffy's own cache
         // cannot keep them alive: the flex algorithm's candidate-width
@@ -2210,6 +2230,9 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 }
             }
         }
+        if free_column_width_query {
+            self.keep_width_only_answer(node_idx, &inputs, result.size.width);
+        }
 
         // Store the FINAL layout's size on the node. Only a final layout
         // (`RunMode::PerformLayout`) may write it: a MEASURE answers a
@@ -2288,6 +2311,40 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     fn set_final_layout_current(&mut self, node_idx: usize, current: bool) {
         if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
             c.final_layout_current = current;
+        }
+    }
+
+    /// The key taffy's cache keeps `input` of `node_idx` under. A measure
+    /// asked in a definite height, the node's own height unknown, of a node
+    /// whose layout comes out alike at every definite height it is given
+    /// (`cache::lays_out_alike_at_every_given_height`) is kept under one
+    /// height for all of them: its answer is the same. A ribbon group asked
+    /// how tall it is in a row a few pixels taller on every frame of the
+    /// ribbon opening finds what it answered on the frame before. An
+    /// indefinite height keeps a key of its own (a column sizes itself
+    /// differently in an indefinite space), and so does every other input.
+    ///
+    /// Reads the decision only (`cache_get` cannot make it); `cache_store`
+    /// makes it first, so a node's answers are stored under the key the next
+    /// lookup asks for.
+    fn measure_key(&self, node_idx: usize, input: &LayoutInput) -> LayoutInput {
+        let free = self
+            .ctx
+            .cache_map
+            .entries
+            .get(node_idx)
+            .and_then(|c| c.free_of_given_height)
+            == Some(true);
+        if free && asked_in_a_definite_height(input) {
+            LayoutInput {
+                available_space: Size {
+                    width: input.available_space.width,
+                    height: AvailableSpace::Definite(ANY_GIVEN_HEIGHT),
+                },
+                ..*input
+            }
+        } else {
+            *input
         }
     }
 
@@ -3173,6 +3230,19 @@ impl TaffyWidthOnlyAnswers {
     }
 }
 
+/// Whether `input` is a measure asked in a definite height with the node's
+/// own height unknown - the questions [`TaffyBridge::measure_key`] keeps
+/// under one height for a node free of the height it is given.
+fn asked_in_a_definite_height(input: &LayoutInput) -> bool {
+    input.run_mode == RunMode::ComputeSize
+        && input.known_dimensions.height.is_none()
+        && matches!(input.available_space.height, AvailableSpace::Definite(_))
+}
+
+/// The available height every such measure is kept under
+/// ([`TaffyBridge::measure_key`]). Negative: no space a node is really given.
+const ANY_GIVEN_HEIGHT: f32 = -1.0;
+
 /// taffy's measurement slot class of a key (`Cache::compute_cache_slot`,
 /// private there): 0 both axes known; 1 / 2 only the width, the height asked
 /// at max-content-or-definite / min-content; 3 / 4 only the height, likewise
@@ -3202,6 +3272,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             drop(crate::probe::Probe::span("taffy_final_layout_stale"));
             return None;
         }
+        let input = &self.measure_key(node_idx, input);
         let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
         let mut hit = primary.get(input);
         // A measurement taffy's one entry per slot class evicted lives on in
@@ -3251,6 +3322,12 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
+        // Decide what the key reads, so the answer is stored under the key
+        // the next `cache_get` looks for.
+        if asked_in_a_definite_height(input) {
+            self.lays_out_alike_at_every_given_height(node_idx);
+        }
+        let input = &self.measure_key(node_idx, input);
         let mut primary_was_empty = true;
         if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
             primary_was_empty = warm.taffy_cache.is_empty();
