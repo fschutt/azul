@@ -889,3 +889,84 @@ fn a_record_of_a_codec_this_build_does_not_write_is_refused_by_name() {
         Err(DriveError::Corrupt { .. })
     ));
 }
+
+/// A bucket with room for `room` bytes of data objects: a bigger one is refused as a full
+/// drive refuses it (507), and nothing of it is stored.
+struct Room {
+    inner: MemBucket,
+    room: u64,
+}
+
+impl Room {
+    fn data_bytes(&self) -> u64 {
+        data_objects(&self.inner)
+            .iter()
+            .filter_map(|key| self.inner.object(key))
+            .map(|bytes| bytes.len() as u64)
+            .sum()
+    }
+}
+
+impl Drive for Room {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if ObjectId::from_bucket_key(key).is_some()
+            && self.data_bytes() + bytes.len() as u64 > self.room
+        {
+            return Err(DriveError::Service(crate::ServiceError {
+                status: 507,
+                code: String::from("QuotaExceeded"),
+                ..crate::ServiceError::default()
+            }));
+        }
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+}
+
+#[test]
+fn a_full_drive_refuses_only_the_packed_files_that_do_not_fit_and_the_others_go_up() {
+    // Room for two of the three files, not for one pack of all three.
+    let one = 100_000;
+    let bucket = Arc::new(Room {
+        inner: MemBucket::new(),
+        room: 250_000,
+    });
+    let drive = EncryptedDrive::new(
+        bucket.clone(),
+        DriveKey::generate().unwrap(),
+        Arc::new(MemoryIndex::new()),
+    )
+    .with_packing(PackOptions::default());
+    let files = noise_files(3, one);
+    let items: Vec<BatchPut<'_>> = files
+        .iter()
+        .map(|(path, bytes)| BatchPut::new(path, bytes))
+        .collect();
+    let results = drive.put_many(&items);
+    let sent: Vec<bool> = results.iter().map(Result::is_ok).collect();
+    assert_eq!(sent, [true, true, false], "{results:?}");
+    assert!(
+        matches!(&results[2], Err(DriveError::Service(s)) if s.status == 507),
+        "the file that does not fit says the drive is full: {:?}",
+        results[2]
+    );
+    for (path, bytes) in &files[..2] {
+        assert_eq!(&drive.get(path).unwrap(), bytes);
+    }
+    assert!(drive.get(&files[2].0).is_err());
+    assert!(bucket.data_bytes() <= 250_000);
+}

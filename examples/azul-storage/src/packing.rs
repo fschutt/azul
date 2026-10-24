@@ -944,8 +944,27 @@ struct Committed {
     results: Vec<Result<IndexEntry, DriveError>>,
     /// What the index released (objects nothing names any more).
     released: Vec<ObjectId>,
-    /// The pack, when the index names it.
-    pack: Option<PackRef>,
+    /// The packs the index names (two or more when a full drive refused the whole one).
+    packs: Vec<PackRef>,
+}
+
+impl Committed {
+    /// The commit of `self`'s members followed by `other`'s.
+    fn then(mut self, other: Committed) -> Committed {
+        self.results.extend(other.results);
+        self.released.extend(other.released);
+        self.packs.extend(other.packs);
+        self
+    }
+}
+
+/// Whether the bucket refused an object for want of room: a smaller one may still fit.
+fn drive_full(e: &DriveError) -> bool {
+    matches!(
+        e,
+        DriveError::Service(s)
+            if s.status == 507 || matches!(s.azlin_error, Some(crate::AzlinError::QuotaExceeded))
+    )
 }
 
 /// The files of one pack the head index names: the pack and its live versions.
@@ -1304,7 +1323,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let all = |e: DriveError| Committed {
             results: members.iter().map(|_| Err(e.clone())).collect(),
             released: Vec::new(),
-            pack: None,
+            packs: Vec::new(),
         };
         let first = members.first().map_or("", Member::first_path);
         let sealed = match seal_pack(&self.drive_key, members) {
@@ -1316,6 +1335,13 @@ impl<D: Drive> EncryptedDrive<D> {
             return all(e);
         }
         if let Err(e) = self.put_object(&id, &sealed.object) {
+            // A full drive refuses the pack whole and stores nothing: its members go again as
+            // two smaller packs, so the files that still fit go up and only the rest is refused.
+            if members.len() > 1 && drive_full(&e) {
+                self.packs.journal.end(&id);
+                let (first, rest) = members.split_at(members.len() / 2);
+                return self.commit_pack(first).then(self.commit_pack(rest));
+            }
             // Whether it landed is not known: the journal clears it up.
             return all(e);
         }
@@ -1374,7 +1400,7 @@ impl<D: Drive> EncryptedDrive<D> {
                     return Committed {
                         results,
                         released: Vec::new(),
-                        pack: None,
+                        packs: Vec::new(),
                     };
                 }
             }
@@ -1403,7 +1429,7 @@ impl<D: Drive> EncryptedDrive<D> {
         Committed {
             results,
             released,
-            pack: named.then_some(sealed.pack),
+            packs: named.then_some(sealed.pack).into_iter().collect(),
         }
     }
 
@@ -1537,7 +1563,7 @@ impl<D: Drive> EncryptedDrive<D> {
             }
             let committed = self.commit_pack(&pending);
             self.release_except(committed.released, &old);
-            if let Some(pack) = &committed.pack {
+            for pack in &committed.packs {
                 report.packs_written += 1;
                 report.bytes_after += pack.object_len;
             }
