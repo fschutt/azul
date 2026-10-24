@@ -1007,6 +1007,17 @@ impl CpuBackend {
             && !gpu_damage.needs_full;
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!(
+                "[HLDMG-HINT] move_summary={:?} hint={:?} scroll_nonzero={} moved={:?}",
+                layout_window
+                    .layout_cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| (m.dominant_delta, m.mover_rects_old.len(), m.exceptions.len())),
+                patch_hint.as_ref().map(|(h, _)| h.delta),
+                layout_window.scroll_manager.any_nonzero_offset(),
+                patch_moved_union,
+            );
+            eprintln!(
                 "[HLDMG-PRE] item_diff={:?} prev_is_same_arc={} prev_items={:?} new_items={}",
                 dl_damage,
                 self.previous_display_list
