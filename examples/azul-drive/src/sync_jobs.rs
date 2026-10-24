@@ -152,7 +152,8 @@ impl SyncWork {
 
     /// The session (on the worker: an Azlin drive decides on its first call whether it is
     /// encrypted), with the work's transfer limit, its transfers at once and the settle time
-    /// that lets a burst of changes (a checkout, an unzip) go as one batch.
+    /// that lets a burst of changes (a checkout, an unzip) go as one batch; a file still being
+    /// written after that (an export that never stops) waits for a later pass.
     pub(crate) fn session(&self) -> SyncSession {
         let session = self
             .drive_session()
@@ -160,6 +161,7 @@ impl SyncWork {
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
             .with_settle(self.settle.unwrap_or_else(settle))
+            .with_file_settle(self.settle.unwrap_or_else(settle))
             .with_clock(self.clock);
         if !self.fault_points {
             return session;

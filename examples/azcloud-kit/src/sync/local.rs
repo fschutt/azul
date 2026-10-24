@@ -761,7 +761,13 @@ pub fn scan_settled(
                 out.tell(Code::BadName, &key, format!("not synced: {why}"));
                 continue;
             }
-            if settle_ns > 0 && st.mtime_ns.saturating_add(settle_ns) > crate::now_ns() {
+            // A write sets the time to now: a time in the future (a file from a computer whose
+            // clock runs ahead) is no write in progress, and would otherwise wait for ever.
+            let now_ns = crate::now_ns();
+            if settle_ns > 0
+                && st.mtime_ns <= now_ns
+                && st.mtime_ns.saturating_add(settle_ns) > now_ns
+            {
                 out.unknown.insert(key.clone());
                 out.tell(
                     Code::Settling,
