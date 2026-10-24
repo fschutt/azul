@@ -3086,7 +3086,7 @@ impl TaffyMeasureSpill {
 /// as long as the node's taffy cache: never read while that cache is empty,
 /// dropped by the first store into it after it was emptied (a dirty subtree,
 /// a restyle, a clone that could not keep its measurements all empty it).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TaffyWidthOnlyAnswers {
     /// A ring, oldest overwritten first.
     entries: [Option<WidthOnlyAnswer>; WIDTH_ONLY_ENTRIES],
