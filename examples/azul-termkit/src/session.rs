@@ -23,7 +23,7 @@ use alacritty_terminal::{
     event_loop::{EventLoop, EventLoopSender, Msg, Notifier},
     grid::Scroll,
     sync::FairMutex,
-    term::{Config, Term},
+    term::{Config, Term, TermMode},
     tty::{self, Options, Shell},
     vte::ansi::{Processor, StdSyncHandler},
 };
@@ -49,6 +49,9 @@ pub struct Signals {
     pub clipboard: Mutex<Option<String>>,
     /// The program ended.
     pub exited: AtomicBool,
+    /// How the program ended: its exit code (`None` until it ended, and for a program a signal
+    /// ended). A one-shot command's caller says from it whether the command worked.
+    exit_code: Mutex<Option<i32>>,
     /// Where a program's answers go (set once the event loop exists).
     sender: Mutex<Option<EventLoopSender>>,
 }
@@ -72,6 +75,12 @@ impl Signals {
     /// The text a program put on the clipboard since the last call (the last one wins).
     pub fn take_clipboard(&self) -> Option<String> {
         self.clipboard.lock().ok().and_then(|mut c| c.take())
+    }
+
+    /// The exit code of the program, once it ended by itself (`None` before, and when a
+    /// signal ended it).
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code.lock().ok().and_then(|c| *c)
     }
 }
 
@@ -98,7 +107,14 @@ impl EventListener for Listener {
                 }
             }
             Event::Bell => s.bell.store(true, Ordering::Release),
-            Event::ChildExit(_) | Event::Exit => {
+            Event::ChildExit(status) => {
+                if let Ok(mut code) = s.exit_code.lock() {
+                    *code = status.code();
+                }
+                s.exited.store(true, Ordering::Release);
+                s.dirty.store(true, Ordering::Release);
+            }
+            Event::Exit => {
                 s.exited.store(true, Ordering::Release);
                 s.dirty.store(true, Ordering::Release);
             }
@@ -165,6 +181,17 @@ fn ps_line(pid: u32, columns: &str) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// What a program on a PTY gets beyond the defaults ([`Session::spawn_with`]).
+#[derive(Debug, Clone, Default)]
+pub struct SpawnOptions {
+    /// Variables added to the program's environment (`GIT_PAGER=cat` for a command bar).
+    pub env: Vec<(String, String)>,
+    /// Read the PTY to its end when the program exits: the last lines a short command prints
+    /// just before it ends reach the screen. A shell tab does not need it (nobody reads a
+    /// closed shell's screen); a one-shot command does, or its output is cut.
+    pub drain_on_exit: bool,
+}
+
 /// One shell and its screen.
 pub struct Session {
     /// The engine (the event loop thread writes into it).
@@ -226,21 +253,46 @@ impl Session {
         size: GridSize,
         scrollback: usize,
     ) -> io::Result<Self> {
+        Self::spawn_with(term_program, program, cwd, size, scrollback, SpawnOptions::default())
+    }
+
+    /// [`Self::spawn_for`] with `extra` variables and draining ([`SpawnOptions`]). The extra
+    /// variables come after `TERM_PROGRAM`, so they may set it too.
+    ///
+    /// # Errors
+    /// The PTY could not be opened or the program not started.
+    pub fn spawn_with(
+        term_program: &str,
+        program: Option<(String, Vec<String>)>,
+        cwd: Option<PathBuf>,
+        size: GridSize,
+        scrollback: usize,
+        extra: SpawnOptions,
+    ) -> io::Result<Self> {
         let signals = Arc::new(Signals::default());
         let term = Arc::new(FairMutex::new(new_term(size, scrollback, &signals)));
         let mut options = Options::default();
         options.shell = program.map(|(p, a)| Shell::new(p, a));
         options.working_directory = cwd;
+        options.drain_on_exit = extra.drain_on_exit;
         options
             .env
             .insert("TERM_PROGRAM".to_string(), term_program.to_string());
+        for (name, value) in extra.env {
+            options.env.insert(name, value);
+        }
         let pty = tty::new(&options, window_size(size), 0)?;
         #[cfg(unix)]
         let shell_pid = Some(pty.child().id());
         #[cfg(not(unix))]
         let shell_pid = None;
-        let event_loop =
-            EventLoop::new(term.clone(), Listener(signals.clone()), pty, false, false)?;
+        let event_loop = EventLoop::new(
+            term.clone(),
+            Listener(signals.clone()),
+            pty,
+            extra.drain_on_exit,
+            false,
+        )?;
         let sender = event_loop.channel();
         if let Ok(mut s) = signals.sender.lock() {
             *s = Some(sender.clone());
@@ -322,6 +374,12 @@ impl Session {
         drop(term);
         self.signals.dirty.store(true, Ordering::Release);
         true
+    }
+
+    /// Whether the program switched to the alternate screen (`CSI ?1049h`): a full-screen
+    /// program (an editor, a pager) runs, which wants a whole terminal.
+    pub fn alternate_screen(&self) -> bool {
+        self.term.lock().mode().contains(TermMode::ALT_SCREEN)
     }
 
     /// Whether a shell (not a recording) runs here.
