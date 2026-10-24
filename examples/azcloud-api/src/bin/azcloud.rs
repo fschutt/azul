@@ -924,6 +924,9 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         if let Some(bytes) = args.number::<u64>("--disk-reserve")? {
             opts.disk_reserve = bytes;
         }
+        // The drive's restore announcement of the last refresh: an older index after an
+        // announced restore heals from here instead of being refused as a rollback.
+        opts.restore = account.record().restore.clone();
         let index_path =
             sync::local::index_path(&state.sync_dir(), &opts.bucket, &opts.prefix, &root.path);
         // A mass delete waits for the user (exit 3) instead of failing the run: its report says

@@ -172,6 +172,10 @@ pub struct DriveBundle {
     pub map_epoch: Option<u64>,
     /// Why the drive takes no writes, when the server says it (`read_only_reason`).
     pub read_only_why: Option<azlin_contract::ReadOnlyWhy>,
+    /// The drive's newest restore announcement the token server verified (`restore`): the
+    /// sync takes an index older than one it saw as this restore, not as a rollback, when the
+    /// epoch is new to it.
+    pub restore: Option<crate::sync::RestoreNotice>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -279,6 +283,15 @@ impl DriveBundle {
             read_only_why: value["read_only_reason"]
                 .as_str()
                 .map(azlin_contract::ReadOnlyWhy::from_wire),
+            restore: value["restore"]["epoch"]
+                .as_u64()
+                .map(|epoch| crate::sync::RestoreNotice {
+                    epoch,
+                    prefix: value["restore"]["prefix"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                }),
         })
     }
 

@@ -252,6 +252,7 @@ fn the_current_drive_is_the_one_named_else_the_last_added_else_the_only_one() {
         quota_bytes: None,
         read_only: false,
         tier: None,
+        restore: None,
     };
     let mut file = AccountFile::default();
     assert!(file.get(None).is_none());

@@ -96,6 +96,8 @@ pub struct AzlinDrive {
     /// When (by `clock`) an answer naming an endpoint or a map the drive's view lacks last made
     /// it ask the token server for its view.
     view_refresh: Mutex<Option<u64>>,
+    /// The restore announcement of the last refresh ([`AzlinDrive::restore_notice`]).
+    restore: Mutex<Option<crate::sync::RestoreNotice>>,
 }
 
 /// Why credentials are refreshed: what makes another process's newer session good enough.
@@ -236,6 +238,7 @@ impl AzlinDrive {
             bodyless_refresh: Mutex::new(None),
             grant_changed: AtomicBool::new(false),
             view_refresh: Mutex::new(None),
+            restore: Mutex::new(None),
         })
     }
 
@@ -292,6 +295,18 @@ impl AzlinDrive {
         self.failover.set_alternatives(bundle.failover.clone());
         self.failover.trust(TrustedEndpoint::from_bundle(bundle));
         self.failover.set_map_epoch(bundle.map_epoch);
+        *self.restore.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            bundle.restore.clone();
+    }
+
+    /// The drive's newest restore announcement as the last refresh answered it: what an app's
+    /// sync session takes as its restore notice ([`crate::sync::session::SyncSession::with_restore`]).
+    #[must_use]
+    pub fn restore_notice(&self) -> Option<crate::sync::RestoreNotice> {
+        self.restore
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Reads the time from `clock` (seconds since 1970) instead of the system's.

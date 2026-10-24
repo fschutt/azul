@@ -86,6 +86,9 @@ pub struct DriveRecord {
     pub read_only: bool,
     #[serde(default)]
     pub tier: Option<String>,
+    /// The drive's newest restore announcement of the last refresh, for the sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<crate::sync::RestoreNotice>,
 }
 
 impl DriveRecord {
@@ -230,6 +233,7 @@ pub fn grant_of(
         quota_bytes: bundle.quota_bytes.and_then(|q| i64::try_from(q).ok()),
         read_only: bundle.read_only,
         tier: bundle.tier.clone(),
+        restore: bundle.restore.clone(),
         id,
     };
     let mut credentials = Credentials::new(&creds.access_key_id, &creds.secret_access_key);
