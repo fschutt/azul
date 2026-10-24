@@ -77,7 +77,7 @@ fn endpoint(relay: Option<&str>) -> Result<Arc<Shared>, String> {
     );
     let config = IrohConfig::create(S3_OVER_IROH_ALPN)
         .with_max_frame_bytes(MAX_ANSWER_BYTES)
-        .with_trust_roots(TrustRoots::Pinned(relay_roots))
+        .with_trust_roots(TrustRoots::pinned(relay_roots))
         .with_allowed_peers(StringVec::from_vec(Vec::new()));
     let config = match key.as_str() {
         "off" => config.with_relay_mode(IrohRelayMode::Disabled),
