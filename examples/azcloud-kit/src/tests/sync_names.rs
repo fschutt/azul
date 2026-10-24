@@ -130,7 +130,7 @@ fn a_disk_that_ignores_case_or_normalization_folds_names_together() {
     let apfs = Volume {
         case_insensitive: true,
         norm_insensitive: true,
-        windows_names: false,
+        ..Volume::default()
     };
     assert_eq!(fold(decomposed, &apfs), fold(composed, &apfs));
     assert_eq!(fold("Report.TXT", &apfs), fold("report.txt", &apfs));

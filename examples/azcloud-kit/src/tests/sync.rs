@@ -207,6 +207,7 @@ fn a_lost_race_rereads_the_index_merges_again_and_retries() {
                 hash,
                 size: 6,
                 mtime: 0,
+                mtime_ns: 0,
                 gen: index.generation,
                 device: String::from("dev-b"),
                 exec: false,

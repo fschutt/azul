@@ -199,6 +199,7 @@ fn other_device_commits(store: &S3Bucket, files: &[(&str, &[u8])]) {
                 hash,
                 size: bytes.len() as u64,
                 mtime: 1,
+                mtime_ns: 0,
                 gen: index.generation,
                 device: String::from("linux"),
                 exec: false,

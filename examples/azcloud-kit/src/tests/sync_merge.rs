@@ -30,6 +30,7 @@ fn remote_file(c: char) -> RemoteFile {
         hash: h(c),
         size: 1,
         mtime: 1,
+        mtime_ns: 0,
         gen: 1,
         device: String::from("dev-b"),
         exec: false,

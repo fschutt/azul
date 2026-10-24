@@ -42,6 +42,7 @@ fn put_remote(store: &S3Bucket, key: &str, bytes: &[u8], exec: bool) {
             hash,
             size: bytes.len() as u64,
             mtime: 1_700_000_000,
+            mtime_ns: 0,
             gen: index.generation,
             device: String::from("someone"),
             exec,
@@ -617,4 +618,117 @@ fn a_data_root_whose_bookkeeping_is_the_azlin_folder_never_syncs_its_marker_or_t
         .rules
         .excluded("sync/trash/20261024-101500-a1b2c3/x.txt")
         .is_some());
+}
+
+#[test]
+fn a_downloads_time_is_the_writers_to_the_nanosecond() {
+    let store = S3Bucket::new();
+    let a = Device::new("mtime-a");
+    let b = Device::new("mtime-b");
+    a.write("photo-2003.jpg", b"an old photo");
+    let taken = std::time::UNIX_EPOCH + Duration::from_nanos(1_049_760_000_123_456_789);
+    fs::File::options()
+        .write(true)
+        .open(a.path().join("photo-2003.jpg"))
+        .unwrap()
+        .set_modified(taken)
+        .unwrap();
+    a.sync(&store);
+    b.sync(&store);
+    let got = fs::metadata(b.path().join("photo-2003.jpg"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(got, taken);
+}
+
+#[test]
+fn a_folder_renamed_on_one_device_is_renamed_on_the_other_not_trashed_and_fetched_again() {
+    let store = S3Bucket::new();
+    let a = Device::new("rename-a");
+    let b = Device::new("rename-b");
+    for i in 0..30 {
+        a.write(&format!("old/page{i}.txt"), format!("page {i}").as_bytes());
+    }
+    a.write("readme.txt", b"stays");
+    a.sync(&store);
+    b.sync(&store);
+    a.rename_folder("old", "new");
+    let sent = a.sync(&store);
+    assert!(sent.mass_delete.is_none(), "{}", sent.summary());
+    let got = b.sync(&store);
+    assert!(got.mass_delete.is_none(), "{}", got.summary());
+    assert_eq!(got.moved.len(), 30, "{}", got.summary());
+    assert_eq!(got.files_down, 0, "nothing fetched again");
+    assert!(trashed(b.path()).is_empty());
+    assert_eq!(b.tree(), a.tree());
+}
+
+#[test]
+fn a_case_only_rename_travels_as_a_rename() {
+    let store = S3Bucket::new();
+    let a = Device::new("case-a");
+    let b = Device::new("case-b");
+    a.write("notes.txt", b"the notes");
+    a.sync(&store);
+    b.sync(&store);
+    let tmp = a.path().join("notes.tmp-rename");
+    fs::rename(a.path().join("notes.txt"), &tmp).unwrap();
+    fs::rename(&tmp, a.path().join("Notes.txt")).unwrap();
+    a.sync(&store);
+    let index = index_of(&store);
+    assert!(index.files.contains_key("Notes.txt") && !index.files.contains_key("notes.txt"));
+    b.sync(&store);
+    assert_eq!(names(b.path()), vec![".azlin", "Notes.txt"]);
+    assert!(trashed(b.path()).is_empty());
+    assert!(!a.sync(&store).index_written, "the next pass is quiet");
+}
+
+#[test]
+fn a_base_that_cannot_be_read_pairs_afresh_and_deletes_nothing() {
+    let store = S3Bucket::new();
+    let a = Device::new("lost-a");
+    let b = Device::new("lost-b");
+    for (key, text) in [("x.txt", "x"), ("y.txt", "y"), ("z.txt", "z")] {
+        a.write(key, text.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    b.remove("z.txt");
+    b.sync(&store);
+    fs::write(a.index(), b"{\"generation\": 3, \"files\": {\"half\": ").unwrap();
+    let report = a.sync(&store);
+    assert!(
+        lists(&report, Code::StateReset, None),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_here, 0);
+    assert_eq!(a.tree().len(), 3, "z.txt, deleted elsewhere, is kept here");
+    assert!(lists(&report, Code::DeletedElsewhereKept, Some("z.txt")));
+    assert_eq!(index_of(&store).files.len(), 2, "and not sent again");
+}
+
+#[test]
+fn a_file_bigger_than_this_device_takes_stays_on_the_drive_and_is_listed() {
+    let store = S3Bucket::new();
+    let a = Device::new("large-a");
+    let b = Device::new("large-b");
+    a.write("backup.tar", &vec![9u8; 4096]);
+    a.write("small.txt", b"small");
+    a.sync(&store);
+    let mut opts = b.opts();
+    opts.max_file_bytes = 1024;
+    let report = b.sync_with(&store, &opts).unwrap();
+    assert!(
+        lists(&report, Code::TooLarge, Some("backup.tar")),
+        "{:?}",
+        report.problems
+    );
+    assert!(b.read("backup.tar").is_none());
+    assert_eq!(b.read("small.txt").as_deref(), Some(&b"small"[..]));
+    assert!(
+        index_of(&store).files.contains_key("backup.tar"),
+        "never a delete"
+    );
 }

@@ -42,6 +42,7 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
             hash: h('1'),
             size: 5,
             mtime: 1,
+            mtime_ns: 0,
             gen: 3,
             device: String::from("dev-a"),
             exec: false,
