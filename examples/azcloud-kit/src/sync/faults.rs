@@ -1,12 +1,13 @@
 //! The folder sync's fault seam: what a test harness changes about a pass from outside.
 //!
-//! - **Points.** A pass calls [`point`] at named places (`after-scan`, `after-blob`,
-//!   `after-commit`, `before-rename`, `conflict-start`, `before-trash`, `before-base-save`). A
-//!   harness arms one to CRASH the pass there (the pass thread unwinds with a [`Crashed`]
-//!   payload: nothing after the point runs, no error handler sees it, only destructors), to
-//!   ABORT the process (the command line's `kill -9` stand-in, armed from
-//!   `$AZSYNC_CRASH_AT` by [`arm_from_env`]) or to PAUSE it until [`release`] (a laptop
-//!   lid closed mid-pass). Each is one-shot: the pass after it runs through.
+//! - **Points.** The engine names places in a pass ([`POINTS`]) and tells them to a session's
+//!   points hook (`SyncSession::with_points`); an app that wants its passes faulted hands it a
+//!   hook that calls [`point`] with the pairing's folder. A harness arms a point to CRASH the
+//!   pass there (the pass thread unwinds with a [`Crashed`] payload: nothing after the point
+//!   runs, no error handler sees it, only destructors), to ABORT the process (`kill -9`'s
+//!   stand-in, armed from `$AZSYNC_CRASH_AT` by [`arm_from_env`]) or to PAUSE it until
+//!   [`release`] (a laptop lid closed mid-pass). Each is one-shot: the pass after it runs
+//!   through.
 //! - **The clock** a pass reads ([`now_unix`]): the real one plus a per-folder offset, so a
 //!   device whose clock is wrong can be played without changing the machine's.
 //! - **The disk** a pass writes to: [`free_bytes`] is what the free-space check sees, and
@@ -23,14 +24,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-/// The points a pass calls [`point`] at, in the order a pass meets them.
+/// The points the engine names, in the order a pass meets them.
 pub const POINTS: &[&str] = &[
+    "start",
     "after-scan",
+    "before-upload",
+    "mid-read",
     "after-blob",
     "after-commit",
-    "conflict-start",
-    "before-trash",
+    "download-start",
     "before-rename",
+    "after-rename",
+    "before-trash",
+    "conflict-start",
+    "conflict-renamed",
     "before-base-save",
 ];
 
@@ -61,8 +68,11 @@ struct Faults {
     paused_at: Option<String>,
     /// Set by [`release`]: the waiting pass goes on.
     released: bool,
-    /// Passes crashed here so far.
+    /// Passes crashed here so far, and the point of the last crash not yet taken: a crash
+    /// on a worker thread of the pass reaches its caller as a scoped thread's panic, without
+    /// the [`Crashed`] payload ([`take_crashed`]).
     crashes: u64,
+    last_crash: Option<String>,
     /// Added to the real clock, in milliseconds.
     clock_offset_ms: i64,
     /// What the free-space check sees instead of the disk's answer.
@@ -77,6 +87,7 @@ impl Faults {
             && self.pause_at.is_none()
             && self.paused_at.is_none()
             && self.crashes == 0
+            && self.last_crash.is_none()
             && self.clock_offset_ms == 0
             && self.free_bytes.is_none()
             && !self.disk_full
@@ -183,6 +194,7 @@ pub fn point(root: &Path, point: &str) {
         if at == point {
             f.crash_at = None;
             f.crashes += 1;
+            f.last_crash = Some(point.to_string());
             drop(all);
             match action {
                 Action::Abort => std::process::abort(),
@@ -215,6 +227,13 @@ pub fn point(root: &Path, point: &str) {
 
 fn armed_here(f: &Faults, point: &str) -> bool {
     f.crash_at.as_ref().is_some_and(|(at, _)| at == point) || f.pause_at.as_deref() == Some(point)
+}
+
+/// The point the last crash of `root` happened at, once (a caught unwind that is no
+/// [`Crashed`] - a worker thread's crash, re-raised by its scope - is still known as one).
+#[must_use]
+pub fn take_crashed(root: &Path) -> Option<String> {
+    with(root, |f| f.last_crash.take())
 }
 
 /// The crashed pass's point, when `payload` (a caught unwind) is a [`Crashed`].
