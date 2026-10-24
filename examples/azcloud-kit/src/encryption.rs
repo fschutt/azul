@@ -36,7 +36,7 @@ use azul_storage::{
         device,
         drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
-        DriveKey,
+        DriveKey, KeyId,
     },
     encrypted::EncryptedDrive,
     keyring::KeyringStore,
@@ -99,7 +99,8 @@ impl Account {
     }
 
     /// A join code for another device ([`Account::invite`]); when this device holds the drive
-    /// key it rides along, sealed to a one-time key whose secret is the code's `key_seal`.
+    /// key it rides along, sealed to a one-time key whose secret is the code's `key_seal`, and
+    /// the code names the key's id (`key_id`), so the joining device takes no other.
     ///
     /// # Errors
     ///
@@ -115,13 +116,15 @@ impl Account {
             let bucket = self.bucket_drive()?;
             let invite = device::seal_invite(&bucket, &drive, &drive_key)?;
             code.key_seal = Some(device::invite_text(&invite).to_string());
+            code.key_id = Some(drive_key.id().to_hex());
         }
         Ok(code)
     }
 
     /// After [`Account::join`] with `code`: the drive key its seal opens, kept in `keyring` with
-    /// this device enrolled (its own member wrap); the one-time wrap is deleted. `None` for a
-    /// code without a seal (the drive is not encrypted, or the inviting device held no key).
+    /// this device enrolled (its own member wrap); the one-time wrap is deleted. A seal of
+    /// another key than the code's `key_id` is refused. `None` for a code without a seal (the
+    /// drive is not encrypted, or the inviting device held no key).
     ///
     /// # Errors
     ///
@@ -138,12 +141,20 @@ impl Account {
         let Some(invite) = device::invite_from_text(seal) else {
             fail!("the join code's key seal is damaged (not 64 hex digits)");
         };
+        let key_id = match code.key_id.as_deref() {
+            Some(text) => match KeyId::from_hex(text.trim()) {
+                Some(id) => Some(id),
+                None => fail!("the join code's key id is damaged (not 32 hex digits)"),
+            },
+            None => None,
+        };
         let bucket = self.bucket_drive()?;
         Ok(Some(device::adopt_invite(
             &bucket,
             keyring,
             &self.record().id,
             &invite,
+            key_id.as_ref(),
         )?))
     }
 

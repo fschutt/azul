@@ -187,6 +187,7 @@ fn a_join_code_round_trips_hides_its_token_and_refuses_what_is_not_one() {
         name: String::from("Ann's drive"),
         token_url: String::from("http://127.0.0.1:8081"),
         key_seal: None,
+        key_id: None,
     };
     let text = code.encode();
     assert!(text.starts_with(JOIN_PREFIX));
@@ -220,6 +221,7 @@ fn a_join_code_carries_its_key_seal_hidden_and_a_code_without_one_reads_as_befor
         name: String::from("Ann's drive"),
         token_url: String::from("http://127.0.0.1:8081"),
         key_seal: Some("7e".repeat(32)),
+        key_id: Some("5a".repeat(16)),
     };
     let back = JoinCode::decode(&code.encode()).unwrap();
     assert_eq!(back, code);
@@ -227,6 +229,7 @@ fn a_join_code_carries_its_key_seal_hidden_and_a_code_without_one_reads_as_befor
     // The JSON of a code without a seal has no such field: an older reader takes it.
     let plain = JoinCode {
         key_seal: None,
+        key_id: None,
         ..code
     };
     let json: Value = serde_json::to_value(&plain).unwrap();

@@ -538,6 +538,12 @@ pub enum DriveError {
     /// An encrypted drive this device holds no key for (yet): it is unlocked with the drive's
     /// recovery code, or joined with a code from a device that has the key.
     Locked { drive: String },
+    /// A drive key this device does not take: the bucket handed it another key than the one
+    /// this device holds for the drive, or than its join or claim code names (anyone in
+    /// control of the storage can seal a key of their own to a member). Nothing was read or
+    /// written with it; the recovery code, or a join code from a device that has the drive,
+    /// gives the drive's key back.
+    KeyRefused { drive: String, reason: String },
     /// The service answered with an error.
     Service(ServiceError),
     /// The request did not get an answer (DNS, connection, TLS, timeout).
@@ -574,6 +580,12 @@ impl fmt::Display for DriveError {
                 f,
                 "this device has no key for \"{drive}\" yet: join it with a code from a device \
                  that has one, or unlock it with the recovery code"
+            ),
+            DriveError::KeyRefused { drive, reason } => write!(
+                f,
+                "this device does not take the drive key it was given for \"{drive}\" \
+                 ({reason}): unlock it with the recovery code, or join it with a code from a \
+                 device that has it"
             ),
             DriveError::Service(e) => write!(f, "the storage service answered {e}"),
             DriveError::Transport(message) => {

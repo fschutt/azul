@@ -20,7 +20,7 @@ use crate::{
         MemoryBucket, MetaIndexProvider, MetaRepo,
     },
     rotation::rotate,
-    Drive,
+    Drive, DriveError,
 };
 
 const DRIVE: &str = "d_policy_keys";
@@ -64,7 +64,7 @@ fn drive_with_index() -> (Arc<MemoryBucket>, MemoryKeyring, DriveKey) {
 fn join(bucket: &Arc<MemoryBucket>, key: &DriveKey) -> MemoryKeyring {
     let invite = seal_invite(bucket.as_ref(), DRIVE, key).unwrap();
     let phone = MemoryKeyring::new();
-    adopt_invite(bucket.as_ref(), &phone, DRIVE, &invite).unwrap();
+    adopt_invite(bucket.as_ref(), &phone, DRIVE, &invite, Some(&key.id())).unwrap();
     phone
 }
 
@@ -136,7 +136,7 @@ fn a_drive_without_an_index_keeps_its_key_files_as_its_members() {
 }
 
 #[test]
-fn a_member_that_missed_a_rotation_catches_up_from_its_wrap_of_the_new_key() {
+fn a_member_that_missed_a_rotation_takes_the_new_key_from_a_join_code_not_from_the_bucket() {
     let (bucket, laptop, old) = drive_with_index();
     let phone = join(&bucket, &old);
     let plain: Arc<dyn Drive> = bucket.clone();
@@ -153,7 +153,8 @@ fn a_member_that_missed_a_rotation_catches_up_from_its_wrap_of_the_new_key() {
     );
     assert_eq!(device::load_drive_key(&phone, DRIVE).unwrap(), Some(old.clone()));
 
-    // A rotation that keeps the phone seals the new key to it.
+    // The new key sealed to the phone and recorded in the index, through the bucket alone:
+    // what the storage could do with a key of its own, so the phone does not take it.
     let new = device::load_drive_key(&laptop, DRIVE).unwrap().unwrap();
     let secret = load_member_secret(&phone, DRIVE).unwrap().unwrap();
     let phone_id = secret.public().id();
@@ -168,7 +169,15 @@ fn a_member_that_missed_a_rotation_catches_up_from_its_wrap_of_the_new_key() {
         .record(&[change])
         .unwrap();
     store_member_wrap(bucket.as_ref(), &wrap).unwrap();
+    assert!(matches!(
+        open_encrypted(Arc::clone(&plain), &phone, DRIVE, &phone_index),
+        Err(DriveError::KeyRefused { .. })
+    ));
+    assert_eq!(device::load_drive_key(&phone, DRIVE).unwrap(), Some(old));
 
+    // A join code from the laptop names the new key: the phone takes it and reads on.
+    let invite = seal_invite(bucket.as_ref(), DRIVE, &new).unwrap();
+    adopt_invite(bucket.as_ref(), &phone, DRIVE, &invite, Some(&new.id())).unwrap();
     let drive = open_encrypted(plain, &phone, DRIVE, &phone_index).unwrap();
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
     assert_eq!(device::load_drive_key(&phone, DRIVE).unwrap(), Some(new));

@@ -623,7 +623,7 @@ fn a_device_opens_an_encrypted_drive_with_its_own_key_and_the_providers_index() 
     // A second device, enrolled by an invite, reads what the first wrote.
     let invite = seal_invite(bucket.as_ref(), "d_1", &drive_key).unwrap();
     let second = MemoryKeyring::new();
-    adopt_invite(bucket.as_ref(), &second, "d_1", &invite).unwrap();
+    adopt_invite(bucket.as_ref(), &second, "d_1", &invite, None).unwrap();
     let other = open_encrypted(bucket, &second, "d_1", &provider).unwrap();
     assert_eq!(other.get("letters/a.txt").unwrap(), b"hello");
     assert!(

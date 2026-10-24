@@ -352,8 +352,15 @@ fn finish(s: &mut DriveState, device: &str, approver: &str) -> Answer {
         Ok(invite) => invite,
         Err(e) => return refused(format!("{approver} could not approve: {e}")),
     };
-    // The joining side opens the invite with the code's secret.
-    match keys_of::adopt_invite(&joining.bucket, joining.keyring.as_ref(), drive, &invite) {
+    // The joining side opens the invite with the code's secret; the code names the key's id.
+    let named = key.id();
+    match keys_of::adopt_invite(
+        &joining.bucket,
+        joining.keyring.as_ref(),
+        drive,
+        &invite,
+        Some(&named),
+    ) {
         Ok(_) => {
             reopen(s, &joining.drive_id);
             Ok(serde_json::json!({ "joined": true, "device": device }))

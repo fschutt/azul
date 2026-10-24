@@ -288,6 +288,11 @@ pub fn code_of_error(error: &CloudError) -> Code {
     if let CloudError::Drive(azul_storage::DriveError::Locked { .. }) = error.root() {
         return Code::SignInNeeded;
     }
+    // A drive key this device refused (the bucket offered another than its own): nothing is
+    // read or written until the recovery code or a join code gives the drive's key back.
+    if let CloudError::Drive(azul_storage::DriveError::KeyRefused { .. }) = error.root() {
+        return Code::SignInNeeded;
+    }
     if let CloudError::Drive(azul_storage::DriveError::Transport(_)) = error.root() {
         return Code::RemoteOffline;
     }

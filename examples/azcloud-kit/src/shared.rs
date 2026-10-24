@@ -464,6 +464,7 @@ impl SharedKeyring {
             name: name.trim().to_string(),
             token_url: server.base().to_string(),
             key_seal: None,
+            key_id: None,
         })
     }
 

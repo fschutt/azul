@@ -5,7 +5,11 @@
 //! [`crate::config::keyring_key`]):
 //! - [`drive_key_entry`] `azul-storage/drive-key/<drive>`: the drive key;
 //! - [`member_key_entry`] `azul-storage/member-key/<drive>`: this device's X25519 member secret
-//!   for the drive (one per drive, so two drives cannot be linked by a device's key).
+//!   for the drive (one per drive, so two drives cannot be linked by a device's key), with the
+//!   id of the drive key this device holds (its pin) or, before it held one, the id a claim
+//!   code named;
+//! - [`planned_key_entry`] `azul-storage/drive-key-planned/<drive>`: a drive key made before
+//!   its drive existed, which [`setup_new_drive`] takes.
 //!
 //! The flows, each over the drive's bucket (the inner drive, below the encryption) and the
 //! keyring:
@@ -14,6 +18,15 @@
 //!   in the bucket, the keys in the keyring.
 //! - [`unlock`]: the drive key from the keyring, else from this device's member wrap in the
 //!   bucket (opened with its member secret); `None` when this device has no wrap.
+//!
+//! Anyone in control of the storage can seal a drive key of their own to a member's public key
+//! and put it in that member's key file. So a device keeps the id of the drive key it first
+//! held - made, taken from a join code or opened with the recovery code - beside its member
+//! key, and never takes a wrap of another key ([`DriveError::KeyRefused`]). A device from
+//! before these pins takes its wrap only when the drive's index opens with it; on an empty
+//! drive nothing says which key is the drive's, so it asks for the recovery code or a join
+//! code instead. Join and claim codes carry the drive key's id too, so even a device's first
+//! key is checked against something the server did not hand out.
 //! - [`enroll`]: this device's member wrap, made from a drive key it holds.
 //! - [`seal_invite`] / [`adopt_invite`]: a second device gets the drive key through its join
 //!   code. The inviting device seals the drive key to a one-time X25519 key
@@ -46,11 +59,11 @@ use super::{
         store_member_wrap, store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode,
         RecoveryKdf, RecoveryWrap, INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
     },
-    to_hex, CryptoError, DriveKey, KEY_LEN,
+    to_hex, CryptoError, DriveKey, KeyId, KEY_LEN,
 };
 use crate::{
     keyring::{KeyringError, KeyringStore},
-    meta::policy::{MemberChange, MemberRecord},
+    meta::policy::{KeyCheck, MemberChange, MemberRecord},
     Drive, DriveError, ListRequest, Precondition,
 };
 
@@ -64,6 +77,14 @@ pub fn drive_key_entry(drive: &str) -> String {
 #[must_use]
 pub fn member_key_entry(drive: &str) -> String {
     format!("azul-storage/member-key/{drive}")
+}
+
+/// The keyring entry of a drive key made before its drive existed: a checkout keeps one for
+/// the drive it pays for, so the claim code printed before the drive exists names the key's id
+/// ([`plan_drive_key`]); [`setup_new_drive`] takes it.
+#[must_use]
+pub fn planned_key_entry(drive: &str) -> String {
+    format!("azul-storage/drive-key-planned/{drive}")
 }
 
 /// The keyring entries a key rotation keeps both keys in until it is done
@@ -103,6 +124,35 @@ pub(crate) fn delete_key_at(keyring: &dyn KeyringStore, entry: &str) -> Result<(
 struct StoredKey {
     kind: String,
     key: String,
+    /// A member key's pin: the id of the drive key this device holds for the drive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    drive_key_id: Option<String>,
+    /// A member key's commitment: the id of the drive key a claim code named, while this
+    /// device has not held the key yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    committed: Option<String>,
+}
+
+/// A key entry read: the key's bytes, and a member key's pin and commitment.
+struct Entry {
+    bytes: Zeroizing<[u8; KEY_LEN]>,
+    drive_key_id: Option<KeyId>,
+    committed: Option<KeyId>,
+}
+
+/// This device's member key for a drive and what it knows of the drive's key: the id of the
+/// key it holds (its pin), else the id a claim code named.
+struct Member {
+    secret: MemberSecret,
+    pin: Option<KeyId>,
+    committed: Option<KeyId>,
+}
+
+impl Member {
+    /// The id a drive key must have for this device to take it from a wrap.
+    fn expected(&self) -> Option<KeyId> {
+        self.pin.or(self.committed)
+    }
 }
 
 const KIND_DRIVE_KEY: &str = "drive-key";
@@ -132,10 +182,23 @@ fn store_key(
     kind: &str,
     bytes: &[u8; KEY_LEN],
 ) -> Result<(), DriveError> {
+    store_entry(keyring, entry, kind, bytes, None, None)
+}
+
+fn store_entry(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+    kind: &str,
+    bytes: &[u8; KEY_LEN],
+    drive_key_id: Option<&KeyId>,
+    committed: Option<&KeyId>,
+) -> Result<(), DriveError> {
     let text = Zeroizing::new(
         serde_json::to_string(&StoredKey {
             kind: kind.to_string(),
             key: to_hex(bytes),
+            drive_key_id: drive_key_id.map(KeyId::to_hex),
+            committed: committed.map(KeyId::to_hex),
         })
         .unwrap_or_default(),
     );
@@ -150,6 +213,15 @@ fn load_key(
     entry: &str,
     kind: &str,
 ) -> Result<Option<Zeroizing<[u8; KEY_LEN]>>, DriveError> {
+    Ok(load_entry(keyring, entry, kind)?.map(|stored| stored.bytes))
+}
+
+/// The keyring entry `entry` when it holds a key of `kind`.
+fn load_entry(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+    kind: &str,
+) -> Result<Option<Entry>, DriveError> {
     let Some(text) = keyring.get(entry).map_err(|e| keyring_error(entry, e))? else {
         return Ok(None);
     };
@@ -168,7 +240,107 @@ fn load_key(
     let bytes = hex_array::<KEY_LEN>(&hex).ok_or_else(|| {
         DriveError::InvalidConfig(format!("the keyring entry {entry} holds a damaged key"))
     })?;
-    Ok(Some(Zeroizing::new(bytes)))
+    // A damaged id is refused, never read as no pin: that would trust the next wrap.
+    let id = |text: Option<String>| -> Result<Option<KeyId>, DriveError> {
+        text.map(|text| {
+            KeyId::from_hex(&text).ok_or_else(|| {
+                DriveError::InvalidConfig(format!(
+                    "the keyring entry {entry} holds a damaged drive key id"
+                ))
+            })
+        })
+        .transpose()
+    };
+    Ok(Some(Entry {
+        bytes: Zeroizing::new(bytes),
+        drive_key_id: id(stored.drive_key_id)?,
+        committed: id(stored.committed)?,
+    }))
+}
+
+fn load_member(keyring: &dyn KeyringStore, drive: &str) -> Result<Option<Member>, DriveError> {
+    Ok(
+        load_entry(keyring, &member_key_entry(drive), KIND_MEMBER_KEY)?.map(|stored| Member {
+            secret: MemberSecret::from_bytes(*stored.bytes),
+            pin: stored.drive_key_id,
+            committed: stored.committed,
+        }),
+    )
+}
+
+fn store_member(keyring: &dyn KeyringStore, drive: &str, member: &Member) -> Result<(), DriveError> {
+    store_entry(
+        keyring,
+        &member_key_entry(drive),
+        KIND_MEMBER_KEY,
+        &member.secret.to_bytes(),
+        member.pin.as_ref(),
+        member.committed.as_ref(),
+    )
+}
+
+/// The refusal of a drive key this device does not take.
+fn refused(drive: &str, reason: String) -> DriveError {
+    DriveError::KeyRefused {
+        drive: drive.to_string(),
+        reason,
+    }
+}
+
+/// The id of the drive key this device holds for the drive (its pin); `None` before it held
+/// one, and on a device from before pins.
+pub fn pinned_drive_key(keyring: &dyn KeyringStore, drive: &str) -> Result<Option<KeyId>, DriveError> {
+    Ok(load_member(keyring, drive)?.and_then(|member| member.pin))
+}
+
+/// The id of the drive key a claim code named for the drive, while this device has not held
+/// the key yet.
+pub fn committed_drive_key(
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<Option<KeyId>, DriveError> {
+    Ok(load_member(keyring, drive)?.and_then(|member| member.committed))
+}
+
+/// Pins the drive key `id` on this device: from now on it takes no wrap of another key for the
+/// drive. The member key is made when there is none yet.
+fn pin(keyring: &dyn KeyringStore, drive: &str, id: &KeyId) -> Result<(), DriveError> {
+    member_secret(keyring, drive)?;
+    let Some(mut member) = load_member(keyring, drive)? else {
+        return Err(DriveError::Io(format!(
+            "the keyring did not keep the member key of {drive}"
+        )));
+    };
+    if member.pin == Some(*id) && member.committed.is_none() {
+        return Ok(());
+    }
+    member.pin = Some(*id);
+    member.committed = None;
+    store_member(keyring, drive, &member)
+}
+
+/// A claim code names the id of the drive's key before this device holds it: every key the
+/// device gets for the drive from then on - from its wrap, a join code or the recovery code -
+/// must have that id (a join code that names another one is the newer word). A device that
+/// holds the drive's key already keeps its pin.
+pub fn commit_drive_key(keyring: &dyn KeyringStore, drive: &str, id: &KeyId) -> Result<(), DriveError> {
+    member_secret(keyring, drive)?;
+    let Some(mut member) = load_member(keyring, drive)? else {
+        return Err(DriveError::Io(format!(
+            "the keyring did not keep the member key of {drive}"
+        )));
+    };
+    if member.pin.is_some() || member.committed == Some(*id) {
+        return Ok(());
+    }
+    member.committed = Some(*id);
+    store_member(keyring, drive, &member)
+}
+
+/// Keeps `key` as the drive key the drive `drive` is set up with ([`setup_new_drive`]): a key
+/// made before its drive existed, whose id a claim code names already.
+pub fn plan_drive_key(keyring: &dyn KeyringStore, drive: &str, key: &DriveKey) -> Result<(), DriveError> {
+    store_key(keyring, &planned_key_entry(drive), KIND_DRIVE_KEY, key.as_bytes())
 }
 
 /// Keeps `key` in the keyring as the drive's key.
@@ -194,8 +366,7 @@ pub fn load_member_secret(
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<Option<MemberSecret>, DriveError> {
-    Ok(load_key(keyring, &member_key_entry(drive), KIND_MEMBER_KEY)?
-        .map(|bytes| MemberSecret::from_bytes(*bytes)))
+    Ok(load_member(keyring, drive)?.map(|member| member.secret))
 }
 
 /// This device's member secret for the drive: the keyring's, else a new one, kept there
@@ -216,7 +387,11 @@ pub fn member_secret(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSe
 
 /// Removes the drive's keys from this device (the drive was removed, or the device signs out).
 pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
-    for entry in [drive_key_entry(drive), member_key_entry(drive)] {
+    for entry in [
+        drive_key_entry(drive),
+        member_key_entry(drive),
+        planned_key_entry(drive),
+    ] {
         keyring
             .delete(&entry)
             .map_err(|e| keyring_error(&entry, e))?;
@@ -277,9 +452,10 @@ fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError
     }
 }
 
-/// The first device of a drive: a new drive key and recovery code. The recovery wrap (derived
-/// with `kdf`) and this device's member wrap go into the bucket, the drive key and the member
-/// secret into the keyring. Returns the drive key, and the recovery code for the recovery
+/// The first device of a drive: a new drive key (the one planned for it, [`plan_drive_key`],
+/// when there is one) and recovery code. The recovery wrap (derived with `kdf`) and this
+/// device's member wrap go into the bucket, the drive key and the member secret into the
+/// keyring. Returns the drive key, and the recovery code for the recovery
 /// sheet: it is stored nowhere, so this is the one moment it can be shown. Refused for a bucket
 /// that holds key files already (it is encrypted: [`unlock`], [`adopt_invite`] or
 /// [`recover`] instead).
@@ -295,7 +471,11 @@ pub fn setup_new_drive(
              recovery code"
         )));
     }
-    let drive_key = DriveKey::generate().map_err(|e| e.for_key(drive))?;
+    let planned = planned_key_entry(drive);
+    let drive_key = match load_key_at(keyring, &planned)? {
+        Some(key) => key,
+        None => DriveKey::generate().map_err(|e| e.for_key(drive))?,
+    };
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let recovery =
         RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
@@ -307,13 +487,15 @@ pub fn setup_new_drive(
         other => other,
     })?;
     enroll(bucket, keyring, drive, &drive_key)?;
+    delete_key_at(keyring, &planned)?;
     Ok((drive_key, code))
 }
 
 /// Seals `drive_key` to this device's member key (made and kept in the keyring when there is
 /// none yet), records this device as a member with that wrap in the index's policy (when the
 /// bucket holds an index), puts the wrap into the bucket and keeps the drive key in the
-/// keyring. Returns this device's member id.
+/// keyring. This device holds the key from now on: it is pinned first, so whatever stops the
+/// rest, no wrap of another key is taken afterwards. Returns this device's member id.
 pub fn enroll(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -321,6 +503,7 @@ pub fn enroll(
     drive_key: &DriveKey,
 ) -> Result<String, DriveError> {
     let secret = member_secret(keyring, drive)?;
+    pin(keyring, drive, &drive_key.id())?;
     let member = secret.public().id();
     let wrap = MemberWrap::seal(drive_key, drive, &member, &secret.public())
         .map_err(|e| e.for_key(drive))?;
@@ -338,14 +521,17 @@ pub fn enroll(
 
 /// The drive key on this device: the keyring's, else the one this device's member wrap in the
 /// bucket holds (opened with its member secret, then kept in the keyring). `None` when this
-/// device has neither, or when the index's policy no longer names it: it needs an invite
-/// ([`adopt_invite`]) or the recovery code ([`recover`]).
+/// device has neither, when the index's policy no longer names it, and when nothing tells
+/// whether its wrap holds the drive's key: it needs an invite ([`adopt_invite`]) or the
+/// recovery code ([`recover`]). `KeyRefused` for a wrap of another key than the one this
+/// device holds.
 pub fn unlock(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<Option<DriveKey>, DriveError> {
     if let Some(key) = load_drive_key(keyring, drive)? {
+        pin_kept_key(keyring, drive, &key)?;
         return Ok(Some(key));
     }
     let Some(drive_key) = key_from_wrap(bucket, keyring, drive)? else {
@@ -355,38 +541,91 @@ pub fn unlock(
     Ok(Some(drive_key))
 }
 
+/// A device from before pins keeps the drive key it holds as its pin: the keyring's key is its
+/// own, not the bucket's word.
+fn pin_kept_key(keyring: &dyn KeyringStore, drive: &str, key: &DriveKey) -> Result<(), DriveError> {
+    match load_member(keyring, drive)? {
+        Some(member) if member.pin.is_none() => pin(keyring, drive, &key.id()),
+        _ => Ok(()),
+    }
+}
+
 /// The drive key this device's member wrap in the bucket holds, opened with its member
 /// secret. `None` without a member secret or a wrap, and when the index's policy no longer
 /// names this device: the policy decides, whatever key file the bucket still holds.
+///
+/// The wrap must hold the key this device pinned (or the one its claim code named): the
+/// storage can seal any key to a member's public key. A device without either takes the wrap
+/// only when the drive's index opens with its key, and pins it then; on a drive without an
+/// index nothing tells, so it gets `None` and asks for a code.
 fn key_from_wrap(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<Option<DriveKey>, DriveError> {
-    let Some(secret) = load_member_secret(keyring, drive)? else {
+    let Some(me) = load_member(keyring, drive)? else {
         return Ok(None);
     };
-    let member = secret.public().id();
+    let member = me.secret.public().id();
     let wrap = match load_member_wrap(bucket, &member) {
         Ok(wrap) => wrap,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
-    let drive_key = wrap.open(drive, &secret).map_err(|e| e.for_key(&file))?;
-    if !is_member(bucket, &drive_key, &member)? {
-        return Ok(None);
+    if let Some(expected) = me.expected() {
+        if wrap.drive_key_id != expected {
+            return Err(refused(
+                drive,
+                format!(
+                    "{file} holds the drive key {}, and this device's is {expected}",
+                    wrap.drive_key_id
+                ),
+            ));
+        }
     }
-    Ok(Some(drive_key))
+    // The wrap names its key's id, and opening it checks the key against that id.
+    let drive_key = wrap.open(drive, &me.secret).map_err(|e| e.for_key(&file))?;
+    if me.expected().is_some() {
+        if !is_member(bucket, &drive_key, &member)? {
+            return Ok(None);
+        }
+        if me.pin.is_none() {
+            pin(keyring, drive, &drive_key.id())?;
+        }
+        return Ok(Some(drive_key));
+    }
+    match MemberRecord::check(bucket, &drive_key)? {
+        KeyCheck::NoIndex => Ok(None),
+        KeyCheck::Refuses => Err(refused(
+            drive,
+            format!(
+                "the drive's index does not open with the drive key {} that {file} holds",
+                wrap.drive_key_id
+            ),
+        )),
+        KeyCheck::Opens(mut record) => {
+            let named = record
+                .members()?
+                .map_or(true, |members| members.contains(&member));
+            if !named {
+                return Ok(None);
+            }
+            pin(keyring, drive, &drive_key.id())?;
+            Ok(Some(drive_key))
+        }
+    }
 }
 
-/// A device that missed a key rotation catches up. When its member wrap in the bucket holds
-/// another drive key than its keyring does (the rotating device sealed the new key to the
-/// members it kept), that key becomes the keyring's drive key. Returns the new key and the
-/// one before it, for the rotation's window
+/// A device whose keyring kept another drive key than the one it pinned catches up: a key
+/// change of its own stopped between the pin and the keyring (a rotation on this device).
+/// When its member wrap in the bucket holds the pinned key, that key becomes the keyring's
+/// drive key. Returns the new key and the one before it, for the rotation's window
 /// ([`crate::encrypted::IndexProvider::open_index_in_window`]). `None` when the wrap holds
 /// the keyring's key, or when there is no wrap: a rotation that removed this device leaves
-/// it nothing to catch up from (it needs an invite or the recovery code).
+/// it nothing to catch up from (it needs an invite or the recovery code). A wrap of any other
+/// key is refused (`KeyRefused`): another device's rotation brings its new key with a join
+/// code, never through the bucket alone.
 pub fn catch_up(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -435,13 +674,16 @@ pub fn invite_from_text(text: &str) -> Option<MemberSecret> {
 }
 
 /// A joining device takes the drive key its join code's invite opens, enrols itself and
-/// deletes the invite wrap (the code opens the key once). `Denied` when the invite was used
-/// already or withdrawn.
+/// deletes the invite wrap (the code opens the key once). `key_id` is the id of the drive key
+/// the join code names (a code from before has none): a seal of another key is refused
+/// (`KeyRefused`), and so is one of another key than a claim code named when the join code
+/// names none. `Denied` when the invite was used already or withdrawn.
 pub fn adopt_invite(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
     invite: &MemberSecret,
+    key_id: Option<&KeyId>,
 ) -> Result<DriveKey, DriveError> {
     let member = invite_member(invite);
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
@@ -456,6 +698,21 @@ pub fn adopt_invite(
         }
         Err(e) => return Err(e),
     };
+    let named = match key_id {
+        Some(id) => Some(*id),
+        None => committed_drive_key(keyring, drive)?,
+    };
+    if let Some(named) = named {
+        if wrap.drive_key_id != named {
+            return Err(refused(
+                drive,
+                format!(
+                    "the join code's seal holds the drive key {}, and the code names {named}",
+                    wrap.drive_key_id
+                ),
+            ));
+        }
+    }
     let drive_key = wrap.open(drive, invite).map_err(|e| e.for_key(&file))?;
     enroll(bucket, keyring, drive, &drive_key)?;
     bucket.delete(&file)?;
@@ -470,7 +727,9 @@ pub fn withdraw_invite(bucket: &dyn Drive, invite: &MemberSecret) -> Result<(), 
 }
 
 /// The drive key the recovery code opens; this device is enrolled with it (a member wrap of
-/// its own, the key in the keyring). `Denied` for a wrong code.
+/// its own, the key in the keyring). `Denied` for a wrong code. Only its holder can seal a
+/// wrap the code opens, so the key is the drive's, whichever key this device held before (a
+/// rotation made a new one); a claim code's id still has to match (`KeyRefused`).
 pub fn recover(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -505,6 +764,17 @@ pub fn recover(
     let drive_key = opened.ok_or_else(|| DriveError::Denied {
         message: String::from("the recovery code does not open this drive"),
     })?;
+    if let Some(named) = committed_drive_key(keyring, drive)? {
+        if drive_key.id() != named {
+            return Err(refused(
+                drive,
+                format!(
+                    "the recovery code opens the drive key {}, and the claim code names {named}",
+                    drive_key.id()
+                ),
+            ));
+        }
+    }
     enroll(bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
 }

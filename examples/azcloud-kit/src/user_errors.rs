@@ -81,6 +81,10 @@ pub enum Code {
     SessionExpired,
     /// An encrypted drive this device holds no key for (yet) - the client's own.
     Locked,
+    /// The bucket offered this device another drive key than the one it holds for the drive
+    /// (or than its join or claim code names) - the client's own: refused, it asks for the
+    /// recovery code or a join code.
+    KeyRefused,
     ObjectTooLarge,
     NameConflict,
     LinkBlocked,
@@ -142,7 +146,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 34] = [
+    pub const ALL: [Code; 35] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -152,6 +156,7 @@ impl Code {
         Code::SignIn,
         Code::SessionExpired,
         Code::Locked,
+        Code::KeyRefused,
         Code::ObjectTooLarge,
         Code::NameConflict,
         Code::LinkBlocked,
@@ -192,6 +197,7 @@ impl Code {
             Code::SignIn => "sign_in",
             Code::SessionExpired => "session_expired",
             Code::Locked => "locked",
+            Code::KeyRefused => "key_refused",
             Code::ObjectTooLarge => "object_too_large",
             Code::NameConflict => "name_conflict",
             Code::LinkBlocked => "link_blocked",
@@ -405,6 +411,18 @@ pub const ROWS: &[Row] = &[
              from a device that has it.",
         de: "Dieses Laufwerk ist auf diesem Computer gesperrt. Entsperre es mit seinem \
              Wiederherstellungscode oder tritt ihm von einem Gerät aus bei, das es hat.",
+    },
+    Row {
+        code: Code::KeyRefused,
+        class: Class::ReAuth,
+        behaviour: Behaviour::Unlock,
+        en: "The server offered this computer another key for the drive than the one it knows - \
+             someone may have changed it. Nothing was read or uploaded with it. Unlock the drive \
+             with its recovery code, or join it from a device that has it.",
+        de: "Der Server hat diesem Computer einen anderen Schlüssel für das Laufwerk angeboten \
+             als den, den er kennt - jemand könnte ihn geändert haben. Damit wurde nichts gelesen \
+             oder hochgeladen. Entsperre das Laufwerk mit seinem Wiederherstellungscode oder tritt \
+             ihm von einem Gerät aus bei, das es hat.",
     },
     Row {
         code: Code::ObjectTooLarge,
@@ -689,6 +707,7 @@ impl UserError {
             DriveError::Transport(why) => UserError::new(Code::Network, why.clone()),
             DriveError::Denied { message } => UserError::new(Code::SignIn, message.clone()),
             DriveError::Locked { .. } => UserError::new(Code::Locked, e.to_string()),
+            DriveError::KeyRefused { .. } => UserError::new(Code::KeyRefused, e.to_string()),
             DriveError::Conflict { .. } => UserError::new(Code::NameConflict, e.to_string()),
             DriveError::Corrupt { .. } => UserError::new(Code::Integrity, e.to_string()),
             DriveError::Protocol(why) => UserError::new(Code::Other, why.clone()),

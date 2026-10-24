@@ -66,7 +66,7 @@ use azul_storage::{
     crypto::{
         device,
         keys::{load_recovery_wrap, store_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
-        random_bytes, CryptoError, Zeroizing,
+        random_bytes, CryptoError, KeyId, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     packing::{pack_reads, PackUpkeep},
@@ -1802,6 +1802,8 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
         seal: Zeroizing<String>,
+        /// The id of the drive key the join code names (codes from before name none).
+        key_id: Option<String>,
     },
 }
 
@@ -2217,6 +2219,8 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     let invite = device::seal_invite(auto.bucket().as_ref(), auto.drive(), &drive_key)
                         .map_err(|e| e.to_string())?;
                     code.key_seal = Some(device::invite_text(&invite).to_string());
+                    // the joining device takes no other key than this one
+                    code.key_id = Some(drive_key.id().to_hex());
                 }
                 Ok(Zeroizing::new(code.encode()))
             })();
@@ -2226,14 +2230,27 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             drive_id,
             auto,
             seal,
+            key_id,
         } => {
-            let result = device::invite_from_text(&seal)
-                .ok_or_else(|| String::from("azdrive-invite-seal-damaged"))
-                .and_then(|invite| {
-                    device::adopt_invite(auto.bucket().as_ref(), &keyring, auto.drive(), &invite)
-                        .map(|_| auto.reopen())
-                        .map_err(|e| e.to_string())
-                });
+            let named = match key_id.as_deref() {
+                Some(text) => KeyId::from_hex(text.trim())
+                    .map(Some)
+                    .ok_or_else(|| String::from("azdrive-invite-seal-damaged")),
+                None => Ok(None),
+            };
+            let result = named.and_then(|named| {
+                let invite = device::invite_from_text(&seal)
+                    .ok_or_else(|| String::from("azdrive-invite-seal-damaged"))?;
+                device::adopt_invite(
+                    auto.bucket().as_ref(),
+                    &keyring,
+                    auto.drive(),
+                    &invite,
+                    named.as_ref(),
+                )
+                .map(|_| auto.reopen())
+                .map_err(|e| e.to_string())
+            });
             EncryptionOutcome::Recovered { drive_id, result }
         }
     }
@@ -2283,6 +2300,7 @@ pub(crate) fn adopt_join_key(
     s: &mut DriveState,
     drive_id: &str,
     seal: String,
+    key_id: Option<String>,
 ) {
     let seal = Zeroizing::new(seal);
     let Some(auto) = auto_of(s, drive_id) else {
@@ -2292,6 +2310,7 @@ pub(crate) fn adopt_join_key(
         drive_id: drive_id.to_string(),
         auto,
         seal,
+        key_id,
     };
     spawn(info, app, s, Job::Encryption(job));
 }

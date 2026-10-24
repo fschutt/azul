@@ -341,6 +341,17 @@ pub enum MemberChange {
     Remove { member: String },
 }
 
+/// What [`MemberRecord::check`] found of a drive key.
+pub enum KeyCheck<'a> {
+    /// The index opens with it: the drive's record.
+    Opens(MemberRecord<'a>),
+    /// The bucket holds no index (an empty drive), or cannot hold one: nothing in it says
+    /// which key is the drive's.
+    NoIndex,
+    /// The index does not open with it.
+    Refuses,
+}
+
 /// The record of an encrypted drive's members: the policy and the member wraps of the
 /// bucket's metadata repository, opened with the drive key as a lazy copy (only `.azlin` is
 /// read; a change reads the packs, as every commit does).
@@ -357,23 +368,41 @@ impl<'a> MemberRecord<'a> {
         bucket: &'a dyn Drive,
         drive_key: &DriveKey,
     ) -> Result<Option<MemberRecord<'a>>, DriveError> {
+        match Self::open_repo(bucket, drive_key) {
+            Ok(repo) => Ok(Some(MemberRecord { bucket, repo })),
+            Err(MetaError::NoRepository | MetaError::Unsupported(_)) => Ok(None),
+            Err(e) => Err(to_drive(e)),
+        }
+    }
+
+    /// Whether the drive's index opens with `drive_key`: a device that cannot tell otherwise
+    /// which drive key is the drive's asks the index, the one thing in the bucket that only
+    /// the drive key could have sealed (once it holds files).
+    pub fn check(bucket: &'a dyn Drive, drive_key: &DriveKey) -> Result<KeyCheck<'a>, DriveError> {
+        match Self::open_repo(bucket, drive_key) {
+            Ok(repo) => Ok(KeyCheck::Opens(MemberRecord { bucket, repo })),
+            Err(MetaError::NoRepository | MetaError::Unsupported(_)) => Ok(KeyCheck::NoIndex),
+            Err(MetaError::Sealed { .. }) => Ok(KeyCheck::Refuses),
+            Err(e) => Err(to_drive(e)),
+        }
+    }
+
+    fn open_repo(
+        bucket: &'a dyn Drive,
+        drive_key: &DriveKey,
+    ) -> Result<MetaRepo<DriveBucket<&'a dyn Drive>, DriveKey>, MetaError> {
         let options = RepoOptions {
             cache_dir: None,
             lazy: true,
         };
         let device = crate::ids::new_uuid();
-        let opened = MetaRepo::open_with(
+        MetaRepo::open_with(
             DriveBucket::new(bucket),
             drive_key.clone(),
             &device,
             RECORD_DEVICE,
             &options,
-        );
-        match opened {
-            Ok(repo) => Ok(Some(MemberRecord { bucket, repo })),
-            Err(MetaError::NoRepository | MetaError::Unsupported(_)) => Ok(None),
-            Err(e) => Err(to_drive(e)),
-        }
+        )
     }
 
     /// The policy (`None` while there is none) and the wraps of the repository.

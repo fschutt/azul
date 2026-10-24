@@ -255,11 +255,12 @@ pub trait IndexProvider: Send + Sync {
 /// `provider`. `Locked` when this device holds no key for the drive yet: it joins with a code
 /// from a device that does, or unlocks with the recovery code.
 ///
-/// A device that missed a key rotation still holds the key from before it, and the index
-/// does not open with that key. When its member wrap holds the new key, the device catches up
-/// ([`device::catch_up`]): the new key goes into the keyring, and the index opens in the
-/// rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
-/// sealed under the old key still opens. Its reads of packs count under `drive`
+/// A device whose own key change stopped halfway still holds the key from before it, and the
+/// index does not open with that key. When its member wrap holds the key it pinned, the device
+/// catches up ([`device::catch_up`]): that key goes into the keyring, and the index opens in
+/// the rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
+/// sealed under the old key still opens. A wrap of a key it never pinned is refused
+/// (`KeyRefused`). Its reads of packs count under `drive`
 /// ([`crate::packing::pack_reads`]).
 pub fn open_encrypted(
     bucket: Arc<dyn Drive>,
@@ -281,6 +282,8 @@ pub fn open_encrypted(
                     provider.open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)?;
                 EncryptedDrive::new(bucket, current, index)
             }
+            // A wrap of a key this device does not take says more than the index's error.
+            Err(refused @ DriveError::KeyRefused { .. }) => return Err(refused),
             Ok(None) | Err(_) => return Err(e),
         },
     };

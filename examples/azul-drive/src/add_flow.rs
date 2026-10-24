@@ -1951,7 +1951,7 @@ pub(crate) fn joined(
     #[cfg(feature = "encryption")]
     {
         if let Some(seal) = code.key_seal.clone() {
-            crate::encryption::adopt_join_key(info, app, s, &drive_id, seal);
+            crate::encryption::adopt_join_key(info, app, s, &drive_id, seal, code.key_id.clone());
         }
     }
 }

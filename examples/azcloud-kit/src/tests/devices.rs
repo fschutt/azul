@@ -85,6 +85,7 @@ fn a_join_code_s_token_is_spent_once_and_its_session_kept_in_the_keyring() {
         name: String::from("Photos"),
         token_url: String::from(TOKEN),
         key_seal: None,
+        key_id: None,
     };
     let joined = keyring.join(&server, &code).unwrap();
     assert_eq!(joined.drive_id(), "d_1");

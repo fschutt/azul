@@ -95,7 +95,7 @@ fn a_second_device_joins_with_an_invite_and_the_invite_opens_the_key_once() {
     // The second device reads the code, takes the key and enrols itself.
     let second = MemoryKeyring::new();
     let from_code = invite_from_text(&code_text).unwrap();
-    let opened = adopt_invite(&bucket, &second, DRIVE, &from_code).unwrap();
+    let opened = adopt_invite(&bucket, &second, DRIVE, &from_code, Some(&drive_key.id())).unwrap();
     assert_eq!(opened, drive_key);
     assert_eq!(load_drive_key(&second, DRIVE).unwrap(), Some(drive_key.clone()));
     let second_member = load_member_secret(&second, DRIVE).unwrap().unwrap();
@@ -112,7 +112,7 @@ fn a_second_device_joins_with_an_invite_and_the_invite_opens_the_key_once() {
 
     // The same code a second time opens nothing.
     assert!(matches!(
-        adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &from_code),
+        adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &from_code, None),
         Err(DriveError::Denied { .. })
     ));
 
@@ -120,7 +120,7 @@ fn a_second_device_joins_with_an_invite_and_the_invite_opens_the_key_once() {
     let unused = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
     withdraw_invite(&bucket, &unused).unwrap();
     assert!(matches!(
-        adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &unused),
+        adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &unused, None),
         Err(DriveError::Denied { .. })
     ));
     assert!(invite_from_text("not hex").is_none());
@@ -132,7 +132,7 @@ fn an_invite_is_bound_to_its_drive() {
     let (drive_key, _) = setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
     let invite = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
     assert!(matches!(
-        adopt_invite(&bucket, &MemoryKeyring::new(), "d_other", &invite),
+        adopt_invite(&bucket, &MemoryKeyring::new(), "d_other", &invite, None),
         Err(DriveError::Denied { .. })
     ));
 }

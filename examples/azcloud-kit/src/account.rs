@@ -347,6 +347,10 @@ pub struct JoinCode {
     /// invite). With it the joining device gets the drive key once. A secret too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_seal: Option<String>,
+    /// The id of the drive key the seal holds (32 hex digits): the joining device takes no
+    /// other key, whatever the bucket holds. A code from before has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
 }
 
 impl std::fmt::Debug for JoinCode {
@@ -358,6 +362,7 @@ impl std::fmt::Debug for JoinCode {
             .field("name", &self.name)
             .field("token_url", &self.token_url)
             .field("key_seal", &self.key_seal.as_ref().map(|_| "<hidden>"))
+            .field("key_id", &self.key_id)
             .finish()
     }
 }
@@ -715,6 +720,7 @@ impl Account {
             name: self.record.name.clone(),
             token_url: self.token_url.clone(),
             key_seal: None,
+            key_id: None,
         })
     }
 
