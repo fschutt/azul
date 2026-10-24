@@ -1358,6 +1358,9 @@ impl SyncSession {
         }
         let index_path = self.index_path();
         let mut index = LocalIndex::load(&index_path)?;
+        // Each file is reached from the folder's root without a link: a delete never removes
+        // a file in a folder a link below the synced folder points at.
+        let here = self.root().drive().contained();
         for key in &targets {
             if let Some(entry) = index.as_mut().and_then(|i| i.files.get_mut(key)) {
                 // Not on this device, at the version the drive has: the next pass deletes it
@@ -1367,12 +1370,8 @@ impl SyncSession {
                     entry.mtime_ns = 0;
                 }
             }
-            let path = local::path_of(&self.setup.folder, key);
-            match fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("{}", path.display())),
-            }
+            // A file that is not there is no error.
+            here.delete(key)?;
             states.files.remove(key);
         }
         if let Some(index) = &index {
@@ -1475,15 +1474,13 @@ impl SyncSession {
         for key in &cloud {
             self.open(key)?;
         }
-        let from_path = local::path_of(&self.setup.folder, from);
-        let to_path = local::path_of(&self.setup.folder, to);
-        if fs::symlink_metadata(&to_path).is_ok() {
+        if fs::symlink_metadata(local::path_of(&self.setup.folder, to)).is_ok() {
             fail!("{} is there already", to.trim_end_matches('/'));
         }
-        if let Some(parent) = to_path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("{}", parent.display()))?;
-        }
-        fs::rename(&from_path, &to_path).with_context(|| format!("{}", from_path.display()))?;
+        // One rename, both names reached from the folder's root without a link (the target's
+        // missing folders made the same way): nothing moves into or out of a folder a link
+        // below the synced folder points at.
+        self.root().drive().contained().rename(from, to)?;
         // The states follow at once (the next pass makes it so on the drive).
         let mut states = self.states();
         let moved: Vec<String> = states.under(&[from.to_string()], false);

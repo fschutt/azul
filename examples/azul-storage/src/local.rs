@@ -142,6 +142,24 @@ fn beneath_error(key: &str, e: BeneathError) -> DriveError {
     }
 }
 
+/// Empties `dir`: files and links are unlinked (a link's target stays where it is), folders
+/// are emptied the same way and removed. It never leaves `dir` through a link, nor into
+/// another disk ([`beneath::Dir::child`] refuses both).
+fn remove_all(dir: &beneath::Dir) -> Result<(), BeneathError> {
+    for name in dir.names()? {
+        let Some(name) = name.to_str() else {
+            return Err(BeneathError::BadName(name.to_string_lossy().into_owned()));
+        };
+        if dir.lstat(name)?.kind == Kind::Dir {
+            remove_all(&dir.child(name, false)?)?;
+            dir.rmdir(name)?;
+        } else {
+            dir.unlink(name)?;
+        }
+    }
+    Ok(())
+}
+
 /// Why a contained drive refuses a key whose folder here is a link or another disk.
 pub const THROUGH_LINK: &str =
     "a folder of its path here is a link or another disk: nothing is written or read through it";
@@ -313,6 +331,63 @@ impl LocalDrive {
             to: to.to_string(),
         });
         Ok(())
+    }
+
+    /// A contained drive's folder `prefix` (`a/b/`), walked from the root without a link and
+    /// made where it is missing.
+    fn contained_make_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
+        let (parent, name) = root
+            .parent_of(prefix.trim_end_matches('/'), true)
+            .map_err(|e| beneath_error(prefix, e))?;
+        if parent.lstat(name).is_ok_and(|st| st.kind == Kind::File) {
+            return Err(DriveError::InvalidKey {
+                key: prefix.to_string(),
+                reason: "a file has this name",
+            });
+        }
+        parent
+            .child(name, true)
+            .map(|_| ())
+            .map_err(|e| beneath_error(prefix, e))
+    }
+
+    /// A contained drive's removal of the folder `prefix` with everything in it, walked from
+    /// the root without a link. A link inside it goes as a link; what it points at stays.
+    /// `false` when there is no such folder.
+    fn contained_remove_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
+        let (parent, name) = match root.parent_of(prefix.trim_end_matches('/'), false) {
+            Ok(found) => found,
+            Err(e) if e.is_not_found() => return Ok(false),
+            Err(e) => return Err(beneath_error(prefix, e)),
+        };
+        match parent.lstat(name) {
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(DriveError::Io(format!("{prefix}: {e}"))),
+            Ok(st) if st.kind == Kind::File => {
+                return Err(DriveError::InvalidKey {
+                    key: prefix.to_string(),
+                    reason: "it is a file",
+                })
+            }
+            // The folder's own name is a link (or no folder at all): nothing behind it goes.
+            Ok(st) if st.kind != Kind::Dir => {
+                return Err(DriveError::InvalidKey {
+                    key: prefix.to_string(),
+                    reason: THROUGH_LINK,
+                })
+            }
+            Ok(_) => {}
+        }
+        let folder = parent
+            .child(name, false)
+            .map_err(|e| beneath_error(prefix, e))?;
+        remove_all(&folder).map_err(|e| beneath_error(prefix, e))?;
+        drop(folder);
+        parent.rmdir(name).map_err(|e| beneath_error(prefix, e))?;
+        parent.sync();
+        Ok(true)
     }
 
     #[must_use]
@@ -812,6 +887,9 @@ impl Drive for LocalDrive {
 
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         let dir = self.folder_path(prefix)?;
+        if self.contained {
+            return self.contained_make_folder(prefix);
+        }
         if dir.is_file() {
             return Err(DriveError::InvalidKey {
                 key: prefix.to_string(),
@@ -865,6 +943,14 @@ impl Drive for LocalDrive {
 
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         let dir = self.folder_path(prefix)?;
+        if self.contained {
+            if self.contained_remove_folder(prefix)? {
+                self.record(&Record::Delete {
+                    key: prefix.to_string(),
+                });
+            }
+            return Ok(());
+        }
         match fs::symlink_metadata(&dir) {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
             Err(e) => Err(DriveError::Io(format!("{prefix}: {e}"))),
