@@ -5109,22 +5109,39 @@ where
             .get(node_index)
             .copied()
             .unwrap_or_else(LogicalPosition::zero);
+        // The previous list outlives the patch borrow, which ends here: the
+        // copy below reads the generator again.
+        let prev = patch.prev;
         drop(crate::probe::Probe::span("dl_patch_copy"));
         // DOM attribution is PER ITEM, not per run: a content run can switch
         // attribution mid-run (e.g. an IFC root's items ending with a text
         // child's id) — the golden test caught a first-item flattening here.
         builder.set_current_layout(Some((node_index, phase)));
         for i in run.0..run.1 {
-            builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
-            builder.next_text_bg = patch.prev.uniform_text_bgs.get(i).copied().flatten();
+            builder.set_current_node(prev.node_mapping.get(i).copied().flatten());
+            // The background a text run is proven to sit on is the box of an
+            // ANCESTOR (`compute_uniform_text_bg`), which may have moved or
+            // resized while this run kept its place - a panel growing around
+            // its labels. A run that had a proof gets the one a fresh paint
+            // gives it now; one without keeps none (a run's own background or
+            // its shift withdrew it, and both would have re-emitted it).
+            builder.next_text_bg = match (&prev.items[i], prev.uniform_text_bgs.get(i)) {
+                (
+                    DisplayListItem::Text {
+                        source_node_index: Some(source),
+                        ..
+                    },
+                    Some(Some(_)),
+                ) => self.compute_uniform_text_bg(*source),
+                _ => None,
+            };
             builder.next_text_selection_colors =
-                patch.prev.text_selection_colors.get(i).copied().flatten();
+                prev.text_selection_colors.get(i).copied().flatten();
             // A copied rect stays bound while its key does.
-            builder.next_color_binding = patch
-                .prev
+            builder.next_color_binding = prev
                 .color_binding(i)
                 .filter(|key| builder.bound_colors.values().any(|k| k == key));
-            let item = translate_item(patch.prev.items[i].clone(), delta);
+            let item = translate_item(prev.items[i].clone(), delta);
             builder.push_item(item);
         }
         builder.set_current_layout(None);

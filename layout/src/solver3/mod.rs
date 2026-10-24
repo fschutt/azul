@@ -545,19 +545,34 @@ pub fn set_skip_display_list(skip: bool) {
 }
 
 /// The layout indices a css-dirty pass on the RETAINED tree must re-emit
-/// instead of splicing from the previous display list: every box of a
-/// restyled node, and every box below one. Its own items were painted from
-/// its old style, and a value it changed can be inherited by what it
-/// contains. Empty when the pass carries no css dirt (a resize).
+/// instead of splicing from the previous display list. Every box of a
+/// restyled node re-emits: its own items were painted from its old style.
+/// Every box below one re-emits too, because a value the restyle changed can
+/// be inherited by what it contains (a colour, a font) - unless the pass is
+/// known to change box geometry only (`geometry_only`: the frame of a tween
+/// of a width, a height, a padding, a margin, an offset or a border width).
+/// No box inherits or paints with such a value of its ancestor: what the
+/// geometry moves or resizes inside is re-emitted or translated by the
+/// patch's own position and size diff (`PatchState::build`), and the rest
+/// is copied. Empty when the pass carries no css dirt (a resize).
 fn css_dirty_reemit_set(
     tree: &LayoutTree,
     css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+    geometry_only: bool,
 ) -> std::collections::BTreeSet<usize> {
     let mut out = std::collections::BTreeSet::new();
     if css_dirty.is_empty() {
         return out;
     }
     let dirty: std::collections::BTreeSet<NodeId> = css_dirty.iter().map(|(n, _)| *n).collect();
+    if geometry_only {
+        for (i, node) in tree.nodes.iter().enumerate() {
+            if node.dom_node_id.is_some_and(|d| dirty.contains(&d)) {
+                out.insert(i);
+            }
+        }
+        return out;
+    }
     // Per layout index: 0 = not decided yet, 1 = re-emits, 2 = splices. Each
     // walk up stops at the first decided ancestor, so the whole tree costs
     // one visit per node and edge.
@@ -1939,11 +1954,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             || (cache.last_reconcile_structure_preserved
                 && css_dirty.is_empty()
                 && cascade_ctx_unchanged);
-        // On the retained tree a pass may carry css dirt (an override-only
-        // frame: a layout-property tween): its restyled boxes, and what they
-        // contain, re-emit; everything else splices. Empty for a resize.
+        // On the retained tree a pass may carry css dirt: its restyled boxes
+        // re-emit, and what they contain unless the dirt is box geometry
+        // only. An override-only frame is that: its latch is armed only when
+        // every tween of the frame keeps the tree's shape - a size, a
+        // padding, a margin, an offset, a border width - and nothing else
+        // staged dirt for the pass (`LayoutWindow::tick_animations`).
+        // Everything else splices. Empty for a resize.
         let css_dirty_reemit = if cache.last_reconcile_was_skipped {
-            css_dirty_reemit_set(&new_tree, css_dirty)
+            css_dirty_reemit_set(&new_tree, css_dirty, overrides_only)
         } else {
             std::collections::BTreeSet::new()
         };
