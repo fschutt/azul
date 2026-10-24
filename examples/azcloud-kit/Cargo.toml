@@ -67,6 +67,9 @@ turso = { package = "turso-azul", version = "0.7.2", default-features = false, o
 # attribute on macOS (setxattr), the inotify watcher on Linux.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# The drive folder of the sync chaos harness (sync/folder_remote.rs) keeps compressed files as
+# zlib, unpacked here to at most their declared size (pure Rust, already in Cargo.lock).
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

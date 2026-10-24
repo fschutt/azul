@@ -56,6 +56,8 @@ pub struct FolderRemote {
     blobs: Mutex<BTreeMap<String, String>>,
     /// The stand-in hashes of entries this engine cannot take, and why each cannot be.
     unreadable: Mutex<BTreeMap<String, (String, Problem)>>,
+    /// The content of zlib-coded entries (BLAKE3 -> bytes), unpacked when they were read.
+    unpacked: Mutex<BTreeMap<String, Vec<u8>>>,
     /// The harness entries as read, by key: what a commit compares with and keeps.
     entries: Mutex<BTreeMap<String, Value>>,
     /// Problems found while reading, given to the pass's report.
@@ -108,6 +110,21 @@ fn encode_raw(text: &str) -> Vec<u8> {
         } else {
             let mut buf = [0u8; 4];
             out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    out
+}
+
+/// `text` with each byte that was no UTF-8 written as `<U+DCxx>`, the code point Python's
+/// surrogateescape (the harness's own reading) gives that byte.
+fn shown_raw(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        let o = u32::from(c);
+        if (RAW_BASE..=RAW_BASE + 0xFF).contains(&o) {
+            out.push_str(&format!("<U+DC{:02X}>", o - RAW_BASE));
+        } else {
+            out.push(c);
         }
     }
     out
@@ -206,6 +223,7 @@ impl FolderRemote {
             policy: RetryPolicy::REQUEST,
             blobs: Mutex::new(BTreeMap::new()),
             unreadable: Mutex::new(BTreeMap::new()),
+            unpacked: Mutex::new(BTreeMap::new()),
             entries: Mutex::new(BTreeMap::new()),
             found: Mutex::new(Vec::new()),
         })
@@ -414,9 +432,7 @@ impl FolderRemote {
         if has_raw(key) {
             lock(&self.found).push(Problem::new(
                 Code::BadRemoteName,
-                &key.chars()
-                    .map(|c| if has_raw(&c.to_string()) { '\u{FFFD}' } else { c })
-                    .collect::<String>(),
+                &shown_raw(key),
                 "never written here: its name is not UTF-8",
             ));
             return None;
@@ -435,10 +451,13 @@ impl FolderRemote {
             .and_then(Value::as_str)
             .unwrap_or("peer")
             .to_string();
-        let mtime = entry.get("mtime").and_then(Value::as_i64).unwrap_or(0) / 1_000_000_000;
+        // The folder keeps nanoseconds; the index names seconds and, to the nanosecond, mtime_ns.
+        let mtime_ns = entry.get("mtime").and_then(Value::as_i64).unwrap_or(0);
+        let mtime = mtime_ns.div_euclid(1_000_000_000);
+        let mtime_ns = u64::try_from(mtime_ns).unwrap_or(0);
         let size = entry.get("size").and_then(Value::as_u64);
         let make = |hash: String, size: u64| {
-            let mut out = json!({"hash": hash, "size": size, "mtime": mtime, "gen": gen, "device": device});
+            let mut out = json!({"hash": hash, "size": size, "mtime": mtime, "mtime_ns": mtime_ns, "gen": gen, "device": device});
             if let Some(exec) = entry.get("exec").and_then(Value::as_bool) {
                 out["exec"] = Value::Bool(exec);
             }
@@ -454,6 +473,12 @@ impl FolderRemote {
             return Some(make(self.stand_in(key, entry, p), 0));
         }
         let codec = obj.get("codec").and_then(Value::as_str).unwrap_or("raw");
+        if codec == "zlib" {
+            return Some(match self.unpack_zlib(key, obj, size) {
+                Ok((b3, len)) => make(b3, len),
+                Err(p) => make(self.stand_in(key, entry, p), size.unwrap_or(0)),
+            });
+        }
         if codec != "raw" {
             let p = Problem::new(Code::RemoteEntryUnreadable, key, format!("it is compressed with {codec}, which this engine does not read; it is left on the drive"));
             return Some(make(self.stand_in(key, entry, p), size.unwrap_or(0)));
@@ -479,6 +504,53 @@ impl FolderRemote {
         }
     }
 
+    /// A zlib-coded entry, the folder's stand-in for a compressed file: unpacked to at most the
+    /// size its entry declares, as the engine's own reader stops a segment at its sealed size
+    /// (a file that would unpack past it is a decompression bomb and is never written); the
+    /// content is then a plain file's. Its BLAKE3 and size.
+    fn unpack_zlib(
+        &self,
+        key: &str,
+        obj: &Map<String, Value>,
+        declared: Option<u64>,
+    ) -> Result<(String, u64), Problem> {
+        let unreadable = |why: String| Problem::new(Code::RemoteEntryUnreadable, key, why);
+        let declared = declared.ok_or_else(|| {
+            unreadable(String::from("its entry declares no size; it is left on the drive"))
+        })?;
+        let sha = obj.get("hash").and_then(Value::as_str).unwrap_or("");
+        let blob = obj.get("blob").and_then(Value::as_str).unwrap_or(sha);
+        let packed = fs::read(self.blob_path(blob)).map_err(|_| {
+            Problem::new(Code::HashMismatch, key, "the drive's bytes for it are missing; the old version stays")
+        })?;
+        let cap = usize::try_from(declared).unwrap_or(usize::MAX).saturating_add(1);
+        let plain = match miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, cap) {
+            Ok(plain) if plain.len() as u64 > declared => None,
+            Ok(plain) => Some(plain),
+            Err(e) if e.status == miniz_oxide::inflate::TINFLStatus::HasMoreOutput => None,
+            Err(e) => {
+                return Err(unreadable(format!("its compressed bytes cannot be unpacked ({:?}); it is left on the drive", e.status)));
+            }
+        };
+        let Some(plain) = plain else {
+            return Err(Problem::new(
+                Code::DecompressionBomb,
+                key,
+                format!("it unpacks past the {declared} bytes its entry declares; it was stopped there and is not written here"),
+            ));
+        };
+        if plain.len() as u64 != declared || sha256_hex(&plain) != sha {
+            return Err(Problem::new(
+                Code::HashMismatch,
+                key,
+                "its unpacked bytes are not the ones its entry names; the old version stays",
+            ));
+        }
+        let b3 = local::hash_bytes(&plain);
+        lock(&self.unpacked).insert(b3.clone(), plain);
+        Ok((b3, declared))
+    }
+
     /// Whether the content `b3` is stored already (put by this pass before a lost race).
     fn has_stored(&self, b3: &str) -> bool {
         let sha = lock(&self.blobs).get(b3).cloned();
@@ -493,6 +565,9 @@ impl FolderRemote {
     fn blob_bytes(&self, key: &str, hash: &str) -> CloudResult<Vec<u8>> {
         if let Some((_, problem)) = lock(&self.unreadable).get(hash) {
             return Err(CloudError::failed(problem.detail.clone()));
+        }
+        if let Some(plain) = lock(&self.unpacked).get(hash) {
+            return Ok(plain.clone());
         }
         let sha = lock(&self.blobs)
             .get(hash)
@@ -661,8 +736,10 @@ impl SyncRemote for FolderRemote {
             let job = super::blob_job(action, work, hash);
             work.hooks.point("mid-read");
             let outcome = self.call("put", &key, || match &job.source {
-                super::BlobSource::File(path) => match fs::File::open(path) {
-                    Ok(mut file) => self.store_blob(&mut file, hash),
+                // The scanned file, opened as the engine's own upload opens it (no link, never
+                // a FIFO's blocking open, the inode the scan saw): anything else changed.
+                super::BlobSource::File(_) => match super::open_job_file(&job) {
+                    Ok((mut file, _)) => self.store_blob(&mut file, hash),
                     Err(_) => Ok(None),
                 },
                 _ => match super::job_bytes(&job) {
@@ -780,7 +857,13 @@ impl SyncRemote for FolderRemote {
                             "size": file.get("size").cloned().unwrap_or(json!(0)),
                             "kind": "file",
                             "exec": file.get("exec").and_then(Value::as_bool).unwrap_or(false),
-                            "mtime": file.get("mtime").and_then(Value::as_i64).unwrap_or(0).saturating_mul(1_000_000_000),
+                            "mtime": file
+                                .get("mtime_ns")
+                                .and_then(Value::as_i64)
+                                .filter(|ns| *ns != 0)
+                                .unwrap_or_else(|| {
+                                    file.get("mtime").and_then(Value::as_i64).unwrap_or(0).saturating_mul(1_000_000_000)
+                                }),
                             "gen": new_gen,
                             "device": device,
                         });

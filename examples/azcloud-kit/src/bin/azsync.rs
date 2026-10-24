@@ -260,9 +260,11 @@ fn options(config: &Config, confirm: bool) -> SyncOptions {
     let mut opts = SyncOptions::new("", "harness", &config.device).unwrap_or_else(|e| fail(e));
     opts.max_file_bytes = config.max_file;
     opts.allow_mass_delete = confirm;
-    opts.settle = Duration::from_millis(config.settle_ms);
-    // A file written within the settle time waits for a later pass; downloads keep the disk's
-    // reserve the harness gives the device (the engine's default is 1 GiB).
+    // The harness's settle is the reference's: a file written within it waits for a later
+    // pass, listed as settling, while the pass goes on with the rest (a pass that first waited
+    // for the whole folder to be quiet would sit out a file being written and tell nothing).
+    // Downloads keep the disk's reserve the harness gives the device (the engine's default is
+    // 1 GiB).
     opts.file_settle = Duration::from_millis(config.settle_ms);
     opts.disk_reserve = config.reserve;
     opts

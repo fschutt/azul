@@ -1201,6 +1201,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hkdf 0.12.4",
  "libc",
+ "miniz_oxide 0.8.9",
  "num-bigint-dig",
  "rsa 0.9.10",
  "serde",
