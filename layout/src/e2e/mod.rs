@@ -70,6 +70,12 @@ mod mode_ops_tests;
 #[cfg(test)]
 mod key_names_tests;
 
+// An application's own ops (`AppConfig::add_e2e_command`): unknown op names
+// reach them, `success` / `pending` decide the step, `assert_response` reads
+// a path of their answer.
+#[cfg(test)]
+mod app_commands_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
