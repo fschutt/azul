@@ -2074,6 +2074,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         } else {
             cache.last_patch_move = None;
         }
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            eprintln!(
+                "[MOVESUMMARY] pass: patched={} same_nodes={} hint={:?}",
+                patch.is_some(),
+                same_nodes,
+                cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| (m.dominant_delta, m.mover_rects_old.len(), m.exceptions.len()))
+            );
+        }
         match display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,

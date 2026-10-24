@@ -4866,41 +4866,27 @@ fn compute_display_list_damage_impl(
                 if refine {
                     let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
                         && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
-                    if same_origin && obr == nbr {
-                        let o = ob.0;
-                        let nr = nb.0;
-                        let (wx0, wx1) = (
-                            o.size.width.min(nr.size.width),
-                            o.size.width.max(nr.size.width),
-                        );
-                        if wx1 - wx0 > 0.01 {
-                            damage.push(LogicalRect {
-                                origin: LogicalPosition {
-                                    x: nr.origin.x + wx0,
-                                    y: nr.origin.y,
-                                },
-                                size: LogicalSize {
-                                    width: wx1 - wx0,
-                                    height: o.size.height.max(nr.size.height),
-                                },
-                            });
-                        }
-                        let (hy0, hy1) = (
-                            o.size.height.min(nr.size.height),
-                            o.size.height.max(nr.size.height),
-                        );
-                        if hy1 - hy0 > 0.01 {
-                            damage.push(LogicalRect {
-                                origin: LogicalPosition {
-                                    x: nr.origin.x,
-                                    y: nr.origin.y + hy0,
-                                },
-                                size: LogicalSize {
-                                    width: o.size.width.max(nr.size.width),
-                                    height: hy1 - hy0,
-                                },
-                            });
-                        }
+                    // A clip shows the same pixels of what is inside it
+                    // wherever both its old and new rect lie; only where one
+                    // covers and the other does not can content newly show
+                    // or hide (what moved inside carries its own damage).
+                    // Rounded corners move with a moved clip, so a moved
+                    // rounded clip keeps the plain old-and-new damage. A pane
+                    // pushed down by a ribbon damaged its clip whole.
+                    let blitted =
+                        hint.is_some_and(|h| items_equal_translated(old_item, new_item, h.delta));
+                    if obr == nbr && (same_origin || obr.is_zero()) && !blitted {
+                        let at = |r: LogicalRect, acc: (f32, f32)| LogicalRect {
+                            origin: LogicalPosition {
+                                x: r.origin.x - acc.0,
+                                y: r.origin.y - acc.1,
+                            },
+                            size: r.size,
+                        };
+                        let o = at(ob.0, acc_old);
+                        let nr = at(nb.0, acc_new);
+                        damage.extend(rect_minus(o, nr));
+                        damage.extend(rect_minus(nr, o));
                         continue;
                     }
                 } else {
