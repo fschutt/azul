@@ -141,10 +141,12 @@ fn pane(places: usize) -> Dom {
 /// name, a size and a date, `row_css` added to every row's style.
 fn list(rows: usize, row_css: &str) -> Dom {
     let mut list = Dom::create_div()
+        .with_class("list".into())
         .with_css("display: block; flex-grow: 1; overflow-y: auto; background: #ffffff;");
     for r in 0..rows {
         list = list.with_child(
             Dom::create_div()
+                .with_class(format!("row-{r}").into())
                 .with_css(&format!("display: flex; flex-direction: row; padding: 3px 6px; {row_css}"))
                 .with_child(
                     Dom::create_div_with_text(format!("Document {r}.pdf"))
@@ -177,6 +179,26 @@ fn page_with(groups: usize, places: usize, rows: usize, band_px: f32, row_css: &
                     .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
                     .with_child(pane(places))
                     .with_child(list(rows, row_css)),
+            ),
+    )
+}
+
+/// The ribbon over a row holding the folder list of `rows` 26 px rows. The
+/// window does not stretch the row: it is as wide as the list's content, so
+/// the width the row answers when asked is the width it is laid out at.
+fn shrink_wrapped_list_page(rows: usize, band_px: f32) -> Dom {
+    Dom::create_html().with_child(
+        Dom::create_body()
+            .with_css(
+                "display: flex; flex-direction: column; align-items: flex-start; height: 100%; \
+                 margin: 0px;",
+            )
+            .with_child(ribbon(1, band_px))
+            .with_child(
+                Dom::create_div()
+                    .with_class("list-row".into())
+                    .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
+                    .with_child(list(rows, "height: 20px;")),
             ),
     )
 }
@@ -537,15 +559,15 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
             (0, 0),
             "frame {i}: nothing that kept its size is laid out again: {w:?}"
         );
-        // One row is asked its width at a new height on every frame and
-        // answers it again: the row of the pane and the list, stretched under
-        // the ribbon. It holds scroll containers, whose width may follow
-        // their height (a bar appears), so its answer is not kept across
-        // heights. No other row is asked again.
-        assert!(
-            w.width_only_rows <= 1,
-            "frame {i}: {} rows answered their width again - only the row holding the pane \
-             and the list was asked at a new height: {w:?}",
+        // No row answers its width again - not even the row of the pane and
+        // the list, asked at its new height on every frame: it holds scroll
+        // containers, whose bar comes and goes with their height, but a bar
+        // is taken from inside its box, so their widths do not follow their
+        // heights.
+        assert_eq!(
+            w.width_only_rows, 0,
+            "frame {i}: {} rows answered their width again - the row holding the pane and the \
+             list answers it as on the frame before: {w:?}",
             w.width_only_rows
         );
         // The band and its ancestors: the band, the ribbon, the body, the
@@ -621,6 +643,93 @@ fn every_frame_of_the_opening_lays_out_as_a_fresh_window() {
         // The band's height: its border box less its 4 px top padding.
         let band_px = band_box.size.height - 4.0;
         let fresh = window(page_with(groups, places, rows, band_px, sized_by_the_list));
+        assert_same_layout(&lw, &fresh, &format!("frame {i}, the band {band_px} px tall"));
+    }
+}
+
+/// The list's rows are 26 px tall: nineteen fit the list while the band is
+/// closed and overflow it once the band has opened, so the list's scroll bar
+/// appears halfway through the opening. The row of the pane and the list
+/// answers its width as before (a bar is taken from inside the list's box),
+/// and every frame of the opening lays out as a window opened with the band
+/// at that height.
+#[test]
+fn every_frame_of_an_opening_that_makes_the_list_scroll_lays_out_as_a_fresh_window() {
+    let _serialised = crate::probe_lock();
+    let (groups, places, rows) = (1, 4, 19);
+    let fixed_rows = "height: 20px;";
+    let overflows = |band_px: isize| {
+        let lw = window(page_with(groups, places, rows, band_px as f32, fixed_rows));
+        let bottom = |class: &str| {
+            let rect = lw
+                .get_node_layout_rect(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: Some(node_with_class(&lw, class)).into(),
+                })
+                .expect("laid out");
+            rect.origin.y + rect.size.height
+        };
+        bottom("row-18") > bottom("list") + 0.5
+    };
+    assert!(
+        !overflows(CLOSED_PX) && overflows(OPEN_PX),
+        "harness: the rows fit the list under the closed band and overflow it under the open one"
+    );
+    let mut lw = opening(page_with(groups, places, rows, CLOSED_PX as f32, fixed_rows));
+    for i in 0..11 {
+        let _ = frame(&mut lw);
+        let band = node_with_class(&lw, "band");
+        let band_box = lw
+            .get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: Some(band).into(),
+            })
+            .expect("the band is laid out");
+        // The band's height: its border box less its 4 px top padding.
+        let band_px = band_box.size.height - 4.0;
+        let fresh = window(page_with(groups, places, rows, band_px, fixed_rows));
+        assert_same_layout(&lw, &fresh, &format!("frame {i}, the band {band_px} px tall"));
+    }
+}
+
+/// The same with a row that is as wide as the list in it: the width the row
+/// answers is the width it gets. The list's bar appears halfway through the
+/// opening; the row keeps answering the width it answered before, and every
+/// frame lays out as a window opened with the band at that height.
+#[test]
+fn a_row_as_wide_as_a_list_that_starts_scrolling_lays_out_as_a_fresh_window() {
+    let _serialised = crate::probe_lock();
+    let rows = 19;
+    let overflows = |band_px: isize| {
+        let lw = window(shrink_wrapped_list_page(rows, band_px as f32));
+        let bottom = |class: &str| {
+            let rect = lw
+                .get_node_layout_rect(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: Some(node_with_class(&lw, class)).into(),
+                })
+                .expect("laid out");
+            rect.origin.y + rect.size.height
+        };
+        bottom("row-18") > bottom("list") + 0.5
+    };
+    assert!(
+        !overflows(CLOSED_PX) && overflows(OPEN_PX),
+        "harness: the rows fit the list under the closed band and overflow it under the open one"
+    );
+    let mut lw = opening(shrink_wrapped_list_page(rows, CLOSED_PX as f32));
+    for i in 0..11 {
+        let _ = frame(&mut lw);
+        let band = node_with_class(&lw, "band");
+        let band_box = lw
+            .get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: Some(band).into(),
+            })
+            .expect("the band is laid out");
+        // The band's height: its border box less its 4 px top padding.
+        let band_px = band_box.size.height - 4.0;
+        let fresh = window(shrink_wrapped_list_page(rows, band_px));
         assert_same_layout(&lw, &fresh, &format!("frame {i}, the band {band_px} px tall"));
     }
 }
