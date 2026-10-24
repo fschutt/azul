@@ -1268,7 +1268,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-rustcrypto",
- "rustls-webpki 0.103.15",
+ "rustls-webpki",
  "serde",
  "serde_json",
  "url",
@@ -1540,7 +1540,7 @@ dependencies = [
  "rustls-rustcrypto",
  "serde",
  "serde_json",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]

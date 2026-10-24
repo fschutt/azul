@@ -190285,6 +190285,24 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ResultStringVecString": {
+                        "external": "azul_core::tls::ResultStringVecString",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "StringVec"
+                                },
+                                "Err": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
