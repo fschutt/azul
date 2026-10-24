@@ -86,6 +86,9 @@ pub(crate) struct GitView {
     pub watcher: Option<(PathBuf, azcloud_kit::sync::watcher::Watcher)>,
     /// The watch timer runs (it ends itself when there is no repository).
     pub timer: bool,
+    /// The last `AZDRIVE_GIT` line printed: a look that finds the same prints nothing (the
+    /// poll looks every ten seconds).
+    pub marker: String,
     pub switcher: Switcher,
 }
 
@@ -319,11 +322,12 @@ extern "C" fn on_git_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     }
 }
 
-/// For scripts: `AZDRIVE_GIT none | unreadable | <branch> dirty=<0|1|?> ahead=<n> behind=<n>`.
-fn print_marker(s: &DriveState) {
-    match &s.git.repo {
-        None => println!("AZDRIVE_GIT none"),
-        Some(Err(_)) => println!("AZDRIVE_GIT unreadable"),
+/// For scripts, when it changed: `AZDRIVE_GIT none | unreadable | <branch> dirty=<0|1|?>
+/// ahead=<n> behind=<n>`.
+fn print_marker(s: &mut DriveState) {
+    let marker = match &s.git.repo {
+        None => String::from("none"),
+        Some(Err(_)) => String::from("unreadable"),
         Some(Ok(info)) => {
             let chip = chip_text(info);
             let dirty = match info.changes {
@@ -332,8 +336,12 @@ fn print_marker(s: &DriveState) {
                 Changes::Clean | Changes::NoWorkTree => "0",
             };
             let (ahead, behind) = info.ahead_behind.map_or((0, 0), |ab| (ab.ahead, ab.behind));
-            println!("AZDRIVE_GIT {} dirty={dirty} ahead={ahead} behind={behind}", chip.name);
+            format!("{} dirty={dirty} ahead={ahead} behind={behind}", chip.name)
         }
+    };
+    if marker != s.git.marker {
+        println!("AZDRIVE_GIT {marker}");
+        s.git.marker = marker;
     }
 }
 
