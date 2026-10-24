@@ -883,10 +883,41 @@ pub fn redeem_voucher_on_drive(
             azlin_contract::IdempotentScope::Voucher,
             drive_id,
             &named,
-            |key| server.redeem_voucher(code, Some((drive_id, token, key)), ""),
+            |key| server.redeem_voucher(code, Some((drive_id, token)), "", key),
         )
     })
 }
+
+/// A voucher `code` that makes a new drive of `tier` (`POST /v1/vouchers/redeem` without a
+/// drive), named by an idempotency key the keyring's outbox keeps until a final answer came: a
+/// lost answer is asked again with the same key and answers the same drive (its token rotated
+/// once more), not "not valid" - the voucher is spent by then. The outbox names the code only by
+/// its hash.
+///
+/// # Errors
+///
+/// The token server's refusal, no answer, or no random source for a new key.
+pub fn redeem_voucher_for_new_drive(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    code: &str,
+    tier: &str,
+) -> Result<crate::token::VoucherRedeemed, TokenError> {
+    let named = format!(
+        "{} {}",
+        hex(&blake3::hash(code.trim().as_bytes()).as_bytes()[..8]),
+        tier.trim()
+    );
+    shared.outbox().send(
+        azlin_contract::IdempotentScope::Voucher,
+        NEW_DRIVE,
+        &named,
+        |key| server.redeem_voucher(code, None, tier, key),
+    )
+}
+
+/// The outbox's name for the drive a call makes (a voucher's new drive): no drive id exists yet.
+const NEW_DRIVE: &str = "new-drive";
 
 /// What a look at a drive found ([`look_at_drive`]).
 #[derive(Debug, PartialEq, Eq)]

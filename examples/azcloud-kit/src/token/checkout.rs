@@ -654,11 +654,11 @@ impl<'a> TokenServer<'a> {
         })
     }
 
-    /// A voucher `code` (`POST /v1/vouchers/redeem`): on the drive `drive` (its id, this
-    /// device's drive token, which it does not spend, and the call's idempotency key - the same
-    /// on every try, so a lost answer is answered again instead of "not valid") the days it
+    /// A voucher `code` (`POST /v1/vouchers/redeem`), named by the call's idempotency `key` -
+    /// the same on every try, so a lost answer is answered again instead of "not valid": on the
+    /// drive `drive` (its id and this device's drive token, which it does not spend) the days it
     /// added; without one a new drive of `tier` (empty: the voucher's own, else the token
-    /// server's default).
+    /// server's default) - asked again, the same drive.
     ///
     /// # Errors
     ///
@@ -667,19 +667,20 @@ impl<'a> TokenServer<'a> {
     pub fn redeem_voucher(
         &self,
         code: &str,
-        drive: Option<(&str, &str, &IdempotencyKey)>,
+        drive: Option<(&str, &str)>,
         tier: &str,
+        key: &IdempotencyKey,
     ) -> Result<VoucherRedeemed, TokenError> {
         let code = code.trim();
         if code.is_empty() {
             return Err(TokenError::Config(String::from("There is no voucher code.")));
         }
-        let Some((drive_id, drive_token, key)) = drive else {
+        let Some((drive_id, drive_token)) = drive else {
             let mut body = json!({ "code": code });
             if !tier.trim().is_empty() {
                 body["tier"] = json!(tier.trim());
             }
-            let value = self.call(Method::Post, "/v1/vouchers/redeem", None, Some(&body))?;
+            let value = self.grant(Method::Post, "/v1/vouchers/redeem", None, Some(&body), key)?;
             return Ok(VoucherRedeemed::NewDrive(Box::new(
                 DriveBundle::from_value(&value)?,
             )));

@@ -3556,7 +3556,7 @@ fn redeem_voucher(
             grant,
         };
     }
-    let result = match server.redeem_voucher(code, None, tier) {
+    let result = match azcloud_kit::period::redeem_voucher_for_new_drive(&server, keyring, code, tier) {
         Ok(VoucherRedeemed::NewDrive(bundle)) => {
             let bundle = *bundle;
             println!("AZDRIVE_VOUCHER new {}", bundle.drive_id());

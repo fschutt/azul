@@ -2488,10 +2488,21 @@ class TokenState:
             if drive_id:
                 drive, state = self.family_of(drive_id, bearer, previous_ok=True)
                 self.not_pending(drive, state)
-            caller = 'family:' + (bearer or '')[3:].split('.')[0] if drive is not None else None
-            kept = self.kept('voucher', key, caller) if drive is not None else None
-            if kept is not None:
+            # the caller: the drive's family, or for a new drive whoever holds the code
+            if drive is not None:
+                caller = 'family:' + (bearer or '')[3:].split('.')[0]
+            else:
+                caller = 'voucher:' + code.strip().upper()
+            kept = self.kept('voucher', key, caller)
+            if kept is not None and drive is not None:
                 return 200, dict(kept['body'], period_until=rfc3339(drive['period_until']))
+            if kept is not None:
+                # drives.rs `signup_again`: the drive it made, its family rotated once more
+                made = self.drives[kept['body']['drive']]
+                status, again = self.answer_again(made['id'], kept)
+                bundle = self.bundle(made, again['drive_token'])
+                bundle['period_until'] = rfc3339(made['period_until'])
+                return status, bundle
             if drive is not None:
                 self.check_ban(drive, write=True)
             # Codes in any case (payments.rs normalizes them); a development server's test
@@ -2521,6 +2532,10 @@ class TokenState:
             made = self.drives[bundle['drive']['id']]
             made['period_until'] += days * 86400
             bundle['period_until'] = rfc3339(made['period_until'])
+            token = bundle['drive_token']
+            self.keep('voucher', key, caller,
+                      {'family': token[3:].split('.')[0], 'generation': 0, 'status': 201,
+                       'body': {'drive': made['id']}})
         return 201, bundle
 
     def refresh(self, drive_id, bearer):
