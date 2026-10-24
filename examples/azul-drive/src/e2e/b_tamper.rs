@@ -323,6 +323,34 @@ pub(crate) mod encrypted {
         pub packed_at: Option<u64>,
     }
 
+    /// The BLAKE3 of every content the drive's history holds: each version of every file in
+    /// every commit (the drive keeps them; a pointer names its plaintext's hash, so nothing is
+    /// decrypted).
+    pub(crate) fn every_version_hash(remote: &Arc<Remote>) -> Result<BTreeSet<String>, String> {
+        let bucket: Arc<dyn Drive> = Arc::new(Direct {
+            remote: remote.clone(),
+        });
+        let mut repo = MetaRepo::open(DriveBucket::new(bucket), drive_key(remote)?, "e2e-check", "e2e-check")
+            .map_err(|e| format!("the drive's history: {e}"))?;
+        repo.fetch_all().map_err(|e| e.to_string())?;
+        let mut hashes = BTreeSet::new();
+        let mut seen = BTreeSet::new();
+        for (_, commit) in repo.history().map_err(|e| e.to_string())? {
+            let files = azul_storage::meta::tree::walk(repo.objects(), &commit.tree)
+                .map_err(|e| e.to_string())?;
+            for (mode, id) in files.into_values() {
+                if mode != azul_storage::meta::Mode::File || !seen.insert(id) {
+                    continue;
+                }
+                let bytes = repo.objects().blob(&id).map_err(|e| e.to_string())?;
+                if let Some(object) = pointer::decode(bytes).ok().and_then(|entry| entry.object) {
+                    hashes.insert(object.blake3.iter().map(|b| format!("{b:02x}")).collect());
+                }
+            }
+        }
+        Ok(hashes)
+    }
+
     /// The remote's drive key, from the keyring its devices share.
     pub(crate) fn drive_key(remote: &Remote) -> Result<DriveKey, String> {
         device::load_drive_key(remote.keyring.as_ref(), &remote.drive_name)
@@ -607,6 +635,12 @@ pub(crate) mod encrypted {
 
     pub(crate) struct Located {
         pub bucket_key: String,
+    }
+
+    pub(crate) fn every_version_hash(
+        _remote: &Arc<Remote>,
+    ) -> Result<std::collections::BTreeSet<String>, String> {
+        Err(none())
     }
 
     fn none() -> String {

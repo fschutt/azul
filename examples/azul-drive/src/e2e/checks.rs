@@ -399,9 +399,22 @@ fn kept(h: &Harness, args: &Args, remote: Option<&RemoteView>, trash: bool) -> V
             }
         }
     }
+    // An encrypted drive keeps every version in its history: by the content's hash.
+    let versions = if trash {
+        h.remote_of(args)
+            .ok()
+            .filter(|r| r.encrypted)
+            .and_then(|r| super::b_tamper::encrypted::every_version_hash(&r).ok())
+            .unwrap_or_default()
+    } else {
+        BTreeSet::new()
+    };
     let missing: Vec<String> = texts(args, "texts")
         .into_iter()
-        .filter(|t| !live.contains(t.as_bytes()))
+        .filter(|t| {
+            !live.contains(t.as_bytes())
+                && !versions.contains(&azcloud_kit::sync::local::hash_bytes(t.as_bytes()))
+        })
         .collect();
     if missing.is_empty() {
         Ok(())
