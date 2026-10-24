@@ -157,6 +157,16 @@ fn page(groups: usize, places: usize, rows: usize, band_px: isize) -> Dom {
     )
 }
 
+/// The ribbon alone over an empty box filling the rest of the window.
+fn ribbon_page(groups: usize, band_px: isize) -> Dom {
+    Dom::create_html().with_child(
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
+            .with_child(ribbon(groups, band_px))
+            .with_child(Dom::create_div().with_css("flex-grow: 1; background: #ffffff;")),
+    )
+}
+
 // ---- the harness ----
 
 fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
@@ -173,11 +183,11 @@ fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
         .expect("the node exists")
 }
 
-/// A window showing the closed ribbon of `page`, the band's opening tween
+/// A window showing `page` (its ribbon closed), the band's opening tween
 /// seeded (the write of its open height), and one frame of it run: the
 /// frames measured after it are mid-tween frames like every other.
-fn opening(groups: usize, places: usize, rows: usize) -> LayoutWindow {
-    let mut lw = window(page(groups, places, rows, CLOSED_PX));
+fn opening(page: Dom) -> LayoutWindow {
+    let mut lw = window(page);
     let band = node_with_class(&lw, "band");
     let _ = lw.apply_content_change(ContentChange::NodeCss {
         dom_id: DomId::ROOT_ID,
@@ -247,8 +257,8 @@ fn work(events: &[Event]) -> FrameWork {
 }
 
 /// The work of three mid-tween frames of the opening of `page`.
-fn frames_of(groups: usize, places: usize, rows: usize) -> Vec<FrameWork> {
-    let mut lw = opening(groups, places, rows);
+fn frames_of(page: Dom) -> Vec<FrameWork> {
+    let mut lw = opening(page);
     (0..3).map(|_| work(&frame(&mut lw))).collect()
 }
 
@@ -268,7 +278,7 @@ fn a_ribbon_frame_asks_no_row_its_width_again() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
     }
-    let frames = frames_of(8, 0, 0);
+    let frames = frames_of(ribbon_page(8, CLOSED_PX));
     for (i, w) in frames.iter().enumerate() {
         assert_eq!(
             w.width_only_rows, 0,
@@ -286,7 +296,8 @@ fn a_ribbon_frame_asks_no_row_its_width_again() {
 }
 
 /// The navigation pane under the ribbon is shorter on every frame and laid
-/// out again at its height; its places keep their size and their layout.
+/// out again at its height; its places keep their size and their layout. A
+/// frame costs the same on a pane with twice the places.
 #[test]
 fn a_pane_under_a_growing_ribbon_lays_out_none_of_its_places() {
     let _serialised = crate::probe_lock();
@@ -294,13 +305,19 @@ fn a_pane_under_a_growing_ribbon_lays_out_none_of_its_places() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
     }
-    let frames = frames_of(1, 30, 0);
-    for (i, w) in frames.iter().enumerate() {
+    let short = frames_of(page(1, 30, 0, CLOSED_PX));
+    let long = frames_of(page(1, 60, 0, CLOSED_PX));
+    for (i, (s, l)) in short.iter().zip(&long).enumerate() {
         assert_eq!(
-            (w.width_only_rows, w.inline_layouts, w.text_flows),
-            (0, 0, 0),
-            "frame {i}: the pane's places only moved with the pane - none is measured or laid \
-             out again: {w:?}"
+            (l.inline_layouts, l.text_flows),
+            (0, 0),
+            "frame {i}: the pane's places only moved with the pane - none is laid out again: \
+             {l:?}"
+        );
+        assert_eq!(
+            s.width_only_rows, l.width_only_rows,
+            "frame {i}: a pane with twice the places asked more rows their width ({s:?} / \
+             {l:?}) - every place kept its width"
         );
     }
 }
@@ -317,8 +334,8 @@ fn a_list_under_a_growing_ribbon_keeps_the_layout_of_its_rows() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
     }
-    let short = frames_of(1, 0, 20);
-    let long = frames_of(1, 0, 40);
+    let short = frames_of(page(1, 0, 20, CLOSED_PX));
+    let long = frames_of(page(1, 0, 40, CLOSED_PX));
     for (i, (s, l)) in short.iter().zip(&long).enumerate() {
         assert_eq!(
             (l.inline_layouts, l.text_flows),
@@ -347,7 +364,7 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
         return;
     }
     let (groups, places, rows) = (8, 30, 40);
-    let mut lw = opening(groups, places, rows);
+    let mut lw = opening(page(groups, places, rows, CLOSED_PX));
     let mut frames = Vec::new();
     for i in 0..3 {
         let w = work(&frame(&mut lw));
@@ -359,12 +376,23 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
         );
         frames.push(w);
     }
-    let twice = frames_of(groups, 2 * places, 2 * rows);
+    let twice = frames_of(page(groups, 2 * places, 2 * rows, CLOSED_PX));
     for (i, (w, w2)) in frames.iter().zip(&twice).enumerate() {
         assert_eq!(
-            (w.inline_layouts, w.text_flows, w.width_only_rows),
-            (0, 0, 0),
-            "frame {i}: nothing that kept its size is measured or laid out again: {w:?}"
+            (w.inline_layouts, w.text_flows),
+            (0, 0),
+            "frame {i}: nothing that kept its size is laid out again: {w:?}"
+        );
+        // One row is asked its width at a new height on every frame and
+        // answers it again: the row of the pane and the list, stretched under
+        // the ribbon. It holds scroll containers, whose width may follow
+        // their height (a bar appears), so its answer is not kept across
+        // heights. No other row is asked again.
+        assert!(
+            w.width_only_rows <= 1,
+            "frame {i}: {} rows answered their width again - only the row holding the pane \
+             and the list was asked at a new height: {w:?}",
+            w.width_only_rows
         );
         // The band and its ancestors: the band, the ribbon, the body, the
         // root (and an anonymous box or two around them).
@@ -375,8 +403,8 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
             w.intrinsic_computes
         );
         assert_eq!(
-            (w.block_size_misses, w.items_painted_again),
-            (w2.block_size_misses, w2.items_painted_again),
+            (w.block_size_misses, w.items_painted_again, w.width_only_rows),
+            (w2.block_size_misses, w2.items_painted_again, w2.width_only_rows),
             "frame {i}: a window with twice the places and rows did more work ({w:?} / {w2:?}) \
              - what only moved keeps its layout and its items"
         );
