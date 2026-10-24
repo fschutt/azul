@@ -67,9 +67,27 @@ fn group(g: usize) -> Dom {
         )
 }
 
+/// A group whose buttons wrap into columns: as many columns as the band's
+/// height needs, so its width follows the height the band stretches it to.
+fn wrapping_group(g: usize) -> Dom {
+    let mut group = Dom::create_div().with_class("wrapping".into()).with_css(
+        "display: flex; flex-direction: column; flex-wrap: wrap; flex-shrink: 0; \
+         padding: 3px 2px 0px 2px; border-right: 1px solid #c8c8c8;",
+    );
+    for b in 0..4 {
+        group = group.with_child(button(g, b));
+    }
+    group
+}
+
 /// The ribbon: its tab row over its content band, `band_px` tall, the band
 /// holding `groups` groups in a row that fills it. The band tweens its height.
 fn ribbon(groups: usize, band_px: f32) -> Dom {
+    ribbon_of((0..groups).map(group).collect(), band_px)
+}
+
+/// [`ribbon`] holding `groups`.
+fn ribbon_of(groups: Vec<Dom>, band_px: f32) -> Dom {
     let mut tabs = Dom::create_div().with_css(
         "display: flex; flex-direction: row; height: 28px; align-items: center; flex-shrink: 0;",
     );
@@ -78,8 +96,8 @@ fn ribbon(groups: usize, band_px: f32) -> Dom {
     }
     let mut row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; flex-grow: 1; align-items: stretch;");
-    for g in 0..groups {
-        row = row.with_child(group(g));
+    for group in groups {
+        row = row.with_child(group);
     }
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-shrink: 0; background: #f4f0e8;")
@@ -165,12 +183,26 @@ fn page_with(groups: usize, places: usize, rows: usize, band_px: f32, row_css: &
 
 /// The ribbon alone over an empty box filling the rest of the window.
 fn ribbon_page(groups: usize, band_px: isize) -> Dom {
+    ribbon_page_of(ribbon(groups, band_px as f32))
+}
+
+/// `ribbon` over an empty box filling the rest of the window.
+fn ribbon_page_of(ribbon: Dom) -> Dom {
     Dom::create_html().with_child(
         Dom::create_body()
             .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
-            .with_child(ribbon(groups, band_px as f32))
+            .with_child(ribbon)
             .with_child(Dom::create_div().with_css("flex-grow: 1; background: #ffffff;")),
     )
+}
+
+/// A ribbon of three groups, the middle one wrapping its buttons into as
+/// many columns as the band's height needs.
+fn wrapping_ribbon_page(band_px: f32) -> Dom {
+    ribbon_page_of(ribbon_of(
+        vec![group(0), wrapping_group(1), group(2)],
+        band_px,
+    ))
 }
 
 // ---- the harness ----
@@ -338,6 +370,82 @@ fn a_ribbon_frame_asks_no_row_its_width_again() {
             "frame {i}: the ribbon's labels kept their size and lines, none is laid out again: \
              {w:?}"
         );
+    }
+}
+
+/// A frame lays each of the ribbon's groups out once: at the height the band
+/// stretches it to. The row of groups also asks each group how wide it is
+/// (its flex basis and its smallest width, at the group's new height) and
+/// how tall it is (in the row's new height) - questions whose answers do not
+/// follow the height the group is given, as nothing in a group is sized
+/// against it. They are answered from what the group answered on the frame
+/// before, not by laying the group out again: a ribbon with four more groups
+/// lays out four more boxes per frame.
+#[test]
+fn a_ribbon_frame_lays_out_each_group_once() {
+    let _serialised = crate::probe_lock();
+    if !Probe::enabled() {
+        eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
+        return;
+    }
+    let four = frames_of(ribbon_page(4, CLOSED_PX));
+    let eight = frames_of(ribbon_page(8, CLOSED_PX));
+    for (i, (w4, w8)) in four.iter().zip(&eight).enumerate() {
+        let more = w8
+            .flex_items_laid_out
+            .saturating_sub(w4.flex_items_laid_out);
+        assert!(
+            more > 0,
+            "harness: frame {i}: the groups are laid out again at the band's new height \
+             ({w4:?} / {w8:?})"
+        );
+        assert!(
+            more <= 4,
+            "frame {i}: four more groups laid out {more} more flex items ({w4:?} / {w8:?}) - a \
+             group is laid out once, at its new height; its width and its height in the row \
+             are what it answered on the frame before"
+        );
+    }
+}
+
+/// A group whose width follows the band's height is asked again: its buttons
+/// wrap into as many columns as the band's height needs, and the groups
+/// beside it move with its width. Every frame of the opening lays the ribbon
+/// out as a window opened with the band at that height.
+#[test]
+fn every_frame_of_an_opening_with_a_wrapping_group_lays_out_as_a_fresh_window() {
+    let _serialised = crate::probe_lock();
+    let wrapping_width = |band_px: isize| {
+        let lw = window(wrapping_ribbon_page(band_px as f32));
+        let wrapping = node_with_class(&lw, "wrapping");
+        lw.get_node_layout_rect(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: Some(wrapping).into(),
+        })
+        .expect("the wrapping group is laid out")
+        .size
+        .width
+    };
+    assert!(
+        wrapping_width(CLOSED_PX) > wrapping_width(OPEN_PX) + 10.0,
+        "harness: the wrapping group is narrower in the open band ({} px closed, {} px open)",
+        wrapping_width(CLOSED_PX),
+        wrapping_width(OPEN_PX)
+    );
+    let mut lw = opening(wrapping_ribbon_page(CLOSED_PX as f32));
+    for i in 0..11 {
+        let _ = frame(&mut lw);
+        let band = node_with_class(&lw, "band");
+        let band_box = lw
+            .get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: Some(band).into(),
+            })
+            .expect("the band is laid out");
+        // The band's height: its border box less its 4 px top padding.
+        let band_px = band_box.size.height - 4.0;
+        let fresh = window(wrapping_ribbon_page(band_px));
+        assert_same_layout(&lw, &fresh, &format!("frame {i}, the band {band_px} px tall"));
     }
 }
 
