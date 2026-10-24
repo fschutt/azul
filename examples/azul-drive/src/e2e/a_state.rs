@@ -18,6 +18,8 @@ pub(super) struct Volume {
     pub mount: PathBuf,
     /// It is attached (detached by `drive_detach` until `drive_attach`).
     pub attached: bool,
+    /// Its file system keeps owners (APFS, HFS+; FAT and exFAT keep none).
+    pub owners: bool,
 }
 
 pub(super) struct AState {

@@ -62,10 +62,14 @@ fn make_image(image: &Path, kind: &str, mib: u64, label: &str) -> Result<(), Str
     Ok(())
 }
 
+/// Mounts `image` at `at`. A file system without owners (FAT, exFAT) is mounted with owners
+/// off, so its files are this user's: with them on, macOS gives the volume to no user and
+/// nothing can be written in it.
 #[cfg(target_os = "macos")]
-fn attach(image: &Path, at: &Path) -> Result<(), String> {
+fn attach(image: &Path, at: &Path, owners: bool) -> Result<(), String> {
     run(Command::new("hdiutil")
-        .args(["attach", "-quiet", "-nobrowse", "-owners", "on", "-mountpoint"])
+        .args(["attach", "-quiet", "-nobrowse", "-owners", if owners { "on" } else { "off" }])
+        .arg("-mountpoint")
         .arg(at)
         .arg(image))?;
     Ok(())
@@ -106,7 +110,7 @@ fn make_image(image: &Path, kind: &str, mib: u64, label: &str) -> Result<(), Str
 }
 
 #[cfg(target_os = "linux")]
-fn attach(image: &Path, at: &Path) -> Result<(), String> {
+fn attach(image: &Path, at: &Path, _owners: bool) -> Result<(), String> {
     let id = |flag: &str| run(Command::new("id").arg(flag)).map(|s| s.trim().to_string());
     let (uid, gid) = (id("-u")?, id("-g")?);
     // FAT and exFAT keep no owners: the mount gives the files to this user.
@@ -131,7 +135,7 @@ fn make_image(_image: &Path, _kind: &str, _mib: u64, _label: &str) -> Result<(),
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn attach(_image: &Path, _at: &Path) -> Result<(), String> {
+fn attach(_image: &Path, _at: &Path, _owners: bool) -> Result<(), String> {
     Err(String::from("volumes of their own are made on macOS and Linux only"))
 }
 
@@ -154,11 +158,13 @@ fn make(run_dir: &Path, name: &str, spec: &str, at: &Path) -> Result<Volume, Str
     let image = images.join(format!("{name}.{ext}"));
     let label: String = name.chars().filter(char::is_ascii_alphanumeric).take(11).collect();
     make_image(&image, &kind, mib, if label.is_empty() { "E2E" } else { &label })?;
-    attach(&image, at)?;
+    let owners = !matches!(kind.as_str(), "fat32" | "exfat");
+    attach(&image, at, owners)?;
     Ok(Volume {
         image,
         mount: at.to_path_buf(),
         attached: true,
+        owners,
     })
 }
 
@@ -206,14 +212,14 @@ pub(super) fn detach_step(args: &Args) -> Answer {
 /// device id).
 pub(super) fn attach_step(args: &Args) -> Answer {
     let key = volume_key(args)?;
-    let (image, mount) = with_a(|a| {
+    let (image, mount, owners) = with_a(|a| {
         a.volumes
             .get(&key)
             .filter(|v| !v.attached)
-            .map(|v| (v.image.clone(), v.mount.clone()))
+            .map(|v| (v.image.clone(), v.mount.clone(), v.owners))
     })?
     .ok_or("no detached volume of the device there")?;
-    attach(&image, &mount)?;
+    attach(&image, &mount, owners)?;
     with_a(|a| {
         if let Some(v) = a.volumes.get_mut(&key) {
             v.attached = true;
