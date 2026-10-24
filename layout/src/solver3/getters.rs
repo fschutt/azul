@@ -9202,6 +9202,7 @@ mod autotest_generated {
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: UnresolvedBoxProps::default(),
             ifc_id: None,
+            text_style: None,
         }
     }
 

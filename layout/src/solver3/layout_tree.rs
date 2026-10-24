@@ -1020,6 +1020,9 @@ pub struct LayoutNode {
     /// Used to identify which IFC this node's `inline_layout_result` belongs to.
     /// (1 access — IFC creation only)
     pub ifc_id: Option<IfcId>,
+    /// A text node: the style its runs were laid out with, read when a
+    /// restyle above it asked ([`TextStyleKey`]). `None` until then.
+    pub text_style: Option<Arc<TextStyleKey>>,
 }
 
 /// Pre-computed CSS properties needed during layout.
@@ -1188,6 +1191,62 @@ pub struct LayoutNodeWarm {
     pub sticky: Option<Box<crate::solver3::positioning::StickyConstraint>>,
 }
 
+/// The style a text node's runs are shaped and painted with: its own computed
+/// style (what it inherits included), the decorations the boxes around it
+/// propagate to it, and the styles of the inline boxes it sits in (their
+/// edges move its pen). Two equal keys lay the text out alike, so a restyle
+/// above a text node that leaves its key alone keeps the node and its shaped
+/// lines (`cache::reconcile_node`): hovering a toolbar no longer shapes every
+/// label in it again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextStyleKey {
+    own: Arc<crate::text3::cache::StyleProperties>,
+    decoration: crate::text3::cache::TextDecoration,
+    inline_boxes: Vec<Arc<crate::text3::cache::StyleProperties>>,
+}
+
+impl TextStyleKey {
+    /// The key of the text node `dom_id` under the cascade of `styled_dom`.
+    #[must_use]
+    pub fn of(
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        styles: &mut crate::solver3::getters::StyleCache,
+        system_style: Option<&Arc<azul_css::system::SystemStyle>>,
+        viewport: azul_css::props::basic::PhysicalSize,
+    ) -> Self {
+        use crate::solver3::getters::{
+            get_display_property, get_style_properties_cached, is_inline_box_display,
+            propagated_text_decoration,
+        };
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let parent = hierarchy.get(dom_id).and_then(|h| h.parent_id());
+        let mut inline_boxes = Vec::new();
+        let mut node = parent;
+        while let Some(id) = node {
+            if !is_inline_box_display(get_display_property(styled_dom, Some(id)).unwrap_or_default())
+            {
+                break;
+            }
+            inline_boxes.push(get_style_properties_cached(
+                styles,
+                styled_dom,
+                id,
+                system_style,
+                viewport,
+            ));
+            node = hierarchy.get(id).and_then(|h| h.parent_id());
+        }
+        Self {
+            own: get_style_properties_cached(styles, styled_dom, dom_id, system_style, viewport),
+            decoration: parent
+                .map(|p| propagated_text_decoration(styled_dom, p))
+                .unwrap_or_default(),
+            inline_boxes,
+        }
+    }
+}
+
 /// Cold layout node fields — construction / reconciliation / debugging only.
 ///
 /// Stored in a separate `Vec`. These fields are rarely accessed during layout;
@@ -1212,6 +1271,8 @@ pub struct LayoutNodeCold {
     pub unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps,
     /// IFC ID if this node is an IFC root.
     pub ifc_id: Option<IfcId>,
+    /// A text node: the style its runs were laid out with ([`TextStyleKey`]).
+    pub text_style: Option<Arc<TextStyleKey>>,
 }
 
 impl LayoutNode {
@@ -1255,6 +1316,7 @@ impl LayoutNode {
                 dirty_flag: self.dirty_flag,
                 unresolved_box_props: self.unresolved_box_props,
                 ifc_id: self.ifc_id,
+                text_style: self.text_style,
             },
         )
     }
@@ -1757,7 +1819,22 @@ impl LayoutTree {
             dirty_flag: cold.dirty_flag,
             unresolved_box_props: cold.unresolved_box_props,
             ifc_id: cold.ifc_id,
+            text_style: cold.text_style,
         })
+    }
+
+    /// Forgets the text styles ([`TextStyleKey`]) of `node_index` and every
+    /// node below it: a pass that restyled them without a reconcile (a frame
+    /// of a tween, a resize under `vw` fonts) may have laid their text out
+    /// with another style, so the next restyle above them rebuilds it.
+    pub(crate) fn forget_text_styles_below(&mut self, node_index: usize) {
+        let mut stack = alloc::vec![node_index];
+        while let Some(idx) = stack.pop() {
+            if let Some(cold) = self.cold.get_mut(idx) {
+                cold.text_style = None;
+            }
+            stack.extend_from_slice(self.children(idx));
+        }
     }
 
     /// Reads the margins, borders, paddings and layout style of the box
@@ -3186,6 +3263,7 @@ impl LayoutTreeBuilder {
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             ifc_id: None,
+            text_style: None,
         });
 
         self.nodes[parent].children.push(index);
@@ -3255,6 +3333,7 @@ impl LayoutTreeBuilder {
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             ifc_id: None,
+            text_style: None,
         });
 
         // Insert as FIRST child (per spec)
@@ -3418,6 +3497,7 @@ impl LayoutTreeBuilder {
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: collected.unresolved,
             ifc_id: None,
+            text_style: None,
         });
         {
             let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8));

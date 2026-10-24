@@ -51,7 +51,7 @@ use crate::{
         },
         layout_tree::{
             get_display_type, in_flow_block_level_mask, AnonymousBoxType, DirtyFlag, LayoutNode,
-            LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
+            LayoutNodeHot, LayoutTreeBuilder, SubtreeHash, TextStyleKey,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -1494,6 +1494,15 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     reconcile_and_invalidate_restyled(ctx, cache, viewport, dom_diff_clean, &[])
 }
 
+/// How the reconcile reads the style of a text node under a restyled box
+/// ([`TextStyleKey::of`]): the pass's style memo and what sizes resolve
+/// against.
+pub struct TextStyleReader<'a> {
+    styles: &'a mut crate::solver3::getters::StyleCache,
+    system_style: Option<&'a std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport: azul_css::props::basic::PhysicalSize,
+}
+
 /// Reconciles the new DOM against the cached tree. `css_dirty` is this
 /// pass's CSS diff (`layout_document`'s): a node whose own computed style
 /// moved in a layout-affecting way is built fresh
@@ -1563,6 +1572,14 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     let clean_slice: Option<&[bool]> = dom_diff_clean
         .as_deref()
         .filter(|c| c.len() == ctx.styled_dom.node_data.as_ref().len());
+    let mut text_styles = TextStyleReader {
+        styles: &mut ctx.style_cache,
+        system_style: ctx.system_style.as_ref(),
+        viewport: azul_css::props::basic::PhysicalSize::new(
+            ctx.viewport_size.width,
+            ctx.viewport_size.height,
+        ),
+    };
     let root_idx = reconcile_recursive(
         ctx.styled_dom,
         root_dom_id,
@@ -1574,6 +1591,7 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
         ctx.debug_messages,
         false, // the root has no ancestor whose restyle could reach it
         clean_slice,
+        &mut text_styles,
     )?;
 
     // A dirty FLEX / GRID ITEM cannot be laid out on its own: its size is
@@ -1795,6 +1813,7 @@ fn reconcile_child_under(
     ancestor_style_changed: bool,
     dom_diff_clean: Option<&[bool]>,
     new_child_hashes: &mut Vec<u64>,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> Result<usize> {
     let old_child_idx = old_layout_index_of(old_children_by_dom, old_tree, child_dom_id);
     let child_idx = reconcile_recursive(
@@ -1808,6 +1827,7 @@ fn reconcile_child_under(
         debug_messages,
         ancestor_style_changed,
         dom_diff_clean,
+        text_styles,
     )?;
     if let Some(child_node) = new_tree_builder.get(child_idx) {
         new_child_hashes.push(child_node.subtree_hash.0);
@@ -1844,6 +1864,7 @@ fn reconcile_table_children(
     ancestor_style_changed: bool,
     dom_diff_clean: Option<&[bool]>,
     new_child_hashes: &mut Vec<u64>,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> Result<()> {
     let display_of = |id: NodeId| get_display_type(styled_dom, id);
     let mut i = 0;
@@ -1861,6 +1882,7 @@ fn reconcile_table_children(
                 ancestor_style_changed,
                 dom_diff_clean,
                 new_child_hashes,
+                text_styles,
             )?;
             i += 1;
             continue;
@@ -1893,6 +1915,7 @@ fn reconcile_table_children(
                     ancestor_style_changed,
                     dom_diff_clean,
                     new_child_hashes,
+                    text_styles,
                 )?;
                 j += 1;
                 continue;
@@ -1931,6 +1954,7 @@ fn reconcile_table_children(
                         ancestor_style_changed,
                         dom_diff_clean,
                         new_child_hashes,
+                        text_styles,
                     )?;
                     k += 1;
                     continue;
@@ -1962,6 +1986,7 @@ fn reconcile_table_children(
                         ancestor_style_changed,
                         dom_diff_clean,
                         new_child_hashes,
+                        text_styles,
                     )?;
                 }
             }
@@ -2106,6 +2131,7 @@ pub fn reconcile_recursive(
     // GRANULAR DIFF: per-NodeId "self+ancestors unchanged on both
     // pre-cascade tiers". None = no diff available (full fingerprinting).
     dom_diff_clean: Option<&[bool]>,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> Result<usize> {
     let ReconciledNode {
         new_node_idx,
@@ -2128,6 +2154,7 @@ pub fn reconcile_recursive(
         debug_messages,
         ancestor_style_changed,
         dom_diff_clean,
+        text_styles,
     )?;
 
     // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container
@@ -2182,6 +2209,7 @@ pub fn reconcile_recursive(
             subtree_style_changed,
             dom_diff_clean,
             &mut new_child_hashes,
+            text_styles,
         )?;
         // The anonymous boxes are made anew on every pass (they have no DOM
         // id to be matched by): the parent's layout is redone.
@@ -2221,6 +2249,7 @@ pub fn reconcile_recursive(
                 debug_messages,
                 subtree_style_changed,
                 dom_diff_clean,
+                text_styles,
             )?;
             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                 new_child_hashes.push(child_node.subtree_hash.0);
@@ -2329,6 +2358,7 @@ pub fn reconcile_recursive(
                                 debug_messages,
                                 subtree_style_changed,
                                 dom_diff_clean,
+                                text_styles,
                             )?;
                             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                                 new_child_hashes.push(child_node.subtree_hash.0);
@@ -2376,6 +2406,7 @@ pub fn reconcile_recursive(
                     debug_messages,
                     subtree_style_changed,
                     dom_diff_clean,
+                    text_styles,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                     new_child_hashes.push(child_node.subtree_hash.0);
@@ -2474,6 +2505,7 @@ pub fn reconcile_recursive(
                         debug_messages,
                         subtree_style_changed,
                         dom_diff_clean,
+                        text_styles,
                     )?;
                     if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                         new_child_hashes.push(child_node.subtree_hash.0);
@@ -2544,6 +2576,7 @@ fn reconcile_node(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor_style_changed: bool,
     dom_diff_clean: Option<&[bool]>,
+    text_styles: &mut TextStyleReader<'_>,
 ) -> Result<ReconciledNode> {
     // Cache the env check in a `OnceLock<bool>`: this branch
     // fires once per dirty node (hundreds on cold layout),
@@ -2683,30 +2716,47 @@ fn reconcile_node(
         });
     let subtree_style_changed = ancestor_style_changed || own_style_changed;
 
-    // An ancestor's restyle forces a REBUILD rather than a clone: the clone
-    // is what carries the stale inline layout, so marking it paint-dirty
-    // would repaint the wrong colour rather than re-resolve it.
+    // A text node under a restyled ancestor is REBUILT rather than cloned
+    // when the style it is laid out with moved: the clone carries the shaped
+    // glyphs, so marking it paint-dirty would repaint the old colour rather
+    // than re-resolve it. Every other node re-reads its own computed style
+    // from the cascade when the display list is built.
     //
-    // Only TEXT nodes need it. The staleness lives in shaped glyphs, which
-    // only text produces; every other node re-reads its own computed style
-    // from the cascade when the display list is built, and the cascade is
-    // already correct (verified: the deactivated tab's DIV painted the right
-    // background while its text child painted the old colour). Restricting
-    // the rebuild to text nodes keeps the cost off the rest of the tree.
-    // Measured (layout/tests/frame_perf.rs, release), baseline / unrestricted
-    // / text-only:
-    //   idle    19.35 / 20.11 / 19.25 ms
-    //   resize  33.59 / 35.19 / 33.01 ms
-    //   cold   140.97 / 148.01 / 137.12 ms
-    // i.e. the unrestricted form cost 4-5%; restricted to text it is flat.
+    // Whether it moved is read, not assumed: the text's style now
+    // (`TextStyleKey`) against the one it was laid out with. A restyle that
+    // reaches no text property - a hover on a toolbar, a class flip on a
+    // ribbon that only recolours its background - keeps every label's shaped
+    // lines (the AzDrive ribbon rebuilt and re-shaped ~120 labels on every
+    // hover). A text node without a key yet is rebuilt, and gets one.
     //
     // A node the CSS diff restyled in a layout-affecting way is rebuilt
     // fresh as well (`ReconciliationResult::css_relayout`): its clone would
     // keep the box props, computed style and formatting context of the old
     // cascade, and be re-solved with them.
-    let dirty_flag = if css_relayout_here
-        || (ancestor_style_changed && matches!(node_data.get_node_type(), NodeType::Text(_)))
-    {
+    // The key read this pass, for a fresh node to keep (a clone keeps its own).
+    let mut text_style_now: Option<std::sync::Arc<TextStyleKey>> = None;
+    let text_restyled = ancestor_style_changed
+        && matches!(node_data.get_node_type(), NodeType::Text(_))
+        && {
+            let now = TextStyleKey::of(
+                styled_dom,
+                new_dom_id,
+                text_styles.styles,
+                text_styles.system_style,
+                text_styles.viewport,
+            );
+            match old_cold.and_then(|c| c.text_style.as_ref()) {
+                Some(old) if **old == now => {
+                    text_style_now = Some(std::sync::Arc::clone(old));
+                    false
+                }
+                _ => {
+                    text_style_now = Some(std::sync::Arc::new(now));
+                    true
+                }
+            }
+        };
+    let dirty_flag = if css_relayout_here || text_restyled {
         DirtyFlag::Layout
     } else {
         dirty_flag
@@ -2731,6 +2781,9 @@ fn reconcile_node(
             debug_messages,
         );
         recon.fresh_indices.insert(idx);
+        if let Some(node) = new_tree_builder.get_mut(idx) {
+            node.text_style = text_style_now;
+        }
         // Blockify replaced/inline flex-or-grid items (CSS Display 3 §2.7). The
         // full `process_node` build does this; this incremental path called
         // `create_node_from_dom` directly and skipped it, so a flex-item <img>

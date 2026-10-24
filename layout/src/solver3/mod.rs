@@ -989,6 +989,39 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
     }
 
+    // A pass that kept the tree without a reconcile restyles what its css
+    // dirt names (a tween's frame), and a resize restyles every text sized in
+    // viewport units: their text may be laid out with another style than the
+    // one the reconcile read, so the next restyle above them rebuilds them.
+    // A box dirt (`SizingOnly` / `Full`: a height, a padding) lays out the
+    // text it reaches again in this very pass, from the style it has now.
+    if cache.last_reconcile_was_skipped {
+        for (dom_id_dirty, scope) in css_dirty {
+            if *scope >= azul_css::props::property::RelayoutScope::SizingOnly {
+                continue;
+            }
+            if let Some(idx) = new_tree
+                .dom_to_layout
+                .get(dom_id_dirty)
+                .and_then(|v| v.first())
+                .map(|id| id.index())
+            {
+                new_tree.forget_text_styles_below(idx);
+            }
+        }
+        if resize_only
+            && new_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .is_none_or(|cc| cc.uses_viewport_units)
+        {
+            let root = new_tree.root;
+            new_tree.forget_text_styles_below(root);
+        }
+    }
+
     // --- Step 1.15: fold the CSS DIFF into the solver's dirtiness ---
     //
     // Mirrors the reconcile classifier exactly (layout-affecting ->
