@@ -2218,6 +2218,24 @@ impl SnappedRect {
 }
 
 
+/// The device pixels an opacity group snapshots and blends: its box (moved
+/// by the scroll frames around it) inside the clip open around it - on the
+/// incremental path the damage rect. Never the whole clip: a window's groups
+/// each blended the whole damage area, 5 ms frames became 230 ms. Empty
+/// (`DENY_ALL`) for a group with no box, which still pushes its entry.
+pub(crate) fn opacity_group_region(
+    bounds: &LogicalRect,
+    clip: Option<AzRect>,
+    dpi_factor: f32,
+) -> AzRect {
+    logical_rect_to_az_rect(bounds, dpi_factor)
+        .and_then(|r| match clip {
+            Some(c) => intersect_clips(Some(c), Some(r)),
+            None => Some(r),
+        })
+        .unwrap_or(AzRect::DENY_ALL)
+}
+
 #[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
 #[allow(clippy::tuple_array_conversions)] // explicit [r,g,b,a]->(r,g,b,a) is correct; .into() was
                                           // not
@@ -3261,12 +3279,11 @@ pub fn render_single_item(
             // pushed nothing before, and its pop then took the entry of the
             // frame around it (a translated box: every later item painted
             // moved by it).
-            let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
-                .and_then(|r| match clip_stack.last().copied().flatten() {
-                    Some(c) => intersect_clips(Some(c), Some(r)),
-                    None => Some(r),
-                })
-                .unwrap_or(AzRect::DENY_ALL);
+            let rect = opacity_group_region(
+                &scroll_rect(bounds.inner()),
+                clip_stack.last().copied().flatten(),
+                dpi_factor,
+            );
             let snap = snapshot_region(
                 pixmap,
                 rect.x as i32,
@@ -12506,5 +12523,38 @@ mod disjoint_damage_tests {
         let boxes = disjoint_damage(vec![[0, 0, 10, 10], [10, 0, 20, 10]]);
         assert_eq!(boxes.len(), 2);
         assert_eq!(area(&boxes), 200);
+    }
+}
+
+#[cfg(test)]
+mod an_opacity_group_blends_only_its_box {
+    use super::*;
+
+    fn lr(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    /// A 20 x 10 group inside a full-window damage rect touches its own
+    /// 20 x 10 (40 x 20 at 2x), never the window.
+    #[test]
+    fn a_group_blends_its_box_inside_the_damage_not_the_damage() {
+        let damage = AzRect::from_xywh(0.0, 0.0, 2560.0, 1600.0);
+        let r = opacity_group_region(&lr(100.0, 50.0, 20.0, 10.0), damage, 2.0);
+        assert_eq!((r.x, r.y, r.width, r.height), (200.0, 100.0, 40.0, 20.0));
+    }
+
+    /// The part of a group outside the damage rect is not touched.
+    #[test]
+    fn a_group_half_outside_the_damage_blends_the_half_inside() {
+        let damage = AzRect::from_xywh(0.0, 0.0, 110.0, 200.0);
+        let r = opacity_group_region(&lr(100.0, 50.0, 20.0, 10.0), damage, 1.0);
+        assert_eq!((r.x, r.y, r.width, r.height), (100.0, 50.0, 10.0, 10.0));
+    }
+
+    /// A group with no box touches nothing (and still leaves its entry).
+    #[test]
+    fn a_group_without_a_box_touches_nothing() {
+        let r = opacity_group_region(&lr(10.0, 10.0, 0.0, 0.0), None, 1.0);
+        assert_eq!(r.width * r.height, 0.0);
     }
 }
