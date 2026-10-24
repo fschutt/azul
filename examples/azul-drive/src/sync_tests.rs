@@ -91,6 +91,7 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
                 there: String::new(),
                 there_size: 1,
                 there_device: String::from("laptop"),
+                there_exec: false,
             }),
             ..FileRecord::default()
         },

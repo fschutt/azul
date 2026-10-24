@@ -53,6 +53,8 @@ fn a_scan_finds_the_files_the_rules_let_through_and_never_follows_a_link() {
         .skipped
         .iter()
         .any(|(k, why)| k == "notes/etc" && why.contains("link")));
+    // A missing folder is no empty folder: an unplugged disk must never read as "every file
+    // deleted" (the run checks the folder's marker before it scans).
     let missing = local::scan(
         &root.join("nope"),
         &Rules::base(),
@@ -60,9 +62,8 @@ fn a_scan_finds_the_files_the_rules_let_through_and_never_follows_a_link() {
         0,
         &[],
         1,
-    )
-    .unwrap();
-    assert!(missing.files.is_empty(), "a folder not there yet is empty");
+    );
+    assert!(missing.is_err(), "a missing folder is an error, not an empty scan");
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn an_unchanged_file_keeps_its_base_hash_unless_its_time_is_racy() {
         hash: String::from("cached"),
         size: 3,
         mtime_ns: mtime_ns(&meta),
-        cloud_only: false,
+        ..BaseEntry::default()
     };
     let base: BTreeMap<String, BaseEntry> = [(String::from("a.txt"), entry.clone())].into();
     let long_after = entry.mtime_ns + 10 * RACY_NS;

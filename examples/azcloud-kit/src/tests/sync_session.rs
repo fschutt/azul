@@ -218,6 +218,7 @@ fn the_size_cap_frees_the_least_recently_used_files_first_never_a_pinned_one() {
         there: String::new(),
         there_size: 0,
         there_device: String::new(),
+        there_exec: false,
     });
     states.files.insert(String::from("torn.bin"), torn);
     states.pinned.insert(String::from("pinned.bin"));
@@ -275,6 +276,8 @@ fn a_conflict_waits_for_a_choice_and_each_choice_does_what_it_says() {
         let mut names: Vec<String> = fs::read_dir(folder.path())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            // The sync's own bookkeeping (the folder's marker, its trash) is no file of the user.
+            .filter(|name| name != ".azlin")
             .collect();
         names.sort();
         names
@@ -544,10 +547,11 @@ fn a_mass_delete_waits_for_the_user_and_each_answer_does_what_it_says() {
     assert!(!lists(&index, "gone/0.txt"), "{index:#}");
 }
 
-/// The drive deleted most of this folder's files elsewhere: asked; "keep them" puts them back
-/// on the drive from here.
+/// The drive deleted most of this folder's files elsewhere, and the user confirmed it on the
+/// device that deleted them: the confirmation travels in the tombstones, so this device moves
+/// its copies into its trash without asking again (D1, D2).
 #[test]
-fn a_mass_delete_on_the_drive_kept_here_goes_back_up() {
+fn a_mass_delete_confirmed_on_one_device_goes_into_the_others_trash_without_asking_again() {
     let store = Arc::new(S3Bucket::new());
     let a = paired("dev-a", &store, |_| {});
     let b = paired("dev-b", &store, |_| {});
@@ -564,14 +568,17 @@ fn a_mass_delete_on_the_drive_kept_here_goes_back_up() {
     a.session.answer_mass_delete(true).unwrap();
     a.pass();
     let (states, _) = b.pass();
-    let asked = states.mass_delete.clone().expect("b asks before it deletes its copies");
-    assert!(asked.here);
-    assert!(b.read("0.txt").is_some());
-    b.session.answer_mass_delete(false).unwrap();
-    b.pass();
-    assert!(b.read("0.txt").is_some(), "kept here");
-    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
-    assert!(index.contains("\"0.txt\""), "and on the drive again: {index}");
+    assert!(states.mass_delete.is_none(), "confirmed once, on the device that deleted them");
+    assert!(b.read("0.txt").is_none());
+    let trash = b.folder.path().join(".azlin").join("sync").join("trash");
+    let mut trashed = Vec::new();
+    for pass in fs::read_dir(&trash).unwrap().flatten() {
+        for file in fs::read_dir(pass.path()).unwrap().flatten() {
+            trashed.push(fs::read(file.path()).unwrap());
+        }
+    }
+    assert_eq!(trashed.len(), 14, "every copy in b's trash");
+    assert!(trashed.contains(&b"file 0".to_vec()));
 }
 
 /// A drive whose index uses a feature this version does not know: the pass changes nothing and

@@ -201,6 +201,7 @@ fn other_device_commits(store: &S3Bucket, files: &[(&str, &[u8])]) {
                 mtime: 1,
                 gen: index.generation,
                 device: String::from("linux"),
+                exec: false,
             },
         );
     }

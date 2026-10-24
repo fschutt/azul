@@ -161,6 +161,10 @@ impl Device {
 fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
     for entry in fs::read_dir(dir).unwrap().flatten() {
         let key = format!("{prefix}{}", entry.file_name().to_string_lossy());
+        // The sync's own bookkeeping (the folder's marker, its trash) is no file of the user.
+        if key == ".azlin" {
+            continue;
+        }
         if entry.file_type().unwrap().is_dir() {
             walk(&entry.path(), &format!("{key}/"), out);
         } else {

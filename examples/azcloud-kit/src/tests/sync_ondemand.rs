@@ -188,7 +188,12 @@ fn a_conflict_waits_for_the_user_when_conflicts_are_held() {
     assert_eq!(b.read("note.md").as_deref(), Some(&b"edited on b!"[..]), "mine stays here");
     assert_eq!(index_of(&store).files["note.md"].hash, hash_bytes(b"edited on a"));
     assert_eq!(b.base().files["note.md"].hash, hash_bytes(b"base"), "the base did not move");
-    assert_eq!(fs::read_dir(b.folder.path()).unwrap().count(), 1, "no conflict copy");
+    let files = fs::read_dir(b.folder.path())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name() != ".azlin")
+        .count();
+    assert_eq!(files, 1, "no conflict copy");
 
     // "Keep both": the next run makes the kit's conflict copy.
     let both: BTreeSet<String> = [String::from("note.md")].into_iter().collect();

@@ -120,8 +120,7 @@ fn changes_older_than_five_minutes_no_longer_count() {
             let entry = BaseEntry {
                 hash: String::new(),
                 size: 1,
-                mtime_ns: 0,
-                cloud_only: false,
+                ..BaseEntry::default()
             };
             (format!("f{i}.txt"), entry)
         })

@@ -15,8 +15,9 @@ use crate::{
         azlin_roots, collect_garbage,
         local::{hash_bytes, path_of},
         remote::{blob_key, index_key},
-        sync_folder, LocalRoot, RemoteFile, RemoteIndex, Rules, SyncOptions, SyncReport,
-        DATA_PREFIX, HOME_PREFIX,
+        problems::Code,
+        sync_folder, LocalRoot, RemoteFile, RemoteIndex, RestoreNotice, Rules, SyncOptions,
+        SyncReport, DATA_PREFIX, HOME_PREFIX,
     },
     CloudResult,
 };
@@ -45,7 +46,12 @@ impl Device {
         }
     }
 
-    fn root(&self) -> LocalRoot {
+    /// The device's folder.
+    pub(super) fn path(&self) -> &Path {
+        self.folder.path()
+    }
+
+    pub(super) fn root(&self) -> LocalRoot {
         LocalRoot {
             path: self.folder.path().to_path_buf(),
             data_tree: self.data_tree,
@@ -84,7 +90,7 @@ impl Device {
         fs::read(path_of(self.folder.path(), key)).ok()
     }
 
-    fn remove(&self, key: &str) {
+    pub(super) fn remove(&self, key: &str) {
         fs::remove_file(path_of(self.folder.path(), key)).unwrap();
     }
 
@@ -99,7 +105,7 @@ impl Device {
     }
 
     /// Every file but the folder's own bookkeeping.
-    fn tree(&self) -> BTreeMap<String, Vec<u8>> {
+    pub(super) fn tree(&self) -> BTreeMap<String, Vec<u8>> {
         let mut out = BTreeMap::new();
         walk(self.folder.path(), "", &mut out);
         out
@@ -203,6 +209,7 @@ fn a_lost_race_rereads_the_index_merges_again_and_retries() {
                 mtime: 0,
                 gen: index.generation,
                 device: String::from("dev-b"),
+                exec: false,
             },
         );
         s.write(&key, index.to_bytes());
@@ -434,7 +441,10 @@ fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key() {
 }
 
 #[test]
-fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
+fn a_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_kept_listed_and_not_sent_again() {
+    // D5: no login path removes a file. A device paired afresh (a re-login, a restore from a
+    // backup) that holds a file the drive deleted meanwhile keeps it, says so, and does not
+    // send it up again until the user chooses.
     let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("old.md", b"old");
@@ -442,37 +452,87 @@ fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
     a.sync(&store);
     a.remove("old.md");
     a.sync(&store);
-    // A device restored from a backup that still holds old.md, never synced.
     let c = Device::new("dev-c");
     c.write("old.md", b"old");
-    let report = c.sync(&store);
-    assert_eq!(report.deleted_here, 1, "{}", report.summary());
-    assert!(c.read("old.md").is_none());
+    for _ in 0..2 {
+        let report = c.sync(&store);
+        assert_eq!(report.deleted_here, 0, "{}", report.summary());
+        assert!(
+            report.problems.iter().any(|p| p.code == Code::DeletedElsewhereKept
+                && p.key == "old.md"),
+            "{:?}",
+            report.problems
+        );
+    }
+    assert_eq!(c.read("old.md").as_deref(), Some(&b"old"[..]));
     assert_eq!(c.read("keep.md").as_deref(), Some(&b"keep"[..]));
+    assert!(!index_of(&store).files.contains_key("old.md"), "not sent again");
 }
 
 #[test]
-fn an_index_that_went_back_deletes_nothing_on_either_side() {
+fn an_index_older_than_the_last_one_seen_is_refused_and_nothing_changes() {
+    // S15: a replayed or rolled-back index would bring deleted files back and turn every edit
+    // since into a conflict copy: refused, nothing changed on either side.
     let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("a.md", b"a");
     a.write("b.md", b"b");
     a.sync(&store);
+    let old = store.read(&index_key(PREFIX)).unwrap();
     a.write("c.md", b"c");
+    a.remove("b.md");
     a.sync(&store);
-    // Someone deleted the index; a's base is newer than what is there now.
-    store.write(&index_key(PREFIX), RemoteIndex::empty().to_bytes());
+    store.write(&index_key(PREFIX), old.clone());
     let report = a.sync(&store);
+    assert!(report.refused.is_some(), "{}", report.summary());
     assert!(
-        report.notes.iter().any(|n| n.contains("deletes nothing")),
-        "{report:?}"
+        report.problems.iter().any(|p| p.code == Code::RemoteRollback),
+        "{:?}",
+        report.problems
+    );
+    assert!(!report.index_written);
+    assert_eq!(store.read(&index_key(PREFIX)).unwrap(), old, "the drive left as it is");
+    assert_eq!(a.tree().len(), 2, "a.md and c.md stay, b.md does not come back");
+    assert!(a.read("b.md").is_none());
+}
+
+#[test]
+fn an_announced_restore_heals_from_this_device_and_deletes_nothing() {
+    // V3: the drive was restored from its lagging off-site copy and the token server announced
+    // it: the files committed after the copy are sent again from here, nothing is deleted.
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    a.write("a.md", b"a");
+    a.sync(&store);
+    let backup = store.read(&index_key(PREFIX)).unwrap();
+    a.write("lag.md", b"committed after the backup");
+    a.sync(&store);
+    store.write(&index_key(PREFIX), backup);
+    let mut opts = a.opts();
+    opts.restore = Some(RestoreNotice {
+        epoch: 1,
+        prefix: String::new(),
+    });
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(report.refused.is_none(), "{}", report.summary());
+    assert!(
+        report.problems.iter().any(|p| p.code == Code::ServerRestored),
+        "{:?}",
+        report.problems
     );
     assert_eq!(report.deleted_here, 0);
-    assert_eq!(a.tree().len(), 3);
-    assert_eq!(
-        index_of(&store).files.len(),
-        3,
-        "everything is back on the drive"
+    assert!(index_of(&store).files.contains_key("lag.md"), "sent again");
+    assert_eq!(a.read("lag.md").as_deref(), Some(&b"committed after the backup"[..]));
+    // The same announcement never excuses a second rollback.
+    let again = store.read(&index_key(PREFIX)).unwrap();
+    a.write("more.md", b"more");
+    a.sync_with(&store, &opts).unwrap();
+    store.write(&index_key(PREFIX), again);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        report.problems.iter().any(|p| p.code == Code::RemoteRollback),
+        "{:?}",
+        report.problems
     );
 }
 

@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::sync::{
     local::{BaseEntry, Content, LocalFile},
-    merge::{conflict_name, merge_json, plan, Action, PlanInput},
+    merge::{conflict_name, deleted_elsewhere, merge_json, plan, Action, PlanInput},
     remote::{RemoteFile, RemoteIndex, Tombstone},
 };
 
@@ -21,6 +21,7 @@ fn local(c: char) -> LocalFile {
         mtime_ns: 1,
         blob_size: 1,
         content: Content::Raw,
+        ..LocalFile::default()
     }
 }
 
@@ -31,6 +32,7 @@ fn remote_file(c: char) -> RemoteFile {
         mtime: 1,
         gen: 1,
         device: String::from("dev-b"),
+        exec: false,
     }
 }
 
@@ -39,7 +41,7 @@ fn base(c: char) -> BaseEntry {
         hash: h(c),
         size: 1,
         mtime_ns: 1,
-        cloud_only: false,
+        ..BaseEntry::default()
     }
 }
 
@@ -137,7 +139,10 @@ fn every_row_of_the_table_does_what_it_says() {
 }
 
 #[test]
-fn a_stale_copy_of_a_file_deleted_elsewhere_is_deleted_not_brought_back() {
+fn a_copy_of_a_file_deleted_elsewhere_before_this_side_knew_it_is_kept_and_not_sent_again() {
+    // D5: a re-login or a lost base pairs afresh; a file here whose bytes match a tombstone
+    // is a file the drive deleted meanwhile. It is never deleted here (no login path removes a
+    // file) and never sent up again: it is listed until the user chooses.
     let mut remote = RemoteIndex::empty();
     remote.deleted.insert(
         String::from("old.md"),
@@ -146,6 +151,7 @@ fn a_stale_copy_of_a_file_deleted_elsewhere_is_deleted_not_brought_back() {
             gen: 4,
             at: 0,
             device: String::from("dev-b"),
+            confirmed: false,
         },
     );
     let locals: BTreeMap<String, LocalFile> = [
@@ -154,25 +160,51 @@ fn a_stale_copy_of_a_file_deleted_elsewhere_is_deleted_not_brought_back() {
     ]
     .into();
     let never = |_: &str| false;
-    let actions = plan(&PlanInput {
+    let input = PlanInput {
         base: &BTreeMap::new(),
         local: &locals,
         remote: &remote,
         excluded: &never,
         device: "d",
         date: "x",
-    });
+    };
     assert_eq!(
-        actions,
-        vec![
-            Action::Upload {
-                key: String::from("new.md")
-            },
-            Action::DeleteLocal {
-                key: String::from("old.md")
-            },
-        ]
+        plan(&input),
+        vec![Action::Upload {
+            key: String::from("new.md")
+        }]
     );
+    assert_eq!(deleted_elsewhere(&input), vec![String::from("old.md")]);
+}
+
+#[test]
+fn the_executable_bit_is_part_of_a_files_content() {
+    // A file made executable here, the bytes unchanged, goes up as a change of the file.
+    let mut remote = RemoteIndex::empty();
+    remote.files.insert(String::from("run.sh"), remote_file('1'));
+    let bases: BTreeMap<String, BaseEntry> = [(String::from("run.sh"), base('1'))].into();
+    let mut file = local('1');
+    file.exec = true;
+    let locals: BTreeMap<String, LocalFile> = [(String::from("run.sh"), file)].into();
+    let never = |_: &str| false;
+    let actions = plan(&PlanInput {
+        base: &bases,
+        local: &locals,
+        remote: &remote,
+        excluded: &never,
+        device: "d",
+        date: "x",
+    });
+    let expected = if crate::sync::merge::TRACKS_EXEC {
+        Action::Upload {
+            key: String::from("run.sh"),
+        }
+    } else {
+        Action::Agree {
+            key: String::from("run.sh"),
+        }
+    };
+    assert_eq!(actions, vec![expected]);
 }
 
 #[test]

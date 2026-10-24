@@ -1,0 +1,462 @@
+//! The shipped sync made safe: nothing written through a link, a missing or replaced folder
+//! never read as "every file deleted", deletes into the trash, small folders behind the breaker,
+//! downloads renamed in whole with their permission bits capped, the disk's reserve kept, an
+//! app's save never taken for a delete, a file still being written left for later, the drive's
+//! bad entries listed and never acted on, the folder's bookkeeping unreachable from the drive.
+
+use std::{fs, path::Path, time::Duration};
+
+use azul_storage::testing::TempDir;
+
+use super::{
+    fake_s3::S3Bucket,
+    sync::{index_of, Device, PREFIX},
+};
+use crate::sync::{
+    local::hash_bytes,
+    problems::Code,
+    remote::{blob_key, index_key},
+    root, sync_to, RemoteFile, RemoteIndex, RunHooks, SyncReport, Target,
+};
+
+/// Whether the run listed `code` (for `key`, when given).
+fn lists(report: &SyncReport, code: Code, key: Option<&str>) -> bool {
+    report
+        .problems
+        .iter()
+        .any(|p| p.code == code && key.is_none_or(|k| p.key == k))
+}
+
+/// Puts a file straight into the drive's index, as another device (or a hostile one) would.
+fn put_remote(store: &S3Bucket, key: &str, bytes: &[u8], exec: bool) {
+    let index_key = index_key(PREFIX);
+    let mut index = store
+        .read(&index_key)
+        .map_or_else(RemoteIndex::empty, |b| RemoteIndex::parse(&b).unwrap());
+    let hash = hash_bytes(bytes);
+    store.write(&blob_key(PREFIX, &hash), bytes.to_vec());
+    index.generation += 1;
+    index.files.insert(
+        key.to_string(),
+        RemoteFile {
+            hash,
+            size: bytes.len() as u64,
+            mtime: 1_700_000_000,
+            gen: index.generation,
+            device: String::from("someone"),
+            exec,
+        },
+    );
+    store.write(&index_key, index.to_bytes());
+}
+
+/// The files of the folder's trash, by content.
+fn trashed(folder: &Path) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut stack = vec![folder.join(".azlin").join("sync").join("trash")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            } else {
+                out.push(fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    out
+}
+
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_from_the_drive_under_a_linked_folder_here_is_never_written_through_the_link() {
+    let store = S3Bucket::new();
+    let a = Device::new("link-a");
+    let b = Device::new("link-b");
+    let outside = TempDir::new("azcloud-link-outside");
+    a.write("inbox/readme.txt", b"a's inbox");
+    a.sync(&store);
+    // b's inbox is a link to a folder outside (as ~/Library/LaunchAgents would be).
+    std::os::unix::fs::symlink(outside.path(), b.path().join("inbox")).unwrap();
+    b.sync(&store);
+    a.write("inbox/evil.plist", b"<plist>run me at login</plist>");
+    a.sync(&store);
+    let report = b.sync(&store);
+    assert!(names(outside.path()).is_empty(), "{:?}", names(outside.path()));
+    assert!(
+        lists(&report, Code::ThroughLink, Some("inbox/evil.plist")),
+        "{:?}",
+        report.problems
+    );
+    assert!(fs::symlink_metadata(b.path().join("inbox"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    // The link hides what the drive has under it: nothing there is a delete.
+    assert!(index_of(&store).files.contains_key("inbox/readme.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_synced_folder_replaced_by_a_link_keeps_its_files_on_the_drive() {
+    let store = S3Bucket::new();
+    let a = Device::new("relink-a");
+    let elsewhere = TempDir::new("azcloud-relink-elsewhere");
+    a.write("docs/a.txt", b"a");
+    a.write("docs/b.txt", b"b");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    fs::rename(a.path().join("docs"), elsewhere.path().join("docs-old")).unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), a.path().join("docs")).unwrap();
+    let report = a.sync(&store);
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    let index = index_of(&store);
+    assert!(index.files.contains_key("docs/a.txt") && index.files.contains_key("docs/b.txt"));
+}
+
+#[test]
+fn a_folder_that_is_gone_changes_nothing_anywhere() {
+    let store = S3Bucket::new();
+    let a = Device::new("gone-a");
+    let b = Device::new("gone-b");
+    for (key, text) in [("vm/disk.img", "the only copy"), ("vm/notes.txt", "notes"), ("vm/keys.txt", "keys")] {
+        a.write(key, text.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    fs::remove_dir_all(a.path()).unwrap();
+    let report = a.sync(&store);
+    assert!(report.refused.is_some(), "{}", report.summary());
+    assert!(lists(&report, Code::RootMissing, None), "{:?}", report.problems);
+    assert!(!a.path().exists(), "a missing folder is never made again");
+    assert_eq!(index_of(&store).files.len(), 3);
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 3);
+    assert!(trashed(b.path()).is_empty());
+}
+
+#[test]
+fn a_folder_without_its_marker_is_not_the_paired_one_and_changes_nothing() {
+    // An unplugged disk leaves its mount point: empty, or holding a stale copy written to the
+    // internal disk meanwhile. Either way it lacks the marker the pairing wrote.
+    let store = S3Bucket::new();
+    let a = Device::new("mount-a");
+    for i in 0..12 {
+        a.write(&format!("docs/f{i}.txt"), format!("doc {i}").as_bytes());
+    }
+    a.sync(&store);
+    let marker = root::read_marker(a.path()).expect("the pairing wrote its marker");
+    assert_eq!(marker.id.len(), 32);
+    for i in 0..12 {
+        a.remove(&format!("docs/f{i}.txt"));
+    }
+    fs::remove_dir_all(a.path().join(".azlin")).unwrap();
+    a.write("docs/f0.txt", b"stale shadow copy");
+    let report = a.sync(&store);
+    assert!(lists(&report, Code::RootReplaced, None), "{:?}", report.problems);
+    let index = index_of(&store);
+    assert_eq!(index.files.len(), 12, "nothing deleted on the drive");
+    let f0 = &index.files["docs/f0.txt"];
+    assert_eq!(f0.hash, hash_bytes(b"doc 0"), "the stale copy never went up");
+}
+
+#[test]
+fn deleting_every_file_of_a_small_folder_waits_for_the_user() {
+    let store = S3Bucket::new();
+    let a = Device::new("small-a");
+    let b = Device::new("small-b");
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf", "receipts.zip"] {
+        a.write(&format!("tax/{name}"), name.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    a.remove_folder("tax");
+    let hooks = RunHooks {
+        hold_mass_delete: true,
+        ..RunHooks::default()
+    };
+    let report = sync_to(Target::Index(&store), &a.root(), &a.index(), &a.opts(), &hooks).unwrap();
+    assert!(report.mass_delete.is_some(), "{}", report.summary());
+    assert!(lists(&report, Code::MassDeleteHeld, None));
+    assert_eq!(index_of(&store).files.len(), 4, "nothing deleted on the drive");
+    // The command line's run stops with the question.
+    assert!(a.sync_with(&store, &a.opts()).is_err());
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 4);
+}
+
+#[test]
+fn deleting_one_subfolder_of_many_goes_through_into_the_other_devices_trash() {
+    let store = S3Bucket::new();
+    let a = Device::new("sub-a");
+    let b = Device::new("sub-b");
+    for folder in ["alpha", "beta", "gamma"] {
+        for i in 0..5 {
+            a.write(&format!("work/{folder}/{i}.txt"), format!("{folder} {i}").as_bytes());
+        }
+    }
+    a.sync(&store);
+    b.sync(&store);
+    a.remove_folder("work/beta");
+    let sent = a.sync(&store);
+    assert_eq!(sent.deleted_there, 5, "{}", sent.summary());
+    let got = b.sync(&store);
+    assert_eq!(got.deleted_here, 5, "{}", got.summary());
+    assert_eq!(got.trashed.len(), 5);
+    assert_eq!(b.tree().len(), 10);
+    let trash = trashed(b.path());
+    assert!(trash.contains(&b"beta 0".to_vec()) && trash.contains(&b"beta 4".to_vec()));
+}
+
+#[test]
+fn a_delete_from_the_drive_moves_the_file_into_the_trash_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("trash-a");
+    let b = Device::new("trash-b");
+    a.write("contract.pdf", b"signed contract");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    b.sync(&store);
+    a.remove("contract.pdf");
+    a.sync(&store);
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 1, "{}", report.summary());
+    assert!(b.read("contract.pdf").is_none());
+    assert_eq!(trashed(b.path()), vec![b"signed contract".to_vec()]);
+    let (key, to) = &report.trashed[0];
+    assert_eq!(key, "contract.pdf");
+    assert!(to.starts_with(".azlin/sync/trash/") && to.ends_with("/contract.pdf"), "{to}");
+    // The trash is the folder's bookkeeping: never synced.
+    assert!(!index_of(&store).files.keys().any(|k| k.contains("trash")));
+}
+
+#[test]
+fn a_download_is_renamed_in_whole_and_leaves_no_temporary_file() {
+    let store = S3Bucket::new();
+    let a = Device::new("whole-a");
+    let b = Device::new("whole-b");
+    a.write("big.bin", &vec![3u8; 9 * 1024 * 1024]);
+    a.write("small.txt", b"v1");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("small.txt", b"v2");
+    a.write("big.bin", &vec![4u8; 9 * 1024 * 1024]);
+    a.sync(&store);
+    b.sync(&store);
+    assert_eq!(b.read("small.txt").as_deref(), Some(&b"v2"[..]));
+    assert_eq!(b.read("big.bin").unwrap()[0], 4);
+    assert_eq!(names(b.path()), vec![".azlin", "big.bin", "small.txt"]);
+    let spool = b.path().join(".azlin").join("sync").join("tmp");
+    assert!(names(&spool).is_empty(), "the spool is empty: {:?}", names(&spool));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_download_takes_the_executable_bit_and_never_any_other_permission_from_the_drive() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let b = Device::new("mode-b");
+    put_remote(&store, "tools/helper", b"#!/bin/sh\nid\n", true);
+    put_remote(&store, "notes.txt", b"plain", false);
+    b.sync(&store);
+    let mode = |key: &str| {
+        fs::metadata(b.path().join(key)).unwrap().permissions().mode() & 0o7777
+    };
+    assert_eq!(mode("tools/helper"), 0o755);
+    assert_eq!(mode("notes.txt"), 0o644);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_executable_file_here_syncs_its_bit_as_part_of_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("exec-a");
+    let b = Device::new("exec-b");
+    a.write("run.sh", b"#!/bin/sh\necho hi\n");
+    a.sync(&store);
+    b.sync(&store);
+    fs::set_permissions(a.path().join("run.sh"), fs::Permissions::from_mode(0o4755)).unwrap();
+    let sent = a.sync(&store);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    assert!(index_of(&store).files["run.sh"].exec);
+    b.sync(&store);
+    let mode = fs::metadata(b.path().join("run.sh")).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o755, "the setuid bit never travels");
+}
+
+#[test]
+fn a_download_that_would_eat_the_disks_reserve_is_not_started() {
+    let store = S3Bucket::new();
+    let a = Device::new("reserve-a");
+    let b = Device::new("reserve-b");
+    a.write("big.bin", &vec![1u8; 300_000]);
+    a.write("small.txt", b"v1");
+    a.sync(&store);
+    let mut opts = b.opts();
+    opts.disk_reserve = u64::MAX / 4;
+    let report = b.sync_with(&store, &opts).unwrap();
+    if azul_storage::beneath::free_space(b.path()).is_some() {
+        assert!(
+            lists(&report, Code::DiskReserve, Some("big.bin")),
+            "{:?}",
+            report.problems
+        );
+        assert!(b.read("big.bin").is_none());
+    }
+    let report = b.sync(&store);
+    assert!(b.read("big.bin").is_some(), "{}", report.summary());
+}
+
+#[test]
+fn an_app_saving_a_file_is_no_delete() {
+    // Word's save: the new version is written aside, the old one renamed to a temporary name,
+    // then the new one renamed in. A pass in the middle sees the file gone.
+    let store = S3Bucket::new();
+    let a = Device::new("save-a");
+    let b = Device::new("save-b");
+    a.write("Pra\u{308}sentation.docx", b"draft");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("~WRD0001.tmp", b"final");
+    fs::rename(
+        a.path().join("Pra\u{308}sentation.docx"),
+        a.path().join("~WRL0002.tmp"),
+    )
+    .unwrap();
+    let report = a.sync(&store);
+    assert!(lists(&report, Code::SaveInProgress, None), "{:?}", report.problems);
+    assert_eq!(report.deleted_there, 0);
+    b.sync(&store);
+    assert_eq!(b.read("Pra\u{308}sentation.docx").as_deref(), Some(&b"draft"[..]));
+    fs::rename(
+        a.path().join("~WRD0001.tmp"),
+        a.path().join("Pra\u{308}sentation.docx"),
+    )
+    .unwrap();
+    fs::remove_file(a.path().join("~WRL0002.tmp")).unwrap();
+    a.sync(&store);
+    b.sync(&store);
+    assert_eq!(b.read("Pra\u{308}sentation.docx").as_deref(), Some(&b"final"[..]));
+    assert!(trashed(b.path()).is_empty());
+    assert_eq!(index_of(&store).files.len(), 1);
+}
+
+#[test]
+fn a_file_still_being_written_waits_and_is_never_a_delete() {
+    let store = S3Bucket::new();
+    let a = Device::new("settle-a");
+    a.write("export.mov", b"frame 1");
+    a.sync(&store);
+    a.write("export.mov", b"frame 1, frame 2");
+    a.write("fresh.mov", b"just started");
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(lists(&report, Code::Settling, Some("export.mov")), "{:?}", report.problems);
+    assert!(lists(&report, Code::Settling, Some("fresh.mov")));
+    let index = index_of(&store);
+    assert_eq!(index.files["export.mov"].hash, hash_bytes(b"frame 1"), "not sent half");
+    assert!(!index.files.contains_key("fresh.mov"));
+    assert_eq!(report.deleted_there, 0);
+    let report = a.sync(&store);
+    assert_eq!(report.files_up, 2, "{}", report.summary());
+}
+
+#[test]
+fn a_drive_entry_no_folder_can_hold_is_listed_kept_on_the_drive_and_never_acted_on() {
+    let store = S3Bucket::new();
+    let b = Device::new("names-b");
+    put_remote(&store, "fine.txt", b"fine", false);
+    // A hostile writer's entries: traversal, the folder's own bookkeeping, a control character.
+    for key in ["../../escape.txt", ".azlin/sync/root-id", "bell\u{7}.txt"] {
+        let index_key = index_key(PREFIX);
+        let mut index = RemoteIndex::parse(&store.read(&index_key).unwrap()).unwrap();
+        let mut entry = index.files["fine.txt"].clone();
+        entry.gen += 1;
+        index.files.insert(key.to_string(), entry);
+        store.write(&index_key, index.to_bytes());
+    }
+    let report = b.sync(&store);
+    assert_eq!(b.read("fine.txt").as_deref(), Some(&b"fine"[..]), "{}", report.summary());
+    for key in ["../../escape.txt", ".azlin/sync/root-id", "bell\u{7}.txt"] {
+        assert!(lists(&report, Code::BadRemoteName, Some(key)), "{key}: {:?}", report.problems);
+    }
+    let marker = root::read_marker(b.path()).expect("the folder's own marker");
+    assert_eq!(marker.id.len(), 32, "the marker was never overwritten");
+    assert!(b.path().parent().map_or(true, |p| !p.join("escape.txt").exists()));
+    // b writes the index again: the entries stay as they are.
+    b.write("mine.txt", b"mine");
+    b.sync(&store);
+    let index = index_of(&store);
+    assert!(index.files.contains_key("../../escape.txt"));
+    assert!(index.files.contains_key("mine.txt"));
+}
+
+#[test]
+fn a_drive_entry_that_names_no_content_is_never_a_delete_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("damaged-a");
+    let b = Device::new("damaged-b");
+    a.write("x.txt", b"x");
+    a.write("y.txt", b"y");
+    a.sync(&store);
+    b.sync(&store);
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
+    index.files.get_mut("x.txt").unwrap().hash = String::from("not a hash");
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+    let report = b.sync(&store);
+    assert!(
+        lists(&report, Code::RemoteEntryUnreadable, Some("x.txt")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(b.read("x.txt").as_deref(), Some(&b"x"[..]));
+    assert!(trashed(b.path()).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_in_the_folder_is_listed_and_never_opened() {
+    let store = S3Bucket::new();
+    let a = Device::new("fifo-a");
+    a.write("a.txt", b"a");
+    let path = std::ffi::CString::new(
+        a.path().join("pipe").as_os_str().to_string_lossy().as_bytes(),
+    )
+    .unwrap();
+    // SAFETY: a valid C string.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    // Opening the FIFO to hash it would wait for a writer for ever.
+    let report = a.sync(&store);
+    assert!(lists(&report, Code::SpecialFile, Some("pipe")), "{:?}", report.problems);
+    assert!(index_of(&store).files.contains_key("a.txt"));
+    assert!(!index_of(&store).files.contains_key("pipe"));
+}
+
+#[test]
+fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
+    let dir = TempDir::new("azcloud-probe");
+    let volume = root::probe_volume(dir.path());
+    if cfg!(target_os = "macos") {
+        // APFS as macOS formats it ignores case and normalization.
+        assert!(volume.case_insensitive && volume.norm_insensitive, "{volume:?}");
+    }
+    assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
+}
