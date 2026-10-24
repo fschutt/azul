@@ -1,7 +1,6 @@
 {
   "name": "a public share link is taken down alone, on a domain apart from the app, and the takedown deletes nothing",
   "description": "TERABOX-015 (sync-chaos share-links-and-revocation): TeraBox's share domain became a malware channel (TA450 hosted payloads on share links). Rules S14 and M1: link abuse is handled per link, on a host apart from the app; a takedown ends that link only and never deletes the owner's file or another link.",
-  "pending": "drive_share_link {device, path, expires_s} answering {link, host} (AzDrive's Share > public link); drive_tamper action takedown_link {path} (the provider takes one link down); drive_check share_link {device, path, readable}",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },
     { "op": "drive_open", "device": "a", "remote": "r" },

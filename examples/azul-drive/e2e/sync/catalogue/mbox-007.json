@@ -27,7 +27,6 @@
   {
     "name": "a share link that expires revokes only the link: the file and its versions stay on the drive and on every device",
     "description": "MBOX-007: suspected Drive Mail links deleting files at their expiry. Rule V7 and the share rules: an expiring link deletes nothing.",
-    "pending": "drive_share {device, path, link: true, expires_s} (a share link as the window makes it) and drive_share_expire {remote} (let every link's expiry pass on the stand-in server)",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -38,8 +37,9 @@
       { "op": "drive_write", "device": "a", "path": "shared/report.pdf", "text": "the report" },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
-      { "op": "drive_share", "device": "a", "path": "shared/report.pdf", "link": true, "expires_s": 1 },
+      { "op": "drive_share_link", "device": "a", "path": "shared/report.pdf", "expires_s": 1 },
       { "op": "drive_share_expire", "remote": "r" },
+      { "op": "drive_check", "check": "share_link", "path": "shared/report.pdf", "readable": false },
       { "op": "drive_sync", "device": "a" },
       { "op": "drive_sync", "device": "b" },
       { "op": "drive_check", "check": "remote_file", "key": "shared/report.pdf", "text": "the report" },

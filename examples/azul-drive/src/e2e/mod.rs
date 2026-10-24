@@ -12,6 +12,7 @@
 //! report into it: [`pass_ended`] when a pass ends, [`change_ended`] when an answer landed.
 
 mod c_keys;
+mod c_links;
 mod checks;
 mod files;
 mod remote;
@@ -119,6 +120,9 @@ const OPS: &[OpDoc] = &[
     OpDoc { name: "drive_recover", summary: "unlock the drive with a recovery code", args: &[DEVICE, ("recovery_code", "string", false), ("expect", "string", false)] },
     OpDoc { name: "drive_join", summary: "join with another device's approval", args: &[DEVICE, ("approver", "string", true), ("pause_at", "string", false)] },
     OpDoc { name: "drive_rotate_key", summary: "rotate an encrypted remote's drive key", args: &[("remote", "string", false)] },
+    OpDoc { name: "drive_share_link", summary: "share a file or folder as a link", args: &[DEVICE, PATH, ("name", "string", false), ("expires_s", "number", false)] },
+    OpDoc { name: "drive_open_link", summary: "visit a share link without an account", args: &[("link", "string", true)] },
+    OpDoc { name: "drive_share_expire", summary: "let every link's expiry pass", args: &[("remote", "string", false)] },
 ];
 
 /// Adds the commands to `config` when a scenario or the debug server can reach them.
@@ -494,6 +498,9 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
             }
             Ok(serde_json::json!({ "offset": d.clock }))
         }),
+        // Group C: the share server's links (a takedown, a visit's check).
+        "drive_tamper" if str_arg(args, "action") == Some("takedown_link") => c_links::takedown(args),
+        "drive_check" if c_links::is_link_check(args) => c_links::check(s, args),
         "drive_tamper" => tamper::tamper(s, args),
         "drive_snapshot" => tamper::snapshot(args),
         "drive_check" => checks::check(s, args),
@@ -501,6 +508,9 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str, ra
         "drive_recover" => c_keys::recover(s, args),
         "drive_join" => c_keys::join(s, args),
         "drive_rotate_key" => c_keys::rotate_key(s, args),
+        "drive_share_link" => c_links::share_link(args),
+        "drive_open_link" => c_links::open_link(args),
+        "drive_share_expire" => c_links::expire(args),
         _ if name.starts_with("drive_") => files::file_op(name, args),
         _ => Err(format!("'{name}' is not one of AzDrive's commands")),
     }
@@ -520,6 +530,7 @@ fn cleanup(s: &mut DriveState) -> Answer {
         return Ok(serde_json::json!({}));
     };
     c_keys::forget();
+    c_links::forget();
     for d in &h.devices {
         faults::clear(&d.pair_folder);
     }
