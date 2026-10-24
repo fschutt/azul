@@ -13,7 +13,7 @@ use std::{
 use crate::{
     beneath::{self, BeneathError, Kind},
     dir_read::{self, DirItem, ItemKind},
-    key::{check_path_key, check_path_prefix, folder_of},
+    key::{check_local_names, check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
     ops::check_folder,
     sigv4::{sha256_hex, sha256_hex_of},
@@ -488,6 +488,8 @@ impl LocalDrive {
     /// The file of a (checked) key.
     fn path_of(&self, key: &str) -> Result<PathBuf, DriveError> {
         check_path_key(key)?;
+        // On Windows a name like `C:x` would make the pushed path leave the root.
+        check_local_names(key)?;
         if is_reserved_key(key) {
             return Err(reserved(key));
         }
@@ -512,6 +514,7 @@ impl LocalDrive {
     fn folder_path(&self, prefix: &str) -> Result<PathBuf, DriveError> {
         check_folder(prefix)?;
         check_path_prefix(prefix)?;
+        check_local_names(prefix)?;
         if is_reserved_key(prefix) {
             return Err(reserved(prefix));
         }
@@ -595,6 +598,7 @@ impl LocalDrive {
 impl Drive for LocalDrive {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
         check_path_prefix(&request.prefix)?;
+        check_local_names(&request.prefix)?;
         let prefix = request.prefix.as_str();
         let folder = folder_of(prefix);
         if is_reserved_key(folder) {

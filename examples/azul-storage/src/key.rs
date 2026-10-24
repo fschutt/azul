@@ -66,6 +66,68 @@ pub fn check_path_prefix(prefix: &str) -> Result<(), DriveError> {
     })
 }
 
+/// Why Windows cannot take `name` as one name of a path on disk, or `None`. A `:` is never part
+/// of a name there: `C:x` is a path relative to drive C's current folder (a path built from it
+/// leaves its root) and `a.txt:s` writes an alternate data stream of `a.txt`. Device names
+/// (`CON`, `aux.txt`, `COM1`) open the device, and Windows drops a dot or a space at the end of
+/// a name, so two names would be one file. The other characters it refuses, and control
+/// characters, cannot be in a name either.
+#[must_use]
+pub fn windows_name_problem(name: &str) -> Option<&'static str> {
+    const REFUSED: &[char] = &['<', '>', '"', '|', '?', '*', '/', '\\'];
+    if name.contains(':') {
+        return Some("a \":\" in a name means a drive or a stream on Windows");
+    }
+    if name.chars().any(|c| c < ' ' || REFUSED.contains(&c)) {
+        return Some("it has a character Windows does not allow in a name");
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Some("Windows drops a dot or a space at the end of a name");
+    }
+    if is_windows_device_name(name.split('.').next().unwrap_or(name)) {
+        return Some("it is a device name on Windows (CON, AUX, NUL, COM1, ...)");
+    }
+    None
+}
+
+/// Whether `stem` (a name up to its first dot) is a name Windows keeps for a device, in any
+/// case and with spaces after it: `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, and `COM` or
+/// `LPT` with one digit (0 to 9, or a superscript 1, 2 or 3).
+#[must_use]
+pub fn is_windows_device_name(stem: &str) -> bool {
+    let upper = stem.trim_end_matches(' ').to_uppercase();
+    matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ["COM", "LPT"].into_iter().any(|p| {
+        upper.strip_prefix(p).is_some_and(|n| {
+            let mut c = n.chars();
+            matches!(
+                (c.next(), c.next()),
+                (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+            )
+        })
+    })
+}
+
+/// Checks the names of a key (or a folder prefix) that becomes a path on this computer's disk:
+/// on Windows each one must be a name Windows takes ([`windows_name_problem`]); elsewhere they
+/// are valid as they are. Runs after [`check_path_key`] or [`check_path_prefix`].
+///
+/// # Errors
+///
+/// [`DriveError::InvalidKey`] naming why, on Windows.
+pub fn check_local_names(key: &str) -> Result<(), DriveError> {
+    if cfg!(windows) {
+        for name in key.split('/').filter(|n| !n.is_empty()) {
+            if let Some(reason) = windows_name_problem(name) {
+                return invalid(key, reason);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The folder part of a prefix: `mail/in` -> `mail/`, `mail/` -> `mail/`, `in` -> ``.
 #[must_use]
 pub fn folder_of(prefix: &str) -> &str {

@@ -142,21 +142,10 @@ pub fn key_problem(key: &str) -> Option<String> {
 }
 
 /// The names Windows reserves for devices, as a whole name and as the part before the first
-/// dot (`nul.tar.gz`), in any case.
+/// dot (`nul.tar.gz`), in any case: the storage crate's list, which its local drives refuse on
+/// Windows too.
 fn is_windows_device(stem: &str) -> bool {
-    let upper = stem.trim_end_matches(' ').to_uppercase();
-    matches!(
-        upper.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-    ) || ["COM", "LPT"].into_iter().any(|p| {
-        upper.strip_prefix(p).is_some_and(|n| {
-            let mut c = n.chars();
-            matches!(
-                (c.next(), c.next()),
-                (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
-            )
-        })
-    })
+    azul_storage::key::is_windows_device_name(stem)
 }
 
 /// Why Windows (or a FAT or exFAT disk) cannot hold this otherwise valid key, or `None`. A `:`
