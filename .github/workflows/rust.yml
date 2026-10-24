@@ -846,9 +846,18 @@ jobs:
       - name: Run azcloud-kit tests
         run: |
           set -o pipefail
-          cargo test -p azcloud-kit --features encryption --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
+          # state-db: the sync's SQLite base and the azsync CLI the sync chaos harness drives.
+          cargo test -p azcloud-kit --features encryption,state-db --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
           ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
           cargo check -p azcloud-kit --tests
+
+      # The client-side compression azul-storage seals: deflate rebuilt bit for bit, Lepton,
+      # the codecs, and the format 1 golden vectors that must decode forever.
+      - name: Run azlin-preflate and azlin-compress tests
+        run: |
+          set -o pipefail
+          cargo test -p azlin-preflate -p azlin-compress --no-fail-fast 2>&1 | tee azlin-compress-tests.txt
+          ./scripts/zero_test_guard.sh --strict azlin-compress-tests.txt
 
       # The fake providers of the local stacks are a feature (a build without it cannot be
       # pointed at a fake): the tests run with it, so the dev registry is tested too.

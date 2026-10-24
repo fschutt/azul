@@ -51,6 +51,8 @@ tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart 
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 tested: azul-icons-haiku     # dll_tests (names sorted and mapped once, every Material name drawn, every icon an HVIF azul draws)
 tested: azlin-contract       # dll_tests (the golden fixtures, the ids, the hello, the error codes)
+tested: azlin-preflate       # dll_tests (deflate streams rebuilt bit for bit, damaged input an error)
+tested: azlin-compress       # dll_tests (detection, Lepton, the deflate rebuild, the codecs, the golden vectors)
 tested: azcloud-kit          # dll_tests (the token server's API, sessions, endpoints, the Azlin drive, the account, the bucket, the sync, links)
 tested: azul-pay             # dll_tests (the URL policy, the registry, the offer filter, the pills, the surfaces, the bridge, the checkout state machine)
 tested: azul-pay-methods     # dll_tests (the registry parses and keeps its rules, the currencies, the ECB rates)

@@ -229,6 +229,7 @@ rustls = "Pure-Rust TLS stack for HTTPS (ureq) — avoids an OpenSSL dependency.
 rustls-pki-types = "Shared certificate/key types for rustls."
 rustls-webpki = "X.509 certificate path validation for rustls."
 webpki-roots = "Bundled Mozilla root CA certificates for rustls."
+webpki-root-certs = "Mozilla's root CAs as whole certificates: azul-core's TrustRoots (feature tls-roots) builds every TLS client's root store from them (ureq's, iroh's and reqwest's stores take certificates, not trust anchors)."
 rustls-rustcrypto-azul = "Pure-Rust (RustCrypto) crypto provider backend for rustls: our fork of rustls-rustcrypto, its unreleased master on crypto-bigint 0.7.6+ (RUSTSEC-2026-0387), published so no [patch] is needed."
 untrusted = "Safe parser for untrusted input (DER/certs) used by rustls-webpki."
 
