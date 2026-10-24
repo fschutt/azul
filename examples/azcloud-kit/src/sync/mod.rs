@@ -52,12 +52,17 @@
 
 pub mod drive_store;
 pub mod guard;
+pub mod journal;
 pub mod local;
+pub mod loops;
 pub mod merge;
 pub mod named;
 pub mod objects;
+pub mod oplog;
 pub mod problems;
+pub mod quarantine;
 pub mod remote;
+pub mod retry;
 pub mod rules;
 pub mod session;
 

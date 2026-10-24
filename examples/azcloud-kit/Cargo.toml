@@ -57,6 +57,11 @@ num-bigint-dig = { version = "0.8", default-features = false }
 # features (Cargo.lock has 2.2.0).
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
 
+# The sync engine's system calls (no new crate: libc 0.2 is in Cargo.lock): the quarantine
+# attribute on macOS (setxattr), the inotify watcher on Linux.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }

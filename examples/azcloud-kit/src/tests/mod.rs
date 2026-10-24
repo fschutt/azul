@@ -51,6 +51,16 @@ mod sync_named;
 mod sync_ondemand;
 /// The per-file problem list: codes, what stays listed, escaped names.
 mod sync_problems;
+/// The journal: steps a crash cut off are finished or rolled back.
+mod sync_journal;
+/// The loop detector.
+mod sync_loops;
+/// The operations log.
+mod sync_oplog;
+/// Quarantine marks on files from share participants.
+mod sync_quarantine;
+/// Bounded retries and Retry-After.
+mod sync_retry;
 mod sync_remote;
 mod sync_rules;
 mod sync_session;

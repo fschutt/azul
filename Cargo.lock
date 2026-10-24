@@ -1200,6 +1200,7 @@ dependencies = [
  "fluent-syntax",
  "getrandom 0.2.17",
  "hkdf 0.12.4",
+ "libc",
  "num-bigint-dig",
  "rsa 0.9.10",
  "serde",
