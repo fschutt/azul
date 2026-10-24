@@ -64,7 +64,10 @@ use super::{
 use crate::{
     callbacks::CallbackInfo,
     widgets::{
-        split_pane::{SplitDirection, SplitPane, SplitPaneOnResizeCallbackType, SplitPaneState},
+        split_pane::{
+            SplitDirection, SplitPane, SplitPaneFixed, SplitPaneOnResizeCallbackType,
+            SplitPaneState,
+        },
         themes::{OptionUiTheme, UiTheme},
     },
 };
@@ -745,9 +748,15 @@ extern "C" fn on_split_resize(mut data: RefAny, info: CallbackInfo, state: Split
         };
         (split.pane_index, split.on_pane_resize.clone())
     };
+    // A pane of fixed size reports its new size, a shared one its share.
+    let value = if state.fixed == SplitPaneFixed::None {
+        state.ratio
+    } else {
+        state.fixed_size
+    };
     match on_pane_resize.into_option() {
         Some(ShellOnPaneResize { refany, callback }) => {
-            callback.invoke(refany, info, pane_index, state.ratio)
+            callback.invoke(refany, info, pane_index, value)
         }
         None => Update::DoNothing,
     }
@@ -814,16 +823,23 @@ fn pane_node(pane: ShellPane, look: &ShellLook) -> Dom {
 }
 
 /// A splitter between `first` and `rest`.
+#[allow(clippy::too_many_arguments)] // the two sides, their sharing and the hooks
 fn split(
     direction: SplitDirection,
     first: Dom,
     rest: Dom,
     ratio: f32,
+    fixed: (SplitPaneFixed, f32),
     pane_index: usize,
     on_pane_resize: &OptionShellOnPaneResize,
     inner: Option<UiTheme>,
 ) -> Dom {
     let mut sp = SplitPane::create(direction, first, rest).with_ratio(ratio);
+    match fixed {
+        (SplitPaneFixed::First, px) => sp = sp.with_fixed_first(px),
+        (SplitPaneFixed::Second, px) => sp = sp.with_fixed_second(px),
+        (SplitPaneFixed::None, _) => {}
+    }
     if let Some(t) = inner {
         sp = sp.with_theme(t);
     }
@@ -860,12 +876,22 @@ fn split_tree(
     } else {
         1.0 / count as f32
     };
+    // A first pane of fixed size keeps it; else a last pane of fixed size
+    // (the rest is that one pane) keeps its own.
+    let fixed = if first.size > 0.0 {
+        (SplitPaneFixed::First, first.size)
+    } else if panes.len() == 1 && panes[0].size > 0.0 {
+        (SplitPaneFixed::Second, panes[0].size)
+    } else {
+        (SplitPaneFixed::None, 0.0)
+    };
     let rest = split_tree(panes, first_index + 1, on_pane_resize, inner, look);
     split(
         SplitDirection::Horizontal,
         pane_node(first, look),
         rest,
         ratio,
+        fixed,
         first_index,
         on_pane_resize,
         inner,
@@ -994,11 +1020,18 @@ pub(crate) fn build(shell: OfficeShell, look: &ShellLook) -> Dom {
             Some(b) => {
                 let share = if b.ratio > 0.0 { b.ratio } else { 0.3 };
                 let pane_index = ids.len().saturating_sub(1);
+                // A bottom pane of fixed size keeps its height.
+                let fixed = if b.size > 0.0 {
+                    (SplitPaneFixed::Second, b.size)
+                } else {
+                    (SplitPaneFixed::None, 0.0)
+                };
                 let stack = split(
                     SplitDirection::Vertical,
                     body,
                     pane_node(b, look),
                     1.0 - share,
+                    fixed,
                     pane_index,
                     &on_pane_resize,
                     inner,

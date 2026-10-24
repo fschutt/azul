@@ -614,6 +614,18 @@ impl AddressBar {
         self
     }
 
+    /// How many of the trail's leading crumbs fold into the overflow menu in
+    /// a bar `available_width` px wide. An app that sizes the bar by its
+    /// window builds it again only when this answer changes.
+    #[must_use]
+    pub fn folded_crumbs_at(&self, available_width: f32) -> usize {
+        let names: Vec<&str> = self.crumbs.as_ref().iter().map(AzString::as_str).collect();
+        folded_crumbs(
+            &names,
+            trail_room(available_width, self.show_recent, !self.icon.as_str().is_empty()),
+        )
+    }
+
     /// Pin the widget theme; unset, the bar follows the app theme.
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);

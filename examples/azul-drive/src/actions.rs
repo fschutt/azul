@@ -1422,10 +1422,10 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     Update::RefreshDom
 }
 
-/// The window was resized: the grid's rows for the arrow keys; a new width rebuilds the
-/// window (the address bar folds the crumbs that no longer fit into its « menu, the
-/// folder view lays its lines out for the new width, the icon grid draws exactly its new
-/// viewport).
+/// The window was resized: the grid's rows for the arrow keys. The window is built again only
+/// when what its build reads of the size changes: the address bar folds another crumb into its
+/// « menu, or the icon grid (which draws exactly its viewport) is shown. The panes keep their
+/// widths and the folder view lays its rows out for its new box without a new window.
 pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let size = info.get_current_window_state().size.dimensions;
     let handle = data.clone();
@@ -1435,6 +1435,8 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) ->
     let s = &mut *guard;
     let wider = (s.window_width - size.width).abs() >= 1.0;
     let taller = size.height - s.window_height;
+    let refolds =
+        wider && crate::ui_panes::folded_crumbs(s, s.window_width) != crate::ui_panes::folded_crumbs(s, size.width);
     s.window_width = size.width;
     s.window_height = size.height;
     if wider {
@@ -1450,7 +1452,7 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) ->
         // Rows came into view: what they lack (sizes, counts, thumbnails) is asked for.
         request_view_work(&mut info, &handle, s);
     }
-    if wider || crate::ui_view::uses_icon_grid(s) {
+    if refolds || (crate::ui_view::uses_icon_grid(s) && (wider || taller.abs() >= 1.0)) {
         Update::RefreshDom
     } else {
         Update::DoNothing

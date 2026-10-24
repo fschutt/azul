@@ -163,6 +163,8 @@ pub struct SplitPaneStateWrapper {
     pub drag_start_px: f32,
     /// Split ratio captured at drag start (the anchor for the delta-based update).
     pub ratio_at_drag_start: f32,
+    /// A fixed pane's size captured at drag start (the same anchor, in px).
+    pub size_at_drag_start: f32,
 }
 
 /// Which pane of a [`SplitPane`] keeps a size of its own while the container
@@ -343,6 +345,55 @@ fn pane_style(grow: f32) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
         CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     ])
+}
+
+/// The style of the pane that keeps `px` along the split: it neither grows
+/// nor shrinks, its basis is its size.
+fn fixed_pane_style(px: f32) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(flex_grow_prop(0.0)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        CssPropertyWithConditions::simple(flex_basis_prop(px)),
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_min_height(
+            LayoutMinHeight::const_px(0),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    ])
+}
+
+/// `flex-basis: px` as a runtime `CssProperty`.
+fn flex_basis_prop(px: f32) -> CssProperty {
+    CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(LayoutFlexBasis::Exact(
+        PixelValue::px(px),
+    )))
+}
+
+/// The smallest size, in logical px, a pane of fixed size can be dragged to,
+/// and the least the other pane keeps.
+const MIN_FIXED_PX: f32 = 40.0;
+
+/// A fixed pane's size `px` clamped so both panes keep [`MIN_FIXED_PX`] in a
+/// container `msize` long; `None` for a NaN.
+fn clamp_fixed(px: f32, msize: f32) -> Option<f32> {
+    let max = (pane_space(msize) - MIN_FIXED_PX).max(MIN_FIXED_PX);
+    let v = px.clamp(MIN_FIXED_PX, max);
+    (!v.is_nan()).then_some(v)
+}
+
+/// Where the divider's centre is along the main axis, for the split's own
+/// sharing: a fixed pane puts it at its size from its side.
+fn divider_at(state: &SplitPaneState, msize: f32) -> f32 {
+    match state.fixed {
+        SplitPaneFixed::None => divider_centre(state.ratio, msize),
+        SplitPaneFixed::First => state.fixed_size + DIVIDER_THICKNESS_PX / 2.0,
+        SplitPaneFixed::Second => msize - state.fixed_size - DIVIDER_THICKNESS_PX / 2.0,
+    }
 }
 
 /// The divider's BASE: how the splitter lays out, the same in every theme
@@ -675,6 +726,14 @@ impl SplitPane {
 
         let direction = self.split_pane_state.inner.direction;
         let ratio = self.split_pane_state.inner.ratio;
+        let fixed = self.split_pane_state.inner.fixed;
+        let fixed_size = self.split_pane_state.inner.fixed_size;
+        // A fixed pane is its size; the other one takes the rest.
+        let (first_style, second_style) = match fixed {
+            SplitPaneFixed::None => (pane_style(ratio), pane_style(1.0 - ratio)),
+            SplitPaneFixed::First => (fixed_pane_style(fixed_size), pane_style(1.0)),
+            SplitPaneFixed::Second => (pane_style(1.0), fixed_pane_style(fixed_size)),
+        };
 
         // One shared RefAny across all pointer callbacks so the transient drag
         // fields set on press are visible to the move/release handlers (RefAny::clone
@@ -729,7 +788,7 @@ impl SplitPane {
         // handler relies on (first_child = pane0, then divider, then pane1).
         let first_pane = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_FIRST_CLASS))
-            .with_css_props(pane_style(ratio))
+            .with_css_props(first_style)
             .with_children(vec![self.first].into());
 
         // The separator: a tab stop, the splitter role (`Grip`, which the a11y
@@ -762,7 +821,7 @@ impl SplitPane {
 
         let second_pane = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SECOND_CLASS))
-            .with_css_props(pane_style(1.0 - ratio))
+            .with_css_props(second_style)
             .with_children(vec![self.second].into());
 
         let mut classes: Vec<IdOrClass> = SPLIT_PANE_CLASS.to_vec();
@@ -814,10 +873,11 @@ extern "C" fn on_split_pointer_down(mut data: RefAny, mut info: CallbackInfo) ->
         return Update::DoNothing;
     }
     let main = main_axis(dir, pos);
-    if (main - divider_centre(sp.inner.ratio, msize)).abs() <= GRAB_THRESHOLD {
+    if (main - divider_at(&sp.inner, msize)).abs() <= GRAB_THRESHOLD {
         sp.is_dragging = true;
         sp.drag_start_px = main;
         sp.ratio_at_drag_start = sp.inner.ratio;
+        sp.size_at_drag_start = sp.inner.fixed_size;
         let container = info.get_hit_node();
         info.capture_pointer(container);
     }
@@ -847,6 +907,32 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
     }
     let main = main_axis(dir, pos);
     let delta = main - sp.drag_start_px;
+    // A fixed pane follows the divider by the cursor's own distance.
+    if sp.inner.fixed != SplitPaneFixed::None {
+        let towards = if sp.inner.fixed == SplitPaneFixed::First { delta } else { -delta };
+        let Some(px) = clamp_fixed(sp.size_at_drag_start + towards, msize) else {
+            return Update::DoNothing;
+        };
+        sp.inner.fixed_size = px;
+        let container = info.get_hit_node();
+        if let Some(pane0) = info.get_first_child(container) {
+            let fixed_pane = if sp.inner.fixed == SplitPaneFixed::First {
+                Some(pane0)
+            } else {
+                info.get_next_sibling(pane0).and_then(|d| info.get_next_sibling(d))
+            };
+            if let Some(pane) = fixed_pane {
+                info.set_css_property(pane, flex_basis_prop(px));
+            }
+        }
+        let inner = sp.inner;
+        return match sp.on_resize.as_mut() {
+            Some(SplitPaneOnResize { callback, refany }) => {
+                callback.invoke(refany.clone(), info, inner)
+            }
+            None => Update::DoNothing,
+        };
+    }
     // Over the space the panes share, not the whole container: a ratio step
     // of `delta / container` moved the divider by `delta * (W - 6) / W`, so
     // it slid out from under the cursor.
@@ -930,6 +1016,46 @@ extern "C" fn on_split_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     } else {
         KEY_STEP
     };
+    if sp.inner.fixed != SplitPaneFixed::None {
+        // A fixed pane steps by px: the same share of a typical 1000 px split.
+        let step_px = step * 1000.0;
+        let grows_first = match (sp.inner.direction, key) {
+            (SplitDirection::Horizontal, K::Left) | (SplitDirection::Vertical, K::Up) => Some(-step_px),
+            (SplitDirection::Horizontal, K::Right) | (SplitDirection::Vertical, K::Down) => Some(step_px),
+            (_, K::Home) => Some(f32::NEG_INFINITY),
+            (_, K::End) => Some(f32::INFINITY),
+            _ => None,
+        };
+        let Some(d) = grows_first else {
+            return Update::DoNothing;
+        };
+        let towards = if sp.inner.fixed == SplitPaneFixed::First { d } else { -d };
+        let msize = info
+            .get_parent(info.get_hit_node())
+            .and_then(|c| info.get_node_size(c))
+            .map_or(sp.inner.fixed_size * 4.0, |s| main_size(sp.inner.direction, s));
+        let Some(px) = clamp_fixed(sp.inner.fixed_size + towards, msize) else {
+            return Update::DoNothing;
+        };
+        info.prevent_default();
+        sp.inner.fixed_size = px;
+        let divider = info.get_hit_node();
+        let pane = if sp.inner.fixed == SplitPaneFixed::First {
+            info.get_previous_sibling(divider)
+        } else {
+            info.get_next_sibling(divider)
+        };
+        if let Some(pane) = pane {
+            info.set_css_property(pane, flex_basis_prop(px));
+        }
+        let inner = sp.inner;
+        return match sp.on_resize.as_mut() {
+            Some(SplitPaneOnResize { callback, refany }) => {
+                callback.invoke(refany.clone(), info, inner)
+            }
+            None => Update::DoNothing,
+        };
+    }
     let ratio = sp.inner.ratio;
     let target = match (sp.inner.direction, key) {
         (SplitDirection::Horizontal, K::Left) | (SplitDirection::Vertical, K::Up) => ratio - step,
@@ -993,6 +1119,10 @@ pub extern "C" fn merge_split_pane_state(mut new_data: RefAny, mut old_data: Ref
                 new_g.drag_start_px = old_g.drag_start_px;
                 new_g.ratio_at_drag_start = old_g.ratio_at_drag_start;
                 new_g.inner.ratio = old_g.inner.ratio;
+                new_g.size_at_drag_start = old_g.size_at_drag_start;
+                if new_g.inner.fixed == old_g.inner.fixed {
+                    new_g.inner.fixed_size = old_g.inner.fixed_size;
+                }
             }
         }
     }

@@ -34,6 +34,20 @@ use crate::{
 /// path, Refresh at its end - and "Search <folder>". `width` is the window's (the bar folds its
 /// crumbs to it).
 pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
+    bar_model(s, width)
+        .with_on_event(app.clone(), on_address as AddressBarOnEventCallbackType)
+        .dom()
+}
+
+/// How many crumbs of the open place fold into the bar's « menu in a window `width` px wide:
+/// the one thing of the window's build that follows its width (the panes keep their widths and
+/// the folder view lays its rows out for its box by itself).
+pub(crate) fn folded_crumbs(s: &DriveState, width: f32) -> usize {
+    bar_model(s, width).folded_crumbs_at(width)
+}
+
+/// The address bar of the open place, for a window `width` px wide, without its callback.
+fn bar_model(s: &DriveState, width: f32) -> AddressBar {
     let drive_name = s.drive_name(&s.place);
     let labels: Vec<AzString> = browse::crumbs_of(&s.place, &drive_name)
         .into_iter()
@@ -65,8 +79,6 @@ pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
         } else {
             "Ctrl+F"
         }))
-        .with_on_event(app.clone(), on_address as AddressBarOnEventCallbackType)
-        .dom()
 }
 
 /// The folders under `place` the app knows: the tree's listing, or the

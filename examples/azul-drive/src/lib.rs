@@ -1027,10 +1027,11 @@ pub(crate) struct DriveState {
     /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
     /// in progress (its selection is the app's, handed in on every build).
     pub grid_view: IconGridView,
-    /// The splitters' shares as the user dragged them: the navigation pane's of the window,
-    /// the content's beside the right pane (preview or details); `0.0` until a splitter moves,
-    /// the panes then standing at the design's widths ([`DriveState::pane_shares`]).
-    pub pane_ratios: (f32, f32),
+    /// The panes' widths as the user dragged their splitters, in px: the navigation pane's and
+    /// the right pane's (preview or details); `0.0` until a splitter moves, the panes then at
+    /// the design's widths ([`DriveState::pane_widths`]). The engine keeps them through a resize
+    /// (fixed-size panes): the content takes the change.
+    pub pane_widths: (f32, f32),
     /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
     /// The ribbon's tab chosen last (the place shows it where it has it).
@@ -1375,42 +1376,38 @@ impl DriveState {
         if !self.view_layout().is_grid() {
             return 1;
         }
-        let mut width = self.window_width;
-        let (nav, content) = self.pane_shares(width);
-        if self.settings.navigation_pane {
-            width *= 1.0 - nav;
-        }
-        if self.settings.preview_pane || self.settings.details_pane {
-            width *= content;
-        }
+        let width = self.content_pane_width(self.window_width);
         self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
     }
 
-    /// The splitters' shares in a window `width` px wide: the ones the user dragged, else the
-    /// shares that stand the navigation pane at 228 px and the right pane at 300 px (SPEC 2.7,
-    /// 2.9), whatever the window's width.
-    pub fn pane_shares(&self, width: f32) -> (f32, f32) {
-        let width = if width > 0.0 { width } else { self.window_width };
-        let nav = if self.pane_ratios.0 > 0.0 {
-            self.pane_ratios.0
-        } else if width > 0.0 {
-            (NAV_PANE_PX / width).clamp(0.05, 0.6)
+    /// The navigation pane's and the right pane's widths in px: the ones the user dragged, else
+    /// the design's 228 px and 300 px (SPEC 2.7, 2.9), whatever the window's width.
+    pub fn pane_widths(&self) -> (f32, f32) {
+        let nav = if self.pane_widths.0 > 0.0 {
+            self.pane_widths.0
         } else {
-            0.22
+            NAV_PANE_PX
         };
-        let rest = if self.settings.navigation_pane {
-            width * (1.0 - nav) - PANE_SPLITTER_PX
+        let right = if self.pane_widths.1 > 0.0 {
+            self.pane_widths.1
         } else {
-            width
+            RIGHT_PANE_PX
         };
-        let content = if self.pane_ratios.1 > 0.0 {
-            self.pane_ratios.1
-        } else if rest > 0.0 {
-            (1.0 - (RIGHT_PANE_PX + PANE_SPLITTER_PX) / rest).clamp(0.3, 0.95)
-        } else {
-            0.7
-        };
-        (nav, content)
+        (nav, right)
+    }
+
+    /// What the content pane has of a window `width` px wide: the window less the panes
+    /// shown beside it and their splitters.
+    pub fn content_pane_width(&self, width: f32) -> f32 {
+        let (nav, right) = self.pane_widths();
+        let mut width = width;
+        if self.settings.navigation_pane {
+            width -= nav + PANE_SPLITTER_PX;
+        }
+        if self.settings.preview_pane || self.settings.details_pane {
+            width -= right + PANE_SPLITTER_PX;
+        }
+        width
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
@@ -1433,13 +1430,7 @@ impl DriveState {
                 760.0
             };
         }
-        let (nav, content) = self.pane_shares(width);
-        if self.settings.navigation_pane {
-            width = width * (1.0 - nav) - SPLITTER_PX;
-        }
-        if self.settings.preview_pane || self.settings.details_pane {
-            width = width * content - SPLITTER_PX;
-        }
+        width = self.content_pane_width(width) - 2.0 * (SPLITTER_PX - PANE_SPLITTER_PX);
         height -= CHROME_PX + LEAF_FRAME_Y;
         width -= LEAF_FRAME_X;
         if self.message.is_some() {
@@ -3232,27 +3223,27 @@ const RIGHT_PANE_PX: f32 = 300.0;
 /// A splitter's own width between two panes.
 const PANE_SPLITTER_PX: f32 = 4.0;
 
-/// A splitter was dragged: the pane left of it keeps its new share (the navigation pane's of
-/// the window, the content's beside the right pane), handed back on every rebuild - and the
-/// icon grid takes the new width.
+/// A splitter was dragged: the pane it sizes keeps its new width (the navigation pane's, the
+/// right pane's - both are panes of fixed size, so the splitter reports px), handed back on
+/// every rebuild - and the icon grid takes the new width.
 extern "C" fn on_pane_resize(
     mut data: RefAny,
     _info: CallbackInfo,
     pane: usize,
-    ratio: f32,
+    width: f32,
 ) -> Update {
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
-    if !ratio.is_finite() || ratio <= 0.05 || ratio >= 0.95 {
+    if !width.is_finite() || width <= 0.0 {
         return Update::DoNothing;
     }
     // The index counts the panes shown: the navigation pane first, when it is.
     let nav = s.settings.navigation_pane;
     if nav && pane == 0 {
-        s.pane_ratios.0 = ratio;
+        s.pane_widths.0 = width;
     } else if (nav && pane == 1) || (!nav && pane == 0) {
-        s.pane_ratios.1 = ratio;
+        s.pane_widths.1 = width;
     } else {
         return Update::DoNothing;
     }
@@ -3290,8 +3281,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ui_view::content(s, &app, s.content_size(window)),
     )
     .with_tree_visible(s.settings.navigation_pane)
-    .with_tree_ratio(s.pane_shares(width).0)
-    .with_content_ratio(s.pane_shares(width).1);
+    .with_tree_width(s.pane_widths().0)
+    .with_preview_width(s.pane_widths().1);
     if s.settings.preview_pane {
         browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
     }
@@ -3305,6 +3296,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         shell.add_pane(
             ShellPane::create(DETAILS_PANE_ID, ui_view::on_page(ui_panes::details_pane(s)))
                 .with_kind(ShellPaneKind::Side)
+                .with_size(s.pane_widths().1)
                 .with_label(azul_appkit::l10n::label("azdrive-pane-details")),
         );
     }
@@ -3799,7 +3791,7 @@ pub fn start() {
         standard_folders: Vec::new(),
         groups_closed: HashSet::new(),
         grid_view: IconGridView::create(),
-        pane_ratios: (0.0, 0.0),
+        pane_widths: (0.0, 0.0),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
         ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,

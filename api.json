@@ -73056,6 +73056,70 @@
                                     "type": "SplitPane"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_fixed_first": {
+                                "doc": [
+                                    "The first pane keeps `px` along the split while the container",
+                                    "resizes; the second takes the rest."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_fixed_first(px)"
+                            },
+                            "set_fixed_second": {
+                                "doc": [
+                                    "The second pane keeps `px` along the split while the container",
+                                    "resizes; the first takes the rest."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_fixed_second(px)"
+                            },
+                            "with_fixed_first": {
+                                "doc": [
+                                    "[`Self::set_fixed_first`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SplitPane"
+                                },
+                                "fn_body": "object.with_fixed_first(px)"
+                            },
+                            "with_fixed_second": {
+                                "doc": [
+                                    "[`Self::set_fixed_second`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SplitPane"
+                                },
+                                "fn_body": "object.with_fixed_second(px)"
                             }
                         },
                         "repr": "C"
@@ -73101,6 +73165,9 @@
                                     "type": "f32"
                                 },
                                 "ratio_at_drag_start": {
+                                    "type": "f32"
+                                },
+                                "size_at_drag_start": {
                                     "type": "f32"
                                 }
                             }
@@ -73156,6 +73223,12 @@
                                     "type": "SplitDirection"
                                 },
                                 "ratio": {
+                                    "type": "f32"
+                                },
+                                "fixed": {
+                                    "type": "SplitPaneFixed"
+                                },
+                                "fixed_size": {
                                     "type": "f32"
                                 }
                             }
@@ -81759,6 +81832,25 @@
                                     "type": "AddressBar"
                                 },
                                 "fn_body": "object.with_search_shortcut(shortcut)"
+                            },
+                            "folded_crumbs_at": {
+                                "doc": [
+                                    "How many of the trail's leading crumbs fold into the overflow menu in",
+                                    "a bar `available_width` px wide. An app that sizes the bar by its",
+                                    "window builds it again only when this answer changes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "available_width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.folded_crumbs_at(available_width)"
                             }
                         },
                         "repr": "C"
@@ -114076,6 +114168,25 @@
                                 "on_action": {
                                     "type": "ToastOnDismiss"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SplitPaneFixed": {
+                        "external": "azul_layout::widgets::split_pane::SplitPaneFixed",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "First": {},
+                                "Second": {}
                             }
                         ],
                         "repr": "C"
@@ -208168,6 +208279,12 @@
                                 "details_ratio": {
                                     "type": "f32"
                                 },
+                                "tree_width": {
+                                    "type": "f32"
+                                },
+                                "preview_width": {
+                                    "type": "f32"
+                                },
                                 "tree_visible": {
                                     "type": "bool"
                                 }
@@ -208452,6 +208569,69 @@
                                     "type": "BrowserShell"
                                 },
                                 "fn_body": "object.with_tree_visible(visible)"
+                            },
+                            "set_preview_width": {
+                                "doc": [
+                                    "The preview pane keeps `px` while the window resizes (see",
+                                    "[`Self::preview_width`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_preview_width(px)"
+                            },
+                            "set_tree_width": {
+                                "doc": [
+                                    "The tree keeps `px` while the window resizes (see [`Self::tree_width`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_tree_width(px)"
+                            },
+                            "with_preview_width": {
+                                "doc": [
+                                    "[`Self::set_preview_width`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BrowserShell"
+                                },
+                                "fn_body": "object.with_preview_width(px)"
+                            },
+                            "with_tree_width": {
+                                "doc": [
+                                    "[`Self::set_tree_width`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BrowserShell"
+                                },
+                                "fn_body": "object.with_tree_width(px)"
                             }
                         },
                         "repr": "C"
@@ -210634,6 +210814,9 @@
                                 "width": {
                                     "type": "f32"
                                 },
+                                "size": {
+                                    "type": "f32"
+                                },
                                 "kind": {
                                     "type": "ShellPaneKind"
                                 },
@@ -210828,6 +211011,37 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_rail()"
+                            },
+                            "set_size": {
+                                "doc": [
+                                    "The size the pane keeps on its splitter (see [`Self::size`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "size": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_size(size)"
+                            },
+                            "with_size": {
+                                "doc": [
+                                    "[`Self::set_size`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "size": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShellPane"
+                                },
+                                "fn_body": "object.with_size(size)"
                             }
                         },
                         "repr": "C"

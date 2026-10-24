@@ -242,7 +242,6 @@ impl BrowserShell {
             preview_width,
             tree_visible,
         } = self;
-        let _ = (tree_width, preview_width);
         // The ribbon row: the ribbon (if any) over the address bar.
         let address_row = Dom::create_div()
             .with_ids_and_classes(id_and_class(
@@ -270,6 +269,7 @@ impl BrowserShell {
                 .with_kind(ShellPaneKind::Navigation)
                 .with_label(AzString::from_const_str("Navigation"))
                 .with_ratio(tree_ratio)
+                .with_size(tree_width)
                 .with_visible(tree_visible),
         )
         .with_pane(
@@ -282,6 +282,7 @@ impl BrowserShell {
             shell.add_pane(
                 ShellPane::create(AzString::from_const_str(PREVIEW_ID), p)
                     .with_kind(ShellPaneKind::Side)
+                    .with_size(preview_width)
                     .with_label(AzString::from_const_str("Preview")),
             );
         }
