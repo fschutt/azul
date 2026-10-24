@@ -209,6 +209,39 @@ fn other_device_commits(store: &S3Bucket, files: &[(&str, &[u8])]) {
     store.write(&index_key(PREFIX), index.to_bytes());
 }
 
+/// Two spellings of one folder on the drive land in one folder on a disk that ignores case:
+/// the files of the one committed first come down, the other's stay on the drive, listed -
+/// and no later pass takes the folder's files for new ones and deletes them on the drive.
+#[test]
+fn files_under_another_spelling_of_a_folder_here_stay_on_the_drive_and_say_why() {
+    let probe = TempDir::new("azcloud-chaos-probe-folders");
+    if !folds(probe.path(), "Samples", "samples") {
+        // A disk that keeps every spelling apart (Linux): nothing collides here.
+        return;
+    }
+    let store = S3Bucket::new();
+    let laptop = Device::new("laptop-folders");
+    // One index: "Samples/" committed first (generation 1), "samples/" after.
+    other_device_commits(
+        &store,
+        &[("Samples/a.wav", &b"sample a"[..]), ("samples/b.wav", &b"sample b"[..])],
+    );
+    for pass in 0..3 {
+        let report = laptop.sync(&store);
+        let collisions: Vec<_> = report
+            .problems
+            .iter()
+            .filter(|p| p.code == crate::sync::problems::Code::NameCollision)
+            .map(|p| p.key.as_str())
+            .collect();
+        assert_eq!(collisions, ["samples/b.wav"], "pass {pass}: {:?}", report.problems);
+        assert_eq!((report.files_up, report.deleted_there), (0, 0), "pass {pass}: {}", report.summary());
+    }
+    assert_eq!(laptop.read("Samples/a.wav").as_deref(), Some(&b"sample a"[..]));
+    assert!(laptop.read("Samples/b.wav").is_none(), "the other spelling's file is not written here");
+    assert_eq!(index_of(&store).files.len(), 2, "the drive keeps both");
+}
+
 #[test]
 fn a_file_whose_name_another_spelling_holds_here_stays_on_the_drive_and_says_why() {
     let probe = TempDir::new("azcloud-chaos-probe");

@@ -2702,6 +2702,55 @@ fn keep_saves(
 /// plan neither writes nor deletes it, on either side. A name the drive spells otherwise than
 /// this folder - decomposed here, composed there, on a disk that takes both for one name - is
 /// the same file: the scan takes the drive's spelling ([`Scan::spelled`]).
+/// The folders of the drive this disk takes for another spelling of one of them, each with the
+/// spelling that stays (the one the base or this folder holds files under, else the one
+/// committed first, else the composed (NFC) one).
+fn losing_folders(
+    remote: &RemoteIndex,
+    base: &BTreeMap<String, BaseEntry>,
+    scan: &Scan,
+    volume: &names::Volume,
+    frozen: &BTreeSet<String>,
+) -> Vec<(String, String)> {
+    // Per folded folder, each spelling with the first generation that wrote under it.
+    let mut spellings: BTreeMap<String, BTreeMap<&str, u64>> = BTreeMap::new();
+    for (key, file) in remote.files.iter().filter(|(k, _)| !frozen.contains(*k)) {
+        for (i, _) in key.match_indices('/') {
+            let folder = &key[..i];
+            let first = spellings
+                .entry(names::fold(folder, volume))
+                .or_default()
+                .entry(folder)
+                .or_insert(u64::MAX);
+            *first = (*first).min(file.gen);
+        }
+    }
+    let under = |folder: &str| format!("{folder}/");
+    let mut out = Vec::new();
+    for found in spellings.values().filter(|found| found.len() > 1) {
+        let winner = found
+            .keys()
+            .find(|f| base.keys().any(|k| k.starts_with(&under(f))))
+            .or_else(|| {
+                found
+                    .keys()
+                    .find(|f| scan.files.keys().any(|k| k.starts_with(&under(f))))
+            })
+            .or_else(|| {
+                found
+                    .iter()
+                    .min_by_key(|(f, gen)| (**gen, names::nfc(f) != **f, **f))
+                    .map(|(f, _)| f)
+            })
+            .copied()
+            .unwrap_or_default();
+        for folder in found.keys().filter(|f| **f != winner) {
+            out.push(((*folder).to_string(), winner.to_string()));
+        }
+    }
+    out
+}
+
 fn check_remote(
     scan: &mut Scan,
     remote: &RemoteIndex,
@@ -2796,6 +2845,32 @@ fn check_remote(
     }
     if !(volume.case_insensitive || volume.norm_insensitive) {
         return frozen;
+    }
+    // P1 for folders: two spellings of one folder on the drive ("Applause Samples/",
+    // "applause samples/") are one folder to this disk, where the files of both would land
+    // under names the drive does not know. The files of the spelling in the base or here,
+    // else of the one committed first, come down; the other's stay on the drive, listed.
+    for (folder, winner) in losing_folders(remote, base, scan, volume, &frozen) {
+        let under = format!("{folder}/");
+        let keys: Vec<String> = remote
+            .files
+            .keys()
+            .filter(|k| k.starts_with(&under) && !frozen.contains(*k))
+            .cloned()
+            .collect();
+        for key in keys {
+            report.tell(
+                Code::NameCollision,
+                &key,
+                format!(
+                    "this disk takes its folder \"{}\" for \"{}\", which stays; it is not \
+                     downloaded here",
+                    names::escaped(&folder),
+                    names::escaped(&winner)
+                ),
+            );
+            frozen.insert(key);
+        }
     }
     // P1: of two names of the drive this disk takes for one, the one in the base or here, else
     // the one committed first, comes down; the other stays on the drive, listed.
