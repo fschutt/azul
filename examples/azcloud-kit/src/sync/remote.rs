@@ -159,6 +159,21 @@ pub struct RemoteIndex {
     pub files: BTreeMap<String, RemoteFile>,
     #[serde(default)]
     pub deleted: BTreeMap<String, Tombstone>,
+    /// Entries whose fields cannot be read at all (a size of -1, no object): kept exactly as
+    /// they were written - a commit writes them back - and named by
+    /// [`RemoteIndex::unreadable`], with why.
+    #[serde(skip)]
+    pub damaged: BTreeMap<String, DamagedEntry>,
+}
+
+/// An entry of the index whose fields cannot be read, kept as the drive holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DamagedEntry {
+    pub raw: serde_json::Value,
+    /// Why it cannot be read.
+    pub why: String,
+    /// A record of a delete (the index's `deleted`), not a file.
+    pub tombstone: bool,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -192,6 +207,7 @@ impl RemoteIndex {
             updated_by: String::new(),
             files: BTreeMap::new(),
             deleted: BTreeMap::new(),
+            damaged: BTreeMap::new(),
         }
     }
 
@@ -205,9 +221,37 @@ impl RemoteIndex {
     ///
     /// When the bytes are no index.
     pub fn parse(bytes: &[u8]) -> CloudResult<RemoteIndex> {
-        let index: RemoteIndex = serde_json::from_slice(bytes).map_err(|e| {
-            CloudError::failed(format!("the drive's sync index cannot be read: {e}"))
-        })?;
+        let unreadable =
+            |e: serde_json::Error| CloudError::failed(format!("the drive's sync index cannot be read: {e}"));
+        let mut whole: serde_json::Value = serde_json::from_slice(bytes).map_err(unreadable)?;
+        // An entry is read on its own: one whose fields cannot be read is kept aside as it
+        // is, never the reason the whole index is refused (M1).
+        let mut damaged = BTreeMap::new();
+        if let Some(serde_json::Value::Object(files)) = whole.get_mut("files") {
+            for (key, entry) in std::mem::take(files) {
+                match serde_json::from_value::<RemoteFile>(entry.clone()) {
+                    Ok(_) => {
+                        files.insert(key, entry);
+                    }
+                    Err(e) => {
+                        let why = format!("the drive's entry for it cannot be read ({e})");
+                        damaged.insert(key, DamagedEntry { raw: entry, why, tombstone: false });
+                    }
+                }
+            }
+        }
+        if let Some(serde_json::Value::Object(deleted)) = whole.get_mut("deleted") {
+            deleted.retain(|key, tomb| {
+                let readable = serde_json::from_value::<Tombstone>(tomb.clone()).is_ok();
+                if !readable {
+                    let why = String::from("the drive's record of its delete cannot be read");
+                    damaged.insert(key.clone(), DamagedEntry { raw: tomb.clone(), why, tombstone: true });
+                }
+                readable
+            });
+        }
+        let mut index: RemoteIndex = serde_json::from_value(whole).map_err(unreadable)?;
+        index.damaged = damaged;
         if index.format != INDEX_FORMAT {
             fail!(
                 "the drive's sync index is {:?}, not {INDEX_FORMAT:?}",
@@ -232,6 +276,9 @@ impl RemoteIndex {
             .iter()
             .map(|(k, f)| (k, &f.hash))
             .chain(self.deleted.iter().map(|(k, t)| (k, &t.hash)));
+        for (key, entry) in &self.damaged {
+            out.insert(key.clone(), entry.why.clone());
+        }
         for (key, hash) in entries {
             if let Err(e) = check_key(key) {
                 out.insert(key.clone(), e.to_string());
@@ -276,7 +323,15 @@ impl RemoteIndex {
     /// The index as stored: pretty JSON (keys in order) and a final newline.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
+        let mut whole = serde_json::to_value(self).unwrap_or_default();
+        // The damaged entries go back as they were read: a run never removes them.
+        for (key, entry) in &self.damaged {
+            let list = if entry.tombstone { "deleted" } else { "files" };
+            if let Some(serde_json::Value::Object(map)) = whole.get_mut(list) {
+                map.entry(key.clone()).or_insert_with(|| entry.raw.clone());
+            }
+        }
+        let mut text = serde_json::to_string_pretty(&whole).unwrap_or_default();
         text.push('\n');
         text.into_bytes()
     }

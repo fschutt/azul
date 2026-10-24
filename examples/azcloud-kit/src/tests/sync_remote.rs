@@ -130,3 +130,38 @@ fn an_index_round_trips_and_its_entries_that_break_a_rule_are_named_never_droppe
         "version 0 is no index"
     );
 }
+
+/// M1: an entry whose fields cannot be read at all (a size of -1, a string where an entry
+/// belongs) is one unreadable entry, never a reason to refuse the whole index; it is written back
+/// as it was, and the rest is read.
+#[test]
+fn an_entry_whose_fields_cannot_be_read_is_kept_as_it_was_and_the_rest_is_read() {
+    let mut index = RemoteIndex::empty();
+    index.generation = 3;
+    index.files.insert(
+        String::from("w.txt"),
+        crate::sync::remote::RemoteFile {
+            hash: "a".repeat(64),
+            size: 1,
+            mtime: 1,
+            mtime_ns: 0,
+            gen: 1,
+            device: String::from("a"),
+            exec: false,
+        },
+    );
+    let mut raw: serde_json::Value = serde_json::from_slice(&index.to_bytes()).unwrap();
+    raw["files"]["x.txt"] = serde_json::json!({ "hash": "bad tag", "size": -1 });
+    raw["files"]["y.txt"] = serde_json::json!("not even an object");
+    raw["deleted"]["z.txt"] = serde_json::json!({ "hash": 7 });
+    let read = RemoteIndex::parse(&serde_json::to_vec(&raw).unwrap()).expect("the index is read");
+    assert_eq!(read.files.keys().collect::<Vec<_>>(), ["w.txt"]);
+    let unreadable = read.unreadable(false);
+    for key in ["x.txt", "y.txt", "z.txt"] {
+        assert!(unreadable.contains_key(key), "{key}: {unreadable:?}");
+    }
+    let again: serde_json::Value = serde_json::from_slice(&read.to_bytes()).unwrap();
+    assert_eq!(again["files"]["x.txt"], raw["files"]["x.txt"]);
+    assert_eq!(again["files"]["y.txt"], raw["files"]["y.txt"]);
+    assert_eq!(again["deleted"]["z.txt"], raw["deleted"]["z.txt"]);
+}
