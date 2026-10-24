@@ -1156,6 +1156,12 @@ impl<D: Drive> EncryptedDrive<D> {
         hot.reads.remove(pack);
     }
 
+    /// How many small files wait for the next pack (a test makes its writers overlap with it).
+    #[cfg(test)]
+    pub(crate) fn files_waiting_for_a_pack(&self) -> usize {
+        lock(&self.packs.packer.state).waiting.len()
+    }
+
     /// Writes the small file `path` into the open pack, sealed with the other writers' files of
     /// the moment: at once when this writer is alone, after at most the linger when writers
     /// overlap. What the listing now shows of it.

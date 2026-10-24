@@ -234,11 +234,62 @@ fn an_update_goes_into_a_new_pack_and_never_rewrites_the_old_one() {
     assert_eq!(drive.get("notes/0005.txt").unwrap(), small_files(10, 1_000)[5].1);
 }
 
+/// A bucket whose first data object (a pack's upload) waits until `ready` says so.
+#[derive(Default)]
+struct FirstPackWaits {
+    inner: MemBucket,
+    ready: std::sync::OnceLock<Box<dyn Fn() -> bool + Send + Sync>>,
+    waited: std::sync::atomic::AtomicBool,
+}
+
+impl Drive for FirstPackWaits {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if ObjectId::from_bucket_key(key).is_some() && !self.waited.swap(true, Ordering::SeqCst) {
+            if let Some(ready) = self.ready.get() {
+                while !ready() {
+                    thread::yield_now();
+                }
+            }
+        }
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+}
+
 #[test]
 fn writers_at_the_same_time_share_packs() {
-    let drive = Arc::new(packing_drive(None));
     let threads = 8;
     let rounds = 10;
+    let drive = Arc::new(
+        EncryptedDrive::new(
+            FirstPackWaits::default(),
+            DriveKey::generate().unwrap(),
+            Arc::new(MemoryIndex::new()),
+        )
+        .with_packing(PackOptions::default()),
+    );
+    // A writer alone seals at once, and a bucket in memory is so fast that writers released
+    // together may still each be alone. So the first pack's upload waits until the round's
+    // other writers queued their files: they overlap for certain, and share the next pack.
+    let weak = Arc::downgrade(&drive);
+    let _ = drive.inner().ready.set(Box::new(move || {
+        weak.upgrade()
+            .is_some_and(|drive| drive.files_waiting_for_a_pack() >= threads - 1)
+    }));
     let barrier = Arc::new(Barrier::new(threads));
     let workers: Vec<_> = (0..threads)
         .map(|t| {
@@ -256,7 +307,7 @@ fn writers_at_the_same_time_share_packs() {
     for worker in workers {
         worker.join().unwrap();
     }
-    let objects = data_objects(drive.inner()).len();
+    let objects = data_objects(&drive.inner().inner).len();
     assert!(objects < threads * rounds, "{objects} objects for {} files", threads * rounds);
     for t in 0..threads {
         for round in 0..rounds {
@@ -795,7 +846,9 @@ fn record_of(drive: &EncryptedDrive<Arc<MemBucket>>, path: &str) -> Vec<u8> {
 #[test]
 fn a_small_json_file_is_packed_with_a_shipped_dictionary_and_a_small_jpeg_through_lepton() {
     let drive = packing_drive(None);
-    let json = super::compress_inputs::json(&mut super::compress_inputs::Rng::new(7), 60);
+    // A settings file: the shape the JSON dictionary is for (a long array of records goes to
+    // brotli, which beats the dictionary there).
+    let json = super::compress_inputs::settings_json();
     assert!((json.len() as u64) < PACK_THRESHOLD);
     drive.put("settings/app.json", &json).unwrap();
     drive.put("photos/thumb.jpg", BASELINE_JPEG).unwrap();
