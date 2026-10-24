@@ -1,7 +1,7 @@
 {
   "name": "wrong passphrases entered again and again lock and slow down, never delete; a forgotten passphrase is recovered with the recovery code",
   "description": "TERABOX-002 (TeraBox): the Safe is wiped after too many wrong passcodes (a 4-digit default), and a forgotten password cannot be recovered. Rules I1 (the drive key is wrapped; the recovery wrap opens it) and D5 (no login path removes a file). sync-chaos crypto-keys-and-recovery (pending there).",
-  "pending": "drive_lock {\"device\": \"a\"} (forget the unlocked drive key in memory), drive_unlock {\"device\": \"a\", \"passphrase\": \"...\"} (answers unlocked / refused / rate_limited), drive_recover {\"device\": \"a\", \"recovery_code\": \"...\"} and the {recovery:<remote>} placeholder (the recovery code drive_create made)",
+  "pending": "drive_lock {\"device\": \"a\"} (forget the unlocked drive key in the device's keyring - c_keys::keyring_of names it: the owner's for a joined device) and drive_unlock {\"device\": \"a\", \"passphrase\": \"...\"} (answers unlocked / refused / rate_limited); drive_recover and {recovery:<remote>} exist",
   "expect": "fail",
   "steps": [
     { "op": "drive_create", "remote": "r", "encrypted": true },

@@ -262,6 +262,71 @@ so a failed check fails the step with its detail. The names and fields are sync-
 `free_at_least`, `kept_soak` and `run_ok` stay sync-chaos checks (they need the real disk, a
 soak, a shell) and fail here with that reason.
 
+## Group C: keys, recovery, share links
+
+### A device's drive key
+
+| op | arguments | result |
+|---|---|---|
+| `drive_open` | also `joined` (bool, default true), `key_from` (`recovery`), `recovery_code` | as above |
+| `drive_recover` | `device`, `recovery_code` (default the remote's), `expect` (`ok` default, `refused`) | `recovered`, `why` (refused) |
+| `drive_join` | `device`, `approver` (a device that holds the key), `pause_at` (`approve`) | `joined`, `error`; `paused` with `pause_at` |
+| `drive_rotate_key` | `remote` | `rewrapped`, `members_removed`, `shares_revoked`, `drive_key` |
+| `drive_send_again` | `device` | - |
+
+A device opened the usual way shares the remote's keyring with the remote's owner (one user's
+computers, "already joined"). `joined: false` gives it a keyring of its own that starts empty,
+as a new or reinstalled computer or a forgotten passphrase leaves it: on an encrypted remote its
+passes fail with `sign-in-needed` and it reads and writes nothing. `key_from: "recovery"` is
+such a device that unlocked with the recovery code at once. The remote's recovery code is the
+one `drive_create` made (the recovery sheet), the new one after a rotation; a step writes it as
+`{recovery:<remote>}`, the one before the last rotation as `{recovery_old:<remote>}`.
+
+`drive_recover` is "Unlock with the recovery code" (azul-storage `device::recover`, through the
+device's fault layer): the device enrols itself and keeps the key. `drive_join` is "Add a
+device": the approver seals the drive key to a one-time invite in the bucket, the device opens it
+and enrols. With `pause_at: "approve"` the approval waits until `drive_cont` of the joining
+device, which answers `joined` (false, with the `error`, when the approver could not seal the
+key - cut off, say); `success` either way. `drive_rotate_key` is the owner's "I was hacked"
+(`rotation::rotate`): the index is sealed under a new key, every file key re-wrapped, every other
+member and every share link removed, a new recovery code made. The joined devices hold the new
+key at once; a device with a keyring of its own is locked out until it unlocks with the new code.
+It refuses while a pass of the remote's devices runs. `drive_send_again` is AzDrive's "Send them
+again" for the files the problem list keeps after the drive deleted them elsewhere
+(`deleted-elsewhere-kept`): they go up with the next pass.
+
+### Share links
+
+| op | arguments | result |
+|---|---|---|
+| `drive_share_link` | `device`, `path` (a file, or a folder and all in it), `name` (default the path), `expires_s` | `link`, `host`, `id`, `files` |
+| `drive_open_link` | `link` (its name, URL or path) | `available`, `why`, `files` (`{name: {size, readable, error}}`), `unreadable` |
+| `drive_share_expire` | `remote` | `expired` |
+
+A link is azul-storage's share of an encrypted drive (`sharing::share`): a manifest in the bucket
+sealed with a share key only the link carries (`https://share.e2e.invalid/s/<id>#k=<key>`: the
+key in the fragment, the host never the app's), the shared files' keys wrapped by it, the drive
+key never. A share is a snapshot: a file added to a shared folder later is not in it.
+`drive_open_link` visits it as someone without an account, through the stand-in share server's
+own connection (a fault on every device reaches it, one on a single device does not).
+`drive_share_expire` lets the expiry of every link made with `expires_s` pass;
+`drive_tamper` `takedown_link` (`path` or `link`) takes one link down. Neither deletes anything; a
+revoked share (a rotation revokes all) opens nothing either. Check `share_link`: `path` or `link`,
+`readable` (true: every file reads back as the share names it; false: the link opens nothing).
+
+Account-to-account folder shares (`drive_share` with `to`, `drive_unshare`, `drive_open` with
+`as_user` and `share`, `drive_accept_share`, the checks `share_keys`, `share_reads`,
+`share_link_sees`, `drive_tamper` `replace_share_key`) are not commands yet: the engine has no
+folder keys in the drive index, and the scenarios that need them are pending with that reason.
+
+### The runner and the scenario files
+
+`examples/azul-drive/scripts/e2e_sync.sh` and every `AZ_E2E=<folder>` run take the folder's
+subfolders too (`e2e/sync/catalogue/`). A test marked `"pending": "<what it waits for>"` runs no
+step and reports PENDING with that text; `"not_applicable": "<why>"` reports SKIP; neither fails
+the run. `"expect": "fail"` is a known failure (XFAIL), and a pass of it fails the run (XPASS).
+`max_ops` names the kind of change `change`, not `op`: a step's `op` is its command.
+
 ## An example
 
 ```json

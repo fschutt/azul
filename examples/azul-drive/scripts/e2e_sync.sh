@@ -4,6 +4,8 @@
 #
 #   examples/azul-drive/scripts/e2e_sync.sh [file-or-folder] [AzDrive binary]
 #
+# A folder runs every scenario in it and in its subfolders (e2e/sync/catalogue/); a test marked
+# "pending" or "not_applicable" runs no step and is reported as such, never as a failure.
 # Defaults: every scenario in e2e/sync, target/release/AzDrive. libazul must be built with the
 # debug server (the `debug-server` feature, as for every AZ_E2E run). Everything AzDrive reads
 # and writes goes to one temporary folder (the data root, the drives file, Home, the caches,
