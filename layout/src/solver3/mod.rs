@@ -521,6 +521,12 @@ pub fn dl_input_fingerprint(
     h.finish()
 }
 
+/// What a display list reads of the scroll states it is built with: each
+/// scroll node's content size (a `VirtualView`'s virtual size, the thumb's
+/// proportion). Not the container rect: the list takes every box from the
+/// layout, so a container that moved or resized - a list under a growing
+/// ribbon - asks for no other list. Not the offset either: a scroll moves the
+/// frames where they are drawn, the list stays.
 pub(crate) fn scroll_geometry_fingerprint(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
 ) -> u64 {
@@ -528,10 +534,6 @@ pub(crate) fn scroll_geometry_fingerprint(
     let mut h = DefaultHasher::new();
     for (node, pos) in scroll_offsets {
         node.hash(&mut h);
-        pos.parent_rect.origin.x.to_bits().hash(&mut h);
-        pos.parent_rect.origin.y.to_bits().hash(&mut h);
-        pos.parent_rect.size.width.to_bits().hash(&mut h);
-        pos.parent_rect.size.height.to_bits().hash(&mut h);
         pos.children_rect.size.width.to_bits().hash(&mut h);
         pos.children_rect.size.height.to_bits().hash(&mut h);
     }
