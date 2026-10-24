@@ -176,8 +176,9 @@ impl fmt::Debug for RenewalLock {
 /// nonce or a done request stays spent or done whichever copy is joined in later.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultState {
+    // Crate-visible so the kit can build a partial state with `..VaultState::default()`.
     #[serde(default)]
-    format: u32,
+    pub(crate) format: u32,
     /// The tokens kept, oldest first (spent ones are taken out).
     #[serde(default)]
     pub tokens: Vec<PeriodToken>,
