@@ -2294,18 +2294,23 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// The width `node_idx` (a flex row) answered to this width-only question
     /// before, while its taffy cache still holds what it measured since -
     /// see [`TaffyWidthOnlyAnswers`].
-    fn width_only_answer_kept(&self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
-        let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
-        if primary.is_empty() {
+    fn width_only_answer_kept(&mut self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
+        if self
+            .tree
+            .warm(LayoutNodeId::new(node_idx))?
+            .taffy_cache
+            .is_empty()
+        {
             return None;
         }
+        let free_of_height = self.lays_out_alike_at_every_given_height(node_idx);
         self.ctx
             .cache_map
             .entries
             .get(node_idx)?
             .taffy_width_only
             .as_deref()?
-            .get(inputs)
+            .get(inputs, free_of_height)
     }
 
     /// Keep the width `node_idx` answered to a width-only question. An empty
@@ -2316,6 +2321,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .tree
             .warm(LayoutNodeId::new(node_idx))
             .is_none_or(|w| w.taffy_cache.is_empty());
+        let free_of_height = self.lays_out_alike_at_every_given_height(node_idx);
         let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
             return;
         };
@@ -2325,7 +2331,20 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         cache
             .taffy_width_only
             .get_or_insert_with(Box::default)
-            .store(inputs, width);
+            .store(inputs, width, free_of_height);
+    }
+
+    /// Whether `node_idx`'s subtree lays out alike at every height it is
+    /// given (`cache::lays_out_alike_at_every_given_height`, memoised in the
+    /// node's `NodeCache`).
+    fn lays_out_alike_at_every_given_height(&mut self, node_idx: usize) -> bool {
+        let styled_dom = self.ctx.styled_dom;
+        crate::solver3::cache::lays_out_alike_at_every_given_height(
+            &mut self.ctx.cache_map,
+            &*self.tree,
+            styled_dom,
+            node_idx,
+        )
     }
 
     /// The border-box width [`Self::compute_non_flex_layout`] answers for
@@ -3079,13 +3098,20 @@ impl WidthOnlyAnswer {
     /// width. The parent's width and the sizing mode match too: an item's
     /// percentage width resolves against the first, and the second says
     /// whether the row's own size styles count.
-    fn answers(&self, input: &LayoutInput) -> bool {
-        input.known_dimensions.height == self.known_height
-            && (self.known_height.is_some()
-                || self
-                    .available_space
-                    .height
-                    .is_roughly_equal(input.available_space.height))
+    ///
+    /// `free_of_height`: the row lays out alike at every height it is given
+    /// (`cache::lays_out_alike_at_every_given_height`), so its width is the
+    /// same at every height it is asked at - a row of ribbon groups stretched
+    /// taller on every frame of the ribbon opening. Its heights are no part
+    /// of the question then.
+    fn answers(&self, input: &LayoutInput, free_of_height: bool) -> bool {
+        (free_of_height
+            || (input.known_dimensions.height == self.known_height
+                && (self.known_height.is_some()
+                    || self
+                        .available_space
+                        .height
+                        .is_roughly_equal(input.available_space.height))))
             && self
                 .available_space
                 .width
@@ -3096,18 +3122,19 @@ impl WidthOnlyAnswer {
 }
 
 impl TaffyWidthOnlyAnswers {
-    /// The width kept for this question, if any.
-    fn get(&self, input: &LayoutInput) -> Option<f32> {
+    /// The width kept for this question, if any (`free_of_height`: see
+    /// [`WidthOnlyAnswer::answers`]).
+    fn get(&self, input: &LayoutInput, free_of_height: bool) -> Option<f32> {
         self.entries
             .iter()
             .flatten()
-            .find(|a| a.answers(input))
+            .find(|a| a.answers(input, free_of_height))
             .map(|a| a.width)
     }
 
     /// Record an answer: the same question again is refreshed where it is,
     /// a new one overwrites the oldest.
-    fn store(&mut self, input: &LayoutInput, width: f32) {
+    fn store(&mut self, input: &LayoutInput, width: f32, free_of_height: bool) {
         let new = WidthOnlyAnswer {
             known_height: input.known_dimensions.height,
             available_space: input.available_space,
@@ -3115,7 +3142,12 @@ impl TaffyWidthOnlyAnswers {
             sizing_mode: input.sizing_mode,
             width,
         };
-        if let Some(same) = self.entries.iter_mut().flatten().find(|a| a.answers(input)) {
+        if let Some(same) = self
+            .entries
+            .iter_mut()
+            .flatten()
+            .find(|a| a.answers(input, free_of_height))
+        {
             *same = new;
             return;
         }
