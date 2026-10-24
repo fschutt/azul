@@ -145,6 +145,9 @@ pub(crate) enum SyncAction {
     Stop,
     /// The synced folder opens in the window.
     OpenFolder,
+    /// "Send them again": the files the drive deleted before this pairing knew them, kept
+    /// here and listed (`deleted-elsewhere-kept`), go up with the next pass.
+    SendKept,
 }
 
 // ==== Plain data ====
@@ -770,7 +773,11 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
             Some(_) if s.cache_dir.is_none() => Some(String::from("azdrive-sync-why-no-cache")),
             Some(_) => None,
         },
-        SyncAction::Now | SyncAction::Pause | SyncAction::Stop | SyncAction::OpenFolder => synced
+        SyncAction::Now
+        | SyncAction::Pause
+        | SyncAction::Stop
+        | SyncAction::OpenFolder
+        | SyncAction::SendKept => synced
             .is_none()
             .then(|| String::from("azdrive-sync-why-open-synced")),
         SyncAction::KeepOnDevice | SyncAction::FreeUpSpace => {
@@ -1396,6 +1403,27 @@ fn under_mb(setup: &SyncSetup) -> u64 {
 /// The problems shown per pairing at most; the rest is counted.
 const PROBLEMS_SHOWN: usize = 20;
 
+/// The files of the pairing's problem list that the drive deleted before this pairing knew
+/// them and that are kept here (`deleted-elsewhere-kept`): what "Send them again" sends.
+pub(crate) fn kept_keys(s: &DriveState, setup: &SyncSetup) -> Vec<String> {
+    let Some(root) = sync_jobs::state_root(s) else {
+        return Vec::new();
+    };
+    azcloud_kit::sync::problems::ProblemList::load(&setup.state_dir(&root))
+        .map(|list| kept_of(&list))
+        .unwrap_or_default()
+}
+
+/// The keys `list` names as deleted elsewhere and kept here.
+pub(crate) fn kept_of(list: &azcloud_kit::sync::problems::ProblemList) -> Vec<String> {
+    list.problems
+        .iter()
+        .filter(|p| p.code == azcloud_kit::sync::problems::Code::DeletedElsewhereKept)
+        .filter(|p| !p.key.is_empty())
+        .map(|p| p.key.clone())
+        .collect()
+}
+
 /// The pairing's problem list as its last pass left it (azcloud-kit's `sync::problems`): every
 /// file it skipped, refused, held, froze or failed, by what kind of problem it is and its name
 /// (escaped: a reversed extension shows as `<U+202E>`). `None` when there is none.
@@ -1587,6 +1615,14 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                 ))
                 .with_child(action("azdrive-sync-menu-stop", SyncAction::Stop)),
         );
+        // Files the drive deleted before this pairing knew them wait here for the user's word.
+        if !kept_keys(s, setup).is_empty() {
+            row.add_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row;")
+                    .with_child(action("azdrive-sync-send-kept", SyncAction::SendKept)),
+            );
+        }
         rows.push(row);
     }
     if rows.is_empty() {

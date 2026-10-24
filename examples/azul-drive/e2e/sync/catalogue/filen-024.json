@@ -101,7 +101,7 @@
     ]
   },
   {
-    "name": "FILEN-024: a file deleted on the drive while this device was logged out is kept at the next login, listed, and not sent back up",
+    "name": "FILEN-024: a file deleted on the drive while this device was logged out is kept at the next login, listed, and not sent back up until the user sends it again",
     "description": "FILEN-024 (Filen): logout/login lost the pairs and re-uploaded everything. Rule D5: no login path removes a file; at a fresh pairing a file the drive deleted meanwhile is kept and listed and not sent again. sync-chaos delete-relogin-tombstone-kept.",
     "steps": [
       { "op": "drive_create", "remote": "r" },
@@ -126,6 +126,11 @@
       { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "old-plan.txt", "absent": true },
       { "op": "drive_check", "check": "file", "device": "a", "path": "current.txt", "text": "current" },
       { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_send_again", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "old-plan.txt", "text": "the old plan" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old-plan.txt", "text": "the old plan" },
       { "op": "drive_cleanup" }
     ]
   },

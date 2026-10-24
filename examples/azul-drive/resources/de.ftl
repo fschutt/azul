@@ -651,6 +651,11 @@ azdrive-sync-problems = { $count ->
        *[other] { $count } Dateien wurden nicht synchronisiert:
     }
 azdrive-sync-problems-more = und { $count } weitere
+azdrive-sync-send-kept = Erneut senden
+azdrive-sync-sent-again = { $count ->
+        [one] Die behaltene Datei geht mit der nächsten Synchronisierung wieder auf das Laufwerk.
+       *[other] Die { $count } behaltenen Dateien gehen mit der nächsten Synchronisierung wieder auf das Laufwerk.
+    }
 azdrive-sync-problem = { $code ->
         [symlink-skipped] Ein Link (wird nie verfolgt)
         [special-file] Keine normale Datei

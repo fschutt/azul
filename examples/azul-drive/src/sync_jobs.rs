@@ -124,6 +124,9 @@ pub(crate) struct SyncWork {
     pub fault_points: bool,
     /// Its sync engine's clock is this many seconds off this computer's: an E2E device's.
     pub clock: f64,
+    /// The drive's newest restore announcement (an Azlin drive's token server tells it): a
+    /// pass that meets an older index takes it as that restore, not as a rollback to refuse.
+    pub restore: Option<azcloud_kit::sync::RestoreNotice>,
 }
 
 impl SyncWork {
@@ -143,6 +146,7 @@ impl SyncWork {
             settle: None,
             fault_points: false,
             clock: 0.0,
+            restore: None,
         }
     }
 
@@ -162,7 +166,8 @@ impl SyncWork {
             .with_parallel(self.parallel)
             .with_settle(self.settle.unwrap_or_else(settle))
             .with_file_settle(self.settle.unwrap_or_else(settle))
-            .with_clock(self.clock);
+            .with_clock(self.clock)
+            .with_restore(self.restore.clone());
         if !self.fault_points {
             return session;
         }
@@ -253,6 +258,8 @@ pub(crate) enum SyncJob {
     AnswerBurst { work: SyncWork },
     /// The mass delete's question answered: delete them too, or keep them.
     AnswerMassDelete { work: SyncWork, delete_too: bool },
+    /// "Send them again": files kept after the drive deleted them elsewhere go up next pass.
+    SendKept { work: SyncWork, keys: Vec<String> },
 }
 
 /// What a pass did, in counts.
@@ -310,6 +317,8 @@ pub(crate) enum SyncChange {
     Fetched,
     /// A guard's question answered (the next pass does it).
     Answered,
+    /// Kept files will go up again (the next pass sends them): how many.
+    SentAgain(usize),
 }
 
 /// A sync job's answer, on the UI thread.
@@ -548,6 +557,19 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
                 states: session.states(),
             }
         }
+        SyncJob::SendKept { work, keys } => {
+            let session = work.session();
+            let result = session
+                .send_kept(&keys)
+                .map(|()| Text::from(Phrase::new("azdrive-sync-sent-again").arg("count", keys.len())))
+                .map_err(|e| cloud_error_text(&e));
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::SentAgain(keys.len()),
+                result,
+                states: session.states(),
+            }
+        }
         SyncJob::Resolve { work, key, choice } => {
             let session = work.session();
             let result = session
@@ -740,6 +762,11 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
     }
     let drive = crate::open_slot(s, index)?;
     let mut work = SyncWork::new(setup.clone(), setup.state_dir(&root), drive);
+    // An Azlin drive's restore announcement, as its last refresh answered it.
+    work.restore = s.slots[index]
+        .azlin
+        .as_ref()
+        .and_then(|azlin| azlin.restore_notice());
     if let Some(devices) = s.devices.get(drive_id) {
         work.own_devices.clone_from(&devices.members);
     }
@@ -993,6 +1020,24 @@ fn guards_seen(
 pub(crate) fn answer_burst(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
     if let Some(work) = work_of(info, s, drive_id) {
         spawn(info, app, s, Job::Sync(SyncJob::AnswerBurst { work }));
+    }
+}
+
+/// "Send them again" for `drive_id`: every file its problem list keeps after the drive deleted
+/// it elsewhere goes up with the next pass, on a worker thread. Whether there was any.
+pub(crate) fn send_kept(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) -> bool {
+    let keys = sync_view::setup_of(s, drive_id)
+        .map(|setup| sync_view::kept_keys(s, setup))
+        .unwrap_or_default();
+    if keys.is_empty() {
+        return false;
+    }
+    match work_of(info, s, drive_id) {
+        Some(work) => {
+            spawn(info, app, s, Job::Sync(SyncJob::SendKept { work, keys }));
+            true
+        }
+        None => false,
     }
 }
 
@@ -1338,6 +1383,9 @@ pub(crate) fn run_action(
                 s.popup = Some(Popup::Sync(SyncDialog::Stop { drive_id }));
             }
         }
+        SyncAction::SendKept => {
+            send_kept(info, app, s, &drive_id);
+        }
         SyncAction::OpenFolder => {
             let folder = sync_view::setup_of(s, &drive_id).map(|p| p.folder.clone());
             match folder.and_then(|f| local_place(s, &f)) {
@@ -1541,6 +1589,11 @@ fn take_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outco
                 }
                 (SyncChange::Answered, Ok(what)) => {
                     println!("AZDRIVE_SYNC_ANSWERED {drive_id} {what}");
+                    request_pass(info, app, s, &drive_id);
+                }
+                (SyncChange::SentAgain(count), Ok(text)) => {
+                    println!("AZDRIVE_SYNC_SENT_AGAIN {drive_id} {count}");
+                    s.info(text);
                     request_pass(info, app, s, &drive_id);
                 }
                 (SyncChange::Resolved(choice), Ok(key)) => {

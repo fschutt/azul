@@ -653,6 +653,11 @@ azdrive-sync-problems = { $count ->
        *[other] { $count } files did not sync:
     }
 azdrive-sync-problems-more = and { $count } more
+azdrive-sync-send-kept = Send them again
+azdrive-sync-sent-again = { $count ->
+        [one] The kept file goes to the drive again with the next sync.
+       *[other] The { $count } kept files go to the drive again with the next sync.
+    }
 azdrive-sync-problem = { $code ->
         [symlink-skipped] A link (never followed)
         [special-file] Not a regular file

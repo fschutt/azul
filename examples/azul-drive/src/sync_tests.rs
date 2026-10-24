@@ -1054,3 +1054,93 @@ fn a_pass_on_a_metered_network_sends_small_files_and_keeps_big_ones_for_a_free_n
         Some(FileState::OnDevice)
     );
 }
+
+/// SYNC25A gave the session its restore notice (`with_restore`), but AzDrive's passes never
+/// passed the Azlin drive's announcement on: a drive the server restored from its lagging
+/// copy was refused as a rollback, and the files committed after that copy were not sent
+/// again. A work's notice reaches the pass: it heals from here instead.
+#[test]
+fn an_announced_restore_reaches_the_pass_and_the_files_after_the_copy_go_up_again() {
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("restore-a", &drive, AutoDownload::Everything);
+    a.write("a.jpg", b"picture a");
+    a.pass();
+    let key = azcloud_kit::sync::remote::index_key("Photos/");
+    let backup = drive.get(&key).expect("the index after the first pass");
+    a.write("lag.jpg", b"committed after the copy");
+    a.pass();
+    // The server put its older copy back and announced it.
+    drive.put(&key, &backup).expect("the restore");
+    let mut work = a.work();
+    work.restore = Some(azcloud_kit::sync::RestoreNotice {
+        epoch: 1,
+        prefix: String::new(),
+    });
+    let answer = sync_jobs::run(
+        SyncJob::Pass {
+            work,
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &mut |_| {},
+    );
+    match &answer {
+        Outcome::Sync(SyncOutcome::Passed { result, .. }) => {
+            assert!(result.is_ok(), "the restore is taken, not refused: {result:?}");
+        }
+        _ => panic!("not a pass's answer"),
+    }
+    let index = azcloud_kit::sync::RemoteIndex::parse(&drive.get(&key).expect("an index"))
+        .expect("the index reads");
+    assert!(index.files.contains_key("lag.jpg"), "sent again: {:?}", index.files.keys());
+    assert!(index.files.contains_key("a.jpg"));
+}
+
+/// SYNC25A keeps a file the drive deleted before this pairing knew it, lists it
+/// (`deleted-elsewhere-kept`) and sends it only when the user says so - but AzDrive had no
+/// way to say so. "Send them again" takes the listed keys out of the kept set; the next pass
+/// sends them.
+#[test]
+fn send_them_again_releases_the_kept_files_for_the_next_pass() {
+    use azcloud_kit::sync::{
+        local::LocalIndex,
+        problems::{Code, Problem, ProblemList},
+        session::INDEX_FILE,
+    };
+    let list = ProblemList {
+        problems: vec![
+            Problem::new(Code::DeletedElsewhereKept, "old/report.pdf", "kept"),
+            Problem::new(Code::SymlinkSkipped, "link", "a link"),
+            Problem::new(Code::DeletedElsewhereKept, "", "no file"),
+        ],
+        updated_at: 0,
+    };
+    assert_eq!(sync_view::kept_of(&list), ["old/report.pdf"], "only the kept files, by key");
+
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("send-kept-a", &drive, AutoDownload::Everything);
+    a.write("report.pdf", b"kept here");
+    a.pass();
+    let index_path = a.work().dir.join(INDEX_FILE);
+    let mut index = LocalIndex::load(&index_path).unwrap().expect("the first pass's base");
+    index.kept.insert(String::from("report.pdf"));
+    index.save(&index_path).unwrap();
+
+    let answer = sync_jobs::run(
+        SyncJob::SendKept {
+            work: a.work(),
+            keys: vec![String::from("report.pdf")],
+        },
+        &mut |_| {},
+    );
+
+    assert!(matches!(
+        &answer,
+        Outcome::Sync(SyncOutcome::Changed {
+            done: SyncChange::SentAgain(1),
+            result: Ok(_),
+            ..
+        })
+    ));
+    let index = LocalIndex::load(&index_path).unwrap().expect("the base");
+    assert!(index.kept.is_empty(), "{:?}", index.kept);
+}
