@@ -1001,6 +1001,43 @@ pub struct DomLayoutResult {
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
 
+/// Whether `result` - a view's document, laid out for its box - lays out the
+/// same at any height of that box: its root is as tall as its content (no
+/// height, no min / max height, in flow), nothing in it is sized or placed
+/// by the viewport (no `vh` / `vmin` / `vmax` length, no fixed box) and no
+/// canvas background fills the box. A box that only changes height then
+/// needs neither a layout nor a display list of the document.
+fn lays_out_without_the_viewport_height(result: &DomLayoutResult) -> bool {
+    use azul_css::props::layout::LayoutPosition;
+
+    let tree = &result.layout_tree;
+    let Some(root) = tree.warm(LayoutNodeId::new(tree.root)) else {
+        return false;
+    };
+    let style = &root.computed_style;
+    let in_flow = matches!(style.position, LayoutPosition::Static | LayoutPosition::Relative);
+    if !in_flow || style.height.is_some() || style.min_height.is_some() || style.max_height.is_some()
+    {
+        return false;
+    }
+    let cache = &result.styled_dom.css_property_cache.ptr;
+    if cache.compact_cache.as_ref().is_none_or(|cc| cc.uses_viewport_units) {
+        return false;
+    }
+    if tree
+        .warm
+        .iter()
+        .any(|w| w.computed_style.position == LayoutPosition::Fixed)
+    {
+        return false;
+    }
+    let Some(root_dom) = tree.get(LayoutNodeId::new(tree.root)).and_then(|n| n.dom_node_id) else {
+        return false;
+    };
+    let state = result.styled_dom.styled_nodes.as_container()[root_dom].styled_node_state;
+    solver3::getters::get_background_contents(&result.styled_dom, root_dom, &state).is_empty()
+}
+
 impl DomLayoutResult {
     /// The layout tree to write to after the pass (a text edit's reshape, a
     /// scrollbar raised later). While the solver's cache still shares it, the
@@ -11924,6 +11961,20 @@ impl LayoutWindow {
         if !host_moved && !mode_moved && !content_moved && !box_moved {
             return;
         }
+        // Only the box's HEIGHT moved - the rows of a list under a ribbon that
+        // opens - and nothing in the view's document follows it: its layout
+        // and display list are the ones a pass at the new height would build.
+        if !host_moved
+            && !mode_moved
+            && !content_moved
+            && feq(kept.viewport.size.width, size.width)
+            && lays_out_without_the_viewport_height(kept)
+        {
+            if let Some(kept) = self.layout_results.get_mut(&child) {
+                kept.viewport.size = size;
+            }
+            return;
+        }
         let viewport = LogicalRect::new(LogicalPosition::zero(), size);
         let context = self.dynamic_selector_context(window_state);
         let Some(kept) = self.layout_results.remove(&child) else {
@@ -11942,6 +11993,22 @@ impl LayoutWindow {
         // place).
         styled_dom.set_dynamic_selector_context(context);
         styled_dom.set_inherited_from_host(inherited_from_host);
+        // Only the box moved - the view's rows under a ribbon that grows: the
+        // child's DOM and cascade are the ones its tree was laid out from, so
+        // its pass is a resize of its document (the retained tree laid out at
+        // the new size, no reconcile of every row). A restyle since its last
+        // pass (a new cascade epoch) or a diff staged for it reconciles.
+        if !host_moved && !mode_moved && !content_moved {
+            let restyled_since = self.pending_css_dirty.as_ref().is_some_and(|(d, _)| *d == child)
+                || self.child_layout_caches.get(&child).is_none_or(|c| {
+                    c.last_cascade_epoch != styled_dom.get_css_property_cache().cascade_epoch
+                });
+            if !restyled_since {
+                if let Some(c) = self.child_layout_caches.get_mut(&child) {
+                    c.resize_only_hint = true;
+                }
+            }
+        }
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "VirtualView child {child:?} laid out again in place: its host's inherited \
