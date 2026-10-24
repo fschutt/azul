@@ -16,7 +16,7 @@ use azul_css::AzString;
 
 use azul_core::keyring::KeyringNamespace;
 
-use super::{answer_in, service_of, Backend};
+use super::{answer_in, answer_with, service_of, Backend, Prompts};
 
 /// The namespace the tests' entries live in (an app's own id).
 const TEST_SERVICE: &str = "org.example.KeyringTest";
@@ -309,4 +309,39 @@ fn a_namespace_names_its_service_and_the_default_one_is_the_apps_own_id() {
         crate::desktop::app_identity::current().id
     );
     assert_ne!(service_of(&KeyringNamespace::app()), KeyringNamespace::LEGACY_SERVICE);
+}
+
+/// A quiet op (what an app's background work reads with) answers on the stand-ins exactly as a
+/// plain one: only the system keyring has prompts to leave out.
+#[test]
+fn a_quiet_op_answers_like_a_plain_one_on_the_stand_ins() {
+    let key = unique("quiet");
+    let quiet = |req: &KeyringRequest, backend: &Backend| {
+        answer_with(TEST_SERVICE, req, backend, Prompts::Never)
+    };
+    assert_eq!(quiet(&get(&key), &Backend::Memory), KeyringResult::NotFound);
+    assert_eq!(quiet(&store(&key, "s3cr3t"), &Backend::Memory), KeyringResult::Stored);
+    assert_eq!(quiet(&get(&key), &Backend::Memory), retrieved("s3cr3t"));
+    assert_eq!(
+        answer_in(TEST_SERVICE, &get(&key), &Backend::Memory),
+        retrieved("s3cr3t"),
+        "a plain read finds what a quiet store wrote"
+    );
+    assert_eq!(quiet(&delete(&key), &Backend::Memory), KeyringResult::Deleted);
+
+    let path = keyring_file("quiet");
+    let file = Backend::File(path.clone());
+    assert_eq!(quiet(&store("a", "1"), &file), KeyringResult::Stored);
+    assert_eq!(quiet(&get("a"), &file), retrieved("1"));
+    assert_eq!(answer_in(TEST_SERVICE, &get("a"), &file), retrieved("1"));
+    let _ = std::fs::remove_file(&path);
+}
+
+/// The C API's quiet op: one request in a namespace, answered on the calling thread. Only its
+/// shape is checked here - a call would reach this run's keyring.
+#[test]
+fn the_keyring_offers_a_quiet_op_in_a_namespace() {
+    let quiet: fn(KeyringNamespace, KeyringRequest) -> KeyringResult =
+        super::Keyring::request_quietly_in;
+    let _ = quiet;
 }
