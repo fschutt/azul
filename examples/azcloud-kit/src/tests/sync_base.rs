@@ -157,3 +157,30 @@ fn a_damaged_base_database_is_set_aside_and_the_folder_pairs_afresh() {
     assert!(next.problems.is_empty(), "{:?}", next.problems);
     assert_eq!(next.files_up, 0, "{}", next.summary());
 }
+
+/// Everything a pass keeps in the device's state folder names the user's files (the base, the
+/// drive's index it caches): readable by its owner only, whichever base it keeps.
+#[cfg(unix)]
+#[test]
+fn every_file_a_pass_keeps_in_the_state_folder_is_its_owners_only() {
+    use std::os::unix::fs::PermissionsExt;
+    for base in ["index.db", "index.json"] {
+        let store = S3Bucket::new();
+        let folder = TempDir::new("base-folder");
+        let state = TempDir::new("base-state");
+        fs::write(folder.path().join("secret-plans.txt"), b"alpha").unwrap();
+        let root = LocalRoot::folder(folder.path());
+        let opts = SyncOptions::new("e2e/base/", "d-test", "dev-a").unwrap();
+        let path = state.path().join(base);
+        sync_folder(&store, &root, &path, &opts).unwrap();
+        sync_folder(&store, &root, &path, &opts).unwrap();
+        let mut seen = Vec::new();
+        for entry in fs::read_dir(state.path()).unwrap() {
+            let entry = entry.unwrap();
+            let mode = entry.metadata().unwrap().permissions().mode();
+            seen.push(entry.file_name());
+            assert_eq!(mode & 0o077, 0, "{base}: {:?} is {:o}", entry.file_name(), mode & 0o777);
+        }
+        assert!(seen.len() >= 2, "{base}: the base and the cached index: {seen:?}");
+    }
+}
