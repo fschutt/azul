@@ -1,0 +1,47 @@
+[
+  {
+    "name": "a delete arriving from the drive (a share participant) lands in the owner's trash and versions",
+    "description": "ICLOUD-003 (sync-chaos delete-share-participant-deletes): a collaborator's delete in an iCloud shared folder bypassed the owner's trash. Rules D2 and M1: the owner's copy goes to the owner's trash, the drive keeps the version, the other files stay.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared/plan.md", "text": "the plan" },
+      { "op": "drive_write", "device": "a", "path": "shared/budget.xlsx", "text": "the budget" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete", "key": "shared/plan.md" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "shared/plan.md", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "the plan" },
+      { "op": "drive_check", "check": "kept", "texts": ["the plan"] },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "shared/budget.xlsx", "text": "the budget" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a participant's device deletes a file: the owner gets it in the trash",
+    "description": "ICLOUD-003: the same through a second device named as the participant (rule D2).",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2", "device_name": "participant" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "shared/plan.md", "text": "the plan" },
+      { "op": "drive_write", "device": "c", "path": "shared/budget.xlsx", "text": "the budget" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_rm", "device": "d", "path": "shared/plan.md" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "shared/plan.md", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "c", "text": "the plan" },
+      { "op": "drive_check", "check": "kept", "texts": ["the plan"] },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "shared/budget.xlsx", "text": "the budget" },
+      { "op": "trash", "check": "max_ops", "device": "c", "max": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

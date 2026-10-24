@@ -13,7 +13,7 @@
       { "op": "drive_write", "device": "a", "path": "old2.bin", "size": 400000, "seed": 22 },
       { "op": "drive_write", "device": "a", "path": "old3.bin", "size": 400000, "seed": 23 },
       { "op": "drive_sync", "device": "a" },
-      { "op": "drive_fault", "remote": "r", "quota_bytes": 500000 },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 100000 },
       { "op": "drive_write", "device": "a", "path": "new.bin", "size": 200000, "seed": 24 },
       { "op": "drive_sync", "device": "a", "expect": "any" },
       { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded", "key": "new.bin" },

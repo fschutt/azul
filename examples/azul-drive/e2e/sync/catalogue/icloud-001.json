@@ -1,0 +1,46 @@
+[
+  {
+    "name": "every saved version stays recoverable on the drive",
+    "description": "ICLOUD-001 (sync-chaos placeholder-write-back): on macOS 14.4 evicting a file destroyed all its saved versions. Rule D2: the drive keeps every synced version (90 days); none lives only on one Mac.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "essay.txt", "text": "version 1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "essay.txt", "text": "version 2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "essay.txt", "text": "version 3" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "kept", "texts": ["version 1", "version 2", "version 3"] },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "essay.txt", "text": "version 3" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "evicting a file and downloading it again keeps every version",
+    "description": "ICLOUD-001: the eviction itself. Rules P13 and D2: OS or user eviction never loses a version; after hydrating, the file is the latest version and the earlier ones are still listed.",
+    "pending": "drive_evict {device, path} (Free up space: the file becomes cloud-only); drive_hydrate {device, path} (download it again)",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "essay.txt", "text": "version 1" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_write", "device": "c", "path": "essay.txt", "text": "version 2" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_write", "device": "c", "path": "essay.txt", "text": "version 3" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_evict", "device": "c", "path": "essay.txt" },
+      { "op": "drive_states", "device": "c" },
+      { "op": "assert_response", "path": "result.files[\"essay.txt\"].cloud_only", "equals": true },
+      { "op": "drive_hydrate", "device": "c", "path": "essay.txt" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "essay.txt", "text": "version 3" },
+      { "op": "drive_check", "check": "kept", "texts": ["version 1", "version 2", "version 3"] },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
