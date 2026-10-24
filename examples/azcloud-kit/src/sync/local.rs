@@ -705,6 +705,14 @@ pub fn scan_settled(
                 Ok(st) => st,
                 Err(e) if e.kind() == ErrorKind::NotFound => continue,
                 Err(e) => {
+                    // A name the walk refuses to open (a backslash) is a name no device can
+                    // sync: said as such, not as a file that cannot be read.
+                    if let Err(why) = super::remote::check_key(&key) {
+                        out.skipped
+                            .push((key.clone(), format!("its name cannot be a key ({why})")));
+                        out.tell(Code::BadName, &key, format!("not synced: {why}"));
+                        continue;
+                    }
                     out.unknown.insert(key.clone());
                     out.skipped
                         .push((key.clone(), format!("cannot be read ({e})")));
