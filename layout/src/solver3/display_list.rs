@@ -4551,9 +4551,11 @@ pub struct PatchMoveSummary {
     pub dominant_delta: LogicalPosition,
     /// OLD rects of the dominant movers, one blit each. Per-rect (not a
     /// union): the union would include the gaps BETWEEN movers — static
-    /// backdrop that must not be dragged. Only movers that paint an OPAQUE
-    /// background over their own rect qualify (a translucent mover's pixels
-    /// are a blend with the static backdrop, which does not translate).
+    /// backdrop that must not be dragged. A mover qualifies when what its
+    /// pixels are blended with moves with it or is one flat colour where it
+    /// was and where it is: its own opaque background, or the opaque fill of
+    /// the nearest ancestor painting one, if that ancestor stays put (or only
+    /// changes size) and holds the mover's old and new rect.
     pub mover_rects_old: Vec<LogicalRect>,
     /// Union of `mover_rects_old` — the region the translated DIFF may
     /// classify as moves.
@@ -4669,12 +4671,50 @@ pub fn compute_patch_move_summary(
             is_dominant_mover[i] = true;
         }
     }
+    // A mover may blit when what its pixels are blended with moves with it:
+    // its own opaque background, or - for a mover without one (a list's rows,
+    // a pane's text) - the flat opaque fill of the nearest ancestor that
+    // paints one, when that ancestor stays put or only changes size and its
+    // box holds the mover where it was and where it is: the drag then moves
+    // the mover over the same colour. Requiring the mover's own background
+    // let no frame of a pane pushed down by a growing ribbon blit.
+    let contains = |outer: &LogicalRect, r: &LogicalRect| {
+        r.origin.x >= outer.origin.x - EPS
+            && r.origin.y >= outer.origin.y - EPS
+            && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
+            && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
+    };
+    let backed_by_a_still_fill = |i: usize| -> bool {
+        let (Some(old), Some(new)) = (
+            rect_of(prev_positions[i], prev_sizes[i]),
+            rect_of(new_positions[i], new_sizes[i]),
+        ) else {
+            return false;
+        };
+        let mut cur = parents.get(i).copied().flatten();
+        while let Some(p) = cur {
+            if p >= n {
+                return false;
+            }
+            if opaque_bg.get(p).copied().unwrap_or(false) {
+                return !is_dominant_mover[p]
+                    && rect_of(prev_positions[p], prev_sizes[p]).is_some_and(|a| contains(&a, &old))
+                    && rect_of(new_positions[p], new_sizes[p]).is_some_and(|a| contains(&a, &new));
+            }
+            cur = parents.get(p).copied().flatten();
+        }
+        false
+    };
+    let blittable: Vec<bool> = (0..n)
+        .map(|i| {
+            is_dominant_mover[i]
+                && (opaque_bg.get(i).copied().unwrap_or(false) || backed_by_a_still_fill(i))
+        })
+        .collect();
     let covered_by_mover_ancestor = |i: usize| -> bool {
         let mut cur = parents.get(i).copied().flatten();
         while let Some(p) = cur {
-            if is_dominant_mover.get(p).copied().unwrap_or(false)
-                && opaque_bg.get(p).copied().unwrap_or(false)
-            {
+            if blittable.get(p).copied().unwrap_or(false) {
                 return true;
             }
             cur = parents.get(p).copied().flatten();
@@ -4684,10 +4724,7 @@ pub fn compute_patch_move_summary(
     let mut mover_rects_old: Vec<LogicalRect> = Vec::new();
     let mut moved_region: Option<LogicalRect> = None;
     for i in 0..n {
-        if !is_dominant_mover[i]
-            || !opaque_bg.get(i).copied().unwrap_or(false)
-            || covered_by_mover_ancestor(i)
-        {
+        if !blittable[i] || covered_by_mover_ancestor(i) {
             continue;
         }
         if let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) {
@@ -4703,10 +4740,7 @@ pub fn compute_patch_move_summary(
     // whose OPAQUE mover ancestor blits is carried by that blit and needs
     // no exception; equally, dominant movers inside a blitted ancestor are
     // fine. Everything else that touches a mover rect must repaint.
-    let inside_blit = |i: usize| -> bool {
-        is_dominant_mover[i] && opaque_bg.get(i).copied().unwrap_or(false)
-            || covered_by_mover_ancestor(i)
-    };
+    let inside_blit = |i: usize| -> bool { blittable[i] || covered_by_mover_ancestor(i) };
 
     // Pass 2: exceptions — re-emitted nodes, off-delta movers, non-opaque
     // dominant movers outside any blitted ancestor, and NON-ANCESTOR
@@ -4715,8 +4749,8 @@ pub fn compute_patch_move_summary(
     let is_ancestor_of_any_mover = |i: usize| -> bool {
         // ancestor test via the parent chains of the collected movers is
         // O(movers × depth); movers are ≤32 and depth is small.
-        for (j, dom) in is_dominant_mover.iter().enumerate() {
-            if !dom || !opaque_bg.get(j).copied().unwrap_or(false) {
+        for (j, can) in blittable.iter().enumerate() {
+            if !can {
                 continue;
             }
             let mut cur = parents.get(j).copied().flatten();
