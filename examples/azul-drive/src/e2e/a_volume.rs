@@ -30,6 +30,7 @@ pub(super) fn parse_fs(spec: &str) -> Result<(String, u64), String> {
     }
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 fn run(cmd: &mut Command) -> Result<String, String> {
     let shown = format!("{cmd:?}");
     let out = cmd.output().map_err(|e| format!("{shown}: {e}"))?;
