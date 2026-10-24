@@ -241,12 +241,15 @@ fn a_file_whose_name_another_spelling_holds_here_stays_on_the_drive_and_says_why
                 "a twin is no change during the run: {:?}",
                 report.changed_during_sync
             );
-            assert_eq!(report.file_errors.len(), 1, "{:?}", report.file_errors);
-            assert!(
-                report.file_errors[0].1.contains("same name"),
-                "{:?}",
-                report.file_errors
-            );
+            // The one this disk cannot hold beside the other is listed with its reason.
+            let collisions: Vec<_> = report
+                .problems
+                .iter()
+                .filter(|p| p.code == crate::sync::problems::Code::NameCollision)
+                .collect();
+            assert_eq!(collisions.len(), 1, "{:?}", report.problems);
+            assert!(collisions[0].key == first || collisions[0].key == second, "{:?}", collisions);
+            assert!(collisions[0].detail.contains("which stays"), "{:?}", collisions);
             assert_eq!(report.deleted_there, 0);
         }
         // The twin is not fetched again pass after pass.

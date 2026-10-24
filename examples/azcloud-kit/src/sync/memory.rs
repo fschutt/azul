@@ -28,7 +28,8 @@ mod tests {
         let Some(before) = super::peak_bytes() else {
             return;
         };
-        let held = vec![1u8; 64 << 20];
+        // black_box: an allocation nothing reads is removed by the optimizer.
+        let held = std::hint::black_box(vec![1u8; 64 << 20]);
         let after = super::peak_bytes().unwrap_or(0);
         assert!(after >= before);
         assert!(after >= 64 << 20, "{after} bytes, holding {}", held.len());

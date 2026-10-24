@@ -549,11 +549,16 @@ fn a_read_only_drive_says_why_and_only_an_unpaid_one_speaks_of_a_payment() {
             user.code
         );
     }
-    assert!(unpaid.message(Lang::En).contains("payment"));
+    // A drive is paid for by the period: the unpaid one says its paid period ended.
+    assert!(unpaid.message(Lang::En).contains("paid period"), "{}", unpaid.message(Lang::En));
+    assert!(unpaid.message(Lang::De).contains("bezahlter Zeitraum"), "{}", unpaid.message(Lang::De));
     for user in [&frozen, &operator] {
         for lang in Lang::ALL {
             let text = user.message(lang).to_lowercase();
-            assert!(!text.contains("payment") && !text.contains("zahlung"), "{text}");
+            assert!(
+                !text.contains("payment") && !text.contains("paid") && !text.contains("zahl"),
+                "{text}"
+            );
         }
     }
     assert!(frozen.message(Lang::En).contains("recovery code"), "the owner's warning");

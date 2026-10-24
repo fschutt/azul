@@ -158,7 +158,7 @@ fn a_key_that_is_no_utf8_is_listed_never_written_and_kept_byte_for_byte() {
     a.pass(drive.path());
     tamper_put(drive.path(), "PLACEHOLDER", b"raw", json!({}));
     let raw = fs::read(drive.path().join("index.json")).unwrap();
-    let text = String::from_utf8(raw).unwrap().replace("PLACEHOLDER", "bad\u{1}name");
+    let text = String::from_utf8(raw).unwrap().replace("PLACEHOLDER", "bad\\u0001name");
     let mut bytes = text.into_bytes();
     let at = bytes.windows(9).position(|w| w == b"bad\\u0001").unwrap();
     bytes.splice(at..at + 9, [b'b', b'a', b'd', 0xC0, 0xAF]);

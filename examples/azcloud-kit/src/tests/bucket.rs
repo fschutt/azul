@@ -160,15 +160,14 @@ fn a_block_endpoint_without_an_answer_hands_the_request_to_the_next_endpoint() {
     assert!(asked[0].starts_with(S3), "{asked:?}");
     assert!(asked[1].starts_with("http://127.0.0.1:19003/"), "{asked:?}");
     assert!(asked[2].starts_with("http://127.0.0.1:19002/"), "{asked:?}");
+    // An answer may only point at endpoints the token server listed: 19004 is not followed and
+    // asks for a fresh view instead; the listed ones stay, each once.
     assert_eq!(
         bucket.alternatives(),
-        vec![
-            "http://127.0.0.1:19003",
-            "http://127.0.0.1:19002",
-            "http://127.0.0.1:19004"
-        ],
-        "what an answer names is asked next time too, once"
+        vec!["http://127.0.0.1:19003", "http://127.0.0.1:19002"],
+        "an endpoint only an answer names is never learned"
     );
+    assert!(bucket.failover().take_view_refresh(), "the unlisted name asks for a fresh view");
 }
 
 #[test]
