@@ -1,17 +1,18 @@
 //! The recompression pass of an encrypted drive (feature `encryption`): files written while
-//! they were uploaded (zstd level 3, chosen for speed) are written once more, smaller, while
-//! the computer has nothing else to do.
+//! they were uploaded (the levels a transfer keeps up with, or by an older build that stored
+//! JPEG, PDF and Office files as they were) are written once more, smaller, while the computer
+//! has nothing else to do.
 //!
 //! - **When.** Only while the computer is idle and on mains power: the app asks the OS
 //!   (azul's `PowerState`) and calls [`run_pass`] with a `stop` that turns true at the first
 //!   user action or when the power cord goes. This module never looks at the clock or the
 //!   power itself.
-//! - **What.** Every file of at least [`RecompressPolicy::min_size`] that is not compressed
-//!   already (its first bytes: JPEG, PNG, ZIP, video, ... - [`crate::crypto::codec`]):
-//!   text-like files (UTF-8 without NUL bytes) with brotli at quality 11, everything else with
-//!   zstd at level 19 ([`Recoding`]).
+//! - **What.** Every file of at least [`RecompressPolicy::min_size`] whose kind can get smaller
+//!   ([`worth_trying`]): a JPEG, PDF, Office, ZIP, PNG or gzip file through its whole-file
+//!   transform, the rest through zstd up to level 19 and brotli up to quality 11 for text. Only
+//!   dense kinds without a transform (video, HEIC, archives) are left.
 //! - **How.** A file is read through its reader (its BLAKE3 checked), written into a NEW
-//!   object with a new file key ([`Compression::Recode`]), and kept only when the new object is
+//!   object with a new file key ([`Compression::Idle`]), and kept only when the new object is
 //!   at least [`RecompressPolicy::min_saving_percent`] smaller than the old one. The index then
 //!   names the new object in the old one's place as a compare-and-swap
 //!   ([`crate::encrypted::Expect::Object`] of the old object): a file the user changed meanwhile
@@ -20,25 +21,28 @@
 //!   the storage nodes), so every file the pass makes smaller frees quota.
 //! - **Resumable.** The pass walks the index in path order and records the last path it did
 //!   ([`RecompressState::cursor`]); a stopped pass goes on from there. A finished pass records
-//!   when it started ([`RecompressState::since`]): the next one looks only at files modified
-//!   since then, so nothing is recompressed twice (a recompressed file keeps its date).
-//! - JPEG XL (lossless JPEG transcoding) is left for later: no pure-Rust encoder.
+//!   since then, so nothing is recompressed twice (a recompressed file keeps its date). A new
+//!   [`STATE_FORMAT`] starts the pass over every file once: the state file of the format before
+//!   the transforms is refused, and the pass begins from scratch.
 
 use std::io::{Cursor, Read};
 
 use serde::{Deserialize, Serialize};
 
+use azlin_compress::CodecPath;
+
 use crate::{
     crypto::{
-        azl1::{ObjectSummary, WriteOptions},
-        codec::{looks_compressed, Compression, Recoding},
+        azl1::{ObjectSummary, WriteOptions, DEFAULT_SEGMENT_SIZE},
+        codec::{extension_of, Compression},
     },
     encrypted::{EncryptedDrive, IndexEntry, Rewrite},
     Drive, DriveError,
 };
 
-/// The `format` of a saved [`RecompressState`].
-pub const STATE_FORMAT: &str = "azul-storage.recompression";
+/// The `format` of a saved [`RecompressState`]. Format 2 came with the transforms: a state of
+/// the first format is refused, so every file gets the new pass once.
+pub const STATE_FORMAT: &str = "azul-storage.recompression.2";
 /// The bytes the choice of the codec looks at.
 pub const SNIFF_LEN: usize = 4096;
 
@@ -69,24 +73,17 @@ impl RecompressPolicy {
     }
 }
 
-/// What the pass writes a file with, from its first bytes: `None` for a format that is
-/// compressed already, brotli for text (UTF-8 without NUL bytes; a character cut at the end of
-/// `first_bytes` is fine), zstd for the rest.
+/// Whether the pass may make a file of `len` bytes that starts with `first_bytes` smaller:
+/// its kind (from those bytes, the extension breaking ties) has a whole-file transform, or its
+/// segments may compress. A dense kind without a transform (video, HEIC, an archive) has
+/// nothing to gain.
 #[must_use]
-pub fn recoding_for(first_bytes: &[u8]) -> Option<Recoding> {
-    if looks_compressed(first_bytes) {
-        return None;
-    }
-    let text = match std::str::from_utf8(first_bytes) {
-        Ok(_) => true,
-        // Only a character cut off by the end of the sniffed bytes.
-        Err(e) => e.error_len().is_none(),
+pub fn worth_trying(first_bytes: &[u8], len: u64, extension: Option<&str>) -> bool {
+    let Some(options) = Compression::Idle.options(DEFAULT_SEGMENT_SIZE, extension) else {
+        return false;
     };
-    if text && !first_bytes.contains(&0) {
-        Some(Recoding::Brotli)
-    } else {
-        Some(Recoding::ZstdMax)
-    }
+    let plan = azlin_compress::plan(first_bytes, len, &options);
+    plan.transform.is_some() || plan.codecs != CodecPath::Skip
 }
 
 /// What happened to one file.
@@ -101,7 +98,8 @@ pub enum RecompressOutcome {
     },
     /// Recompressed, but it saved too little: the old object stays, nothing was uploaded.
     NotWorthIt,
-    /// Not tried: a folder marker, smaller than the policy's minimum, or compressed already.
+    /// Not tried: a folder marker, a packed file, smaller than the policy's minimum, or a dense
+    /// kind without a transform.
     Ineligible,
     /// The file changed or went while it was recompressed: the user's version stays.
     Skipped,
@@ -149,12 +147,12 @@ pub(crate) fn recompress_with<D: Drive>(
         .take(SNIFF_LEN as u64)
         .read_to_end(&mut first)
         .map_err(|e| read_failed(path, e))?;
-    let Some(recoding) = recoding_for(&first) else {
+    if !worth_trying(&first, entry.size, extension_of(path)) {
         return Ok(RecompressOutcome::Ineligible);
-    };
+    }
     let options = WriteOptions {
         segment_size: drive.options().segment_size,
-        compression: Compression::Recode(recoding),
+        compression: Compression::Idle,
     };
     let mut body = Cursor::new(first).chain(reader);
     let keep = |summary: &ObjectSummary| policy.worth_it(before, summary.object_len);

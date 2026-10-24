@@ -13,8 +13,10 @@
 //! - A SHARE KEY ([`ShareKey`]) wraps the file keys of what is shared and never the drive key:
 //!   whoever holds it opens those files and nothing else.
 //!
-//! The objects ([`azl1`]): a 4 KiB header, the file in 1 MiB segments - each compressed when
-//! that saves 5 % ([`codec`]), each sealed with XChaCha20-Poly1305 in the STREAM construction -
+//! The objects ([`azl1`]): a 4 KiB header, the file in 1 MiB segments - a JPEG, PDF or Office
+//! file first through its whole-file transform (version 2), each segment compressed when that
+//! saves 5 % ([`codec`], azlin-compress), each sealed with XChaCha20-Poly1305 in the STREAM
+//! construction -
 //! and an encrypted trailer of the segment lengths. An object's bucket key is a random 128-bit
 //! id, `data/<2 hex digits>/<32 hex digits>` ([`ObjectId`]): no name, path or folder of the
 //! drive ever reaches the bucket.

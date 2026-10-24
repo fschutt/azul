@@ -188,6 +188,14 @@ azul-layout = { path = "layout" }
 # azul-storage's round-trip tests run them on every deflate input.
 [profile.dev.package.azlin-preflate]
 opt-level = 2
+# Lepton (and its SIMD types) likewise: unoptimised it can miss the upload's time budget, and the transform is
+# then left out of the very tests that check it.
+[profile.dev.package.lepton_jpeg]
+opt-level = 2
+[profile.dev.package.wide]
+opt-level = 2
+[profile.dev.package.safe_arch]
+opt-level = 2
 
 [profile.release]
 opt-level = 3

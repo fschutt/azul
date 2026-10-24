@@ -4,7 +4,7 @@
 //! ```text
 //! [header, 4096 bytes]                                 all integers little endian
 //!     0   4  magic "AZL1"
-//!     4   2  version (1)
+//!     4   2  version (1; 2 for a transformed file, see below)
 //!     6   2  header flags (0)
 //!     8   4  header length (4096)
 //!    12   4  segment size: plaintext bytes per segment (1 MiB)
@@ -20,10 +20,16 @@
 //!   200  76  the info, sealed: plaintext size u64, segment count u64, object length u64,
 //!            BLAKE3 of the plaintext (32), flags u32 (bit 0: a segment is compressed); + tag
 //!   276  24  trailer nonce (random)
-//!   300      zero up to 4096
+//!   300      zero up to 4096 (version 1)
+//!   version 2 only:
+//!   300  24  transform nonce (random)
+//!   324  64  the transform block, sealed with the info key (associated data: bytes 0..88 and
+//!            "AZL1 transform v2"): transform id u8, its version u8, 6 zero bytes, the
+//!            transformed length u64, BLAKE3 of the transformed stream (32); + tag
+//!   388      zero up to 4096
 //! [segments]
 //!     segment i: XChaCha20-Poly1305 of (codec byte || data) - codec 0 stored, 1 zstd,
-//!     2 brotli (see `codec`) -, the nonce being the prefix, i as
+//!     2 brotli, 4 zstd with a shipped dictionary (see `codec`) -, the nonce being the prefix, i as
 //!     a 32-bit big-endian counter and a last-segment flag (aead's STREAM, `StreamBE32`): a
 //!     segment moved to another place does not open, nor does a cut after any segment but
 //!     the last. Every object has at least one segment (an empty file: one empty last one).
@@ -33,6 +39,16 @@
 //!
 //! What the bucket shows of an object is its length and the public header: no name, no
 //! plaintext size, no hash of the plaintext (they are sealed in the info).
+//!
+//! Version 2 holds a file that went through a whole-file transform of azlin-compress (Lepton
+//! for a JPEG, the rebuilt deflate streams of a PDF, Office, ZIP, PNG or gzip file): its
+//! segments carry the TRANSFORMED stream, cut and sealed exactly as a version 1 file's bytes,
+//! and the transform block says which transform and what the stream is. The info's size and
+//! BLAKE3 stay the original file's (what the index, the quota and the final check use); its
+//! segment count is the transformed stream's. A reader decrypts the stream, checks its BLAKE3,
+//! runs the inverse transform (never past the sealed size) and checks the original's BLAKE3.
+//! Transforms run only on files up to 64 MiB, so a version 2 file is decoded whole even for a
+//! ranged read. Every object without a transform stays version 1, byte for byte.
 //!
 //! Keys: the file key is 256 random bits, made for this object only (a rewrite is a new object
 //! with a new key). Three keys are derived from it with BLAKE3's `derive_key`, each with a
@@ -66,6 +82,13 @@ use chacha20poly1305::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+use azlin_compress::{
+    transform::{self, Forward},
+    Kind, Limits,
+};
+/// A whole-file transform, as a version 2 object names it.
+pub use azlin_compress::TransformId;
+
 use super::{
     codec::{self, Codec, Compression, Encoded, Encoder},
     random_bytes, CryptoError, DriveKey, FileKey, ObjectId, WrappedKey, NONCE_LEN,
@@ -74,8 +97,10 @@ use super::{
 
 /// The first four bytes of every object.
 pub const MAGIC: [u8; 4] = *b"AZL1";
-/// The format version this build writes and reads.
+/// The format version of a file stored without a whole-file transform.
 pub const VERSION: u16 = 1;
+/// The format version of a transformed file (the transform block in the header).
+pub const VERSION_TRANSFORMED: u16 = 2;
 /// Bytes of the header.
 pub const HEADER_LEN: usize = 4096;
 /// Plaintext bytes per segment, unless a writer is told otherwise.
@@ -98,6 +123,8 @@ const TRAILER_ENTRY: usize = 4;
 const LENGTH_FIELD: u64 = 8;
 /// Info flag: at least one segment is compressed.
 const FLAG_COMPRESSED: u32 = 1;
+/// Bytes of the sealed transform block's plaintext (version 2).
+const TRANSFORM_LEN: usize = 48;
 
 // The header's fields: where they start.
 const OFF_VERSION: usize = 4;
@@ -113,8 +140,12 @@ const OFF_WRAP: usize = 88;
 const OFF_INFO_NONCE: usize = 176;
 const OFF_INFO: usize = 200;
 const OFF_TRAILER_NONCE: usize = 276;
-/// Everything from here to the header's end is zero.
+/// Version 1: everything from here to the header's end is zero.
 const HEADER_USED: usize = 300;
+/// Version 2: the transform block's nonce and sealed bytes, then zero to the header's end.
+const OFF_TRANSFORM_NONCE: usize = 300;
+const OFF_TRANSFORM: usize = 324;
+const HEADER_USED_TRANSFORMED: usize = OFF_TRANSFORM + TRANSFORM_LEN + TAG_LEN;
 
 /// BLAKE3 `derive_key` contexts of the keys derived from a file key (one key, one purpose).
 const SEGMENT_KEY_CONTEXT: &str = "Azlin 2026-10-08 AZL1 segment key";
@@ -122,6 +153,9 @@ const INFO_KEY_CONTEXT: &str = "Azlin 2026-10-08 AZL1 header info key";
 const TRAILER_KEY_CONTEXT: &str = "Azlin 2026-10-08 AZL1 trailer key";
 /// What the key commitment hashes, keyed with the file key.
 const COMMITMENT_INPUT: &[u8] = b"AZL1 key commitment v1";
+/// Appended to the header context in the transform block's associated data: the block and the
+/// info share the info key, and neither opens in the other's place.
+const TRANSFORM_AAD: &[u8] = b"AZL1 transform v2";
 
 /// The segments' cipher: aead's STREAM over XChaCha20-Poly1305 (nonce = prefix || counter ||
 /// last-segment flag).
@@ -221,11 +255,16 @@ impl ObjectKeys {
 /// What the header seals about the file.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Info {
+    /// The file's bytes (in version 2 the original's, before the transform).
     plaintext_size: u64,
     segment_count: u64,
     object_len: u64,
+    /// BLAKE3 of the file (in version 2 the original's).
     blake3: [u8; 32],
     flags: u32,
+    /// The bytes the segments hold: the file in version 1, the transformed stream in version
+    /// 2 (from the transform block; not part of the sealed info).
+    stream_len: u64,
 }
 
 impl Info {
@@ -243,12 +282,14 @@ impl Info {
         if bytes.len() != INFO_LEN {
             return Err(damaged("the header info has the wrong length"));
         }
+        let plaintext_size = le_u64(&bytes[0..8]);
         Ok(Info {
-            plaintext_size: le_u64(&bytes[0..8]),
+            plaintext_size,
             segment_count: le_u64(&bytes[8..16]),
             object_len: le_u64(&bytes[16..24]),
             blake3: array(&bytes[24..56])?,
             flags: le_u32(&bytes[56..60]),
+            stream_len: plaintext_size,
         })
     }
 
@@ -260,7 +301,7 @@ impl Info {
             )));
         }
         if self.segment_count > u64::from(u32::MAX)
-            || self.segment_count != segment_count(self.plaintext_size, segment_size)
+            || self.segment_count != segment_count(self.stream_len, segment_size)
         {
             return Err(damaged("the segment count does not fit the plaintext size"));
         }
@@ -279,13 +320,73 @@ impl Info {
         if index + 1 < self.segment_count {
             segment_size
         } else {
-            self.plaintext_size - (self.segment_count - 1) * segment_size
+            self.stream_len - (self.segment_count - 1) * segment_size
         }
     }
 }
 
-/// Bytes 0..88 of a header.
+/// What a version 2 header seals about the transform: which one, and the stream it made.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TransformBlock {
+    id: TransformId,
+    /// The transformed stream's bytes: what the segments hold.
+    transformed_len: u64,
+    /// BLAKE3 of the transformed stream.
+    blake3: [u8; 32],
+}
+
+impl TransformBlock {
+    fn to_bytes(self) -> [u8; TRANSFORM_LEN] {
+        let mut out = [0u8; TRANSFORM_LEN];
+        let (id, version) = self.id.bytes();
+        out[0] = id;
+        out[1] = version;
+        out[8..16].copy_from_slice(&self.transformed_len.to_le_bytes());
+        out[16..48].copy_from_slice(&self.blake3);
+        out
+    }
+
+    /// The block of a file of `plaintext_size` bytes: a transform this build reads, a stream
+    /// no longer than that transform can make of such a file.
+    fn parse(bytes: &[u8], plaintext_size: u64) -> Result<TransformBlock, CryptoError> {
+        if bytes.len() != TRANSFORM_LEN {
+            return Err(damaged("the transform block has the wrong length"));
+        }
+        let id = TransformId::from_bytes(bytes[0], bytes[1])?;
+        if id == TransformId::None || bytes[2..8].iter().any(|b| *b != 0) {
+            return Err(CryptoError::Unsupported(String::from(
+                "a transform block of a newer version",
+            )));
+        }
+        // Transforms run on files up to this size only: a larger one is a newer writer's.
+        if plaintext_size > Limits::default().max_transform_input {
+            return Err(CryptoError::Unsupported(String::from(
+                "a transformed file larger than this version transforms",
+            )));
+        }
+        let transformed_len = le_u64(&bytes[8..16]);
+        if transformed_len > transform::max_transformed_len(id, plaintext_size) {
+            return Err(damaged("the transformed stream is longer than its file allows"));
+        }
+        Ok(TransformBlock {
+            id,
+            transformed_len,
+            blake3: array(&bytes[16..48])?,
+        })
+    }
+}
+
+/// The associated data of the transform block: the header context, then [`TRANSFORM_AAD`].
+fn transform_aad(context: &[u8; CONTEXT_LEN]) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(CONTEXT_LEN + TRANSFORM_AAD.len());
+    aad.extend_from_slice(context);
+    aad.extend_from_slice(TRANSFORM_AAD);
+    aad
+}
+
+/// Bytes 0..88 of a header of format `version`.
 fn header_context(
+    version: u16,
     segment_size: u32,
     object_id: &ObjectId,
     prefix: &[u8; PREFIX_LEN],
@@ -293,8 +394,8 @@ fn header_context(
 ) -> [u8; CONTEXT_LEN] {
     let mut context = [0u8; CONTEXT_LEN];
     context[..MAGIC.len()].copy_from_slice(&MAGIC);
-    context[OFF_VERSION..OFF_VERSION + 2].copy_from_slice(&VERSION.to_le_bytes());
-    // The header flags (bytes 6..8) stay zero in version 1.
+    context[OFF_VERSION..OFF_VERSION + 2].copy_from_slice(&version.to_le_bytes());
+    // The header flags (bytes 6..8) stay zero in versions 1 and 2.
     context[OFF_HEADER_LEN..OFF_HEADER_LEN + 4].copy_from_slice(&(HEADER_LEN as u32).to_le_bytes());
     context[OFF_SEGMENT_SIZE..OFF_SEGMENT_SIZE + 4].copy_from_slice(&segment_size.to_le_bytes());
     context[OFF_OBJECT_ID..OFF_OBJECT_ID + OBJECT_ID_LEN].copy_from_slice(&object_id.0);
@@ -321,19 +422,44 @@ impl Default for WriteOptions {
     }
 }
 
+/// What a writer knows of a file before its first byte; the transform and the codecs use it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileHint {
+    /// The name extension ("jpg"), the detection's tie-break.
+    pub extension: Option<String>,
+    /// The file's bytes, when known: the codecs' time budget grows with them, and a stream
+    /// known to be larger than a transform takes is not read into memory for one.
+    pub len: Option<u64>,
+}
+
+impl FileHint {
+    /// The hint of the drive path `path` (its extension), `len` bytes long when known.
+    #[must_use]
+    pub fn for_path(path: &str, len: Option<u64>) -> FileHint {
+        FileHint {
+            extension: codec::extension_of(path).map(str::to_ascii_lowercase),
+            len,
+        }
+    }
+}
+
 /// What a finished object is: what the drive's index keeps of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectSummary {
     pub object_id: ObjectId,
-    /// The file's bytes (its size before compression).
+    /// The file's bytes (its size before compression and transform).
     pub plaintext_size: u64,
     /// The object's bytes in the bucket (compressed and encrypted: what the quota counts).
     pub object_len: u64,
+    /// The segments of the stored stream (in version 2: of the transformed stream).
     pub segment_count: u64,
     /// BLAKE3 of the plaintext.
     pub blake3: [u8; 32],
-    /// Whether a segment is compressed.
+    /// Whether the object holds fewer bytes than the file: a segment is compressed, or the
+    /// file was transformed.
     pub compressed: bool,
+    /// The whole-file transform the object holds (a version 2 object); `None`: version 1.
+    pub transform: Option<TransformId>,
     /// The file key wrapped with the drive key: the same wrap as in the header.
     pub wrapped_key: WrappedKey,
 }
@@ -346,10 +472,29 @@ pub struct Finished<W> {
     pub summary: ObjectSummary,
 }
 
+/// The original file of a transformed stream: what a version 2 info seals.
+#[derive(Clone, Copy)]
+struct Original {
+    id: TransformId,
+    len: u64,
+    blake3: [u8; 32],
+}
+
+/// A transformed stream about to be written: its file, the kind the codecs treat it as, and
+/// its length.
+#[derive(Clone, Copy)]
+struct Transforming {
+    original: Original,
+    kind: Kind,
+    stream_len: u64,
+}
+
 /// Writes one new object, a segment at a time, whatever the file's size: give it the
 /// plaintext through `io::Write`, then [`Azl1Writer::finish`]. The sink receives the segments
 /// and the trailer (the object from byte [`HEADER_LEN`] on); the header comes back at the end,
 /// for the object's first [`HEADER_LEN`] bytes. A writer that failed refuses further writes.
+/// It writes version 1 objects; the whole-file transforms are [`encrypt`]'s and
+/// [`encrypt_stream`]'s, which need the whole file.
 pub struct Azl1Writer<W: Write> {
     sink: W,
     object_id: ObjectId,
@@ -362,12 +507,15 @@ pub struct Azl1Writer<W: Write> {
     /// The sealed length of every segment written.
     lengths: Vec<u32>,
     hasher: blake3::Hasher,
+    /// Bytes given to the writer: the file, or its transformed stream.
     plaintext_size: u64,
     /// Bytes handed to the sink.
     written: u64,
     encoder: Encoder,
     compressed: bool,
     failed: bool,
+    /// The file a version 2 object's stream was made from.
+    original: Option<Original>,
 }
 
 impl<W: Write> Azl1Writer<W> {
@@ -379,18 +527,44 @@ impl<W: Write> Azl1Writer<W> {
         drive_key: &DriveKey,
         options: &WriteOptions,
     ) -> Result<Azl1Writer<W>, CryptoError> {
+        Azl1Writer::start(sink, object_id, drive_key, options, &FileHint::default(), None)
+    }
+
+    /// [`Azl1Writer::new`] with what is known of the file; with `transforming`, the writer of
+    /// a version 2 object whose stream is the transformed file.
+    fn start(
+        sink: W,
+        object_id: ObjectId,
+        drive_key: &DriveKey,
+        options: &WriteOptions,
+        hint: &FileHint,
+        transforming: Option<Transforming>,
+    ) -> Result<Azl1Writer<W>, CryptoError> {
         check_segment_size(options.segment_size)?;
         let file_key = FileKey::generate()?;
         let mut prefix = [0u8; PREFIX_LEN];
         random_bytes(&mut prefix)?;
         let wrapped_key = drive_key.wrap_file_key(&file_key, &object_id)?;
+        let version = if transforming.is_some() {
+            VERSION_TRANSFORMED
+        } else {
+            VERSION
+        };
         let context = header_context(
+            version,
             options.segment_size,
             &object_id,
             &prefix,
             &commitment_of(&file_key),
         );
         let segment_size = options.segment_size as usize;
+        let codec_options = options
+            .compression
+            .options(options.segment_size, hint.extension.as_deref());
+        let encoder = match &transforming {
+            Some(t) => Encoder::new(codec_options, Some(t.kind), Some(t.stream_len)),
+            None => Encoder::new(codec_options, None, hint.len),
+        };
         Ok(Azl1Writer {
             sink,
             object_id,
@@ -403,9 +577,10 @@ impl<W: Write> Azl1Writer<W> {
             hasher: blake3::Hasher::new(),
             plaintext_size: 0,
             written: 0,
-            encoder: Encoder::new(options.compression),
+            encoder,
             compressed: false,
             failed: false,
+            original: transforming.map(|t| t.original),
         })
     }
 
@@ -418,7 +593,7 @@ impl<W: Write> Azl1Writer<W> {
         let encoded = self.encoder.encode(&self.pending)?;
         let data: &[u8] = match &encoded {
             Encoded::Stored => &self.pending,
-            Encoded::Zstd(frame) | Encoded::Brotli(frame) => frame,
+            Encoded::Compressed { data, .. } => data,
         };
         // The capacity holds the tag too: the buffer never moves (and never leaves a copy).
         let mut segment =
@@ -442,11 +617,12 @@ impl<W: Write> Azl1Writer<W> {
         Ok(())
     }
 
-    /// The header of the finished object.
+    /// The header of the finished object (with the transform block of a version 2 one).
     fn header(
         &self,
         info: Info,
         trailer_nonce: &[u8; NONCE_LEN],
+        block: Option<TransformBlock>,
     ) -> Result<Box<[u8; HEADER_LEN]>, CryptoError> {
         let mut info_nonce = [0u8; NONCE_LEN];
         random_bytes(&mut info_nonce)?;
@@ -470,6 +646,26 @@ impl<W: Write> Azl1Writer<W> {
         header[OFF_INFO_NONCE..OFF_INFO_NONCE + NONCE_LEN].copy_from_slice(&info_nonce);
         header[OFF_INFO..OFF_INFO + INFO_LEN + TAG_LEN].copy_from_slice(&sealed_info);
         header[OFF_TRAILER_NONCE..OFF_TRAILER_NONCE + NONCE_LEN].copy_from_slice(trailer_nonce);
+        if let Some(block) = block {
+            let mut nonce = [0u8; NONCE_LEN];
+            random_bytes(&mut nonce)?;
+            let sealed = self
+                .keys
+                .info
+                .encrypt(
+                    XNonce::from_slice(&nonce),
+                    Payload {
+                        msg: &block.to_bytes(),
+                        aad: &transform_aad(&self.context),
+                    },
+                )
+                .map_err(|_| damaged("the cipher refused the transform block"))?;
+            if sealed.len() != TRANSFORM_LEN + TAG_LEN {
+                return Err(damaged("the sealed transform block has the wrong length"));
+            }
+            header[OFF_TRANSFORM_NONCE..OFF_TRANSFORM_NONCE + NONCE_LEN].copy_from_slice(&nonce);
+            header[OFF_TRANSFORM..HEADER_USED_TRANSFORMED].copy_from_slice(&sealed);
+        }
         Ok(header)
     }
 
@@ -503,21 +699,37 @@ impl<W: Write> Azl1Writer<W> {
         self.sink.write_all(&trailer)?;
         self.sink.write_all(&(trailer.len() as u64).to_le_bytes())?;
         self.sink.flush()?;
+        let stream_hash = *self.hasher.finalize().as_bytes();
+        // Version 2: the info names the original file, the block the stream the segments hold.
+        let (plaintext_size, blake3, block) = match self.original {
+            Some(original) => (
+                original.len,
+                original.blake3,
+                Some(TransformBlock {
+                    id: original.id,
+                    transformed_len: self.plaintext_size,
+                    blake3: stream_hash,
+                }),
+            ),
+            None => (self.plaintext_size, stream_hash, None),
+        };
         let info = Info {
-            plaintext_size: self.plaintext_size,
+            plaintext_size,
             segment_count,
             object_len: HEADER_LEN as u64 + self.written + trailer.len() as u64 + LENGTH_FIELD,
-            blake3: *self.hasher.finalize().as_bytes(),
+            blake3,
             flags: if self.compressed { FLAG_COMPRESSED } else { 0 },
+            stream_len: self.plaintext_size,
         };
-        let header = self.header(info, &trailer_nonce)?;
+        let header = self.header(info, &trailer_nonce, block)?;
         let summary = ObjectSummary {
             object_id: self.object_id,
             plaintext_size: info.plaintext_size,
             object_len: info.object_len,
             segment_count,
             blake3: info.blake3,
-            compressed: self.compressed,
+            compressed: self.compressed || block.is_some(),
+            transform: block.map(|block| block.id),
             wrapped_key: self.wrapped_key.clone(),
         };
         Ok(Finished {
@@ -556,17 +768,56 @@ impl<W: Write> Write for Azl1Writer<W> {
     }
 }
 
-/// A new object of `plaintext` in memory, its file key wrapped with `drive_key`.
-pub fn encrypt(
-    plaintext: &[u8],
+/// The verified whole-file transform of `file` under `options`, when its kind has one that
+/// pays (azlin-compress decides, and has decoded it and compared it with `file` already).
+fn transform_of(
+    file: &[u8],
+    options: &WriteOptions,
+    hint: &FileHint,
+) -> Option<(transform::Transformed, Transforming)> {
+    let codec_options = options
+        .compression
+        .options(options.segment_size, hint.extension.as_deref())?;
+    let start = &file[..file.len().min(codec::SNIFF_LEN)];
+    let plan = azlin_compress::plan(start, file.len() as u64, &codec_options);
+    if plan.transform.is_none() {
+        return None;
+    }
+    let forward = {
+        let _slot = TransformSlot::take();
+        transform::forward(file, plan.kind, &codec_options)
+    };
+    match forward {
+        Forward::Applied(transformed) if transformed.id != TransformId::None => {
+            let transforming = Transforming {
+                original: Original {
+                    id: transformed.id,
+                    len: file.len() as u64,
+                    blake3: *blake3::hash(file).as_bytes(),
+                },
+                kind: transform::codec_kind(plan.kind, transformed.id),
+                stream_len: transformed.bytes.len() as u64,
+            };
+            Some((transformed, transforming))
+        }
+        Forward::Applied(_) | Forward::NotApplied(_) => None,
+    }
+}
+
+/// `stream` sealed into a new object in memory (`transforming`: as the transformed stream of a
+/// version 2 object).
+fn seal_in_memory(
+    stream: &[u8],
     object_id: ObjectId,
     drive_key: &DriveKey,
     options: &WriteOptions,
+    hint: &FileHint,
+    transforming: Option<Transforming>,
 ) -> Result<(Vec<u8>, ObjectSummary), CryptoError> {
     let mut sink = vec![0u8; HEADER_LEN];
-    sink.reserve(plaintext.len() + plaintext.len() / 4096 + 1024);
-    let mut writer = Azl1Writer::new(sink, object_id, drive_key, options)?;
-    writer.write_all(plaintext)?;
+    sink.reserve(stream.len() + stream.len() / 4096 + 1024);
+    let mut writer = Azl1Writer::start(sink, object_id, drive_key, options, hint, transforming)?;
+    writer.write_all(stream)?;
     let Finished {
         mut sink,
         header,
@@ -574,6 +825,42 @@ pub fn encrypt(
     } = writer.finish()?;
     sink[..HEADER_LEN].copy_from_slice(&header[..]);
     Ok((sink, summary))
+}
+
+/// A new object of `plaintext` in memory, its file key wrapped with `drive_key`.
+pub fn encrypt(
+    plaintext: &[u8],
+    object_id: ObjectId,
+    drive_key: &DriveKey,
+    options: &WriteOptions,
+) -> Result<(Vec<u8>, ObjectSummary), CryptoError> {
+    encrypt_as(plaintext, object_id, drive_key, options, &FileHint::default())
+}
+
+/// [`encrypt`] with what is known of the file (its name's extension). A JPEG, PDF, Office,
+/// ZIP, PNG or gzip file whose transform pays becomes a version 2 object.
+pub fn encrypt_as(
+    plaintext: &[u8],
+    object_id: ObjectId,
+    drive_key: &DriveKey,
+    options: &WriteOptions,
+    hint: &FileHint,
+) -> Result<(Vec<u8>, ObjectSummary), CryptoError> {
+    let hint = FileHint {
+        len: Some(plaintext.len() as u64),
+        ..hint.clone()
+    };
+    match transform_of(plaintext, options, &hint) {
+        Some((transformed, transforming)) => seal_in_memory(
+            &transformed.bytes,
+            object_id,
+            drive_key,
+            options,
+            &hint,
+            Some(transforming),
+        ),
+        None => seal_in_memory(plaintext, object_id, drive_key, options, &hint, None),
+    }
 }
 
 /// Streams `source` into a new object at the sink's position: room for the header first, the
@@ -586,13 +873,70 @@ pub fn encrypt_stream<R: Read + ?Sized, W: Write + Seek>(
     drive_key: &DriveKey,
     options: &WriteOptions,
 ) -> Result<ObjectSummary, CryptoError> {
+    encrypt_stream_as(source, sink, object_id, drive_key, options, &FileHint::default())
+}
+
+/// [`encrypt_stream`] with what is known of the file. A file whose first bytes name a kind with
+/// a whole-file transform (a JPEG, PDF, Office, ZIP, PNG or gzip file) is read into memory when
+/// it ends within the transforms' 64 MiB, and becomes a version 2 object when its transform
+/// pays; every other file streams with one segment in memory.
+pub fn encrypt_stream_as<R: Read + ?Sized, W: Write + Seek>(
+    source: &mut R,
+    sink: &mut W,
+    object_id: ObjectId,
+    drive_key: &DriveKey,
+    options: &WriteOptions,
+    hint: &FileHint,
+) -> Result<ObjectSummary, CryptoError> {
     let start = sink.stream_position()?;
     sink.write_all(&[0u8; HEADER_LEN])?;
-    let mut writer = Azl1Writer::new(&mut *sink, object_id, drive_key, options)?;
-    io::copy(source, &mut writer)?;
+    let mut hint = hint.clone();
+    let mut head: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::new());
+    let mut transformed = None;
+    if let Some(codec_options) = options
+        .compression
+        .options(options.segment_size, hint.extension.as_deref())
+    {
+        (&mut *source)
+            .take(codec::SNIFF_LEN as u64)
+            .read_to_end(&mut head)?;
+        let max = codec_options.limits.max_transform_input;
+        // An unknown length is tried: the stream is read until it ends or passes the cap.
+        let len = hint.len.unwrap_or(max);
+        if azlin_compress::plan(&head, len, &codec_options).transform.is_some() {
+            let rest = (max + 1).saturating_sub(head.len() as u64);
+            (&mut *source).take(rest).read_to_end(&mut head)?;
+            if head.len() as u64 <= max {
+                // The whole file is in memory.
+                hint.len = Some(head.len() as u64);
+                transformed = transform_of(&head, options, &hint);
+            }
+        }
+    }
+    let finished = match transformed {
+        Some((transformed, transforming)) => {
+            let mut writer = Azl1Writer::start(
+                &mut *sink,
+                object_id,
+                drive_key,
+                options,
+                &hint,
+                Some(transforming),
+            )?;
+            writer.write_all(&transformed.bytes)?;
+            writer.finish()?
+        }
+        None => {
+            let mut writer =
+                Azl1Writer::start(&mut *sink, object_id, drive_key, options, &hint, None)?;
+            writer.write_all(&head)?;
+            io::copy(source, &mut writer)?;
+            writer.finish()?
+        }
+    };
     let Finished {
         header, summary, ..
-    } = writer.finish()?;
+    } = finished;
     sink.seek(SeekFrom::Start(start))?;
     sink.write_all(&header[..])?;
     sink.seek(SeekFrom::Start(start + summary.object_len))?;
@@ -646,12 +990,16 @@ pub struct PublicHeader {
     pub object_id: ObjectId,
     /// The file key, wrapped with the drive key that wrote the object.
     pub wrapped_key: WrappedKey,
+    /// The format version: [`VERSION`], or [`VERSION_TRANSFORMED`] for a transformed file.
+    pub version: u16,
     context: [u8; CONTEXT_LEN],
     prefix: [u8; PREFIX_LEN],
     commitment: [u8; COMMITMENT_LEN],
     info_nonce: [u8; NONCE_LEN],
     sealed_info: [u8; INFO_LEN + TAG_LEN],
     trailer_nonce: [u8; NONCE_LEN],
+    /// Version 2: the transform block's nonce and its sealed bytes.
+    sealed_transform: Option<([u8; NONCE_LEN], [u8; TRANSFORM_LEN + TAG_LEN])>,
 }
 
 impl PublicHeader {
@@ -672,9 +1020,11 @@ impl PublicHeader {
             return Err(damaged("not an AZL1 object"));
         }
         let version = le_u16(&bytes[OFF_VERSION..]);
-        if version != VERSION {
-            return Err(CryptoError::Unsupported(format!("AZL1 version {version}")));
-        }
+        let used = match version {
+            VERSION => HEADER_USED,
+            VERSION_TRANSFORMED => HEADER_USED_TRANSFORMED,
+            other => return Err(CryptoError::Unsupported(format!("AZL1 version {other}"))),
+        };
         if le_u16(&bytes[OFF_FLAGS..]) != 0 {
             return Err(CryptoError::Unsupported(String::from(
                 "header flags of a newer version",
@@ -690,16 +1040,26 @@ impl PublicHeader {
         check_segment_size(segment_size)?;
         let unused = bytes[OFF_PREFIX + PREFIX_LEN..OFF_COMMITMENT]
             .iter()
-            .chain(&bytes[HEADER_USED..]);
+            .chain(&bytes[used..]);
         if unused.copied().any(|b| b != 0) {
             return Err(damaged("the header's unused bytes are not zero"));
         }
         let wrapped_key = WrappedKey::from_bytes(&bytes[OFF_WRAP..OFF_WRAP + WrappedKey::LEN])
             .ok_or_else(|| damaged("the wrapped file key"))?;
+        let sealed_transform = if version == VERSION_TRANSFORMED {
+            Some((
+                array(&bytes[OFF_TRANSFORM_NONCE..OFF_TRANSFORM_NONCE + NONCE_LEN])?,
+                array(&bytes[OFF_TRANSFORM..HEADER_USED_TRANSFORMED])?,
+            ))
+        } else {
+            None
+        };
         Ok(PublicHeader {
             segment_size,
             object_id: ObjectId(array(&bytes[OFF_OBJECT_ID..OFF_OBJECT_ID + OBJECT_ID_LEN])?),
             wrapped_key,
+            version,
+            sealed_transform,
             context: array(&bytes[..CONTEXT_LEN])?,
             prefix: array(&bytes[OFF_PREFIX..OFF_PREFIX + PREFIX_LEN])?,
             commitment: array(&bytes[OFF_COMMITMENT..OFF_COMMITMENT + COMMITMENT_LEN])?,
@@ -709,12 +1069,13 @@ impl PublicHeader {
         })
     }
 
-    /// The commitment, the keys and the info, for `object_id` under `file_key`.
+    /// The commitment, the keys, the info and (version 2) the transform block, for
+    /// `object_id` under `file_key`.
     fn open(
         &self,
         object_id: &ObjectId,
         file_key: &FileKey,
-    ) -> Result<(ObjectKeys, Info), CryptoError> {
+    ) -> Result<(ObjectKeys, Info, Option<TransformBlock>), CryptoError> {
         if self.object_id != *object_id {
             return Err(damaged("the header names another object"));
         }
@@ -734,9 +1095,27 @@ impl PublicHeader {
                 },
             )
             .map_err(|_| damaged("the header does not authenticate"))?;
-        let info = Info::parse(&info)?;
+        let mut info = Info::parse(&info)?;
+        let block = match &self.sealed_transform {
+            None => None,
+            Some((nonce, sealed)) => {
+                let plain = keys
+                    .info
+                    .decrypt(
+                        XNonce::from_slice(nonce),
+                        Payload {
+                            msg: sealed,
+                            aad: &transform_aad(&self.context),
+                        },
+                    )
+                    .map_err(|_| damaged("the transform block does not authenticate"))?;
+                let block = TransformBlock::parse(&plain, info.plaintext_size)?;
+                info.stream_len = block.transformed_len;
+                Some(block)
+            }
+        };
         info.check(self.segment_size)?;
-        Ok((keys, info))
+        Ok((keys, info, block))
     }
 
     /// Where every segment starts, then where the trailer starts, from the object's tail (its
@@ -793,6 +1172,8 @@ pub struct OpenObject {
     context: [u8; CONTEXT_LEN],
     segment_size: u64,
     info: Info,
+    /// Version 2: the transform the segments' stream goes back through.
+    transform: Option<TransformBlock>,
     /// Where each segment starts in the object, then where the trailer starts.
     offsets: Vec<u64>,
 }
@@ -838,7 +1219,7 @@ impl OpenObject {
         object_id: &ObjectId,
         file_key: &FileKey,
     ) -> Result<OpenObject, S::Error> {
-        let (keys, info) = header.open(object_id, file_key)?;
+        let (keys, info, transform) = header.open(object_id, file_key)?;
         let trailer = trailer_len(info.segment_count);
         // `Info::check` made sure the object holds the trailer and its length.
         let tail_start = info.object_len - LENGTH_FIELD - trailer;
@@ -850,6 +1231,7 @@ impl OpenObject {
             context: header.context,
             segment_size: u64::from(header.segment_size),
             info,
+            transform,
             offsets,
         })
     }
@@ -886,6 +1268,12 @@ impl OpenObject {
     #[must_use]
     pub fn compressed(&self) -> bool {
         self.info.flags & FLAG_COMPRESSED != 0
+    }
+
+    /// The whole-file transform of a version 2 object; `None` for version 1.
+    #[must_use]
+    pub fn transform(&self) -> Option<TransformId> {
+        self.transform.map(|block| block.id)
     }
 
     /// Where segment `index` lies in the object: its offset and its sealed length.
@@ -930,7 +1318,8 @@ impl OpenObject {
     }
 
     /// The plaintext bytes `start..=end` (an `end` past the file means to its end; a `start`
-    /// past it gives nothing): the segments covering them, in ONE read of the source.
+    /// past it gives nothing): the segments covering them, in ONE read of the source. A version
+    /// 2 object (a transformed file, at most 64 MiB) is read and decoded whole for any range.
     pub fn read_range<S: ObjectSource + ?Sized>(
         &self,
         source: &S,
@@ -942,6 +1331,10 @@ impl OpenObject {
             return Ok(Vec::new());
         }
         let end = end.min(size - 1);
+        if self.transform.is_some() {
+            let whole = Zeroizing::new(self.read_all(source)?);
+            return Ok(whole[start as usize..=end as usize].to_vec());
+        }
         let first = start / self.segment_size;
         let last = end / self.segment_size;
         let from = self.offsets[first as usize];
@@ -964,24 +1357,50 @@ impl OpenObject {
     }
 
     /// The whole plaintext from the object's segments (`body`: from byte [`HEADER_LEN`] to
-    /// the trailer), checked against its BLAKE3.
+    /// the trailer), checked against its BLAKE3. In version 2 the segments give the
+    /// transformed stream, checked against the transform block's BLAKE3 and decoded, never
+    /// past the sealed size.
     fn decrypt_body(&self, body: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let mut out = Vec::with_capacity(usize::try_from(self.info.plaintext_size).unwrap_or(0));
+        let mut stream = Zeroizing::new(Vec::with_capacity(
+            usize::try_from(self.info.stream_len).unwrap_or(0),
+        ));
         let mut hasher = blake3::Hasher::new();
         self.decrypt_segments(
             body,
             0,
             self.info.segment_count - 1,
             Some(&mut hasher),
-            |_, plain| out.extend_from_slice(plain),
+            |_, plain| stream.extend_from_slice(plain),
         )?;
-        if hasher.finalize() != self.info.blake3 {
-            return Err(damaged("the plaintext does not match its hash"));
+        let Some(block) = self.transform else {
+            if hasher.finalize() != self.info.blake3 {
+                return Err(damaged("the plaintext does not match its hash"));
+            }
+            return Ok(std::mem::take(&mut *stream));
+        };
+        if hasher.finalize() != block.blake3 {
+            return Err(damaged("the transformed stream does not match its hash"));
+        }
+        let limits = Limits {
+            max_decoded_len: self.info.plaintext_size,
+            ..Limits::default()
+        };
+        let mut out = Vec::with_capacity(usize::try_from(self.info.plaintext_size).unwrap_or(0));
+        {
+            let _slot = TransformSlot::take();
+            transform::inverse(block.id, &mut stream.as_slice(), &mut out, &limits, decode_threads())?;
+        }
+        if out.len() as u64 != self.info.plaintext_size
+            || blake3::hash(&out) != self.info.blake3
+        {
+            out.zeroize();
+            return Err(damaged("the decoded file does not match its hash"));
         }
         Ok(out)
     }
 
-    /// A reader of the plaintext from `source`, a segment at a time.
+    /// A reader of the plaintext from `source`, a segment at a time (a version 2 object: read
+    /// and decoded whole at the first read).
     pub fn into_reader<S: ObjectSource>(self, source: S) -> Azl1Reader<S> {
         Azl1Reader {
             object: self,
@@ -1021,19 +1440,57 @@ fn open_sealed_segment(
     let Some(&codec_byte) = buffer.first() else {
         return Err(damaged(format!("segment {index} is empty")));
     };
-    match Codec::from_byte(codec_byte)? {
-        Codec::Stored => {
-            if buffer.len() != expected + 1 {
-                return Err(damaged(format!("segment {index} has the wrong length")));
-            }
-            // Drop the codec byte in place (the plaintext never leaves the wiped buffer).
-            buffer.copy_within(1.., 0);
-            buffer.truncate(expected);
-            Ok(buffer)
+    if codec::codec_of(codec_byte)? == Codec::Stored {
+        if buffer.len() != expected + 1 {
+            return Err(damaged(format!("segment {index} has the wrong length")));
         }
-        Codec::Zstd => codec::decompress(&buffer[1..], expected),
-        Codec::Brotli => codec::decompress_brotli(&buffer[1..], expected),
+        // Drop the codec byte in place (the plaintext never leaves the wiped buffer).
+        buffer.copy_within(1.., 0);
+        buffer.truncate(expected);
+        return Ok(buffer);
     }
+    codec::decode_segment(codec_byte, &buffer[1..], expected)
+}
+
+/// How many whole-file transforms (encode or decode) run at once in this process: each may
+/// hold up to 150 MB (its file, its stream, Lepton's working set), and a sync moves several
+/// files at once.
+const PARALLEL_TRANSFORMS: usize = 2;
+static TRANSFORMS_RUNNING: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+static TRANSFORM_DONE: std::sync::Condvar = std::sync::Condvar::new();
+
+/// One of the [`PARALLEL_TRANSFORMS`] slots, given back when dropped.
+struct TransformSlot;
+
+impl TransformSlot {
+    /// Waits for a free slot.
+    fn take() -> TransformSlot {
+        let mut running = TRANSFORMS_RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *running >= PARALLEL_TRANSFORMS {
+            running = TRANSFORM_DONE
+                .wait(running)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *running += 1;
+        TransformSlot
+    }
+}
+
+impl Drop for TransformSlot {
+    fn drop(&mut self) {
+        let mut running = TRANSFORMS_RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *running = running.saturating_sub(1);
+        TRANSFORM_DONE.notify_one();
+    }
+}
+
+/// The threads Lepton may use to decode a JPEG: the computer's, at most four.
+fn decode_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
 }
 
 /// The segments of an object whose every segment is stored (written with
@@ -1076,7 +1533,8 @@ impl StoredSegments {
         plaintext_size: u64,
     ) -> Result<StoredSegments, CryptoError> {
         check_segment_size(segment_size)?;
-        let context = header_context(segment_size, object_id, prefix, &commitment_of(file_key));
+        let context =
+            header_context(VERSION, segment_size, object_id, prefix, &commitment_of(file_key));
         Ok(StoredSegments {
             keys: ObjectKeys::derive(file_key, prefix),
             context,
@@ -1194,6 +1652,24 @@ where
             return Ok(0);
         }
         while self.at == self.current.len() {
+            if self.object.transform.is_some() {
+                if self.checked {
+                    return Ok(0);
+                }
+                // A transformed file (at most 64 MiB) is read and decoded whole, its stream's
+                // and its own BLAKE3 checked.
+                self.checked = true;
+                let from = HEADER_LEN as u64;
+                let body_len = self.object.offsets[self.object.offsets.len() - 1] - from;
+                let body = match self.source.read_at(from, body_len) {
+                    Ok(body) => body,
+                    Err(e) => return Err(e.into()),
+                };
+                self.current = Zeroizing::new(self.object.decrypt_body(&body)?);
+                self.at = 0;
+                self.next = self.object.info.segment_count;
+                continue;
+            }
             if self.next == self.object.info.segment_count {
                 if !self.checked {
                     self.checked = true;

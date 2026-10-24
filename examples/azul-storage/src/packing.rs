@@ -45,6 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use azlin_compress::Options;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -52,7 +53,7 @@ pub use crate::shards::{data_shard_len, data_shards_of, CHUNK_SIZE, DATA_SHARDS}
 use crate::{
     crypto::{
         azl1::{self, PublicHeader, StoredSegments, WriteOptions, HEADER_LEN, PREFIX_LEN, SEGMENT_OVERHEAD},
-        codec::{self, Codec, Compression, Encoder},
+        codec::{self, Compression},
         CryptoError, DriveKey, ObjectId, WrappedKey,
     },
     encrypted::{
@@ -381,15 +382,18 @@ struct Target {
 }
 
 impl Member {
-    /// `bytes` for `path` (when `expect` holds), compressed with zstd where that saves 5 %.
+    /// `bytes` for `path` (when `expect` holds), compressed on its own: azlin-compress's member
+    /// record - stored, zstd, brotli or a shipped dictionary where that saves 5 %, a whole
+    /// container (codec 5) for a small JPEG, PNG or document whose transform pays.
     fn new(path: &str, bytes: &[u8], expect: Expect) -> Result<Member, DriveError> {
-        let encoded = Encoder::new(Compression::Auto)
-            .encode(bytes)
-            .map_err(|e| e.for_key(path))?;
-        let data = encoded.compressed().unwrap_or(bytes);
-        let mut record = Zeroizing::new(Vec::with_capacity(data.len() + 1));
-        record.push(encoded.codec().byte());
-        record.extend_from_slice(data);
+        let options = Compression::Auto
+            .options(azl1::DEFAULT_SEGMENT_SIZE, codec::extension_of(path))
+            .unwrap_or_default();
+        let member = azlin_compress::encode_member(bytes, &options)
+            .map_err(|e| CryptoError::from(e).for_key(path))?;
+        let mut record = Zeroizing::new(Vec::with_capacity(member.data.len() + 1));
+        record.push(member.codec);
+        record.extend_from_slice(&member.data);
         Ok(Member {
             targets: vec![Target {
                 path: path.to_string(),
@@ -400,7 +404,7 @@ impl Member {
             record,
             size: bytes.len() as u64,
             blake3: *blake3::hash(bytes).as_bytes(),
-            compressed: encoded.compressed().is_some(),
+            compressed: member.codec != 0,
         })
     }
 
@@ -431,7 +435,7 @@ impl Member {
 }
 
 /// The plaintext of a record, checked against the index: its size and its BLAKE3.
-fn decode_record(
+pub(crate) fn decode_record(
     record: &[u8],
     size: u64,
     expected_hash: &[u8; 32],
@@ -445,15 +449,10 @@ fn decode_record(
         return Err(corrupt("its record in the pack is empty"));
     };
     let expected = usize::try_from(size).map_err(|_| corrupt("it is larger than memory"))?;
-    let plain = match Codec::from_byte(codec_byte).map_err(|e| e.for_key(path))? {
-        Codec::Stored => data.to_vec(),
-        Codec::Zstd => codec::decompress(data, expected)
-            .map_err(|e| e.for_key(path))?
-            .to_vec(),
-        Codec::Brotli => codec::decompress_brotli(data, expected)
-            .map_err(|e| e.for_key(path))?
-            .to_vec(),
-    };
+    // The entry's size caps what the record may decode to.
+    let plain = azlin_compress::decode_member(codec_byte, data, expected, &Options::default())
+        .map_err(|e| CryptoError::from(e).for_key(path))?
+        .to_vec();
     if plain.len() != expected || blake3::hash(&plain).as_bytes() != expected_hash {
         return Err(corrupt("the file is not the one the index names"));
     }

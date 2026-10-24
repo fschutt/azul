@@ -45,7 +45,7 @@ use std::{
 
 use crate::{
     crypto::{
-        azl1::{self, Azl1Reader, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
+        azl1::{self, Azl1Reader, FileHint, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
         device, random_bytes, to_hex, CryptoError, DriveKey, KeyId, ObjectId, ShareKey,
         WrappedKey,
     },
@@ -299,6 +299,12 @@ pub fn open_encrypted(
 /// build cannot name its files), else as the plain bucket. A failed decision is tried again on
 /// the next call. A drive encrypted by another device while this one is open stays plain here
 /// until it is opened again.
+///
+/// "We always encrypt": a plain bucket that holds no files yet is a NEW drive whose encryption
+/// was not set up (it failed, or the app was closed first). It reads as an empty drive and
+/// refuses every write that would put plaintext into it, until it is encrypted ("Encrypt this
+/// drive", then [`AutoEncrypted::reopen`]). A plain drive with files - one made before
+/// encryption - keeps working as it is, and offers the encryption.
 pub struct AutoEncrypted {
     bucket: Arc<dyn Drive>,
     drive: String,
@@ -311,10 +317,12 @@ pub struct AutoEncrypted {
     decided: AtomicU8,
 }
 
-/// [`AutoEncrypted::decided`]: no call decided yet, a plain bucket, an encrypted drive.
+/// [`AutoEncrypted::decided`]: no call decided yet, a plain bucket with files, an encrypted
+/// drive, a plain bucket without files (a new drive waiting for its encryption).
 const UNDECIDED: u8 = 0;
 const PLAIN: u8 = 1;
 const ENCRYPTED: u8 = 2;
+const NEW_PLAIN: u8 = 3;
 
 impl fmt::Debug for AutoEncrypted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -372,10 +380,34 @@ impl AutoEncrypted {
     #[must_use]
     pub fn is_encrypted(&self) -> Option<bool> {
         match self.decided.load(Ordering::SeqCst) {
-            PLAIN => Some(false),
+            PLAIN | NEW_PLAIN => Some(false),
             ENCRYPTED => Some(true),
             _ => None,
         }
+    }
+
+    /// Whether the decision so far is "a new drive that is not encrypted yet": it takes no
+    /// file until it is (the app offers "Encrypt this drive"). Never waits, as
+    /// [`Self::is_encrypted`].
+    #[must_use]
+    pub fn needs_encryption(&self) -> bool {
+        self.decided.load(Ordering::SeqCst) == NEW_PLAIN
+    }
+
+    /// The drive a write goes to: refused while the drive is new and plain, so no plaintext
+    /// file ever reaches a new Azlin drive.
+    fn writable(&self) -> Result<Arc<dyn Drive>, DriveError> {
+        let drive = self.resolved()?;
+        if self.needs_encryption() {
+            return Err(DriveError::Denied {
+                message: format!(
+                    "\"{}\" is a new drive that is not encrypted yet; it takes files once it is \
+                     (Encrypt this drive)",
+                    self.drive
+                ),
+            });
+        }
+        Ok(drive)
     }
 
     /// The drive every call goes to: decided on the first call.
@@ -390,6 +422,7 @@ impl AutoEncrypted {
             .unwrap_or(None)
             .is_some();
         let encrypted = kept || device::is_encrypted(self.bucket.as_ref())?;
+        let fresh = !encrypted && !holds_plaintext_files(self.bucket.as_ref())?;
         let drive: Arc<dyn Drive> = if encrypted {
             let Some(provider) = &self.provider else {
                 return Err(DriveError::Unsupported(String::from(
@@ -407,7 +440,11 @@ impl AutoEncrypted {
             Arc::clone(&self.bucket)
         };
         *opened = Some(Arc::clone(&drive));
-        let decided = if encrypted { ENCRYPTED } else { PLAIN };
+        let decided = match (encrypted, fresh) {
+            (true, _) => ENCRYPTED,
+            (false, true) => NEW_PLAIN,
+            (false, false) => PLAIN,
+        };
         self.decided.store(decided, Ordering::SeqCst);
         Ok(drive)
     }
@@ -424,7 +461,7 @@ impl Drive for AutoEncrypted {
         self.resolved()?.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.resolved()?.put(key, bytes)
+        self.writable()?.put(key, bytes)
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         self.resolved()?.delete(key)
@@ -433,7 +470,7 @@ impl Drive for AutoEncrypted {
         self.resolved()?.head(key)
     }
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        self.resolved()?.put_from(key, body)
+        self.writable()?.put_from(key, body)
     }
     // A plain drive's file uploads resume (a bucket's parts); an encrypted one streams.
     fn put_file(
@@ -442,7 +479,7 @@ impl Drive for AutoEncrypted {
         path: &std::path::Path,
         progress: &(dyn Fn(u64) + Sync),
     ) -> Result<u64, DriveError> {
-        self.resolved()?.put_file(key, path, progress)
+        self.writable()?.put_file(key, path, progress)
     }
     fn put_file_checked(
         &self,
@@ -451,7 +488,7 @@ impl Drive for AutoEncrypted {
         check: &crate::checked::FileCheck,
         progress: &(dyn Fn(u64) + Sync),
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
-        self.resolved()?
+        self.writable()?
             .put_file_checked(key, path, check, progress)
     }
     fn put_if(
@@ -460,16 +497,16 @@ impl Drive for AutoEncrypted {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.resolved()?.put_if(key, bytes, condition)
+        self.writable()?.put_if(key, bytes, condition)
     }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.resolved()?.copy(from, to)
+        self.writable()?.copy(from, to)
     }
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.resolved()?.create_folder(prefix)
+        self.writable()?.create_folder(prefix)
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.resolved()?.rename(from, to)
+        self.writable()?.rename(from, to)
     }
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.resolved()?.delete_folder(prefix)
@@ -483,10 +520,10 @@ impl Drive for AutoEncrypted {
         body: &mut dyn Read,
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.resolved()?.put_from_if(key, body, condition)
+        self.writable()?.put_from_if(key, body, condition)
     }
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
-        match self.resolved() {
+        match self.writable() {
             Ok(drive) => drive.put_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
@@ -498,7 +535,7 @@ impl Drive for AutoEncrypted {
         }
     }
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
-        match self.resolved() {
+        match self.writable() {
             Ok(drive) => drive.move_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
@@ -507,9 +544,27 @@ impl Drive for AutoEncrypted {
         &self,
         items: &mut [BatchStream<'_>],
     ) -> Vec<Result<Option<String>, DriveError>> {
-        match self.resolved() {
+        match self.writable() {
             Ok(drive) => drive.put_from_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+}
+
+/// Whether a plain bucket holds a file of the drive (anything but its `.azlin/` bookkeeping):
+/// one made before encryption. Reads root listing pages until it finds one.
+fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
+    let mut request = ListRequest::folder("").with_max_keys(8);
+    loop {
+        let page = bucket.list(&request)?;
+        if page.objects.iter().any(|o| crate::migrate::is_plaintext_key(&o.key))
+            || page.folders.iter().any(|f| f != ".azlin/")
+        {
+            return Ok(true);
+        }
+        match page.next {
+            Some(next) => request.continuation = Some(next),
+            None => return Ok(false),
         }
     }
 }
@@ -1111,8 +1166,9 @@ impl<D: Drive> EncryptedDrive<D> {
             return self.write_packed(path, bytes, expect);
         }
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
-        let (object, summary) =
-            azl1::encrypt(bytes, id, &self.drive_key, &self.options).map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, Some(bytes.len() as u64));
+        let (object, summary) = azl1::encrypt_as(bytes, id, &self.drive_key, &self.options, &hint)
+            .map_err(|e| e.for_key(path))?;
         self.put_object(&id, &object)?;
         self.bind(path, summary, expect)
     }
@@ -1149,8 +1205,10 @@ impl<D: Drive> EncryptedDrive<D> {
     ) -> Result<ObjectInfo, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let mut spool = Spool::new();
-        let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, &self.options)
-            .map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, None);
+        let summary =
+            azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, &self.options, &hint)
+                .map_err(|e| e.for_key(path))?;
         self.put_spooled(&id, spool)?;
         self.bind(path, summary, expect)
     }
@@ -1191,7 +1249,8 @@ impl<D: Drive> EncryptedDrive<D> {
         };
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let mut spool = Spool::new();
-        let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, options)
+        let hint = FileHint::for_path(path, Some(entry.size));
+        let summary = azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, options, &hint)
             .map_err(|e| e.for_key(path))?;
         if summary.blake3 != old.blake3 || summary.plaintext_size != entry.size {
             return Err(DriveError::Corrupt {
@@ -1278,8 +1337,9 @@ impl<D: Drive> EncryptedDrive<D> {
         };
         let plain = zeroize::Zeroizing::new(self.read_packed(path, &entry, &object, &packed)?);
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
-        let (bytes, summary) =
-            azl1::encrypt(&plain, id, &self.drive_key, &self.options).map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, Some(plain.len() as u64));
+        let (bytes, summary) = azl1::encrypt_as(&plain, id, &self.drive_key, &self.options, &hint)
+            .map_err(|e| e.for_key(path))?;
         self.put_object(&id, &bytes)?;
         let own = StoredObject {
             id,
@@ -1539,8 +1599,10 @@ impl<D: Drive> EncryptedDrive<D> {
     fn stage(&self, path: &str, body: &mut dyn Read) -> Result<IndexEntry, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let mut spool = Spool::new();
-        let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, &self.options)
-            .map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, None);
+        let summary =
+            azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, &self.options, &hint)
+                .map_err(|e| e.for_key(path))?;
         self.put_spooled(&id, spool)?;
         Ok(IndexEntry {
             size: summary.plaintext_size,

@@ -89,7 +89,8 @@ sqlx = { version = "0.8.6", default-features = false, optional = true, features 
 # The one runtime of both (src/runtime.rs).
 tokio = { version = "1.52", default-features = false, optional = true, features = ["rt", "rt-multi-thread"] }
 # ---- feature `encryption`: client-side encryption (src/crypto/, src/encrypted.rs) ----
-# Every crate here is in Cargo.lock already (AzPasswordManager, AzMeet, azcloud-kit, zip): no new crate.
+# Every crate here is in Cargo.lock already (AzPasswordManager, AzMeet, azcloud-kit, zip), but for
+# azlin-compress's lepton_jpeg (examples/azlin-compress).
 # XChaCha20-Poly1305; `stream` is aead's STREAM construction (StreamBE32: nonce = prefix ||
 # segment index || last-segment flag), no further crate. Zeroizes its key on drop.
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc", "stream"], optional = true }
@@ -99,12 +100,10 @@ x25519-dalek = { version = "2.0.1", default-features = false, features = ["stati
 # start of a file a resumable upload checks (src/multipart.rs). Not optional: azul's tree has
 # 1.8.7 already (azcloud-kit, the encryption).
 blake3 = "1.8"
-# zstd level 3 per 1 MiB segment (the C library, as zip builds it); level 19 in the
-# recompression pass.
-zstd = { version = "0.13.3", default-features = false, optional = true }
-# brotli quality 11 per segment in the recompression pass (pure Rust; brotli 8 is in Cargo.lock
-# already through webrender and the dll's `web` feature).
-brotli = { version = "8", optional = true }
+# The compression before encryption: file kinds, the whole-file transforms (Lepton for JPEG,
+# rebuilt deflate streams for PDF, Office, ZIP, PNG, gzip), zstd / brotli / dictionaries per
+# segment, pack member records. zstd and brotli come through it.
+azlin-compress = { path = "../azlin-compress", optional = true }
 # Argon2id: the key of a recovery code (AzPasswordManager's features).
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
 # The OS random source: file keys, nonces, object ids, salts.
@@ -133,6 +132,11 @@ hkdf = { version = "0.12", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
+[dev-dependencies]
+# The tests' DOCX (deflated ZIP members) and their CRC-32s; both already in Cargo.lock (zip, lepton_jpeg).
+flate2 = "1"
+crc32fast = "1"
+
 [features]
 default = []
 azul = ["dep:azul"]
@@ -146,8 +150,7 @@ sql = ["dep:sqlx", "dep:tokio"]
 encryption = [
     "dep:chacha20poly1305",
     "dep:x25519-dalek",
-    "dep:zstd",
-    "dep:brotli",
+    "dep:azlin-compress",
     "dep:argon2",
     "dep:getrandom",
     "dep:zeroize",

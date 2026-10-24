@@ -152,11 +152,14 @@ AZC1 is the standalone form: one file in one byte string. The tests, the fuzzers
 records (codec 5) and any caller without AZL1's framing use it. AZL1 objects (azul-storage) do
 not use AZC1: an untransformed object stays AZL1 version 1, byte for byte, with the codec byte
 (0, 1, 2, 4) first in each sealed segment's plaintext. A transformed object is AZL1 version 2
-(planned in azul-storage, not yet written by it): its segments hold the transformed stream, and
-one more block sealed with the info key, the object's context as AAD, carries the transform id
-(u8), its version (u8), six zero bytes, the transformed length (u64 LE) and the transformed
-stream's BLAKE3 (32 bytes). Its info's size and BLAKE3 stay those of the original file. A reader
-checks the transformed stream's BLAKE3, runs the inverse transform, then checks the original's.
+(azul-storage `crypto/azl1.rs`): its segments hold the transformed stream, and one more block in
+the header - its 24-byte nonce at byte 300, its 48 sealed bytes and tag at 324..388 - is sealed
+with the info key, the associated data being the object's context (header bytes 0..88) followed
+by `AZL1 transform v2`. It carries the transform id (u8), its version (u8), six zero bytes, the
+transformed length (u64 LE) and the transformed stream's BLAKE3 (32 bytes). Its info's size and
+BLAKE3 stay those of the original file; its segment count is the transformed stream's. A reader
+checks the transformed stream's BLAKE3, runs the inverse transform (never past the sealed size,
+on files of at most 64 MiB), then checks the original's.
 
 ```text
 [header]
