@@ -40,7 +40,7 @@ pub enum OpKind {
 }
 
 /// One line of the log.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Op {
     /// When (seconds since 1970, with fractions), on the pass's clock.
     pub t: f64,
