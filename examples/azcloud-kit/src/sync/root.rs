@@ -52,6 +52,9 @@ pub enum RootCheck {
     /// Something is there that is not the paired folder: a file, or a folder without the
     /// marker the base names (an empty mount point, a stale copy under it, another folder).
     Replaced(String),
+    /// The folder is there but cannot be read (its permission taken away, a privacy setting
+    /// that keeps this app out): nothing about its files is known.
+    Unreadable(String),
 }
 
 fn new_id() -> String {
@@ -126,6 +129,16 @@ pub fn check(
             "{} is no folder",
             root.display()
         )));
+    }
+    // A folder this app may not read shows no marker either: it is no other folder, it is
+    // this one closed to us.
+    if let Err(e) = std::fs::read_dir(root) {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            return Ok(RootCheck::Unreadable(format!(
+                "{} cannot be read ({e})",
+                root.display()
+            )));
+        }
     }
     match (read_marker(root), expected) {
         (Some(marker), Some(id)) if marker.id == id => Ok(RootCheck::Paired(marker)),

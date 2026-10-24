@@ -3033,6 +3033,16 @@ fn run<R: SyncRemote + ?Sized>(
                 );
                 return Ok(report);
             }
+            Ok(root::RootCheck::Unreadable(why)) => {
+                report.refuse(
+                    Code::Unreadable,
+                    format!(
+                        "{why}: nothing was synced and nothing deleted (give this app access to \
+                         the folder again)"
+                    ),
+                );
+                return Ok(report);
+            }
             Err(e) => {
                 return Err(
                     CloudError::from(e).context(format!("the folder {}", root.path.display()))

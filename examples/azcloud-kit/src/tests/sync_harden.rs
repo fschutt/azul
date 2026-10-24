@@ -162,6 +162,39 @@ fn a_folder_that_is_gone_changes_nothing_anywhere() {
     assert!(trashed(b.path()).is_empty());
 }
 
+/// A folder this app may no longer read (its permission taken away, macOS privacy) is said
+/// as unreadable, not as another folder, and nothing changes on either side.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cannot_be_read_is_said_so_and_changes_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("closed-a");
+    let b = Device::new("closed-b");
+    for key in ["one.txt", "two.txt", "three.txt"] {
+        a.write(key, key.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    fs::set_permissions(a.path(), fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(a.path()).is_ok() {
+        // Root reads every folder: nothing to play here.
+        fs::set_permissions(a.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(a.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(report.refused.is_some(), "{}", report.summary());
+    assert!(lists(&report, Code::Unreadable, None), "{:?}", report.problems);
+    assert_eq!(index_of(&store).files.len(), 3, "nothing deleted on the drive");
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 3);
+    assert!(trashed(b.path()).is_empty());
+    let again = a.sync(&store);
+    assert!(again.refused.is_none(), "{}", again.summary());
+    assert_eq!(a.tree().len(), 3);
+}
+
 #[test]
 fn a_folder_without_its_marker_is_not_the_paired_one_and_changes_nothing() {
     // An unplugged disk leaves its mount point: empty, or holding a stale copy written to the
