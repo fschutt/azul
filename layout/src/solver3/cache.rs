@@ -221,9 +221,10 @@ pub struct NodeCache {
     /// (an eviction) from the first. Reset with `taffy_measure_spill`.
     pub taffy_slots_stored: u16,
 
-    /// The widths a flex ROW answered to width-only questions (a parent
-    /// asking how wide it is - its max-content width, its width at a known
-    /// height) - see [`super::taffy_bridge::TaffyWidthOnlyAnswers`]. Such an
+    /// The widths a flex ROW - or a flex column whose width does not follow
+    /// its height - answered to width-only questions (a parent asking how
+    /// wide it is - its max-content width, its width at a known height) - see
+    /// [`super::taffy_bridge::TaffyWidthOnlyAnswers`]. Such an
     /// answer runs the whole row algorithm and stays out of taffy's own cache
     /// (whose key ignores the axis), so without this every re-layout of the
     /// row's parent ran it again, and marked the row's final layout stale. The
@@ -240,6 +241,14 @@ pub struct NodeCache {
     /// shape alone, so [`Self::clear`] forgets it: a dirty mark of the node or
     /// of anything below it clears the node.
     pub free_of_given_height: Option<bool>,
+
+    /// Whether the width this node answers when its parent asks how wide it
+    /// is comes out the same at every definite height it is given
+    /// (`answers_its_width_alike_at_every_given_height`), once decided. Read
+    /// by the width-only answers of the taffy bridge, which drop the heights
+    /// from the question of such a node. Forgotten by [`Self::clear`], like
+    /// `free_of_given_height`.
+    pub width_free_of_given_height: Option<bool>,
 }
 
 impl Default for NodeCache {
@@ -254,6 +263,7 @@ impl Default for NodeCache {
             taffy_slots_stored: 0,
             taffy_width_only: None,
             free_of_given_height: None,
+            width_free_of_given_height: None,
         }
     }
 }
@@ -272,6 +282,7 @@ impl NodeCache {
         self.taffy_slots_stored = 0;
         self.taffy_width_only = None;
         self.free_of_given_height = None;
+        self.width_free_of_given_height = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -3241,25 +3252,84 @@ pub(crate) fn forwards_containing_block_height(tree: &LayoutTree, node_index: us
 /// and a flex row's width does not follow the height it is stretched to.
 ///
 /// Decided box by box and conservatively
-/// ([`box_lays_out_alike_at_every_given_height`]); a subtree is free when
-/// every box in it is. A document that declares `shape-inside` or
-/// `shape-outside` is free nowhere (its shapes are drawn into the available
-/// height), nor is one that uses viewport units anywhere (a resize keeps the
-/// per-node cache, and a length in viewport units moves with the window
-/// whatever height a box is given - the same gate as the pure-measure cache
-/// of the taffy bridge). Memoised in `NodeCache::free_of_given_height`.
+/// ([`box_alike_at_every_given_height`]); a subtree is free when every box in
+/// it is. A document that declares `shape-inside` or `shape-outside` is free
+/// nowhere (its shapes are drawn into the available height), nor is one that
+/// uses viewport units anywhere (a resize keeps the per-node cache, and a
+/// length in viewport units moves with the window whatever height a box is
+/// given - the same gate as the pure-measure cache of the taffy bridge).
+/// Memoised in `NodeCache::free_of_given_height`.
 pub(crate) fn lays_out_alike_at_every_given_height(
     map: &mut LayoutCacheMap,
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_index: usize,
 ) -> bool {
+    alike_at_every_given_height(map, tree, styled_dom, node_index, AlikeAtEveryHeight::Layout)
+}
+
+/// Whether the width `node_index` answers when its parent asks how wide it
+/// is comes out the same at every definite height it is given. True of every
+/// subtree that lays out alike ([`lays_out_alike_at_every_given_height`]),
+/// and of one that would but for its scroll containers: whether a scroll
+/// container shows its bar depends on its height, but the bar is taken from
+/// inside its box (`compute_scrollbar_info` narrows its content box), so its
+/// own width does not follow its height. `AzDrive`'s row holding the
+/// navigation pane and the folder list - two scroll containers - is asked
+/// its width at a new height on every frame of the ribbon opening above it.
+/// Read only by the width-only answers of the taffy bridge, never by a cache
+/// of a whole layout. Memoised in `NodeCache::width_free_of_given_height`.
+pub(crate) fn answers_its_width_alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+) -> bool {
+    alike_at_every_given_height(map, tree, styled_dom, node_index, AlikeAtEveryHeight::Width)
+}
+
+/// What a subtree keeps at every definite height it is given: its whole
+/// layout, or the width it answers. Each has a memo of its own in
+/// `NodeCache`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlikeAtEveryHeight {
+    /// [`lays_out_alike_at_every_given_height`].
+    Layout,
+    /// [`answers_its_width_alike_at_every_given_height`].
+    Width,
+}
+
+impl AlikeAtEveryHeight {
+    const fn memo(self, entry: &NodeCache) -> Option<bool> {
+        match self {
+            Self::Layout => entry.free_of_given_height,
+            Self::Width => entry.width_free_of_given_height,
+        }
+    }
+
+    const fn remember(self, entry: &mut NodeCache, free: bool) {
+        match self {
+            Self::Layout => entry.free_of_given_height = Some(free),
+            Self::Width => entry.width_free_of_given_height = Some(free),
+        }
+    }
+}
+
+/// The walk behind [`lays_out_alike_at_every_given_height`] and
+/// [`answers_its_width_alike_at_every_given_height`].
+fn alike_at_every_given_height(
+    map: &mut LayoutCacheMap,
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    question: AlikeAtEveryHeight,
+) -> bool {
     use azul_css::compact_cache::{DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE};
 
     let Some(entry) = map.entries.get(node_index) else {
         return false;
     };
-    if let Some(known) = entry.free_of_given_height {
+    if let Some(known) = question.memo(entry) {
         return known;
     }
     let free_nowhere = styled_dom
@@ -3272,7 +3342,7 @@ pub(crate) fn lays_out_alike_at_every_given_height(
                 || cc.dom_declared_flags & (DOM_HAS_SHAPE_INSIDE | DOM_HAS_SHAPE_OUTSIDE) != 0
         });
     if free_nowhere {
-        map.entries[node_index].free_of_given_height = Some(false);
+        question.remember(&mut map.entries[node_index], false);
         return false;
     }
     // Post-order without recursion: a box is decided once its children are.
@@ -3283,50 +3353,50 @@ pub(crate) fn lays_out_alike_at_every_given_height(
         if map
             .entries
             .get(idx)
-            .is_none_or(|e| e.free_of_given_height.is_some())
+            .is_none_or(|e| question.memo(e).is_some())
         {
             continue;
         }
         if children_decided {
             let free = tree.children(idx).iter().all(|&child| {
-                map.entries
-                    .get(child)
-                    .and_then(|e| e.free_of_given_height)
-                    == Some(true)
+                map.entries.get(child).and_then(|e| question.memo(e)) == Some(true)
             });
-            map.entries[idx].free_of_given_height = Some(free);
-        } else if box_lays_out_alike_at_every_given_height(tree, styled_dom, idx) {
+            question.remember(&mut map.entries[idx], free);
+        } else if box_alike_at_every_given_height(tree, styled_dom, idx, question) {
             stack.push((idx, true));
             for &child in tree.children(idx) {
                 if map
                     .entries
                     .get(child)
-                    .is_some_and(|e| e.free_of_given_height.is_none())
+                    .is_some_and(|e| question.memo(e).is_none())
                 {
                     stack.push((child, false));
                 }
             }
         } else {
-            map.entries[idx].free_of_given_height = Some(false);
+            question.remember(&mut map.entries[idx], false);
         }
     }
-    map.entries[node_index].free_of_given_height == Some(true)
+    question.memo(&map.entries[node_index]) == Some(true)
 }
 
-/// [`lays_out_alike_at_every_given_height`] for one box, its children
-/// aside. Not free: a box whose `height`, `min-height`, `max-height` or
-/// `flex-basis` is a percentage or a `calc()`; a table box, a grid or a grid
-/// item (their algorithms size rows and tracks into the space); an
-/// absolutely positioned, fixed or sticky box (inset into a containing
-/// block); a scroll container (it keeps the height it is given); a replaced
-/// element (its size follows its aspect); a wrapping flex container or a
-/// multi-column box (they break their lines and columns in the space); a box
-/// with an aspect ratio or in a vertical writing mode. An anonymous box has
+/// [`alike_at_every_given_height`] for one box, its children aside. Not
+/// free: a box whose `height`, `min-height`, `max-height` or `flex-basis` is
+/// a percentage or a `calc()`; a table box, a grid or a grid item (their
+/// algorithms size rows and tracks into the space); an absolutely
+/// positioned, fixed or sticky box (inset into a containing block); a
+/// replaced element (its size follows its aspect); a wrapping flex container
+/// or a multi-column box (they break their lines and columns in the space); a
+/// box with an aspect ratio or in a vertical writing mode. A scroll container
+/// keeps the height it is given and shows its bar at some heights only, so
+/// its layout is not free - its width is (see
+/// [`answers_its_width_alike_at_every_given_height`]). An anonymous box has
 /// no style: its children decide.
-fn box_lays_out_alike_at_every_given_height(
+fn box_alike_at_every_given_height(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_index: usize,
+    question: AlikeAtEveryHeight,
 ) -> bool {
     use azul_css::props::{
         basic::{PixelValue, SizeMetric},
@@ -3363,18 +3433,18 @@ fn box_lays_out_alike_at_every_given_height(
         return true;
     };
     let style = &warm.computed_style;
+    let scrolls = matches!(
+        style.overflow_x,
+        LayoutOverflow::Scroll | LayoutOverflow::Auto
+    ) || matches!(
+        style.overflow_y,
+        LayoutOverflow::Scroll | LayoutOverflow::Auto
+    );
     if !matches!(
         style.position,
         LayoutPosition::Static | LayoutPosition::Relative
     ) || style.writing_mode != LayoutWritingMode::HorizontalTb
-        || matches!(
-            style.overflow_x,
-            LayoutOverflow::Scroll | LayoutOverflow::Auto
-        )
-        || matches!(
-            style.overflow_y,
-            LayoutOverflow::Scroll | LayoutOverflow::Auto
-        )
+        || (scrolls && question == AlikeAtEveryHeight::Layout)
     {
         return false;
     }

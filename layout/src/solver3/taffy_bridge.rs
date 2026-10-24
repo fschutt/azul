@@ -2105,17 +2105,17 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
         // A WIDTH-ONLY measure of a flex COLUMN (a row returned above) whose
         // width does not follow the height it is given
-        // (`cache::lays_out_alike_at_every_given_height`): kept like a row's
-        // (`TaffyWidthOnlyAnswers`) and found again at any height. A ribbon
-        // group's flex basis is asked with the height the ribbon stretches it
-        // to as a known height, a new one on every frame of the ribbon
-        // opening: taffy's cache, keyed by it, missed each time and the
+        // (`cache::answers_its_width_alike_at_every_given_height`): kept like
+        // a row's (`TaffyWidthOnlyAnswers`) and found again at any height. A
+        // ribbon group's flex basis is asked with the height the ribbon
+        // stretches it to as a known height, a new one on every frame of the
+        // ribbon opening: taffy's cache, keyed by it, missed each time and the
         // column ran its algorithm over its items again.
         let free_column_width_query = inputs.run_mode == RunMode::ComputeSize
             && inputs.axis == taffy::RequestedAxis::Horizontal
             && fc == FormattingContext::Flex
             && inputs.known_dimensions.width.is_none()
-            && self.lays_out_alike_at_every_given_height(node_idx);
+            && self.answers_its_width_alike_at_every_given_height(node_idx);
         if free_column_width_query {
             if let Some(width) = self.width_only_answer_kept(node_idx, &inputs) {
                 drop(crate::probe::Probe::span("taffy_width_only_column_hit"));
@@ -2361,7 +2361,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         {
             return None;
         }
-        let free_of_height = self.lays_out_alike_at_every_given_height(node_idx);
+        let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
         self.ctx
             .cache_map
             .entries
@@ -2382,7 +2382,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .tree
             .warm(LayoutNodeId::new(node_idx))
             .is_none_or(|w| w.taffy_cache.is_empty());
-        let free_of_height = self.lays_out_alike_at_every_given_height(node_idx);
+        let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
         let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
             return;
         };
@@ -2406,6 +2406,20 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .compact_cache
             .as_ref()
             .is_some_and(|cc| !cc.uses_viewport_units)
+    }
+
+    /// Whether the width `node_idx` answers when asked how wide it is comes
+    /// out the same at every height it is given
+    /// (`cache::answers_its_width_alike_at_every_given_height`, memoised in
+    /// the node's `NodeCache`).
+    fn answers_its_width_alike_at_every_given_height(&mut self, node_idx: usize) -> bool {
+        let styled_dom = self.ctx.styled_dom;
+        crate::solver3::cache::answers_its_width_alike_at_every_given_height(
+            &mut self.ctx.cache_map,
+            &*self.tree,
+            styled_dom,
+            node_idx,
+        )
     }
 
     /// Whether `node_idx`'s subtree lays out alike at every height it is
@@ -3137,7 +3151,8 @@ impl TaffyMeasureSpill {
 /// axis: a both-axes query must never be served a width-only answer. Kept
 /// here, keyed by what the question gives the row, the next ask of the same
 /// question is a lookup - a ribbon group re-laid out by a tween asked each of
-/// its button rows how wide it is on every frame.
+/// its button rows how wide it is on every frame. A flex column whose width
+/// does not follow its height keeps its width-only answers here too.
 ///
 /// Lives in the node's `NodeCache` (`taffy_width_only`) and is valid exactly
 /// as long as the node's taffy cache: never read while that cache is empty,
@@ -3173,11 +3188,11 @@ impl WidthOnlyAnswer {
     /// percentage width resolves against the first, and the second says
     /// whether the row's own size styles count.
     ///
-    /// `free_of_height`: the row lays out alike at every height it is given
-    /// (`cache::lays_out_alike_at_every_given_height`), so its width is the
-    /// same at every height it is asked at - a row of ribbon groups stretched
-    /// taller on every frame of the ribbon opening. Its heights are no part
-    /// of the question then.
+    /// `free_of_height`: the row answers its width alike at every height it
+    /// is given (`cache::answers_its_width_alike_at_every_given_height`) - a
+    /// row of ribbon groups stretched taller on every frame of the ribbon
+    /// opening, a row of scroll containers whose bars come and go with their
+    /// height. Its heights are no part of the question then.
     fn answers(&self, input: &LayoutInput, free_of_height: bool) -> bool {
         (free_of_height
             || (input.known_dimensions.height == self.known_height
