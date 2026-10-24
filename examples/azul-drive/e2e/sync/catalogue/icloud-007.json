@@ -1,0 +1,71 @@
+[
+  {
+    "name": "a hard link to a file outside the root: a download replaces the name and never writes into the outside file",
+    "description": "ICLOUD-007 (sync-chaos sec-hardlink-outside): iCloud's eviction broke hard links and paths. Rules S4 and A5: a download renames into place, so the hard-linked file outside the root is never written; the hard link is listed.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_hardlink", "device": "a", "path": "linked.txt", "target": "{outside}/target.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "linked.txt", "text": "edited on b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "linked.txt", "text": "edited on b" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "hardlink", "key": "linked.txt" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a symlink to a synced file is never followed and stays a link here",
+    "description": "ICLOUD-007: links and aliases into the synced tree. Rule S1: links are inert, listed and skipped by default; the file they point at syncs by its own name.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "Documents/f.txt", "text": "the real file" },
+      { "op": "drive_symlink", "device": "c", "path": "Documents/alias.txt", "target": "f.txt" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "Documents/f.txt", "text": "the real file" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code": "symlink-skipped", "key": "Documents/alias.txt" },
+      { "op": "drive_check", "check": "link", "device": "c", "path": "Documents/alias.txt" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a cloud-only file keeps its name and its links still resolve, and the bytes held only by the drive are counted",
+    "description": "ICLOUD-007: eviction renamed files to .NAME.ext.icloud and broke links; dataless files miss every backup. Rule P13: an evicted file keeps its exact name, links to it still resolve, and the device reports which files exist only on the drive.",
+    "pending": "drive_evict {device, path} (Free up space: the file becomes AzDrive's cloud-only stand-in)",
+    "steps": [
+      { "op": "drive_create", "remote": "r3", "encrypted": false },
+      { "op": "drive_open", "device": "e", "remote": "r3" },
+      { "op": "drive_pair", "device": "e" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "e", "path": "Documents/f.txt", "text": "the real file" },
+      { "op": "drive_symlink", "device": "e", "path": "Documents/alias.txt", "target": "f.txt" },
+      { "op": "drive_hardlink", "device": "e", "path": "Documents/hard.txt", "target": "Documents/f.txt" },
+      { "op": "drive_sync", "device": "e" },
+      { "op": "drive_evict", "device": "e", "path": "Documents/f.txt" },
+      { "op": "drive_read", "device": "e", "path": "Documents/f.txt" },
+      { "op": "assert_response", "path": "result.exists", "equals": true },
+      { "op": "drive_read", "device": "e", "path": "Documents/alias.txt" },
+      { "op": "assert_response", "path": "result.target", "equals": "f.txt" },
+      { "op": "drive_read", "device": "e", "path": "Documents/hard.txt" },
+      { "op": "assert_response", "path": "result.text", "equals": "the real file" },
+      { "op": "drive_check", "check": "files_count", "device": "e", "glob": "Documents/.f.txt.icloud", "count": 0 },
+      { "op": "drive_states", "device": "e" },
+      { "op": "assert_response", "path": "result.files[\"Documents/f.txt\"].cloud_only", "equals": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

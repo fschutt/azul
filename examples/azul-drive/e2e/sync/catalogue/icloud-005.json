@@ -1,0 +1,58 @@
+[
+  {
+    "name": "a file's content and executable bit sync, whatever else it carries",
+    "description": "ICLOUD-005 (sync-chaos port-xattrs-policy, the part v1 syncs): rule P6: the user's executable bit syncs as part of the file, at most rwxr-xr-x.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "tools/run.sh", "text": "#!/bin/sh\necho hi\n", "exec": true },
+      { "op": "drive_write", "device": "a", "path": "tools/readme.txt", "text": "plain" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "tools/run.sh", "text": "#!/bin/sh\necho hi\n", "exec": true, "mode_max": "755" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "tools/readme.txt", "text": "plain", "exec": false },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "extended attributes, a resource fork and BSD flags: the content still syncs, and the folder says once that attributes are not synced",
+    "description": "ICLOUD-005 (sync-chaos port-xattrs-policy): iCloud silently stripped xattrs (Skim notes, Finder comments) and files with uchg/uappnd never reached the second Mac. Rules P6 and O1: v1 does not sync attributes and says so once per folder, never silently; a flagged file's content still syncs instead of erroring forever.",
+    "only_on": ["macos"],
+    "pending": "drive_xattr {device, path, name, text | hex | size+seed} (set an extended attribute; com.apple.ResourceFork for the fork); drive_chflags {device, path, flags} (BSD flags as chflags spells them, \"\" clears); a problem code for rule P6's 'extended attributes are not synced' notice, e.g. xattrs-not-synced, listed once per folder",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "tagged/paper.pdf", "size": 40000, "seed": 52 },
+      { "op": "drive_xattr", "device": "c", "path": "tagged/paper.pdf", "name": "net_sourceforge_skim-app_notes", "size": 65536, "seed": 53 },
+      { "op": "drive_xattr", "device": "c", "path": "tagged/paper.pdf", "name": "com.apple.metadata:kMDItemFinderComment", "text": "read before Friday" },
+      { "op": "drive_xattr", "device": "c", "path": "tagged/paper.pdf", "name": "com.apple.ResourceFork", "size": 1000, "seed": 54 },
+      { "op": "drive_write", "device": "c", "path": "flags/locked.txt", "text": "user immutable" },
+      { "op": "drive_chflags", "device": "c", "path": "flags/locked.txt", "flags": "uchg" },
+      { "op": "drive_write", "device": "c", "path": "flags/append.log", "text": "append only" },
+      { "op": "drive_chflags", "device": "c", "path": "flags/append.log", "flags": "uappnd" },
+      { "op": "drive_write", "device": "c", "path": "flags/hidden.txt", "text": "hidden" },
+      { "op": "drive_chflags", "device": "c", "path": "flags/hidden.txt", "flags": "hidden,nodump" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "tagged/paper.pdf", "same_as": "{root:c}/tagged/paper.pdf" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "flags/locked.txt", "text": "user immutable" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "flags/append.log", "text": "append only" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "flags/hidden.txt", "text": "hidden" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code": "xattrs-not-synced", "key": "tagged*" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code_any": ["unreadable", "io-error", "other"], "key": "flags/*", "absent": true, "when": "last" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "c" },
+      { "op": "drive_chflags", "device": "c", "path": "flags/locked.txt", "flags": "" },
+      { "op": "drive_chflags", "device": "c", "path": "flags/append.log", "flags": "" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]
