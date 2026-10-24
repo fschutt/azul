@@ -166,7 +166,7 @@ fn final_inline_layouts(lw: &LayoutWindow) -> Vec<(usize, AvailableSpace, Vec<(f
                 .warm(LayoutNodeId::new(i))?
                 .inline_layout_result
                 .as_deref()?;
-            let items = cached
+            let items: Vec<(f32, f32)> = cached
                 .materialized()
                 .items
                 .iter()
