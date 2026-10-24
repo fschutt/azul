@@ -1110,7 +1110,15 @@ fn index(s: &mut DriveState, args: &Args) -> Answer {
         Ok((remote, device))
     })?;
     if remote.encrypted {
-        let drive = drive_reading(s, &remote, device_drive.as_deref())?;
+        // A device's view when one is named, else the remote as the server holds it.
+        let server = match device_drive {
+            Some(_) => None,
+            None => b_tamper::encrypted::reader_drive(&remote).ok(),
+        };
+        let drive = match server {
+            Some(drive) => drive,
+            None => drive_reading(s, &remote, device_drive.as_deref())?,
+        };
         let files = named_files(drive.as_ref(), &remote.prefix)?;
         return Ok(serde_json::json!({ "files": files }));
     }

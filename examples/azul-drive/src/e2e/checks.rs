@@ -2,13 +2,15 @@
 //! their problem lists and the remotes as they really are (past every fault). A check answers
 //! `ok` and `detail`; `success` is `ok`, so a failed check fails its step with the detail.
 
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path, sync::Arc};
 
 use azcloud_kit::sync::remote::{blob_key, index_key, RemoteIndex};
 
 use super::{
     files::{all_files, hash, snapshot, user_files},
-    named_files, need, problems_in, remote::glob, str_arg, with_harness, Answer, Args, Harness,
+    named_files, need, problems_in,
+    remote::{glob, Remote},
+    str_arg, with_harness, Answer, Args, Harness,
 };
 use crate::DriveState;
 
@@ -90,8 +92,13 @@ pub(crate) struct RemoteEntry {
 fn read_remote(s: &mut DriveState, args: &Args) -> Result<RemoteView, String> {
     let remote = with_harness(|h| h.remote_of(args))?;
     if remote.encrypted {
-        // Only a device's key reads an encrypted remote: the first device of it.
-        let drive = super::drive_reading(s, &remote, None)?;
+        // The remote as the server holds it, past every device's faults and cached index,
+        // with the remote's keyring; else (its keyring holds no drive key) through the first
+        // device of it.
+        let drive = match super::b_tamper::encrypted::reader_drive(&remote) {
+            Ok(drive) => drive,
+            Err(_) => super::drive_reading(s, &remote, None)?,
+        };
         let mut files = Vec::new();
         for key in named_files(drive.as_ref(), &remote.prefix)?.keys() {
             let bytes = drive.get(&format!("{}{key}", remote.prefix)).ok();
@@ -442,7 +449,12 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn remote_never_has(h: &Harness, args: &Args) -> Verdict {
     let marker = str_arg(args, "marker").map_or_else(|| h.secret.clone(), str::to_string);
-    for remote in h.remotes.values() {
+    // The remote named (another one, an impostor's, may hold the marker by design), else all.
+    let remotes: Vec<Arc<Remote>> = match str_arg(args, "remote") {
+        Some(_) => vec![h.remote_of(args)?],
+        None => h.remotes.values().cloned().collect(),
+    };
+    for remote in &remotes {
         for (key, bytes) in remote.all_bytes() {
             if contains(&bytes, marker.as_bytes()) {
                 return Err(format!(

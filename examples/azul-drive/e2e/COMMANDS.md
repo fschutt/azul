@@ -251,7 +251,7 @@ so a failed check fails the step with its detail. The names and fields are sync-
 | `kept_live` | `texts`: each is in some folder or on the remote |
 | `kept` | `texts`: each is in some folder, trash or stored version |
 | `outside_untouched` | - |
-| `remote_never_has` | `marker` (default `{secret}`): no stored object holds it (plaintext; on an encrypted remote also no ciphertext equals it) |
+| `remote_never_has` | `marker` (default `{secret}`), `remote` (default every remote): no stored object of it holds the marker (plaintext; on an encrypted remote also no ciphertext equals it) |
 | `remote_file` | `key`, `absent`, `text`, `one_of`, `uniform`, `same_as`, `exec` |
 | `remote_count` | `glob`, `count` |
 | `remote_consistent` | - (every indexed file's object is there and matches its hash) |

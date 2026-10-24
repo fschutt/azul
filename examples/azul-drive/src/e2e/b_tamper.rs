@@ -358,6 +358,11 @@ pub(crate) mod encrypted {
             .ok_or_else(|| String::from("the remote's keyring holds no drive key"))
     }
 
+    /// [`reader`] as a drive: the remote as the server holds it, for the checks.
+    pub(crate) fn reader_drive(remote: &Arc<Remote>) -> Result<Arc<dyn Drive>, String> {
+        Ok(Arc::new(reader(remote)?))
+    }
+
     /// The remote's encrypted drive read past every fault (no packing: it writes nothing).
     fn reader(remote: &Arc<Remote>) -> Result<EncryptedDrive<Arc<dyn Drive>>, String> {
         let bucket: Arc<dyn Drive> = Arc::new(Direct {
@@ -640,6 +645,12 @@ pub(crate) mod encrypted {
     pub(crate) fn every_version_hash(
         _remote: &Arc<Remote>,
     ) -> Result<std::collections::BTreeSet<String>, String> {
+        Err(none())
+    }
+
+    pub(crate) fn reader_drive(
+        _remote: &Arc<Remote>,
+    ) -> Result<Arc<dyn azul_storage::Drive>, String> {
         Err(none())
     }
 
