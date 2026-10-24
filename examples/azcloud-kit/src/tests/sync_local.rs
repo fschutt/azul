@@ -243,3 +243,16 @@ fn a_base_a_newer_version_wrote_is_never_read_as_this_ones() {
     let err = LocalIndex::load(&path).unwrap_err().to_string();
     assert!(err.contains("newer version"), "{err}");
 }
+
+/// P2: an ignore rule typed in NFC takes a folder a Mac named in NFD, and the other way round.
+#[test]
+fn an_ignore_rule_matches_names_in_either_normalization() {
+    let mut rules = Rules::base();
+    rules.add("caf\u{e9}-drafts/", "ignored");
+    rules.add("Pra\u{308}sentation-*.key", "ignored");
+    assert!(rules.excluded("cafe\u{301}-drafts/draft.txt").is_some());
+    assert!(rules.excluded("caf\u{e9}-drafts/draft.txt").is_some());
+    assert!(rules.excluded_dir("cafe\u{301}-drafts").is_some());
+    assert!(rules.excluded("Pr\u{e4}sentation-2.key").is_some());
+    assert!(rules.excluded("keep.txt").is_none());
+}

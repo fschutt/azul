@@ -155,7 +155,9 @@ impl Rule {
         if core.is_empty() {
             return None;
         }
-        let segments: Vec<String> = core.split('/').map(String::from).collect();
+        // P2: a rule matches in NFC, as a name is compared (a pattern typed composed takes a
+        // folder a Mac named decomposed).
+        let segments: Vec<String> = core.split('/').map(super::names::nfc).collect();
         let path = anchored || segments.len() > 1;
         Some(Rule {
             pattern: p.to_string(),
@@ -186,6 +188,16 @@ impl Rule {
                 .last()
                 .is_some_and(|name| match_name(&self.segments[0], name))
         }
+    }
+}
+
+/// `key` in NFC, borrowed when it is already (most names are).
+fn in_nfc(key: &str) -> std::borrow::Cow<'_, str> {
+    use unicode_normalization::{is_nfc_quick, IsNormalized};
+    if is_nfc_quick(key.chars()) == IsNormalized::Yes {
+        std::borrow::Cow::Borrowed(key)
+    } else {
+        std::borrow::Cow::Owned(super::names::nfc(key))
     }
 }
 
@@ -316,6 +328,7 @@ impl Rules {
     /// folders); `None` = it is.
     #[must_use]
     pub fn excluded(&self, key: &str) -> Option<&str> {
+        let key = in_nfc(key);
         let parts: Vec<&str> = key.split('/').filter(|s| !s.is_empty()).collect();
         for i in 0..parts.len() {
             let is_dir = i + 1 < parts.len();
@@ -330,6 +343,7 @@ impl Rules {
     /// skipped as a whole; `None` = it is walked.
     #[must_use]
     pub fn excluded_dir(&self, dir: &str) -> Option<&str> {
+        let dir = in_nfc(dir);
         let parts: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
         for i in 0..parts.len() {
             if let Some(rule) = self.verdict(&parts[..=i], true) {
