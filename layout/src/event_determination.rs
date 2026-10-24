@@ -155,7 +155,7 @@ fn detect_window_state_events(
     }
 
     // Theme changed
-    if current.theme != previous.theme {
+    if current.mode != previous.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -1225,7 +1225,7 @@ pub fn determine_all_events(
     }
 
     // Theme changed
-    if current_state.theme != previous_state.theme {
+    if current_state.mode != previous_state.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -1272,14 +1272,18 @@ pub fn determine_all_events(
     // falls back to the root when nothing is hovered). Targeting the root
     // unconditionally made per-node drop targets impossible — a DroppedFile
     // callback registered on any non-root node could never fire.
+    // Each drag move and each drop is ONE event: a re-run of the pass after a
+    // callback rebuilt the DOM finds them delivered (`mark_events_delivered`).
     if file_drop_manager.get_hovered_file().is_some() {
-        events.push(SyntheticEvent::new(
-            EventType::FileHover,
-            EventSource::User,
-            mouse_target,
-            timestamp.clone(),
-            EventData::None,
-        ));
+        if file_drop_manager.hover_is_undelivered() {
+            events.push(SyntheticEvent::new(
+                EventType::FileHover,
+                EventSource::User,
+                mouse_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
     } else if file_drop_manager.hover_was_cancelled() {
         events.push(SyntheticEvent::new(
             EventType::FileHoverCancel,
@@ -1290,7 +1294,7 @@ pub fn determine_all_events(
         ));
     }
 
-    if file_drop_manager.get_dropped_file().is_some() {
+    if file_drop_manager.drop_is_undelivered() && file_drop_manager.get_dropped_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,
@@ -2078,7 +2082,7 @@ mod autotest_generated {
     use azul_core::{
         geom::{LogicalSize, PhysicalPositionI32},
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, WindowTheme},
+        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, DarkLightMode},
     };
     use azul_css::{corety::OptionU32, AzString};
 
@@ -2477,7 +2481,7 @@ mod autotest_generated {
     #[test]
     fn window_theme_change_emits_exactly_one_theme_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let events = detect_window_state_events(&current, &state(), ts(0));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::ThemeChange);
@@ -2513,7 +2517,7 @@ mod autotest_generated {
         let mut current = cursor_at(10.0, 10.0);
         current.size.dimensions = LogicalSize::new(800.0, 600.0);
         current.position = WindowPosition::Initialized(PhysicalPositionI32 { x: 1, y: 2 });
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
 
         let events = detect_window_state_events(&current, &state(), ts(7));
         assert_eq!(events.len(), 4, "resize + move + theme + mouse-enter");
@@ -2600,7 +2604,7 @@ mod autotest_generated {
     #[test]
     fn from_managers_provider_event_dedups_against_the_window_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         // The provider claims the exact same (root, ThemeChange) slot.
         let provider = StaticProvider(vec![ev(EventType::ThemeChange, root(), 3)]);
         let providers: Vec<&dyn EventProvider> = vec![&provider];
@@ -3545,7 +3549,7 @@ mod autotest_generated {
     #[test]
     fn determine_all_events_accepts_a_u64_max_timestamp() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let hover = HoverManager::new();
         let focus = FocusManager::new();
         let file_drop = FileDropManager::new();
@@ -3650,6 +3654,28 @@ mod autotest_generated {
         );
         let events = run_with_file_drop(&fd);
         assert_eq!(count(&events, EventType::FileDrop), 1);
+    }
+
+    /// A drop handler that rebuilds the page makes the pass run again for the
+    /// new DOM; that re-run reads the same manager and must not see the drop
+    /// (or the drag move) a second time.
+    #[test]
+    fn a_re_run_of_the_pass_emits_no_second_drop_or_hover() {
+        let mut fd = FileDropManager::new();
+        fd.set_hovered_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 1);
+        fd.mark_events_delivered();
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 0);
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHoverCancel), 0);
+
+        fd.set_dropped_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        let first = run_with_file_drop(&fd);
+        assert_eq!(count(&first, EventType::FileDrop), 1);
+        assert_eq!(count(&first, EventType::FileHover), 0, "the drop ended the drag");
+        fd.mark_events_delivered();
+        let again = run_with_file_drop(&fd);
+        assert_eq!(count(&again, EventType::FileDrop), 0);
+        assert_eq!(count(&again, EventType::FileHoverCancel), 0);
     }
 
     #[test]
@@ -3862,6 +3888,7 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: 0.0,
             duration_ms: 0,
+            began: true,
         }));
         g
     }

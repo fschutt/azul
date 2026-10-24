@@ -529,14 +529,14 @@ mod proximity_tests {
     /// and no verdict - that is the app's threshold to apply.
     #[test]
     fn only_the_binary_answers_are_verdicts() {
-        assert_eq!(Proximity::Near.is_near(), Some(true));
-        assert_eq!(Proximity::Far.is_near(), Some(false));
+        assert_eq!(Proximity::Near.near_verdict(), Some(true));
+        assert_eq!(Proximity::Far.near_verdict(), Some(false));
         assert_eq!(
             Proximity::Distance(ProximityDistance {
                 value: 1.0,
                 unit: DistanceUnit::Centimeters
             })
-            .is_near(),
+            .near_verdict(),
             None
         );
     }

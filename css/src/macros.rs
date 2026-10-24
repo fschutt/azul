@@ -110,6 +110,7 @@ macro_rules! impl_vec {
             len: usize,
             cap: usize,
             destructor: $destructor_name,
+            pub flags: u8,
         }
 
         #[derive(Debug, Copy, Clone)]
@@ -148,6 +149,7 @@ macro_rules! impl_vec {
                     len: input.len(),
                     cap: input.len(),
                     destructor: $destructor_name::NoDestructor, // because of &'static
+                    flags: 0,
                 }
             }
 
@@ -184,6 +186,7 @@ macro_rules! impl_vec {
                     len,
                     cap,
                     destructor: $destructor_name::DefaultRust,
+                    flags: 0,
                 }
             }
 
@@ -328,13 +331,25 @@ macro_rules! impl_vec {
                         // Skip when there is nothing to free. (Empty Vecs have
                         // cap == 0; valid non-empty Vecs are unaffected.)
                         if !self.ptr.is_null() && self.cap != 0 {
-                            drop(unsafe {
+                            let mut owned = unsafe {
                                 alloc::vec::Vec::from_raw_parts(
                                     self.ptr.cast_mut(),
                                     self.len,
                                     self.cap,
                                 )
-                            });
+                            };
+                            if self.flags & $crate::corety::VEC_FLAG_SECRET != 0 {
+                                // A secret's buffer is wiped before it goes back
+                                // to the allocator: its elements dropped first,
+                                // then every byte zeroed.
+                                owned.clear();
+                                let bytes =
+                                    owned.capacity() * core::mem::size_of::<$struct_type>();
+                                unsafe {
+                                    $crate::corety::zero_bytes(owned.as_mut_ptr().cast::<u8>(), bytes);
+                                }
+                            }
+                            drop(owned);
                         }
                         self.destructor = $destructor_name::AlreadyDestroyed;
                     }
@@ -920,9 +935,15 @@ macro_rules! impl_vec_clone {
                         len: self.len,
                         cap: self.cap,
                         destructor: $destructor_name::NoDestructor,
+                        flags: self.flags,
                     },
                     $destructor_name::External(_) | $destructor_name::DefaultRust => {
-                        Self::from_vec(self.as_ref().to_vec())
+                        // `from_vec` starts a fresh buffer with `flags: 0`; the
+                        // flags describe the VALUE (e.g. "this string is a
+                        // translation key"), so a copy keeps them.
+                        let mut copy = Self::from_vec(self.as_ref().to_vec());
+                        copy.flags = self.flags;
+                        copy
                     }
                 }
             }
@@ -1089,7 +1110,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1097,14 +1118,26 @@ macro_rules! impl_option {
         // This arm (copy = false) deliberately does NOT derive Copy so the
         // wrapper can hold non-Copy payloads; missing_copy_implementations is a
         // false positive for the Copy-payload instantiations routed through here.
+        // The size lints: this is the C API's `repr(C)` option, boxing the
+        // payload would change its ABI.
         #[allow(missing_copy_implementations, variant_size_differences)]
+        #[allow(clippy::large_enum_variant)]
         pub enum $struct_name {
             None,
             Some($struct_type)
         }
 
         impl $struct_name {
-            #[must_use] pub fn into_option(&self) -> Option<$struct_type> {
+            /// The value, moved out: no copy of it is made.
+            #[must_use] pub fn into_option(self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+
+            /// A copy of the value, for an option that stays where it is.
+            #[must_use] pub fn to_option(&self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
                     $struct_name::Some(t) => Some(t.clone()),
@@ -1112,7 +1145,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1127,7 +1160,16 @@ macro_rules! impl_option {
         }
 
         impl $struct_name {
-            #[must_use] pub fn into_option(&self) -> Option<$struct_type> {
+            /// The value, moved out: no copy of it is made.
+            #[must_use] pub fn into_option(self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+
+            /// A copy of the value, for an option that stays where it is.
+            #[must_use] pub fn to_option(&self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
                     $struct_name::Some(t) => Some(t.clone()),
@@ -1135,7 +1177,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
 }
 
@@ -1199,7 +1241,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1217,7 +1259,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident,  $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1236,10 +1278,12 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
 }
 
+// Only `codegen::format` uses it, so it exists with that feature only.
+#[cfg(feature = "codegen")]
 macro_rules! impl_color_value_fmt {
     ($struct_name:ty) => {
         impl FormatAsRustCode for $struct_name {
@@ -1255,6 +1299,7 @@ macro_rules! impl_color_value_fmt {
 }
 
 macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
+    #[cfg(feature = "codegen")]
     impl crate::codegen::format::FormatAsRustCode for $enum_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
             match self {
@@ -1269,3 +1314,37 @@ macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
         }
     }
 )}
+
+#[cfg(test)]
+mod option_move_tests {
+    use std::cell::Cell;
+
+    std::thread_local! {
+        static CLONES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// A payload that counts its copies.
+    #[derive(Debug, PartialEq)]
+    struct Counted(u32);
+
+    impl Clone for Counted {
+        fn clone(&self) -> Self {
+            CLONES.with(|n| n.set(n.get() + 1));
+            Self(self.0)
+        }
+    }
+
+    crate::impl_option!(Counted, OptionCounted, copy = false, [Debug, Clone]);
+
+    /// Unwrapping an option the caller owns moves its value out. A widget
+    /// that unwrapped its optional child DOM this way deep-copied the whole
+    /// subtree and dropped the original: most of the window, several times
+    /// per rebuild of AzDrive's window (40 % of its layout callback).
+    #[test]
+    fn an_owned_option_is_unwrapped_without_a_copy() {
+        let before = CLONES.with(Cell::get);
+        let option = OptionCounted::Some(Counted(7));
+        assert_eq!(option.into_option(), Some(Counted(7)));
+        assert_eq!(CLONES.with(Cell::get) - before, 0, "into_option copied the value");
+    }
+}

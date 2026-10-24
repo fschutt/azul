@@ -1,0 +1,14 @@
+[
+  {
+    "why": "unpaid",
+    "code": "read_only_unpaid"
+  },
+  {
+    "why": "lockdown_pending",
+    "code": "read_only_lockdown"
+  },
+  {
+    "why": "operator",
+    "code": "read_only_operator"
+  }
+]

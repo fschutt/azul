@@ -1,8 +1,7 @@
 //! Windows keyring backend — Credential Manager (generic credentials) via
-//! the dlopen'd advapi32 `Cred*` functions. Mirrors apple.rs: each op runs on a
-//! spawned thread and parks the outcome via `push_keyring_result`.
+//! the dlopen'd advapi32 `Cred*` functions.
 //!
-//! Stores under target `"<SERVICE>:<key>"`, `CRED_TYPE_GENERIC`, the secret as
+//! Stores under target `"<service>:<key>"` (the namespace's service), `CRED_TYPE_GENERIC`, the secret as
 //! the credential blob (UTF-8 bytes), `CRED_PERSIST_LOCAL_MACHINE`. Generic
 //! credentials are DPAPI-protected per logon but NOT biometry-gated (that's
 //! Windows Hello — a separate backend), so `require_biometry` is ignored here.
@@ -10,7 +9,6 @@
 use std::{io, ptr};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
 use winapi::{
     shared::{
         minwindef::{DWORD, FALSE, LPBYTE},
@@ -24,30 +22,22 @@ use winapi::{
 
 use crate::desktop::shell2::windows::dlopen::{Advapi32Functions, Win32Libraries};
 
-const SERVICE: &str = "com.azul.keyring";
-
 fn advapi32() -> io::Result<Advapi32Functions> {
     Win32Libraries::shared()
         .and_then(|win32| win32.advapi32)
         .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "advapi32 credential API unavailable"))
 }
 
-pub fn request(req: &KeyringRequest) {
-    let req = req.clone();
-    std::thread::spawn(move || {
-        push_keyring_result(handle(&req));
-    });
-}
-
-fn handle(req: &KeyringRequest) -> KeyringResult {
+/// One op on the credentials of `service`, on the calling thread.
+pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
     match req {
         KeyringRequest::Store { key, secret, .. } => {
-            match store(key.as_str(), secret.as_str().as_bytes()) {
+            match store(service, key.as_str(), secret.as_str().as_bytes()) {
                 Ok(()) => KeyringResult::Stored,
                 Err(_) => KeyringResult::Error,
             }
         }
-        KeyringRequest::Get { key } => match read(key.as_str()) {
+        KeyringRequest::Get { key } => match read(service, key.as_str()) {
             Ok(Some(bytes)) => match String::from_utf8(bytes) {
                 Ok(s) => KeyringResult::Retrieved(s.into()),
                 Err(_) => KeyringResult::Error,
@@ -55,7 +45,7 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
             Ok(None) => KeyringResult::NotFound,
             Err(_) => KeyringResult::Error,
         },
-        KeyringRequest::Delete { key } => match delete(key.as_str()) {
+        KeyringRequest::Delete { key } => match delete(service, key.as_str()) {
             // Idempotent: a missing target also reports Deleted.
             Ok(_) => KeyringResult::Deleted,
             Err(_) => KeyringResult::Error,
@@ -63,18 +53,18 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
     }
 }
 
-/// UTF-16LE, NUL-terminated `"<SERVICE>:<key>"` for the credential TargetName.
-fn target_of(key: &str) -> Vec<u16> {
-    format!("{SERVICE}:{key}")
+/// UTF-16LE, NUL-terminated `"<service>:<key>"` for the credential TargetName.
+fn target_of(service: &str, key: &str) -> Vec<u16> {
+    format!("{service}:{key}")
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect()
 }
 
-fn store(key: &str, secret: &[u8]) -> io::Result<()> {
+fn store(service: &str, key: &str, secret: &[u8]) -> io::Result<()> {
     let advapi32 = advapi32()?;
-    let mut target_w = target_of(key);
-    let mut user_w: Vec<u16> = SERVICE.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut target_w = target_of(service, key);
+    let mut user_w: Vec<u16> = service.encode_utf16().chain(std::iter::once(0)).collect();
     let mut cred: CREDENTIALW = unsafe { std::mem::zeroed() };
     cred.Type = CRED_TYPE_GENERIC;
     cred.TargetName = target_w.as_mut_ptr();
@@ -91,9 +81,9 @@ fn store(key: &str, secret: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn read(key: &str) -> io::Result<Option<Vec<u8>>> {
+fn read(service: &str, key: &str) -> io::Result<Option<Vec<u8>>> {
     let advapi32 = advapi32()?;
-    let target_w = target_of(key);
+    let target_w = target_of(service, key);
     let mut pcred: PCREDENTIALW = ptr::null_mut();
     let ok = unsafe { (advapi32.CredReadW)(target_w.as_ptr(), CRED_TYPE_GENERIC, 0, &mut pcred) };
     if ok == FALSE {
@@ -117,9 +107,9 @@ fn read(key: &str) -> io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-fn delete(key: &str) -> io::Result<bool> {
+fn delete(service: &str, key: &str) -> io::Result<bool> {
     let advapi32 = advapi32()?;
-    let target_w = target_of(key);
+    let target_w = target_of(service, key);
     let ok = unsafe { (advapi32.CredDeleteW)(target_w.as_ptr(), CRED_TYPE_GENERIC, 0) };
     if ok == FALSE {
         let err = unsafe { GetLastError() };

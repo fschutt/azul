@@ -30,7 +30,10 @@ use azul_layout::{
     BreakKind, Solver3LayoutCache,
 };
 
-fn paginate(
+/// `html` paginated on `w` x `h` pages (no page decoration): the cache, the
+/// styled DOM and the break analysis. Shared with the other pagination
+/// tests of this crate (`crate::pagination_dom_breaks::paginate`).
+pub(crate) fn paginate(
     html: &str,
     w: f32,
     h: f32,

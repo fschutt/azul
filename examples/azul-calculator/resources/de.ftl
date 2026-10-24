@@ -1,0 +1,230 @@
+# AzCalculator's words in German (src/l10n.rs): the Windows calculator's terms, "du".
+
+## AzCalculator
+
+azcalculator-about-summary = Standard-, Programmierer- und Grafikberechnungen mit exakten Dezimalzahlen - das Fenster wählt den Rechner nach seiner Größe - Datumsberechnungen und ein Einheitenumrechner. Teil der Azlin-Apps, gebaut mit azul.
+azcalculator-category-calculator = Rechner
+azcalculator-shortcut-evaluate = Berechnen (=); eine Funktion von x geht in den Graphen
+azcalculator-shortcut-clear = Löschen (C)
+azcalculator-shortcut-clear-entry = Die Eingabe löschen (CE)
+azcalculator-shortcut-backspace = Die letzte Ziffer oder den letzten Buchstaben löschen
+azcalculator-shortcut-sign = Das Vorzeichen wechseln (+/-)
+azcalculator-shortcut-copy = Das Ergebnis kopieren
+azcalculator-shortcut-paste = Eine Zahl oder einen Ausdruck einfügen
+azcalculator-shortcuts-typing = Tippen
+azcalculator-shortcut-operators = Operatoren, wie deine Tastatur sie tippt
+azcalculator-shortcut-functions = Funktionen: den Namen tippen
+azcalculator-shortcut-constants = Konstanten und die Variable des Graphen
+azcalculator-shortcut-y = Eine Funktion für den Graphen beginnen
+azcalculator-shortcuts-memory = Speicher
+azcalculator-shortcut-memory-store = Speichern, abrufen
+azcalculator-shortcut-memory-add = Zum Speicher addieren, davon subtrahieren
+azcalculator-shortcut-memory-clear = Speicher löschen
+azcalculator-view = Ansicht
+azcalculator-shortcut-views = Automatisch, Standard, Programmierer, Grafik, Datum, Umrechnen
+azcalculator-shortcut-history = Den Verlauf zeigen oder ausblenden
+azcalculator-shortcut-angles = Grad, Bogenmaß, Neugrad
+azcalculator-shortcut-bitwise = AND, OR, XOR, NOT, Verschiebungen, mod
+azcalculator-shortcut-bases = HEX, DEC, OCT, BIN
+azcalculator-mode-auto = Automatisch
+azcalculator-mode-standard = Standard
+azcalculator-mode-programmer = Programmierer
+azcalculator-mode-graphing = Grafik
+azcalculator-mode-date = Datum
+azcalculator-mode-convert = Umrechnen
+azcalculator-open-parens = ({ $count } offen)
+azcalculator-word-size = Wortgröße
+azcalculator-no-history = Noch kein Verlauf vorhanden.
+azcalculator-clear-history = Verlauf löschen
+azcalculator-no-memory = Im Speicher ist nichts gespeichert.
+azcalculator-history-memory = Verlauf und Speicher
+azcalculator-history = Verlauf
+azcalculator-date-first = Gib das erste Datum als JJJJ-MM-TT ein.
+azcalculator-date-second = Gib das zweite Datum als JJJJ-MM-TT ein.
+azcalculator-date-whole = Jahre, Monate und Tage sind ganze Zahlen.
+azcalculator-date-outside = Das Datum liegt außerhalb der Jahre 1 bis 9999.
+azcalculator-date-difference = Differenz zwischen Datumsangaben
+azcalculator-date-add-subtract = Tage addieren oder subtrahieren
+azcalculator-from = Von
+azcalculator-from-date = Startdatum
+azcalculator-to = Bis
+azcalculator-to-date = Enddatum
+azcalculator-add = Addieren
+azcalculator-subtract = Subtrahieren
+azcalculator-years = Jahre
+azcalculator-months = Monate
+azcalculator-days = Tage
+azcalculator-recent = Zuletzt
+azcalculator-category = Kategorie
+azcalculator-value-to-convert = Umzurechnender Wert
+azcalculator-from-unit = Ausgangseinheit
+azcalculator-swap = Tauschen
+azcalculator-converted-value = Umgerechneter Wert
+azcalculator-to-unit = Zieleinheit
+azcalculator-settings = Einstellungen
+azcalculator-display = Anzeige
+azcalculator-group-thousands = Tausender gruppieren
+azcalculator-angle-unit = Winkeleinheit
+azcalculator-keep-history = Verlauf behalten
+azcalculator-history-kept = { $count ->
+    [one] { $count } Berechnung, aufbewahrt in { $path }.
+   *[other] { $count } Berechnungen, aufbewahrt in { $path }.
+ }
+azcalculator-history-unreadable = Der Verlauf konnte nicht gelesen werden: { $why }
+azcalculator-history-unsaved = Der Verlauf konnte nicht gespeichert werden: { $why }
+azcalculator-other-mode = Diese Berechnung gehört zu einem anderen Modus.
+azcalculator-paste-failed = „{ $text }“ konnte nicht eingefügt werden: { $why }
+azcalculator-key-percent = Prozent
+azcalculator-key-ce = Eingabe löschen
+azcalculator-key-c = Löschen
+azcalculator-key-back = Rücktaste
+azcalculator-key-recip = Kehrwert
+azcalculator-key-square = Quadrat
+azcalculator-key-cube = Kubikzahl
+azcalculator-key-sqrt = Quadratwurzel
+azcalculator-key-cbrt = Kubikwurzel
+azcalculator-key-divide = Dividieren
+azcalculator-key-multiply = Multiplizieren
+azcalculator-key-minus = Minus
+azcalculator-key-plus = Plus
+azcalculator-key-negate = Vorzeichen wechseln
+azcalculator-key-point = Dezimaltrennzeichen
+azcalculator-key-equals = Gleich
+azcalculator-key-mc = Speicher löschen
+azcalculator-key-mr = Speicher abrufen
+azcalculator-key-mplus = Zum Speicher addieren
+azcalculator-key-mminus = Vom Speicher subtrahieren
+azcalculator-key-ms = Speichern
+azcalculator-key-second = Zweitfunktionen
+azcalculator-key-pi = Pi
+azcalculator-key-lparen = Klammer auf
+azcalculator-key-rparen = Klammer zu
+azcalculator-key-factorial = Fakultät
+azcalculator-key-pow = Potenz
+azcalculator-key-pow10 = Zehn hoch
+azcalculator-key-exp = e hoch
+azcalculator-key-abs = Absolutwert
+azcalculator-key-mod = Modulo
+azcalculator-key-fe = Wissenschaftliche Schreibweise
+azcalculator-key-exponent = Exponent
+azcalculator-key-x = Die Variable x
+azcalculator-key-shl = Nach links verschieben
+azcalculator-key-shr = Nach rechts verschieben
+azcalculator-key-rol = Nach links rotieren
+azcalculator-key-ror = Nach rechts rotieren
+azcalculator-functions = Funktionen
+azcalculator-reset-view = Ansicht zurücksetzen
+azcalculator-clear-plots = Löschen
+azcalculator-remove-function = y{ $n } entfernen
+azcalculator-graph-hint = Tippe eine Funktion von x — sin(x)*x^2, y = 2x + 1 — und drücke =, um sie zu zeichnen.
+azcalculator-graph-note = Winkel im Bogenmaß · das Mausrad zoomt · ziehen verschiebt · Doppelklick setzt zurück
+azcalculator-graph-name = Graph, { $view }
+azcalculator-units-length = Länge
+azcalculator-units-mass = Masse
+azcalculator-units-temperature = Temperatur
+azcalculator-units-area = Fläche
+azcalculator-units-volume = Volumen
+azcalculator-units-speed = Geschwindigkeit
+azcalculator-units-data = Daten
+azcalculator-units-time = Zeit
+azcalculator-unit-millimetres = Millimeter
+azcalculator-unit-centimetres = Zentimeter
+azcalculator-unit-metres = Meter
+azcalculator-unit-kilometres = Kilometer
+azcalculator-unit-inches = Zoll
+azcalculator-unit-feet = Fuß
+azcalculator-unit-yards = Yards
+azcalculator-unit-miles = Meilen
+azcalculator-unit-nautical-miles = Seemeilen
+azcalculator-unit-milligrams = Milligramm
+azcalculator-unit-grams = Gramm
+azcalculator-unit-kilograms = Kilogramm
+azcalculator-unit-tonnes = Tonnen
+azcalculator-unit-ounces = Unzen
+azcalculator-unit-pounds = Pfund
+azcalculator-unit-stones = Stones
+azcalculator-unit-kelvin = Kelvin
+azcalculator-unit-square-millimetres = Quadratmillimeter
+azcalculator-unit-square-centimetres = Quadratzentimeter
+azcalculator-unit-square-metres = Quadratmeter
+azcalculator-unit-hectares = Hektar
+azcalculator-unit-square-kilometres = Quadratkilometer
+azcalculator-unit-square-inches = Quadratzoll
+azcalculator-unit-square-feet = Quadratfuß
+azcalculator-unit-square-yards = Quadratyards
+azcalculator-unit-acres = Acres
+azcalculator-unit-square-miles = Quadratmeilen
+azcalculator-unit-millilitres = Milliliter
+azcalculator-unit-litres = Liter
+azcalculator-unit-cubic-metres = Kubikmeter
+azcalculator-unit-teaspoons-us = Teelöffel (US)
+azcalculator-unit-tablespoons-us = Esslöffel (US)
+azcalculator-unit-fluid-ounces-us = Flüssigunzen (US)
+azcalculator-unit-cups-us = Tassen (US)
+azcalculator-unit-pints-us = Pints (US)
+azcalculator-unit-quarts-us = Quarts (US)
+azcalculator-unit-gallons-us = Gallonen (US)
+azcalculator-unit-gallons-imperial = Gallonen (imperial)
+azcalculator-unit-metres-per-second = Meter pro Sekunde
+azcalculator-unit-kilometres-per-hour = Kilometer pro Stunde
+azcalculator-unit-miles-per-hour = Meilen pro Stunde
+azcalculator-unit-knots = Knoten
+azcalculator-unit-feet-per-second = Fuß pro Sekunde
+azcalculator-unit-bits = Bits
+azcalculator-unit-bytes = Bytes
+azcalculator-unit-kilobytes = Kilobytes
+azcalculator-unit-megabytes = Megabytes
+azcalculator-unit-gigabytes = Gigabytes
+azcalculator-unit-terabytes = Terabytes
+azcalculator-unit-kibibytes = Kibibytes
+azcalculator-unit-mebibytes = Mebibytes
+azcalculator-unit-gibibytes = Gibibytes
+azcalculator-unit-tebibytes = Tebibytes
+azcalculator-unit-milliseconds = Millisekunden
+azcalculator-unit-seconds = Sekunden
+azcalculator-unit-minutes = Minuten
+azcalculator-unit-hours = Stunden
+azcalculator-unit-days = Tage
+azcalculator-unit-weeks = Wochen
+azcalculator-unit-years-365-2425-d = Jahre (365,2425 d)
+azcalculator-unit-degrees-celsius = Grad Celsius
+azcalculator-unit-degrees-fahrenheit = Grad Fahrenheit
+azcalculator-err-divide-by-zero = Division durch null nicht möglich
+azcalculator-err-invalid = Ungültige Eingabe
+azcalculator-err-overflow = Überlauf
+azcalculator-err-not-base-number = „{ $text }“ ist keine { $base }-Zahl
+azcalculator-err-two-points = { $text } hat zwei Dezimalpunkte
+azcalculator-err-unknown-name = unbekannter Name „{ $name }“
+azcalculator-err-unexpected-quoted = unerwartet: „{ $what }“
+azcalculator-err-unexpected = unerwartet: { $what }
+azcalculator-err-incomplete = Unvollständiger Ausdruck
+azcalculator-err-empty-parens = Leere Klammern
+azcalculator-err-unmatched = Unpassendes „)“
+azcalculator-err-empty = Leerer Ausdruck
+azcalculator-err-x-variable = x ist die Variable des Graphen
+azcalculator-err-not-programmer = NOT braucht den Programmierer-Modus
+azcalculator-err-percent-mode = % braucht den Standard- oder wissenschaftlichen Modus
+azcalculator-err-functions-mode = Funktionen brauchen den Standard- oder wissenschaftlichen Modus
+azcalculator-err-op-programmer = { $op } braucht den Programmierer-Modus
+azcalculator-plotted-as = Gezeichnet als y{ $n }
+azcalculator-y-hint = y = beginnt eine Funktion: Tippe sie in eine leere Eingabe
+azcalculator-not-digit = „{ $text }“ ist keine { $base }-Ziffer und kein Operator
+azcalculator-not-a-name = „{ $text }“ ist kein Name, den der Rechner kennt
+azcalculator-same-dates = Gleiche Daten
+azcalculator-n-years = { $count ->
+    [one] { $count } Jahr
+   *[other] { $count } Jahre
+ }
+azcalculator-n-months = { $count ->
+    [one] { $count } Monat
+   *[other] { $count } Monate
+ }
+azcalculator-n-days = { $count ->
+    [one] { $count } Tag
+   *[other] { $count } Tage
+ }
+azcalculator-n-weeks = { $count ->
+    [one] { $count } Woche
+   *[other] { $count } Wochen
+ }
+azcalculator-grouped-days = { $count } Tage

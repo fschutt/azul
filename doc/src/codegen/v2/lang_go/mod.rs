@@ -375,6 +375,8 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// identifiers that, while technically re-bindable, would create
 /// confusing user-facing wrappers.
 fn is_go_keyword(s: &str) -> bool {
+    // allow-api-name: the language's keyword table - a word is escaped because the
+    // LANGUAGE reserves it, whichever API item happens to share it.
     matches!(
         s,
         "break"

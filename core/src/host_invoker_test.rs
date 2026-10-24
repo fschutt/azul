@@ -488,6 +488,7 @@ mod autotest_generated {
         thunk_fn:       az_autotest_thunk,
         setter_fn:      az_autotest_set_invoker,
         from_handle_fn: az_autotest_from_handle,
+        from_handle_byref_fn: az_autotest_from_handle_byref,
     }
 
     // What the fake host invokers saw. Recorded into atomics rather than

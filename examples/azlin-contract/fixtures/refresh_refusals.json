@@ -1,0 +1,33 @@
+[
+  {
+    "error": "unauthorized"
+  },
+  {
+    "error": "token_reuse"
+  },
+  {
+    "error": "credentials_revoked"
+  },
+  {
+    "error": "lockdown_pending",
+    "pending_until": "2026-10-23T08:00:00Z"
+  },
+  {
+    "error": "drive_banned",
+    "ban_reason": "spam distribution",
+    "ban_until": "2026-10-22T08:00:00Z"
+  },
+  {
+    "error": "not_verified"
+  },
+  {
+    "error": "try_again"
+  },
+  {
+    "error": "unavailable",
+    "spent": false
+  },
+  {
+    "error": "unavailable"
+  }
+]

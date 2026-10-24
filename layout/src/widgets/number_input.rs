@@ -28,11 +28,14 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::text_input::{
-        OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
-        TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
-        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
-        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+    widgets::{
+        text_input::{
+            OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
+            TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
+            TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
+            TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+        },
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -102,6 +105,10 @@ pub struct NumberInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). Handed
+    /// to the wrapped [`TextInput`], which draws the field; a theme is a
+    /// DOM-level choice, so switching it rebuilds the field.
+    pub theme: OptionUiTheme,
 }
 
 /// Wraps `NumberInputState` together with its value-change and focus-lost callbacks.
@@ -278,8 +285,39 @@ impl NumberInput {
         s
     }
 
+    /// Pick the widget theme. Unset (`None`), the field follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
     #[must_use]
-    pub fn dom(mut self) -> Dom {
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Renders the field. Rendering goes through the theme modules (as
+    /// `Button::dom` does). Unpinned (`theme: None`), the field follows the
+    /// APP theme: built in the structure of the theme its DOM is built for,
+    /// carrying every theme's blocks (`themes::theme_blocks::follow_app_theme`).
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => flora::number_input(self),
+            Some(UiTheme::Flat) => flat::number_input(self),
+            None => theme_blocks::follow_app_theme(self, flat::number_input, flora::number_input),
+        }
+    }
+
+    /// Wires the numeric validation into the wrapped [`TextInput`] and
+    /// renders it - in whatever theme and style the theme module left on it.
+    #[must_use]
+    pub(crate) fn build(mut self) -> Dom {
         let number_string = format!("{}", self.number_input_state.inner.number);
         self.text_input.text_input_state.inner.text = number_string
             .chars()
@@ -1940,5 +1978,158 @@ mod autotest_generated {
             seen.iter().all(|s| same(s.number, 2.5)),
             "repeated focus losses must keep reporting the same value",
         );
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! A `NumberInput` draws nothing of its own: its theme is handed to the
+    //! `TextInput` it wraps, and flora dresses that field in flora's field
+    //! paper. Either way the field is ringed on focus in both modes.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn field(theme: Option<UiTheme>) -> Dom {
+        let n = NumberInput::create(42.0);
+        match theme {
+            Some(t) => n.with_theme(t).dom(),
+            None => n.dom(),
+        }
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_number_input_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let n = NumberInput::create(1.0);
+        assert_eq!(n.theme, OptionUiTheme::None);
+        let dom = n.clone().dom();
+        assert!(tc::has_class(&dom, FLAT), "the default app theme is flat");
+        assert!(tc::has_class(&dom, "__azul-native-text-input-container"));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            n.dom()
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+        assert!(tc::has_class(&dom, "__azul-native-text-input-container"));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = NumberInput::create(1.0);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, NumberInput::create(1.0).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flora_number_input_is_a_field_of_flora_paper_in_light_and_dark() {
+        let dom = field(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        assert_eq!(bg(&dom, false), Some(flora::LIGHT_FLD), "the field's paper by day");
+        assert_eq!(bg(&dom, true), Some(flora::DARK_SUR), "flora's night field");
+        assert_eq!(tc::border_top_color(&dom, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(&dom, true, None), Some(flora::DARK_BD));
+        assert_eq!(tc::text_color(&dom, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(&dom, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flat_number_input_keeps_the_established_field() {
+        let flat = field(Some(UiTheme::Flat));
+        let plain = TextInput::create().with_theme(UiTheme::Flat);
+        let plain = {
+            let mut p = plain;
+            p.text_input_state.inner.text = "42"
+                .chars()
+                .map(|c| c as u32)
+                .collect::<alloc::vec::Vec<_>>()
+                .into();
+            p.dom()
+        };
+        assert_eq!(bg(&flat, false), bg(&plain, false), "the same white field");
+        assert_eq!(
+            tc::background(&flat, true).map(|p| tc::bg_layers(&p)),
+            tc::background(&plain, true).map(|p| tc::bg_layers(&p)),
+            "the same desktop field in the dark"
+        );
+    }
+
+    #[test]
+    fn a_number_input_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = field(Some(theme));
+            assert!(tc::has_focus_ring(&dom, false), "{theme:?}: no light focus ring");
+            assert!(tc::has_focus_ring(&dom, true), "{theme:?}: no dark focus ring");
+            tc::assert_theme_invariants(&format!("number_input {theme:?}"), &dom);
+        }
+        // Flora's ring lifts to the stone's glow by night.
+        let dom = field(Some(UiTheme::Flora));
+        let focus = Some(PseudoStateType::Focus);
+        assert_eq!(tc::border_top_color(&dom, false, focus), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::border_top_color(&dom, true, focus), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = field(Some(UiTheme::Flat));
+        let flora_dom = field(Some(UiTheme::Flora));
+        assert!(!tc::a11y_outline(&flat).is_empty());
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+
+    #[test]
+    fn a_caller_container_style_wins_over_the_flora_field() {
+        let own = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_background_content(
+                StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
+                    ColorU::rgb(1, 2, 3)
+                )]),
+            )),
+        ]);
+        let dom = NumberInput::create(3.0)
+            .with_container_style(own)
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(bg(&dom, false), Some(ColorU::rgb(1, 2, 3)));
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a number field's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use super::NumberInput;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_number_input_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for value in [0.0_f32, 42.5, -1.0e9] {
+                let dom = under(t, || NumberInput::create(value).dom());
+                assert_structure_is_shared(
+                    &format!("number_input {value} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

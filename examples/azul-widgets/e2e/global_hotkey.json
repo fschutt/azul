@@ -1,0 +1,86 @@
+[
+  {
+    "name": "azul_widgets_global_hotkey_declared_from_state_linux_windows",
+    "description": "The Global hotkey section declares Ctrl+Alt+K from state (the Linux / Windows accelerator; the macOS variant below spells Cmd+Shift+K). Enabling grabs it (simulated backend under AZ_BACKEND=headless), a press bumps the counter, disabling releases it, a refusal is shown with a Retry button, and Retry asks again.",
+    "only_on": ["linux", "windows"],
+    "steps": [
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "not_registered" }]
+      },
+      { "op": "click", "text": "Enable Ctrl+Alt+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "active", "owner": "window" }]
+      },
+      { "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "1 time(s) since it was enabled" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "click", "text": "Disable Ctrl+Alt+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "not_registered" }]
+      },
+      { "op": "global_hotkey_answer", "accelerator": "Ctrl+Alt+K", "answer": "taken" },
+      { "op": "click", "text": "Enable Ctrl+Alt+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "taken", "owner": "window" }]
+      },
+      { "op": "click", "text": "Retry Ctrl+Alt+K" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "active" }]
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_global_hotkey_declared_from_state_macos",
+    "description": "The macOS variant of the scenario above: a Mac host declares Cmd+Shift+K (examples/azul-widgets/src/hotkeys.rs), so the buttons, the press and every assertion spell that accelerator. Same flow: enable grabs it, a press bumps the counter, disable releases it, a refusal shows Retry, and Retry asks again.",
+    "only_on": ["macos"],
+    "steps": [
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Cmd+Shift+K", "status": "not_registered" }]
+      },
+      { "op": "click", "text": "Enable Cmd+Shift+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Cmd+Shift+K", "status": "active", "owner": "window" }]
+      },
+      { "op": "global_hotkey", "accelerator": "Cmd+Shift+K" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "1 time(s) since it was enabled" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "click", "text": "Disable Cmd+Shift+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Cmd+Shift+K", "status": "not_registered" }]
+      },
+      { "op": "global_hotkey_answer", "accelerator": "Cmd+Shift+K", "answer": "taken" },
+      { "op": "click", "text": "Enable Cmd+Shift+K" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Cmd+Shift+K", "status": "taken", "owner": "window" }]
+      },
+      { "op": "click", "text": "Retry Cmd+Shift+K" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_global_hotkeys",
+        "expect": [{ "accelerator": "Cmd+Shift+K", "status": "active" }]
+      }
+    ]
+  }
+]

@@ -136,6 +136,61 @@ mod autotest_generated {
         )
     }
 
+    /// [`matches`] with the states the compounds left of the subject read.
+    fn matches_in(
+        selectors: Vec<CssPathSelector>,
+        node_index: usize,
+        states: Option<&[StyledNodeState]>,
+    ) -> bool {
+        let hierarchy = sample_hierarchy();
+        let hier_items = items(&hierarchy);
+        let data = sample_node_data();
+
+        let hierarchy_ref = NodeHierarchyRef::from_slice(&hierarchy);
+        let data_ref = NodeDataContainerRef::from_slice(&data);
+        let depths = hierarchy_ref.get_parents_sorted_by_depth();
+        let cascade = construct_html_cascade_tree(&hierarchy_ref, &depths, &data_ref);
+
+        matches_html_element_in(
+            &CssPath::new(selectors),
+            NodeId::new(node_index),
+            &NodeDataContainerRef::from_slice(&hier_items),
+            &data_ref,
+            &cascade.as_ref(),
+            None,
+            states.map(|nodes| AncestorStates {
+                nodes,
+                window_inactive: false,
+                every_state: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn a_compound_left_of_the_subject_holds_by_the_state_its_node_is_in() {
+        // `.b:hover .inner`: p.inner (4) inside div.b (3).
+        let path = vec![
+            CssPathSelector::Class("b".into()),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+            CssPathSelector::Children,
+            CssPathSelector::Class("inner".into()),
+        ];
+        assert!(
+            !matches_in(path.clone(), 4, None),
+            "without states no ancestor is in a state"
+        );
+        let mut states = vec![StyledNodeState::default(); 6];
+        assert!(!matches_in(path.clone(), 4, Some(&states)), "div.b rests");
+        states[3].hover = true;
+        assert!(matches_in(path.clone(), 4, Some(&states)), "div.b is hovered");
+        states[3].hover = false;
+        states[4].hover = true;
+        assert!(
+            !matches_in(path, 4, Some(&states)),
+            "the subject's own hover is not the ancestor's"
+        );
+    }
+
     // ---------------------------------------------------------------------
     // CascadeInfoVec::as_container  (getter)
     // ---------------------------------------------------------------------
@@ -211,13 +266,13 @@ mod autotest_generated {
         assert_eq!(groups.len(), 3);
 
         // Group 0 is the RIGHTMOST group (the subject of the selector).
-        assert_eq!(groups[0].0, vec![&path[5]]);
+        assert_eq!(groups[0].0, &path[5..6]);
         assert_eq!(groups[0].1, CssGroupSplitReason::Children);
 
-        assert_eq!(groups[1].0, vec![&path[2], &path[3]]);
+        assert_eq!(groups[1].0, &path[2..4]);
         assert_eq!(groups[1].1, CssGroupSplitReason::DirectChildren);
 
-        assert_eq!(groups[2].0, vec![&path[0]]);
+        assert_eq!(groups[2].0, &path[0..1]);
         // NOTE: the leftmost group's `reason` is a carry-over from the previous
         // split (there is no combinator to its left). `matches_html_element`
         // never reads it — it uses `groups[i - 1].1` as the combinator for
@@ -239,7 +294,7 @@ mod autotest_generated {
             "the group to the right of the dangling combinator is empty"
         );
         assert_eq!(groups[0].1, CssGroupSplitReason::DirectChildren);
-        assert_eq!(groups[1].0, vec![&path[0]]);
+        assert_eq!(groups[1].0, &path[0..1]);
     }
 
     #[test]
@@ -255,12 +310,12 @@ mod autotest_generated {
         let groups: Vec<_> = CssGroupIterator::new(&path).collect();
 
         assert_eq!(groups.len(), 3);
-        assert_eq!(groups[0].0, vec![&path[3]]);
+        assert_eq!(groups[0].0, &path[3..4]);
         assert!(
             groups[1].0.is_empty(),
             "the group between the two combinators is empty"
         );
-        assert_eq!(groups[2].0, vec![&path[0]]);
+        assert_eq!(groups[2].0, &path[0..1]);
     }
 
     #[test]
@@ -332,6 +387,7 @@ mod autotest_generated {
             CssPathPseudoSelector::Hover,
             CssPathPseudoSelector::Active,
             CssPathPseudoSelector::Focus,
+            CssPathPseudoSelector::FocusWithin,
             CssPathPseudoSelector::Backdrop,
             CssPathPseudoSelector::Dragging,
             CssPathPseudoSelector::DragOver,
@@ -634,6 +690,7 @@ mod autotest_generated {
             CssPathPseudoSelector::Hover,
             CssPathPseudoSelector::Active,
             CssPathPseudoSelector::Focus,
+            CssPathPseudoSelector::FocusWithin,
             CssPathPseudoSelector::Backdrop,
             CssPathPseudoSelector::Dragging,
             CssPathPseudoSelector::DragOver,
@@ -994,7 +1051,7 @@ mod autotest_generated {
         let self_scope = CssPathSelector::Root(CssScopeRange { start: 7, end: 7 });
         let global = CssPathSelector::Global;
 
-        let group: Vec<&CssPathSelector> = vec![&self_scope, &global];
+        let group: Vec<CssPathSelector> = vec![self_scope.clone(), global.clone()];
         assert!(
             selector_group_matches(&group, info(0, true), &text, nid, None, true),
             "a node-only-scoped bare-decl rule must style its own text node"
@@ -1011,14 +1068,14 @@ mod autotest_generated {
         // start != end) keeps refusing text nodes — the historical
         // `* { color: #666 }` inheritance-overwrite bug must stay fixed.
         let subtree_scope = CssPathSelector::Root(CssScopeRange { start: 0, end: 20 });
-        let group2: Vec<&CssPathSelector> = vec![&subtree_scope, &global];
+        let group2: Vec<CssPathSelector> = vec![subtree_scope.clone(), global.clone()];
         assert!(
             !selector_group_matches(&group2, info(0, true), &text, nid, None, true),
             "subtree-scoped universal selectors must never match text nodes"
         );
 
         // Negative control 3: an UNSCOPED bare `*` refuses text nodes too.
-        let group3: Vec<&CssPathSelector> = vec![&global];
+        let group3: Vec<CssPathSelector> = vec![global.clone()];
         assert!(!selector_group_matches(
             &group3,
             info(0, true),
@@ -1149,7 +1206,7 @@ mod autotest_generated {
         let class_a = CssPathSelector::Class("a".into());
         let class_z = CssPathSelector::Class("zzz".into());
 
-        let group: Vec<&CssPathSelector> = vec![&div, &class_a];
+        let group: Vec<CssPathSelector> = vec![div.clone(), class_a.clone()];
         assert!(selector_group_matches(
             &group,
             info(0, false),
@@ -1159,7 +1216,7 @@ mod autotest_generated {
             true
         ));
 
-        let group: Vec<&CssPathSelector> = vec![&div, &class_a, &class_z];
+        let group: Vec<CssPathSelector> = vec![div.clone(), class_a.clone(), class_z.clone()];
         assert!(!selector_group_matches(
             &group,
             info(0, false),
@@ -1175,7 +1232,7 @@ mod autotest_generated {
         // This is what a dangling combinator (`.foo >`) produces — see
         // `css_group_iterator_yields_an_empty_group_for_a_trailing_combinator`.
         // `all()` over an empty group is `true`, so such a group matches ANY node.
-        let empty: Vec<&CssPathSelector> = Vec::new();
+        let empty: Vec<CssPathSelector> = Vec::new();
         assert!(selector_group_matches(
             &empty,
             info(0, false),

@@ -254,6 +254,7 @@ impl DenseText {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -687,19 +688,12 @@ impl DenseText {
     /// sizes mix), while the line record's y is only the FIRST item's.
     #[must_use]
     pub fn resolved_run_ascent(run: &DenseRun) -> f32 {
-        let m = &run.font_metrics;
-        if m.units_per_em == 0 {
-            return 0.0;
-        }
-        let scale = run.style.font_size_px / f32::from(m.units_per_em);
-        let font_ascent = m.ascent * scale;
-        let font_descent = (-m.descent * scale).max(0.0);
-        let ad = font_ascent + font_descent;
-        let lh = run
-            .style
-            .line_height
-            .resolve_with_metrics(run.style.font_size_px, m);
-        font_ascent + (lh - ad) / 2.0
+        // The glyph box of the sparse path, exactly
+        // (`text3::cache::get_item_vertical_metrics`): the face's rounded
+        // ascent plus its share of the leading. 0 for a face without units.
+        run.font_metrics
+            .inline_box_px(run.style.font_size_px, &run.style.line_height)
+            .map_or(0.0, |(above, _)| above)
     }
 
     /// The run containing cluster `ci` (runs partition clusters in
@@ -727,16 +721,13 @@ impl DenseText {
         if i < line.clusters.0 || i >= line.clusters.1 {
             return None;
         }
-        let first_run = self.run_of(line.clusters.0)?;
+        // The run's own solved top (`DenseRun::y`): a `vertical-align`
+        // shift (sub / super / a length) moves a run off the line's
+        // baseline, which "the line's first top, baseline-aligned by the
+        // run ascents" could not express - every `<sup>` came back on the
+        // line (pdfocr's issue 1: the PDF drew sup / sub on the baseline).
         let my_run = self.run_of(i)?;
-        // Same run ⟹ bit-exact recorded value (no float round-trip).
-        let y = if core::ptr::eq(first_run, my_run) {
-            line.baseline_y
-        } else {
-            line.baseline_y + Self::resolved_run_ascent(first_run)
-                - Self::resolved_run_ascent(my_run)
-        };
-        Some((c.x, y, line.source_index as usize))
+        Some((c.x, my_run.y, line.source_index as usize))
     }
 
     /// (d6h) FULL sparse materialization: rebuild the `PositionedItem`
@@ -840,17 +831,11 @@ impl DenseText {
                     }),
                     position: Point {
                         x: c.x,
-                        // (d6h) Per-item y on mixed-size lines: the
-                        // record holds the line's FIRST item top;
-                        // baseline-align via run ascents. Same run ⟹
-                        // the recorded value bit-exactly.
-                        y: match self.run_of(line.clusters.0) {
-                            Some(fr) if !core::ptr::eq(fr, run) => {
-                                line.baseline_y + Self::resolved_run_ascent(fr)
-                                    - Self::resolved_run_ascent(run)
-                            }
-                            _ => line.baseline_y,
-                        },
+                        // The run's own solved top (`DenseRun::y`, the
+                        // builder splits runs where it changes): it carries
+                        // a `vertical-align` shift that baseline-aligning
+                        // the run to the line's first item dropped.
+                        y: run.y,
                     },
                     line_index: line.source_index as usize,
                 });
@@ -919,63 +904,70 @@ impl DenseText {
         self.last_cluster_cursor().unwrap_or(cursor)
     }
 
-    /// (d6d) Point -> cursor hit test — the SAME weighted-distance scan
-    /// as the sparse `hittest_cursor` (vertical distance x2 + horizontal
-    /// outside-distance; closest cluster wins; affinity by midpoint).
-    /// Cluster geometry from the dense arrays: x/width from
-    /// `ClusterCompact` (base advance == bounds().width), y/height from the
-    /// line record + the run's resolved line height. Also the
+    /// (d6d) Point -> cursor hit test by the SAME rule as the sparse
+    /// [`UnifiedLayout::hittest_cursor`]: the line whose band holds the
+    /// point (else the nearest band), on it the cluster under the point (else
+    /// the nearest), and the caret on that cluster's edge nearest the point,
+    /// read in the run's direction. Cluster geometry from the dense arrays:
+    /// x/width from `ClusterCompact` (base advance == bounds().width), the
+    /// band from the run's own y and resolved line height. Also the
     /// click-to-position primitive.
+    ///
+    /// [`UnifiedLayout::hittest_cursor`]: crate::text3::cache::UnifiedLayout::hittest_cursor
     #[must_use]
     pub fn hittest_cursor(&self, point: Point) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
         if self.clusters.is_empty() {
             return None;
         }
-        let mut best: Option<(f32, u32, &DenseRun, f32)> = None; // (dist, ci, run, x)
-        let mut line_iter = self.lines.iter().peekable();
-        for (ci, run) in self
-            .runs
-            .iter()
-            .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
-        {
-            let c = &self.clusters[ci as usize];
-            while let Some(l) = line_iter.peek() {
-                if ci >= l.clusters.1 {
-                    line_iter.next();
-                } else {
-                    break;
+        // Every line's band: the union of its clusters' boxes.
+        let mut bands: Vec<Option<(f32, f32)>> = vec![None; self.lines.len()];
+        let mut line = 0usize;
+        for run in &self.runs {
+            for ci in run.clusters.start..run.clusters.end {
+                while line < self.lines.len() && ci >= self.lines[line].clusters.1 {
+                    line += 1;
                 }
-            }
-            let (top_y, line_h) = line_iter.peek().map_or((0.0, 0.0), |l| (l.top_y, l.height));
-            let m = &run.font_metrics;
-            let h = if m.units_per_em == 0 {
-                line_h
-            } else {
-                run.style
-                    .line_height
-                    .resolve_with_metrics(run.style.font_size_px, m)
-            };
-            let center_y = top_y + h / 2.0;
-            let vertical = (point.y - center_y).abs();
-            let horizontal = if point.x < c.x {
-                c.x - point.x
-            } else if point.x > c.x + c.advance {
-                point.x - (c.x + c.advance)
-            } else {
-                0.0
-            };
-            let dist = vertical.mul_add(2.0, horizontal);
-            if best.is_none_or(|(d, ..)| dist < d) {
-                best = Some((dist, ci, run, c.x));
+                let Some(slot) = bands.get_mut(line) else {
+                    break;
+                };
+                let h = if run.font_metrics.units_per_em == 0 {
+                    self.lines[line].height
+                } else {
+                    run.style
+                        .line_height
+                        .resolve_with_metrics(run.style.font_size_px, &run.font_metrics)
+                };
+                let (top, bottom) = (run.y, run.y + h);
+                *slot = Some(slot.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
             }
         }
-        let (_, ci, run, x) = best?;
+        let line = crate::text3::cache::nearest_band(
+            bands
+                .iter()
+                .enumerate()
+                .filter_map(|(ordinal, band)| band.map(|b| (ordinal, b))),
+            point.y,
+        )?;
+        let (first, end) = self.lines[line].clusters;
+
+        let mut best: Option<(f32, u32, &DenseRun)> = None;
+        for run in &self.runs {
+            for ci in run.clusters.start.max(first)..run.clusters.end.min(end) {
+                let c = &self.clusters[ci as usize];
+                let distance = crate::text3::cache::distance_outside(point.x, c.x, c.advance);
+                if best.is_none_or(|(d, ..)| distance < d) {
+                    best = Some((distance, ci, run));
+                }
+            }
+        }
+        let (_, ci, run) = best?;
         let c = &self.clusters[ci as usize];
-        let affinity = if point.x < x + c.advance / 2.0 {
-            CursorAffinity::Leading
-        } else {
+        let on_left_half = point.x < c.x + c.advance / 2.0;
+        let affinity = if on_left_half == run.direction.is_rtl() {
             CursorAffinity::Trailing
+        } else {
+            CursorAffinity::Leading
         };
         Some(TextCursor {
             cluster_id: GraphemeClusterId {
@@ -1089,7 +1081,15 @@ impl DenseText {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &azul_core::selection::GraphemeClusterId| {
+            self.runs.iter().any(|r| {
+                r.source_run == id.source_run
+                    && (r.clusters.start..r.clusters.end)
+                        .any(|ci| self.clusters[ci as usize].start_byte == id.start_byte_in_run)
+            })
+        };
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset_in(&stops, &cursor, &is_cluster)
+        else {
             return cursor;
         };
         UnifiedLayout::cursor_from_grapheme_offset(&stops, offset.saturating_sub(1))
@@ -1106,7 +1106,15 @@ impl DenseText {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &azul_core::selection::GraphemeClusterId| {
+            self.runs.iter().any(|r| {
+                r.source_run == id.source_run
+                    && (r.clusters.start..r.clusters.end)
+                        .any(|ci| self.clusters[ci as usize].start_byte == id.start_byte_in_run)
+            })
+        };
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset_in(&stops, &cursor, &is_cluster)
+        else {
             return cursor;
         };
         UnifiedLayout::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()))
@@ -1139,45 +1147,6 @@ impl DenseText {
             },
             affinity: azul_core::selection::CursorAffinity::Trailing,
         })
-    }
-
-    /// (d4) Cursor for an IFC-wide byte offset — the dense twin of the
-    /// sparse accumulation walk: clusters in item order, each
-    /// contributing `cluster_byte_len`, first cluster whose span
-    /// contains the offset wins; past-the-end falls to the last cluster.
-    #[must_use]
-    pub fn byte_offset_to_cursor(
-        &self,
-        byte_offset: u32,
-    ) -> Option<azul_core::selection::TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-        let cursor_at = |ci: u32| -> Option<TextCursor> {
-            let c = self.clusters.get(ci as usize)?;
-            let run = self.runs.iter().find(|r| r.clusters.contains(&ci))?;
-            Some(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: run.source_run,
-                    start_byte_in_run: c.start_byte,
-                },
-                affinity: CursorAffinity::Trailing,
-            })
-        };
-        if self.clusters.is_empty() {
-            return None;
-        }
-        if byte_offset == 0 {
-            return cursor_at(0);
-        }
-        let mut acc = 0u32;
-        for ci in 0..self.clusters.len() as u32 {
-            let len = self.cluster_byte_len(ci);
-            let end = acc + len;
-            if byte_offset >= acc && byte_offset <= end {
-                return cursor_at(ci);
-            }
-            acc = end;
-        }
-        cursor_at(self.clusters.len() as u32 - 1)
     }
 }
 
@@ -1216,20 +1185,7 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
         // Per-run ascent: the same math the reference derives per item
         // (metrics + half-leading), amortised — run metrics are uniform.
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1331,20 +1287,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
             }
         }
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1364,6 +1307,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 && r.background_content == style.background_content
                 && r.border == style.border
                 && r.font_size_px == style.font_size_px
+                && r.asks_for_bold == style.asks_for_bold()
                 && r.text_decoration == style.text_decoration
                 && r.source_node_id == source_node_id
         });
@@ -1380,41 +1324,41 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 border: style.border,
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
+                asks_for_bold: style.asks_for_bold(),
                 text_decoration: style.text_decoration,
                 is_ime_preview: false,
                 source_node_id,
+                end_x: c.x,
             });
         }
-        let out = &mut current_run
-            .as_mut()
-            .expect("opened above when absent")
-            .glyphs;
+        let open = current_run.as_mut().expect("opened above when absent");
 
-        match detail {
-            Some(d) => {
-                let mut pen_x = c.x;
-                for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
-                    out.push(GlyphInstance {
-                        index: u32::from(dg.glyph_id),
-                        point: LogicalPosition {
-                            x: pen_x + dg.offset_x,
-                            y: baseline_y - dg.offset_y,
-                        },
-                        size: LogicalSize::default(),
-                    });
-                    pen_x += dg.advance;
-                }
-            }
-            None => {
-                out.push(GlyphInstance {
-                    index: u32::from(c.glyph_id),
+        // The run ends after this cluster (`SimpleGlyphRun::end_x`): the pen
+        // after its glyphs, as the reference walker advances it.
+        if let Some(d) = detail {
+            let mut pen_x = c.x;
+            for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
+                open.glyphs.push(GlyphInstance {
+                    index: u32::from(dg.glyph_id),
                     point: LogicalPosition {
-                        x: c.x,
-                        y: baseline_y,
+                        x: pen_x + dg.offset_x,
+                        y: baseline_y - dg.offset_y,
                     },
                     size: LogicalSize::default(),
                 });
+                pen_x += dg.advance;
             }
+            open.end_x = pen_x;
+        } else {
+            open.glyphs.push(GlyphInstance {
+                index: u32::from(c.glyph_id),
+                point: LogicalPosition {
+                    x: c.x,
+                    y: baseline_y,
+                },
+                size: LogicalSize::default(),
+            });
+            open.end_x = c.x + c.advance;
         }
     }
     if let Some(r) = current_run {
@@ -1498,20 +1442,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         let (top_y, line_index) = line_iter
             .peek()
             .map_or((0.0, 0usize), |l| (l.top_y, l.source_index as usize));
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1547,6 +1478,9 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
             })
             .unwrap_or("");
 
+        // Bold asked of a face with no bold cut is drawn thickened.
+        let synthetic_bold =
+            crate::text3::cache::needs_synthetic_bold(style.asks_for_bold(), font.weight_class());
         // The reference predicate, evaluated per CLUSTER (all compared
         // fields are uniform within a cluster in dense scope).
         let merges = current_run.as_ref().is_some_and(|r| {
@@ -1554,6 +1488,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 && r.color == style.color
                 && r.background_color == style.background_color
                 && r.font_size_px == style.font_size_px
+                && r.synthetic_bold == synthetic_bold
                 && r.text_decoration == style.text_decoration
                 && r.line_index == line_index
                 && r.direction == run.direction
@@ -1570,6 +1505,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 font: font.clone(),
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
+                synthetic_bold,
                 text_decoration: style.text_decoration,
                 line_index,
                 direction: run.direction,

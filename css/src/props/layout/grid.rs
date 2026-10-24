@@ -7,8 +7,11 @@ use alloc::{
 };
 use core::mem::ManuallyDrop;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
+#[cfg(feature = "parser")]
+use crate::props::basic::parse::split_string_respect_whitespace;
 use crate::{
-    codegen::format::FormatAsRustCode,
     corety::AzString,
     impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_mut,
     impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
@@ -387,40 +390,6 @@ impl GridParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-fn split_respecting_parens(input: &str) -> Result<Vec<String>, ()> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut paren_depth: i32 = 0;
-
-    for ch in input.chars() {
-        match ch {
-            '(' => {
-                paren_depth += 1;
-                current.push(ch);
-            }
-            ')' => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
-                    return Err(());
-                }
-                current.push(ch);
-            }
-            ' ' if paren_depth == 0 => {
-                if !current.trim().is_empty() {
-                    parts.push(current.trim().to_string());
-                    current.clear();
-                }
-            }
-            _ => current.push(ch),
-        }
-    }
-    if !current.trim().is_empty() {
-        parts.push(current.trim().to_string());
-    }
-    Ok(parts)
-}
-
-#[cfg(feature = "parser")]
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `grid-template` value.
@@ -433,7 +402,10 @@ pub fn parse_grid_template(input: &str) -> Result<GridTemplate, GridParseError<'
         return Ok(GridTemplate::default());
     }
 
-    let parts = split_respecting_parens(input).map_err(|()| GridParseError::InvalidValue(input))?;
+    // Top-level CSS whitespace only: `repeat(2, 100px 1fr)` is ONE track
+    // token. An unbalanced `)` keeps the rest in one token, which no track
+    // parser accepts.
+    let parts = split_string_respect_whitespace(input);
 
     let mut tracks = Vec::new();
     for part in &parts {
@@ -468,7 +440,7 @@ fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) ->
         }
 
         // Parse the track list (may contain multiple space-separated tracks)
-        let parts = split_respecting_parens(track_list_str)?;
+        let parts = split_string_respect_whitespace(track_list_str);
         let repeat_tracks: Vec<GridTrackSizing> = parts
             .iter()
             .map(|p| parse_grid_track_owned(p))
@@ -848,6 +820,7 @@ impl PrintAsCssValue for LayoutGap {
 
 // Implement FormatAsRustCode for the new types so they can be emitted by the
 // code generator.
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutGridAutoFlow {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -862,6 +835,7 @@ impl FormatAsRustCode for LayoutGridAutoFlow {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutJustifySelf {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -877,6 +851,7 @@ impl FormatAsRustCode for LayoutJustifySelf {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutJustifyItems {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -891,6 +866,7 @@ impl FormatAsRustCode for LayoutJustifyItems {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutGap {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
@@ -898,6 +874,7 @@ impl FormatAsRustCode for LayoutGap {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridTrackSizing {
     // `tabs` is required by the FormatAsRustCode trait signature; this variant only
     // threads it through to nested MinMax children, never reading it locally.
@@ -926,6 +903,7 @@ impl FormatAsRustCode for GridTrackSizing {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridAutoTracks {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let tracks: Vec<String> = self
@@ -941,6 +919,7 @@ impl FormatAsRustCode for GridAutoTracks {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridTemplateAreas {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -1534,106 +1513,68 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // split_respecting_parens (private)
+    // track splitting (the shared split_string_respect_whitespace; it
+    // replaced the private split_respecting_parens twin)
     // ---------------------------------------------------------------------
 
     #[test]
-    fn split_respecting_parens_empty_and_whitespace_yield_ok_empty_not_err() {
-        // DEVIATION: the adversarial expectation is Err/None for empty input, but this
-        // helper reports "no tokens" as `Ok(vec![])`. That is what makes
-        // `parse_grid_template("")` succeed (see the parse_grid_template tests below).
-        assert_eq!(split_respecting_parens(""), Ok(Vec::new()));
-        assert_eq!(split_respecting_parens("   "), Ok(Vec::new()));
-        assert_eq!(split_respecting_parens(" \t\n "), Ok(Vec::new()));
+    fn parse_grid_template_empty_and_whitespace_are_an_empty_track_list() {
+        // DEVIATION: the adversarial expectation is Err for empty input, but no
+        // tokens is an empty track list.
+        for input in ["", "   ", " \t\n "] {
+            assert_eq!(parse_grid_template(input).unwrap().tracks.len(), 0);
+        }
     }
 
     #[test]
-    fn split_respecting_parens_valid_minimal_and_nested_calls() {
+    fn parse_grid_template_keeps_whitespace_inside_parens_in_one_track() {
+        assert_eq!(parse_grid_template("100px 1fr").unwrap().tracks.len(), 2);
+        // `repeat(2, 100px 1fr)` is one token that expands to two tracks.
         assert_eq!(
-            split_respecting_parens("100px 1fr"),
-            Ok(vec!["100px".to_string(), "1fr".to_string()])
-        );
-        // The whole point of the helper: spaces inside parens are NOT separators.
-        assert_eq!(
-            split_respecting_parens("repeat(2, 100px 1fr) auto"),
-            Ok(vec!["repeat(2, 100px 1fr)".to_string(), "auto".to_string()])
-        );
-        assert_eq!(
-            split_respecting_parens("a(b c)d e"),
-            Ok(vec!["a(b c)d".to_string(), "e".to_string()])
+            parse_grid_template("repeat(2, 100px 1fr) auto")
+                .unwrap()
+                .tracks
+                .len(),
+            5
         );
     }
 
     #[test]
-    fn split_respecting_parens_rejects_unbalanced_close_paren() {
-        assert_eq!(split_respecting_parens(")"), Err(()));
-        assert_eq!(split_respecting_parens("a)b"), Err(()));
-        assert_eq!(split_respecting_parens("(a))"), Err(()));
-        assert_eq!(split_respecting_parens(")("), Err(()));
+    fn parse_grid_template_rejects_an_unbalanced_close_paren() {
+        // Nothing after a stray `)` is split, and no track parses the rest.
+        for input in [")", "a)b", "(a))", ")(", "100px) 200px"] {
+            assert!(parse_grid_template(input).is_err(), "{input:?}");
+        }
     }
 
     #[test]
-    fn split_respecting_parens_accepts_unbalanced_open_paren_is_lax() {
-        // Asymmetry: a stray ')' is an error, a stray '(' is not — the depth counter is
-        // never checked at end-of-input. The malformed token is handed downstream, where
-        // the track parser happens to reject it, so nothing unsound escapes.
-        assert_eq!(split_respecting_parens("((("), Ok(vec!["(((".to_string()]));
-        assert_eq!(
-            split_respecting_parens("repeat(2, 1fr"),
-            Ok(vec!["repeat(2, 1fr".to_string()])
-        );
+    fn parse_grid_template_rejects_an_unbalanced_open_paren() {
+        assert!(parse_grid_template("(((").is_err());
         assert!(parse_grid_template("repeat(2, 1fr").is_err());
     }
 
     #[test]
-    fn split_respecting_parens_does_not_treat_tab_or_newline_as_a_separator() {
-        // BUG (CSS whitespace): only U+0020 splits tokens. CSS treats \t, \n, \r and \f
-        // as whitespace too, so a multi-line `grid-template-columns` declaration is
-        // mis-tokenised into one giant token.
-        assert_eq!(
-            split_respecting_parens("100px\t200px"),
-            Ok(vec!["100px\t200px".to_string()])
-        );
-        assert_eq!(
-            split_respecting_parens("100px\n200px"),
-            Ok(vec!["100px\n200px".to_string()])
-        );
-        // ...and the consequence, one layer up:
-        assert!(parse_grid_template("100px\t200px").is_err());
-        assert!(parse_grid_template("100px\n200px").is_err());
-        // Whereas the space-separated form is fine.
+    fn parse_grid_template_splits_tracks_at_every_css_whitespace() {
+        // CSS whitespace is space, tab, LF, CR and FF, so a multi-line
+        // `grid-template-columns` declaration is a list of tracks (the old
+        // private splitter only cut at U+0020 and rejected these).
+        assert_eq!(parse_grid_template("100px\t200px").unwrap().tracks.len(), 2);
+        assert_eq!(parse_grid_template("100px\n200px").unwrap().tracks.len(), 2);
         assert_eq!(parse_grid_template("100px 200px").unwrap().tracks.len(), 2);
     }
 
     #[test]
-    fn split_respecting_parens_handles_multibyte_unicode() {
-        // char-based iteration, so no byte-boundary slicing hazard.
-        assert_eq!(
-            split_respecting_parens("\u{1F600} e\u{0301}"),
-            Ok(vec!["\u{1F600}".to_string(), "e\u{0301}".to_string()])
-        );
-        assert_eq!(
-            split_respecting_parens("\u{1F600}(\u{4E2D} \u{6587})"),
-            Ok(vec!["\u{1F600}(\u{4E2D} \u{6587})".to_string()])
-        );
-    }
-
-    #[test]
-    fn split_respecting_parens_survives_a_million_chars_and_deep_nesting() {
-        // 1M-char single token: linear scan, must not hang.
-        let long = "a".repeat(1_000_000);
-        let parts = split_respecting_parens(&long).unwrap();
-        assert_eq!(parts.len(), 1);
-        assert_eq!(parts[0].len(), 1_000_000);
+    fn parse_grid_template_survives_a_million_chars_and_deep_nesting() {
+        // 1M-char single token: linear scan, must not hang, and is rejected.
+        assert!(parse_grid_template(&"a".repeat(1_000_000)).is_err());
 
         // 50k space-separated tokens.
         let many = "1fr ".repeat(50_000);
-        assert_eq!(split_respecting_parens(&many).unwrap().len(), 50_000);
+        assert_eq!(parse_grid_template(&many).unwrap().tracks.len(), 50_000);
 
         // 10k nested parens: the scanner is iterative, so no stack overflow, and the
-        // balanced nest is returned as a single (garbage) token that parsing rejects.
+        // balanced nest is one (garbage) token that parsing rejects.
         let nested = format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
-        assert_eq!(split_respecting_parens(&nested).unwrap().len(), 1);
         assert!(parse_grid_template(&nested).is_err());
     }
 
@@ -2070,7 +2011,7 @@ mod autotest_generated {
     fn parse_grid_template_deeply_nested_parens_do_not_stack_overflow() {
         let nested = format!("{}1px{}", "(".repeat(10_000), ")".repeat(10_000));
         assert!(parse_grid_template(&nested).is_err());
-        // Unbalanced in the *other* direction is caught by split_respecting_parens.
+        // Unbalanced in the *other* direction: one token no track parser accepts.
         assert!(parse_grid_template(&")".repeat(10_000)).is_err());
     }
 
@@ -2677,8 +2618,8 @@ mod autotest_generated {
 
     #[test]
     fn parse_grid_template_areas_uses_tabs_and_newlines_as_cell_separators() {
-        // Contrast with split_respecting_parens: this path uses split_whitespace(), so
-        // it *does* handle the whitespace CSS actually allows.
+        // The cells of a row are cut with split_whitespace(), so tabs and newlines
+        // separate them too.
         let parsed = parse_grid_template_areas("\"a\tb\" \"c\nd\"").unwrap();
         assert_eq!(parsed.areas.len(), 4);
         for name in ["a", "b", "c", "d"] {

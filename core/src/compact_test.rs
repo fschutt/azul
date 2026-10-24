@@ -132,13 +132,17 @@ mod autotest_generated {
         fn ua(&mut self, node_type: &NodeType) {
             apply_ua_css_to_compact(
                 &crate::dom::NodeData::create_node(node_type.clone()),
-                false,
+                // Not the document root, and no VirtualView host to inherit from.
+                1,
+                &[],
                 None,
                 &mut self.tier1,
                 &mut self.dims,
                 &mut self.cold,
                 &mut self.text,
                 &mut self.fonts,
+                // The DOM-wide flags of what was declared: this fixture reads none.
+                &mut 0,
             );
         }
 
@@ -573,9 +577,11 @@ mod autotest_generated {
     }
 
     fn line_height_prop(pct: f32) -> CssProperty {
-        CssProperty::LineHeight(CssPropertyValue::Exact(StyleLineHeight {
-            inner: PercentageValue::new(pct),
-        }))
+        line_height_of(StyleLineHeight::Percentage(PercentageValue::new(pct)))
+    }
+
+    fn line_height_of(lh: StyleLineHeight) -> CssProperty {
+        CssProperty::LineHeight(CssPropertyValue::Exact(lh))
     }
 
     #[test]
@@ -795,14 +801,14 @@ mod autotest_generated {
         assert_eq!(s.dims.row_gap, 80);
         assert_eq!(s.dims.column_gap, 80);
 
-        // An `em` gap cannot be resolved without a font context — it must be left
-        // untouched (so the slow path can handle it), not silently encoded as 2px.
+        // An `em` gap cannot be resolved without a font context: it is marked with the
+        // sentinel so the layout asks the cascade, never encoded as 2px or as no gap.
         let mut em = Sink::new();
         em.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::em(2.0),
         })));
-        assert_eq!(em.dims.row_gap, 0);
-        assert_eq!(em.dims.column_gap, 0);
+        assert_eq!(em.dims.row_gap, I16_SENTINEL);
+        assert_eq!(em.dims.column_gap, I16_SENTINEL);
     }
 
     // -------------------------------------------------------------------------
@@ -1019,38 +1025,51 @@ mod autotest_generated {
     }
 
     #[test]
-    fn apply_line_height_round_trips_and_saturates_at_both_ends() {
+    fn apply_line_height_encodes_numbers_lengths_and_normal() {
+        // A number as its factor x 1000: it is inherited as the number.
         let mut s = Sink::new();
-        s.apply(&line_height_prop(120.0));
-        assert_eq!(s.text.line_height, 1200, "120% must encode as % x 10");
-
-        // Absurd values must saturate - no wrap-around. The two signs land
-        // differently by design: a huge POSITIVE (unitless multiple) falls to
-        // the sentinel ("normal" - a 10^7x multiple is meaningless), while a
-        // huge NEGATIVE (= absolute px per the parser convention) CLAMPS to
-        // the largest representable px (-32768 = 3276.8px) instead of being
-        // silently reinterpreted as "normal".
-        let mut big = Sink::new();
-        big.apply(&line_height_prop(1.0e9f32));
+        s.apply(&line_height_of(StyleLineHeight::Number(FloatValue::new(1.2))));
+        assert_eq!(s.text.line_height, 1200, "1.2 encodes as the factor x 1000");
         assert_eq!(
-            big.text.line_height, I16_SENTINEL,
-            "a huge unitless multiple saturates to the sentinel"
-        );
-        let mut neg = Sink::new();
-        neg.apply(&line_height_prop(-1.0e9f32));
-        assert_eq!(
-            neg.text.line_height, -32768,
-            "a huge absolute px line-height clamps instead of dropping to normal"
+            decode_line_height(s.text.line_height),
+            CompactLineHeight::Factor(1.2)
         );
 
-        // The split scale itself: 48px (normalized -48) stores as -480 and
-        // decodes back to 48px - the old x1000 scale overflowed at 32.76px.
+        // An absolute length as -px x 100: to the hundredth of a pixel (the
+        // old tenths pitched `line-height: 14pt` lines 18.7px apart), and far
+        // past the old x1000 scale's 32.76px.
         let mut px48 = Sink::new();
-        px48.apply(&line_height_prop(-4800.0));
+        px48.apply(&line_height_of(StyleLineHeight::Length(PixelValue::px(48.0))));
+        assert_eq!(px48.text.line_height, -4800, "48px stores as -px x 100");
         assert_eq!(
-            px48.text.line_height, -480,
-            "line-height: 48px stores as -px x 10"
+            decode_line_height(px48.text.line_height),
+            CompactLineHeight::Px(48.0)
         );
+        let mut pt14 = Sink::new();
+        pt14.apply(&line_height_of(StyleLineHeight::Length(PixelValue::pt(14.0))));
+        assert_eq!(pt14.text.line_height, -1867, "14pt = 18.67px");
+
+        // `normal` is the sentinel, whatever the slot held before.
+        let mut normal = Sink::new();
+        normal.text.line_height = 1200;
+        normal.apply(&line_height_of(StyleLineHeight::Normal));
+        assert_eq!(normal.text.line_height, I16_SENTINEL);
+
+        // The viewport units (unknown here) and values beyond the range are
+        // left to the cascade - never dropped to `normal`, never clamped.
+        for lh in [
+            StyleLineHeight::Length(PixelValue::from_metric(SizeMetric::Vh, 5.0)),
+            StyleLineHeight::Number(FloatValue::new(1.0e6)),
+            StyleLineHeight::Length(PixelValue::px(1.0e6)),
+        ] {
+            let mut s = Sink::new();
+            s.apply(&line_height_of(lh));
+            assert_eq!(
+                decode_line_height(s.text.line_height),
+                CompactLineHeight::Uncached,
+                "{lh:?}"
+            );
+        }
     }
 
     #[test]
@@ -1566,6 +1585,124 @@ mod inheritance_mask_tests {
             // the overlap check is on the shifted bits, which are distinct.
             assert_eq!(used & bits, 0, "{ty:?} overlaps an earlier tier-1 slot");
             used |= bits;
+        }
+    }
+}
+
+/// A CSS-wide keyword that stands for the initial value puts the property's compact slots back
+/// to what a node that declares nothing holds.
+#[cfg(test)]
+mod css_wide_reset_tests {
+    use azul_css::{
+        compact_cache::*,
+        props::property::{parse_css_property, CssPropertyType as T},
+    };
+
+    use super::{apply_css_property_to_compact, reset_compact_property};
+
+    const DECLARED: &[(T, &str)] = &[
+        (T::Display, "flex"),
+        (T::Position, "absolute"),
+        (T::Float, "left"),
+        (T::OverflowX, "hidden"),
+        (T::OverflowY, "scroll"),
+        (T::BoxSizing, "border-box"),
+        (T::FlexDirection, "column"),
+        (T::FlexWrap, "wrap"),
+        (T::JustifyContent, "center"),
+        (T::AlignItems, "center"),
+        (T::AlignContent, "center"),
+        (T::WritingMode, "vertical-rl"),
+        (T::Clear, "both"),
+        (T::FontWeight, "bold"),
+        (T::FontStyle, "italic"),
+        (T::TextAlign, "center"),
+        (T::Visibility, "hidden"),
+        (T::WhiteSpace, "pre"),
+        (T::Direction, "rtl"),
+        (T::VerticalAlign, "top"),
+        (T::BorderCollapse, "collapse"),
+        (T::AlignSelf, "center"),
+        (T::GridAutoFlow, "column"),
+        (T::JustifyItems, "center"),
+        (T::Cursor, "pointer"),
+        (T::Width, "10px"),
+        (T::Height, "10px"),
+        (T::MinWidth, "10px"),
+        (T::MaxWidth, "10px"),
+        (T::MinHeight, "10px"),
+        (T::MaxHeight, "10px"),
+        (T::FlexBasis, "10px"),
+        (T::FontSize, "10px"),
+        (T::PaddingTop, "3px"),
+        (T::PaddingRight, "3px"),
+        (T::PaddingBottom, "3px"),
+        (T::PaddingLeft, "3px"),
+        (T::MarginTop, "3px"),
+        (T::MarginRight, "3px"),
+        (T::MarginBottom, "3px"),
+        (T::MarginLeft, "3px"),
+        (T::BorderTopWidth, "3px"),
+        (T::BorderRightWidth, "3px"),
+        (T::BorderBottomWidth, "3px"),
+        (T::BorderLeftWidth, "3px"),
+        (T::Top, "3px"),
+        (T::Right, "3px"),
+        (T::Bottom, "3px"),
+        (T::Left, "3px"),
+        (T::FlexGrow, "2"),
+        (T::FlexShrink, "2"),
+        (T::RowGap, "3px"),
+        (T::ColumnGap, "3px"),
+        (T::GridColumn, "1 / 3"),
+        (T::GridRow, "1 / 3"),
+        (T::ZIndex, "3"),
+        (T::BorderTopStyle, "solid"),
+        (T::BorderRightStyle, "solid"),
+        (T::BorderBottomStyle, "solid"),
+        (T::BorderLeftStyle, "solid"),
+        (T::BorderTopColor, "red"),
+        (T::BorderRightColor, "red"),
+        (T::BorderBottomColor, "red"),
+        (T::BorderLeftColor, "red"),
+        (T::BorderSpacing, "3px"),
+        (T::BorderTopLeftRadius, "3px"),
+        (T::BorderTopRightRadius, "3px"),
+        (T::BorderBottomLeftRadius, "3px"),
+        (T::BorderBottomRightRadius, "3px"),
+        (T::Opacity, "0.5"),
+        (T::ScrollbarGutter, "stable"),
+        (T::TextColor, "red"),
+        (T::FontFamily, "serif"),
+        (T::LineHeight, "20px"),
+        (T::LetterSpacing, "3px"),
+        (T::WordSpacing, "3px"),
+        (T::TextIndent, "3px"),
+    ];
+
+    #[test]
+    fn a_reset_property_holds_the_slots_of_a_node_that_declares_nothing() {
+        let nothing = (
+            0u64,
+            CompactNodeProps::default(),
+            CompactNodePropsCold::default(),
+            CompactTextProps::default(),
+        );
+        for &(ty, value) in DECLARED {
+            let prop = parse_css_property(ty, value)
+                .unwrap_or_else(|e| panic!("harness: {ty:?}: {value} parses: {e:?}"));
+            let (mut tier1, mut dims, mut cold, mut text) = nothing;
+            let mut fonts = alloc::collections::BTreeMap::new();
+            apply_css_property_to_compact(
+                &prop, &mut tier1, &mut dims, &mut cold, &mut text, &mut fonts,
+            );
+            assert_ne!(
+                (tier1, dims, cold, text),
+                nothing,
+                "harness: {ty:?}: {value} sets a slot"
+            );
+            reset_compact_property(ty, &mut tier1, &mut dims, &mut cold, &mut text);
+            assert_eq!((tier1, dims, cold, text), nothing, "{ty:?} after a reset");
         }
     }
 }

@@ -288,58 +288,32 @@ pub fn default_renderer_options(
     partial_present: Option<PartialPresentDamage>,
 ) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
-    use azul_css::props::basic::color::ColorU;
-    use webrender::{api::ColorF as WrColorF, ShaderPrecacheFlags};
+    use webrender::ShaderPrecacheFlags;
 
-    // Determine background color for WebRender clear
-    // If a material effect is used (not Opaque), use fully transparent clear color
-    // so the material effect shows through from behind
-    let bg = if !matches!(
-        options.window_state.flags.background_material,
-        WindowBackgroundMaterial::Opaque
-    ) {
-        // Material effect - need transparent background
-        // Note: We use alpha=0 with non-zero RGB to avoid pre-multiplied alpha issues
-        // Some OpenGL implementations render (0,0,0,0) as black
-        ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }
-    } else {
-        // Use background_color if specified, otherwise default to white
-        options
-            .window_state
-            .background_color
-            .as_option()
-            .copied()
-            .unwrap_or_else(|| {
-                use azul_core::window::WindowTheme;
-                if options.window_state.theme == WindowTheme::DarkMode {
-                    ColorU {
-                        r: 42,
-                        g: 46,
-                        b: 50,
-                        a: 255,
-                    }
-                } else {
-                    ColorU::WHITE
-                }
-            })
-    };
+    // THE clear colour (`common::window_clear_color`), as far as it is known
+    // before the window exists: a material clears to transparent so the
+    // effect shows through; an opaque window to its `background_color`, which
+    // every GPU shell has seeded for the mode it will show
+    // (`resolve_initial_background_color`) by now. This is only the first
+    // frame's: `CommonWindowState::sync_renderer_clear_color` keeps the
+    // renderer on the same function from then on, so a mode change moves it.
+    let bg = crate::desktop::shell2::common::window_clear_color(
+        options.window_state.background_color,
+        options.window_state.mode,
+        None,
+        false,
+        !matches!(
+            options.window_state.flags.background_material,
+            WindowBackgroundMaterial::Opaque
+        ),
+    );
 
     WrRendererOptions {
         resource_override_path: None,
         use_optimized_shaders: true,
         enable_aa: true,
         enable_subpixel_aa: true,
-        clear_color: WrColorF {
-            r: bg.r as f32 / 255.0,
-            g: bg.g as f32 / 255.0,
-            b: bg.b as f32 / 255.0,
-            a: bg.a as f32 / 255.0,
-        },
+        clear_color: wr_translate_color_f(CssColorF::from(bg)),
         enable_multithreading: false,
         // AZ_OVERLAY is merged in, so the webrender verbs (overdraw, profiler,
         // primitives, ...) can be switched on from the environment exactly like
@@ -851,6 +825,16 @@ pub fn collect_image_resource_updates(
                 _ => {}
             }
         }
+        // The text shadows the compositor paints as kept pictures: drawn here
+        // the first time they are seen, and live while a list holds them.
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+        for halo in azul_layout::cpurender::text_halos(
+            &layout_result.display_list.items,
+            dpi,
+            Some((renderer_resources, &layout_window.font_manager)),
+        ) {
+            images_in_display_list.insert(halo.image);
+        }
     }
 
     // The live set as hashes (identity), for the GC diff in the caller.
@@ -869,6 +853,19 @@ pub fn collect_image_resource_updates(
         crate::desktop::gl_texture_integration::insert_into_active_gl_textures,
     );
 
+    // A GL image goes into the texture cache once, when it is first added;
+    // the cache frees a texture two epochs after the last list that drew it
+    // was sent. So every list that still draws one renews its stamp here:
+    // WebRender looks the texture up at each render, and one the cache let go
+    // is drawn from texture 0 - black.
+    for image in images_in_display_list.iter().filter(|image| image.is_gl_texture()) {
+        let _ = crate::desktop::gl_texture_cache::keep_alive(
+            &layout_window.document_id,
+            &azul_core::resources::image_ref_hash_to_external_image_id(image.get_hash()),
+            layout_window.epoch,
+        );
+    }
+
     log_debug!(
         LogCategory::Rendering,
         "[collect_image_resource_updates] Generated {} AddImage messages",
@@ -880,6 +877,8 @@ pub fn collect_image_resource_updates(
 
 /// This scans all display lists for Text items, extracts their font_hashes,
 /// loads the fonts from the FontManager, and creates AddFont + AddFontInstance ResourceUpdates.
+/// Also returns the hash of every font a display list draws: the live set of
+/// the font GC ([`collect_stale_font_deletes`]).
 ///
 /// CRITICAL: FontKey is generated deterministically from font hash to ensure
 /// consistency between layout (which uses hash) and rendering (which uses key).
@@ -887,7 +886,7 @@ pub fn collect_font_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi_factor: DpiScaleFactor,
-) -> Vec<ResourceUpdate> {
+) -> (Vec<ResourceUpdate>, azul_core::FastBTreeSet<u64>) {
     use std::collections::BTreeMap;
 
     use azul_core::resources::{
@@ -1036,7 +1035,8 @@ pub fn collect_font_resource_updates(
         "[collect_font_resource_updates] Generated {} resource updates",
         resource_updates.len()
     );
-    resource_updates
+    let live = font_hash_sizes.keys().copied().collect();
+    (resource_updates, live)
 }
 
 /// Translate azul-core ResourceUpdate to WebRender ResourceUpdate
@@ -1093,6 +1093,14 @@ fn translate_image_format(
         RawImageFormat::RGBA16 => ImageFormat::RGBA8, // Convert to 8-bit
         RawImageFormat::BGR8 => ImageFormat::BGRA8, // Add alpha channel
         RawImageFormat::RGBF32 => ImageFormat::RGBAF32, // Add alpha channel
+
+        // NV12 is TWO WebRender images (the R8 Y plane and the RG8 Cb,Cr
+        // plane, see `nv12_image_updates`); a single image of it is its Y
+        // plane.
+        RawImageFormat::NV12Rec601Video
+        | RawImageFormat::NV12Rec601Full
+        | RawImageFormat::NV12Rec709Video
+        | RawImageFormat::NV12Rec709Full => ImageFormat::R8,
     }
 }
 
@@ -1133,24 +1141,7 @@ fn translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
         flags |= WrImageDescriptorFlags::ALLOW_MIPMAPS;
     }
 
-    // ImageDirtyRect is an enum in azul-core
-    let dirty_rect = match update_image.dirty_rect {
-        ImageDirtyRect::All => DirtyRect::All,
-        ImageDirtyRect::Partial(rect) => {
-            use webrender::{
-                api::units::DevicePixel,
-                euclid::{Box2D, Point2D},
-            };
-
-            DirtyRect::Partial(Box2D::new(
-                Point2D::new(rect.origin.x as i32, rect.origin.y as i32),
-                Point2D::new(
-                    (rect.origin.x + rect.size.width) as i32,
-                    (rect.origin.y + rect.size.height) as i32,
-                ),
-            ))
-        }
-    };
+    let dirty_rect = translate_dirty_rect(&update_image.dirty_rect);
 
     Some(WrUpdateImage {
         key: translate_image_key(update_image.key),
@@ -1325,14 +1316,27 @@ fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItali
 ///
 /// Shared by [`generate_frame`] and [`build_webrender_transaction`], which both
 /// previously inlined this identical font+image registration block.
-fn register_frame_resources(
+pub(crate) fn register_frame_resources(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,
 ) {
     // --- Fonts ---
-    let font_updates =
+    let (font_updates, live_font_hashes) =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
+
+    // --- Font GC: delete the fonts gone from every display list ---
+    // BEFORE the adds: a delete never targets a font this frame draws.
+    let font_deletes = collect_stale_font_deletes(layout_window, &live_font_hashes);
+    if !font_deletes.is_empty() {
+        let wr_font_deletes: Vec<webrender::ResourceUpdate> = font_deletes
+            .into_iter()
+            .filter_map(translate_resource_update)
+            .collect();
+        if !wr_font_deletes.is_empty() {
+            txn.update_resources(wr_font_deletes);
+        }
+    }
 
     // Update font_hash_map + currently_registered_fonts as we process resources.
     // This is CRITICAL for push_text() to look up FontKey / FontInstanceKey from
@@ -1372,6 +1376,12 @@ fn register_frame_resources(
             txn.update_resources(wr_resources);
         }
     }
+
+    // --- Video tiles: in-place-replaced node images, under their stable keys ---
+    // BEFORE the display-list scan, so their frames are found registered and
+    // are not added again under a per-frame key. (This is a full build: the
+    // display lists are resent anyway, so a new slot needs nothing more.)
+    let _ = upload_overlay_images(layout_window, txn);
 
     // --- Images ---
     let (image_updates, live_image_hashes) =
@@ -1415,16 +1425,348 @@ fn register_frame_resources(
     }
 
     if !image_updates.is_empty() {
-        let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
-            .into_iter()
-            .filter_map(|(_, add_image_msg)| {
-                translate_resource_update(add_image_msg.into_resource_update())
-            })
-            .collect();
+        let namespace = layout_window.id_namespace;
+        let mut wr_image_resources: Vec<webrender::ResourceUpdate> = Vec::new();
+        for (_, add_image_msg) in image_updates {
+            let add = add_image_msg.0;
+            if add.descriptor.format.is_nv12() {
+                // Two renderer images (luma + chroma), one buffer.
+                wr_image_resources.extend(nv12_add_images(
+                    &mut layout_window.renderer_resources,
+                    namespace,
+                    add,
+                ));
+            } else if let Some(update) = translate_resource_update(ResourceUpdate::AddImage(add)) {
+                wr_image_resources.push(update);
+            }
+        }
         if !wr_image_resources.is_empty() {
             txn.update_resources(wr_image_resources);
         }
     }
+}
+
+// ==== Video tiles: one renderer image per tile, updated in place ====
+
+/// The Cb,Cr plane of one [`OverlayImageUpload`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChromaPlane {
+    /// The plane's stable key (see `RendererResources::nv12_chroma_keys`).
+    pub key: ImageKey,
+    /// `update_image` (the key already holds a plane) rather than `add_image`.
+    pub update: bool,
+}
+
+/// One new frame of an in-place-replaced image (a video tile, a background
+/// layer's callback frame), to hand to `WebRender` under its slot's stable key.
+#[derive(Debug, Clone)]
+pub struct OverlayImageUpload {
+    /// The slot's stable key (`RendererResources::image_slots`); the Y
+    /// plane of an NV12 frame.
+    pub key: ImageKey,
+    /// `update_image` (the key already holds a frame) rather than
+    /// `add_image`.
+    pub update: bool,
+    /// The frame's descriptor.
+    pub descriptor: azul_core::resources::ImageDescriptor,
+    /// The frame's bytes (shared, not copied).
+    pub data: AzImageData,
+    /// The chroma plane of an NV12 frame.
+    pub chroma: Option<ChromaPlane>,
+    /// A chroma plane the key no longer needs (the tile turned from NV12 to
+    /// a packed format): `delete_image` it.
+    pub drop_chroma: Option<ImageKey>,
+    /// The part of the frame to upload: `All` for a new key or a frame of
+    /// another pixel shape, else the region the app said it repainted
+    /// (`CallbackInfo::change_node_image_rect`), clipped to the frame.
+    pub dirty: ImageDirtyRect,
+}
+
+/// Plan the uploads of this frame's in-place-replaced images.
+///
+/// `frames` are the content overlay's images by slot (a node's image, a
+/// background layer's callback frame), each with the region of it the
+/// renderer has not uploaded yet (`ContentOverlay::image_dirty`). Every raw
+/// frame that is not registered yet goes under its slot's stable key: the
+/// slot's first frame mints the key (an `add_image`), every later one UPDATES
+/// it (pixels only - no new key, so neither the display list nor the scene is
+/// rebuilt), and only its dirty region when the key already holds a frame of
+/// the same pixel shape. The frame's hash resolves to the key, and the frame
+/// the key showed before is forgotten (never `DeleteImage`d: the key lives
+/// on). An NV12 frame gets a second stable key for its chroma plane.
+pub fn plan_overlay_image_uploads<'a, I>(
+    frames: I,
+    rr: &mut azul_core::resources::RendererResources,
+    namespace: azul_core::resources::IdNamespace,
+) -> Vec<OverlayImageUpload>
+where
+    I: Iterator<Item = (azul_core::resources::ImageSlot, &'a ImageRef, ImageDirtyRect)>,
+{
+    use azul_core::resources::{DecodedImage, ResolvedImage};
+
+    let mut uploads = Vec::new();
+    for (slot, image, pending) in frames {
+        let DecodedImage::Raw((descriptor, data)) = image.get_data() else {
+            continue;
+        };
+        let hash = image.get_hash();
+        // Only this slot's own key counts: a frame another slot shows as well
+        // goes under this slot's key too, so it outlives the other's change.
+        let shown_here = rr
+            .image_slots
+            .get(&slot)
+            .is_some_and(|key| rr.image_key_map.get(key) == Some(&hash));
+        if shown_here {
+            continue;
+        }
+        let (key, update) = match rr.image_slots.get(&slot) {
+            Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),
+            _ => {
+                let key = ImageKey::unique_image_slot(namespace);
+                rr.image_slots.insert(slot, key);
+                (key, false)
+            }
+        };
+        let (chroma, drop_chroma) = if descriptor.format.is_nv12() {
+            let plane = match rr.nv12_chroma_keys.get(&key) {
+                Some(&existing) if update => ChromaPlane {
+                    key: existing,
+                    update: true,
+                },
+                _ => {
+                    let fresh = ImageKey::unique_image_slot(namespace);
+                    rr.nv12_chroma_keys.insert(key, fresh);
+                    ChromaPlane {
+                        key: fresh,
+                        update: false,
+                    }
+                }
+            };
+            (Some(plane), None)
+        } else {
+            (None, rr.nv12_chroma_keys.remove(&key))
+        };
+        // The frame the key holds now: a partial upload needs the same pixel
+        // shape (size, format, row layout), or WebRender must take it whole.
+        let same_shape = update
+            && !descriptor.format.is_nv12()
+            && rr
+                .image_key_map
+                .get(&key)
+                .and_then(|previous| rr.currently_registered_images.get(previous))
+                .is_some_and(|previous| {
+                    let p = previous.descriptor;
+                    (p.format, p.width, p.height, p.stride, p.offset)
+                        == (
+                            descriptor.format,
+                            descriptor.width,
+                            descriptor.height,
+                            descriptor.stride,
+                            descriptor.offset,
+                        )
+                });
+        let dirty = if same_shape {
+            pending.clipped_to(descriptor.width, descriptor.height)
+        } else {
+            ImageDirtyRect::All
+        };
+        if let Some(old) = rr.image_key_map.get(&key).copied() {
+            if old != hash {
+                rr.release_frame(key, old);
+            }
+        }
+        rr.image_key_map.insert(key, hash);
+        rr.currently_registered_images.insert(
+            hash,
+            ResolvedImage {
+                key,
+                descriptor: *descriptor,
+            },
+        );
+        uploads.push(OverlayImageUpload {
+            key,
+            update,
+            descriptor: *descriptor,
+            data: data.clone(),
+            chroma,
+            drop_chroma,
+            dirty,
+        });
+    }
+    uploads
+}
+
+/// An azul dirty region as WebRender's: origin + size becomes the min / max
+/// device corners. The one translation for every image update.
+pub(crate) fn translate_dirty_rect(
+    dirty: &ImageDirtyRect,
+) -> DirtyRect<i32, webrender::api::units::DevicePixel> {
+    use webrender::euclid::{Box2D, Point2D};
+
+    match dirty {
+        ImageDirtyRect::All => DirtyRect::All,
+        ImageDirtyRect::Partial(rect) => DirtyRect::Partial(Box2D::new(
+            Point2D::new(rect.origin.x as i32, rect.origin.y as i32),
+            Point2D::new(
+                (rect.origin.x + rect.size.width) as i32,
+                (rect.origin.y + rect.size.height) as i32,
+            ),
+        )),
+    }
+}
+
+/// The two WebRender descriptors of an NV12 image: the R8 luma plane and the
+/// RG8 chroma plane, both views into the one buffer (the chroma plane starts
+/// at `offset = y_len`), so neither plane is copied out. `None` for a format
+/// that is not NV12 or a size WebRender cannot take.
+pub fn nv12_plane_descriptors(
+    descriptor: &azul_core::resources::ImageDescriptor,
+) -> Option<(WrImageDescriptor, WrImageDescriptor)> {
+    use azul_core::resources::Nv12Layout;
+    use webrender::api::ImageFormat;
+
+    if !descriptor.format.is_nv12() {
+        return None;
+    }
+    let layout = Nv12Layout::new(descriptor.width, descriptor.height);
+    let w = i32::try_from(layout.width).ok()?;
+    let h = i32::try_from(layout.height).ok()?;
+    let cw = i32::try_from(layout.chroma_width).ok()?;
+    let ch = i32::try_from(layout.chroma_height).ok()?;
+    let offset = i32::try_from(layout.y_len()).ok()?;
+    let flags = WrImageDescriptorFlags::IS_OPAQUE;
+    Some((
+        WrImageDescriptor {
+            format: ImageFormat::R8,
+            size: DeviceIntSize::new(w, h),
+            stride: Some(w),
+            offset: 0,
+            flags,
+        },
+        WrImageDescriptor {
+            format: ImageFormat::RG8,
+            size: DeviceIntSize::new(cw, ch),
+            stride: Some(cw.checked_mul(2)?),
+            offset,
+            flags,
+        },
+    ))
+}
+
+/// An NV12 image of a display list (not a video tile's frame): its luma
+/// plane under `add.key`, its chroma plane under a key of its own, recorded
+/// in `nv12_chroma_keys` so the display list and the image GC find it.
+fn nv12_add_images(
+    rr: &mut azul_core::resources::RendererResources,
+    namespace: azul_core::resources::IdNamespace,
+    add: AddImage,
+) -> Vec<webrender::ResourceUpdate> {
+    let Some((y_desc, uv_desc)) = nv12_plane_descriptors(&add.descriptor) else {
+        return Vec::new();
+    };
+    let chroma = *rr
+        .nv12_chroma_keys
+        .entry(add.key)
+        .or_insert_with(|| ImageKey::unique_image_slot(namespace));
+    let data = translate_image_data(add.data);
+    vec![
+        webrender::ResourceUpdate::AddImage(WrAddImage {
+            key: translate_image_key(add.key),
+            descriptor: y_desc,
+            data: data.clone(),
+            tiling: None,
+        }),
+        webrender::ResourceUpdate::AddImage(WrAddImage {
+            key: translate_image_key(chroma),
+            descriptor: uv_desc,
+            data,
+            tiling: None,
+        }),
+    ]
+}
+
+/// What [`upload_overlay_images`] put into the transaction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OverlayUploads {
+    /// A frame was uploaded: the transaction changes what is on screen.
+    pub changed: bool,
+    /// A tile got its key in THIS transaction, so the display list
+    /// WebRender holds does not reference it yet and must be resent once.
+    pub new_slot: bool,
+}
+
+/// Upload the content overlay's new raw frames (video tiles, canvases, a
+/// background layer's callback frames drawn on the CPU) into their slots'
+/// stable keys: `add_image` the first time, `update_image` after - of the
+/// dirty rect only, when the app named one.
+fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> OverlayUploads {
+    let namespace = layout_window.id_namespace;
+    let LayoutWindow {
+        ref mut content_overlay,
+        ref mut renderer_resources,
+        ..
+    } = *layout_window;
+    let uploads = plan_overlay_image_uploads(
+        content_overlay
+            .iter_images()
+            .map(|(&(dom, node), image)| {
+                let pending = content_overlay
+                    .image_dirty(dom, node)
+                    .unwrap_or(ImageDirtyRect::All);
+                (azul_core::resources::ImageSlot::Node(dom, node), image, pending)
+            })
+            // A background layer's new frame is new as a whole.
+            .chain(content_overlay.iter_backgrounds().map(|(slot, image)| {
+                (
+                    azul_core::resources::ImageSlot::Background(*slot),
+                    image,
+                    ImageDirtyRect::All,
+                )
+            })),
+        renderer_resources,
+        namespace,
+    );
+    // Every overlay image is now either in this transaction or already up.
+    content_overlay.clear_image_dirty();
+    let mut result = OverlayUploads::default();
+    for upload in uploads {
+        result.changed = true;
+        result.new_slot |= !upload.update;
+        let key = translate_image_key(upload.key);
+        let data = translate_image_data(upload.data);
+        match (upload.chroma, nv12_plane_descriptors(&upload.descriptor)) {
+            (Some(chroma), Some((y_desc, uv_desc))) => {
+                let chroma_key = translate_image_key(chroma.key);
+                if upload.update {
+                    txn.update_image(key, y_desc, data.clone(), &DirtyRect::All);
+                } else {
+                    txn.add_image(key, y_desc, data.clone(), None);
+                }
+                if chroma.update {
+                    txn.update_image(chroma_key, uv_desc, data, &DirtyRect::All);
+                } else {
+                    txn.add_image(chroma_key, uv_desc, data, None);
+                    // A tile whose frames turned into NV12 keeps its key, but
+                    // the display list has to name the new chroma key.
+                    result.new_slot = true;
+                }
+            }
+            _ => {
+                let desc = wr_translate_image_descriptor(&upload.descriptor);
+                if upload.update {
+                    txn.update_image(key, desc, data, &translate_dirty_rect(&upload.dirty));
+                } else {
+                    txn.add_image(key, desc, data, None);
+                }
+            }
+        }
+        if let Some(stale) = upload.drop_chroma {
+            txn.delete_image(translate_image_key(stale));
+            // The display list still pushes this tile as a YUV image.
+            result.new_slot = true;
+        }
+    }
+    result
 }
 
 /// Number of frames an image may be absent from every display list before it
@@ -1476,6 +1818,10 @@ pub fn collect_stale_image_deletes(
             rr.image_key_map.remove(&resolved.key);
             rr.image_last_seen_epoch.remove(&hash);
             deletes.push(ResourceUpdate::DeleteImage(resolved.key));
+            // An NV12 image is two renderer images: its chroma plane goes too.
+            if let Some(chroma) = rr.nv12_chroma_keys.remove(&resolved.key) {
+                deletes.push(ResourceUpdate::DeleteImage(chroma));
+            }
         }
     }
     if !deletes.is_empty() {
@@ -1487,6 +1833,53 @@ pub fn collect_stale_image_deletes(
                 .renderer_resources
                 .currently_registered_images
                 .len()
+        );
+    }
+    deletes
+}
+
+/// Number of frames a font may be absent from every display list before it is
+/// deleted from the renderer: [`IMAGE_GC_KEEP_EPOCHS`]' rule, for fonts.
+const FONT_GC_KEEP_EPOCHS: u32 = 2;
+
+/// Mark this frame's live fonts (by hash), then delete every registered font
+/// not drawn for more than [`FONT_GC_KEEP_EPOCHS`] frames: its instances and
+/// the font itself ([`azul_core::resources::RendererResources::delete_font`]).
+/// Before, a window kept every font it had ever drawn - and a document that
+/// brings its own fonts (the pages of a PDF, each with its subset fonts)
+/// added new ones on every page. `pub` so a test can drive the GC without a
+/// WebRender transaction.
+pub fn collect_stale_font_deletes(
+    layout_window: &mut LayoutWindow,
+    live_font_hashes: &azul_core::FastBTreeSet<u64>,
+) -> Vec<ResourceUpdate> {
+    let now = layout_window.epoch.into_u32();
+    let rr = &mut layout_window.renderer_resources;
+    for hash in live_font_hashes.iter() {
+        rr.font_last_seen_epoch.insert(*hash, now);
+    }
+    // As for images: a last-seen AHEAD of `now` (only right after the epoch
+    // wrapped) counts as just seen.
+    let stale: Vec<u64> = rr
+        .font_hash_map
+        .keys()
+        .filter(|hash| !live_font_hashes.contains(hash))
+        .filter(|hash| match rr.font_last_seen_epoch.get(hash) {
+            Some(&last) => now >= last && now.saturating_sub(last) > FONT_GC_KEEP_EPOCHS,
+            None => true,
+        })
+        .copied()
+        .collect();
+    let deletes: Vec<ResourceUpdate> = stale
+        .into_iter()
+        .flat_map(|hash| rr.delete_font(hash))
+        .collect();
+    if !deletes.is_empty() {
+        log_debug!(
+            LogCategory::Rendering,
+            "[font-gc] {} delete(s) (registered now {})",
+            deletes.len(),
+            rr.currently_registered_fonts.len()
         );
     }
     deletes
@@ -1511,6 +1904,22 @@ pub fn generate_frame(
     if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
         return;
     }
+
+    // A full frame rebuilds the scene, so "identical to what I sent last time"
+    // is the wrong question: everything has to go across again regardless.
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
+
+    // The frame's content first - every callback whose inputs changed draws
+    // its frame with this frame's GL context, into the display lists - and
+    // its GL textures under their slots' keys, before anything below
+    // registers the lists' images or translates them: a frame produced after
+    // the translation would show one frame late. A slot keyed for the first
+    // time is named by no list WebRender holds: the lists go again.
+    let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
+    let textures = register_overlay_textures(layout_window, txn);
+    let display_list_was_rebuilt = display_list_was_rebuilt || lists_rebuilt || textures.new_slot;
 
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
@@ -1621,15 +2030,6 @@ pub fn generate_frame(
     // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
-    // A full frame rebuilds the scene, so "identical to what I sent last time"
-    // is the wrong question: everything has to go across again regardless.
-    layout_window
-        .gpu_state_manager
-        .invalidate_submitted_digests();
-
-    // Process image callback updates (invoke callbacks and register textures)
-    let _ = process_image_callback_updates(layout_window, gl_context, txn);
-
     // Process VirtualView updates (if any callbacks requested re-rendering)
     process_virtual_view_updates(layout_window, txn);
 
@@ -1644,6 +2044,7 @@ pub fn generate_frame(
         "[generate_frame] Calling generate_frame on transaction"
     );
     txn.generate_frame(0, WrRenderReasons::empty());
+    layout_window.note_frame_presented();
 
     log_debug!(
         LogCategory::Rendering,
@@ -1726,6 +2127,32 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
         }
     }
 
+    // A `VirtualView` has no scroll frame of its own in the parent list: its
+    // child dom is an iframe pipeline pushed at the host item's bounds
+    // (`compositor2`, `DisplayListItem::VirtualView`). WebRender gives every
+    // iframe pipeline a root scroll frame, `ExternalScrollId(0, pipeline)`,
+    // and moving that frame here, with the other offsets, slides the rows
+    // to the pixel without a new display list.
+    for (child_dom_id, offset) in layout_window.virtual_view_frame_scroll_offsets() {
+        let pipeline_id = PipelineId(child_dom_id.inner as u32, layout_window.document_id.id);
+        let scroll_offset =
+            WrLayoutVector2D::new(offset.x * hidpi_factor, offset.y * hidpi_factor);
+        digest.push_u64(0);
+        digest.push_u64(u64::from(pipeline_id.0));
+        digest.push_f32(scroll_offset.x);
+        digest.push_f32(scroll_offset.y);
+        txn.set_scroll_offsets(
+            wr_translate_external_scroll_id(azul_core::hit_test::ExternalScrollId(
+                0,
+                pipeline_id,
+            )),
+            vec![SampledScrollOffset {
+                offset: scroll_offset,
+                generation: 0,
+            }],
+        );
+    }
+
     layout_window
         .gpu_state_manager
         .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())
@@ -1742,7 +2169,7 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
 /// See `GpuStateManager::gpu_values_changed`.
 #[must_use]
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
-    use webrender::api::{DynamicProperties, PropertyBinding, PropertyValue};
+    use webrender::api::{DynamicProperties, PropertyValue};
 
     // Get DPI scale factor to match display list coordinate space.
     // Display list items are in logical CSS pixels scaled by DPI in compositor2.
@@ -1761,71 +2188,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         colors: Vec::new(),
     };
 
-    // Synchronize opacity values from GPU cache
+    // Every bound value, from THE shared source the CPU renderer reads too
+    // (`GpuValueCache::for_each_bound_value`): scrollbar thumbs and fades,
+    // CSS transforms and opacities, and the animation channel. The animation
+    // channel used to be missing here, so a tick that skipped the scene
+    // rebuild moved nothing on the GPU path; carrying it is what lets an
+    // animation frame be a dynamic-property update instead of a rebuild.
     for dom_id in layout_window.layout_results.keys() {
-        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(*dom_id);
-
-        // Synchronize vertical scrollbar opacities
-        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_v_opacity_values {
-            if cache_dom_id != dom_id {
-                continue;
-            }
-
-            if let Some(&opacity_key) = gpu_cache.scrollbar_v_opacity_keys.get(&(*dom_id, *node_id))
-            {
-                // Add opacity property update
-                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
-                properties.floats.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
-                    value: opacity,
-                });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set vertical scrollbar opacity for {:?}:{:?} to {} \
-                     (key={:?})",
-                    dom_id,
-                    node_id,
-                    opacity,
-                    opacity_key
-                );
-            }
-        }
-
-        // Synchronize horizontal scrollbar opacities
-        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_h_opacity_values {
-            if cache_dom_id != dom_id {
-                continue;
-            }
-
-            if let Some(&opacity_key) = gpu_cache.scrollbar_h_opacity_keys.get(&(*dom_id, *node_id))
-            {
-                // Add opacity property update
-                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
-                properties.floats.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
-                    value: opacity,
-                });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set horizontal scrollbar opacity for {:?}:{:?} to \
-                     {} (key={:?})",
-                    dom_id,
-                    node_id,
-                    opacity,
-                    opacity_key
-                );
-            }
-        }
-
-        // Synchronize vertical scrollbar transform values from GPU cache
-        for (node_id, transform) in &gpu_cache.current_transform_values {
-            if let Some(&transform_key) = gpu_cache.transform_keys.get(node_id) {
-                // Convert ComputedTransform3D to WR LayoutTransform.
-                // IMPORTANT: Scale translation components (m[3][0..2]) by DPI to match
-                // compositor2's coordinate space where all positions are logical × dpi_scale.
+        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
+            continue;
+        };
+        gpu_cache.for_each_bound_value(
+            *dom_id,
+            |key, transform| {
                 use webrender::api::units::LayoutTransform;
+                // Translation scaled by DPI: compositor2 lays items out in
+                // logical px x dpi_scale, and a transform acts in that space.
                 let wr_transform = LayoutTransform::new(
                     transform.m[0][0],
                     transform.m[0][1],
@@ -1844,65 +2222,18 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                     transform.m[3][2] * dpi_scale,
                     transform.m[3][3],
                 );
-
                 properties.transforms.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                    key: webrender::api::PropertyBindingKey::new(key as u64),
                     value: wr_transform,
                 });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set v-transform for {:?}:{:?} (key={}), \
-                     translate=({:.1}, {:.1})",
-                    dom_id,
-                    node_id,
-                    transform_key.id,
-                    transform.m[3][0],
-                    transform.m[3][1]
-                );
-            }
-        }
-
-        // Synchronize horizontal scrollbar transform values from GPU cache
-        for (node_id, transform) in &gpu_cache.h_current_transform_values {
-            if let Some(&transform_key) = gpu_cache.h_transform_keys.get(node_id) {
-                use webrender::api::units::LayoutTransform;
-                let wr_transform = LayoutTransform::new(
-                    transform.m[0][0],
-                    transform.m[0][1],
-                    transform.m[0][2],
-                    transform.m[0][3],
-                    transform.m[1][0],
-                    transform.m[1][1],
-                    transform.m[1][2],
-                    transform.m[1][3],
-                    transform.m[2][0],
-                    transform.m[2][1],
-                    transform.m[2][2],
-                    transform.m[2][3],
-                    transform.m[3][0] * dpi_scale,
-                    transform.m[3][1] * dpi_scale,
-                    transform.m[3][2] * dpi_scale,
-                    transform.m[3][3],
-                );
-
-                properties.transforms.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
-                    value: wr_transform,
+            },
+            |key, opacity| {
+                properties.floats.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(key as u64),
+                    value: opacity,
                 });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set h-transform for {:?}:{:?} (key={}), \
-                     translate=({:.1}, {:.1})",
-                    dom_id,
-                    node_id,
-                    transform_key.id,
-                    transform.m[3][0],
-                    transform.m[3][1]
-                );
-            }
-        }
+            },
+        );
     }
 
     // Nothing collected at all: nothing to send, nothing changed.
@@ -2280,40 +2611,59 @@ pub fn get_webrender_border(
             }),
     );
 
-    // NOTE: if the HiDPI factor is not set to an even number, this will result
-    // in uneven border widths. In order to reduce this bug, we multiply the border width
-    // with the HiDPI factor, then round the result (to get an even number), then divide again
+    // `rect_size` is the border box in device px, and WebRender takes the
+    // widths and radii in device px too. A width is snapped to whole device
+    // pixels (rounded down, but never below one for a visible line), as
+    // Chrome snaps it, so a 1px hairline stays one crisp line at any scale.
+    let hidpi = if hidpi.is_finite() && hidpi > 0.0 {
+        hidpi
+    } else {
+        1.0
+    };
+    let css_size = LogicalSize::new(rect_size.width / hidpi, rect_size.height / hidpi);
+    let device_width = |css: f32| {
+        let device = css * hidpi;
+        if device > 0.0 && device < 1.0 {
+            1.0
+        } else {
+            device.floor()
+        }
+    };
     let border_widths = WrLayoutSideOffsets::new(
         width_top
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_right
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_bottom
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_left
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
     );
@@ -2346,7 +2696,15 @@ pub fn get_webrender_border(
         radius: if has_no_border_radius {
             WrBorderRadius::zero()
         } else {
-            wr_translate_border_radius(radii, rect_size)
+            // A radius in px is in CSS px and one in % is of the box: both
+            // are resolved against the box in CSS px, then scaled.
+            let r = wr_translate_border_radius(radii, css_size);
+            WrBorderRadius {
+                top_left: r.top_left * hidpi,
+                top_right: r.top_right * hidpi,
+                bottom_left: r.bottom_left * hidpi,
+                bottom_right: r.bottom_right * hidpi,
+            }
         },
         do_aa: true,
     });
@@ -2371,11 +2729,30 @@ pub fn build_webrender_transaction(
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-    let viewport_size = framebuffer_size;
     let dpi = layout_window.current_window_state.size.get_hidpi_factor();
 
     // Get root pipeline ID
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
+
+    // Step 0: the frame's content - every callback whose inputs changed
+    // draws its frame with this frame's GL context - before anything below
+    // registers the display lists' images or translates them (which this
+    // transaction does in any case).
+    let _ = prepare_frame_content_gl(layout_window, gl_context);
+
+    // Step 0.5: the overlay's GL textures (callback frames of image nodes and
+    // background layers) under their slots' keys, BEFORE the display-list
+    // scan below, so their frames are found registered and not added again
+    // under a per-frame key (the raw ones go the same way, first thing in
+    // `register_frame_resources`).
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 0.5: Registering the overlay's GL textures"
+    );
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
+    let _ = register_overlay_textures(layout_window, txn);
 
     // Step 1: Collect + register font and image resources, then add them to the
     // transaction. Shared with generate_frame.
@@ -2384,17 +2761,6 @@ pub fn build_webrender_transaction(
         "[build_atomic_txn] Step 1: Collecting + registering font/image resources"
     );
     register_frame_resources(layout_window, txn, dpi);
-
-    // Step 1.6: Process image callback updates (GL textures from RenderImageCallback)
-    // This MUST happen BEFORE building display lists so the textures are registered
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 1.6: Processing image callback updates"
-    );
-    layout_window
-        .gpu_state_manager
-        .invalidate_submitted_digests();
-    let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
     // display lists. The display list generator reads opacity_key from the GPU cache
@@ -2441,6 +2807,45 @@ pub fn build_webrender_transaction(
     }
 
     // Step 2: Build and add display lists for all DOMs to transaction
+    set_display_lists(txn, layout_window)?;
+
+    // Step 3: Set root pipeline
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 3: Setting root pipeline {:?}",
+        root_pipeline_id
+    );
+    txn.set_root_pipeline(root_pipeline_id);
+
+    // Step 4: Set document view
+    let view_rect =
+        DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
+    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
+        view_rect,
+        hidpi_factor.inner.get()
+    );
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
+
+    build_webrender_transaction_tail(txn, layout_window)
+}
+
+/// Translate every DOM's display list (and its nested virtual-view pipelines)
+/// and put them into `txn` at the current epoch. The display-list half of a
+/// full transaction, and what the lightweight one sends when a video tile got
+/// its stable image key and WebRender's list does not name it yet.
+fn set_display_lists(
+    txn: &mut WrTransaction,
+    layout_window: &LayoutWindow,
+) -> Result<(), &'static str> {
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let viewport_size =
+        DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+    let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+
     log_debug!(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 2: Building display lists for {} DOMs",
@@ -2506,28 +2911,15 @@ pub fn build_webrender_transaction(
             }
         }
     }
+    Ok(())
+}
 
-    // Step 3: Set root pipeline
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 3: Setting root pipeline {:?}",
-        root_pipeline_id
-    );
-    txn.set_root_pipeline(root_pipeline_id);
-
-    // Step 4: Set document view
-    let view_rect =
-        DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
-    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
-        view_rect,
-        hidpi_factor.inner.get()
-    );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
-    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
-
+/// Steps 5-7 of a full transaction: scroll offsets, scrollbar fades, GPU
+/// values, the frame request, and the next epoch.
+fn build_webrender_transaction_tail(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+) -> Result<(), &'static str> {
     // Step 5: Add scroll offsets
     log_debug!(
         LogCategory::Rendering,
@@ -2568,6 +2960,7 @@ pub fn build_webrender_transaction(
         "[build_atomic_txn] Step 7: Calling generate_frame"
     );
     txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    layout_window.note_frame_presented();
 
     // Increment epoch for next frame
     layout_window.epoch.increment();
@@ -2615,11 +3008,29 @@ pub fn build_image_only_transaction(
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
     );
 
-    // Step 1: Re-invoke image callbacks to produce updated GL textures
-    let images_changed = process_image_callback_updates(layout_window, gl_context, txn);
+    // Step 1: the frame's content - every callback whose inputs changed
+    // draws its frame with this frame's GL context - and the GL textures
+    // under their slots' keys (a new frame of a slot is pixels only).
+    let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
+    let textures = register_overlay_textures(layout_window, txn);
 
-    // Step 2: Skip scene builder (display lists haven't changed)
-    txn.skip_scene_builder();
+    // Step 1.5: Video tiles. A new frame of an in-place-replaced node image
+    // (`change_node_image`, the content overlay) goes into the node's stable
+    // key: `update_image`, pixels only. After the callbacks, so a callback's
+    // raw frame is picked up in the same transaction.
+    let overlay = upload_overlay_images(layout_window, txn);
+    let images_changed = textures.changed || overlay.changed;
+
+    // Step 2: Skip scene builder (display lists haven't changed) - unless a
+    // slot got its key in this transaction (the display list WebRender holds
+    // names the slot's previous image) or the content step built a list
+    // again: then the lists go once more, at a new epoch.
+    if overlay.new_slot || textures.new_slot || lists_rebuilt {
+        set_display_lists(txn, layout_window)?;
+        layout_window.epoch.increment();
+    } else {
+        txn.skip_scene_builder();
+    }
 
     // Step 3: Add scroll offsets (scroll position may have changed)
     let scroll_changed = scroll_all_nodes(layout_window, txn);
@@ -2681,6 +3092,7 @@ pub fn build_image_only_transaction(
     let changed = images_changed || scroll_changed || gpu_values_changed;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
+        layout_window.note_frame_presented();
     }
 
     log_debug!(
@@ -2699,45 +3111,25 @@ pub fn build_image_only_transaction(
     Ok(LightweightFrame { changed })
 }
 
-/// Invoke image callbacks THROUGH the content chokepoint, then register the
-/// produced GL textures with WebRender.
-///
-/// The invocation itself now lives in `LayoutWindow::prepare_frame_gl` — the
-/// GL/WR twin of the CPU hosts' `prepare_frame_cpu`: journal clock, manager
-/// fingerprints, and callback results applied via `apply_content_change`
-/// (same-hash no-op, in-place DL patch on identity change, relayout tier on
-/// size change). This function no longer touches `node_data` and no longer
-/// invokes anything — it is pure translation: walk the overlay's produced
-/// frames and register each `DecodedImage::Gl` texture.
-///
-/// Registration uses the STABLE per-`(dom, node)` `ExternalImageId` from the
-/// gl_texture_cache, with `update_image` on subsequent frames — this is what
-/// keeps animated textures (video/canvas/camera) cheap on the
-/// `generate_frame` / `build_image_only_transaction` paths, which do NOT
-/// rebuild the WR scene. The `currently_registered_images` entry is keyed by
-/// the hash the (chokepoint-patched) display list actually carries, so a
-/// later scene REBUILD resolves the same stable key instead of re-uploading.
-///
-/// Returns `true` if the set of images handed to WebRender DIFFERS from the one
-/// handed over last time — a newly registered key, or a node whose `ImageRef`
-/// was replaced (`ImageRefHash` is a never-reused id, so an unchanged callback
-/// result keeps its hash). Re-uploading pixels that are already there is not a
-/// reason to build a frame.
+/// The frame's content on the GL path: every render callback whose inputs
+/// changed draws its frame - image nodes and background layers, with this
+/// frame's GL context - and the frames go through the content chokepoint
+/// into the display lists (`LayoutWindow::prepare_frame_gl`, the twin of the
+/// CPU hosts' `prepare_frame_cpu`). One call per submitted frame, before the
+/// frame's images are registered or its lists translated. Returns whether a
+/// display list was built again (a material's sheen layer appeared or went):
+/// the lists must go to `WebRender` anew.
 #[must_use]
-fn process_image_callback_updates(
+fn prepare_frame_content_gl(
     layout_window: &mut LayoutWindow,
     gl_context: &azul_core::gl::OptionGlContextPtr,
-    txn: &mut WrTransaction,
 ) -> bool {
-    use azul_core::resources::DecodedImage;
+    let lists_rebuilt = layout_window.prepare_frame_gl(gl_context);
 
-    // Phase 1: journal clock + callback invocation + chokepoint application.
-    layout_window.prepare_frame_gl(gl_context);
-
-    // Callbacks may have left arbitrary GL state behind; flush pending
-    // commands BEFORE WebRender samples the produced textures and reset the
-    // bindings WR assumes clean (kept verbatim from the pre-chokepoint
-    // invoker — losing the flush produces incomplete frames on some drivers).
+    // Callbacks may have left arbitrary GL state behind: flush the pending
+    // commands BEFORE WebRender samples the produced textures (without it
+    // some drivers show incomplete frames), and reset the bindings WebRender
+    // assumes clean.
     #[cfg(feature = "gl_context_loader")]
     if let Some(gl) = gl_context.as_ref() {
         use gl_context_loader::gl;
@@ -2749,44 +3141,78 @@ fn process_image_callback_updates(
         gl.disable(gl::MULTISAMPLE);
         gl.use_program(0);
     }
+    lists_rebuilt
+}
 
-    // Phase 2: collect produced GL textures out of the overlay (collected
-    // first: the iteration borrows layout_window, registration mutates it).
-    let mut to_register: Vec<(DomId, NodeId, azul_core::resources::ImageRefHash, _)> = Vec::new();
+/// Register the content overlay's GL textures - the callback frames of image
+/// nodes and of background layers - each under its slot's STABLE key: the
+/// slot's first frame is an `add_image`, every later one an `update_image`
+/// (pixels only, so neither the display list nor the scene is rebuilt). A
+/// background frame the key already holds is not sent again: a background
+/// layer's frame never changes under its `ImageRef`. A node's is - a canvas
+/// may draw into the texture it handed over before. The frame's hash
+/// resolves to the key, and the frame the key showed before is forgotten -
+/// never `DeleteImage`d (the image GC would delete the shared key), the key
+/// lives on. Every texture is stamped with this epoch in the texture cache:
+/// it lives while its slot shows it.
+///
+/// `changed`: the set of textures handed to `WebRender` differs from the one
+/// handed over last time. `new_slot`: a key was added, so the display lists
+/// `WebRender` holds do not name it yet and must go again.
+fn register_overlay_textures(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+) -> OverlayUploads {
+    use azul_core::resources::{DecodedImage, ResolvedImage};
+
+    use crate::desktop::gl_texture_cache;
+
+    // Collected first: the iteration borrows the window, the registration
+    // mutates it. With each texture: whether it is sent again while the key
+    // holds it already (a node's canvas, see above).
+    let mut to_register: Vec<(
+        azul_core::resources::ExternalImageId,
+        azul_core::resources::ImageRefHash,
+        azul_core::gl::Texture,
+        bool,
+    )> = Vec::new();
     for ((dom_id, node_id), image_ref) in layout_window.content_overlay.iter_images() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
-            to_register.push((*dom_id, *node_id, image_ref.get_hash(), texture.clone()));
+            let id = gl_texture_cache::TextureSlotKey::new(*dom_id, *node_id).to_external_image_id();
+            to_register.push((id, image_ref.get_hash(), texture.clone(), true));
+        }
+    }
+    for (slot, image_ref) in layout_window.content_overlay.iter_backgrounds() {
+        if let DecodedImage::Gl(texture) = image_ref.get_data() {
+            let id = gl_texture_cache::background_texture_id(slot);
+            to_register.push((id, image_ref.get_hash(), texture.clone(), false));
         }
     }
 
-    // A brand-new registration must always be sent: the bookkeeping below
-    // records the key as registered, so dropping that transaction would leave
-    // WebRender without an image it is told the display list references.
-    let mut new_registration = false;
+    let mut result = OverlayUploads::default();
     let mut digest = FrameDigest::new();
-
-    for (dom_id, node_id, produced_hash, texture) in to_register {
-        digest.push_u64(dom_id.inner as u64);
-        digest.push_u64(node_id.index() as u64);
+    for (external_image_id, produced_hash, texture, sent_again) in to_register {
+        digest.push_u64(external_image_id.inner);
         digest.push_u64(produced_hash.inner);
 
-        // Stable (dom, node) external id: the same DOM node always maps to the
-        // same ExternalImageId, so per-frame texture updates are update_image
-        // (pixels only), never a scene rebuild.
-        let external_image_id = crate::desktop::gl_texture_cache::insert_texture_for_node(
+        gl_texture_cache::insert_texture_by_id(
             layout_window.document_id,
-            dom_id,
-            node_id,
+            external_image_id,
             layout_window.epoch,
             texture.clone(),
         );
 
-        let descriptor = texture.get_descriptor();
         let image_key = ImageKey {
             namespace: layout_window.id_namespace,
             key: external_image_id.inner,
         };
-
+        let rr = &mut layout_window.renderer_resources;
+        let shown = rr.image_key_map.get(&image_key).copied();
+        let new_frame = shown != Some(produced_hash);
+        if !new_frame && !sent_again {
+            continue;
+        }
+        let descriptor = texture.get_descriptor();
         let wr_key = translate_image_key(image_key);
         let wr_descriptor = wr_translate_image_descriptor(&descriptor);
         let wr_data = WrImageData::External(webrender::api::ExternalImageData {
@@ -2797,45 +3223,40 @@ fn process_image_callback_updates(
             ),
             normalized_uvs: false,
         });
-
-        let already_registered = layout_window
-            .renderer_resources
-            .image_key_map
-            .contains_key(&image_key);
-        if already_registered {
-            txn.update_image(
-                wr_key,
-                wr_descriptor,
-                wr_data,
-                &DirtyRect::All,
-            );
-        } else {
-            txn.add_image(wr_key, wr_descriptor, wr_data, None);
-            new_registration = true;
+        match shown {
+            Some(previous) => {
+                txn.update_image(wr_key, wr_descriptor, wr_data, &DirtyRect::All);
+                // The key shows this frame now: the previous one resolves only
+                // through another slot's key that still shows it, and the image
+                // GC must not delete this key for the old hash.
+                if previous != produced_hash {
+                    rr.release_frame(image_key, previous);
+                }
+            }
+            None => {
+                txn.add_image(wr_key, wr_descriptor, wr_data, None);
+                result.new_slot = true;
+            }
         }
-
-        // Resolve the hash the display list carries to the stable key.
-        layout_window
-            .renderer_resources
-            .currently_registered_images
-            .insert(
-                produced_hash,
-                azul_core::resources::ResolvedImage {
-                    key: image_key,
-                    descriptor,
-                },
-            );
-        layout_window
-            .renderer_resources
-            .image_key_map
-            .insert(image_key, produced_hash);
+        // Pixels sent again under an unchanged frame are no reason for a
+        // frame of their own.
+        result.changed |= new_frame;
+        // The hash the (chokepoint-patched) display list carries resolves to
+        // the stable key, so a later scene rebuild finds it.
+        rr.currently_registered_images.insert(
+            produced_hash,
+            ResolvedImage {
+                key: image_key,
+                descriptor,
+            },
+        );
+        rr.image_key_map.insert(image_key, produced_hash);
     }
 
-    let set_changed = layout_window
+    result.changed |= layout_window
         .gpu_state_manager
         .submitted_digest_changed(SubmittedDigest::Images, digest.finish());
-
-    new_registration || set_changed
+    result
 }
 
 /// Process VirtualView updates requested by callbacks
@@ -2971,5 +3392,379 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
                 );
             }
         }
+    }
+}
+
+/// A video tile's frames on the GPU path: one renderer image per tile for its
+/// whole life, whose pixels each new frame replaces (`update_image`), instead
+/// of a new image key, a new texture and a display-list + scene rebuild per
+/// frame.
+#[cfg(test)]
+mod overlay_upload_tests {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        resources::{
+            IdNamespace, ImageDirtyRect, ImageRef, Nv12Layout, RawImage, RawImageData,
+            RawImageFormat, RendererResources,
+        },
+    };
+    use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+    use webrender::api::{DirtyRect, ImageFormat};
+
+    use azul_core::resources::ImageSlot;
+
+    use super::{nv12_plane_descriptors, plan_overlay_image_uploads, translate_dirty_rect};
+
+    fn frame(format: RawImageFormat, w: usize, h: usize, fill: u8) -> ImageRef {
+        let len = if format.is_nv12() {
+            Nv12Layout::new(w, h).checked_total_len().expect("small")
+        } else {
+            w * h * 4
+        };
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; len].into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: true,
+            data_format: format,
+            tag: Vec::new().into(),
+        })
+        .expect("a well-formed frame")
+    }
+
+    const TILE: ImageSlot = ImageSlot::Node(DomId { inner: 0 }, NodeId::new(3));
+    const NS: IdNamespace = IdNamespace(7);
+
+    #[test]
+    fn a_tiles_frames_share_one_renderer_key_and_the_old_frame_is_forgotten() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 4, 2, 1);
+        let first = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        assert_eq!(first.len(), 1);
+        assert!(!first[0].update, "the tile's first frame adds its key");
+        let key = first[0].key;
+        assert_eq!(rr.image_slots.get(&TILE), Some(&key));
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&f1.get_hash())
+                .map(|r| r.key),
+            Some(key),
+            "the display list's frame resolves to the tile's key"
+        );
+
+        let f2 = frame(RawImageFormat::BGRA8, 4, 2, 2);
+        let second = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        assert_eq!(second.len(), 1);
+        assert!(second[0].update, "a later frame UPDATES the same key: pixels only");
+        assert_eq!(second[0].key, key);
+        assert!(
+            !rr.currently_registered_images.contains_key(&f1.get_hash()),
+            "the previous frame is forgotten, not deleted: the key lives on"
+        );
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&f2.get_hash())
+                .map(|r| r.key),
+            Some(key)
+        );
+        assert_eq!(rr.image_key_map.get(&key), Some(&f2.get_hash()));
+
+        let again = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        assert!(again.is_empty(), "a frame already up uploads nothing");
+    }
+
+    /// The CPU render cache hands identical surfaces (one material, size and light) one frame,
+    /// so two slots may show one ImageRef. Each holds it under its own key: when one slot's
+    /// frame changes, the other's items still resolve to a key that shows the frame (they lost
+    /// it when the frame lived only under the first slot's key, whose pixels the change
+    /// replaced).
+    #[test]
+    fn two_slots_showing_one_frame_keep_it_when_one_of_them_moves_on() {
+        const OTHER: ImageSlot = ImageSlot::Node(DomId { inner: 0 }, NodeId::new(4));
+        let mut rr = RendererResources::default();
+        let shared = frame(RawImageFormat::BGRA8, 4, 2, 1);
+        let up = plan_overlay_image_uploads(
+            [
+                (TILE, &shared, ImageDirtyRect::All),
+                (OTHER, &shared, ImageDirtyRect::All),
+            ]
+            .into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up.len(), 2, "each slot holds the frame under its own key");
+        let tile_key = rr.image_slots[&TILE];
+        let other_key = rr.image_slots[&OTHER];
+        assert_ne!(tile_key, other_key);
+
+        let moved = frame(RawImageFormat::BGRA8, 4, 2, 2);
+        let up = plan_overlay_image_uploads(
+            [
+                (TILE, &moved, ImageDirtyRect::All),
+                (OTHER, &shared, ImageDirtyRect::All),
+            ]
+            .into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up.len(), 1, "only the tile sends its new frame");
+        assert_eq!(up[0].key, tile_key);
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&shared.get_hash())
+                .map(|r| r.key),
+            Some(other_key),
+            "the other slot's items still find the frame"
+        );
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&moved.get_hash())
+                .map(|r| r.key),
+            Some(tile_key)
+        );
+    }
+
+    #[test]
+    fn an_nv12_frame_is_two_planes_under_two_stable_keys_sharing_one_buffer() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 9);
+        let up = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let chroma = up[0].chroma.expect("NV12 has a chroma plane");
+        assert!(!chroma.update);
+        assert_ne!(chroma.key, up[0].key);
+        assert_eq!(rr.nv12_chroma_keys.get(&up[0].key), Some(&chroma.key));
+
+        let f2 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 10);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        assert!(up2[0].update);
+        assert_eq!(
+            up2[0].chroma.map(|c| (c.key, c.update)),
+            Some((chroma.key, true)),
+            "the chroma plane is updated in place too"
+        );
+
+        // The two planes are views into ONE buffer: no split copy.
+        let (y, uv) = nv12_plane_descriptors(&up2[0].descriptor).expect("NV12 planes");
+        assert_eq!(y.format, ImageFormat::R8);
+        assert_eq!((y.size.width, y.size.height), (6, 4));
+        assert_eq!((y.stride, y.offset), (Some(6), 0));
+        assert_eq!(uv.format, ImageFormat::RG8);
+        assert_eq!((uv.size.width, uv.size.height), (3, 2));
+        assert_eq!((uv.stride, uv.offset), (Some(6), 24));
+    }
+
+    #[test]
+    fn a_tile_that_turns_from_nv12_to_bgra_drops_its_chroma_plane() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::NV12Rec601Video, 4, 4, 9);
+        let up = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let chroma = up[0].chroma.expect("NV12").key;
+        let f2 = frame(RawImageFormat::BGRA8, 4, 4, 1);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        assert!(up2[0].chroma.is_none());
+        assert_eq!(up2[0].drop_chroma, Some(chroma));
+        assert!(rr.nv12_chroma_keys.get(&up2[0].key).is_none());
+    }
+
+    // ---- A canvas: one image node whose app repaints part of it per pointer move ----
+
+    fn partial(x: isize, y: isize, w: isize, h: isize) -> ImageDirtyRect {
+        ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn a_later_frame_of_the_same_size_uploads_only_its_dirty_rect() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let first = plan_overlay_image_uploads(
+            [(TILE, &f1, partial(0, 0, 4, 4))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(
+            first[0].dirty,
+            ImageDirtyRect::All,
+            "the first frame adds the key: the renderer has none of it yet"
+        );
+        let f2 = frame(RawImageFormat::BGRA8, 64, 32, 2);
+        let second = plan_overlay_image_uploads(
+            [(TILE, &f2, partial(8, 4, 16, 8))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert!(second[0].update);
+        assert_eq!(
+            second[0].dirty,
+            partial(8, 4, 16, 8),
+            "only the rect the app repainted goes up again"
+        );
+    }
+
+    #[test]
+    fn a_frame_of_another_size_or_format_is_uploaded_whole() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let _ = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let smaller = frame(RawImageFormat::BGRA8, 32, 32, 2);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &smaller, partial(0, 0, 2, 2))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert!(up[0].update, "the tile keeps its key");
+        assert_eq!(up[0].dirty, ImageDirtyRect::All, "a reshaped frame goes up whole");
+        let nv12 = frame(RawImageFormat::NV12Rec709Video, 32, 32, 3);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &nv12, partial(0, 0, 2, 2))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up[0].dirty, ImageDirtyRect::All, "so does a frame in another format");
+    }
+
+    #[test]
+    fn a_dirty_rect_reaching_past_the_frame_is_clipped_to_it() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let _ = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let f2 = frame(RawImageFormat::BGRA8, 64, 32, 2);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &f2, partial(60, 30, 20, 20))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up[0].dirty, partial(60, 30, 4, 2));
+    }
+
+    #[test]
+    fn the_renderer_gets_the_same_rect_in_device_pixels() {
+        match translate_dirty_rect(&partial(8, 4, 16, 8)) {
+            DirtyRect::Partial(b) => assert_eq!(
+                (b.min.x, b.min.y, b.max.x, b.max.y),
+                (8, 4, 24, 12),
+                "origin + size becomes min / max corners"
+            ),
+            DirtyRect::All => panic!("a partial rect must stay partial"),
+        }
+        assert!(matches!(
+            translate_dirty_rect(&ImageDirtyRect::All),
+            DirtyRect::All
+        ));
+    }
+}
+
+#[cfg(test)]
+mod gl_texture_lifetime_tests {
+    //! A GL texture WebRender draws lives as long as a display list draws it.
+    //! WebRender looks an external image up at every render, and an image
+    //! the texture cache no longer holds is drawn from texture 0: black.
+
+    use std::rc::Rc;
+
+    use azul_core::{
+        dom::Dom,
+        geom::{LogicalSize, PhysicalSize},
+        gl::{GenericGlContext, GlContextPtr, Texture, TextureFlags},
+        resources::{image_ref_hash_to_external_image_id, ImageRef, RawImageFormat, RendererResources},
+        styled_dom::StyledDom,
+        window::RendererType,
+    };
+    use azul_css::props::basic::ColorU;
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::{register_frame_resources, WrTransaction};
+    use crate::desktop::{gl_texture_cache, gl_texture_integration};
+
+    /// An 8 x 8 GL texture as an image. The context is a null one: every GL
+    /// call is a no-op, which is all the cache's bookkeeping needs.
+    fn gl_image() -> ImageRef {
+        // SAFETY: `GenericGlContext` is `repr(C)` and holds only function
+        // pointers, for which all-zero (null) is valid; the loader checks each
+        // for null before it calls it.
+        let null_gl = Rc::new(unsafe { core::mem::zeroed::<GenericGlContext>() });
+        ImageRef::new_gltexture(Texture::create(
+            42,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSize { width: 8, height: 8 },
+            ColorU::TRANSPARENT,
+            GlContextPtr::new(RendererType::Software, null_gl),
+            RawImageFormat::BGRA8,
+        ))
+    }
+
+    fn lay_out(lw: &mut LayoutWindow, dom: Dom) {
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the window lays out");
+    }
+
+    /// One frame of the GPU path as far as the texture cache sees it: the
+    /// display list's images are registered, the list goes out at a new
+    /// epoch, WebRender renders it and the cache drops what is older.
+    fn send_frame(lw: &mut LayoutWindow) {
+        let dpi = lw.current_window_state.size.get_hidpi_factor();
+        let mut txn = WrTransaction::new();
+        register_frame_resources(lw, &mut txn, dpi);
+        lw.epoch.increment();
+        gl_texture_integration::remove_old_gl_textures(&lw.document_id, lw.epoch);
+    }
+
+    #[test]
+    fn a_gl_image_a_display_list_draws_keeps_its_texture_over_every_frame() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        // A hover restyle, a resize, a theme switch: each sends the display
+        // list again, and the image is in every one of them.
+        for frame in 0..6 {
+            send_frame(&mut lw);
+            assert!(
+                gl_texture_cache::get_texture(&id).is_some(),
+                "frame {frame}: the display list draws the image, but its texture left the cache \
+                 (WebRender would draw it black)"
+            );
+        }
+    }
+
+    #[test]
+    fn a_gl_image_no_display_list_draws_any_more_lets_its_texture_go() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        send_frame(&mut lw);
+        assert!(gl_texture_cache::get_texture(&id).is_some(), "drawn, so kept");
+        lay_out(&mut lw, Dom::create_body());
+        for _ in 0..6 {
+            send_frame(&mut lw);
+        }
+        assert!(
+            gl_texture_cache::get_texture(&id).is_none(),
+            "a texture no display list has drawn for several frames is freed"
+        );
     }
 }

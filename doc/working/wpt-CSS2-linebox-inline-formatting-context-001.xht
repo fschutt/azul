@@ -1,0 +1,26 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Inline formatting context and basic horizontal Layout</title>
+<meta name="assert" content="Inline boxes are laid out horizontally or one after the other starting at the top of the containing block."/>
+<style>
+#div1
+            {
+                border: solid 1px black;
+                width: 600px;
+            }
+            div div
+            {
+                display: inline;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if all the words "Filler Text" are on the same line and they are contained by a black box.</p>
+        <div id="div1">
+            <div>Filler Text </div>
+            <div>Filler Text </div>
+            <div>Filler Text</div>
+        </div>
+    
+</body>
+</html>

@@ -53,7 +53,7 @@ fn the_first_keystroke_into_an_empty_field_carries_the_values_style_not_the_cont
     .unwrap();
 
     lw.focus_manager.set_focused_node(Some(dnid(CONTAINER)));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
@@ -184,7 +184,7 @@ fn typing_into_an_empty_field_stops_the_placeholder_from_being_painted() {
     );
 
     lw.focus_manager.set_focused_node(Some(dnid(CONTAINER)));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,

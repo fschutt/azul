@@ -1,0 +1,34 @@
+[package]
+name = "AzDashboard"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzDashboard - a records dashboard on the public azul API: 500,000 orders
+    x 25 columns (generated deterministically on an azul Thread) in azul's
+    virtualized DataTable (click a header to sort, Shift+click for a second
+    key, a filter row with contains / equals / ranges, in-place editing the
+    app validates, keyboard navigation, resizable columns), a status bar
+    with the row counts, and charts of the same data (the chart half). Built
+    on azul's S6 RecordsShell, NoTitle with the app-drawn Titlebar, flat and
+    flora, light and dark.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The same features azul-layout and AzCalendar build chrono with (the order dates).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[lib]
+name = "azdashboard"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzDashboard"
+path = "src/main.rs"

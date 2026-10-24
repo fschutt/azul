@@ -1,0 +1,35 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test Background: Box-Shadow property</title>
+<meta name="assert" content="Testing simple drop shadow with the box-shadow property"/>
+<style>
+      #shadow-div {
+	 position: absolute;
+	 top: 50px;
+	 left: 5px;
+	 box-shadow: rgba(0,255,0,1) 10px 10px;
+	 background-color: #000;
+	 width: 144px;
+	 height: 144px;
+	 }
+	 #error {
+	 position: absolute;
+	 top: 60px;
+	 left: 15px;
+	 background-color: red;
+	 width: 144px;
+	 height: 144px;
+	 }
+    
+</style>
+</head>
+<body>
+    <p>The test passes if there is a green drop shadow and no red.</p>
+    <div id="error">
+    </div>
+    <div id="shadow-div">
+    </div>
+
+
+</body>
+</html>

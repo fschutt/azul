@@ -18,6 +18,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -177,6 +178,17 @@ fn repr_to_underlying(repr: Option<&str>) -> &'static str {
 // Tagged union -> per-variant define-cstruct + _union alias + tag constants
 // =============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant). NOTE: the slot
+/// is part of the positional `make-<variant>` constructor define-cstruct
+/// binds (pass `(make-array..)`/any N-byte value); accessors are by name.
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize) {
+    if padding > 0 {
+        builder.line(&format!("[pad0 (_array _uint8 {})]", padding));
+    }
+}
+
 fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let ct = ctype_name(&e.name);
     let cn = c_name(&e.name);
@@ -193,9 +205,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     }
 
     // Per-variant payload cstructs: `tag` slot (plain int, matching the C
-    // ABI byte width) followed by the payload. Every variant struct starts
-    // with the tag at offset 0, so overlapping them in a union is
-    // ABI-faithful (max-variant size, correct field offsets).
+    // ABI byte width), azul.h's padding, then the payload. Every variant
+    // struct starts with the tag at offset 0, so overlapping them in a union
+    // is ABI-faithful (max-variant size, correct field offsets).
+    let payload = union_payload_layout(&e.name, ir);
     for v in &e.variants {
         let variant_ct = format!("{}_Variant_{}", ct, v.name);
         builder.line(&format!("(define-cstruct {}", variant_ct));
@@ -207,6 +220,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         // collide with that binding ("identifier already defined") and the whole
         // module fails to load. `variant-tag` accessor is `<name>-variant-tag`.
         builder.line(&format!("[variant-tag {}]", underlying));
+        emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
@@ -335,6 +349,7 @@ fn emit_monomorphized_alias(
             for (idx, v) in variants.iter().enumerate() {
                 builder.line(&format!("(define {}_Tag_{} {})", cn, v.name, idx));
             }
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_ct = format!("{}_Variant_{}", ct, v.name);
                 builder.line(&format!("(define-cstruct {}", variant_ct));
@@ -344,6 +359,7 @@ fn emit_monomorphized_alias(
                 // See emit_tagged_union: `tag` collides with define-cstruct's
                 // auto-bound `<name>-tag`, so name the discriminant `variant-tag`.
                 builder.line(&format!("[variant-tag {}]", underlying));
+                emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 if let Some(ref payload_ty) = v.payload_type {
                     builder.line(&format!(
                         "[payload {}]",

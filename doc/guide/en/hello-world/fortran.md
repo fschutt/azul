@@ -194,6 +194,56 @@ result (`Update_DoNothing`) instead:
 [azul][error] azul: ButtonOnClickCallback expected an Update (0 to 2), got 7
 ```
 
+### Missing values and errors in callbacks
+
+Fortran has no optional value type, and an Option or a Result is a tagged 
+union, which the binding declares as an opaque blob of the right size. Build 
+one with the exports (`az_option_string_none()`, 
+`az_option_string_some(azul_string('...'))`), and read one with the generic 
+`azul_try_get_some(option, value)`: it is `.true.` when there is a value and 
+copies it into `value`. `azul_try_get_ok(result, value)` and 
+`azul_try_get_err(result, error)` do the same for a Result. The copy is a view: 
+the option still owns what it points to, so delete the option, not the copy.
+
+A folder picker. Before, the picked folder could not be read at all: the 
+`AzOptionFileOpenResult` that `file_open_result_downcast` returns had no 
+accessor. Now:
+
+```fortran
+  function on_pick_folder(model, info, ref_any) result(update)
+    class(*), intent(inout) :: model
+    type(callback_info_t), intent(inout) :: info
+    type(ref_any_t), intent(inout) :: ref_any
+    integer :: update
+    type(AzOptionFileOpenResult), target :: picked
+    type(AzFileOpenResult) :: opened
+    type(AzFilePath) :: path
+
+    update = Update_DoNothing
+    picked = file_open_result_downcast(ref_any)
+    if (azul_try_get_some(picked, opened)) then
+      if (azul_try_get_some(opened%path, path)) then
+        select type (model)
+        type is (model_t)
+          model%folder = azul_string_value(path%inner)
+          update = Update_RefreshDom
+        end select
+      end if
+    end if
+    call az_option_file_open_result_delete(c_loc(picked))
+  end function on_pick_folder
+
+  function on_choose_folder(model, info) result(update)
+    class(*), intent(inout) :: model
+    type(callback_info_t), intent(inout) :: info
+    integer :: update
+    type(request_id_t) :: request
+
+    request = file_dialog_open_directory('Choose a folder', az_option_string_none(), model, on_pick_folder)
+    update = Update_DoNothing
+  end function on_choose_folder
+```
+
 ### Class Constructors
 
 In modern Fortran, you can often use the type name as a constructor 

@@ -30,18 +30,8 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                 if !def.methods.is_empty() {
                     println!("      Methods ({}):", def.methods.len());
                     for m in def.methods.iter().take(10) {
-                        let self_str = match &m.self_kind {
-                            None => "static",
-                            Some(super::type_index::SelfKind::Value) => "self",
-                            Some(super::type_index::SelfKind::Ref) => "&self",
-                            Some(super::type_index::SelfKind::RefMut) => "&mut self",
-                        };
-                        let ret_str = m.return_type.as_deref().unwrap_or("()");
                         let pub_str = if m.is_public { "pub " } else { "" };
-                        println!(
-                            "        - {}fn {}({}) -> {}",
-                            pub_str, m.name, self_str, ret_str
-                        );
+                        println!("        - {}fn {}{}", pub_str, m.name, m.signature());
                     }
                     if def.methods.len() > 10 {
                         println!("        ... and {} more", def.methods.len() - 10);

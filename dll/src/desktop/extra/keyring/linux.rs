@@ -3,7 +3,8 @@
 //! Uses the NON-variadic `secret_password_{storev,lookupv,clearv}_sync` forms
 //! (stable Rust can't call C-variadic fn-pointers) with a one-attribute `"key"`
 //! GHashTable: the secret is the stored password, the request `key` is the
-//! lookup attribute. Mirrors apple.rs (spawn thread -> push_keyring_result).
+//! lookup attribute; the namespace's service is the schema name (libsecret
+//! matches items by it), so two namespaces never see each other's items.
 //! If libsecret / a Secret Service isn't present, every op -> Unavailable.
 //! `require_biometry` has no libsecret equivalent (the secret-service has no
 //! per-item biometric gate) — stored normally, the flag ignored.
@@ -15,7 +16,6 @@ use std::{
 };
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
 
 use crate::{
     desktop::shell2::{
@@ -24,8 +24,6 @@ use crate::{
     },
     load_symbol,
 };
-
-const SERVICE: &str = "com.azul.keyring";
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -122,9 +120,10 @@ impl SecretLib {
     }
 }
 
-fn schema() -> SecretSchema {
+/// The schema of `service`'s items; it points into `service`, which must outlive it.
+fn schema(service: &CStr) -> SecretSchema {
     let mut s: SecretSchema = unsafe { std::mem::zeroed() };
-    s.name = b"com.azul.keyring\0".as_ptr() as *const c_char;
+    s.name = service.as_ptr();
     s.flags = 0; // SECRET_SCHEMA_NONE
     s.attributes[0] = SecretSchemaAttribute {
         name: b"key\0".as_ptr() as *const c_char,
@@ -174,23 +173,20 @@ unsafe fn warn_gerror_and_free(lib: &SecretLib, op: &str, err: *mut GError) {
     (lib.g_error_free)(err);
 }
 
-pub fn request(req: &KeyringRequest) {
-    let req = req.clone();
-    std::thread::spawn(move || {
-        push_keyring_result(handle(&req));
-    });
-}
-
-fn handle(req: &KeyringRequest) -> KeyringResult {
+/// One op on the items of `service`, on the calling thread.
+pub(super) fn handle(service: &str, req: &KeyringRequest) -> KeyringResult {
     let lib = match lib() {
         Some(l) => l,
         None => return KeyringResult::Unavailable, // no libsecret / Secret Service
     };
-    let sch = schema();
+    let Ok(service_c) = CString::new(service) else {
+        return KeyringResult::Error;
+    };
+    let sch = schema(&service_c);
     match req {
         KeyringRequest::Store { key, secret, .. } => {
             let key_c = CString::new(key.as_str()).unwrap_or_default();
-            let label = CString::new(format!("{SERVICE}:{}", key.as_str())).unwrap_or_default();
+            let label = CString::new(format!("{service}:{}", key.as_str())).unwrap_or_default();
             let pw = CString::new(secret.as_str()).unwrap_or_default();
             unsafe {
                 let ht = lib.attrs(&key_c);

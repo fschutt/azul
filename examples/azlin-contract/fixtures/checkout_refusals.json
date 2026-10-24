@@ -1,0 +1,119 @@
+[
+  {
+    "error": "blocked_country",
+    "status": 403
+  },
+  {
+    "error": "bad_months",
+    "allowed": [
+      12,
+      24
+    ],
+    "status": 400
+  },
+  {
+    "error": "bad_method",
+    "status": 400
+  },
+  {
+    "error": "bad_tier",
+    "status": 400
+  },
+  {
+    "error": "bad_currency",
+    "status": 400
+  },
+  {
+    "error": "tier_unavailable",
+    "waitlist": true,
+    "status": 409
+  },
+  {
+    "error": "payer_required",
+    "status": 400
+  },
+  {
+    "error": "payer_unexpected",
+    "status": 400
+  },
+  {
+    "error": "payer_invalid",
+    "status": 400
+  },
+  {
+    "error": "consent_required",
+    "status": 400
+  },
+  {
+    "error": "bad_provider",
+    "status": 400
+  },
+  {
+    "error": "surface_unavailable",
+    "status": 400
+  },
+  {
+    "error": "provider_unavailable",
+    "status": 502
+  },
+  {
+    "error": "no_price_ladder",
+    "status": 503
+  },
+  {
+    "error": "issuer_key_missing",
+    "status": 503
+  },
+  {
+    "error": "cash_unavailable",
+    "status": 400
+  },
+  {
+    "error": "claim_key_required",
+    "status": 400
+  },
+  {
+    "error": "lock_used",
+    "status": 409
+  },
+  {
+    "error": "lock_key_wrong",
+    "status": 403
+  },
+  {
+    "error": "lock_tier",
+    "status": 400
+  },
+  {
+    "error": "no_lock",
+    "status": 409
+  },
+  {
+    "error": "not_paid",
+    "status": 409
+  },
+  {
+    "error": "tier_ended",
+    "status": 409
+  },
+  {
+    "error": "currency_ended",
+    "status": 409
+  },
+  {
+    "error": "checkout_closed",
+    "status": 409
+  },
+  {
+    "error": "checkout_paid",
+    "status": 409
+  },
+  {
+    "error": "no_such_checkout",
+    "status": 404
+  },
+  {
+    "error": "unknown",
+    "status": 400
+  }
+]

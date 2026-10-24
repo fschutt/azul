@@ -23,7 +23,7 @@ use azul_core::{
     },
 };
 
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::impl_option;
 
 use crate::callbacks::CallbackInfo;
 
@@ -572,6 +572,39 @@ impl Thread {
         create_thread_libstd(thread_initialize_data, writeback_data, callback.into())
     }
 
+    /// Whether this worker gets a `ThreadSendMsg::Tick` every frame. Off by default:
+    /// a worker that only reports what it did needs no pulse, and a window keeps
+    /// its frame poll running only for the workers that asked for one (a worker
+    /// that paces itself by the frames, a game loop's).
+    #[must_use]
+    pub fn with_frame_ticks(mut self, ticks: bool) -> Self {
+        self.set_frame_ticks(ticks);
+        self
+    }
+
+    /// [`Self::with_frame_ticks`] on a thread that exists.
+    pub fn set_frame_ticks(&mut self, ticks: bool) {
+        #[cfg(feature = "std")]
+        if let Ok(mut inner) = self.ptr.lock() {
+            inner.wants_frame_ticks = ticks;
+        }
+        #[cfg(not(feature = "std"))]
+        let _ = ticks;
+    }
+
+    /// Whether this worker asked for a `Tick` every frame ([`Self::with_frame_ticks`]).
+    #[must_use]
+    pub fn wants_frame_ticks(&self) -> bool {
+        #[cfg(feature = "std")]
+        {
+            self.ptr.lock().is_ok_and(|inner| inner.wants_frame_ticks)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            false
+        }
+    }
+
     /// Send a control message to the running worker. Interior-mutable (the worker
     /// state is behind a `Mutex`), so this takes `&self` and is callable from a
     /// callback that only holds `&Thread` via `CallbackInfo::get_thread`. Used to push
@@ -637,6 +670,11 @@ pub struct ThreadInner {
     pub send_thread_msg_fn: LibrarySendThreadMsgCallback,
     pub receive_thread_msg_fn: LibraryReceiveThreadMsgCallback,
     pub thread_destructor_fn: ThreadDestructorCallback,
+    /// Whether the worker reads a `ThreadSendMsg::Tick` each frame
+    /// ([`Thread::with_frame_ticks`]). Off by default: a worker says what it has
+    /// by sending (which wakes the UI thread), and a window polls each frame only
+    /// for the workers that asked for the pulse (`LayoutWindow::thread_poll_needed`).
+    pub wants_frame_ticks: bool,
 }
 
 #[cfg(feature = "std")]
@@ -691,6 +729,72 @@ impl Drop for ThreadInner {
         // direct-cb-call: the thread's destructor, not a callback wrapper.
         (self.thread_destructor_fn.cb)(self);
     }
+}
+
+/// The shell's wake for its event loop (`set_thread_wake`). Called from the worker's
+/// thread after it sent the UI thread a message or ended, so the write-back runs at
+/// once instead of at the next poll.
+#[cfg(feature = "std")]
+static THREAD_WAKE: Mutex<Option<extern "C" fn()>> = Mutex::new(None);
+
+/// Set while a wake is on its way to the UI thread and its poll has not run yet:
+/// a worker that sends a thousand messages in a burst wakes the loop once.
+#[cfg(feature = "std")]
+static THREAD_WAKE_PENDING: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Installs the function that wakes the shell's event loop when a worker sent the UI
+/// thread something or ended (`None` removes it). The function is called on the
+/// worker's thread and must only post to the UI thread (a main-queue dispatch, a
+/// posted message, a pipe write); there the shell polls its windows' threads and
+/// then calls [`take_thread_wake`]. While one is installed a window needs no frame
+/// poll for its workers (`LayoutWindow::thread_poll_needed`).
+#[cfg(feature = "std")]
+pub fn set_thread_wake(wake: Option<extern "C" fn()>) {
+    if let Ok(mut slot) = THREAD_WAKE.lock() {
+        *slot = wake;
+    }
+}
+
+/// The installed thread wake, if any ([`set_thread_wake`]).
+#[cfg(feature = "std")]
+fn installed_thread_wake() -> Option<extern "C" fn()> {
+    THREAD_WAKE.lock().ok().and_then(|slot| *slot)
+}
+
+/// Whether a shell installed a thread wake ([`set_thread_wake`]).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn thread_wake_installed() -> bool {
+    installed_thread_wake().is_some()
+}
+
+/// Without std no worker runs, so nothing ever needs waking.
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub const fn thread_wake_installed() -> bool {
+    false
+}
+
+/// The UI thread's side of a wake: call it before polling the threads. Returns
+/// whether a wake was pending; the next send after this wakes the loop again.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_thread_wake() -> bool {
+    THREAD_WAKE_PENDING.swap(false, core::sync::atomic::Ordering::SeqCst)
+}
+
+/// Called on a worker's thread after it sent the UI thread a message or ended:
+/// calls the installed wake, once per poll the UI thread has not run yet.
+#[cfg(feature = "std")]
+fn wake_ui_thread() {
+    let Some(wake) = installed_thread_wake() else {
+        return;
+    };
+    if THREAD_WAKE_PENDING.swap(true, core::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    wake();
 }
 
 /// How long `default_thread_destructor_fn` waits for a worker to acknowledge
@@ -804,9 +908,13 @@ extern "C" fn default_send_thread_msg_fn(
     sender: *const core::ffi::c_void,
     msg: ThreadReceiveMsg,
 ) -> bool {
-    unsafe { &*sender.cast::<Sender<ThreadReceiveMsg>>() }
+    let sent = unsafe { &*sender.cast::<Sender<ThreadReceiveMsg>>() }
         .send(msg)
-        .is_ok()
+        .is_ok();
+    if sent {
+        wake_ui_thread();
+    }
+    sent
 }
 
 #[cfg(not(feature = "std"))]
@@ -935,6 +1043,8 @@ fn build_thread(
         // returning `None`, i.e. signals that the thread has finished.
         callback.invoke(thread_initialize_data, sender_receiver, receiver_sender);
         drop(thread_check);
+        // The UI thread retires a finished worker on its next poll: wake it for that.
+        wake_ui_thread();
     }));
 
     let thread_handle: Box<Option<JoinHandle<()>>> = Box::new(thread_handle);
@@ -960,6 +1070,7 @@ fn build_thread(
         receive_thread_msg_fn: LibraryReceiveThreadMsgCallback {
             cb: library_receive_thread_msg_fn,
         },
+        wants_frame_ticks: false,
     })
 }
 

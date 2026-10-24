@@ -41,12 +41,24 @@ pub struct SimpleGlyphRun {
     pub font_hash: u64,
     /// The font size in pixels.
     pub font_size_px: f32,
+    /// The run's style asks for a bold weight (600 or more). The display
+    /// list draws the run thickened when its face is lighter than that
+    /// ([`crate::text3::cache::needs_synthetic_bold`]). A face can serve a
+    /// regular and a bold run alike, so runs break where this changes.
+    pub asks_for_bold: bool,
     /// Text decoration (underline, strikethrough, overline)
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// Whether this is an IME composition preview (should be rendered with special styling)
     pub is_ime_preview: bool,
     /// The source DOM node that generated this text run (for hit-testing)
     pub source_node_id: Option<NodeId>,
+    /// Where the run ENDS on the inline axis, in the glyphs' space: the pen
+    /// after its last glyph (`x + advance`). A paint run does not carry
+    /// per-glyph advances (`GlyphInstance::size` is never populated), so
+    /// without this the extent of a run - its inline background and border,
+    /// its underline, its hit-test area - stopped at the LAST glyph's pen,
+    /// one letter short (`<u>W</u>` had no underline at all).
+    pub end_x: f32,
 }
 
 /// #25: the STORED form of a paint run's glyphs — 8 B/glyph instead of the
@@ -174,9 +186,13 @@ pub struct CompactGlyphRun {
     pub border: Option<InlineBorderInfo>,
     pub font_hash: u64,
     pub font_size_px: f32,
+    /// See [`SimpleGlyphRun::asks_for_bold`].
+    pub asks_for_bold: bool,
     pub text_decoration: crate::text3::cache::TextDecoration,
     pub is_ime_preview: bool,
     pub source_node_id: Option<NodeId>,
+    /// See [`SimpleGlyphRun::end_x`].
+    pub end_x: f32,
 }
 
 impl From<SimpleGlyphRun> for CompactGlyphRun {
@@ -189,9 +205,11 @@ impl From<SimpleGlyphRun> for CompactGlyphRun {
             border: r.border,
             font_hash: r.font_hash,
             font_size_px: r.font_size_px,
+            asks_for_bold: r.asks_for_bold,
             text_decoration: r.text_decoration,
             is_ime_preview: r.is_ime_preview,
             source_node_id: r.source_node_id,
+            end_x: r.end_x,
         }
     }
 }
@@ -209,9 +227,11 @@ impl CompactGlyphRun {
             border: self.border,
             font_hash: self.font_hash,
             font_size_px: self.font_size_px,
+            asks_for_bold: self.asks_for_bold,
             text_decoration: self.text_decoration,
             is_ime_preview: self.is_ime_preview,
             source_node_id: self.source_node_id,
+            end_x: self.end_x,
         }
     }
 }
@@ -229,9 +249,14 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
         && a.border == b.border
         && a.font_hash == b.font_hash
         && f(a.font_size_px, b.font_size_px)
+        && a.asks_for_bold == b.asks_for_bold
         && a.text_decoration == b.text_decoration
         && a.is_ime_preview == b.is_ime_preview
         && a.source_node_id == b.source_node_id
+        // The two builders reach the end pen by different sums (per-glyph
+        // advance + kerning, or the cluster's advance): equal up to float
+        // rounding, not bit for bit.
+        && ((a.end_x - b.end_x).abs() <= 1e-3 || (a.end_x.is_nan() && b.end_x.is_nan()))
         && a.glyphs.len() == b.glyphs.len()
         && a.glyphs.iter().zip(b.glyphs.iter()).all(|(g, h)| {
             g.index == h.index
@@ -278,6 +303,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let glyph_border = style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
+                    let asks_for_bold = style.asks_for_bold();
                     let text_decoration = style.text_decoration;
 
                     let absolute_position = LogicalPosition {
@@ -300,6 +326,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.background_content == glyph_background_content
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
+                            && run.asks_for_bold == asks_for_bold
                             && run.text_decoration == text_decoration
                             && run.source_node_id == source_node_id
                         {
@@ -315,9 +342,11 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 border: glyph_border,
                                 font_hash,
                                 font_size_px,
+                                asks_for_bold,
                                 text_decoration,
                                 is_ime_preview: false,
                                 source_node_id,
+                                end_x: pen_x,
                             });
                         }
                     } else {
@@ -330,13 +359,19 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             border: glyph_border,
                             font_hash,
                             font_size_px,
+                            asks_for_bold,
                             text_decoration,
                             is_ime_preview: false,
                             source_node_id,
+                            end_x: pen_x,
                         });
                     }
 
                     pen_x += glyph.advance + glyph.kerning;
+                    // The run this glyph joined now ends after it.
+                    if let Some(run) = current_run.as_mut() {
+                        run.end_x = pen_x;
+                    }
                 }
             };
 
@@ -451,6 +486,11 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     pub font_hash: u64,
     /// Font size in pixels
     pub font_size_px: f32,
+    /// Draw the face thickened: the run asks for bold and its face has no
+    /// bold cut ([`crate::text3::cache::needs_synthetic_bold`]), as the
+    /// screen draws it. A PDF writes such a run filled and stroked, the
+    /// stroke [`SYNTHETIC_BOLD_STROKE_EM`] of the font size wide.
+    pub synthetic_bold: bool,
     /// Text decoration flags
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// The line index this run belongs to (for breaking runs at line boundaries)
@@ -464,6 +504,10 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// Original cluster text for debugging/CID mapping
     pub cluster_texts: Vec<String>,
 }
+
+/// The width of the stroke a PDF draws a synthetic bold run with, in ems of
+/// its font size: the thickening the rasterizers give it on screen.
+pub const SYNTHETIC_BOLD_STROKE_EM: f32 = 1.0 / 30.0;
 
 /// A glyph with its absolute position and cluster text for PDF rendering
 #[derive(Debug, Clone)]
@@ -532,6 +576,10 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 Some(f) => f.clone(),
                 None => continue, // Skip glyphs with unknown fonts
             };
+            let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
+                cluster.style.asks_for_bold(),
+                font.weight_class(),
+            );
 
             // Calculate absolute glyph position on baseline
             let glyph_position = Point {
@@ -582,6 +630,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     || run.color != glyph_color
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
+                    || run.synthetic_bold != synthetic_bold
                     || run.text_decoration != text_decoration
                     || run.line_index != line_index
                     || run.direction != direction
@@ -608,6 +657,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     font: font.clone(),
                     font_hash,
                     font_size_px,
+                    synthetic_bold,
                     text_decoration,
                     line_index,
                     direction,
@@ -759,6 +809,7 @@ mod autotest_generated {
             units_per_em: 0,
             x_height: None,
             cap_height: None,
+            browser_ascent_boost: false,
         }
     }
 
@@ -920,6 +971,8 @@ mod autotest_generated {
     #[derive(Debug, Clone)]
     struct TestFont {
         hash: u64,
+        /// The face's OS/2 weight class; `None` for a face that cannot say.
+        weight: Option<u16>,
     }
 
     impl ShallowClone for TestFont {
@@ -969,13 +1022,29 @@ mod autotest_generated {
         fn get_space_width(&self) -> Option<usize> {
             Some(500)
         }
+        fn weight_class(&self) -> Option<u16> {
+            self.weight
+        }
     }
 
     fn fonts_with(hashes: &[u64]) -> LoadedFonts<TestFont> {
         let mut fonts = LoadedFonts::new();
         for &h in hashes {
-            fonts.insert(FontId::new(), TestFont { hash: h });
+            fonts.insert(FontId::new(), TestFont { hash: h, weight: None });
         }
+        fonts
+    }
+
+    /// One face of `hash` that says its weight is `weight`.
+    fn font_weighing(hash: u64, weight: u16) -> LoadedFonts<TestFont> {
+        let mut fonts = LoadedFonts::new();
+        fonts.insert(
+            FontId::new(),
+            TestFont {
+                hash,
+                weight: Some(weight),
+            },
+        );
         fonts
     }
 
@@ -1674,6 +1743,31 @@ mod autotest_generated {
 
         assert_eq!(runs.len(), 1, "only the one real cluster survives");
         assert_eq!(runs[0].glyphs.len(), 1);
+    }
+
+    /// Bold asked of a regular face is drawn thickened in a PDF, as on
+    /// screen; a face with a bold cut, or a regular run, is not.
+    #[test]
+    fn pdf_runs_say_when_bold_is_synthesized() {
+        use crate::text3::cache::{FontSelector, FontStack};
+        let bold = styled(|s| {
+            s.font_stack = FontStack::Stack(vec![FontSelector {
+                weight: rust_fontconfig::FcWeight::Bold,
+                ..FontSelector::default()
+            }]);
+        });
+        let runs_of = |st: &Arc<StyleProperties>, face_weight: u16| {
+            let l = layout(vec![at(
+                item(cluster("a", vec![glyph(1, 10.0, st)], st)),
+                0.0,
+                0.0,
+                0,
+            )]);
+            get_glyph_runs_pdf(&l, &font_weighing(FONT_A, face_weight))
+        };
+        assert!(runs_of(&bold, 400)[0].synthetic_bold, "bold from a regular face");
+        assert!(!runs_of(&bold, 700)[0].synthetic_bold, "the face has a bold cut");
+        assert!(!runs_of(&style(), 400)[0].synthetic_bold, "a regular run");
     }
 
     #[test]

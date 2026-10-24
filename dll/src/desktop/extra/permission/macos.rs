@@ -104,6 +104,9 @@ pub fn probe_status(capability: Capability) -> PermissionState {
         Capability::PhotoLibraryWrite => ph_status(1),
         Capability::ScreenCapture => screen_capture_status(),
         Capability::InputMonitoring => input_monitoring_status(),
+        // UN's getter is async-only; the notification backend reads it at
+        // launch and on activation and keeps the answer.
+        Capability::Notifications => crate::desktop::notifications::apple_permission_state(),
         // Everything else here is iOS-only or has no synchronous macOS
         // status getter.
         _ => PermissionState::NotDetermined,

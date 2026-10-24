@@ -15,11 +15,13 @@ mod android;
     feature = "objc2-av-foundation"
 ))]
 pub mod avf_auth;
+/// `pub(crate)`: the ScreenCaptureKit backend publishes its pixel buffers
+/// through the same `publish_pixel_buffer`.
 #[cfg(all(
     any(target_os = "macos", target_os = "ios"),
     feature = "objc2-av-foundation"
 ))]
-mod avfoundation;
+pub(crate) mod avfoundation;
 #[cfg(target_os = "linux")]
 mod v4l2;
 #[cfg(target_os = "windows")]
@@ -67,7 +69,7 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
-            crate::plog_info!("[camera] registering AVFoundation backend (32-BGRA → RGBA)");
+            crate::plog_info!("[camera] registering AVFoundation backend (NV12 / BGRA as captured)");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: avfoundation::open,

@@ -1,0 +1,10 @@
+[
+  {
+    "period_until": "2026-11-21T00:00:00Z"
+  },
+  {
+    "period_until": "2026-12-05T00:00:00Z",
+    "tier": "1TB",
+    "credited_days": 14
+  }
+]

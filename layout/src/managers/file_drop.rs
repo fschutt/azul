@@ -8,21 +8,37 @@ use azul_css::AzString;
 
 /// Manager for file drop state and hovered file tracking.
 ///
-/// MWA-B7: stores ALL files of a drag/drop (multi-file drops were silently
-/// truncated to the first path at every OS ingress site — the manager could
-/// only hold one). The single-file accessors remain as first-element views
-/// for existing callers.
+/// It stores ALL files of a drag or a drop. The single-file accessors are
+/// first-element views for existing callers.
+///
+/// Each OS drag move and each drop is delivered as ONE event. An event pass
+/// whose callbacks rebuild the DOM runs again for the rebuilt page, and that
+/// re-run reads this manager too: the `*_undelivered` flags say what the
+/// passes have not delivered yet, and the pass that does deliver it clears
+/// them ([`Self::mark_events_delivered`]). The files themselves stay readable
+/// until the platform handler clears them after its pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileDropManager {
     /// Files being hovered during the drag operation (empty = no hover).
     hovered_files: Vec<AzString>,
-    /// Files that were dropped (cleared after one frame).
+    /// Files that were dropped (cleared by the platform handler after its pass).
     dropped_files: Vec<AzString>,
     /// One-shot flag set when a hover ends without a drop (a non-empty →
     /// empty transition). Read by `determine_all_events` to emit
-    /// `EventType::FileHoverCancel`, then cleared by the platform drag
-    /// handler (one-shot, mirrors the dropped-files reset).
+    /// `EventType::FileHoverCancel`, cleared once delivered and again by the
+    /// platform drag handler after its pass.
     hover_cancelled: bool,
+    /// A drag move set the hovered files and no pass has emitted its
+    /// `FileHover` yet. Without it every re-run of the pass emits the hover
+    /// again (and a drop-zone callback that rebuilds the page loops to the
+    /// recursion cap on every move of the mouse).
+    hover_undelivered: bool,
+    /// A drop set the dropped files and no pass has emitted its `FileDrop`
+    /// yet. Without it every re-run of the pass emits the drop again: an app
+    /// that rebuilds its page on a drop received the same drop up to the
+    /// recursion cap times (AzDrive uploaded the file and raised a notice
+    /// for each).
+    drop_undelivered: bool,
 }
 
 impl FileDropManager {
@@ -33,19 +49,24 @@ impl FileDropManager {
             hovered_files: Vec::new(),
             dropped_files: Vec::new(),
             hover_cancelled: false,
+            hover_undelivered: false,
+            drop_undelivered: false,
         }
     }
 
-    /// Set ALL currently hovered files (MWA-B7). An empty vec behaves like a
-    /// drag-leave (latches the hover-cancel flag).
+    /// Set ALL currently hovered files: one move of an OS drag over the
+    /// window. An empty vec behaves like a drag-leave (latches the
+    /// hover-cancel flag).
     pub fn set_hovered_files(&mut self, files: Vec<AzString>) {
         if files.is_empty() {
             if !self.hovered_files.is_empty() {
                 self.hover_cancelled = true;
             }
             self.hovered_files.clear();
+            self.hover_undelivered = false;
         } else {
             self.hovered_files = files;
+            self.hover_undelivered = true;
         }
     }
 
@@ -104,17 +125,43 @@ impl FileDropManager {
         &self.dropped_files
     }
 
-    /// Set ALL dropped files (MWA-B7; cleared after one frame).
+    /// Set ALL dropped files: the drop, cleared by the platform handler after
+    /// its pass. A drop ends the drag that hovered the window without
+    /// cancelling it: macOS, Windows and XDND send no exit after a drop, so the
+    /// files would otherwise hover the window until the next drag.
     pub fn set_dropped_files(&mut self, files: Vec<AzString>) {
+        self.drop_undelivered = !files.is_empty();
+        if self.drop_undelivered {
+            self.hovered_files.clear();
+            self.hover_undelivered = false;
+        }
         self.dropped_files = files;
     }
 
     /// Single-file compatibility shim over [`set_dropped_files`](Self::set_dropped_files).
     pub fn set_dropped_file(&mut self, file: Option<AzString>) {
-        match file {
-            Some(f) => self.dropped_files = alloc::vec![f],
-            None => self.dropped_files.clear(),
-        }
+        self.set_dropped_files(file.into_iter().collect());
+    }
+
+    /// Whether a drag move's `FileHover` is still to be emitted.
+    #[must_use]
+    pub const fn hover_is_undelivered(&self) -> bool {
+        self.hover_undelivered
+    }
+
+    /// Whether a drop's `FileDrop` is still to be emitted.
+    #[must_use]
+    pub const fn drop_is_undelivered(&self) -> bool {
+        self.drop_undelivered
+    }
+
+    /// The event pass that just determined its events took the hover, the
+    /// drop and the cancel: its re-runs (after a callback rebuilt the DOM)
+    /// must not emit them again. The files stay for the callbacks to read.
+    pub const fn mark_events_delivered(&mut self) {
+        self.hover_undelivered = false;
+        self.drop_undelivered = false;
+        self.hover_cancelled = false;
     }
 }
 
@@ -134,6 +181,30 @@ mod tests {
         assert_eq!(m.get_dropped_file().map(AzString::as_str), Some("/a"));
         m.set_dropped_file(None);
         assert!(m.get_dropped_files().is_empty());
+    }
+
+    #[test]
+    fn a_drop_and_a_drag_move_are_each_delivered_once() {
+        let mut m = FileDropManager::new();
+        m.set_hovered_files(vec![s("/a")]);
+        assert!(m.hover_is_undelivered());
+        m.mark_events_delivered();
+        assert!(!m.hover_is_undelivered(), "the pass that saw the move took it");
+        assert_eq!(m.get_hovered_files().len(), 1, "the drag still hovers");
+        m.set_dropped_files(vec![s("/a"), s("/b")]);
+        assert!(m.drop_is_undelivered());
+        m.mark_events_delivered();
+        assert!(!m.drop_is_undelivered());
+        assert_eq!(
+            m.get_dropped_files().len(),
+            2,
+            "the callbacks of the delivering pass and its re-runs still read the files"
+        );
+        m.set_hovered_files(vec![s("/c")]);
+        m.set_hovered_files(Vec::new());
+        assert!(m.hover_was_cancelled());
+        m.mark_events_delivered();
+        assert!(!m.hover_was_cancelled(), "a cancel is delivered once too");
     }
 
     #[test]
@@ -264,8 +335,8 @@ mod autotest_generated {
     #[test]
     fn clear_hover_cancelled_is_idempotent_and_leaves_files_alone() {
         let mut m = FileDropManager::new();
-        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.set_dropped_files(vec![s("/d")]);
+        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.clear_hover_cancelled();
         m.clear_hover_cancelled();
         assert!(!m.hover_was_cancelled());
@@ -292,18 +363,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn drop_does_not_implicitly_end_the_hover() {
-        // A real OS sequence: drag-enter, drop, then drag-exit. The manager
-        // keeps the hovered paths across the drop; only the explicit exit
-        // (empty hover set) latches the cancel.
+    fn a_drop_ends_the_hover_without_a_cancel() {
+        // The OS sequences: drag-enter, moves, drop. macOS, Windows and XDND
+        // send no exit after a drop, so the drop itself ends the hover (else
+        // the drag would hover the window for good). Wayland sends a `leave`
+        // after its `drop`: an exit after the drop cancels nothing.
         let mut m = FileDropManager::new();
         m.set_hovered_files(vec![s("/a")]);
         m.set_dropped_files(vec![s("/a")]);
-        assert_eq!(m.get_hovered_files().len(), 1);
+        assert!(m.get_hovered_files().is_empty());
         assert!(!m.hover_was_cancelled());
         m.set_hovered_files(Vec::new());
-        assert!(m.hover_was_cancelled());
-        assert!(m.get_hovered_files().is_empty());
+        assert!(!m.hover_was_cancelled(), "a drop is no cancelled drag");
         assert_eq!(m.get_dropped_files().len(), 1, "drop survives the exit");
     }
 
@@ -338,23 +409,26 @@ mod autotest_generated {
 
         shim.set_hovered_file(Some(s("/p")));
         multi.set_hovered_files(vec![s("/p")]);
+        assert_eq!(shim, multi);
+        shim.set_hovered_file(None);
+        multi.set_hovered_files(Vec::new());
+        assert_eq!(shim, multi);
+        assert!(shim.hover_was_cancelled() && multi.hover_was_cancelled());
+
         shim.set_dropped_file(Some(s("/q")));
         multi.set_dropped_files(vec![s("/q")]);
         assert_eq!(shim, multi);
-
-        shim.set_hovered_file(None);
-        multi.set_hovered_files(Vec::new());
         shim.set_dropped_file(None);
         multi.set_dropped_files(Vec::new());
         assert_eq!(shim, multi);
-        assert!(shim.hover_was_cancelled() && multi.hover_was_cancelled());
     }
 
     #[test]
-    fn hovered_and_dropped_state_are_independent() {
+    fn the_drop_reset_leaves_the_next_drags_hover_alone() {
+        // A drop, and a new drag over the window before the platform reset the drop.
         let mut m = FileDropManager::new();
-        m.set_hovered_files(vec![s("/h1"), s("/h2")]);
         m.set_dropped_files(vec![s("/d1")]);
+        m.set_hovered_files(vec![s("/h1"), s("/h2")]);
         assert_eq!(m.get_hovered_files().len(), 2);
         assert_eq!(m.get_dropped_files().len(), 1);
 
@@ -401,8 +475,8 @@ mod autotest_generated {
         let files: Vec<AzString> = paths.iter().map(|p| s(p)).collect();
 
         let mut m = FileDropManager::new();
-        m.set_hovered_files(files.clone());
         m.set_dropped_files(files.clone());
+        m.set_hovered_files(files.clone());
         for (i, p) in paths.iter().enumerate() {
             assert_eq!(m.get_hovered_files()[i].as_str(), *p);
             assert_eq!(m.get_dropped_files()[i].as_str(), *p);
@@ -485,8 +559,8 @@ mod autotest_generated {
     #[test]
     fn clone_equals_original_and_is_independent() {
         let mut m = FileDropManager::new();
-        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.set_dropped_files(vec![s("/c")]);
+        m.set_hovered_files(vec![s("/a"), s("/b")]);
         m.set_hovered_files(Vec::new()); // latch the flag too
 
         let c = m.clone();

@@ -87,6 +87,7 @@ pub mod functions;
 pub(crate) mod layout;
 pub mod makefile;
 pub mod managed;
+pub(crate) mod options;
 pub mod types;
 pub mod wrappers;
 
@@ -531,6 +532,7 @@ fn generate_api_unit(ir: &CodegenIR, config: &CodegenConfig, split: &Split) -> R
     // `contains`, and after the wrapper types the abstract interfaces
     // `import`.
     managed::emit_managed_decls(&mut b, &ctx, split);
+    options::emit_option_decls(&mut b, ir, config);
 
     b.dedent();
     b.line("contains");
@@ -539,6 +541,7 @@ fn generate_api_unit(ir: &CodegenIR, config: &CodegenConfig, split: &Split) -> R
 
     wrappers::generate_wrapper_bodies(&mut b, &ctx)?;
     managed::emit_managed_bodies(&mut b, &ctx);
+    options::emit_option_bodies(&mut b, ir, config);
 
     b.dedent();
     b.line("end module azul_api");

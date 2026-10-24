@@ -31,9 +31,23 @@ pub struct DBusLib {
     // Connection management
     pub dbus_bus_get: unsafe extern "C" fn(c_int, *mut DBusError) -> *mut DBusConnection,
     pub dbus_connection_unref: unsafe extern "C" fn(*mut DBusConnection),
+    /// Taken by the run loop's wait set (`desktop::loop_waker`), which keeps
+    /// the shared session connection it polls alive for the process.
+    pub dbus_connection_ref: unsafe extern "C" fn(*mut DBusConnection) -> *mut DBusConnection,
     pub dbus_connection_read_write_dispatch:
         unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
     pub dbus_connection_flush: unsafe extern "C" fn(*mut DBusConnection),
+
+    // Main-loop integration: the socket to put in a poll set, and reading /
+    // dispatching as two steps. `read_write_dispatch` above does ONE of the
+    // two per call - it dispatches a queued message OR reads - so a message
+    // it read sat parsed in libdbus's queue, where no poll(2) on the socket
+    // can see it. The run loop reads once, then dispatches until the queue
+    // reports `DBUS_DISPATCH_COMPLETE`. All four exist in every libdbus-1.
+    pub dbus_connection_get_unix_fd: unsafe extern "C" fn(*mut DBusConnection, *mut c_int) -> c_int,
+    pub dbus_connection_read_write: unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
+    pub dbus_connection_dispatch: unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+    pub dbus_connection_get_dispatch_status: unsafe extern "C" fn(*mut DBusConnection) -> c_int,
 
     // Name registration
     pub dbus_bus_request_name:
@@ -109,7 +123,58 @@ pub struct DBusLib {
     // is present on the session bus.
     pub dbus_bus_name_has_owner:
         unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
+
+    // Signal subscription, for native notifications (`ActionInvoked` /
+    // `NotificationClosed`). A match rule makes the bus ROUTE a broadcast
+    // signal to this connection at all; a filter sees every message the
+    // connection dispatches. Both exist in every libdbus-1 ever shipped.
+    pub dbus_bus_add_match: unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError),
+    pub dbus_connection_add_filter: unsafe extern "C" fn(
+        *mut DBusConnection,
+        DBusHandleMessageFunction,
+        *mut c_void,
+        Option<unsafe extern "C" fn(*mut c_void)>,
+    ) -> c_uint,
+
+    // Asynchronous method calls, for native notifications (`Notify` must not
+    // block the loop for the server's reply). Sent with a pending call, the
+    // reply completes it when the connection is DISPATCHED (the run loop's
+    // drain does that); the notification pump polls it. All exist in every
+    // libdbus-1.
+    pub dbus_connection_send_with_reply: unsafe extern "C" fn(
+        *mut DBusConnection,
+        *mut DBusMessage,
+        *mut *mut DBusPendingCall,
+        c_int,
+    ) -> c_uint,
+    pub dbus_pending_call_get_completed: unsafe extern "C" fn(*mut DBusPendingCall) -> c_uint,
+    pub dbus_pending_call_steal_reply:
+        unsafe extern "C" fn(*mut DBusPendingCall) -> *mut DBusMessage,
+    pub dbus_pending_call_cancel: unsafe extern "C" fn(*mut DBusPendingCall),
+    pub dbus_pending_call_unref: unsafe extern "C" fn(*mut DBusPendingCall),
+    /// `DBUS_MESSAGE_TYPE_*`: an error reply is [`DBUS_MESSAGE_TYPE_ERROR`].
+    pub dbus_message_get_type: unsafe extern "C" fn(*mut DBusMessage) -> c_int,
+    /// Fills a `DBusError` from an error reply (name + message); `FALSE` for
+    /// any other message.
+    pub dbus_set_error_from_message:
+        unsafe extern "C" fn(*mut DBusError, *mut DBusMessage) -> c_uint,
 }
+
+/// Opaque `DBusPendingCall`: a method call whose reply has not been read.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct DBusPendingCall {
+    _private: [u8; 0],
+}
+
+/// `dbus_message_get_type` of an error reply.
+pub const DBUS_MESSAGE_TYPE_ERROR: c_int = 3;
+/// `dbus_connection_send_with_reply`'s timeout meaning "the default" (25 s).
+pub const DBUS_TIMEOUT_USE_DEFAULT: c_int = -1;
+
+/// `DBusHandleMessageFunction`: a filter, returning a `DBUS_HANDLER_RESULT_*`.
+pub type DBusHandleMessageFunction =
+    Option<unsafe extern "C" fn(*mut DBusConnection, *mut DBusMessage, *mut c_void) -> c_int>;
 
 // Safety: DBusLib only holds the dlopen handle (an opaque, process-wide
 // identifier) and function pointers loaded once at construction; nothing
@@ -207,6 +272,15 @@ pub const DBUS_HANDLER_RESULT_HANDLED: c_int = 0;
 pub const DBUS_HANDLER_RESULT_NOT_YET_HANDLED: c_int = 1;
 pub const DBUS_HANDLER_RESULT_NEED_MEMORY: c_int = 2;
 
+// `DBusDispatchStatus`, returned by `dbus_connection_dispatch` and
+// `dbus_connection_get_dispatch_status`.
+/// More messages are parsed and waiting in the incoming queue.
+pub const DBUS_DISPATCH_DATA_REMAINS: c_int = 0;
+/// The incoming queue is empty.
+pub const DBUS_DISPATCH_COMPLETE: c_int = 1;
+/// libdbus ran out of memory; try again later.
+pub const DBUS_DISPATCH_NEED_MEMORY: c_int = 2;
+
 impl DBusLib {
     /// Load libdbus-1.so.3 dynamically
     ///
@@ -230,6 +304,11 @@ impl DBusLib {
                 unsafe extern "C" fn(*mut DBusConnection),
                 "dbus_connection_unref"
             ),
+            dbus_connection_ref: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> *mut DBusConnection,
+                "dbus_connection_ref"
+            ),
             dbus_connection_read_write_dispatch: load_symbol!(
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
@@ -239,6 +318,26 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection),
                 "dbus_connection_flush"
+            ),
+            dbus_connection_get_unix_fd: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, *mut c_int) -> c_int,
+                "dbus_connection_get_unix_fd"
+            ),
+            dbus_connection_read_write: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
+                "dbus_connection_read_write"
+            ),
+            dbus_connection_dispatch: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+                "dbus_connection_dispatch"
+            ),
+            dbus_connection_get_dispatch_status: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+                "dbus_connection_get_dispatch_status"
             ),
 
             // Name registration
@@ -408,6 +507,61 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
                 "dbus_bus_name_has_owner"
+            ),
+            dbus_bus_add_match: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError),
+                "dbus_bus_add_match"
+            ),
+            dbus_connection_add_filter: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *mut DBusConnection,
+                    DBusHandleMessageFunction,
+                    *mut c_void,
+                    Option<unsafe extern "C" fn(*mut c_void)>,
+                ) -> c_uint,
+                "dbus_connection_add_filter"
+            ),
+            dbus_connection_send_with_reply: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *mut DBusConnection,
+                    *mut DBusMessage,
+                    *mut *mut DBusPendingCall,
+                    c_int,
+                ) -> c_uint,
+                "dbus_connection_send_with_reply"
+            ),
+            dbus_pending_call_get_completed: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall) -> c_uint,
+                "dbus_pending_call_get_completed"
+            ),
+            dbus_pending_call_steal_reply: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall) -> *mut DBusMessage,
+                "dbus_pending_call_steal_reply"
+            ),
+            dbus_pending_call_cancel: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall),
+                "dbus_pending_call_cancel"
+            ),
+            dbus_pending_call_unref: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall),
+                "dbus_pending_call_unref"
+            ),
+            dbus_message_get_type: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusMessage) -> c_int,
+                "dbus_message_get_type"
+            ),
+            dbus_set_error_from_message: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusError, *mut DBusMessage) -> c_uint,
+                "dbus_set_error_from_message"
             ),
 
             _lib: lib,

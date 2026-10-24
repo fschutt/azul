@@ -73,7 +73,7 @@ pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
 /// Timer ID for tooltip show delay.
 ///
 /// Started by the platform event loop when the hover target changes to a node
-/// that advertises a tooltip source (`aria-label` / `alt` / `title`); fires
+/// with a `title` attribute (the only tooltip source, as in Chrome); fires
 /// once after `SystemStyle::input_metrics.hover_time_ms` (`SPI_GETMOUSEHOVERTIME`
 /// on Windows, default 400ms) and emits a `ShowTooltip` `CallbackChange`. The
 /// timer is torn down on hover loss, which also emits `HideTooltip`.

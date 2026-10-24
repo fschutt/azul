@@ -1,0 +1,13 @@
+[package]
+name = "azul-pay-methods"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The payment methods registry: what people pay with in each country, which providers carry each method, how (flow, surfaces, recurring, currencies, limits, fees, refunds) and the providers' documented test data. Data plus a checked parser; no I/O."
+
+# Only crates azul's lockfile already has; the toml range also takes the 1.x of the services that
+# build it from here (its `from_str` is the same).
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = ">=0.8.23, <2"

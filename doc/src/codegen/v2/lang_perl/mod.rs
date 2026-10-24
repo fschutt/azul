@@ -160,3 +160,92 @@ fn emit_header(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("our $ffi = $Azul::ffi;");
     builder.blank();
 }
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `Azul.pm` for the real api.json, generated once.
+    fn azul_pm() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("perl codegen")
+        })
+    }
+
+    /// The text from the line `head` to the next line that is exactly `}`
+    /// or starts with `} # package`.
+    fn block(head: &str) -> &'static str {
+        let out = azul_pm();
+        let i = out
+            .find(&format!("\n{}\n", head))
+            .unwrap_or_else(|| panic!("no `{}` in Azul.pm", head));
+        let rest = &out[i + 1..];
+        let end = rest.find("\n}").unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// `sub <name> {` in `body`, up to its closing brace.
+    fn sub_body<'a>(body: &'a str, name: &str) -> &'a str {
+        let head = format!("sub {} {{", name);
+        let i = body
+            .find(&head)
+            .unwrap_or_else(|| panic!("`sub {}` is missing in:\n{}", name, body));
+        let rest = &body[i..];
+        &rest[..rest.find("\n    }\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_wrapper_hands_a_pointer_receiver_the_address_of_its_bytes_not_the_record_object() {
+        let app = block("package Azul::App {");
+        let run = sub_body(app, "run");
+        assert!(run.contains("Azul::FFI::AzApp_run(Azul::_addr($self), "), "{}", run);
+        assert!(run.contains("Azul::_consume($root_window)"), "the window is moved:\n{}", run);
+        let destroy = sub_body(app, "DESTROY");
+        assert!(destroy.contains("Azul::FFI::AzApp_delete(Azul::_addr($self))"), "{}", destroy);
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_perl_string_and_its_setter_releases_the_old_title() {
+        let fws = block("package Azul::FullWindowState {");
+        let get = sub_body(fws, "get_title");
+        assert!(get.contains("Azul::_read_string("), "{}", get);
+        let set = sub_body(fws, "set_title");
+        assert!(set.contains("Azul::FFI::AzString_delete(Azul::_addr($self) + "), "{}", set);
+        assert!(set.contains("Azul::_string_bytes($v)"), "{}", set);
+    }
+
+    #[test]
+    fn window_state_is_deep_copied_out_and_moved_back_in() {
+        let wco = block("package Azul::WindowCreateOptions {");
+        let get = sub_body(wco, "get_window_state");
+        assert!(
+            get.contains("Azul::FullWindowState->new(Azul::FFI::AzFullWindowState_clone(Azul::_addr($self) + "),
+            "{}",
+            get
+        );
+        let set = sub_body(wco, "set_window_state");
+        assert!(set.contains("Azul::FFI::AzFullWindowState_delete(Azul::_addr($self) + "), "{}", set);
+        assert!(set.contains("Azul::_take_bytes($v, "), "{}", set);
+    }
+
+    #[test]
+    fn the_window_size_is_reachable_down_to_its_width() {
+        let fws = block("package Azul::FullWindowState {");
+        assert!(sub_body(fws, "get_size").contains("Azul::_rec('AzWindowSize', "), "{}", fws);
+        let ws = block("package Azul::AzWindowSize { # field accessors");
+        assert!(sub_body(ws, "get_dimensions").contains("Azul::_rec('AzLogicalSize', "), "{}", ws);
+        let ls = block("package Azul::AzLogicalSize { # field accessors");
+        assert!(sub_body(ls, "set_width").contains("pack('f', $v)"), "{}", ls);
+    }
+
+    #[test]
+    fn checked_and_text_have_accessors() {
+        let cb = block("package Azul::AzCheckBoxState { # field accessors");
+        assert!(sub_body(cb, "get_checked").contains("unpack('C', "), "{}", cb);
+        let ti = block("package Azul::TextInputState {");
+        assert!(sub_body(ti, "set_text").contains("Azul::FFI::AzU32Vec_delete("), "{}", ti);
+    }
+}

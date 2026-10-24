@@ -40,6 +40,18 @@ function layout(int $data): \Azul\Dom
 }
 
 $wco = \Azul\WindowCreateOptions::create($layout_id);
+
+// Title and size. Getters return copies, so a nested field is read,
+// changed and written back (each setter releases the value it replaces).
+$state = $wco->getWindowState();
+$state->setTitle('Hello World');
+$size = $state->getSize();
+$dims = $size->getDimensions();
+$dims->setWidth(400.0);
+$dims->setHeight(300.0);
+$size->setDimensions($dims);
+$state->setSize($size);
+$wco->setWindowState($state);
 $cfg = \Azul\AppConfig::create();
 $app = \Azul\App::create($model_id, $cfg);
 $app->run($wco);

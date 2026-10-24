@@ -82,6 +82,15 @@ impl PercentageValue {
         self.number.get() / 100.0
     }
 
+    /// The raw fixed-point number, for the code generator's exact
+    /// round-trip (`normalized()` is lossy). Crate-private on purpose.
+    #[cfg(feature = "codegen")]
+    #[inline]
+    #[must_use]
+    pub(crate) const fn raw_number(&self) -> FloatValue {
+        self.number
+    }
+
     #[inline]
     #[must_use]
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {

@@ -312,6 +312,16 @@ fn vulkan_has_ext(want: &[u8]) -> Option<bool> {
     }
 }
 
+/// Whether the Vulkan driver exposes H.264 ENCODE (`VK_KHR_video_encode_h264`):
+/// `None` without a Vulkan loader or a usable GPU. What `encode_engine` asks
+/// before a `VideoEncoder` opens on Vulkan Video (a build without
+/// `az_gpu_video` never asks).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg_attr(not(az_gpu_video), allow(dead_code))]
+pub(crate) fn vulkan_encode_h264() -> Option<bool> {
+    vulkan_has_ext(VK_EXT_VIDEO_ENCODE_H264)
+}
+
 /// Compare a NUL-terminated `extensionName[256]` (as `c_char`) against `want`.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn ext_name_matches(name: &[core::ffi::c_char; 256], want: &[u8]) -> bool {
@@ -1044,7 +1054,9 @@ impl VideoStartupCheck {
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct VideoEncodeCheck {
-    /// Hardware H.264 encode is usable right now.
+    /// `VideoEncoder` encodes H.264 here right now: this build has an encode
+    /// engine that loads on this machine, and the hardware encodes. False
+    /// wherever `VideoEncoder::open` hands out an invalid handle.
     pub hw_encode_ready: bool,
     /// A software encoder (gstreamer `x264enc`) is available as a fallback.
     pub software_fallback: bool,
@@ -1058,12 +1070,28 @@ pub struct VideoEncodeCheck {
 }
 
 impl VideoEncodeCheck {
-    /// Probe hardware + software H.264 encode (call once at startup). Inspection only.
+    /// Probe H.264 encode as this BUILD does it (its `VideoEncoder` engine),
+    /// the hardware, and the software fallback (call once at startup).
+    /// Inspection only.
     pub fn run() -> VideoEncodeCheck {
         let (hw, backend, hw_detail) = probe_hw_encode();
+        let build = super::encode_engine();
+        let ready = hw && build.is_ok();
         let software_fallback = software_x264_available();
-        let summary = if hw {
+        let summary = if ready {
             format!("Hardware H.264 encode is ready ({backend}).")
+        } else if let Err(why) = &build {
+            if software_fallback {
+                format!(
+                    "This build's VideoEncoder cannot encode H.264 ({why}) — recording uses \
+                     software (x264) encoding (slower, CPU-bound)."
+                )
+            } else {
+                format!(
+                    "No H.264 encoder available: this build's VideoEncoder cannot encode ({why}) \
+                     and there is no software x264 (install gstreamer1.0-plugins-ugly)."
+                )
+            }
         } else if software_fallback {
             String::from(
                 "Hardware H.264 encode is NOT available on this GPU — using software (x264) \
@@ -1075,9 +1103,13 @@ impl VideoEncodeCheck {
                  gstreamer1.0-plugins-ugly).",
             )
         };
+        let engine = match &build {
+            Ok(engine) => format!("encodes with {engine}"),
+            Err(why) => format!("cannot encode ({why})"),
+        };
         let detail = format!(
-            "hardware encode: available={hw} backend={backend} — {hw_detail}\nsoftware fallback \
-             (gstreamer x264enc): {}",
+            "VideoEncoder in this build: {engine}\nhardware encode: available={hw} \
+             backend={backend} — {hw_detail}\nsoftware fallback (gstreamer x264enc): {}",
             if software_fallback {
                 "available"
             } else {
@@ -1085,7 +1117,7 @@ impl VideoEncodeCheck {
             },
         );
         VideoEncodeCheck {
-            hw_encode_ready: hw,
+            hw_encode_ready: ready,
             software_fallback,
             backend: AzString::from_const_str(backend),
             summary: summary.into(),

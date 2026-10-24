@@ -30,6 +30,7 @@ use super::{
     super::{
         config::CodegenConfig,
         ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionKind, TypeCategory},
+        lower_first,
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
@@ -388,14 +389,6 @@ fn emit_per_kind_init(
         lower_first(wrapper)
     ));
     b.blank();
-}
-
-fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
 }
 
 /// Emit a typed-SAM bridge for one host-invoker callback kind:

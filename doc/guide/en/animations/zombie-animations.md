@@ -56,6 +56,19 @@ zombie, no retained tree, no engine-default slide. Departure animations are
 something you or a widget library declare; nothing happens by default, and
 the common unmount keeps its incremental layout entry untouched.
 
+The three kinds of motion are separate, and all three are opt-in:
+
+| Declared with | Animates | Needs a zombie |
+| --- | --- | --- |
+| `-azul-animation-in` | a node that mounts, on the live tree | no |
+| `animation: move <duration>` | a matched node whose place changed (a FLIP slide on the live node) | no |
+| `-azul-animation-out` | a node that unmounts, on the retained copy | **yes** |
+
+Only an exit needs the retained frame: an entering or moving node exists in
+the new tree and is animated there. A zombie is therefore never created for a
+node that merely moved - and a moving node never slides unless it declares
+`move` ([Animations](../animations.md#moves)).
+
 Retention also needs a *resolvable* name and a rect: a name that matches
 neither a `@keyframes` block nor an attached animation function contributes
 nothing, and a node that never laid out has nothing to animate from. Both

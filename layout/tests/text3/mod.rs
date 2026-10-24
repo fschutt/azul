@@ -135,7 +135,6 @@ pub fn position_one_line_compat(
         constraints,
         &mut None,
         &mock_loaded_fonts(),
-        false,
     )
 }
 
@@ -421,6 +420,7 @@ pub fn create_mock_font_manager() -> MockFontManager {
             ascent: 80.0,
             descent: -20.0,
             cap_height: Some(70.0),
+            browser_ascent_boost: false,
             x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,
@@ -480,6 +480,7 @@ pub fn create_mock_font_loader() -> Arc<MockFontLoader> {
             ascent: 80.0,
             descent: -20.0,
             cap_height: Some(70.0),
+            browser_ascent_boost: false,
             x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,

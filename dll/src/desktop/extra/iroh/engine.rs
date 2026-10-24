@@ -3,6 +3,10 @@
 //! Wire format, one unidirectional QUIC stream per frame and one per direction for messages:
 //! frame stream `[1][track u32][sequence u64][payload until FIN]`,
 //! message stream `[2]` then repeated `[sequence u64][length u32][payload]`, all little endian.
+//!
+//! A request (`Engine::request`) is the peer's protocol, not this one: its bytes on a new
+//! bidirectional stream of a connection kept per peer (not a peer of the events), the answer
+//! everything the peer writes until it finishes its side.
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -10,7 +14,7 @@ use std::{
     ops::Bound,
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicI32, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, OnceLock, PoisonError,
     },
 };
@@ -25,13 +29,25 @@ use tokio::{
     sync::{mpsc, Notify},
 };
 
+use azul_core::tls::TrustRoots;
+use rustls_pki_types::{pem::PemObject, CertificateDer};
+
 use super::types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode};
 
 const FRAME_STREAM: u8 = 1;
 const MESSAGE_STREAM: u8 = 2;
+/// QUIC send priority of a track's frames unless `set_track_priority` changed it. Higher goes
+/// first when the link cannot carry everything at once.
+const FRAME_PRIORITY: i32 = 0;
+/// QUIC send priority of the message stream unless `set_message_priority` changed it: above
+/// frames, so a reliable message is not held back by a stale frame.
 const MESSAGE_PRIORITY: i32 = 1;
 const CLOSED_BY_APP: u32 = 0;
 const PROTOCOL_VIOLATION: u32 = 1;
+/// The close code of a connection from a peer not in the allowed list.
+const NOT_ALLOWED: u32 = 2;
+/// How long a request waits for the connection to its peer (inside the request's own time).
+const REQUEST_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn runtime() -> Result<&'static Runtime, String> {
     static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
@@ -52,6 +68,39 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The endpoint ids of `peers` (an endpoint id each, surrounding space ignored).
+fn endpoint_ids(
+    peers: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<std::collections::BTreeSet<EndpointId>, String> {
+    peers
+        .into_iter()
+        .map(|peer| {
+            let peer = peer.as_ref().trim();
+            EndpointId::from_str(peer)
+                .map_err(|e| format!("{peer:?} is not an endpoint id: {e}"))
+        })
+        .collect()
+}
+
+/// What the relays' TLS trusts: Mozilla's roots, or exactly the pinned ones (an entry that does
+/// not parse fails the bind; it never falls back to the public roots).
+fn ca_tls_config(roots: &TrustRoots) -> Result<iroh::tls::CaTlsConfig, String> {
+    let TrustRoots::Pinned(pems) = roots else {
+        return Ok(iroh::tls::CaTlsConfig::embedded());
+    };
+    let mut certs = Vec::new();
+    for (i, pem) in pems.as_ref().iter().enumerate() {
+        let before = certs.len();
+        for cert in CertificateDer::pem_slice_iter(pem.as_str().as_bytes()) {
+            certs.push(cert.map_err(|e| format!("trusted root {i} does not parse: {e:?}"))?);
+        }
+        if certs.len() == before {
+            return Err(format!("trusted root {i} holds no certificate"));
+        }
+    }
+    Ok(iroh::tls::CaTlsConfig::custom_roots(certs))
+}
+
 pub(super) struct Engine {
     endpoint: Endpoint,
     alpn: Vec<u8>,
@@ -68,6 +117,12 @@ struct State {
     next_peer: AtomicU64,
     frame_sequences: Mutex<BTreeMap<u32, u64>>,
     message_sequence: AtomicU64,
+    priorities: Arc<Priorities>,
+    /// The connections of `request`, one per peer: no events, no frames, kept until they close.
+    requests: Mutex<BTreeMap<EndpointId, Connection>>,
+    /// The peers an incoming connection is accepted from; `None`: every peer
+    /// (`IrohConfig::allowed_peers`, `IrohEndpoint::set_allowed_peers`).
+    allowed: Mutex<Option<std::collections::BTreeSet<EndpointId>>>,
 }
 
 struct Peer {
@@ -79,6 +134,12 @@ struct Peer {
     frames_sent: AtomicU64,
     frames_received: AtomicU64,
     frames_skipped: AtomicU64,
+    /// The endpoint's send priorities.
+    priorities: Arc<Priorities>,
+    /// Messages accepted by `send_message` and not yet written to the message stream.
+    messages_queued: AtomicU64,
+    /// Their payload bytes.
+    message_bytes_queued: AtomicU64,
 }
 
 #[derive(Default)]
@@ -90,6 +151,45 @@ struct Slot {
 struct Outbound {
     sequence: u64,
     data: Arc<[u8]>,
+}
+
+/// The send priorities of one endpoint, shared by all its connections: per track for frames,
+/// one for the message stream.
+struct Priorities {
+    tracks: Mutex<BTreeMap<u32, i32>>,
+    messages: AtomicI32,
+}
+
+impl Default for Priorities {
+    fn default() -> Self {
+        Priorities {
+            tracks: Mutex::default(),
+            messages: AtomicI32::new(MESSAGE_PRIORITY),
+        }
+    }
+}
+
+impl Priorities {
+    /// The priority a new frame stream of `track` is opened at.
+    fn frame(&self, track: u32) -> i32 {
+        lock(&self.tracks)
+            .get(&track)
+            .copied()
+            .unwrap_or(FRAME_PRIORITY)
+    }
+
+    /// The priority of the message stream.
+    fn message(&self) -> i32 {
+        self.messages.load(Ordering::Relaxed)
+    }
+
+    fn set_track(&self, track: u32, priority: i32) {
+        lock(&self.tracks).insert(track, priority);
+    }
+
+    fn set_messages(&self, priority: i32) {
+        self.messages.store(priority, Ordering::Relaxed);
+    }
 }
 
 impl Engine {
@@ -109,9 +209,19 @@ impl Engine {
                 RelayMode::custom([url])
             }
         };
+        if config.relay_only && config.relay_mode == IrohRelayMode::Disabled {
+            return Err(
+                "IrohConfig.relay_only needs a relay: relay_mode Default or Custom".to_string(),
+            );
+        }
         let mut builder = Endpoint::builder(presets::Minimal)
             .alpns(vec![alpn.clone()])
-            .relay_mode(relay_mode);
+            .relay_mode(relay_mode)
+            .ca_tls_config(ca_tls_config(&config.trust_roots)?);
+        let allowed = match config.allowed_peers.as_ref() {
+            Some(peers) => Some(endpoint_ids(peers.as_ref().iter().map(azul_css::AzString::as_str))?),
+            None => None,
+        };
         let key = config.secret_key.as_ref();
         if !key.is_empty() {
             let key: &[u8; 32] = key.try_into().map_err(|_| {
@@ -119,7 +229,12 @@ impl Engine {
             })?;
             builder = builder.secret_key(SecretKey::from_bytes(key));
         }
-        if config.port != 0 {
+        if config.relay_only {
+            // No IP transport: no UDP socket, no direct address in the ticket, no hole punching
+            // (and no QUIC address discovery, which needs one). The relay carries every packet;
+            // `port` names a UDP socket, so it does not apply.
+            builder = builder.clear_ip_transports();
+        } else if config.port != 0 {
             builder = builder
                 .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port)))
                 .map_err(|e| format!("invalid port {}: {e}", config.port))?;
@@ -130,6 +245,7 @@ impl Engine {
         let state = Arc::new(State {
             max_frame: config.max_frame_bytes as usize,
             next_peer: AtomicU64::new(1),
+            allowed: Mutex::new(allowed),
             ..State::default()
         });
         runtime.spawn(accept_connections(endpoint.clone(), state.clone()));
@@ -139,6 +255,17 @@ impl Engine {
             alpn,
             state,
         })
+    }
+
+    /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
+    /// next connection on. An id that does not parse is refused and nothing changes.
+    pub(super) fn set_allowed_peers(&self, peers: Option<Vec<String>>) -> Result<(), String> {
+        let allowed = match peers {
+            Some(peers) => Some(endpoint_ids(peers.iter().map(String::as_str))?),
+            None => None,
+        };
+        *lock(&self.state.allowed) = allowed;
+        Ok(())
     }
 
     pub(super) fn is_bound(&self) -> bool {
@@ -185,6 +312,58 @@ impl Engine {
         Ok(())
     }
 
+    /// Sends `data` to `peer` (an endpoint id or a ticket) at `addresses` (`ip:port`: dialed
+    /// without discovery) and through `relay_url` (empty: none) on a new bidirectional stream,
+    /// and returns what the peer writes until it finishes its side (at most `max_frame_bytes`).
+    /// `half_close`: this side is finished right after `data` (a peer that reads the request to
+    /// its end); otherwise it stays open until the answer ended (an HTTP/1.1 server, which reads
+    /// a finished stream as a broken request). One connection per peer serves every request.
+    /// Blocks up to `timeout`: call it from a worker thread, never from the runtime.
+    pub(super) fn request(
+        &self,
+        peer: &str,
+        addresses: &[String],
+        relay_url: &str,
+        data: &[u8],
+        half_close: bool,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<u8>, String> {
+        let peer = peer.trim();
+        let mut addr = match EndpointTicket::from_str(peer) {
+            Ok(ticket) => EndpointAddr::from(ticket),
+            Err(_) => EndpointId::from_str(peer)
+                .map(EndpointAddr::new)
+                .map_err(|e| format!("{peer:?} is not an endpoint id or ticket: {e}"))?,
+        };
+        if addr.id == self.endpoint.id() {
+            return Err("the endpoint id belongs to this endpoint".to_string());
+        }
+        for address in addresses.iter().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+            let socket = SocketAddr::from_str(address)
+                .map_err(|e| format!("{address:?} is not a socket address (ip:port): {e}"))?;
+            addr = addr.with_ip_addr(socket);
+        }
+        let relay_url = relay_url.trim();
+        if !relay_url.is_empty() {
+            let url = RelayUrl::from_str(relay_url)
+                .map_err(|e| format!("invalid relay url {relay_url:?}: {e}"))?;
+            addr = addr.with_relay_url(url);
+        }
+        let runtime = runtime()?;
+        let endpoint = self.endpoint.clone();
+        let alpn = self.alpn.clone();
+        let state = self.state.clone();
+        let data = data.to_vec();
+        let timeout = timeout.max(std::time::Duration::from_secs(1));
+        runtime.block_on(async move {
+            let exchanged = exchange(&endpoint, &alpn, &state, addr, &data, half_close);
+            match tokio::time::timeout(timeout, exchanged).await {
+                Ok(answered) => answered,
+                Err(_) => Err(format!("no answer within {} s", timeout.as_secs())),
+            }
+        })
+    }
+
     pub(super) fn send_frame(&self, peer: Option<u64>, track: u32, data: &[u8]) -> bool {
         let targets: Vec<Arc<Peer>> = {
             let peers = lock(&self.state.peers);
@@ -227,7 +406,25 @@ impl Engine {
             return false;
         };
         let sequence = self.state.message_sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        peer.messages.send((sequence, data.to_vec())).is_ok()
+        // Counted before it is queued, so the sending task never lowers a count it was not
+        // raised for.
+        peer.message_queued(data.len());
+        if peer.messages.send((sequence, data.to_vec())).is_ok() {
+            true
+        } else {
+            peer.message_left(data.len());
+            false
+        }
+    }
+
+    /// Frames of `track` (to every peer) leave at `priority` from the next frame on.
+    pub(super) fn set_track_priority(&self, track: u32, priority: i32) {
+        self.state.priorities.set_track(track, priority);
+    }
+
+    /// The message stream (to every peer) leaves at `priority` from the next message on.
+    pub(super) fn set_message_priority(&self, priority: i32) {
+        self.state.priorities.set_messages(priority);
     }
 
     pub(super) fn disconnect(&self, peer: u64) -> bool {
@@ -264,6 +461,8 @@ impl Engine {
             frames_sent: peer.frames_sent.load(Ordering::Relaxed),
             frames_received: peer.frames_received.load(Ordering::Relaxed),
             frames_skipped: peer.frames_skipped.load(Ordering::Relaxed),
+            messages_queued: peer.messages_queued.load(Ordering::Relaxed),
+            message_bytes_queued: peer.message_bytes_queued.load(Ordering::Relaxed),
             ..IrohPeerStats::default()
         };
         let paths = peer.conn.paths();
@@ -308,6 +507,13 @@ impl Drop for Engine {
 }
 
 impl State {
+    /// Whether an incoming connection from `peer` is accepted.
+    fn accepts(&self, peer: &EndpointId) -> bool {
+        lock(&self.allowed)
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(peer))
+    }
+
     fn push(&self, event: IrohEvent) {
         lock(&self.events).push_back(event);
     }
@@ -343,6 +549,20 @@ impl Peer {
         }
         slot.wake.notify_one();
     }
+
+    /// A message of `bytes` joined the backlog.
+    fn message_queued(&self, bytes: usize) {
+        self.messages_queued.fetch_add(1, Ordering::Relaxed);
+        self.message_bytes_queued
+            .fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    /// A message of `bytes` left the backlog: written to the stream, or never queued.
+    fn message_left(&self, bytes: usize) {
+        self.messages_queued.fetch_sub(1, Ordering::Relaxed);
+        self.message_bytes_queued
+            .fetch_sub(bytes as u64, Ordering::Relaxed);
+    }
 }
 
 fn adopt(state: &Arc<State>, conn: Connection) {
@@ -357,6 +577,9 @@ fn adopt(state: &Arc<State>, conn: Connection) {
         frames_sent: AtomicU64::new(0),
         frames_received: AtomicU64::new(0),
         frames_skipped: AtomicU64::new(0),
+        priorities: state.priorities.clone(),
+        messages_queued: AtomicU64::new(0),
+        message_bytes_queued: AtomicU64::new(0),
     });
     lock(&state.peers).insert(id, peer.clone());
     state.push(IrohEvent::new(
@@ -364,7 +587,7 @@ fn adopt(state: &Arc<State>, conn: Connection) {
         id,
         conn.remote_id().to_string(),
     ));
-    tokio::spawn(send_messages(conn.clone(), outbox));
+    tokio::spawn(send_messages(peer.clone(), outbox));
     tokio::spawn(receive_streams(state.clone(), peer));
     let state = state.clone();
     tokio::spawn(async move {
@@ -379,11 +602,106 @@ fn adopt(state: &Arc<State>, conn: Connection) {
     });
 }
 
+/// The request connection to `addr`'s peer: the kept one while it is open, else a new one.
+async fn request_connection(
+    endpoint: &Endpoint,
+    alpn: &[u8],
+    state: &State,
+    addr: EndpointAddr,
+) -> Result<Connection, String> {
+    let id = addr.id;
+    if let Some(conn) = lock(&state.requests).get(&id) {
+        if conn.close_reason().is_none() {
+            return Ok(conn.clone());
+        }
+    }
+    let conn = tokio::time::timeout(REQUEST_CONNECT_TIMEOUT, endpoint.connect(addr, alpn))
+        .await
+        .map_err(|_| {
+            format!(
+                "could not connect within {} s",
+                REQUEST_CONNECT_TIMEOUT.as_secs()
+            )
+        })?
+        .map_err(|e| format!("could not connect: {e}"))?;
+    lock(&state.requests).insert(id, conn.clone());
+    Ok(conn)
+}
+
+/// One request on a new bidirectional stream of `conn`: `Err(true)` when no stream could be
+/// opened (the connection is gone), `Err(false)` for anything else.
+async fn request_on(
+    conn: &Connection,
+    data: &[u8],
+    half_close: bool,
+    max: usize,
+) -> Result<Vec<u8>, (bool, String)> {
+    let (mut send, mut recv) = conn
+        .open_bi()
+        .await
+        .map_err(|e| (true, format!("could not open a stream: {e}")))?;
+    send.write_all(data)
+        .await
+        .map_err(|e| (false, format!("could not send the request: {e}")))?;
+    if half_close {
+        let _ = send.finish();
+    }
+    let answer = match recv.read_to_end(max).await {
+        Ok(answer) => answer,
+        Err(ReadToEndError::TooLong) => {
+            let _ = recv.stop(VarInt::from_u32(PROTOCOL_VIOLATION));
+            return Err((false, format!("the answer is larger than {max} bytes")));
+        }
+        Err(ReadToEndError::Read(e)) => {
+            return Err((false, format!("the answer broke off: {e}")));
+        }
+    };
+    if !half_close {
+        let _ = send.finish();
+    }
+    Ok(answer)
+}
+
+/// A request to `addr`'s peer on its kept connection; once more on a new one when the kept one
+/// turns out to be gone.
+async fn exchange(
+    endpoint: &Endpoint,
+    alpn: &[u8],
+    state: &State,
+    addr: EndpointAddr,
+    data: &[u8],
+    half_close: bool,
+) -> Result<Vec<u8>, String> {
+    let id = addr.id;
+    let conn = request_connection(endpoint, alpn, state, addr.clone()).await?;
+    match request_on(&conn, data, half_close, state.max_frame).await {
+        Ok(answer) => Ok(answer),
+        Err((true, _)) => {
+            lock(&state.requests).remove(&id);
+            let conn = request_connection(endpoint, alpn, state, addr).await?;
+            request_on(&conn, data, half_close, state.max_frame)
+                .await
+                .map_err(|(_, why)| why)
+        }
+        Err((false, why)) => Err(why),
+    }
+}
+
 async fn accept_connections(endpoint: Endpoint, state: Arc<State>) {
     while let Some(incoming) = endpoint.accept().await {
         let state = state.clone();
         tokio::spawn(async move {
             match incoming.await {
+                Ok(conn) if !state.accepts(&conn.remote_id()) => {
+                    // Before any stream of the peer is read: it learns nothing but the refusal.
+                    let peer = conn.remote_id();
+                    conn.close(VarInt::from_u32(NOT_ALLOWED), b"not an allowed peer");
+                    state.push(IrohEvent::new(
+                        IrohEventKind::Error,
+                        0,
+                        format!("refused a connection from {peer}: not an allowed peer"),
+                    ));
+                }
                 Ok(conn) => adopt(&state, conn),
                 Err(e) => state.push(IrohEvent::new(
                     IrohEventKind::Error,
@@ -422,6 +740,7 @@ async fn send_frames(peer: Arc<Peer>, track: u32, slot: Arc<Slot>) {
         let Ok(mut stream) = peer.conn.open_uni().await else {
             return;
         };
+        let _ = stream.set_priority(peer.priorities.frame(track));
         let mut header = [0u8; 13];
         header[0] = FRAME_STREAM;
         header[1..5].copy_from_slice(&track.to_le_bytes());
@@ -436,7 +755,8 @@ async fn send_frames(peer: Arc<Peer>, track: u32, slot: Arc<Slot>) {
     }
 }
 
-async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u64, Vec<u8>)>) {
+async fn send_messages(peer: Arc<Peer>, mut outbox: mpsc::UnboundedReceiver<(u64, Vec<u8>)>) {
+    let conn = &peer.conn;
     let mut stream: Option<SendStream> = None;
     loop {
         let (sequence, data) = tokio::select! {
@@ -450,7 +770,6 @@ async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u6
             let Ok(mut opened) = conn.open_uni().await else {
                 return;
             };
-            let _ = opened.set_priority(MESSAGE_PRIORITY);
             if opened.write_all(&[MESSAGE_STREAM]).await.is_err() {
                 return;
             }
@@ -459,12 +778,15 @@ async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u6
         let Some(open) = stream.as_mut() else {
             return;
         };
+        // Per message, so `set_message_priority` applies to the open stream too.
+        let _ = open.set_priority(peer.priorities.message());
         let mut header = [0u8; 12];
         header[..8].copy_from_slice(&sequence.to_le_bytes());
         header[8..].copy_from_slice(&(data.len() as u32).to_le_bytes());
         if open.write_all(&header).await.is_err() || open.write_all(&data).await.is_err() {
             return;
         }
+        peer.message_left(data.len());
     }
     if let Some(mut open) = stream {
         let _ = open.finish();
@@ -601,10 +923,415 @@ mod tests {
         );
     }
 
+    /// Frames leave at 0 and messages at 1 unless changed. A track given a higher priority than
+    /// the message stream goes first when the link cannot carry everything (audio frames over
+    /// H.264 messages); the other tracks keep theirs, and the message stream can be lowered.
+    #[test]
+    fn a_track_given_a_higher_priority_outranks_the_message_stream() {
+        let priorities = Priorities::default();
+        assert_eq!(priorities.frame(3), FRAME_PRIORITY);
+        assert_eq!(priorities.message(), MESSAGE_PRIORITY);
+        assert!(
+            priorities.frame(3) < priorities.message(),
+            "by default a message goes first"
+        );
+
+        priorities.set_track(3, 2);
+        assert!(
+            priorities.frame(3) > priorities.message(),
+            "the audio track now goes first"
+        );
+        assert_eq!(
+            priorities.frame(1),
+            FRAME_PRIORITY,
+            "other tracks keep the default"
+        );
+
+        priorities.set_messages(-1);
+        assert!(priorities.frame(1) > priorities.message());
+    }
+
+    /// `peer_stats` reports the messages accepted for a peer that have not been handed to the
+    /// connection yet, and the backlog drains to zero once they left. A frame on a track given
+    /// a higher priority crosses while the backlog drains.
+    #[test]
+    fn the_message_backlog_is_reported_until_it_has_left() {
+        const COUNT: u64 = 64;
+        const SIZE: usize = 1 << 20;
+
+        let host = local_endpoint();
+        let guest = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        guest.connect(ticket.as_str()).expect("the ticket parses");
+        let host_side = next_of(&host, IrohEventKind::PeerConnected).peer;
+        let _guest_side = next_of(&guest, IrohEventKind::PeerConnected).peer;
+
+        let message = vec![7u8; SIZE];
+        for _ in 0..COUNT {
+            assert!(host.send_message(host_side, &message));
+        }
+        // 64 MiB take far longer to leave than to queue: right after queueing, most wait.
+        let queued = host.peer_stats(host_side);
+        assert!(
+            queued.messages_queued > 0 && queued.messages_queued <= COUNT,
+            "{queued:?}"
+        );
+        assert!(
+            queued.message_bytes_queued > 0 && queued.message_bytes_queued <= COUNT * SIZE as u64,
+            "{queued:?}"
+        );
+
+        host.set_track_priority(3, 2);
+        assert!(host.send_frame(Some(host_side), 3, b"audio"));
+
+        let mut messages = 0u64;
+        let mut audio = false;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while messages < COUNT || !audio {
+            match guest.recv() {
+                Some(event) if event.kind == IrohEventKind::Message => {
+                    assert_eq!(event.data.as_ref().len(), SIZE);
+                    messages += 1;
+                }
+                Some(event) if event.kind == IrohEventKind::Frame => {
+                    assert_eq!(event.track, 3);
+                    assert_eq!(event.data.as_ref(), b"audio");
+                    audio = true;
+                }
+                Some(event) => {
+                    assert_ne!(event.kind, IrohEventKind::Error, "{}", event.text.as_str())
+                }
+                None => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "{messages} messages, audio frame: {audio}"
+                    );
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
+
+        // Everything arrived, so everything was handed to the connection; the counters drop
+        // right after each write, so allow them a moment.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = host.peer_stats(host_side);
+            if left.messages_queued == 0 && left.message_bytes_queued == 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the backlog never drained: {left:?}"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn a_malformed_ticket_is_rejected_before_dialing() {
         let endpoint = local_endpoint();
         assert!(endpoint.connect("not a ticket").is_err());
         assert!(endpoint.connect(&endpoint.endpoint_id()).is_err());
+    }
+
+    /// A relay that never answers (the discard port): binding does not wait for it.
+    const SILENT_RELAY: &str = "http://127.0.0.1:9";
+
+    /// `relay_only` binds no UDP socket, so no direct path can form and nothing is hole-punched:
+    /// the relay carries every packet (AzMeet's `--relay-only`, the E2E's relay phase). The same
+    /// config without it binds one.
+    #[test]
+    fn a_relay_only_endpoint_binds_no_udp_socket_and_offers_no_direct_address() {
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_url(AzString::from_const_str(SILENT_RELAY))
+            .with_relay_only(true);
+        let relayed = Engine::bind(&config).expect("a relay-only endpoint binds");
+        assert!(
+            relayed.endpoint.bound_sockets().is_empty(),
+            "a relay-only endpoint bound {:?}",
+            relayed.endpoint.bound_sockets()
+        );
+        assert_eq!(relayed.endpoint.addr().ip_addrs().count(), 0);
+
+        let direct = Engine::bind(&config.clone().with_relay_only(false)).expect("binds");
+        assert!(
+            !direct.endpoint.bound_sockets().is_empty(),
+            "without relay_only the endpoint has a UDP socket"
+        );
+    }
+
+    /// A bare iroh endpoint on the tests' protocol that answers each bidirectional stream with
+    /// `answer:` and the request: a request starting with `*` once this side finished its stream
+    /// (it reads the request to its end), any other once its line arrived (this side's stream
+    /// still open, as an HTTP/1.1 server reads). It finishes its side after the answer. Its id
+    /// and its IPv4 socket on this computer.
+    fn answering_peer() -> (String, String) {
+        let runtime = runtime().expect("the runtime");
+        let peer = runtime
+            .block_on(
+                Endpoint::builder(presets::Minimal)
+                    .alpns(vec![b"azul/iroh-test/1".to_vec()])
+                    .relay_mode(RelayMode::Disabled)
+                    .bind(),
+            )
+            .expect("the peer binds");
+        let port = peer
+            .bound_sockets()
+            .iter()
+            .find(|socket| socket.is_ipv4())
+            .expect("an IPv4 socket")
+            .port();
+        let id = peer.id().to_string();
+        runtime.spawn(async move {
+            while let Some(incoming) = peer.accept().await {
+                tokio::spawn(async move {
+                    let Ok(conn) = incoming.await else { return };
+                    while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                        tokio::spawn(async move {
+                            let mut request = vec![0u8; 1];
+                            if recv.read_exact(&mut request).await.is_err() {
+                                return;
+                            }
+                            if request[0] == b'*' {
+                                let Ok(rest) = recv.read_to_end(1024).await else {
+                                    return;
+                                };
+                                request.extend_from_slice(&rest);
+                            } else {
+                                let mut byte = [0u8; 1];
+                                while !request.ends_with(b"\n") {
+                                    if recv.read_exact(&mut byte).await.is_err() {
+                                        return;
+                                    }
+                                    request.push(byte[0]);
+                                }
+                            }
+                            let mut answer = b"answer:".to_vec();
+                            answer.extend_from_slice(&request);
+                            let _ = send.write_all(&answer).await;
+                            let _ = send.finish();
+                            let _ = send.stopped().await;
+                        });
+                    }
+                });
+            }
+        });
+        (id, format!("127.0.0.1:{port}"))
+    }
+
+    /// `request` dials a peer by its id at the socket it is given (no discovery, no relay), sends
+    /// on a new bidirectional stream and returns what the peer wrote until it finished its side:
+    /// with this side kept open until then (an HTTP/1.1 server, which reads a finished stream as
+    /// a broken request), or finished at once for a peer that reads the request to its end. The
+    /// connection is kept for the next request.
+    #[test]
+    fn a_request_gets_the_answer_of_a_peer_dialed_by_id_at_its_socket() {
+        let (id, socket) = answering_peer();
+        let client = local_endpoint();
+        let at = [socket];
+        let timeout = Duration::from_secs(20);
+        let answer = client
+            .request(&id, &at, "", b"GET /a\n", false, timeout)
+            .expect("the peer answers");
+        assert_eq!(answer, b"answer:GET /a\n");
+        let again = client
+            .request(&id, &at, "", b"GET /b\n", false, timeout)
+            .expect("the peer answers again");
+        assert_eq!(again, b"answer:GET /b\n");
+        let whole = client
+            .request(&id, &at, "", b"*all of it", true, timeout)
+            .expect("a peer that reads to the end answers once this side finished");
+        assert_eq!(whole, b"answer:*all of it");
+        assert!(client
+            .request("not an id", &at, "", b"x\n", false, timeout)
+            .is_err());
+        assert!(client
+            .request(
+                &id,
+                &[String::from("not a socket")],
+                "",
+                b"x\n",
+                false,
+                timeout
+            )
+            .is_err());
+    }
+
+    /// A peer that does not answer: the request gives up within its time.
+    #[test]
+    fn a_request_to_a_socket_nobody_answers_gives_up_within_its_time() {
+        let silent = local_endpoint();
+        let id = silent.endpoint_id();
+        let client = local_endpoint();
+        let started = Instant::now();
+        let result = client.request(
+            &id,
+            &[String::from("127.0.0.1:9")],
+            "",
+            b"GET /\n",
+            false,
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(15));
+    }
+
+    /// Relay-only with the relays disabled leaves nothing to carry a packet: refused at bind.
+    #[test]
+    fn relay_only_without_a_relay_is_refused() {
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_mode(IrohRelayMode::Disabled)
+            .with_relay_only(true);
+        match Engine::bind(&config) {
+            Ok(_) => panic!("a relay-only endpoint without a relay bound"),
+            Err(reason) => assert!(reason.contains("relay"), "{reason}"),
+        }
+    }
+
+    fn listed(ids: &[String]) -> azul_css::StringVec {
+        azul_css::StringVec::from_vec(ids.iter().map(|id| AzString::from(id.clone())).collect())
+    }
+
+    /// The next event of `engine` that is no `Ready` or `Frame`, within 20 s.
+    fn next_event(engine: &Engine) -> IrohEvent {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            match engine.recv() {
+                Some(event) if matches!(event.kind, IrohEventKind::Ready) => {}
+                Some(event) => return event,
+                None => {
+                    assert!(Instant::now() < deadline, "no event within 20 s");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
+    }
+
+    /// An endpoint that lists the peers it accepts refuses every other before any stream of
+    /// theirs is read: the stranger knows the protocol name and the ticket, and gets nothing.
+    #[test]
+    fn with_a_list_of_allowed_peers_an_unlisted_peer_is_refused_and_a_listed_one_accepted() {
+        let paired = local_endpoint();
+        let stranger = local_endpoint();
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_mode(IrohRelayMode::Disabled)
+            .with_allowed_peers(listed(&[paired.endpoint_id()]));
+        let host = Engine::bind(&config).expect("binds");
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+
+        stranger.connect(ticket.as_str()).expect("the ticket parses");
+        let refusal = next_event(&host);
+        assert_eq!(refusal.kind, IrohEventKind::Error, "{}", refusal.text.as_str());
+        assert!(
+            refusal.text.as_str().contains("not an allowed peer")
+                && refusal.text.as_str().contains(&stranger.endpoint_id()),
+            "{}",
+            refusal.text.as_str()
+        );
+        assert_eq!(host.peer_count(), 0, "the stranger never became a peer");
+        next_of(&stranger, IrohEventKind::PeerDisconnected);
+
+        paired.connect(ticket.as_str()).expect("the ticket parses");
+        let connected = next_of(&host, IrohEventKind::PeerConnected);
+        assert_eq!(connected.text.as_str(), paired.endpoint_id());
+        assert_eq!(host.peer_count(), 1);
+    }
+
+    /// Without a list the endpoint behaves as a general one: every peer that knows the
+    /// protocol is accepted, and the app decides what it trusts.
+    #[test]
+    fn without_a_list_every_peer_that_knows_the_protocol_is_accepted() {
+        let host = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        let one = local_endpoint();
+        let two = local_endpoint();
+        one.connect(ticket.as_str()).expect("parses");
+        let first = next_of(&host, IrohEventKind::PeerConnected).text;
+        two.connect(ticket.as_str()).expect("parses");
+        let second = next_of(&host, IrohEventKind::PeerConnected).text;
+        let mut seen = [first.as_str().to_string(), second.as_str().to_string()];
+        seen.sort();
+        let mut expected = [one.endpoint_id(), two.endpoint_id()];
+        expected.sort();
+        assert_eq!(seen, expected);
+    }
+
+    /// A pairing that completes while the endpoint is bound lists the new device at once; an
+    /// empty list accepts nobody.
+    #[test]
+    fn the_allowed_peers_can_be_set_while_the_endpoint_is_bound() {
+        let host = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        host.set_allowed_peers(Some(Vec::new()))
+            .expect("the ids parse");
+        let device = local_endpoint();
+        device.connect(ticket.as_str()).expect("parses");
+        let refusal = next_event(&host);
+        assert_eq!(refusal.kind, IrohEventKind::Error, "{}", refusal.text.as_str());
+        next_of(&device, IrohEventKind::PeerDisconnected);
+
+        host.set_allowed_peers(Some(vec![device.endpoint_id()]))
+            .expect("the ids parse");
+        device.connect(ticket.as_str()).expect("parses");
+        assert_eq!(
+            next_of(&host, IrohEventKind::PeerConnected).text.as_str(),
+            device.endpoint_id()
+        );
+    }
+
+    fn pinned(ca: &azul_layout::tls_testing::TestCa) -> TrustRoots {
+        TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
+            ca.cert_pem.clone(),
+        )]))
+    }
+
+    /// Whether a relay at `relay` let an endpoint trusting `roots` through its TLS while the
+    /// endpoint sent a request through it (to a peer only the relay can reach): `Ok(line)` once
+    /// a connection got past the handshake, `Err(why)` when every connection within 10 s was
+    /// refused in it (and at least one was tried). The endpoint is closed after.
+    fn relay_lets_through(
+        relay: &str,
+        roots: TrustRoots,
+        seen: &std::sync::mpsc::Receiver<azul_layout::tls_testing::Seen>,
+    ) -> Result<String, String> {
+        while seen.try_recv().is_ok() {}
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_url(AzString::from(relay.to_string()))
+            .with_trust_roots(roots);
+        let engine = Arc::new(Engine::bind(&config).expect("binds"));
+        let nobody = SecretKey::from_bytes(&[7u8; 32]).public().to_string();
+        let asking = engine.clone();
+        std::thread::spawn(move || {
+            drop(asking.request(&nobody, &[], "", b"x", true, Duration::from_secs(8)));
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut refused = None;
+        let outcome = loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match seen.recv_timeout(left) {
+                Ok(Ok(line)) => break Ok(line),
+                Ok(Err(why)) => refused = Some(why),
+                Err(_) => break Err(refused.expect("the endpoint tried its relay")),
+            }
+        };
+        engine.close();
+        outcome
+    }
+
+    /// The relay's TLS trusts what the app pins: a relay whose certificate comes from another
+    /// authority (a forged one) is refused in the handshake, as it is under the public roots;
+    /// its own root pinned, the endpoint talks to it.
+    #[test]
+    fn a_relay_with_a_certificate_outside_the_pinned_set_is_refused() {
+        let ours = azul_layout::tls_testing::TestCa::new("azul test root A");
+        let forged = azul_layout::tls_testing::TestCa::new("azul test root B");
+        let (port, seen) = azul_layout::tls_testing::serve_tls(forged.server_for_loopback());
+        let relay = format!("https://127.0.0.1:{port}");
+        let refused = relay_lets_through(&relay, pinned(&ours), &seen);
+        assert!(refused.is_err(), "the handshake went through: {refused:?}");
+        let public = relay_lets_through(&relay, TrustRoots::default(), &seen);
+        assert!(public.is_err(), "no public root issued it: {public:?}");
+        let accepted = relay_lets_through(&relay, pinned(&forged), &seen);
+        assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
     }
 }

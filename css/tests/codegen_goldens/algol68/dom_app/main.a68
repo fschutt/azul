@@ -1,0 +1,5 @@
+# Copy target/codegen/azul.a68 and libazul here, then: a68g main.a68 #
+PR include "azul.a68" PR
+PR include "styles.a68" PR
+
+SKIP

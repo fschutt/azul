@@ -220,6 +220,8 @@ pub const fn layout_display_from_u8(v: u8) -> LayoutDisplay {
         20 => LayoutDisplay::Grid,
         21 => LayoutDisplay::InlineGrid,
         22 => LayoutDisplay::Contents,
+        23 => LayoutDisplay::InlineListItem,
+        24 => LayoutDisplay::InlineBlockListItem,
         _ => LayoutDisplay::Block, // fallback + sentinel (31)
     }
 }
@@ -252,6 +254,8 @@ pub const fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
         LayoutDisplay::Grid => 20,
         LayoutDisplay::InlineGrid => 21,
         LayoutDisplay::Contents => 22,
+        LayoutDisplay::InlineListItem => 23,
+        LayoutDisplay::InlineBlockListItem => 24,
     }
 }
 
@@ -1287,6 +1291,67 @@ pub fn decode_resolved_px_i16(v: i16) -> Option<f32> {
     Some(f32::from(v) / 10.0)
 }
 
+/// What a node's compact `line_height` slot ([`CompactTextProps::line_height`])
+/// holds.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CompactLineHeight {
+    /// `normal`, or nothing declared or inherited.
+    Normal,
+    /// A `<number>`: this factor times the node's own font size.
+    Factor(f32),
+    /// An absolute line-height in px: a length, or an `em` / percentage
+    /// already computed against the font size of the node that declared it
+    /// (that length is what its descendants inherit).
+    Px(f32),
+    /// A value the slot cannot hold (the viewport units, or out of range):
+    /// read the cascade.
+    Uncached,
+}
+
+/// Encode a `<number>` line-height: the factor x 1000, positive (up to
+/// 32.763); `I16_AUTO` (read the cascade) beyond.
+#[inline]
+#[must_use]
+pub fn encode_line_height_factor(factor: f32) -> i16 {
+    let scaled = crate::cast::f32_to_i32((factor * 1000.0).round());
+    if scaled < 0 || scaled >= i32::from(I16_SENTINEL_THRESHOLD) {
+        return I16_AUTO;
+    }
+    i16::try_from(scaled).unwrap_or(I16_AUTO)
+}
+
+/// Encode an absolute line-height in px: -px x 100, to the hundredth of a
+/// pixel.
+///
+/// Tenths pitched `line-height: 14pt` lines 18.7px apart instead of 18.67px. Up
+/// to 327.68px; `I16_AUTO` (read the cascade) beyond.
+#[inline]
+#[must_use]
+pub fn encode_line_height_px(px: f32) -> i16 {
+    let scaled = crate::cast::f32_to_i32((-px * 100.0).round());
+    if !(-32768..=0).contains(&scaled) {
+        return I16_AUTO;
+    }
+    i16::try_from(scaled).unwrap_or(I16_AUTO)
+}
+
+/// Decode a compact `line_height` slot: `I16_SENTINEL` is `normal`, any
+/// other sentinel "read the cascade", a positive value a factor x 1000 and
+/// zero or a negative value -px x 100.
+#[inline]
+#[must_use]
+pub fn decode_line_height(v: i16) -> CompactLineHeight {
+    if v == I16_SENTINEL {
+        CompactLineHeight::Normal
+    } else if v >= I16_SENTINEL_THRESHOLD {
+        CompactLineHeight::Uncached
+    } else if v > 0 {
+        CompactLineHeight::Factor(f32::from(v) / 1000.0)
+    } else {
+        CompactLineHeight::Px(f32::from(v).abs() / 100.0)
+    }
+}
+
 /// Encode a u16 flex value (×100). Returns `U16_SENTINEL` if out of range.
 /// Range: 0.00 ..= 655.27 at 0.01 precision.
 #[inline]
@@ -1454,7 +1519,7 @@ pub struct CompactNodePropsCold {
     ///        OR of all -azul-scrollbar-* / scrollbar-color / scrollbar-width props.
     ///        When clear, `get_scrollbar_style` can skip 8 cascade walks and use
     ///        the UA-default result.
-    /// bit 1: `has_counter`      (counter-reset OR counter-increment)
+    /// bit 1: `has_counter`      (counter-reset, counter-increment OR counter-set)
     /// bit 2: `has_break`        (break-before OR break-after)
     /// bit 3: `has_text_orientation`
     /// bit 4: `has_text_shadow`
@@ -1511,6 +1576,10 @@ pub const DOM_HAS_TEXT_ALIGN_LAST: u32 = 1 << 19;
 pub const DOM_HAS_LINE_HEIGHT: u32 = 1 << 20;
 pub const DOM_HAS_COLUMN_WIDTH: u32 = 1 << 21;
 pub const DOM_HAS_SHAPE_MARGIN: u32 = 1 << 22;
+pub const DOM_HAS_FONT_VARIANT_NUMERIC: u32 = 1 << 23;
+pub const DOM_HAS_TEXT_OVERFLOW: u32 = 1 << 24;
+pub const DOM_HAS_FONT_VARIANT_CAPS: u32 = 1 << 25;
+pub const DOM_HAS_FONT_FEATURE_SETTINGS: u32 = 1 << 26;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -1537,10 +1606,17 @@ impl Default for CompactNodeProps {
             margin_right: 0,
             margin_bottom: 0,
             margin_left: 0,
-            border_top_width: 0,
-            border_right_width: 0,
-            border_bottom_width: 0,
-            border_left_width: 0,
+            // ...except the border widths: an undeclared one is `initial`
+            // (`medium`), NOT 0 px. Its used value depends on the side's
+            // style (CSS Backgrounds 3 s4.3: 0 for none / hidden, else the
+            // width, else medium), so a side with a style and no width has a
+            // 3px border - which a 0 here, indistinguishable from a declared
+            // `0`, made impossible on the normal-state fast path (WPT
+            // border-top-width-medium; `getters::used_border_width`).
+            border_top_width: I16_INITIAL,
+            border_right_width: I16_INITIAL,
+            border_bottom_width: I16_INITIAL,
+            border_left_width: I16_INITIAL,
             top: I16_AUTO,
             right: I16_AUTO,
             bottom: I16_AUTO,
@@ -1598,10 +1674,13 @@ impl Default for CompactNodePropsCold {
 pub struct CompactTextProps {
     pub text_color: u32,       // RGBA as 0xRRGGBBAA (0 = transparent/unset)
     pub font_family_hash: u64, // FxHash of font-family list (0 = sentinel/unset)
-    /// Split scale by SIGN (parser convention: negative normalized =
-    /// absolute px): negative = -px x 10 (line-height: 40px -> -400),
-    /// positive = unitless multiple x 1000 (1.2 / 120% -> 1200).
-    /// `I16_SENTINEL` = unset ("normal").
+    /// Split scale by SIGN, see [`decode_line_height`]: zero or negative =
+    /// absolute px x -100 (line-height: 40px -> -4000; an `em` or a
+    /// percentage is computed to px against the declaring node's font size
+    /// first, so its descendants inherit the length), positive = a
+    /// `<number>` x 1000 (1.2 -> 1200, inherited as the number).
+    /// `I16_SENTINEL` = unset ("normal"), `I16_AUTO` = not encodable here
+    /// (viewport units, out of range): read the cascade.
     pub line_height: i16,
     pub letter_spacing: i16, // px × 10
     pub word_spacing: i16,   // px × 10
@@ -1714,6 +1793,10 @@ pub struct CompactLayoutCache {
     pub inline_viewport_w: Vec<u32>,
     /// Viewport HEIGHT thresholds, same contract as `inline_viewport_w`.
     pub inline_viewport_h: Vec<u32>,
+    /// An inline conditional property's condition can change with the
+    /// viewport's shape alone (an aspect ratio, an orientation, a container
+    /// size): a resize that crosses no threshold may still flip it.
+    pub inline_viewport_shape: bool,
 }
 
 impl CompactLayoutCache {
@@ -1733,6 +1816,7 @@ impl CompactLayoutCache {
             has_dynamic_conditions: false,
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
+            inline_viewport_shape: false,
         }
     }
 
@@ -1752,6 +1836,7 @@ impl CompactLayoutCache {
             has_dynamic_conditions: false,
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
+            inline_viewport_shape: false,
         }
     }
 
@@ -2416,8 +2501,8 @@ impl CompactLayoutCache {
 
     #[inline]
     #[must_use]
-    pub fn get_line_height(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2b_text[node_idx].line_height)
+    pub fn get_line_height(&self, node_idx: usize) -> CompactLineHeight {
+        decode_line_height(self.tier2b_text[node_idx].line_height)
     }
 
     #[inline]
@@ -2778,6 +2863,8 @@ mod tests {
             LayoutDisplay::Grid,
             LayoutDisplay::InlineGrid,
             LayoutDisplay::Contents,
+            LayoutDisplay::InlineListItem,
+            LayoutDisplay::InlineBlockListItem,
         ]
     );
 
@@ -3079,7 +3166,7 @@ mod tests {
 
         assert_fits(
             "display",
-            layout_display_to_u8(LayoutDisplay::Contents),
+            layout_display_to_u8(LayoutDisplay::InlineBlockListItem),
             DISPLAY_MASK,
         );
         assert_fits(
@@ -3242,7 +3329,7 @@ mod autotest_generated {
     // Shared fixtures
     // =========================================================================
 
-    const ALL_DISPLAY: [LayoutDisplay; 23] = [
+    const ALL_DISPLAY: [LayoutDisplay; 25] = [
         LayoutDisplay::Block,
         LayoutDisplay::Inline,
         LayoutDisplay::InlineBlock,
@@ -3266,6 +3353,8 @@ mod autotest_generated {
         LayoutDisplay::Grid,
         LayoutDisplay::InlineGrid,
         LayoutDisplay::Contents,
+        LayoutDisplay::InlineListItem,
+        LayoutDisplay::InlineBlockListItem,
     ];
 
     const ALL_BORDER_STYLE: [BorderStyle; 10] = [
@@ -3465,7 +3554,13 @@ mod autotest_generated {
 
     #[test]
     fn out_of_range_u8_falls_back_to_css_initial_for_every_enum() {
-        assert_u8_fallback("display", layout_display_from_u8, 23, LayoutDisplay::Block);
+        // one past the last variant, so a new display value moves the range with it
+        assert_u8_fallback(
+            "display",
+            layout_display_from_u8,
+            ALL_DISPLAY.len() as u8,
+            LayoutDisplay::Block,
+        );
         assert_u8_fallback(
             "position",
             layout_position_from_u8,
@@ -4616,8 +4711,13 @@ mod autotest_generated {
             assert_eq!(c.get_padding_right(i), Some(0.0));
             assert_eq!(c.get_padding_bottom(i), Some(0.0));
             assert_eq!(c.get_padding_left(i), Some(0.0));
-            assert_eq!(c.get_border_top_width(i), Some(0.0));
-            assert_eq!(c.get_border_left_width(i), Some(0.0));
+            // A border width is `initial` until declared: `medium` when the
+            // side has a style, 0 when it has none - the style decides, so
+            // no pixel value is stored (CSS Backgrounds 3 s4.3).
+            assert_eq!(c.get_border_top_width_raw(i), I16_INITIAL);
+            assert_eq!(c.get_border_left_width_raw(i), I16_INITIAL);
+            assert_eq!(c.get_border_top_width(i), None);
+            assert_eq!(c.get_border_left_width(i), None);
             // margin defaults to 0, NOT auto — centering must not kick in for free.
             assert_eq!(c.get_margin_top(i), Some(0.0));
             assert_eq!(c.get_margin_left(i), Some(0.0));
@@ -4672,7 +4772,7 @@ mod autotest_generated {
             // Text tier.
             assert_eq!(c.get_text_color_raw(i), 0);
             assert_eq!(c.get_font_family_hash(i), 0);
-            assert_eq!(c.get_line_height(i), None); // "normal" → slow path
+            assert_eq!(c.get_line_height(i), CompactLineHeight::Normal);
             assert_eq!(c.get_letter_spacing(i), Some(0.0));
             assert_eq!(c.get_word_spacing(i), Some(0.0));
             assert_eq!(c.get_text_indent(i), Some(0.0));

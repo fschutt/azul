@@ -1,0 +1,27 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Whitespace inside table isn't incorrectly suppressed</title>
+<style>
+.outer {
+  display: table;
+  width: 500px;
+  background: purple;
+  border: 1px solid green;
+}
+.half {
+  display: inline-block;
+  width: 50%;
+  background: blue;
+}
+.half + .half {
+  background: yellow;
+}
+</style>
+</head>
+<body><div class="outer">
+  <div class="half">A</div>
+  
+  <div class="half">B</div>
+</div>
+</body>
+</html>

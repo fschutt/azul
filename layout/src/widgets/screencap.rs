@@ -253,6 +253,7 @@ const fn capture_request(config: &ScreenCaptureConfig) -> CaptureRequest {
         height: 0,
         fps: config.fps,
         exclude_self: true,
+        format: config.output_format,
     }
 }
 
@@ -657,20 +658,12 @@ mod autotest_generated {
     /// A tightly-packed RGBA frame (`width * height * 4` bytes).
     fn frame(width: u32, height: u32) -> VideoFrame {
         let px = (width as usize) * (height as usize);
-        VideoFrame {
-            width,
-            height,
-            bytes: vec![7u8; px * 4].into(),
-        }
+        VideoFrame::new(width, height, vec![7u8; px * 4].into())
     }
 
     /// A frame whose declared dimensions need not match its byte count.
     fn frame_raw(width: u32, height: u32, bytes: Vec<u8>) -> VideoFrame {
-        VideoFrame {
-            width,
-            height,
-            bytes: bytes.into(),
-        }
+        VideoFrame::new(width, height, bytes.into())
     }
 
     // ---- CallbackInfo harness --------------------------------------------

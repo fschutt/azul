@@ -77,11 +77,13 @@ fn layout_one_paragraph(paragraph_css: &str) -> LayoutWindow {
 
 /// Install a multi-cursor session holding exactly `ranges` and repaint.
 fn select_ranges(lw: &mut LayoutWindow, ranges: &[SelectionRange]) {
-    let node = DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(P))),
-    };
-    let mut mc = MultiCursorState::new_with_cursor(cursor(0), node, 0);
+    let block = lw
+        .text_block_of(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(P))),
+        })
+        .expect("the paragraph is a text block");
+    let mut mc = MultiCursorState::new_with_cursor(cursor(0), block, 0);
     mc.selections.clear();
     for r in ranges {
         let _ = mc.add_selection(*r);

@@ -32,8 +32,19 @@ const TRANSPARENT: ColorU = ColorU {
 /// A BARE FRAGMENT is passed through deliberately - no `<html>` wrapper - so
 /// these also pin that an `<svg>` root parses on its own, the way a browser
 /// takes one.
+///
+/// The `<svg>` is laid out as a BLOCK, as large as its box. Inline (its UA
+/// display), it sits on a line box that holds the strut of the body's font
+/// (CSS 2.2 s10.8, user ruling 2026-10-03: Chrome is the reference), so the
+/// line is taller than the SVG by the font's descent and half-leading: the
+/// 8 and 16 px frames below overflowed, the viewport scrolled, and its
+/// scrollbar thumb (#c1c1c1) covered the frame - a grey centre where the
+/// fill was. An icon that wants its box's height alone says `display: block`
+/// (or `line-height: 0`), as on the web; these tests are about the paint.
 fn render(markup: &str, size: f32) -> azul_layout::cpurender::ComponentPreviewResult {
-    let markup = format!("<style>body {{ margin: 0; padding: 0; }}</style>{markup}");
+    let markup = format!(
+        "<style>body {{ margin: 0; padding: 0; }} svg {{ display: block; }}</style>{markup}"
+    );
     let parsed = azul_layout::xml::parse_xml(&markup).expect("the fixture parses");
     let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
     render_dom_to_rgba(dom, Css::empty(), size, size, 1.0, TRANSPARENT).expect("renders")
@@ -216,6 +227,60 @@ fn a_stroked_path_paints_its_outline() {
         (48..=96).contains(&red),
         "a 16x4 stroke should cover about 64 px, got {red}"
     );
+}
+
+/// A stroke takes its dash pattern and its caps (SVG 2 s13.5):
+/// `stroke-dasharray="4 4"` along a 32-long rule paints four 4-long dashes,
+/// and the initial cap, `butt`, ends each dash where the pattern does. The
+/// display list stroked every path of a DOM `<svg>` solid, with round caps
+/// and joins.
+#[test]
+fn a_stroke_takes_its_dash_pattern_and_its_caps() {
+    let r = render(
+        r##"<svg viewBox="0 0 32 8" width="32" height="8">
+              <path fill="none" stroke="#ff0000" stroke-width="4" stroke-dasharray="4 4"
+                    d="M 0,4 L 32,4"/>
+            </svg>"##,
+        32.0,
+    );
+    let red_at = |x: u32| {
+        let i = ((4 * r.pixel_width + x) * 4) as usize;
+        let p = &r.rgba[i..i + 4];
+        p[0] > 200 && p[3] > 200
+    };
+    for x in [1, 2, 9, 10, 17, 18, 25, 26] {
+        assert!(red_at(x), "a dash covers x = {x}");
+    }
+    // x = 5 is where a round cap would reach, x = 6 is the middle of a gap.
+    for x in [5, 6, 13, 14, 21, 22, 29, 30] {
+        assert!(!red_at(x), "a gap at x = {x}");
+    }
+}
+
+/// `stroke-linecap="round"` and `"square"` reach half the width past each
+/// end of a dash.
+#[test]
+fn a_round_or_square_cap_reaches_past_the_end_of_a_dash() {
+    for cap in ["round", "square"] {
+        let r = render(
+            &format!(
+                r##"<svg viewBox="0 0 32 8" width="32" height="8">
+                      <path fill="none" stroke="#ff0000" stroke-width="4"
+                            stroke-dasharray="4 8" stroke-linecap="{cap}" d="M 2,4 L 32,4"/>
+                    </svg>"##
+            ),
+            32.0,
+        );
+        let red_at = |x: u32| {
+            let i = ((4 * r.pixel_width + x) * 4) as usize;
+            let p = &r.rgba[i..i + 4];
+            p[0] > 200 && p[3] > 200
+        };
+        // The first dash runs 2..6: a cap of 2 px reaches 0..8.
+        assert!(red_at(0) || cap == "round", "{cap}: the square cap reaches x = 0");
+        assert!(red_at(6), "{cap}: the cap reaches past the dash's end");
+        assert!(!red_at(10), "{cap}: the gap after it");
+    }
 }
 
 /// Fill and stroke are INDEPENDENT paints of the same geometry - the PDF
@@ -489,10 +554,6 @@ fn a_curved_edge_is_antialiased_not_stepped() {
 /// `:hover` would flicker. A descendant selector keyed on the BUTTON is the
 /// declarative answer, if the cascade supports one.
 #[test]
-#[ignore = "KNOWN GAP, recorded deliberately: a descendant selector with a pseudo-class \
-            (`.btn:hover .ink`) does not reach the child. This is why swapping a window control's \
-            glyph on hover cannot be done in CSS and goes through a VirtualView re-render instead. \
-            Basic CSS, worth fixing on its own; un-ignore with the fix."]
 fn a_parents_hover_can_restyle_a_child() {
     use azul_core::{id::NodeId, styled_dom::StyledNodeState};
 

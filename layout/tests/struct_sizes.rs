@@ -94,7 +94,12 @@ fn shaped_text_struct_sizes_are_pinned() {
         "Duplicated into every glyph. Sharing it by font_hash would cut ShapedGlyph by a third."
     );
 
-    assert_size!(UnifiedLayout, 64, "Per-IFC header; cheap, not a target.");
+    assert_size!(
+        UnifiedLayout,
+        72,
+        "Per-IFC header; cheap, not a target. GREW 64 -> 72 (2026-10-15): `line_clamped`, \
+         whether line-clamp cut the text (its ellipsis), padded to 8."
+    );
 }
 
 /// The pipeline stages upstream of shaping. These are transient per layout
@@ -115,8 +120,13 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        248,
-        "Shared behind an Arc, so one per distinct style - NOT per glyph."
+        280,
+        "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
+         (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
+         inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B. GREW \
+         256 -> 264 (2026-10-15): font-variant-caps and font-feature-settings reach the shaper. \
+         GREW 264 -> 280: `inline_boxes`, the spans around the text that move the pen (one \
+         Arc<[InlineBoxEdge]>), so nested spans keep their outer span's edges."
     );
 }
 
@@ -159,20 +169,27 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(LayoutNodeHot, 80, "Per layout node, touched every pass.");
     assert_size!(
         LayoutNodeWarm,
-        928,
+        952,
         "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes is 1.7 MB before a \
          single glyph is shaped. Dominated by the taffy measurement cache and the inline \
          Option<CachedInlineLayout>. GREW 1176 -> 1296 (2026-08-09, the resize measure-cache pair \
          measured_content_sizes — a deliberate perf-for-memory trade that went unnoticed while \
-         this pin's target was silently broken). The planned rare-data split (memory batch item \
-         2) targets exactly this struct; shrink it there, deliberately, not here."
+         this pin's target was silently broken). GREW 928 -> 944 (2026-09-28, the `flags` byte \
+         every `impl_vec!` type gained for localizable strings, padded to 8 in each Vec-backed \
+         value a warm node holds). GREW 944 -> 952 (2026-10-15, `sticky`: a sticky box's \
+         constraint, boxed, so only sticky nodes pay for it). The planned rare-data split (memory batch item 2) targets \
+         exactly this struct; shrink it there, deliberately, not here."
     );
     assert_size!(
         LayoutNodeCold,
-        288,
+        296,
         "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
          gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
-         TextArea-over-Slider fix)."
+         TextArea-over-Slider fix). GREW 288 -> 296 (2026-10-03, CSS `zoom`, aa4a3f9e1): \
+         UnresolvedBoxProps carries the node's effective zoom and the root's (two f32, 200 -> \
+         208 with its bool), which its late resolve against the real containing block scales \
+         the absolute and rem edges by. `root_zoom` is the same for every node of a document: \
+         passing it in ResolutionParams (beside root_font_size) would win these 8 B back."
     );
 }
 

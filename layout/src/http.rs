@@ -5,9 +5,10 @@
 use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
+pub use azul_core::tls::TrustRoots;
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
-    impl_vec_partialeq, AzString, U8Vec,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_vec_partialeq, AzString, StringVec, U8Vec,
 };
 
 // ============================================================================
@@ -54,6 +55,10 @@ pub enum HttpError {
     ResponseTooLarge(HttpResponseTooLargeError),
     /// Other error
     Other(AzString),
+    /// The host name did not resolve: the lookup failed or gave up (DNS down, an unknown
+    /// name). The host may still answer at an address known another way
+    /// ([`HttpClient::add_fallback_address`]).
+    DnsFailed(AzString),
 }
 
 impl HttpError {
@@ -97,6 +102,11 @@ impl HttpError {
     pub const fn other(msg: AzString) -> Self {
         Self::Other(msg)
     }
+
+    #[must_use]
+    pub const fn dns_failed(msg: AzString) -> Self {
+        Self::DnsFailed(msg)
+    }
 }
 
 impl fmt::Display for HttpError {
@@ -116,6 +126,7 @@ impl fmt::Display for HttpError {
                 )
             }
             Self::Other(msg) => write!(f, "HTTP error: {}", msg.as_str()),
+            Self::DnsFailed(msg) => write!(f, "DNS lookup failed: {}", msg.as_str()),
         }
     }
 }
@@ -127,7 +138,7 @@ impl std::error::Error for HttpError {}
 pub type HttpResult<T> = Result<T, HttpError>;
 
 // FFI-safe Result types for HTTP operations
-use azul_css::{impl_result, impl_result_inner};
+use azul_css::impl_result;
 
 // Forward declaration - actual impl_result! calls are after HttpResponse definition
 
@@ -177,25 +188,41 @@ impl_vec_mut!(HttpHeader, HttpHeaderVec);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct HttpRequestConfig {
-    /// Request timeout in seconds (default: 30)
-    pub timeout_secs: u64,
-    /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
-    pub max_response_size: u64,
+    // pointer-sized fields first and the two bools last, so the C layout has no padding holes
     /// User-Agent header value
     pub user_agent: AzString,
     /// Additional headers
     pub headers: HttpHeaderVec,
+    /// Connection pool to send the request through (default: none).
+    ///
+    /// `None` opens a fresh connection for this request and closes it after.
+    /// `Some` reuses the client's idle connections, and TLS verification then
+    /// follows the client's `HttpClientConfig`, not the fields here.
+    pub client: OptionHttpClient,
+    /// The certificate authorities this request trusts when it opens its own
+    /// connection (no `client`): the public roots (default), or the ones an
+    /// app pins for a far end it knows.
+    pub trust_roots: TrustRoots,
+    /// Request timeout in seconds (default: 30)
+    pub timeout_secs: u64,
+    /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
+    pub max_response_size: u64,
+    /// Seconds the request body may take to send (0, the default: only the
+    /// overall timeout applies). An upload sets it from its size, so a big
+    /// body on a slow link gets the time it needs and a stalled one still ends.
+    pub send_timeout_secs: u64,
+    /// Seconds the response body may take to arrive (0, the default: only the
+    /// overall timeout applies). A ranged download sets it from its range.
+    pub recv_timeout_secs: u64,
     /// Disable TLS certificate verification (default: false).
     /// WARNING: This makes HTTPS connections vulnerable to MITM attacks.
     /// Use only for testing or when connecting to servers with self-signed
     /// or cross-signed certificates not in the Mozilla root store.
     pub disable_tls_cert_verification: bool,
-    /// Connection pool to send the request through (default: none).
-    ///
-    /// `None` opens a fresh connection for this request and closes it after.
-    /// `Some` reuses the client's idle connections, and TLS verification then
-    /// follows the client's `HttpClientConfig`, not the field above.
-    pub client: OptionHttpClient,
+    /// Follow redirects (default: true, up to 10). `false` answers the
+    /// redirect itself - its 3xx status and `Location` header - so a feed
+    /// reader can tell a 301 (update the subscription) from a 302.
+    pub follow_redirects: bool,
 }
 
 impl Default for HttpRequestConfig {
@@ -203,18 +230,26 @@ impl Default for HttpRequestConfig {
         Self {
             timeout_secs: 30,
             max_response_size: 100 * 1024 * 1024, // 100 MB
+            send_timeout_secs: 0,
+            recv_timeout_secs: 0,
             user_agent: AzString::from("azul-http/1.0".to_string()),
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
             client: OptionHttpClient::None,
+            trust_roots: TrustRoots::PublicRoots,
+            follow_redirects: true,
         }
     }
 }
 
 /// Settings for an [`HttpClient`]'s connection pool (C-compatible).
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct HttpClientConfig {
+    /// The certificate authorities every request of this client trusts: the
+    /// public roots (default), or the ones an app pins for a far end it knows
+    /// (its token server). A pinned set that does not parse fails every request.
+    pub trust_roots: TrustRoots,
     /// Idle connections kept open across all hosts (default: 32).
     pub max_idle_connections: u32,
     /// Idle connections kept open to any one host (default: 8).
@@ -235,6 +270,7 @@ pub struct HttpClientConfig {
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
+            trust_roots: TrustRoots::PublicRoots,
             max_idle_connections: 32,
             max_idle_connections_per_host: 8,
             dns_cache_secs: 0,
@@ -270,6 +306,13 @@ impl HttpClientConfig {
         self.dns_cache_secs = secs;
         self
     }
+
+    /// Trust these certificate authorities for every request of the client
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
+        self
+    }
 }
 
 /// A connection pool that requests can share (C-compatible handle).
@@ -291,20 +334,39 @@ pub struct HttpClientInner {
     pub config: HttpClientConfig,
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     agent: ureq::Agent,
+    /// Where a host is reached when its name does not resolve
+    /// ([`HttpClient::add_fallback_address`]); the agent's resolver reads it.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    fallback: FallbackAddresses,
+    /// Why `config.trust_roots` did not load: every request of the client fails
+    /// with it (the agent trusts nothing), it never falls back to the public roots.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    trust_error: Option<String>,
 }
 
 impl HttpClient {
     /// Create a connection pool with the given settings
     #[must_use]
     pub fn create(config: HttpClientConfig) -> Self {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let fallback = FallbackAddresses::default();
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let agent = client_agent(
+            &config,
+            ureq::unversioned::resolver::DefaultResolver::default(),
+            fallback.clone(),
+        );
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let trust_error = root_certs_of(&config.trust_roots).err();
         Self {
             ptr: Box::new(alloc::sync::Arc::new(HttpClientInner {
                 config,
                 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-                agent: client_agent(
-                    &config,
-                    ureq::unversioned::resolver::DefaultResolver::default(),
-                ),
+                agent,
+                #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+                fallback,
+                #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+                trust_error,
             })),
             run_destructor: true,
         }
@@ -313,7 +375,53 @@ impl HttpClient {
     /// The settings this client was created with
     #[must_use]
     pub fn get_config(&self) -> HttpClientConfig {
-        self.ptr.config
+        self.ptr.config.clone()
+    }
+
+    /// Connects to `host` at `address` (an IP address, `ip:port` or `[ipv6]:port`) whenever
+    /// the host's name does not resolve: the request still goes to `host` - its Host header
+    /// and the TLS server name, so the certificate is verified for that name, not for the
+    /// address. A host collects up to 16 addresses. Returns false when `address` is no address
+    /// (or this build has no HTTP client).
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use]
+    pub fn add_fallback_address(&self, host: &str, address: &str) -> bool {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
+            let Some(parsed) = parse_fallback_address(address) else {
+                return false;
+            };
+            let host = fallback_host(host);
+            if host.is_empty() {
+                return false;
+            }
+            let Ok(mut known) = self.ptr.fallback.lock() else {
+                return false;
+            };
+            let addresses = known.entry(host).or_default();
+            if !addresses.contains(&parsed) && addresses.len() < MAX_FALLBACK_ADDRESSES {
+                addresses.push(parsed);
+            }
+            true
+        }
+        #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+        {
+            let _ = (host, address);
+            false
+        }
+    }
+
+    /// Forgets the fallback addresses of `host`: its name is looked up only.
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn clear_fallback_addresses(&self, host: &str) {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        if let Ok(mut known) = self.ptr.fallback.lock() {
+            known.remove(&fallback_host(host));
+        }
+        #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+        let _ = host;
     }
 }
 
@@ -369,6 +477,8 @@ fn mocked_http(url: &str) -> Option<ResultHttpResponseHttpError> {
                 content_type: r.content_type,
                 content_length,
                 headers: HttpHeaderVec::from_const_slice(&[]),
+                final_url: AzString::from(url),
+                redirect_history: StringVec::from_const_slice(&[]),
             }))
         }
         Answer::Mocked(MockHttp::Error(message)) => {
@@ -397,6 +507,127 @@ fn mocked_download(url: &str) -> Option<ResultU8VecHttpError> {
     }
 }
 
+/// [`mocked_http`] as a reachability probe's `(reachable, error)`.
+#[cfg(feature = "text_layout")]
+fn mocked_reachable(url: &str) -> Option<(bool, Option<AzString>)> {
+    Some(match mocked_http(url)? {
+        ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
+        ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
+    })
+}
+
+/// What a resumable request answers when its worker thread could not start,
+/// or ended without an answer (it panicked).
+#[cfg(feature = "text_layout")]
+const LOST_TRANSFER: &str = "the request's worker thread ended without an answer";
+
+/// [`LOST_TRANSFER`] as the answer of `http_get` / `http_request` / `http_post`.
+#[cfg(feature = "text_layout")]
+fn lost_get_result() -> HttpGetResult {
+    HttpGetResult {
+        result: ResultHttpResponseHttpError::Err(HttpError::other(LOST_TRANSFER.into())),
+    }
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Whether this thread runs the app's event loop ([`mark_event_loop_thread`]).
+    static EVENT_LOOP_THREAD: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Marks the calling thread as the one that runs the app's event loop: a
+/// blocking request there is refused ([`HttpRequestConfig::http_request_blocking`]),
+/// as the frames it would hold up are the ones that deliver every other
+/// answer. `App::run` calls it before its loop starts.
+#[cfg(feature = "std")]
+pub fn mark_event_loop_thread() {
+    EVENT_LOOP_THREAD.with(|marked| marked.set(true));
+}
+
+/// Whether the calling thread runs the app's event loop.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn is_event_loop_thread() -> bool {
+    EVENT_LOOP_THREAD.with(core::cell::Cell::get)
+}
+
+#[cfg(not(feature = "std"))]
+const fn is_event_loop_thread() -> bool {
+    false
+}
+
+/// The refusal of a blocking request on the event loop's thread: a debug build
+/// stops there, so the call is found; a release build answers at once.
+fn refused_on_event_loop_thread() -> Option<HttpError> {
+    if !is_event_loop_thread() {
+        return None;
+    }
+    debug_assert!(
+        false,
+        "a blocking HTTP request on the UI thread: it would stop the frames that deliver every \
+         other answer; send it from a worker thread or use http_request"
+    );
+    Some(HttpError::other(AzString::from(
+        "a blocking request was sent from the UI thread; it runs on worker threads only",
+    )))
+}
+
+/// Resumes `on_result` with the request's answer WITHOUT blocking the calling
+/// activation: the one way every resumable request of [`HttpRequestConfig`]
+/// runs.
+///
+/// `mocked` is the e2e mock store's answer (`mocked_http` / `mocked_download`):
+/// a canned answer, or the immediate "unmocked" error of a scripted run, is
+/// queued for the next pump right away - a scripted run stays deterministic.
+/// Otherwise, with a network transport (the `http` feature, not wasm32), the
+/// transfer runs on a worker thread and the request is deferred: the pump
+/// (which keeps ticking while `request::has_work()`) polls the thread's
+/// channel and resumes on the first poll after the answer. A thread that
+/// cannot start, or ends without an answer, resumes with `lost()`. Without a
+/// transport (no `http` feature; on wasm32 the web host services the queue)
+/// `transfer` runs here.
+#[cfg(feature = "text_layout")]
+fn resume_without_blocking<T: Send + 'static>(
+    data: azul_core::refany::RefAny,
+    on_result: crate::callbacks::ResumeCallback,
+    mocked: Option<T>,
+    transfer: impl FnOnce() -> T + Send + 'static,
+    lost: fn() -> T,
+) -> azul_core::task::RequestId {
+    if let Some(answer) = mocked {
+        return crate::request::complete(data, on_result, answer);
+    }
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    {
+        use std::sync::mpsc::{channel, TryRecvError};
+
+        let (answer_tx, answer_rx) = channel();
+        let spawned = std::thread::Builder::new()
+            .name("azul-http".into())
+            .spawn(move || {
+                // Fails only when the request was dropped unanswered.
+                let _ = answer_tx.send(transfer());
+            });
+        if spawned.is_err() {
+            return crate::request::complete(data, on_result, lost());
+        }
+        crate::request::defer(
+            data,
+            on_result,
+            alloc::boxed::Box::new(move || match answer_rx.try_recv() {
+                Ok(answer) => Some(azul_core::refany::RefAny::new(answer)),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(azul_core::refany::RefAny::new(lost())),
+            }),
+        )
+    }
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
+    {
+        let _ = lost;
+        crate::request::complete(data, on_result, transfer())
+    }
+}
+
 impl HttpRequestConfig {
     /// Create a new config with default values
     #[must_use]
@@ -411,10 +642,36 @@ impl HttpRequestConfig {
         self
     }
 
-    /// Set maximum response size (0 = unlimited)
+    /// Set maximum response size (0 = unlimited). A bigger answer is refused
+    /// with `HttpError::ResponseTooLarge`, never cut short.
     #[must_use]
     pub const fn with_max_size(mut self, max_bytes: u64) -> Self {
         self.max_response_size = max_bytes;
+        self
+    }
+
+    /// Trust these certificate authorities when the request opens its own
+    /// connection (a request through a client trusts what the client's config
+    /// says)
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
+        self
+    }
+
+    /// Set the seconds the request body may take to send (0 = only the overall
+    /// timeout applies)
+    #[must_use]
+    pub const fn with_send_timeout(mut self, secs: u64) -> Self {
+        self.send_timeout_secs = secs;
+        self
+    }
+
+    /// Set the seconds the response body may take to arrive (0 = only the
+    /// overall timeout applies)
+    #[must_use]
+    pub const fn with_recv_timeout(mut self, secs: u64) -> Self {
+        self.recv_timeout_secs = secs;
         self
     }
 
@@ -443,10 +700,11 @@ impl HttpRequestConfig {
     /// HTTP GET request using this configuration, resuming `on_result` with
     /// an [`HttpGetResult`].
     ///
-    /// Never blocks the calling activation in an observable way: on desktop
-    /// the request runs here (ureq is synchronous) and the callback runs
-    /// right after the current activation returns; on web `fetch()` runs and
-    /// the callback runs on a later task. `data` is handed back untouched.
+    /// Never blocks the calling activation: on desktop the transfer runs on a
+    /// worker thread and the callback runs on the first frame after the answer
+    /// arrives (under an armed e2e mock store the canned answer resumes right
+    /// after the current activation); on web `fetch()` runs and the callback
+    /// runs on a later task. `data` is handed back untouched.
     ///
     /// On web CORS applies and cannot be escaped: a target that does not
     /// send `Access-Control-Allow-Origin` fails with `HttpError::Other`
@@ -460,8 +718,16 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_get_blocking(url);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.http_get_blocking(url),
+            },
+            lost_get_result,
+        )
     }
 
     /// The synchronous transport behind [`Self::http_get`]. Not part of the
@@ -504,15 +770,45 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_request_blocking(method, url, body, content_type);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.request_blocking(method, url, body, content_type),
+            },
+            lost_get_result,
+        )
     }
 
-    /// The synchronous transport behind [`Self::http_request`]; see
-    /// [`Self::http_get_blocking`].
-    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    /// HTTP request with an arbitrary verb and an optional body, answered on
+    /// the calling thread: it blocks until the answer arrived (or the
+    /// timeouts ended it). For worker threads, whose answer then never depends
+    /// on the UI thread's pump. An EMPTY `body` sends no body; `content_type`
+    /// is only applied when a body is present.
+    ///
+    /// The thread that runs the app's event loop never waits here: a debug
+    /// build panics, a release build answers `HttpError::Other` at once
+    /// (a UI callback uses `http_request`, whose answer comes on a later frame).
     #[must_use]
     pub fn http_request_blocking(
+        &self,
+        method: HttpMethod,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        if let Some(refused) = refused_on_event_loop_thread() {
+            return ResultHttpResponseHttpError::Err(refused);
+        }
+        self.request_blocking(method, url, body, content_type)
+    }
+
+    /// The transfer behind [`Self::http_request`] and
+    /// [`Self::http_request_blocking`], on whatever thread calls it.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    fn request_blocking(
         &self,
         method: HttpMethod,
         url: AzString,
@@ -534,8 +830,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
-    #[must_use]
-    pub fn http_request_blocking(
+    fn request_blocking(
         &self,
         _method: HttpMethod,
         url: AzString,
@@ -561,8 +856,16 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_post_blocking(url, body, content_type);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.http_post_blocking(url, body, content_type),
+            },
+            lost_get_result,
+        )
     }
 
     /// The synchronous transport behind [`Self::http_post`]; see
@@ -609,8 +912,18 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.download_bytes_blocking(url);
-        crate::request::complete(data, on_result, HttpBytesResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_download(url.as_str()).map(|result| HttpBytesResult { result }),
+            move || HttpBytesResult {
+                result: config.download_bytes_blocking(url),
+            },
+            || HttpBytesResult {
+                result: ResultU8VecHttpError::Err(HttpError::other(LOST_TRANSFER.into())),
+            },
+        )
     }
 
     /// The synchronous transport behind [`Self::download_bytes`]; see
@@ -652,13 +965,19 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let (reachable, error) = self.is_url_reachable_blocking(url);
-        crate::request::complete(
+        let config = self.clone();
+        let result = |(reachable, error): (bool, Option<AzString>)| HttpReachableResult {
+            reachable,
+            error: error.into(),
+        };
+        resume_without_blocking(
             data,
             on_result,
-            HttpReachableResult {
-                reachable,
-                error: error.into(),
+            mocked_reachable(url.as_str()).map(result),
+            move || result(config.is_url_reachable_blocking(url)),
+            || HttpReachableResult {
+                reachable: false,
+                error: azul_css::corety::OptionString::Some(LOST_TRANSFER.into()),
             },
         )
     }
@@ -669,11 +988,8 @@ impl HttpRequestConfig {
     #[must_use]
     pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(url.as_str()) {
-            return match mocked {
-                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
-                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
-            };
+        if let Some(mocked) = mocked_reachable(url.as_str()) {
+            return mocked;
         }
         match http_request_with_config(HttpMethod::Head, url.as_str(), None, "", self) {
             Ok(response) => (response.is_success(), None),
@@ -687,11 +1003,8 @@ impl HttpRequestConfig {
     #[must_use]
     pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(url.as_str()) {
-            return match mocked {
-                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
-                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
-            };
+        if let Some(mocked) = mocked_reachable(url.as_str()) {
+            return mocked;
         }
         (
             false,
@@ -721,6 +1034,15 @@ pub struct HttpResponse {
     pub content_length: u64,
     /// Response headers
     pub headers: HttpHeaderVec,
+    /// The URL this response came from: the requested URL, or where its
+    /// redirects ended (a feed or a page that moved). Resolve relative links
+    /// in the body against this, not against the requested URL.
+    pub final_url: AzString,
+    /// Every URL the request passed through, in order: the requested URL
+    /// first and `final_url` last - one entry when the server answered at
+    /// once. Which hop was a 301 the server says in the hop's own answer;
+    /// ask with `follow_redirects: false` to see one.
+    pub redirect_history: StringVec,
 }
 
 impl HttpResponse {
@@ -888,12 +1210,81 @@ pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
 /// * `HttpResult<HttpResponse>` - The response or an error
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::Agent {
+    make_agent_trusting(
+        timeout_secs,
+        disable_tls_cert_verification,
+        ureq::tls::RootCerts::WebPki,
+    )
+}
+
+/// [`make_agent`] trusting `roots`.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn make_agent_trusting(
+    timeout_secs: u64,
+    disable_tls_cert_verification: bool,
+    roots: ureq::tls::RootCerts,
+) -> ureq::Agent {
     use std::time::Duration;
 
-    agent_config(disable_tls_cert_verification)
-        .timeout_global(Some(Duration::from_secs(timeout_secs)))
-        .build()
-        .new_agent()
+    // The fallback resolver without addresses: a lookup error comes back as a DNS failure.
+    ureq::Agent::with_parts(
+        agent_config_trusting(disable_tls_cert_verification, roots)
+            .timeout_global(Some(Duration::from_secs(timeout_secs)))
+            .build(),
+        ureq::unversioned::transport::DefaultConnector::default(),
+        FallbackResolver {
+            inner: ureq::unversioned::resolver::DefaultResolver::default(),
+            fallback: FallbackAddresses::default(),
+        },
+    )
+}
+
+/// How long one DNS lookup may take before it counts as failed ([`HttpError::DnsFailed`]): a
+/// resolver that hangs (DNS down) must not use up the request's whole time - what is left goes
+/// to a cached answer or a fallback address ([`HttpClient::add_fallback_address`]).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+pub const DNS_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// How long a client's cached DNS answer is still served once its name stops resolving
+/// (serve-stale, [`HttpClientConfig::dns_cache_secs`]): seven days.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+pub const DNS_STALE_FOR: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// After a lookup failed, how long a client with a DNS cache answers the name from what it has
+/// (the stale answer, else the failure) without asking again: while DNS is down every request
+/// would otherwise wait for the lookup to give up first.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+const DNS_FAILURE_HOLD: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A lookup that failed, as the resolver chain hands it to ureq: [`map_ureq_error`] makes it an
+/// [`HttpError::DnsFailed`] (not text that a caller has to recognize).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+struct DnsFailure(String);
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl fmt::Display for DnsFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl std::error::Error for DnsFailure {}
+
+/// `error` of a lookup as a [`DnsFailure`] when it is one (the system resolver's I/O error, no
+/// address, the lookup's time ran out); any other error (a bad URL) as it is.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn dns_failure(error: ureq::Error) -> ureq::Error {
+    let lookup = matches!(
+        error,
+        ureq::Error::Io(_) | ureq::Error::HostNotFound | ureq::Error::Timeout(_)
+    );
+    if lookup {
+        ureq::Error::Other(Box::new(DnsFailure(error.to_string())))
+    } else {
+        error
+    }
 }
 
 /// The agent settings every request shares, whether its agent is built for one
@@ -902,6 +1293,15 @@ fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::A
 fn agent_config(
     disable_tls_cert_verification: bool,
 ) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
+    agent_config_trusting(disable_tls_cert_verification, ureq::tls::RootCerts::WebPki)
+}
+
+/// [`agent_config`] trusting `roots` (unless verification is off).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn agent_config_trusting(
+    disable_tls_cert_verification: bool,
+    roots: ureq::tls::RootCerts,
+) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     let mut tls_builder = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()));
@@ -909,7 +1309,7 @@ fn agent_config(
     if disable_tls_cert_verification {
         tls_builder = tls_builder.disable_verification(true);
     } else {
-        tls_builder = tls_builder.root_certs(ureq::tls::RootCerts::WebPki);
+        tls_builder = tls_builder.root_certs(roots);
     }
 
     let tls_config = tls_builder.build();
@@ -917,44 +1317,180 @@ fn agent_config(
     ureq::Agent::config_builder()
         .tls_config(tls_config)
         .http_status_as_error(false)
+        .timeout_resolve(Some(DNS_LOOKUP_TIMEOUT))
+}
+
+/// The root store `roots` names: Mozilla's for the public roots, else exactly
+/// the pinned certificates (nothing of the public set). A pinned entry that
+/// holds no certificate, or one that does not parse, is an error naming it.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn root_certs_of(roots: &TrustRoots) -> Result<ureq::tls::RootCerts, String> {
+    let TrustRoots::Pinned(pems) = roots else {
+        return Ok(ureq::tls::RootCerts::WebPki);
+    };
+    let mut certs = Vec::new();
+    for (i, pem) in pems.as_ref().iter().enumerate() {
+        let before = certs.len();
+        for item in ureq::tls::parse_pem(pem.as_str().as_bytes()) {
+            match item {
+                Ok(ureq::tls::PemItem::Certificate(cert)) => certs.push(cert),
+                Ok(_) => {}
+                Err(e) => return Err(format!("trusted root {i} does not parse: {e}")),
+            }
+        }
+        if certs.len() == before {
+            return Err(format!("trusted root {i} holds no certificate"));
+        }
+    }
+    Ok(ureq::tls::RootCerts::Specific(std::sync::Arc::new(certs)))
 }
 
 /// The agent behind an [`HttpClient`]: pooled per `config`, and resolving hosts
-/// through `resolver`, cached when `config.dns_cache_secs` asks for it.
+/// through `resolver`, cached when `config.dns_cache_secs` asks for it; a host whose
+/// lookup fails is answered from `fallback`.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn client_agent(
     config: &HttpClientConfig,
     resolver: impl ureq::unversioned::resolver::Resolver,
+    fallback: FallbackAddresses,
 ) -> ureq::Agent {
-    let agent_config = agent_config(config.disable_tls_cert_verification)
+    // Roots that do not load trust nothing here; every request fails with why
+    // (`HttpClientInner::trust_error`).
+    let roots = root_certs_of(&config.trust_roots)
+        .unwrap_or_else(|_| ureq::tls::RootCerts::Specific(std::sync::Arc::new(Vec::new())));
+    let agent_config = agent_config_trusting(config.disable_tls_cert_verification, roots)
         .max_idle_connections(config.max_idle_connections as usize)
         .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
         .build();
     let connector = ureq::unversioned::transport::DefaultConnector::default();
     if config.dns_cache_secs == 0 {
-        ureq::Agent::with_parts(agent_config, connector, resolver)
+        ureq::Agent::with_parts(
+            agent_config,
+            connector,
+            FallbackResolver {
+                inner: resolver,
+                fallback,
+            },
+        )
     } else {
         ureq::Agent::with_parts(
             agent_config,
             connector,
-            CachingResolver::new(
-                resolver,
-                std::time::Duration::from_secs(u64::from(config.dns_cache_secs)),
-            ),
+            FallbackResolver {
+                inner: CachingResolver::new(
+                    resolver,
+                    std::time::Duration::from_secs(u64::from(config.dns_cache_secs)),
+                ),
+                fallback,
+            },
         )
     }
 }
 
+/// The most fallback addresses of one host (ureq's resolver answers at most 16).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+const MAX_FALLBACK_ADDRESSES: usize = 16;
+
+/// A client's fallback addresses: host (lowercase, no brackets) -> its addresses, each with
+/// the port it names (`None`: the URL's).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+type FallbackAddresses = alloc::sync::Arc<
+    std::sync::Mutex<alloc::collections::BTreeMap<String, Vec<(std::net::IpAddr, Option<u16>)>>>,
+>;
+
+/// A host as the fallback addresses are kept under: lowercase, an IPv6 one without brackets.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn fallback_host(host: &str) -> String {
+    host.trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase()
+}
+
+/// `192.0.2.7`, `2001:db8::1`, `[2001:db8::1]`, `192.0.2.7:8443`, `[2001:db8::1]:8443`.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn parse_fallback_address(address: &str) -> Option<(std::net::IpAddr, Option<u16>)> {
+    let address = address.trim();
+    if let Ok(socket) = address.parse::<std::net::SocketAddr>() {
+        return Some((socket.ip(), Some(socket.port())));
+    }
+    address
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| (ip, None))
+}
+
+/// A resolver that asks `inner` first and, when the lookup fails, answers the host from
+/// the client's fallback addresses: the connection goes to the address, the request (and
+/// TLS) still to the host. A lookup that fails without one is a [`DnsFailure`].
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+struct FallbackResolver<R> {
+    inner: R,
+    fallback: FallbackAddresses,
+}
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl<R: ureq::unversioned::resolver::Resolver> ureq::unversioned::resolver::Resolver
+    for FallbackResolver<R>
+{
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let error = match self.inner.resolve(uri, config, timeout) {
+            Ok(found) => return Ok(found),
+            Err(error) => error,
+        };
+        let Some(host) = uri.host().map(fallback_host) else {
+            return Err(dns_failure(error));
+        };
+        let known = self
+            .fallback
+            .lock()
+            .ok()
+            .and_then(|known| known.get(&host).cloned())
+            .filter(|addresses| !addresses.is_empty());
+        let Some(known) = known else {
+            return Err(dns_failure(error));
+        };
+        let default_port = if uri.scheme_str() == Some("https") {
+            443
+        } else {
+            80
+        };
+        let port = uri.port_u16().unwrap_or(default_port);
+        let mut out = self.inner.empty();
+        for (ip, named) in known.into_iter().take(MAX_FALLBACK_ADDRESSES) {
+            out.push(std::net::SocketAddr::new(ip, named.unwrap_or(port)));
+        }
+        Ok(out)
+    }
+
+    fn empty(&self) -> ureq::unversioned::resolver::ResolvedSocketAddrs {
+        self.inner.empty()
+    }
+}
+
 /// A resolver that answers each `host:port` from memory for `ttl` after asking
-/// `inner` once.
+/// `inner` once. When a later lookup fails, the last answer is served for `stale_for`
+/// ([`DNS_STALE_FOR`]: serve-stale), and the name is not asked again for
+/// [`DNS_FAILURE_HOLD`].
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 #[derive(Debug)]
 struct CachingResolver<R> {
     inner: R,
     ttl: std::time::Duration,
+    stale_for: std::time::Duration,
     answers: std::sync::Mutex<
         std::collections::HashMap<String, (std::time::Instant, Vec<std::net::SocketAddr>)>,
     >,
+    /// When the lookup of a `host:port` last failed.
+    failed: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
 
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -963,8 +1499,40 @@ impl<R> CachingResolver<R> {
         Self {
             inner,
             ttl,
+            stale_for: DNS_STALE_FOR,
             answers: std::sync::Mutex::new(std::collections::HashMap::new()),
+            failed: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Serves an expired answer for `stale_for` when the lookup fails (instead of seven days).
+    #[cfg(test)]
+    fn with_stale_for(mut self, stale_for: std::time::Duration) -> Self {
+        self.stale_for = stale_for;
+        self
+    }
+
+    /// The answer of `key` if it is younger than `age`.
+    fn answer_within(
+        &self,
+        key: &str,
+        age: std::time::Duration,
+    ) -> Option<Vec<std::net::SocketAddr>> {
+        self.answers.lock().ok().and_then(|answers| {
+            answers
+                .get(key)
+                .filter(|(at, _)| at.elapsed() < age)
+                .map(|(_, addrs)| addrs.clone())
+        })
+    }
+
+    /// Whether the lookup of `key` failed less than [`DNS_FAILURE_HOLD`] ago.
+    fn failed_recently(&self, key: &str) -> bool {
+        self.failed.lock().ok().is_some_and(|failed| {
+            failed
+                .get(key)
+                .is_some_and(|at| at.elapsed() < DNS_FAILURE_HOLD)
+        })
     }
 }
 
@@ -987,31 +1555,48 @@ impl<R: ureq::unversioned::resolver::Resolver> ureq::unversioned::resolver::Reso
         let Some(key) = key else {
             return self.inner.resolve(uri, config, timeout); // let it report the bad URL
         };
-        let cached = self.answers.lock().ok().and_then(|answers| {
-            answers
-                .get(&key)
-                .filter(|(at, _)| at.elapsed() < self.ttl)
-                .map(|(_, addrs)| addrs.clone())
-        });
-        if let Some(addrs) = cached {
+        let answer = |addrs: Vec<std::net::SocketAddr>| {
             let mut out = self.inner.empty();
             for addr in addrs {
                 out.push(addr);
             }
-            return Ok(out);
+            out
+        };
+        if let Some(addrs) = self.answer_within(&key, self.ttl) {
+            return Ok(answer(addrs));
         }
-        // Failures are not cached: the next request asks again.
-        let resolved = self.inner.resolve(uri, config, timeout)?;
-        if let Ok(mut answers) = self.answers.lock() {
-            answers.insert(
-                key,
-                (
-                    std::time::Instant::now(),
-                    resolved.iter().copied().collect(),
-                ),
-            );
+        let stale = self.answer_within(&key, self.stale_for);
+        if self.failed_recently(&key) {
+            // DNS was down a moment ago: what is known now, without waiting for the lookup.
+            return match stale {
+                Some(addrs) => Ok(answer(addrs)),
+                None => Err(ureq::Error::HostNotFound),
+            };
         }
-        Ok(resolved)
+        match self.inner.resolve(uri, config, timeout) {
+            Ok(resolved) => {
+                if let Ok(mut answers) = self.answers.lock() {
+                    answers.insert(
+                        key.clone(),
+                        (
+                            std::time::Instant::now(),
+                            resolved.iter().copied().collect(),
+                        ),
+                    );
+                }
+                if let Ok(mut failed) = self.failed.lock() {
+                    failed.remove(&key);
+                }
+                Ok(resolved)
+            }
+            Err(error) => {
+                if let Ok(mut failed) = self.failed.lock() {
+                    failed.insert(key, std::time::Instant::now());
+                }
+                // The last answer, if it is not too old (serve-stale); else the failure.
+                stale.map(answer).ok_or(error)
+            }
+        }
     }
 
     fn empty(&self) -> ureq::unversioned::resolver::ResolvedSocketAddrs {
@@ -1033,6 +1618,23 @@ pub enum HttpMethod {
     Put,
     Patch,
     Delete,
+    /// What a server supports for a resource (`Allow`, `WebDAV`'s `DAV`).
+    Options,
+    /// `WebDAV`: the properties of a resource or a collection's members (an
+    /// XML body names which; `Depth` says how deep).
+    Propfind,
+    /// `WebDAV`: set or remove properties (an XML body).
+    Proppatch,
+    /// `WebDAV`: create a collection (a folder).
+    Mkcol,
+    /// `WebDAV`: copy a resource to the `Destination` header's URL.
+    Copy,
+    /// `WebDAV`: move a resource to the `Destination` header's URL.
+    Move,
+    /// `WebDAV`: lock a resource (an XML body describes the lock).
+    Lock,
+    /// `WebDAV`: release a lock (`Lock-Token` header).
+    Unlock,
 }
 
 impl HttpMethod {
@@ -1046,6 +1648,14 @@ impl HttpMethod {
             Self::Put => "PUT",
             Self::Patch => "PATCH",
             Self::Delete => "DELETE",
+            Self::Options => "OPTIONS",
+            Self::Propfind => "PROPFIND",
+            Self::Proppatch => "PROPPATCH",
+            Self::Mkcol => "MKCOL",
+            Self::Copy => "COPY",
+            Self::Move => "MOVE",
+            Self::Lock => "LOCK",
+            Self::Unlock => "UNLOCK",
         }
     }
 
@@ -1056,7 +1666,10 @@ impl HttpMethod {
     /// build a `WithoutBody` one terminated by `call()`.
     #[must_use]
     pub const fn takes_body(self) -> bool {
-        matches!(self, Self::Post | Self::Put | Self::Patch)
+        matches!(
+            self,
+            Self::Post | Self::Put | Self::Patch | Self::Propfind | Self::Proppatch | Self::Lock
+        )
     }
 }
 
@@ -1070,9 +1683,16 @@ impl fmt::Display for HttpMethod {
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
     match e {
+        // The resolver gave up: the name is the problem, not a slow server.
+        ureq::Error::Timeout(ureq::Timeout::Resolve) => {
+            HttpError::dns_failed(format!("{url}: the lookup of the name timed out").into())
+        }
         ureq::Error::Timeout(_) => HttpError::Timeout,
         ureq::Error::HostNotFound => {
-            HttpError::connection_failed(format!("DNS resolution failed for {url}").into())
+            HttpError::dns_failed(format!("{url}: the name did not resolve").into())
+        }
+        ureq::Error::Other(inner) if inner.downcast_ref::<DnsFailure>().is_some() => {
+            HttpError::dns_failed(format!("{url}: {inner}").into())
         }
         ureq::Error::ConnectionFailed => {
             HttpError::connection_failed(format!("Connection failed: {url}").into())
@@ -1102,7 +1722,21 @@ fn decode_response(
 ) -> HttpResult<HttpResponse> {
     use std::io::Read;
 
+    use ureq::ResponseExt as _;
+
     let status_code = response.status().as_u16();
+    // Where the request ended: ureq follows redirects (up to 10) and records
+    // the last URI on the response.
+    let final_url = AzString::from(response.get_uri().to_string());
+    // Every URL the request passed through (`save_redirect_history`), or the
+    // one it was sent to.
+    let redirect_history: StringVec = response
+        .get_redirect_history()
+        .map_or_else(
+            || alloc::vec![final_url.clone()],
+            |uris| uris.iter().map(|u| AzString::from(u.to_string())).collect(),
+        )
+        .into();
     let content_type = AzString::from(
         response
             .headers()
@@ -1134,18 +1768,29 @@ fn decode_response(
         ));
     }
 
-    // Read body with size limit
+    // Read the body up to one byte past the limit: a body without a
+    // Content-Length (chunked) shows its size only here, and a longer one is
+    // refused rather than cut short (a cut range would be silent damage).
     let mut body = Vec::new();
-    let limit = if config.max_response_size > 0 {
-        config.max_response_size as usize
-    } else {
-        usize::MAX
-    };
     let mut body_reader = response.into_body();
-    let mut reader = body_reader.as_reader().take(limit as u64);
-    reader
-        .read_to_end(&mut body)
-        .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+    if config.max_response_size == 0 {
+        body_reader
+            .as_reader()
+            .read_to_end(&mut body)
+            .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+    } else {
+        body_reader
+            .as_reader()
+            .take(config.max_response_size.saturating_add(1))
+            .read_to_end(&mut body)
+            .map_err(|e| HttpError::io_error(e.to_string().into()))?;
+        if body.len() as u64 > config.max_response_size {
+            return Err(HttpError::response_too_large(
+                config.max_response_size,
+                body.len() as u64,
+            ));
+        }
+    }
 
     Ok(HttpResponse {
         status_code,
@@ -1153,6 +1798,8 @@ fn decode_response(
         content_type,
         content_length,
         headers: HttpHeaderVec::from_vec(headers),
+        final_url,
+        redirect_history,
     })
 }
 
@@ -1184,58 +1831,74 @@ pub fn http_request_with_config(
     // A pooled agent was built without this request's timeout, so every request
     // below sets it on itself; for a one-off agent that restates the same value.
     let agent = match &config.client {
-        OptionHttpClient::Some(client) => client.ptr.agent.clone(),
+        OptionHttpClient::Some(client) => {
+            if let Some(why) = &client.ptr.trust_error {
+                return Err(HttpError::tls_error(AzString::from(why.clone())));
+            }
+            client.ptr.agent.clone()
+        }
         OptionHttpClient::None => {
-            make_agent(config.timeout_secs, config.disable_tls_cert_verification)
+            let roots = root_certs_of(&config.trust_roots)
+                .map_err(|why| HttpError::tls_error(AzString::from(why)))?;
+            make_agent_trusting(config.timeout_secs, config.disable_tls_cert_verification, roots)
         }
     };
     let timeout = Some(std::time::Duration::from_secs(config.timeout_secs));
+    let phase = |secs: u64| (secs > 0).then(|| std::time::Duration::from_secs(secs));
+    let send_timeout = phase(config.send_timeout_secs);
+    let recv_timeout = phase(config.recv_timeout_secs);
 
-    // ureq 3.x splits the request builder by typestate: `WithoutBody` for
-    // GET/HEAD/DELETE (terminated by `.call()`) and `WithBody` for
-    // POST/PUT/PATCH (terminated by `.send()`). The two are different types,
-    // so the header application is written out per branch.
-    let response = if method.takes_body() {
-        let mut request = match method {
-            HttpMethod::Put => agent.put(url),
-            HttpMethod::Patch => agent.patch(url),
-            // `takes_body()` admits only POST/PUT/PATCH here.
-            _ => agent.post(url),
-        };
-        if !config.user_agent.as_str().is_empty() {
-            request = request.header("User-Agent", config.user_agent.as_str());
-        }
-        if !content_type.is_empty() {
-            request = request.header("Content-Type", content_type);
-        }
-        for header in config.headers.as_slice() {
-            request = request.header(header.name.as_str(), header.value.as_str());
-        }
-        request
-            .config()
+    // One request through the http crate's builder, whatever the verb: ureq's
+    // typed builders exist for the standard verbs only, and this way the
+    // WebDAV ones (PROPFIND, MKCOL, ...) take the same path. ureq refuses a
+    // verb outside the standard set unless the request allows it, so every
+    // request does. A body goes when the verb takes one, or when a DELETE
+    // says what it removes (a signed request).
+    let sends_body = method.takes_body()
+        || (matches!(method, HttpMethod::Delete) && body.is_some_and(|b| !b.is_empty()));
+    let mut builder = ureq::http::Request::builder()
+        .method(method.as_str())
+        .uri(url);
+    if !config.user_agent.as_str().is_empty() {
+        builder = builder.header("User-Agent", config.user_agent.as_str());
+    }
+    if sends_body && !content_type.is_empty() {
+        builder = builder.header("Content-Type", content_type);
+    }
+    for header in config.headers.as_slice() {
+        builder = builder.header(header.name.as_str(), header.value.as_str());
+    }
+    // Up to 10 redirects, ureq's default, or none: the redirect itself is
+    // then the answer. The history names every URL either way.
+    let max_redirects = if config.follow_redirects { 10 } else { 0 };
+    let response = if sends_body {
+        let request = builder
+            .body(body.unwrap_or(&[]))
+            .map_err(|e| HttpError::invalid_url(format!("{url}: {e}").into()))?;
+        let request = agent
+            .configure_request(request)
             .timeout_global(timeout)
-            .build()
-            .send(body.unwrap_or(&[]))
-            .map_err(|e| map_ureq_error(url, &e))?
+            .timeout_send_body(send_timeout)
+            .timeout_recv_body(recv_timeout)
+            .max_redirects(max_redirects)
+            .save_redirect_history(true)
+            .allow_non_standard_methods(true)
+            .build();
+        agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     } else {
-        let mut request = match method {
-            HttpMethod::Head => agent.head(url),
-            HttpMethod::Delete => agent.delete(url),
-            // `takes_body()` admits only GET/HEAD/DELETE here.
-            _ => agent.get(url),
-        };
-        if !config.user_agent.as_str().is_empty() {
-            request = request.header("User-Agent", config.user_agent.as_str());
-        }
-        for header in config.headers.as_slice() {
-            request = request.header(header.name.as_str(), header.value.as_str());
-        }
-        request
-            .config()
+        let request = builder
+            .body(())
+            .map_err(|e| HttpError::invalid_url(format!("{url}: {e}").into()))?;
+        let request = agent
+            .configure_request(request)
             .timeout_global(timeout)
-            .build()
-            .call()
-            .map_err(|e| map_ureq_error(url, &e))?
+            .timeout_send_body(send_timeout)
+            .timeout_recv_body(recv_timeout)
+            .max_redirects(max_redirects)
+            .save_redirect_history(true)
+            .allow_non_standard_methods(true)
+            .build();
+        agent.run(request).map_err(|e| map_ureq_error(url, &e))?
     };
 
     decode_response(response, config)
@@ -1420,6 +2083,8 @@ mod tests {
             content_type: AzString::from(String::new()),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from(String::new()),
+            redirect_history: StringVec::from_const_slice(&[]),
         };
         assert!(response.is_success());
         assert!(!response.is_redirect());
@@ -1464,6 +2129,8 @@ mod autotest_generated {
             content_type: AzString::from("application/octet-stream"),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from("http://example.com/"),
+            redirect_history: StringVec::from_const_slice(&[]),
         }
     }
 
@@ -1474,6 +2141,8 @@ mod autotest_generated {
             content_type: AzString::from("text/plain"),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from("http://example.com/"),
+            redirect_history: StringVec::from_const_slice(&[]),
         }
     }
 
@@ -1601,6 +2270,7 @@ mod autotest_generated {
             HttpError::io_error(AzString::from("i")),
             HttpError::response_too_large(1, 2),
             HttpError::other(AzString::from("o")),
+            HttpError::dns_failed(AzString::from("d")),
         ];
         for v in &variants {
             let s = v.to_string();
@@ -2089,8 +2759,9 @@ mod autotest_generated {
     }
 
     // The resumable form parks the answer in the runtime queue instead of
-    // returning it: the request id is valid and exactly one completion
-    // carrying the typed result struct is waiting to be delivered.
+    // returning it: the request id is valid and one completion carrying the
+    // typed result struct reaches the queue - on a later pump, once the
+    // worker thread has answered (`resume_without_blocking`).
     #[cfg(all(feature = "http", not(target_arch = "wasm32"), feature = "text_layout"))]
     #[test]
     fn resumable_requests_park_their_result_in_the_queue() {
@@ -2104,7 +2775,6 @@ mod autotest_generated {
             azul_core::callbacks::Update::DoNothing
         }
 
-        let _ = crate::request::take_completed();
         let cfg = HttpRequestConfig::new().with_timeout(1);
         let id = cfg.http_get(
             AzString::from("not a url"),
@@ -2112,10 +2782,18 @@ mod autotest_generated {
             crate::callbacks::ResumeCallback::create(noop),
         );
         assert!(id.is_valid());
-        let mut completed = crate::request::take_completed();
-        assert_eq!(completed.len(), 1);
-        let entry = completed.remove(0);
-        assert_eq!(entry.request_id, id);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let entry = loop {
+            let mut completed = crate::request::take_completed();
+            if let Some(at) = completed.iter().position(|e| e.request_id == id) {
+                break completed.remove(at);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the answer never reached the queue"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
         let answer = HttpGetResult::downcast(entry.result)
             .into_option()
             .expect("an HttpGetResult");
@@ -2148,7 +2826,7 @@ mod client_pool_tests {
                 let Ok(mut stream) = stream else { return };
                 counter.fetch_add(1, Ordering::SeqCst);
                 let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-                while read_request_head(&mut reader) {
+                while read_request_head(&mut reader).is_some() {
                     let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok";
                     if stream.write_all(reply).is_err() {
                         break;
@@ -2159,14 +2837,17 @@ mod client_pool_tests {
         (url, accepted)
     }
 
-    /// Consume one request head; false once the client has closed the connection.
-    fn read_request_head(reader: &mut impl BufRead) -> bool {
+    /// Consume one request head and return its request line (`GET /path
+    /// HTTP/1.1`); `None` once the client has closed the connection.
+    fn read_request_head(reader: &mut impl BufRead) -> Option<String> {
+        let mut request_line = String::new();
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line) {
-                Ok(0) | Err(_) => return false,
-                Ok(_) if line == "\r\n" => return true,
+                Ok(0) | Err(_) => return None,
+                Ok(_) if line == "\r\n" => return Some(request_line),
+                Ok(_) if request_line.is_empty() => request_line = line.trim_end().to_string(),
                 Ok(_) => {}
             }
         }
@@ -2230,10 +2911,12 @@ mod client_pool_tests {
         let client = HttpClient {
             ptr: Box::new(Arc::new(HttpClientInner {
                 config: HttpClientConfig::default(),
+                fallback: FallbackAddresses::default(),
                 agent: agent(CountingResolver {
                     port,
                     calls: Arc::clone(&calls),
                 }),
+                trust_error: None,
             })),
             run_destructor: true,
         };
@@ -2247,14 +2930,18 @@ mod client_pool_tests {
     #[test]
     fn a_client_without_a_dns_cache_looks_the_host_up_for_every_request() {
         let config = HttpClientConfig::default();
-        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        let (_, calls) = counted_client(|resolver| {
+            client_agent(&config, resolver, FallbackAddresses::default())
+        });
         assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]
     fn a_client_with_a_dns_cache_looks_the_host_up_once() {
         let config = HttpClientConfig::default().with_dns_cache_secs(60);
-        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        let (_, calls) = counted_client(|resolver| {
+            client_agent(&config, resolver, FallbackAddresses::default())
+        });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
@@ -2275,5 +2962,880 @@ mod client_pool_tests {
         let (url, accepted) = serve();
         get_three_times(&url, &HttpRequestConfig::default().with_timeout(5));
         assert_eq!(accepted.load(Ordering::SeqCst), 3);
+    }
+
+    /// A resolver that knows no host: every lookup fails, as when DNS is down.
+    #[derive(Debug)]
+    struct NoDns;
+
+    impl ureq::unversioned::resolver::Resolver for NoDns {
+        fn resolve(
+            &self,
+            _uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            Err(ureq::Error::HostNotFound)
+        }
+    }
+
+    /// A keep-alive HTTP/1.1 server on localhost answering `ok`, each connection on a thread of
+    /// its own (a pooled client keeps one connection per host and port open: a server serving
+    /// one connection at a time would never answer the next); the `Host` headers it was sent.
+    fn serve_hosts() -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let hosts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&hosts);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let seen = Arc::clone(&seen);
+                std::thread::spawn(move || answer_hosts(stream, &seen));
+            }
+        });
+        (port, hosts)
+    }
+
+    /// Answers `ok` to every request of one connection, noting its `Host` header.
+    fn answer_hosts(mut stream: std::net::TcpStream, seen: &std::sync::Mutex<Vec<String>>) {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+        loop {
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) if line == "\r\n" => break,
+                    Ok(_) => {
+                        if let Some(host) = line
+                            .strip_prefix("Host: ")
+                            .or_else(|| line.strip_prefix("host: "))
+                        {
+                            seen.lock().unwrap().push(host.trim().to_string());
+                        }
+                    }
+                }
+            }
+            let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+            if stream.write_all(reply).is_err() {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_host_whose_name_does_not_resolve_is_reached_at_its_fallback_address_under_its_name() {
+        let (port, hosts) = serve_hosts();
+        let config = HttpClientConfig::default();
+        let fallback = FallbackAddresses::default();
+        let client = HttpClient {
+            ptr: Box::new(Arc::new(HttpClientInner {
+                agent: client_agent(&config, NoDns, fallback.clone()),
+                config,
+                fallback,
+                trust_error: None,
+            })),
+            run_destructor: true,
+        };
+        let request = HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_client(client.clone());
+        let url = format!("http://n2.azul.invalid:{port}/");
+        assert!(
+            http_get_with_config(&url, &request).is_err(),
+            "no address is known yet"
+        );
+        assert!(!client.add_fallback_address("n2.azul.invalid", "not an address"));
+        assert!(client.add_fallback_address("N2.azul.invalid", "127.0.0.1"));
+        let response = http_get_with_config(&url, &request).expect("reached at its address");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(
+            hosts.lock().unwrap().last().cloned(),
+            Some(format!("n2.azul.invalid:{port}")),
+            "the request still names the host: TLS verifies that name, not the address"
+        );
+        client.clear_fallback_addresses("n2.azul.invalid");
+        assert!(http_get_with_config(&url, &request).is_err());
+        assert!(
+            client.add_fallback_address("n2.azul.invalid", &format!("127.0.0.1:{port}")),
+            "an address may name its port"
+        );
+        let named = http_get_with_config("http://n2.azul.invalid:1/", &request);
+        assert!(named.is_ok(), "{named:?}");
+        assert_eq!(
+            hosts.lock().unwrap().last().cloned(),
+            Some(String::from("n2.azul.invalid:1")),
+            "the address's port is where it connects; the request names the URL's"
+        );
+    }
+
+    /// A resolver that answers 127.0.0.1:`port` for its first `answers` lookups and fails every
+    /// later one the way the system's does when DNS is down (an I/O error of the lookup).
+    #[derive(Debug)]
+    struct DnsGoesDown {
+        port: u16,
+        answers: usize,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ureq::unversioned::resolver::Resolver for DnsGoesDown {
+        fn resolve(
+            &self,
+            _uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            let before = self.calls.fetch_add(1, Ordering::SeqCst);
+            if before >= self.answers {
+                return Err(ureq::Error::Io(std::io::Error::other(
+                    "failed to lookup address information: nodename nor servname provided",
+                )));
+            }
+            let mut out = self.empty();
+            out.push(std::net::SocketAddr::from(([127, 0, 0, 1], self.port)));
+            Ok(out)
+        }
+    }
+
+    /// A pooled client whose lookups go through `resolver` (and its fallback addresses).
+    fn client_over(
+        config: HttpClientConfig,
+        agent: impl FnOnce(FallbackAddresses) -> ureq::Agent,
+    ) -> HttpRequestConfig {
+        let fallback = FallbackAddresses::default();
+        let client = HttpClient {
+            ptr: Box::new(Arc::new(HttpClientInner {
+                config,
+                agent: agent(fallback.clone()),
+                fallback,
+                trust_error: None,
+            })),
+            run_destructor: true,
+        };
+        HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_client(client)
+    }
+
+    #[test]
+    fn a_lookup_that_times_out_fails_as_a_dns_failure_and_not_as_a_slow_server() {
+        let url = "https://n2.azul.invalid/d-1/a.txt";
+        assert!(
+            matches!(
+                map_ureq_error(url, &ureq::Error::Timeout(ureq::Timeout::Resolve)),
+                HttpError::DnsFailed(_)
+            ),
+            "the resolver gave up: the name is the problem, its addresses may still answer"
+        );
+        assert!(matches!(
+            map_ureq_error(url, &ureq::Error::HostNotFound),
+            HttpError::DnsFailed(_)
+        ));
+        assert_eq!(
+            map_ureq_error(url, &ureq::Error::Timeout(ureq::Timeout::RecvResponse)),
+            HttpError::Timeout,
+            "a server that is slow to answer stays a timeout"
+        );
+        assert!(HttpError::dns_failed("n2.azul.invalid".into())
+            .to_string()
+            .contains("n2.azul.invalid"));
+    }
+
+    #[test]
+    fn every_lookup_gives_up_after_the_dns_timeout_so_the_fallback_addresses_have_time_left() {
+        assert_eq!(
+            agent_config(false).build().timeouts().resolve,
+            Some(DNS_LOOKUP_TIMEOUT),
+            "a lookup that hangs must not use up the request's whole time"
+        );
+    }
+
+    #[test]
+    fn a_name_that_does_not_resolve_fails_as_a_dns_failure() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default();
+        let resolver = DnsGoesDown {
+            port: 1,
+            answers: 0,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config.clone(), |fallback| client_agent(&config, resolver, fallback));
+        match http_get_with_config("http://n2.azul.invalid:1/", &request) {
+            Err(HttpError::DnsFailed(why)) => {
+                assert!(why.as_str().contains("n2.azul.invalid"), "{}", why.as_str())
+            }
+            other => panic!("a lookup error is a DNS failure, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_cached_answer_is_served_for_seven_days_after_the_name_stops_resolving() {
+        let (url, _) = serve();
+        let port: u16 = url
+            .trim_end_matches('/')
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("port");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default().with_dns_cache_secs(60);
+        let resolver = DnsGoesDown {
+            port,
+            answers: 1,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config, |fallback| {
+            ureq::Agent::with_parts(
+                agent_config(false).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                FallbackResolver {
+                    // Every answer is due again at once: only the stale one is left.
+                    inner: CachingResolver::new(resolver, std::time::Duration::ZERO),
+                    fallback,
+                },
+            )
+        });
+        let url = format!("http://tiles.azul.invalid:{port}/");
+        for round in 0..3 {
+            let response = http_get_with_config(&url, &request)
+                .unwrap_or_else(|e| panic!("round {round}: {e}"));
+            assert_eq!(response.status_code, 200);
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "after the lookup failed, the next requests take the stale answer without waiting \
+             for another lookup"
+        );
+        assert_eq!(DNS_STALE_FOR, std::time::Duration::from_secs(7 * 24 * 3600));
+    }
+
+    #[test]
+    fn an_answer_older_than_its_stale_limit_is_not_served() {
+        let (url, _) = serve();
+        let port: u16 = url
+            .trim_end_matches('/')
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("port");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default();
+        let resolver = DnsGoesDown {
+            port,
+            answers: 1,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config, |fallback| {
+            ureq::Agent::with_parts(
+                agent_config(false).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                FallbackResolver {
+                    inner: CachingResolver::new(resolver, std::time::Duration::ZERO)
+                        .with_stale_for(std::time::Duration::ZERO),
+                    fallback,
+                },
+            )
+        });
+        let url = format!("http://tiles.azul.invalid:{port}/");
+        assert!(http_get_with_config(&url, &request).is_ok());
+        assert!(matches!(
+            http_get_with_config(&url, &request),
+            Err(HttpError::DnsFailed(_))
+        ));
+    }
+
+    /// MAIL9: the resumable `http_get` ran the transfer inside the calling
+    /// callback, so a slow server froze the window for the whole request. It
+    /// returns at once; the answer resumes the callback on a later pump.
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn http_get_from_a_callback_returns_before_the_response_arrives() {
+        use std::{
+            sync::mpsc,
+            time::{Duration, Instant},
+        };
+
+        use azul_core::refany::RefAny;
+
+        extern "C" fn noop(
+            _: RefAny,
+            _: crate::callbacks::CallbackInfo,
+            _: RefAny,
+        ) -> azul_core::callbacks::Update {
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        // A server that answers once the test says so - or after 3 s, so a
+        // blocking `http_get` fails the test instead of hanging it.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/", listener.local_addr().expect("addr"));
+        let (release, released) = mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            if read_request_head(&mut reader).is_none() {
+                return;
+            }
+            let _ = released.recv_timeout(Duration::from_secs(3));
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            );
+        });
+
+        let started = Instant::now();
+        let id = HttpRequestConfig::default().with_timeout(10).http_get(
+            AzString::from(url),
+            RefAny::new(()),
+            crate::callbacks::ResumeCallback::create(noop),
+        );
+        let returned_after = started.elapsed();
+        let _ = release.send(());
+        assert!(
+            returned_after < Duration::from_secs(1),
+            "http_get held the calling callback for {returned_after:?}"
+        );
+
+        // The answer resumes on a later pump: this thread's pump (under tests
+        // the request queue is per thread, so no test beside this one can
+        // drain the entry).
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let answer = loop {
+            if let Some(entry) = crate::request::take_completed()
+                .into_iter()
+                .find(|e| e.request_id == id)
+            {
+                break HttpGetResult::downcast(entry.result)
+                    .into_option()
+                    .expect("an HttpGetResult");
+            }
+            assert!(Instant::now() < deadline, "the answer never arrived");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        // An armed e2e mock store (another test's scenario) answers instead.
+        if !crate::request::mock::is_armed() {
+            match answer.result {
+                ResultHttpResponseHttpError::Ok(response) => {
+                    assert_eq!(response.status_code, 200);
+                    assert_eq!(response.body.as_ref(), b"ok");
+                }
+                ResultHttpResponseHttpError::Err(e) => panic!("{e:?}"),
+            }
+        }
+    }
+
+    /// NEWS9: a feed that moved answers with a redirect; the reader follows it
+    /// and must learn where it ended - to resolve the feed's relative links
+    /// and to update the subscription.
+    #[test]
+    fn a_followed_redirect_reports_the_final_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                while let Some(request_line) = read_request_head(&mut reader) {
+                    let reply: &[u8] = if request_line.starts_with("GET /old ") {
+                        b"HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\nContent-Length: 0\r\n\r\n"
+                    } else {
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok"
+                    };
+                    if stream.write_all(reply).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        let response = http_get_with_config(
+            &format!("{base}/old"),
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("GET");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body.as_ref(), b"ok");
+        assert_eq!(response.final_url.as_str(), format!("{base}/new"));
+    }
+}
+
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod delete_body_tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        time::Duration,
+    };
+
+    use super::*;
+
+    /// A DELETE that says what it removes in a body (a signed request, such as
+    /// removing a recovery key) reaches the server with that body.
+    #[test]
+    fn a_delete_with_a_body_sends_its_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/keys/1", listener.local_addr().expect("addr"));
+        let (seen, saw) = mpsc::channel::<(String, Vec<u8>)>();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut request_line = String::new();
+            let mut length = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                if line == "\r\n" {
+                    break;
+                }
+                if request_line.is_empty() {
+                    request_line = line.trim_end().to_string();
+                } else if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("content-length") {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let _ = seen.send((request_line, body));
+            let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+        });
+
+        let response = http_request_with_config(
+            HttpMethod::Delete,
+            &url,
+            Some(b"{\"key\":1}"),
+            "application/json",
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("DELETE");
+        assert_eq!(response.status_code, 204);
+        let (request_line, body) = saw
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the server saw the request");
+        assert!(request_line.starts_with("DELETE "), "{request_line}");
+        assert_eq!(
+            body,
+            b"{\"key\":1}".to_vec(),
+            "the DELETE arrived without its body"
+        );
+    }
+}
+
+/// WebDAV verbs and redirects, against a server on this machine that records
+/// what it was sent.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod webdav_and_redirect_tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+    };
+
+    use super::*;
+
+    /// A server that answers every request with `reply` and reports each
+    /// request's line and body.
+    fn server(reply: &'static [u8]) -> (String, mpsc::Receiver<(String, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        let (seen, saw) = mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut length = 0usize;
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; length];
+                let _ = reader.read_exact(&mut body);
+                let _ = seen.send((request_line.trim_end().to_string(), body));
+                let _ = stream.write_all(reply);
+            }
+        });
+        (base, saw)
+    }
+
+    const MULTISTATUS: &[u8] = b"HTTP/1.1 207 Multi-Status\r\nContent-Type: application/xml\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+
+    #[test]
+    fn a_webdav_propfind_reaches_the_server_with_its_verb_and_body() {
+        let (base, saw) = server(MULTISTATUS);
+        let body = br#"<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>"#;
+        let config = HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_header("Depth", "1");
+        let response = http_request_with_config(
+            HttpMethod::Propfind,
+            &format!("{base}/drive/"),
+            Some(body),
+            "application/xml",
+            &config,
+        )
+        .expect("PROPFIND");
+        assert_eq!(response.status_code, 207);
+        let (line, sent) = saw.recv().expect("the server saw the request");
+        assert_eq!(line, "PROPFIND /drive/ HTTP/1.1");
+        assert_eq!(sent, body.to_vec());
+    }
+
+    #[test]
+    fn a_mkcol_and_a_move_reach_the_server_with_their_verbs() {
+        let (base, saw) = server(
+            b"HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let config = HttpRequestConfig::default().with_timeout(5);
+        let made = http_request_with_config(HttpMethod::Mkcol, &format!("{base}/new/"), None, "", &config)
+            .expect("MKCOL");
+        assert_eq!(made.status_code, 201);
+        assert_eq!(saw.recv().expect("seen").0, "MKCOL /new/ HTTP/1.1");
+        let config = config.with_header("Destination", format!("{base}/b.txt"));
+        let moved = http_request_with_config(HttpMethod::Move, &format!("{base}/a.txt"), None, "", &config)
+            .expect("MOVE");
+        assert_eq!(moved.status_code, 201);
+        assert_eq!(saw.recv().expect("seen").0, "MOVE /a.txt HTTP/1.1");
+    }
+
+    /// A feed that moved: with `follow_redirects: false` the answer is the
+    /// redirect itself, so the reader sees the 301 and where it points.
+    #[test]
+    fn a_request_that_does_not_follow_redirects_gets_the_redirect_itself() {
+        let (base, _saw) = server(
+            b"HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let mut config = HttpRequestConfig::default().with_timeout(5);
+        config.follow_redirects = false;
+        let response = http_get_with_config(&format!("{base}/old"), &config).expect("GET");
+        assert_eq!(response.status_code, 301);
+        assert!(response
+            .headers
+            .as_ref()
+            .iter()
+            .any(|h| h.name.as_str().eq_ignore_ascii_case("location") && h.value.as_str() == "/new"));
+        assert_eq!(response.final_url.as_str(), format!("{base}/old"));
+    }
+
+    /// A followed redirect names every URL it passed, the requested one first.
+    #[test]
+    fn a_followed_redirect_names_every_url_it_passed() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                let reply: &[u8] = if request_line.starts_with("GET /old ") {
+                    b"HTTP/1.1 301 Moved Permanently\r\nLocation: /mid\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else if request_line.starts_with("GET /mid ") {
+                    b"HTTP/1.1 302 Found\r\nLocation: /new\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else {
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                };
+                let _ = stream.write_all(reply);
+            }
+        });
+        let response = http_get_with_config(
+            &format!("{base}/old"),
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("GET");
+        assert_eq!(response.status_code, 200);
+        let history: Vec<&str> = response
+            .redirect_history
+            .as_ref()
+            .iter()
+            .map(|u| u.as_str())
+            .collect();
+        assert_eq!(
+            history,
+            [format!("{base}/old"), format!("{base}/mid"), format!("{base}/new")]
+        );
+    }
+}
+
+/// What a blocking request may take, what its answer may weigh, and which
+/// thread may wait for it: a local server that answers too much, too slowly or
+/// not at all.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod limits_and_thread_tests {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+
+    /// A server that reads one request's head and hands the stream to `answer`.
+    fn server(answer: fn(std::net::TcpStream)) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                    }
+                    answer(stream);
+                });
+            }
+        });
+        base
+    }
+
+    /// 2 MiB in chunks, without a Content-Length: only reading the body shows its size.
+    fn two_mib_chunked(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..32 {
+            let _ = stream.write_all(format!("{:x}\r\n", chunk.len()).as_bytes());
+            let _ = stream.write_all(&chunk);
+            let _ = stream.write_all(b"\r\n");
+        }
+        let _ = stream.write_all(b"0\r\n\r\n");
+    }
+
+    #[test]
+    fn an_answer_above_the_limit_is_refused_and_never_cut_short() {
+        let base = server(two_mib_chunked);
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_max_size(1024 * 1024);
+        match http_get_with_config(&format!("{base}/token"), &config) {
+            Err(HttpError::ResponseTooLarge(e)) => assert_eq!(e.max_size, 1024 * 1024),
+            other => panic!("a 2 MiB answer to a 1 MiB call: {other:?}"),
+        }
+        // Under the limit the whole body arrives.
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_max_size(2 * 1024 * 1024);
+        let answer = http_get_with_config(&format!("{base}/token"), &config).expect("GET");
+        assert_eq!(answer.body.as_ref().len(), 2 * 1024 * 1024);
+    }
+
+    /// Headers at once, then a body that never comes.
+    fn stalls_in_the_body(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nabc");
+        std::thread::sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn the_receive_timeout_ends_a_body_that_stalls_before_the_overall_one() {
+        let base = server(stalls_in_the_body);
+        let config = HttpRequestConfig::default()
+            .with_timeout(15)
+            .with_recv_timeout(1);
+        assert_eq!(config.recv_timeout_secs, 1);
+        let started = Instant::now();
+        let answer = http_get_with_config(&format!("{base}/stall"), &config);
+        assert!(answer.is_err(), "a stalled body is no answer: {answer:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the receive timeout ended it, not the overall one: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Never reads what it is sent: the body fills the socket's buffers and stops.
+    fn never_reads(_stream: std::net::TcpStream) {
+        std::thread::sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn the_send_timeout_ends_a_body_nobody_takes_before_the_overall_one() {
+        let base = server(never_reads);
+        let config = HttpRequestConfig::default()
+            .with_timeout(15)
+            .with_send_timeout(1);
+        assert_eq!(config.send_timeout_secs, 1);
+        let body = vec![0u8; 64 * 1024 * 1024];
+        let started = Instant::now();
+        let answer = http_request_with_config(
+            HttpMethod::Put,
+            &format!("{base}/part"),
+            Some(&body),
+            "application/octet-stream",
+            &config,
+        );
+        assert!(answer.is_err(), "an unread body is no answer");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the send timeout ended it: {:?}",
+            started.elapsed()
+        );
+    }
+
+    fn ok(mut stream: std::net::TcpStream) {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    }
+
+    #[test]
+    fn a_blocking_request_is_refused_on_the_event_loop_thread_and_works_on_any_other() {
+        let base = server(ok);
+        let url = format!("{base}/x");
+        let worker = url.clone();
+        let answered = std::thread::spawn(move || {
+            HttpRequestConfig::default()
+                .with_timeout(5)
+                .http_request_blocking(
+                    HttpMethod::Get,
+                    AzString::from(worker),
+                    U8Vec::from_vec(Vec::new()),
+                    AzString::from(""),
+                )
+        })
+        .join()
+        .expect("a worker thread may wait");
+        assert!(matches!(answered, ResultHttpResponseHttpError::Ok(_)));
+
+        let refused = std::thread::spawn(move || {
+            mark_event_loop_thread();
+            assert!(is_event_loop_thread());
+            std::panic::catch_unwind(|| {
+                HttpRequestConfig::default()
+                    .with_timeout(5)
+                    .http_request_blocking(
+                        HttpMethod::Get,
+                        AzString::from(url),
+                        U8Vec::from_vec(Vec::new()),
+                        AzString::from(""),
+                    )
+            })
+        })
+        .join()
+        .expect("the thread returns what the call did");
+        if cfg!(debug_assertions) {
+            assert!(refused.is_err(), "a debug build stops at the call");
+        } else {
+            match refused {
+                Ok(ResultHttpResponseHttpError::Err(HttpError::Other(why))) => {
+                    assert!(why.as_str().contains("UI thread"), "{}", why.as_str());
+                }
+                other => panic!("the event loop's thread never waits for an answer: {other:?}"),
+            }
+        }
+        assert!(
+            !std::thread::spawn(is_event_loop_thread).join().unwrap(),
+            "the mark is the marking thread's own"
+        );
+    }
+}
+
+/// Which authorities an HTTPS request trusts: the public roots by default, or the set an app
+/// pins - then a certificate from any other authority fails the handshake, for a request of
+/// its own and for a pooled client alike.
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod trust_roots_tests {
+    use azul_core::tls::TrustRoots;
+
+    use super::*;
+    use crate::tls_testing::{serve_tls, TestCa};
+
+    fn pinned(ca: &TestCa) -> TrustRoots {
+        TrustRoots::pinned(StringVec::from_vec(vec![AzString::from(ca.cert_pem.clone())]))
+    }
+
+    #[test]
+    fn a_request_reaches_a_server_under_a_pinned_root_and_refuses_any_other() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(forged.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/token");
+
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_trust_roots(pinned(&ours));
+        let refused = http_get_with_config(&url, &config);
+        assert!(refused.is_err(), "a certificate outside the pinned set: {refused:?}");
+        assert!(
+            seen.recv().expect("the server saw the attempt").is_err(),
+            "the handshake failed on the client's refusal"
+        );
+
+        let public = HttpRequestConfig::default().with_timeout(10);
+        assert!(http_get_with_config(&url, &public).is_err(), "no public root issued it");
+        let _ = seen.recv();
+
+        let config = HttpRequestConfig::default()
+            .with_timeout(10)
+            .with_trust_roots(pinned(&forged));
+        let answer = http_get_with_config(&url, &config).expect("its own root is pinned");
+        assert_eq!(answer.status_code, 200);
+        assert_eq!(
+            seen.recv().expect("seen").as_deref(),
+            Ok("GET /token HTTP/1.1")
+        );
+    }
+
+    #[test]
+    fn a_pooled_client_trusts_what_its_config_pins() {
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, _seen) = serve_tls(forged.server_for_loopback());
+        let url = format!("https://127.0.0.1:{port}/x");
+        let client = HttpClient::create(HttpClientConfig::default().with_trust_roots(pinned(&ours)));
+        let config = HttpRequestConfig::default().with_timeout(10).with_client(client);
+        assert!(http_get_with_config(&url, &config).is_err());
+        let client =
+            HttpClient::create(HttpClientConfig::default().with_trust_roots(pinned(&forged)));
+        let config = HttpRequestConfig::default().with_timeout(10).with_client(client);
+        assert_eq!(http_get_with_config(&url, &config).expect("pinned").status_code, 200);
+    }
+
+    #[test]
+    fn a_pinned_set_that_does_not_parse_fails_the_request_and_never_trusts_the_public_roots() {
+        let broken = TrustRoots::pinned(StringVec::from_vec(vec![AzString::from("not a pem")]));
+        let config = HttpRequestConfig::default().with_timeout(5).with_trust_roots(broken.clone());
+        match http_get_with_config("https://127.0.0.1:9/", &config) {
+            Err(HttpError::TlsError(why)) => {
+                assert!(why.as_str().contains("trusted root"), "{}", why.as_str());
+            }
+            other => panic!("a broken pin set: {other:?}"),
+        }
+        let client = HttpClient::create(HttpClientConfig::default().with_trust_roots(broken));
+        let config = HttpRequestConfig::default().with_timeout(5).with_client(client);
+        assert!(matches!(
+            http_get_with_config("https://127.0.0.1:9/", &config),
+            Err(HttpError::TlsError(_))
+        ));
     }
 }

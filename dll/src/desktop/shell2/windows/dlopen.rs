@@ -398,6 +398,9 @@ pub mod constants {
     pub const WS_EX_ACCEPTFILES: u32 = 0x00000010;
     /// No taskbar button, no Alt-Tab entry: a popup / tool window.
     pub const WS_EX_TOOLWINDOW: u32 = 0x00000080;
+    /// A click does not activate the window: a popup that leaves the
+    /// keyboard with its owner (a combobox's list).
+    pub const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
 
     // Window Class Styles
     pub const CS_HREDRAW: u32 = 0x0002;
@@ -408,6 +411,9 @@ pub mod constants {
     pub const SW_HIDE: i32 = 0;
     pub const SW_SHOWNORMAL: i32 = 1;
     pub const SW_NORMAL: i32 = 1;
+    /// Shows the window in its current size and position without
+    /// activating it.
+    pub const SW_SHOWNOACTIVATE: i32 = 4;
     pub const SW_SHOW: i32 = 5;
     pub const SW_MINIMIZE: i32 = 6;
     pub const SW_MAXIMIZE: i32 = 3;

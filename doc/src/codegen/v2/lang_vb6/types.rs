@@ -32,6 +32,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -238,6 +239,18 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.line(&format!("' Tagged-union variants for {}:", t));
     builder.line("' SKIPPED: VB6 has no native Union type. We emit a fixed 256-byte payload");
     builder.line("' buffer; callers must use CopyMemory with the per-variant layout below.");
+    // Where the bytes really are (`c_layout::union_payload_layout`): the C
+    // tag is ONE byte and every payload starts at the largest alignment of
+    // any variant, while this Type puts a 4-byte `tag As Long` first.
+    if let Some(l) = union_payload_layout(&e.name, ir) {
+        builder.line(&format!(
+            "' In C memory the tag is {} byte(s) at offset 0 and every payload starts at byte {} \
+             (= payload({}) here when that is >= 4).",
+            l.tag.size,
+            l.payload_offset,
+            l.payload_offset.saturating_sub(4)
+        ));
+    }
     for v in &e.variants {
         let nm = sanitize_identifier(&v.name);
         match &v.kind {

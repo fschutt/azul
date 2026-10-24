@@ -86,6 +86,16 @@ pub fn set_badge(label: Option<&str>) -> IconOutcome {
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 pub(crate) use linux::default_window_icons;
 
+/// The X11 backend on a macOS host (`x11-macos`) reads this at window
+/// creation like it does on Linux, but nothing fills it there: the macOS
+/// `run()` does not route `App::set_app_icon` to X11 windows (an XQuartz
+/// window's Dock tile belongs to XQuartz, not to this process), so there is no
+/// process-default `_NET_WM_ICON`.
+#[cfg(all(az_x11, not(target_os = "linux")))]
+pub(crate) fn default_window_icons() -> Option<std::sync::Arc<Vec<(u32, u32, Vec<u8>)>>> {
+    None
+}
+
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux {
     use std::sync::{Arc, Mutex};

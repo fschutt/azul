@@ -11,10 +11,16 @@
 //! portable CPU-mode frame source (`VideoFrame` is tightly-packed RGBA8), and the
 //! same decoder is the basis for the zero-copy GPU/YUV-texture path later.
 //!
-//! NV12 -> RGBA8 conversion happens here on the CPU, picking the YCbCr matrix
-//! from each frame's signalled colour space / range.
+//! Frames are handed out as the NV12 they are when the app asked for NV12
+//! (`VideoDecoder::set_output_format`: a YUV tile converts on the GPU, the
+//! CPU rasterizer only the rows it paints), else converted to RGBA8 through
+//! the one YCbCr table (`azul_core::resources::nv12_to_rgba`), picking the
+//! matrix from each frame's signalled colour space / range.
 
-use azul_core::video::VideoFrame;
+use azul_core::{
+    resources::{nv12_to_rgba, RawImageFormat},
+    video::VideoFrame,
+};
 use azul_css::U8Vec;
 use gpu_video::{
     parameters::{
@@ -29,6 +35,8 @@ use gpu_video::{
 /// [`flush`](Self::flush).
 pub struct VulkanVideoDecoder {
     decoder: gpu_video::BytesDecoder,
+    /// What frames are handed out as: NV12 as decoded, else RGBA8.
+    output: RawImageFormat,
 }
 
 impl VulkanVideoDecoder {
@@ -74,7 +82,16 @@ impl VulkanVideoDecoder {
                 return None;
             }
         };
-        Some(Self { decoder })
+        Some(Self {
+            decoder,
+            output: RawImageFormat::RGBA8,
+        })
+    }
+
+    /// Hand frames out as NV12 (any NV12 variant: the frame carries the
+    /// stream's own matrix and range) or, for anything else, RGBA8.
+    pub fn set_output_format(&mut self, format: RawImageFormat) {
+        self.output = format;
     }
 
     /// Feed one Annex-B chunk (one or more NAL units). Returns any frames that
@@ -85,7 +102,13 @@ impl VulkanVideoDecoder {
             data: annexb,
             pts: None,
         }) {
-            Ok(frames) => frames.into_iter().map(output_frame_to_rgba).collect(),
+            Ok(frames) => {
+                let nv12 = self.output.is_nv12();
+                frames
+                    .into_iter()
+                    .map(|f| output_frame(f, nv12))
+                    .collect()
+            }
             Err(e) => {
                 eprintln!("[video] decode error: {e}");
                 Vec::new()
@@ -96,7 +119,13 @@ impl VulkanVideoDecoder {
     /// Drain frames still buffered for reordering at end-of-stream.
     pub fn flush(&mut self) -> Vec<VideoFrame> {
         match self.decoder.flush() {
-            Ok(frames) => frames.into_iter().map(output_frame_to_rgba).collect(),
+            Ok(frames) => {
+                let nv12 = self.output.is_nv12();
+                frames
+                    .into_iter()
+                    .map(|f| output_frame(f, nv12))
+                    .collect()
+            }
             Err(e) => {
                 eprintln!("[video] flush error: {e}");
                 Vec::new()
@@ -105,86 +134,41 @@ impl VulkanVideoDecoder {
     }
 }
 
-/// Convert one decoded NV12 [`OutputFrame`] into an RGBA8 [`VideoFrame`].
-fn output_frame_to_rgba(frame: OutputFrame<RawFrameData>) -> VideoFrame {
+/// One decoded NV12 [`OutputFrame`] as a [`VideoFrame`]: the NV12 itself
+/// (tagged with the stream's matrix and range) when `nv12`, else RGBA8. An
+/// unspecified colour space is BT.601, correct for typical SD content.
+fn output_frame(frame: OutputFrame<RawFrameData>, nv12: bool) -> VideoFrame {
     let RawFrameData {
-        frame: nv12,
+        frame: mut planes,
         width,
         height,
     } = frame.data;
-    let rgba = nv12_to_rgba(
-        &nv12,
-        width,
-        height,
-        frame.metadata.color_space,
-        frame.metadata.color_range,
+    let format = RawImageFormat::nv12(
+        matches!(frame.metadata.color_space, ColorSpace::BT709),
+        matches!(frame.metadata.color_range, ColorRange::Full),
     );
-    VideoFrame::new(width, height, U8Vec::from_vec(rgba))
-}
-
-/// Convert tightly-packed NV12 (Y plane `w*h`, then interleaved Cb/Cr at half
-/// resolution) to tightly-packed RGBA8 (`w*h*4`). The YCbCr->RGB matrix is
-/// selected from the stream-signalled colour space + range; `Unspecified`
-/// defaults to BT.601 limited (correct for typical SD content).
-fn nv12_to_rgba(
-    nv12: &[u8],
-    width: u32,
-    height: u32,
-    color_space: ColorSpace,
-    color_range: ColorRange,
-) -> Vec<u8> {
-    let w = width as usize;
-    let h = height as usize;
-    let y_size = w * h;
-    let uv_off = y_size;
-    let mut out = vec![0u8; w * h * 4];
-    // Need the full Y plane + the interleaved chroma plane (w * h/2 bytes).
-    if nv12.len() < y_size + w * (h / 2) {
+    if nv12 {
+        // Exactly both planes (a decoder may pad the buffer).
+        if let Some(total) =
+            azul_core::resources::Nv12Layout::new(width as usize, height as usize)
+                .checked_total_len()
+        {
+            planes.truncate(total);
+        }
+        return VideoFrame::with_format(width, height, U8Vec::from_vec(planes), format);
+    }
+    let rgba = nv12_to_rgba(&planes, width as usize, height as usize, format).unwrap_or_else(|| {
         eprintln!(
-            "[video] short NV12 buffer ({} < {}) — emitting black frame",
-            nv12.len(),
-            y_size + w * (h / 2)
+            "[video] short NV12 buffer ({} bytes for {}x{}) — emitting a black frame",
+            planes.len(),
+            width,
+            height
         );
-        for px in out.chunks_exact_mut(4) {
+        let mut black = vec![0u8; width as usize * height as usize * 4];
+        for px in black.chunks_exact_mut(4) {
             px[3] = 255;
         }
-        return out;
-    }
-
-    let full = matches!(color_range, ColorRange::Full);
-    let bt709 = matches!(color_space, ColorSpace::BT709);
-    // (luma_scale, luma_bias, Cr->R, Cb->G, Cr->G, Cb->B). Limited range bakes
-    // the 255/219 luma stretch into luma_scale; full range uses unity luma.
-    let (ls, lb, crr, cbg, crg, cbb): (f32, f32, f32, f32, f32, f32) = match (bt709, full) {
-        (false, false) => (
-            1.164_383, 16.0, 1.596_027, -0.391_762, -0.812_968, 2.017_232,
-        ), // BT.601 limited
-        (true, false) => (
-            1.164_383, 16.0, 1.792_741, -0.213_249, -0.532_909, 2.112_402,
-        ), // BT.709 limited
-        (false, true) => (1.0, 0.0, 1.402_000, -0.344_136, -0.714_136, 1.772_000), // BT.601 full
-        (true, true) => (1.0, 0.0, 1.574_800, -0.187_324, -0.468_124, 1.855_600),  // BT.709 full
-    };
-
-    for j in 0..h {
-        let y_row = j * w;
-        let uv_row = uv_off + (j / 2) * w;
-        let out_row = y_row * 4;
-        for i in 0..w {
-            let y = nv12[y_row + i] as f32;
-            let uv = (i / 2) * 2;
-            let u = nv12[uv_row + uv] as f32 - 128.0;
-            let v = nv12[uv_row + uv + 1] as f32 - 128.0;
-            let c = (y - lb) * ls;
-            let r = c + crr * v;
-            let g = c + cbg * u + crg * v;
-            let b = c + cbb * u;
-            let o = out_row + i * 4;
-            out[o] = r.clamp(0.0, 255.0) as u8;
-            out[o + 1] = g.clamp(0.0, 255.0) as u8;
-            out[o + 2] = b.clamp(0.0, 255.0) as u8;
-            out[o + 3] = 255;
-        }
-    }
-    out
+        black
+    });
+    VideoFrame::new(width, height, U8Vec::from_vec(rgba))
 }

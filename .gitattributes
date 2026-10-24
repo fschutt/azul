@@ -1,0 +1,4 @@
+# Rust and Java sources keep LF line endings on every OS: tests read them as text
+# (include_str!) and a Windows checkout converting them to CRLF changed what they read.
+*.rs text eol=lf
+*.java text eol=lf

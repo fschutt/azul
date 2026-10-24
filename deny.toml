@@ -21,11 +21,32 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name-constraint handling (same rustls-rustcrypto chain as -0049). webpki exposes no URI-name API and azul asserts none; reachable only post-signature against a misissued cert." },
     { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name-constraint handling (same chain as -0049); reachable only post-signature against a misissued cert." },
     { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 reachable panic parsing a malformed CRL (same chain as -0049). azul does not parse untrusted CRLs (trusted-host fetch). Fixed in >=0.103.13." },
+    # rustls 0.23.45: the four advisories of 2026-10-14 are fixed in 0.23.46, published that same
+    # day and so inside the 14-day cooldown for new crate versions; bump on or after 2026-10-28
+    # and drop these four. None reaches azul's configuration (ring provider, default features).
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.23.45 derived Debug on client session values. azul has no custom ClientSessionStore and never formats session values; the built-in cache's Debug is redacted. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
+    { id = "RUSTSEC-2026-0347", reason = "rustls 0.23.45 sends buffered data to the outer server after an ECH rejection. azul never enables EchMode::Enable. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
+    { id = "RUSTSEC-2026-0348", reason = "rustls 0.23.45 Brotli certificate decompression window. Only with the non-default brotli feature, which azul does not enable (Cargo.lock: rustls has no brotli dependency). Fixed in 0.23.46 (cooldown until 2026-10-28)." },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.23.45 remembers an unauthenticated key-exchange group, downgrading a hybrid post-quantum handshake. azul's rustls runs on ring, which offers no X25519MLKEM768, so there is no hybrid group to lose. Fixed in 0.23.46 (cooldown until 2026-10-28)." },
+    # ── zip extraction to the filesystem. Every zip reader in the tree reads
+    # entries into memory by index or name (azul-layout's zip.rs, AzMaps' KMZ
+    # import, ironcalc's xlsx import in AzSheets, azul-doc's bundler); nothing
+    # calls ZipArchive::extract or ZipStreamReader::extract, the only paths that
+    # create files, symlinks or permission bits from an archive. Fixed in zip
+    # >= 9.0.0: a major-version move for azul-layout (2.4) and azul-doc (6.0),
+    # and ironcalc 0.8 pins 0.6. ──
+    { id = "RUSTSEC-2026-0367", reason = "zip keeps SUID/SGID bits when extracting to disk. azul never extracts an archive to the filesystem (in-memory reads by index/name only), so no file is created with archive permissions. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0368", reason = "zip's ZipArchive::extract creates symlinks whose targets leave the destination. No caller of ZipArchive::extract exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0369", reason = "zip's extract() applies Unix permissions through extracted symlinks. No caller of extract() exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
     # ── Unmaintained — no known vulnerability; deep-transitive in third-party
     # crates we don't own. Tracked, with fix paths noted. ──
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3/2.0.1 — team ceased development; 1.3.3 is declared a complete/stable release. Transitive via webrender 0.62, hyphenation (build dep), and rust-fontconfig. Migrating off it (postcard/…) needs upstream changes in those crates." },
     { id = "RUSTSEC-2025-0057", reason = "fxhash 0.2.1 unmaintained (-> rustc-hash). Pulled only by webrender 0.62 (our fork). Fix path: switch webrender's hasher to rustc-hash in the fork — tracked follow-up." },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 5 unmaintained: merged into zbus 6 as its wire module (no vulnerability). Pulled by zbus 5: azul-dll's Linux D-Bus clients (portals, GeoClue, media keys) and accesskit_unix's AT-SPI stack (accesskit_atspi_common, atspi). Moving the dll to zbus 6 alone keeps zvariant 5 in the graph through accesskit_unix; the advisory names no safe upgrade until accesskit moves to zbus 6." },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained: merged into zbus 6 (no vulnerability). Same path as RUSTSEC-2026-0370 (zbus 5: the dll's D-Bus clients and accesskit_unix)." },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained: merged into zbus 6 (no vulnerability). Same path as RUSTSEC-2026-0370 (zbus 5: the dll's D-Bus clients and accesskit_unix)." },
     { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 archived (-> pastey). Transitive via nokhwa, turso_core, and rustls-rustcrypto. Build-time macro only, no runtime/security impact; awaiting upstreams to migrate." },
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml 0.2.11 unmaintained. Pulled only by serde_yaml 0.9 in azul-doc, the build and docs tool that is never shipped; it parses the repo's own front matter and FUNDING.yml, no untrusted YAML. Fix path: move azul-doc to a maintained YAML reader." },
 ]
 
 [licenses]

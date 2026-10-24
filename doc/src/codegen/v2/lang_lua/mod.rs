@@ -123,26 +123,30 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     //     (rationale in CB_TYPEDEF_LOOP). Struct fields typed with them were
     //     rewritten to `void*` by cdef.rs, and every function declaration
     //     that names them is cdef'd lazily below, after this loop ran.
+    // The three data tables below are each built in a function of their own:
+    // LuaJIT allows 65 536 constants per function, and their ~30 000 strings
+    // in the main chunk, next to the wrapper layer's, overflowed it ("main
+    // function has more than 65536 constants") before any code ran.
     builder.line("-- Callback function-pointer typedefs: { name, declaration } in header order.");
-    builder.line("local __az_cb_typedefs = {");
+    builder.line("local __az_cb_typedefs = (function() return {");
     for (name, decl) in &cb_typedefs {
         builder.line(&format!("    {{ \"{name}\", '{decl}' }},"));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.raw(CB_TYPEDEF_LOOP);
 
     // 3b. The lazy function-declaration registry (plain Lua strings — costs
     //     table slots, never ctype IDs, until a function is first called).
     builder.line("-- Function declarations, cdef'd lazily on first use (see the ctype");
     builder.line("-- budget note above). Keys are the C symbol names.");
-    builder.line("local __az_fn_decls = {");
+    builder.line("local __az_fn_decls = (function() return {");
     for d in &fn_decls {
         // C declarations contain no quotes/backslashes; plain single-quoted
         // Lua strings are safe. Defensive assert keeps that true.
         debug_assert!(!d.decl.contains('\'') && !d.decl.contains('\\'));
         builder.line(&format!("    [\"{}\"] = '{}',", d.name, d.decl));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.blank();
 
     // 3c. Byref routing table (the rationale lives in LOAD_PROXY, emitted
@@ -156,7 +160,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("-- type or nil>, agg = <return is a struct / tagged union> }. Only functions");
     builder.line("-- that move an aggregate by value (argument or return) AND have a Byref twin");
     builder.line("-- declared above are listed; everything else is called directly.");
-    builder.line("local __az_fn_meta = {");
+    builder.line("local __az_fn_meta = (function() return {");
     for r in &routes {
         let body = match &r.ret {
             Some(ret) => format!(" ret = \"{ret}\", agg = {} ", r.agg_ret),
@@ -164,7 +168,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
         };
         builder.line(&format!("    [\"{}\"] = {{{body}}},", r.name));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.blank();
 
     // 4. Load the native library behind a MEMOIZING PROXY: first access to a function cdefs its
@@ -502,24 +506,28 @@ end
 -- with
 --   window:with({ window_state = { title = 'Hello World',
 --                  size = { dimensions = { width = 400.0 } } } })
--- The FFI lets us assign nested cdata struct fields directly
--- (`struct.field = value`); we only need to recurse into Lua tables and
--- auto-convert strings. Everything else (wrapper instances, enum
--- constants, numbers, booleans) direct-assigns — the FFI does the byte
--- copy. A cdata value byte-copied into a field is thereby OWNED by the
--- containing struct (Rust drops it with the struct), so its own finalizer
--- is detached like for any other consumed by-value argument.
-azul._apply_opts = function(struct, opts)
+-- `tn` is the C type of `struct` (every `:with` passes its own);
+-- `azul._az_ft[tn]` names the type of each String / struct / union field,
+-- so those go through `azul._set_field`: the old value is released and the
+-- new one deep-copied in (never aliased). Scalars (numbers, booleans, enum
+-- constants) direct-assign. Without a type name (a direct call with two
+-- arguments) the old behaviour stays: strings convert, a cdata value is
+-- byte-copied in and its finalizer detached.
+azul._apply_opts = function(struct, opts, tn)
     -- `opts` is always a plain Lua table; `not opts` is safe to falsy-
     -- check. We deliberately do NOT check `struct == nil`: cdata types
     -- with an __eq metamethod invoke it with `nil` as the second operand.
     if not opts then return end
+    local ft = tn and azul._az_ft[tn]
     for k, v in pairs(opts) do
         local t = type(v)
-        if t == 'string' then
+        local ftn = ft and ft[k]
+        if t == 'table' then
+            azul._apply_opts(struct[k], v, ftn)
+        elseif ftn then
+            azul._set_field(struct, k, ftn, v)
+        elseif t == 'string' then
             struct[k] = azul._az_string(v)
-        elseif t == 'table' then
-            azul._apply_opts(struct[k], v)
         else
             struct[k] = v
             azul._consume(v)
@@ -527,4 +535,160 @@ azul._apply_opts = function(struct, opts)
     end
 end
 
+-- The text of an AzString (a struct or a field view), decoded into a Lua
+-- string. The AzString is neither consumed nor freed.
+function azul._read_string(s)
+    if s.vec.ptr == nil or s.vec.len == 0 then return '' end
+    return ffi.string(s.vec.ptr, _tonum(s.vec.len))
+end
+
+-- The value to MOVE into a by-value slot of C type `tn`, never aliasing
+-- the caller's value: a heap-owning value is deep-copied (`_clone`; the
+-- caller keeps its own and its finalizer frees it), a POD value is copied
+-- by the assignment itself. A heap-owning type without a deep copy is
+-- taken over instead (its finalizer is detached).
+function azul._take(v, tn)
+    local clone = azul._az_clone[tn]
+    if clone then return C[clone](v) end
+    if azul._az_delete[tn] then azul._consume(v) end
+    return v
+end
+
+-- The native Option of C type `ct` for a parameter or a field: nil is None,
+-- an Option cdata passes as it is, anything else becomes the Some of `map(v)`
+-- (`azul._az_string` for text). A cdata payload is moved in.
+function azul._opt_in(ct, v, map)
+    if v == nil then return C[ct .. '_none']() end
+    if ffi.istype(ct, v) then return v end
+    local o = C[ct .. '_some'](map(v))
+    azul._consume(v)
+    return o
+end
+
+function azul._identity(v)
+    return v
+end
+
+-- `struct[k] = v` for a field of C type `tn`: a Lua string becomes a fresh
+-- AzString, any other value goes through `_take`; the field's old value is
+-- released (`_delete`) before the new bytes are written.
+function azul._set_field(struct, k, tn, v)
+    local new
+    if type(v) == 'string' then
+        if tn ~= 'AzString' then
+            error('azul: field ' .. k .. ' is a ' .. tn .. ', not a string', 3)
+        end
+        new = azul._az_string(v)
+    else
+        new = azul._take(v, tn)
+    end
+    local del = azul._az_delete[tn]
+    if del then C[del](struct[k]) end
+    struct[k] = new
+end
+
 "#;
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `azul.lua` for the real api.json, generated once.
+    fn azul_lua() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("lua codegen")
+        })
+    }
+
+    /// The line that starts with `head` (after indentation).
+    fn line(head: &str) -> &'static str {
+        azul_lua()
+            .lines()
+            .map(str::trim_start)
+            .find(|l| l.starts_with(head))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", head))
+    }
+
+    /// A postlude helper: from `function <name>(` / `<name> = function(`
+    /// up to its closing top-level `end`.
+    fn helper(name: &str) -> &'static str {
+        let out = azul_lua();
+        let i = out
+            .find(&format!("function {}(", name))
+            .or_else(|| out.find(&format!("{} = function(", name)))
+            .unwrap_or_else(|| panic!("helper {} is missing", name));
+        let rest = &out[i..];
+        &rest[..rest.find("\nend\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_lua_string_and_its_setter_releases_the_old_title() {
+        let get = line("function FullWindowState_methods:get_title()");
+        assert!(get.contains("azul._read_string(self.title)"), "{}", get);
+        let set = line("function FullWindowState_methods:set_title(v)");
+        assert!(set.contains("azul._set_field(self, 'title', 'AzString', v)"), "{}", set);
+        let sf = helper("azul._set_field");
+        assert!(sf.contains("C[del](struct[k])"), "the old value is released:\n{}", sf);
+        assert!(!helper("azul._read_string").contains("_delete"), "reading never frees");
+    }
+
+    #[test]
+    fn a_value_moved_into_a_field_is_deep_copied_never_aliased() {
+        let take = helper("azul._take");
+        assert!(take.contains("C[clone](v)"), "{}", take);
+        let set = line("function WindowCreateOptions_methods:set_window_state(v)");
+        assert!(set.contains("'AzFullWindowState'"), "{}", set);
+        let get = line("function WindowCreateOptions_methods:get_window_state()");
+        assert!(get.contains("C.AzFullWindowState_clone(self.window_state)"), "{}", get);
+        assert!(get.contains("ffi.gc("), "the copy is owned by the caller:\n{}", get);
+    }
+
+    #[test]
+    fn apply_opts_knows_each_field_type_and_releases_the_old_value() {
+        let with = line("function WindowCreateOptions_methods:with(opts)");
+        assert!(with.contains("azul._apply_opts(self, opts, 'AzWindowCreateOptions')"), "{}", with);
+        let apply = helper("azul._apply_opts");
+        assert!(apply.contains("azul._set_field(struct, k, ftn, v)"), "{}", apply);
+        let ft = line("azul._az_ft.AzFullWindowState = {");
+        assert!(ft.contains("title = 'AzString'"), "{}", ft);
+        assert!(ft.contains("size = 'AzWindowSize'"), "{}", ft);
+        assert!(!ft.contains("layout_callback"), "callbacks are not plain fields:\n{}", ft);
+        let wco = line("azul._az_ft.AzWindowCreateOptions = {");
+        assert!(wco.contains("window_state = 'AzFullWindowState'"), "{}", wco);
+    }
+
+    #[test]
+    fn a_bool_field_has_typed_accessors() {
+        assert!(line("function CheckBoxState_methods:set_checked(v)").contains("self.checked = v"));
+        assert!(line("function CheckBoxState_methods:get_checked()").contains("self.checked"));
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        let set = line("function TextInputState_methods:set_text(v)");
+        assert!(set.contains("'AzU32Vec'"), "{}", set);
+        let get = line("function TextInputState_methods:get_text(");
+        assert!(get.contains("AzTextInputState_getText"), "the api method wins:\n{}", get);
+    }
+
+    /// LuaJIT allows 65 536 constants per function. The registries of every
+    /// C declaration and every by-reference route hold ~30 000 strings; in
+    /// the main chunk, next to the wrapper layer's, they overflowed it and
+    /// `require('azul')` failed with "main function has more than 65536
+    /// constants". Each is built in a function of its own.
+    #[test]
+    fn the_big_registries_are_built_in_functions_of_their_own() {
+        for name in ["__az_cb_typedefs", "__az_fn_decls", "__az_fn_meta"] {
+            let def = line(&format!("local {} = ", name));
+            assert!(
+                def.ends_with("(function() return {"),
+                "{} is built in the main chunk: {}",
+                name,
+                def
+            );
+        }
+    }
+}

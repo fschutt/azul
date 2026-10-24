@@ -25,7 +25,7 @@ pub fn ensure_frame_resampler() {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
             crate::plog_info!("[resample] registering Accelerate/vImage frame scaler");
-            azul_layout::widgets::capture_common::register_frame_resampler(macos::resample_rgba);
+            azul_layout::widgets::capture_common::register_frame_resampler(macos::resample_frame_rect);
         });
     }
 }

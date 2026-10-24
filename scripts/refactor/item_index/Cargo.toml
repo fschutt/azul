@@ -1,0 +1,15 @@
+# REFACTOR13 tool: prints every top-level item of a Rust source file with its
+# line range (doc comments and attributes included), so the split script can
+# move items by NAME and verbatim. Its own workspace: never part of azul's.
+[package]
+name = "item_index"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "clone-impls"] }
+proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
+quote = { version = "=1.0.47", default-features = false }
+
+[workspace]

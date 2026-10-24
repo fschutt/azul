@@ -96,6 +96,25 @@ fn main() {
         }
     }
 
+    // `az_x11`: the X11 windowing backend is compiled in - `shell2/linux`
+    // minus Wayland (the X11 backend, the window registry, the shared
+    // resources, the timers), the window loop in `run.rs` that drives it,
+    // and the X11 halves of the eyedropper, the monitor list and the native
+    // screenshot. Always on Linux. On macOS with the `x11-macos` feature (part
+    // of build-dll), which runs that same backend against XQuartz so an X11 bug
+    // reproduces on a Mac (`AZ_BACKEND=x11`). Wayland, the D-Bus desktop
+    // settings and AT-SPI stay `target_os = "linux"`: they are the Linux
+    // DESKTOP, not the X protocol. One definition for every gate, for the
+    // same reason as the two above - a condition stated twice drifts.
+    println!("cargo:rustc-check-cfg=cfg(az_x11)");
+    {
+        let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let x11_on_macos = os == "macos" && env::var("CARGO_FEATURE_X11_MACOS").is_ok();
+        if os == "linux" || x11_on_macos {
+            println!("cargo:rustc-cfg=az_x11");
+        }
+    }
+
     // Embed a build identity for the web lift cache. A CLEAN git checkout keys the
     // framework lift cache by (ref + fn name) — arch-neutral, so an aarch64-lifted
     // WASM cache is reused by an x86 server (transpiler_remill::lift_cache_path).
@@ -126,14 +145,16 @@ fn main() {
         // --release -p azul-dll --features build-dll` puts libazul there).
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let workspace_root = Path::new(&manifest_dir).parent().unwrap().to_path_buf();
-        configure_dynamic_linking(
-            &target,
-            &workspace_root,
-            &[
-                workspace_root.join("target/release"),
-                workspace_root.join("target/debug"),
-            ],
-        );
+        // `target/azul-lib` is where the README copies a built library for apps to
+        // link; with a shared CARGO_TARGET_DIR (worktrees) that folder lives there,
+        // not under this checkout.
+        let mut candidates = vec![workspace_root.join("target/azul-lib")];
+        if let Ok(shared) = env::var("CARGO_TARGET_DIR") {
+            candidates.push(workspace_root.join(shared).join("azul-lib"));
+        }
+        candidates.push(workspace_root.join("target/release"));
+        candidates.push(workspace_root.join("target/debug"));
+        configure_dynamic_linking(&target, &workspace_root, &candidates);
     }
 
     // Restrict the cdylib's exported symbols to the azul C API. Without this
@@ -726,8 +747,12 @@ fn compress_debugger_assets() {
     let debugger_dir = Path::new(&manifest_dir).join("src/desktop/shell2/common/debugger");
 
     let assets = &[
+        // AzBuilder's project tree + editor (B4).
+        ("debugger-project.js", "debugger-project.js.br"),
         ("debugger.css", "debugger.css.br"),
         ("debugger.js", "debugger.js.br"),
+        ("debugger-dnd.js", "debugger-dnd.js.br"),
+        ("debugger-export.js", "debugger-export.js.br"),
         ("debugger.html", "debugger.html.br"),
     ];
 

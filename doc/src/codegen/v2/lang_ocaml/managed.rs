@@ -34,7 +34,7 @@ use std::collections::BTreeSet;
 use super::{
     super::{
         generator::CodeBuilder,
-        ir::{CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
+        ir::{CallbackTypedefDef, CodegenIR, FunctionArg, FunctionKind, TypeCategory},
         managed_host_invoker::{
             has_return, host_invoker_kinds, layout_callback_factory_info, to_snake_case,
             wrapper_name,
@@ -462,6 +462,21 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
     builder.dedent();
     builder.blank();
 
+    // The way back, for the field getters (`wrappers` / `fields`): copy the
+    // text out, never free the AzString - the struct it came from owns it.
+    builder.line("(* The text of an AzString, copied; the AzString is NOT consumed. *)");
+    builder.line("let azul_string_of_az (s : az_string Ctypes.structure) : string =");
+    builder.indent();
+    builder.line("let vec = Ctypes.getf s az_string_field_vec in");
+    builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+    builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+    builder.line(
+        "if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" \
+         else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len",
+    );
+    builder.dedent();
+    builder.blank();
+
     // 4. Per-kind invoker closures + their setter calls.
     for cb in host_invoker_kinds(ir) {
         emit_per_kind_invoker(builder, cb, ir);
@@ -570,6 +585,20 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
             .field_path
             .last()
             .expect("layout factory has at least one path segment");
+        // The default value already holds a layout callback (with its own
+        // `callable` RefAny): release it before the new one is written over
+        // it, or it leaks.
+        if let Some(delete) = ir
+            .functions_for_class(&info.callback_wrapper)
+            .find(|f| f.kind == FunctionKind::Delete)
+        {
+            builder.line(&format!(
+                "{} Ctypes.(addr {} |-> {});",
+                super::functions::ocaml_binding_name(&delete.c_name),
+                parent_var,
+                accessor(&parent_struct, leaf_field)
+            ));
+        }
         builder.line(&format!(
             "Ctypes.setf {parent} {accessor} cb;",
             parent = parent_var,

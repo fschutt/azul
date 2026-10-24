@@ -1,0 +1,1182 @@
+{
+ "source": "editing/data/bold.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 213,
+ "eligible_cases": 61,
+ "left_out": {
+  "attribute class": 3,
+  "attribute id": 1,
+  "markup outside the mail subset": 64,
+  "over the cap of 60": 1,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 84
+ },
+ "cases": [
+  {
+   "id": "bold-799c67d8",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[]bar"
+   ],
+   "expected_canonical": [
+    "foo[]bar"
+   ]
+  },
+  {
+   "id": "bold-c5c92f3c",
+   "initial": "<p>[foo</p> <p>bar]</p>",
+   "initial_xhtml": "<p>[foo</p> <p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>[foo</b></p> <p><b>bar]</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b>[foo</b></p> <p><b>bar]</b></p>"
+   ]
+  },
+  {
+   "id": "bold-d9499af3",
+   "initial": "<span>[foo</span> <span>bar]</span>",
+   "initial_xhtml": "<span>[foo</span> <span>bar]</span>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b><span>[foo</span> <span>bar]</span></b>"
+   ],
+   "expected_canonical": [
+    "<b><span>[foo</span> <span>bar]</span></b>"
+   ]
+  },
+  {
+   "id": "bold-78ac7802",
+   "initial": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "initial_xhtml": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>[foo</b></p><p> <b><span>bar</span></b> </p><p><b>baz]</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b>[foo</b></p><p> <b><span>bar</span></b> </p><p><b>baz]</b></p>"
+   ]
+  },
+  {
+   "id": "bold-03b62829",
+   "initial": "<p>[foo<p><br><p>bar]",
+   "initial_xhtml": "<p>[foo</p><p><br/></p><p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>[foo</b></p><p><b><br></b></p><p><b>bar]</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b>[foo</b></p><p><b><br/></b></p><p><b>bar]</b></p>"
+   ]
+  },
+  {
+   "id": "bold-e1ffd72e",
+   "initial": "<b>foo[]bar</b>",
+   "initial_xhtml": "<b>foo[]bar</b>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[]bar</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[]bar</b>"
+   ]
+  },
+  {
+   "id": "bold-aeb64ef6",
+   "initial": "<i>foo[]bar</i>",
+   "initial_xhtml": "<i>foo[]bar</i>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i>foo[]bar</i>"
+   ],
+   "expected_canonical": [
+    "<i>foo[]bar</i>"
+   ]
+  },
+  {
+   "id": "bold-798cf471",
+   "initial": "<span>foo</span>{}<span>bar</span>",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo</span>{}<span>bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo</span>{}<span>bar</span>"
+   ]
+  },
+  {
+   "id": "bold-faa6b26e",
+   "initial": "<span>foo[</span><span>]bar</span>",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo[</span><span>]bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo[</span><span>]bar</span>"
+   ]
+  },
+  {
+   "id": "bold-b8ae34e7",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>[bar]</b>baz"
+   ],
+   "expected_canonical": [
+    "foo<b>[bar]</b>baz"
+   ]
+  },
+  {
+   "id": "bold-7365fa19",
+   "initial": "foo[bar<b>baz]qoz</b>quz",
+   "initial_xhtml": "foo[bar<b>baz]qoz</b>quz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>[barbaz]qoz</b>quz"
+   ],
+   "expected_canonical": [
+    "foo<b>[barbaz]qoz</b>quz"
+   ]
+  },
+  {
+   "id": "bold-fa25939d",
+   "initial": "foo[bar<i>baz]qoz</i>quz",
+   "initial_xhtml": "foo[bar<i>baz]qoz</i>quz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>[bar</b><i><b>baz]</b>qoz</i>quz"
+   ],
+   "expected_canonical": [
+    "foo<b>[bar</b><i><b>baz]</b>qoz</i>quz"
+   ]
+  },
+  {
+   "id": "bold-1299dfdc",
+   "initial": "{<p><p> <p>foo</p>}",
+   "initial_xhtml": "{<p></p><p> </p><p>foo</p>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<p></p><p> </p><p><b>foo</b></p>}"
+   ],
+   "expected_canonical": [
+    "{<p></p><p> </p><p><b>foo</b></p>}"
+   ]
+  },
+  {
+   "id": "bold-9e0625b1",
+   "initial": "foo<b>[bar]</b>baz",
+   "initial_xhtml": "foo<b>[bar]</b>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-c9c7cc3d",
+   "initial": "foo<b>bar</b>[baz]",
+   "initial_xhtml": "foo<b>bar</b>[baz]",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>bar[baz]</b>"
+   ],
+   "expected_canonical": [
+    "foo<b>bar[baz]</b>"
+   ]
+  },
+  {
+   "id": "bold-aa20794a",
+   "initial": "[foo]<b>bar</b>baz",
+   "initial_xhtml": "[foo]<b>bar</b>baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>[foo]bar</b>baz"
+   ],
+   "expected_canonical": [
+    "<b>[foo]bar</b>baz"
+   ]
+  },
+  {
+   "id": "bold-3d75e1b2",
+   "initial": "<b>foo</b>[bar]<b>baz</b>",
+   "initial_xhtml": "<b>foo</b>[bar]<b>baz</b>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[bar]baz</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[bar]baz</b>"
+   ]
+  },
+  {
+   "id": "bold-8deb1870",
+   "initial": "foo<strong>bar</strong>[baz]",
+   "initial_xhtml": "foo<strong>bar</strong>[baz]",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<strong>bar</strong><b>baz</b>"
+   ],
+   "expected_canonical": [
+    "foo<strong>bar</strong><b>baz</b>"
+   ]
+  },
+  {
+   "id": "bold-946c8377",
+   "initial": "[foo]<strong>bar</strong>baz",
+   "initial_xhtml": "[foo]<strong>bar</strong>baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo</b><strong>bar</strong>baz"
+   ],
+   "expected_canonical": [
+    "<b>foo</b><strong>bar</strong>baz"
+   ]
+  },
+  {
+   "id": "bold-75a984b2",
+   "initial": "<strong>foo</strong>[bar]<strong>baz</strong>",
+   "initial_xhtml": "<strong>foo</strong>[bar]<strong>baz</strong>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<strong>foo</strong><b>bar</b><strong>baz</strong>"
+   ],
+   "expected_canonical": [
+    "<strong>foo</strong><b>bar</b><strong>baz</strong>"
+   ]
+  },
+  {
+   "id": "bold-bb66fcd5",
+   "initial": "<b>foo</b>[bar]<strong>baz</strong>",
+   "initial_xhtml": "<b>foo</b>[bar]<strong>baz</strong>",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[bar]</b><strong>baz</strong>"
+   ],
+   "expected_canonical": [
+    "<b>foo[bar]</b><strong>baz</strong>"
+   ]
+  },
+  {
+   "id": "bold-f3afeabb",
+   "initial": "<strong>foo</strong>[bar]<b>baz</b>",
+   "initial_xhtml": "<strong>foo</strong>[bar]<b>baz</b>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<strong>foo</strong><b>barbaz</b>"
+   ],
+   "expected_canonical": [
+    "<strong>foo</strong><b>barbaz</b>"
+   ]
+  },
+  {
+   "id": "bold-6f691c58",
+   "initial": "foo[<b>bar</b>]baz",
+   "initial_xhtml": "foo[<b>bar</b>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-a39f83cf",
+   "initial": "foo[<b>bar]</b>baz",
+   "initial_xhtml": "foo[<b>bar]</b>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-d5648566",
+   "initial": "foo<b>[bar</b>]baz",
+   "initial_xhtml": "foo<b>[bar</b>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-b37c62ed",
+   "initial": "foo{<b></b>}baz",
+   "initial_xhtml": "foo{<b></b>}baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{<b></b>}baz"
+   ],
+   "expected_canonical": [
+    "foo{<b></b>}baz"
+   ]
+  },
+  {
+   "id": "bold-31ae7815",
+   "initial": "foo{<i></i>}baz",
+   "initial_xhtml": "foo{<i></i>}baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{<i></i>}baz"
+   ],
+   "expected_canonical": [
+    "foo{<i></i>}baz"
+   ]
+  },
+  {
+   "id": "bold-7b744f00",
+   "initial": "foo{<b><i></i></b>}baz",
+   "initial_xhtml": "foo{<b><i></i></b>}baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{<b><i></i></b>}baz"
+   ],
+   "expected_canonical": [
+    "foo{<b><i></i></b>}baz"
+   ]
+  },
+  {
+   "id": "bold-5ff651e7",
+   "initial": "foo{<i><b></b></i>}baz",
+   "initial_xhtml": "foo{<i><b></b></i>}baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{<i><b></b></i>}baz"
+   ],
+   "expected_canonical": [
+    "foo{<i><b></b></i>}baz"
+   ]
+  },
+  {
+   "id": "bold-509f5ac8",
+   "initial": "foo<strong>[bar]</strong>baz",
+   "initial_xhtml": "foo<strong>[bar]</strong>baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-adc73efe",
+   "initial": "foo[<strong>bar</strong>]baz",
+   "initial_xhtml": "foo[<strong>bar</strong>]baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-351f9fb5",
+   "initial": "foo[<strong>bar]</strong>baz",
+   "initial_xhtml": "foo[<strong>bar]</strong>baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-608e9d0b",
+   "initial": "foo<strong>[bar</strong>]baz",
+   "initial_xhtml": "foo<strong>[bar</strong>]baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "bold-76569a22",
+   "initial": "<b>{<p>foo</p><p>bar</p>}<p>baz</p></b>",
+   "initial_xhtml": "<b>{<p>foo</p><p>bar</p>}<p>baz</p></b>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<p>foo</p><p>bar</p>}<p><b>baz</b></p>"
+   ],
+   "expected_canonical": [
+    "{<p>foo</p><p>bar</p>}<p><b>baz</b></p>"
+   ]
+  },
+  {
+   "id": "bold-1d7ba94e",
+   "initial": "<b><p>foo[<i>bar</i>}</p><p>baz</p></b>",
+   "initial_xhtml": "<b><p>foo[<i>bar</i>}</p><p>baz</p></b>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>foo[</b><i>bar</i>}</p><p><b>baz</b></p>"
+   ],
+   "expected_canonical": [
+    "<p><b>foo[</b><i>bar</i>}</p><p><b>baz</b></p>"
+   ]
+  },
+  {
+   "id": "bold-4e85a353",
+   "initial": "foo [bar <b>baz] qoz</b> quz sic",
+   "initial_xhtml": "foo [bar <b>baz] qoz</b> quz sic",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo <b>[bar baz] qoz</b> quz sic"
+   ],
+   "expected_canonical": [
+    "foo <b>[bar baz] qoz</b> quz sic"
+   ]
+  },
+  {
+   "id": "bold-8bea91b2",
+   "initial": "foo bar <b>baz [qoz</b> quz] sic",
+   "initial_xhtml": "foo bar <b>baz [qoz</b> quz] sic",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo bar <b>baz [qoz quz]</b> sic"
+   ],
+   "expected_canonical": [
+    "foo bar <b>baz [qoz quz]</b> sic"
+   ]
+  },
+  {
+   "id": "bold-fca12a82",
+   "initial": "<h3>foo[bar]baz</h3>",
+   "initial_xhtml": "<h3>foo[bar]baz</h3>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h3>foo<span style=\"font-weight:normal\">[bar]</span>baz</h3>"
+   ],
+   "expected_canonical": [
+    "<h3>foo<span>[bar]</span>baz</h3>"
+   ]
+  },
+  {
+   "id": "bold-f2e10a58",
+   "initial": "{<h3>foobar]baz</h3>",
+   "initial_xhtml": "{<h3>foobar]baz</h3>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<h3><span style=\"font-weight:normal\">foobar]</span>baz</h3>"
+   ],
+   "expected_canonical": [
+    "{<h3><span>foobar]</span>baz</h3>"
+   ]
+  },
+  {
+   "id": "bold-56bd60e1",
+   "initial": "<h3>foo[barbaz</h3>}",
+   "initial_xhtml": "<h3>foo[barbaz</h3>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h3>foo<span style=\"font-weight:normal\">[barbaz</span></h3>}"
+   ],
+   "expected_canonical": [
+    "<h3>foo<span>[barbaz</span></h3>}"
+   ]
+  },
+  {
+   "id": "bold-71868c5e",
+   "initial": "<h3>[foobarbaz]</h3>",
+   "initial_xhtml": "<h3>[foobarbaz]</h3>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h3><span style=\"font-weight:normal\">[foobarbaz]</span></h3>"
+   ],
+   "expected_canonical": [
+    "<h3><span>[foobarbaz]</span></h3>"
+   ]
+  },
+  {
+   "id": "bold-ea7735ab",
+   "initial": "{<h3>foobarbaz]</h3>",
+   "initial_xhtml": "{<h3>foobarbaz]</h3>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<h3><span style=\"font-weight:normal\">foobarbaz]</span></h3>"
+   ],
+   "expected_canonical": [
+    "{<h3><span>foobarbaz]</span></h3>"
+   ]
+  },
+  {
+   "id": "bold-92d70070",
+   "initial": "<h3>[foobarbaz</h3>}",
+   "initial_xhtml": "<h3>[foobarbaz</h3>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h3><span style=\"font-weight:normal\">[foobarbaz</span></h3>}"
+   ],
+   "expected_canonical": [
+    "<h3><span>[foobarbaz</span></h3>}"
+   ]
+  },
+  {
+   "id": "bold-d3a17113",
+   "initial": "{<h3>foobarbaz</h3>}",
+   "initial_xhtml": "{<h3>foobarbaz</h3>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<h3><span style=\"font-weight:normal\">foobarbaz</span></h3>}"
+   ],
+   "expected_canonical": [
+    "{<h3><span>foobarbaz</span></h3>}"
+   ]
+  },
+  {
+   "id": "bold-03d7a265",
+   "initial": "{<b>foo</b> <b>bar</b>}",
+   "initial_xhtml": "{<b>foo</b> <b>bar</b>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<b>foo bar}</b>"
+   ],
+   "expected_canonical": [
+    "{<b>foo bar}</b>"
+   ]
+  },
+  {
+   "id": "bold-bd2b650d",
+   "initial": "{<h3>foo</h3><b>bar</b>}",
+   "initial_xhtml": "{<h3>foo</h3><b>bar</b>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<h3><span style=\"font-weight:normal\">foo</span></h3>bar}"
+   ],
+   "expected_canonical": [
+    "{<h3><span>foo</span></h3>bar}"
+   ]
+  },
+  {
+   "id": "bold-2af293aa",
+   "initial": "<i><b>foo</b></i>[bar]<i><b>baz</b></i>",
+   "initial_xhtml": "<i><b>foo</b></i>[bar]<i><b>baz</b></i>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b><i>foo</i>[bar]<i>baz</i></b>"
+   ],
+   "expected_canonical": [
+    "<b><i>foo</i>[bar]<i>baz</i></b>"
+   ]
+  },
+  {
+   "id": "bold-a74f033a",
+   "initial": "<i><b>foo</b></i>[bar]<b>baz</b>",
+   "initial_xhtml": "<i><b>foo</b></i>[bar]<b>baz</b>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b><i>foo</i>[bar]baz</b>"
+   ],
+   "expected_canonical": [
+    "<b><i>foo</i>[bar]baz</b>"
+   ]
+  },
+  {
+   "id": "bold-6dfbb040",
+   "initial": "<b>foo</b>[bar]<i><b>baz</b></i>",
+   "initial_xhtml": "<b>foo</b>[bar]<i><b>baz</b></i>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[bar]<i>baz</i></b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[bar]<i>baz</i></b>"
+   ]
+  },
+  {
+   "id": "bold-66faee86",
+   "initial": "fo[o<b>b]ar</b>baz",
+   "initial_xhtml": "fo[o<b>b]ar</b>baz",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<b>[ob]ar</b>baz"
+   ],
+   "expected_canonical": [
+    "fo<b>[ob]ar</b>baz"
+   ]
+  },
+  {
+   "id": "bold-e6b255ce",
+   "initial": "foo<b>ba[r</b>b]az",
+   "initial_xhtml": "foo<b>ba[r</b>b]az",
+   "commands": [
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>ba[rb]</b>az"
+   ],
+   "expected_canonical": [
+    "foo<b>ba[rb]</b>az"
+   ]
+  },
+  {
+   "id": "bold-7f87caab",
+   "initial": "fo[o<b>bar</b>b]az",
+   "initial_xhtml": "fo[o<b>bar</b>b]az",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<b>[obarb]</b>az"
+   ],
+   "expected_canonical": [
+    "fo<b>[obarb]</b>az"
+   ]
+  },
+  {
+   "id": "bold-b13d3de0",
+   "initial": "foo[<b>b]ar</b>baz",
+   "initial_xhtml": "foo[<b>b]ar</b>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[b]<b>ar</b>baz"
+   ],
+   "expected_canonical": [
+    "foo[b]<b>ar</b>baz"
+   ]
+  },
+  {
+   "id": "bold-0b52f0d0",
+   "initial": "foo<b>ba[r</b>]baz",
+   "initial_xhtml": "foo<b>ba[r</b>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<b>ba</b>[r]baz"
+   ],
+   "expected_canonical": [
+    "foo<b>ba</b>[r]baz"
+   ]
+  },
+  {
+   "id": "bold-60668613",
+   "initial": "foo{<b>bar</b>}baz",
+   "initial_xhtml": "foo{<b>bar</b>}baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{bar}baz"
+   ],
+   "expected_canonical": [
+    "foo{bar}baz"
+   ]
+  },
+  {
+   "id": "bold-32e66dcf",
+   "initial": "abc<i>[def]</i>ghi",
+   "initial_xhtml": "abc<i>[def]</i>ghi",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "abc<i><b>def</b></i>ghi"
+   ],
+   "expected_canonical": [
+    "abc<i><b>def</b></i>ghi"
+   ]
+  },
+  {
+   "id": "bold-7bda833a",
+   "initial": "abc[<i>def</i>]ghi",
+   "initial_xhtml": "abc[<i>def</i>]ghi",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "abc<b><i>def</i></b>ghi"
+   ],
+   "expected_canonical": [
+    "abc<b><i>def</i></b>ghi"
+   ]
+  },
+  {
+   "id": "bold-a068bc7e",
+   "initial": "abc<i>{def}</i>ghi",
+   "initial_xhtml": "abc<i>{def}</i>ghi",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "abc<i><b>def</b></i>ghi"
+   ],
+   "expected_canonical": [
+    "abc<i><b>def</b></i>ghi"
+   ]
+  },
+  {
+   "id": "bold-6adf9a80",
+   "initial": "abc{<i>def</i>}ghi",
+   "initial_xhtml": "abc{<i>def</i>}ghi",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "abc<b><i>def</i></b>ghi"
+   ],
+   "expected_canonical": [
+    "abc<b><i>def</i></b>ghi"
+   ]
+  },
+  {
+   "id": "bold-38702029",
+   "initial": "abc<i>[def</i>]ghi",
+   "initial_xhtml": "abc<i>[def</i>]ghi",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "bold",
+     ""
+    ]
+   ],
+   "expected": [
+    "abc<i><b>def</b></i>ghi"
+   ],
+   "expected_canonical": [
+    "abc<i><b>def</b></i>ghi"
+   ]
+  }
+ ]
+}

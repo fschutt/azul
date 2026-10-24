@@ -124,8 +124,8 @@ pub struct SensorReading {
 }
 
 impl SensorReading {
-    /// The magnitude of the `(x, y, z)` vector — e.g. total acceleration
-    /// (≈9.81 at rest for the accelerometer) or field strength.
+    /// The length of the `(x, y, z)` vector: the total acceleration (about 9.81
+    /// at rest for the accelerometer) or the field strength.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use]
     pub fn magnitude(&self) -> f32 {
@@ -182,9 +182,8 @@ impl ProximityDistance {
     }
 }
 
-/// What the proximity sensor says (8e-i-a-i, 8e-i-a-ii; USER RULING
-/// 2026-09-03): a proper model instead of a distance with a made-up value
-/// for "far".
+/// What the proximity sensor says: a proper model instead of a distance with
+/// a made-up value for "far".
 ///
 /// Most phone sensors are BINARY - iOS exposes only
 /// `UIDevice.proximityState`, Windows only `IsDetected` unless the sensor
@@ -207,10 +206,10 @@ pub enum Proximity {
 }
 
 impl Proximity {
-    /// `Some(true)` near, `Some(false)` far, `None` for a distance - which
-    /// only the app can turn into a verdict, against its own threshold.
+    /// The sensor's own near/far verdict: `Some(true)` near, `Some(false)` far, `None` for a
+    /// measured distance, which only the app can judge against its own threshold.
     #[must_use]
-    pub const fn is_near(&self) -> Option<bool> {
+    pub const fn near_verdict(&self) -> Option<bool> {
         match self {
             Self::Near => Some(true),
             Self::Far => Some(false),

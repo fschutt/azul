@@ -1,0 +1,26 @@
+[package]
+name = "azul-termkit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    azul-termkit - the terminal plumbing the Azlin apps share (AzTerm's
+    window, AzCode's panel): a shell on a PTY (alacritty_terminal's tty +
+    event loop, or a recording replayed), its VT state read as azul's
+    TerminalScreen (only the rows in view), and the glue to azul's
+    TerminalView (the screen for the grid the view has room for, the
+    view's events applied to the engine, when a flood of output is drawn).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The VT state machine (grid, scrollback, modes, selection) AND the PTY (tty: forkpty-equivalent on
+# Unix, ConPTY on Windows, TIOCSWINSZ on resize) with its reader thread (event_loop). See
+# scripts/TERM9_2026_10_03.md for why not vt100 / termwiz / vte alone / portable-pty.
+alacritty_terminal = "0.26"
+
+[lib]
+name = "azul_termkit"
+path = "src/lib.rs"
