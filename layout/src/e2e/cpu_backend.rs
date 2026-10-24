@@ -459,9 +459,21 @@ impl CpuBackend {
                 zombie_damage.len(),
             );
         }
+        // Views whose content scrolled: moved (or damaged) after the target
+        // is acquired, and no frame to skip.
+        let view_shifts = match &self.previous_display_list {
+            Some(old_dl) if can_reuse_previous_frame => cpurender::collect_virtual_view_shifts(
+                old_dl,
+                display_list,
+                &self.previous_scroll_offsets,
+                &scroll_offsets,
+            ),
+            _ => Vec::new(),
+        };
         match dl_damage {
             Some(rects)
                 if rects.is_empty()
+                    && view_shifts.is_empty()
                     && !needs_resize
                     && resize_damage.is_empty()
                     && !has_scroll
@@ -574,24 +586,17 @@ impl CpuBackend {
             }
             // A view whose content scrolled moves the same way: its pixels, the
             // strip that came into view, what is painted over it.
-            if let Some(old_dl) = self.previous_display_list.as_ref() {
-                for shift in cpurender::collect_virtual_view_shifts(
-                    old_dl,
+            for shift in &view_shifts {
+                let out = cpurender::execute_virtual_view_shift(
+                    &mut output,
                     display_list,
-                    &self.previous_scroll_offsets,
+                    &vview_dls,
+                    shift,
+                    dpi_factor,
                     &scroll_offsets,
-                ) {
-                    let out = cpurender::execute_virtual_view_shift(
-                        &mut output,
-                        display_list,
-                        &vview_dls,
-                        &shift,
-                        dpi_factor,
-                        &scroll_offsets,
-                    );
-                    all_damage.extend(out.damage);
-                    present_extra.extend(out.present_extra);
-                }
+                );
+                all_damage.extend(out.damage);
+                present_extra.extend(out.present_extra);
             }
         }
 

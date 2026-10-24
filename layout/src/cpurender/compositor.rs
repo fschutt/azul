@@ -2661,12 +2661,14 @@ pub fn gpu_value_damage(
                     );
                     let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
                     let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
-                    match (
-                        affine_rect_about(old_m, origin, content)
-                            .and_then(|a| frames_old.map(a)),
-                        affine_rect_about(new_m, origin, content)
-                            .and_then(|b| frames_new.map(b)),
-                    ) {
+                    // The content through its own matrix and the frames
+                    // around it, in one go (`FrameStack::map`).
+                    let through = |frames: &FrameStack, m: &azul_core::transform::ComputedTransform3D| {
+                        let mut frames = frames.clone();
+                        frames.push(origin, *m);
+                        frames.map(content)
+                    };
+                    match (through(&frames_old, old_m), through(&frames_new, new_m)) {
                         (Some(a), Some(b)) => {
                             out.rects.push(a);
                             out.rects.push(b);
@@ -4220,11 +4222,44 @@ impl FrameStack {
 
     /// Where `r` is painted, through every open frame from the innermost
     /// out; `None` for a matrix with perspective, whose image is no rect.
+    /// The rect's corners go through all the frames before the box is taken
+    /// around them: a box around a box around a turned rect grows with every
+    /// frame (a spinner turned inside a turned frame damaged 58 px for its
+    /// 32 px).
     fn map(&self, r: LogicalRect) -> Option<LogicalRect> {
-        self.frames
-            .iter()
-            .rev()
-            .try_fold(r, |r, (origin, m)| affine_rect_about(m, *origin, r))
+        if self.frames.is_empty() {
+            return Some(r);
+        }
+        let mut corners = [
+            (r.origin.x, r.origin.y),
+            (r.origin.x + r.size.width, r.origin.y),
+            (r.origin.x, r.origin.y + r.size.height),
+            (r.origin.x + r.size.width, r.origin.y + r.size.height),
+        ];
+        for (origin, m) in self.frames.iter().rev() {
+            let mm = &m.m;
+            let affine = mm[0][2] == 0.0
+                && mm[0][3] == 0.0
+                && mm[1][2] == 0.0
+                && mm[1][3] == 0.0
+                && (mm[3][3] - 1.0).abs() < f32::EPSILON;
+            if !affine {
+                return None;
+            }
+            for c in &mut corners {
+                let (px, py) = (c.0 - origin.x, c.1 - origin.y);
+                *c = (
+                    px * mm[0][0] + py * mm[1][0] + mm[3][0] + origin.x,
+                    px * mm[0][1] + py * mm[1][1] + mm[3][1] + origin.y,
+                );
+            }
+        }
+        let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+        let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        Some(LogicalRect::new(
+            LogicalPosition::new(x0, y0),
+            LogicalSize::new(x1 - x0, y1 - y0),
+        ))
     }
 }
 
