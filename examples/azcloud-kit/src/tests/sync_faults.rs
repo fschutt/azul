@@ -55,7 +55,8 @@ fn a_pass_crashed_after_its_blobs_went_up_commits_no_index_and_the_next_pass_doe
     let session = faulted(folder.path(), state.path(), &store);
     faults::arm_crash(folder.path(), "after-blob");
     let payload = pass(&session).expect_err("the pass crashes at after-blob");
-    let point = faults::crashed_at(payload.as_ref()).or_else(|| faults::take_crashed(folder.path()));
+    // The crash itself leaves the pass (not a failed pass the session noted).
+    let point = faults::crashed_at(payload.as_ref());
     assert_eq!(point.as_deref(), Some("after-blob"));
     assert!(store.read(&index_key(PREFIX)).is_none(), "no index was committed");
     pass(&session).expect("the next pass runs through");
@@ -72,7 +73,8 @@ fn a_pass_crashed_after_its_commit_leaves_the_index_written_and_the_next_pass_se
     fs::write(folder.path().join("f.txt"), "two").unwrap();
     let session = faulted(folder.path(), state.path(), &store);
     faults::arm_crash(folder.path(), "after-commit");
-    assert!(pass(&session).is_err());
+    let payload = pass(&session).expect_err("the pass crashes at after-commit");
+    assert_eq!(faults::crashed_at(payload.as_ref()).as_deref(), Some("after-commit"));
     assert_eq!(faults::crashes(folder.path()), 1);
     let index = RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap();
     assert!(index.files.contains_key("f.txt"), "the commit landed");

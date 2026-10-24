@@ -1016,7 +1016,15 @@ impl SyncSession {
         });
         let report = match outcome {
             Ok(result) => result?,
-            Err(_) => fail!("the sync of {} stopped unexpectedly", self.setup.folder.display()),
+            Err(payload) => {
+                // A crash a harness armed ends the process there: it unwinds on, so nothing
+                // after it runs (no failure is noted, no state is saved), as after a real kill.
+                if let Some(point) = super::faults::crash_of(&self.setup.folder, payload.as_ref())
+                {
+                    std::panic::resume_unwind(Box::new(super::faults::Crashed { point }));
+                }
+                fail!("the sync of {} stopped unexpectedly", self.setup.folder.display())
+            }
         };
         // A run that changed nothing because the folder or the drive is not the one paired (a
         // disk not mounted, a rolled-back index) is no pass: the app says why, and the last

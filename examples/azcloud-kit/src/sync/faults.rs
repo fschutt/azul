@@ -214,6 +214,14 @@ pub fn crashed_at(payload: &(dyn std::any::Any + Send)) -> Option<String> {
     payload.downcast_ref::<Crashed>().map(|c| c.point.clone())
 }
 
+/// The point a pass of `root` crashed at, when the caught unwind `payload` of one of its
+/// threads is that crash: a [`Crashed`] itself, or the panic of a thread scope one of whose
+/// threads crashed (the seam noted the point, which is left for [`take_crashed`]).
+#[must_use]
+pub fn crash_of(root: &Path, payload: &(dyn std::any::Any + Send)) -> Option<String> {
+    crashed_at(payload).or_else(|| faults().get(root).and_then(|f| f.last_crash.clone()))
+}
+
 /// Makes the free-space check of `root` see `bytes` (`None`: the disk's own answer).
 pub fn set_free_bytes(root: &Path, bytes: Option<u64>) {
     with(root, |f| f.free_bytes = bytes);
