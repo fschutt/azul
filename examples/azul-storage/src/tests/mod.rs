@@ -1,6 +1,8 @@
 //! Unit tests of the storage crate. No network and no libazul: the S3 tests
 //! send through a fake transport, the local tests work in a temporary folder.
 
+/// Reads and writes that never go through a link out of the root.
+mod beneath;
 mod catalog;
 mod config;
 /// A folder read in batches, a listing page that stats only its own entries.
