@@ -158,6 +158,45 @@ fn a_second_device_gets_the_drive_key_through_its_join_code_once() {
 }
 
 #[test]
+fn a_join_code_names_the_key_it_seals_and_a_seal_of_another_key_is_refused() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let a_dir = TempDir::new("azcloud-enc-a");
+    let a = signed_up(&transports, &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let key = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    let join = a.invite_with_key(None, &a_keys).unwrap();
+    assert_eq!(join.key_id, Some(key.id().to_hex()), "the code names the key it seals");
+    let decoded = JoinCode::decode(&join.encode()).unwrap();
+    assert_eq!(decoded.key_id, join.key_id);
+
+    let b_dir = TempDir::new("azcloud-enc-b");
+    let b_state = StateDir::open(b_dir.path()).unwrap();
+    let b = Account::join(&b_state, TOKEN, transports.clone(), &decoded).unwrap();
+    let b_keys = MemoryKeyring::new();
+    // The code names another key than its seal holds (the seal was swapped in the bucket):
+    // refused, and nothing of it is kept.
+    let mut swapped = decoded.clone();
+    swapped.key_id = Some(DriveKey::generate().unwrap().id().to_hex());
+    assert!(matches!(
+        b.adopt_join_key(&swapped, &b_keys),
+        Err(CloudError::Drive(DriveError::KeyRefused { .. }))
+    ));
+    assert_eq!(device::load_drive_key(&b_keys, "d_1").unwrap(), None);
+    // A damaged id is refused too, never read as a code that names none.
+    let mut damaged = decoded.clone();
+    damaged.key_id = Some(String::from("not hex"));
+    assert!(matches!(
+        b.adopt_join_key(&damaged, &b_keys),
+        Err(CloudError::Failed(_))
+    ));
+    // The one-time wrap stayed: the code as it was made joins, and pins its key.
+    assert_eq!(b.adopt_join_key(&decoded, &b_keys).unwrap(), Some(key.clone()));
+    assert_eq!(device::pinned_drive_key(&b_keys, "d_1").unwrap(), Some(key.id()));
+}
+
+#[test]
 fn a_join_code_of_a_drive_without_encryption_carries_no_key() {
     let s3 = FakeS3::new();
     let transports = cloud(&s3);

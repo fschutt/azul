@@ -1,6 +1,6 @@
 //! Cash by post in AzDrive (cash contract v1): the pill, the two pages (the buyer's copy with
-//! the claim code, the slip posted with the cash), the waiting line, a claim code picked up on
-//! another computer, the daily look. No window.
+//! the claim code, the slip posted with the cash), a new drive's key made with its order, the
+//! waiting line, a claim code picked up on another computer, the daily look. No window.
 
 use azcloud_kit::{ClaimCode, ClaimKey, PendingCheckout};
 use azul_pay::{
@@ -11,7 +11,7 @@ use azul_pay::{
 
 use crate::{
     add_drive::{AddDialog, AddPage, TiersState},
-    cash::{copy_paper, ended_text, picked_up, slip_paper, Letter, WAITING_TEXT},
+    cash::{copy_paper, ended_text, keep_order, picked_up, slip_paper, Letter, WAITING_TEXT},
     periods::Schedule,
 };
 
@@ -204,6 +204,53 @@ fn a_claim_code_picks_up_the_cash_checkout_as_typed_and_a_typo_is_refused() {
     assert!(refused.contains("claim code"), "{refused}");
     assert!(picked_up("", TOKEN, "Photos").is_err());
     assert!(picked_up(&code, "", "Photos").is_err(), "no token server to ask");
+    assert_eq!(kept.key_id, None, "an AZK1 code names no drive key");
+    // The code of a new drive's cash order names the drive key's id: the computer that picks
+    // the drive up keeps it, and takes no other key for the drive.
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let keyed = ClaimCode {
+        key_id: Some([0x5a; 16]),
+        ..ClaimCode::new(CHECKOUT, &claim)
+    };
+    let keyed = keyed.to_text();
+    assert!(keyed.starts_with("AZK2-"), "{}", keyed.as_str());
+    let kept = picked_up(&keyed, TOKEN, "Photos").unwrap();
+    assert_eq!(kept.checkout_id, CHECKOUT);
+    assert_eq!(kept.key_id, Some("5a".repeat(16)));
+    assert_eq!(kept.drive_key, None, "the drive's key is the buyer's computer's");
+}
+
+#[test]
+fn a_new_drives_cash_order_makes_its_drive_key_and_the_buyers_copy_names_its_id() {
+    crate::l10n::in_english();
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let mut kept = PendingCheckout::new(CHECKOUT, &claim, "100GB", TOKEN, "Photos");
+    keep_order(&mut kept, &slip(), "100GB", 12).unwrap();
+    assert!(kept.is_cash());
+    assert_eq!(Letter::of(&kept), Some(letter()), "its slip kept with it");
+    let code = ClaimCode::of(&kept).unwrap().to_text();
+    #[cfg(feature = "encryption")]
+    {
+        // "We always encrypt": the key is made with the order, the copy's code names it.
+        let named = kept.key_id.clone().expect("a new drive's order names its key");
+        assert_eq!(kept.drive_key.as_deref().map(str::len), Some(64));
+        assert!(code.starts_with("AZK2-"), "{}", code.as_str());
+        assert_eq!(picked_up(&code, TOKEN, "Photos").unwrap().key_id, Some(named));
+        let paper = copy_paper(&letter(), &code, "2026-10-10");
+        assert_eq!(paper.secret.as_str(), code.as_str(), "the copy prints that code");
+    }
+    #[cfg(not(feature = "encryption"))]
+    assert!(code.starts_with("AZK1-"), "{}", code.as_str());
+    // A renewal paid in cash buys months for a drive that has its key: none is made.
+    let mut renewal = PendingCheckout::new("ck_2", &claim, "100GB", TOKEN, "Photos");
+    renewal.for_drive = String::from("d_1");
+    keep_order(&mut renewal, &slip(), "100GB", 12).unwrap();
+    assert!(renewal.is_cash());
+    assert_eq!(
+        (renewal.drive_key.as_deref(), renewal.key_id.as_deref()),
+        (None, None)
+    );
+    assert!(ClaimCode::of(&renewal).unwrap().to_text().starts_with("AZK1-"));
 }
 
 #[test]

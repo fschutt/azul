@@ -225,7 +225,14 @@ fn a_join_code_carries_its_key_seal_hidden_and_a_code_without_one_reads_as_befor
     };
     let back = JoinCode::decode(&code.encode()).unwrap();
     assert_eq!(back, code);
+    assert_eq!(back.key_id.as_deref(), Some("5a".repeat(16).as_str()), "the key it names");
     assert!(!format!("{code:?}").contains("7e7e"), "{code:?}");
+    // A code from before key ids reads without one (the device's pin guards it from then on).
+    let mut older: Value = serde_json::to_value(&code).unwrap();
+    older.as_object_mut().unwrap().remove("key_id");
+    let older: JoinCode = serde_json::from_value(older).unwrap();
+    assert_eq!(older.key_id, None);
+    assert_eq!(older.key_seal, code.key_seal);
     // The JSON of a code without a seal has no such field: an older reader takes it.
     let plain = JoinCode {
         key_seal: None,
@@ -234,7 +241,9 @@ fn a_join_code_carries_its_key_seal_hidden_and_a_code_without_one_reads_as_befor
     };
     let json: Value = serde_json::to_value(&plain).unwrap();
     assert!(json.get("key_seal").is_none(), "{json}");
-    assert_eq!(JoinCode::decode(&plain.encode()).unwrap().key_seal, None);
+    assert!(json.get("key_id").is_none(), "{json}");
+    let back = JoinCode::decode(&plain.encode()).unwrap();
+    assert_eq!((back.key_seal, back.key_id), (None, None));
 }
 
 #[test]

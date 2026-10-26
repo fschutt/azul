@@ -1,17 +1,23 @@
 //! Cash by post (cash contract v1) on the app's side: the activation code a slip prints, the
-//! claim code (AZK1) on the buyer's copy, the poll of a cash checkout, its slip kept with it in
-//! the keyring's list, and a checkout picked up by its code on another computer.
+//! claim code (AZK1, or AZK2 naming the new drive's key) on the buyer's copy, the poll of a cash
+//! checkout, its slip kept with it in the keyring's list, and a checkout picked up by its code on
+//! another computer - which takes no other drive key than the one its code names.
 
 use std::sync::Arc;
 
 use azul_storage::{
+    base32,
     keyring::{KeyringNamespace, MemoryKeyring},
     testing::TempDir,
 };
+use sha2::{Digest, Sha256};
 
 use super::{bundle, json, Fake, Shared, TOKEN};
 use crate::{
-    cash::{ActivationCode, ClaimCode, ACTIVATION_PREFIX, CLAIM_CODE_PREFIX},
+    cash::{
+        ActivationCode, ClaimCode, ACTIVATION_PREFIX, CLAIM_CODE_PREFIX, KEYED_CLAIM_CODE_PREFIX,
+        KEY_ID_LEN,
+    },
     claim::seal,
     pending::{self, Final, CashKept, PendingCheckout, Polled},
     shared::SharedKeyring,
@@ -32,6 +38,22 @@ const CHECKOUT: &str = "ck_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CLAIM_CODE: &str = "AZK1-DVRW-WX3B-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-AAAQ-\
                           EAYE-AUDA-OCAJ-BIFQ-YDIO-B4IB-CEQT-CQKR-MFYY-DENB-WHA5-DYP6-P3CB-LY";
 const SECRET: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+/// The same code naming the id of its new drive's key, the bytes 32, 33, ..., 47
+/// (scripts/azlin_claim.py writes the same).
+const KEYED_CLAIM_CODE: &str = "AZK2-DVRW-WX3B-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-\
+                                AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4IB-CEQT-CQKR-MFYY-DENB-WHA5-\
+                                DYPS-AIJC-EMSC-KJRH-FAUS-UKZM-FUXC-6WYA-OWAA";
+/// That key id in hex.
+const KEY_ID_HEX: &str = "202122232425262728292a2b2c2d2e2f";
+
+/// The bytes 32, 33, ..., 47: the drive key id of [`KEYED_CLAIM_CODE`].
+fn key_id() -> [u8; KEY_ID_LEN] {
+    let mut id = [0u8; KEY_ID_LEN];
+    for (byte, value) in id.iter_mut().zip(32u8..) {
+        *byte = value;
+    }
+    id
+}
 
 fn shared(dir: &TempDir) -> SharedKeyring {
     SharedKeyring::with_lock_root(
@@ -87,6 +109,7 @@ fn a_claim_code_holds_the_checkout_id_and_the_claim_secret_and_reads_back() {
     let back = ClaimCode::parse(&text).unwrap();
     assert_eq!(back.checkout_id, CHECKOUT);
     assert_eq!(back.claim.to_base64(), SECRET);
+    assert_eq!(back.key_id, None);
     let fresh = ClaimKey::generate().unwrap();
     let other = ClaimCode::parse(&ClaimCode::new("ck_2", &fresh).to_text()).unwrap();
     assert_eq!(other.checkout_id, "ck_2");
@@ -121,6 +144,81 @@ fn a_mistyped_claim_code_is_refused_never_read_as_another_checkout() {
     assert!(ClaimCode::parse(&CLAIM_CODE.replacen("AZK1", "AZK2", 1)).is_err());
     assert!(ClaimCode::parse(&CLAIM_CODE[..60]).is_err());
     assert!(ClaimCode::parse(ACTIVATION).is_err(), "an activation code is no claim code");
+}
+
+#[test]
+fn a_claim_code_that_names_its_drive_key_is_an_azk2_code_and_reads_back() {
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let code = ClaimCode {
+        key_id: Some(key_id()),
+        ..ClaimCode::new(CHECKOUT, &claim)
+    };
+    let text = code.to_text();
+    assert_eq!(text.as_str(), KEYED_CLAIM_CODE, "the same as scripts/azlin_claim.py writes");
+    assert!(text.starts_with(KEYED_CLAIM_CODE_PREFIX));
+    for typed in [
+        KEYED_CLAIM_CODE.to_string(),
+        KEYED_CLAIM_CODE.to_lowercase().replace('-', " "),
+    ] {
+        let back = ClaimCode::parse(&typed).unwrap_or_else(|e| panic!("{typed:?}: {e}"));
+        assert_eq!(back.checkout_id, CHECKOUT);
+        assert_eq!(back.claim.to_base64(), SECRET);
+        assert_eq!(back.key_id, Some(key_id()));
+    }
+    // A code without a key id is written and read as before.
+    let plain = ClaimCode::parse(CLAIM_CODE).unwrap();
+    assert_eq!(plain.key_id, None, "an AZK1 code names no key");
+    assert_eq!(plain.to_text().as_str(), CLAIM_CODE);
+}
+
+#[test]
+fn a_mistyped_azk2_code_or_one_checked_as_another_version_is_refused() {
+    let chars: Vec<char> = KEYED_CLAIM_CODE.chars().collect();
+    for at in (5..chars.len()).filter(|i| chars[*i] != '-') {
+        let mut typo = chars.clone();
+        typo[at] = if typo[at] == 'A' { 'B' } else { 'A' };
+        let typo: String = typo.into_iter().collect();
+        assert!(ClaimCode::parse(&typo).is_err(), "{typo}");
+    }
+    assert!(ClaimCode::parse(&KEYED_CLAIM_CODE.replacen("AZK2", "AZK1", 1)).is_err());
+    assert!(ClaimCode::parse(&KEYED_CLAIM_CODE.replacen("AZK2", "AZK3", 1)).is_err());
+    // The bytes of an AZK2 code with the check value of an AZK1 one: the version is part of
+    // what the check covers, so a code cut or relabelled never reads.
+    let mut payload = vec![u8::try_from(CHECKOUT.len()).unwrap()];
+    payload.extend_from_slice(CHECKOUT.as_bytes());
+    payload.extend(0u8..32);
+    payload.extend_from_slice(&key_id());
+    let check = Sha256::digest([b"AZK1".as_slice(), payload.as_slice()].concat());
+    payload.extend_from_slice(&check[..4]);
+    let relabelled = format!("AZK2-{}", base32::grouped(&base32::encode(&payload)));
+    assert!(ClaimCode::parse(&relabelled).is_err(), "{relabelled}");
+}
+
+#[test]
+fn a_picked_up_azk2_code_keeps_the_key_id_it_names_and_its_checkout_prints_it_again() {
+    let picked = ClaimCode::parse(KEYED_CLAIM_CODE)
+        .unwrap()
+        .pending(TOKEN, "Photos");
+    assert_eq!(picked.key_id.as_deref(), Some(KEY_ID_HEX));
+    assert_eq!(picked.drive_key, None, "the drive's key is the buyer's computer's");
+    assert_eq!(
+        ClaimCode::of(&picked).unwrap().to_text().as_str(),
+        KEYED_CLAIM_CODE
+    );
+    let older = ClaimCode::parse(CLAIM_CODE).unwrap().pending(TOKEN, "Photos");
+    assert_eq!(older.key_id, None, "an AZK1 code commits to no key");
+    // The buyer's kept checkout prints the code its copy printed.
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let mut bought = PendingCheckout::new(CHECKOUT, &claim, "100GB", TOKEN, "Photos");
+    bought.method = String::from("cash");
+    bought.key_id = Some(KEY_ID_HEX.to_string());
+    assert_eq!(
+        ClaimCode::of(&bought).unwrap().to_text().as_str(),
+        KEYED_CLAIM_CODE
+    );
+    // A damaged id is refused, never printed as a code that names no key.
+    bought.key_id = Some(String::from("not hex"));
+    assert!(ClaimCode::of(&bought).is_err());
 }
 
 #[test]
@@ -296,4 +394,188 @@ fn a_cash_checkout_names_its_method_and_claim_key_and_no_provider() {
     assert_eq!(sent["claim_key"], claim.public_base64());
     assert!(sent.get("provider").is_none() && sent.get("surface").is_none(), "{sent}");
     assert!(fake.calls()[0].url.ends_with("/v1/checkout"));
+}
+
+// ==== The new drive's key and its claim code (feature `encryption`) ====
+
+/// The token server of [`CHECKOUT`], approved: its sign-up (the test bundle, drive `d_1`)
+/// sealed to `claim`.
+#[cfg(feature = "encryption")]
+fn approved(claim: &ClaimKey) -> Arc<Fake> {
+    let sealed = seal(
+        &claim.public_base64(),
+        CHECKOUT,
+        bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").as_bytes(),
+    );
+    Fake::new(move |_, _| {
+        Ok(json(
+            200,
+            &format!(
+                r#"{{"checkout_id": "{CHECKOUT}", "status": "approved",
+                     "sealed_signup": "{sealed}"}}"#
+            ),
+        ))
+    })
+}
+
+/// One computer's keyring with its locks under `dir/<name>`, and the keyring to look into.
+#[cfg(feature = "encryption")]
+fn computer(dir: &TempDir, name: &str) -> (SharedKeyring, Arc<MemoryKeyring>) {
+    let keyring = Arc::new(MemoryKeyring::new());
+    let shared = SharedKeyring::with_lock_root(
+        keyring.clone(),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join(name),
+    );
+    (shared, keyring)
+}
+
+/// A tiny Argon2id cost: the tests run in debug builds too.
+#[cfg(feature = "encryption")]
+fn cheap() -> azul_storage::crypto::keys::RecoveryKdf {
+    azul_storage::crypto::keys::RecoveryKdf::with_cost(64, 1, 1).unwrap()
+}
+
+#[cfg(feature = "encryption")]
+#[test]
+fn a_new_drives_cash_checkout_sets_its_drive_up_with_the_key_its_claim_code_names() {
+    use azul_storage::{
+        crypto::{device, KeyId},
+        keyring::KeyringStore,
+        meta::MemoryBucket,
+    };
+
+    let dir = TempDir::new("azcloud-cash");
+    let (buyer, buyer_keys) = computer(&dir, "buyer");
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let mut kept = PendingCheckout::new(CHECKOUT, &claim, "100GB", TOKEN, "Photos");
+    kept.method = String::from("cash");
+    kept.mint_drive_key().unwrap();
+    let secret = kept.drive_key.clone().expect("the drive's key, made with its order");
+    let named = kept.key_id.clone().expect("the claim code names its id");
+    assert_eq!((secret.len(), named.len()), (64, 32));
+    assert!(!format!("{kept:?}").contains(&secret), "Debug shows no drive key");
+    let code = ClaimCode::of(&kept).unwrap();
+    assert!(code.to_text().starts_with(KEYED_CLAIM_CODE_PREFIX));
+    assert_eq!(code.key_id.map(|id| KeyId(id).to_hex()), Some(named.clone()));
+    pending::add(&buyer, &kept).unwrap();
+    assert_eq!(pending::list(&buyer).unwrap(), vec![kept.clone()], "kept with its key");
+
+    // Paid: the claim keeps the key as the one the drive is set up with.
+    let transport = Shared(approved(&claim));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &buyer, &kept) {
+        Polled::Final(Final::Claimed(claimed)) => assert_eq!(claimed.bundle.drive_id(), "d_1"),
+        other => panic!("not claimed: {other:?}"),
+    }
+    assert!(buyer_keys
+        .get(&device::planned_key_entry("d_1"))
+        .unwrap()
+        .is_some());
+    let bucket = MemoryBucket::new();
+    let (drive_key, recovery) =
+        device::setup_new_drive(&bucket, &*buyer_keys, "d_1", cheap()).unwrap();
+    assert_eq!(drive_key.id().to_hex(), named, "the drive's key is the one the code names");
+
+    // Another computer picks the drive up with the code: it takes that key and no other.
+    let (picker, picker_keys) = computer(&dir, "picker");
+    let picked = ClaimCode::parse(&code.to_text())
+        .unwrap()
+        .pending(TOKEN, "Photos");
+    pending::add(&picker, &picked).unwrap();
+    match pending::poll(&server, &picker, &picked) {
+        Polled::Final(Final::Claimed(_)) => {}
+        other => panic!("not picked up: {other:?}"),
+    }
+    assert_eq!(
+        device::committed_drive_key(&*picker_keys, "d_1").unwrap(),
+        Some(drive_key.id())
+    );
+    assert!(
+        picker_keys
+            .get(&device::planned_key_entry("d_1"))
+            .unwrap()
+            .is_none(),
+        "the picker makes no key of its own for the drive"
+    );
+    assert_eq!(
+        device::recover(&bucket, &*picker_keys, "d_1", &recovery).unwrap(),
+        drive_key
+    );
+    assert_eq!(
+        device::pinned_drive_key(&*picker_keys, "d_1").unwrap(),
+        Some(drive_key.id())
+    );
+
+    // Its period tokens wait with the drive; its key leaves the list (the keyring's drive
+    // entries have it), the id its code names stays.
+    let grant = crate::PeriodTokens {
+        checkout_id: CHECKOUT.to_string(),
+        months: 12,
+        issue_key: String::from("issue-key"),
+        recurring: false,
+    };
+    pending::claimed(&buyer, CHECKOUT, "d_1", Some(&grant)).unwrap();
+    let listed = pending::list(&buyer).unwrap();
+    assert_eq!(listed[0].drive_key, None);
+    assert_eq!(listed[0].key_id.as_deref(), Some(named.as_str()));
+}
+
+#[cfg(feature = "encryption")]
+#[test]
+fn a_picked_up_drive_whose_storage_holds_another_key_than_its_claim_code_names_is_refused() {
+    use azul_storage::{crypto::device, meta::MemoryBucket, DriveError};
+
+    let dir = TempDir::new("azcloud-cash");
+    let (picker, picker_keys) = computer(&dir, "picker");
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let picked = ClaimCode::parse(KEYED_CLAIM_CODE)
+        .unwrap()
+        .pending(TOKEN, "Photos");
+    pending::add(&picker, &picked).unwrap();
+    let transport = Shared(approved(&claim));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &picker, &picked) {
+        Polled::Final(Final::Claimed(_)) => {}
+        other => panic!("not picked up: {other:?}"),
+    }
+    // Whoever controls the storage set the drive up with a key of their own: its recovery
+    // code opens a key the claim code does not name, and this computer takes none of it.
+    let bucket = MemoryBucket::new();
+    let (_, recovery) =
+        device::setup_new_drive(&bucket, &MemoryKeyring::new(), "d_1", cheap()).unwrap();
+    assert!(matches!(
+        device::recover(&bucket, &*picker_keys, "d_1", &recovery),
+        Err(DriveError::KeyRefused { .. })
+    ));
+    assert_eq!(device::load_drive_key(&*picker_keys, "d_1").unwrap(), None);
+}
+
+#[cfg(feature = "encryption")]
+#[test]
+fn a_kept_drive_key_that_is_not_the_one_its_claim_code_names_is_never_planned() {
+    use azul_storage::{crypto::device, keyring::KeyringStore};
+
+    let dir = TempDir::new("azcloud-cash");
+    let (buyer, buyer_keys) = computer(&dir, "buyer");
+    let claim = ClaimKey::from_base64(SECRET).unwrap();
+    let mut kept = PendingCheckout::new(CHECKOUT, &claim, "100GB", TOKEN, "Photos");
+    kept.method = String::from("cash");
+    kept.mint_drive_key().unwrap();
+    // The list's entry was changed: its id is another key's.
+    kept.key_id = Some(KEY_ID_HEX.to_string());
+    pending::add(&buyer, &kept).unwrap();
+    let transport = Shared(approved(&claim));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::poll(&server, &buyer, &kept) {
+        Polled::Transient(pending::Transient::NotKept(why)) => {
+            assert!(why.contains("key"), "{why}");
+        }
+        other => panic!("claimed with a key its code does not name: {other:?}"),
+    }
+    assert!(buyer_keys
+        .get(&device::planned_key_entry("d_1"))
+        .unwrap()
+        .is_none());
+    assert_eq!(pending::list(&buyer).unwrap().len(), 1, "it stays on the list");
 }

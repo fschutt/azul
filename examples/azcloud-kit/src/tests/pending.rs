@@ -54,6 +54,8 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         renews: String::new(),
         change_tier: false,
         ladder_version: None,
+        drive_key: None,
+        key_id: None,
     }
 }
 
@@ -177,6 +179,35 @@ fn a_pending_checkout_keeps_its_claim_secret_and_debug_shows_none() {
         shown.contains("ck_1") && !shown.contains(claim.to_base64().as_str()),
         "{shown}"
     );
+}
+
+#[test]
+fn a_cash_checkout_keeps_its_new_drives_key_and_the_id_its_claim_code_names_and_debug_hides_the_key(
+) {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, keyring) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = checkout("ck_1", &claim);
+    ck.method = String::from("cash");
+    ck.drive_key = Some("4b".repeat(32));
+    ck.key_id = Some("5a".repeat(16));
+    pending::add(&shared, &ck).unwrap();
+    assert_eq!(pending::list(&shared).unwrap(), vec![ck.clone()]);
+    let shown = format!("{ck:?}");
+    assert!(!shown.contains("4b4b") && shown.contains(&"5a".repeat(16)), "{shown}");
+    // A checkout without them writes neither: an older reader takes the list.
+    let plain = checkout("ck_2", &claim);
+    pending::add(&shared, &plain).unwrap();
+    let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
+    assert_eq!(text.matches("drive_key").count(), 1, "{text}");
+    assert_eq!(text.matches("key_id").count(), 1, "{text}");
+    // And an entry from before reads without them.
+    let old: PendingCheckout = serde_json::from_str(
+        r#"{"checkout_id": "ck_old", "claim_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+            "tier": "100GB", "started_at": 1791450000}"#,
+    )
+    .unwrap();
+    assert_eq!((old.drive_key, old.key_id), (None, None));
 }
 
 #[test]
