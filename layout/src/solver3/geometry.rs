@@ -34,10 +34,10 @@ use azul_css::props::{
 ///
 /// The legacy `LogicalSize` (INFINITY sentinel included) is still stored,
 /// because the layout CACHE is keyed on it (`classify_size_key` canonicalizes
-/// the indefinite axis and its slotting depends on the exact legacy values).
-/// Both views are built by one constructor from one input, so they cannot
-/// drift. Migrating the cache keys onto the typed axes is a follow-up; until
-/// then the flattened view is for KEYS, never for arithmetic.
+/// the indefinite axis and decides by its value which axes are known; the
+/// typed axes say which constraint stands in for an unknown one). Both views
+/// are built by one constructor from one input, so they cannot drift. The
+/// flattened view is for KEYS, never for arithmetic.
 #[derive(Copy, Debug, Clone, PartialEq)]
 pub struct ContainingBlock {
     /// The inline-axis constraint.
