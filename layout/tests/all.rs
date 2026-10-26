@@ -406,6 +406,8 @@ mod spatial_navigation;
 mod stale_document_selection;
 #[path = "statusbar_live_label.rs"]
 mod statusbar_live_label;
+#[path = "streaming_pages.rs"]
+mod streaming_pages;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
 #[path = "static_opacity_paints.rs"]

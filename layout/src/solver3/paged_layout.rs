@@ -224,7 +224,8 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
-    layout_document_paged_impl(
+    let mut pages = Vec::new();
+    let mut result = layout_document_paged_impl(
         cache,
         text_cache,
         fragmentation_context,
@@ -243,7 +244,108 @@ where
         get_system_time_fn,
         print_timing,
         true,
-    )
+        &mut |page| {
+            pages.push(page);
+            Ok(())
+        },
+    )?;
+    result.pages = pages;
+    Ok(result)
+}
+
+/// The result of [`layout_document_paged_streaming`].
+///
+/// The pages themselves are NOT part of this struct — they were handed to the
+/// caller's sink one at a time and dropped. What remains is the break
+/// analysis plus the page count, which is what a streaming consumer needs to
+/// finish the document (e.g. to write `/Count` on the page tree).
+#[derive(Debug, Clone)]
+pub struct StreamingLayoutResult {
+    /// The break analysis the pages were sliced by (empty for continuous media).
+    pub breaks: Vec<crate::solver3::page_breaks::PageBreakPosition>,
+    /// Total document-space content height of the un-sliced document.
+    pub total_content_height: f32,
+    /// How many pages the sink was called with (always at least 1).
+    pub page_count: usize,
+}
+
+/// [`layout_document_paged_v2`], but each page is handed to `on_page` as soon
+/// as it is sliced instead of being collected into a `Vec`.
+///
+/// This is the single-pass entry point for PDF/print backends: the caller
+/// serializes page `i` inside the callback and drops it, so peak memory is one
+/// page rather than the whole document. The callback runs in page order and
+/// may return an error to abort the layout early (e.g. a write failure).
+///
+/// The returned [`StreamingLayoutResult`] carries the break analysis and the
+/// final page count, so a caller that needs the total page count up front
+/// (PDF `/Count`, "page N of M") can still get it — but only after the last
+/// page has been emitted, which is exactly the constraint that makes this
+/// single-pass.
+#[cfg(feature = "text_layout")]
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails, or whatever error `on_page`
+/// returns.
+pub fn layout_document_paged_streaming<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    fragmentation_context: FragmentationContext,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+    page_config: FakePageConfig,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
+    on_page: &mut dyn FnMut(DisplayList) -> Result<()>,
+) -> Result<StreamingLayoutResult>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    let mut page_count = 0usize;
+    let result = layout_document_paged_impl(
+        cache,
+        text_cache,
+        fragmentation_context,
+        new_dom,
+        viewport,
+        font_manager,
+        scroll_offsets,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        font_loader,
+        page_config,
+        image_cache,
+        get_system_time_fn,
+        print_timing,
+        true,
+        &mut |page| {
+            page_count += 1;
+            on_page(page)
+        },
+    )?;
+    Ok(StreamingLayoutResult {
+        breaks: result.breaks,
+        total_content_height: result.total_content_height,
+        page_count,
+    })
 }
 
 #[cfg(feature = "text_layout")]
@@ -270,6 +372,7 @@ fn layout_document_paged_impl<T, F>(
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     print_timing: bool,
     materialize_pages: bool,
+    on_page: &mut dyn FnMut(DisplayList) -> Result<()>,
 ) -> Result<PagedLayoutResult>
 where
     T: ParsedFontTrait + Sync + 'static,
@@ -281,7 +384,7 @@ where
     use crate::solver3::{
         display_list::{
             calculate_display_list_height, generate_display_list,
-            paginate_display_list_with_breaks, SlicerConfig,
+            paginate_display_list_with_breaks_streaming, SlicerConfig,
         },
         page_breaks,
     };
@@ -449,8 +552,9 @@ where
         )?;
         cache.cache_map = std::mem::take(&mut ctx.cache_map);
         let total_content_height = calculate_display_list_height(&display_list);
+        on_page(display_list)?;
         return Ok(PagedLayoutResult {
-            pages: vec![display_list],
+            pages: Vec::new(),
             breaks: Vec::new(),
             total_content_height,
         });
@@ -607,29 +711,33 @@ where
     };
     let total_content_height = calculate_display_list_height(&full_display_list);
 
-    let pages = if materialize_pages {
-        paginate_display_list_with_breaks(
+    let mut page_count = 0usize;
+    if materialize_pages {
+        // Each page is handed to the sink as soon as it is sliced, so the
+        // caller can consume (e.g. serialize) it and drop it. Peak memory is
+        // one page instead of the whole document.
+        paginate_display_list_with_breaks_streaming(
             full_display_list,
             &slicer_config,
             &breaks,
             renderer_resources,
-        )?
-    } else {
-        // Precalculation-only: the analysis IS the result; no page is sliced.
-        Vec::new()
-    };
+            |page| {
+                page_count += 1;
+                on_page(page)
+            },
+        )?;
+    }
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Paginated into {} pages with CSS break support",
-            pages.len()
+            "[PagedLayout] Paginated into {page_count} pages with CSS break support"
         )));
     }
 
     cache.cache_map = std::mem::take(&mut ctx.cache_map);
 
     Ok(PagedLayoutResult {
-        pages,
+        pages: Vec::new(),
         breaks,
         total_content_height,
     })
@@ -694,6 +802,7 @@ where
         get_system_time_fn,
         false,
         false, // NO page is materialized — the acceptance criterion of this entry
+        &mut |_page| Ok(()),
     )?;
     let page_count = page_breaks::page_spans(&result.breaks, result.total_content_height)
         .len()
