@@ -565,7 +565,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.5:fc186dbae230d052f27122fe55a46fbefc297d8ab9d128038615bc638ead53a0"]
+reviewed = ["0.4.6:1d0f5fe2460f4728fcaef0e06ad9049e02518eceb8f4f163c643722d5249f9ac"]
 
 [crate."curve25519-dalek"]  # build-script
 allow = true

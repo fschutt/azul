@@ -7,6 +7,12 @@ criteria = "safe-to-deploy"
 delta = "5.4.1 -> 5.4.3"
 notes = "Fixes the out-of-bounds read in raw::get_html (the reason 5.2.0-5.4.1 were yanked): the fragment is now taken with a bounds-checked slice instead of an unchecked ptr::copy_nonoverlapping. The open retry loop sleeps 5 ms instead of 0. Otherwise docs, a clippy attribute and a test; no new unsafe, dependencies or build script."
 
+[[audits.crypto-bigint]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.7.6 -> 0.7.10"
+notes = "0.7.0-0.7.8 were yanked for a semver break, not a vulnerability: 0.7.9 fixes the blanket Mul impl for NonZero<T> (breaking). Also: invert_odd_mod(_vartime) truncation and mul_mod_special boundary fixes, PrimeParams::new_vartime uses shr_vartime, Montgomery multiplication carry propagation reworked, and the limb sub/borrow paths use word-sized borrow masks (internal primitives instead of ctutils Choice per limb). No new unsafe, no I/O, env, FFI or build script; ctutils moves to 0.4.6; the rest is tests."
+
 [[audits.ctutils]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"
@@ -18,6 +24,12 @@ who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"
 delta = "0.4.4 -> 0.4.5"
 notes = "Hardening for Thumb-1 (ARM without pointer-width atomics): Choice::and and the u32/u64 comparison predicates black-box their bit there; the bitle/bitlt/bitnz macros move unchanged into a new public primitives module that adds borrowing_sub, constant-time leading/trailing zero counts (native instructions where the target has them, a fixed-stage search otherwise) and overflowing_add (u128 split into halves on riscv32). Other targets lower as before. No new dependencies; the crate still forbids unsafe code; the rest is tests."
+
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.5 -> 0.4.6"
+notes = "Adds primitives::borrowing_sub_mask_u32/_u64 (borrow passed as a word-sized mask, MSB significant) by factoring borrowing_sub into a shared inner fn; the borrow bit stays black-boxed before it becomes a mask or a Choice. No new dependencies; the crate still forbids unsafe code; the rest is tests."
 
 [[audits.rustls-webpki]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
