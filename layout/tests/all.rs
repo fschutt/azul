@@ -1299,3 +1299,5 @@ mod a_measured_label_flows_its_text_only_at_a_new_width;
 mod a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes;
 #[path = "a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them.rs"]
 mod a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them;
+#[path = "a_paragraph_hyphenates_again_when_its_language_changes.rs"]
+mod a_paragraph_hyphenates_again_when_its_language_changes;
