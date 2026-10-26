@@ -5266,6 +5266,110 @@ mod autotest_generated {
                 "the viewport's bar is an overlay: it takes no space from the page"
             );
         }
+
+        // ==============================================================
+        // The per-node cache of a block measured under min- and
+        // max-content constraints
+        // ==============================================================
+
+        /// The width block `node` measures to in containing block `cb`,
+        /// through the per-node cache `ctx` keeps.
+        fn measured_width(
+            ctx: &mut LayoutContext<'_, FontRef>,
+            tree: &mut LayoutTree,
+            node: usize,
+            cb: &crate::solver3::geometry::ContainingBlock,
+        ) -> f32 {
+            let mut text_cache = crate::font_traits::TextLayoutCache::new();
+            let mut positions = Vec::new();
+            let mut scrollbar_reflow = false;
+            let mut floats = HashMap::new();
+            cache::calculate_layout_for_subtree(
+                ctx,
+                tree,
+                &mut text_cache,
+                node,
+                azul_core::geom::LogicalPosition::zero(),
+                cb,
+                &mut positions,
+                &mut scrollbar_reflow,
+                &mut floats,
+                cache::ComputeMode::ComputeSize,
+            )
+            .expect("the block is measured");
+            tree.get(LayoutNodeId::new(node))
+                .and_then(|n| n.used_size)
+                .expect("the measure sizes the block")
+                .width
+        }
+
+        /// A block's auto width is its min-content width under a
+        /// min-content constraint and its max-content width under a
+        /// max-content one. Both constraints leave the width indefinite, and
+        /// the per-node cache must still tell the two measures apart: one
+        /// answered with the other's width gives a shrink-to-fit box its
+        /// widest line as its narrowest.
+        #[test]
+        fn a_min_content_and_a_max_content_measure_of_a_block_are_cached_apart() {
+            use crate::{
+                solver3::geometry::{ContainingBlock, IntrinsicSizes},
+                text3::cache::AvailableSpace as Constraint,
+            };
+            let indefinite = LogicalSize::new(f32::INFINITY, f32::INFINITY);
+            let min_content = ContainingBlock::from_axes(
+                Constraint::MinContent,
+                Constraint::MaxContent,
+                indefinite,
+            );
+            let max_content = ContainingBlock::from_axes(
+                Constraint::MaxContent,
+                Constraint::MaxContent,
+                indefinite,
+            );
+
+            let mut env = Env::with_a_child();
+            let mut ctx = env.ctx();
+            let mut tree = generate_layout_tree(&mut ctx).expect("a body with a div builds");
+            let div = tree.children(tree.root)[0];
+            // What the div holds is 120 px wide at its narrowest and 420 px
+            // on one line.
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(div)) {
+                warm.intrinsic_sizes = Some(IntrinsicSizes {
+                    min_content_width: 120.0,
+                    max_content_width: 420.0,
+                    ..IntrinsicSizes::default()
+                });
+            }
+            let nodes = tree.nodes.len();
+
+            // Each measure on a cache of its own.
+            ctx.cache_map = cache::LayoutCacheMap::default();
+            ctx.cache_map.resize_to_tree(nodes);
+            let min_alone = measured_width(&mut ctx, &mut tree, div, &min_content);
+            ctx.cache_map = cache::LayoutCacheMap::default();
+            ctx.cache_map.resize_to_tree(nodes);
+            let max_alone = measured_width(&mut ctx, &mut tree, div, &max_content);
+            assert!(
+                min_alone < max_alone,
+                "harness: the div is narrower at min-content ({min_alone} px) than at \
+                 max-content ({max_alone} px)"
+            );
+
+            // Then in turn on the cache that holds the max-content measure.
+            for (cb, alone, constraint) in [
+                (&max_content, max_alone, "max-content"),
+                (&min_content, min_alone, "min-content"),
+                (&max_content, max_alone, "max-content again"),
+                (&min_content, min_alone, "min-content again"),
+            ] {
+                let width = measured_width(&mut ctx, &mut tree, div, cb);
+                assert!(
+                    (width - alone).abs() < 0.01,
+                    "measured at {constraint}, the div is {width} px wide; on a cache of its \
+                     own, {alone} px"
+                );
+            }
+        }
     }
 }
 
