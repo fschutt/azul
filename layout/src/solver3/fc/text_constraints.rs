@@ -172,7 +172,8 @@ pub(super) fn hyphenation_language_of_tag(tag: &str) -> Option<crate::text3::scr
 /// room. The reconcile relies on that: an IFC root keeps the value its lines
 /// were broken with (`LayoutNodeCold::line_style`, written by `layout_ifc`),
 /// and a restyle above the root that moves it - an inherited `word-break` or
-/// `text-align` - lays the root out anew (`cache::reconcile_node`). Without
+/// `text-align`, another `lang` - lays the root out anew
+/// (`cache::reconcile_node`). Without
 /// it the root and its text compare clean, and the root's size cache serves
 /// the old lines.
 #[derive(Debug, Clone, PartialEq)]

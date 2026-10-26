@@ -366,6 +366,7 @@ mod autotest_generated {
             NodeChangeSet::IMAGE_CHANGED,
             NodeChangeSet::CONTENTEDITABLE,
             NodeChangeSet::CUSTOM_PROPERTIES,
+            NodeChangeSet::CONTENT_LANGUAGE,
             NodeChangeSet::INLINE_STYLE_PAINT,
             NodeChangeSet::STYLED_STATE,
             NodeChangeSet::CALLBACKS,
@@ -3375,5 +3376,64 @@ mod twins_by_place {
         assert_eq!(old_of(1), Some(4), "d moved to the front");
         assert_eq!(old_of(2), Some(1), "a moved one place down");
         assert_eq!(old_of(4), Some(3), "c moved one place down");
+    }
+}
+
+#[cfg(test)]
+mod the_content_language_is_inherited {
+    use super::*;
+    use crate::dom::{AttributeType, NodeData};
+
+    /// A div stating the language `tag`.
+    fn in_language(tag: &str) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_attributes(vec![AttributeType::Lang(tag.into())].into());
+        node
+    }
+
+    #[test]
+    fn another_language_is_a_layout_change_that_reaches_the_descendants() {
+        let (english, german) = (in_language("en"), in_language("de"));
+        let before = NodeDataFingerprint::compute(&english, None);
+        let after = NodeDataFingerprint::compute(&german, None);
+        assert!(
+            !before.is_identical(&after),
+            "the language is part of the node's data"
+        );
+        let changes = before.diff(&after);
+        assert!(changes.contains(NodeChangeSet::CONTENT_LANGUAGE));
+        assert!(changes.needs_layout(), "lines hyphenate in the language");
+        assert!(before.might_affect_layout(&after));
+        assert!(
+            before.may_restyle_descendants(&after),
+            "every descendant that states no language inherits it"
+        );
+        assert!(
+            compute_node_changes(&english, &german, None, None)
+                .contains(NodeChangeSet::CONTENT_LANGUAGE),
+            "the field-by-field comparison reports what the fingerprint does"
+        );
+    }
+
+    #[test]
+    fn only_what_the_descendants_inherit_restyles_them() {
+        let english = NodeDataFingerprint::compute(&in_language("en"), None);
+        let same = NodeDataFingerprint::compute(&in_language("en"), None);
+        assert!(english.is_identical(&same));
+        assert!(!english.may_restyle_descendants(&same));
+
+        let editable =
+            NodeDataFingerprint::compute(&in_language("en").with_contenteditable(true), None);
+        assert!(
+            !english.may_restyle_descendants(&editable),
+            "contenteditable is the node's own"
+        );
+
+        let mut classed = in_language("en");
+        classed.add_class("row".into());
+        assert!(
+            english.may_restyle_descendants(&NodeDataFingerprint::compute(&classed, None)),
+            "a class selects the styles the descendants inherit"
+        );
     }
 }

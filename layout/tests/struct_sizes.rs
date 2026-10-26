@@ -182,7 +182,7 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     );
     assert_size!(
         LayoutNodeCold,
-        304,
+        320,
         "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
          gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
          TextArea-over-Slider fix). GREW 288 -> 296 (2026-10-03, CSS `zoom`, aa4a3f9e1): \
@@ -191,7 +191,11 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          the absolute and rem edges by. `root_zoom` is the same for every node of a document: \
          passing it in ResolutionParams (beside root_font_size) would win these 8 B back. \
          GREW 296 -> 304 (2026-10-24): `text_style`, the style a text node was laid out with, \
-         so a restyle above it that leaves its style alone keeps its shaped lines."
+         so a restyle above it that leaves its style alone keeps its shaped lines. GREW 304 -> \
+         312 (2026-10-25): `line_style`, the styles an IFC root's lines were broken with, so a \
+         restyle above it that moves them lays it out anew. GREW 312 -> 320 (2026-10-26): \
+         NodeDataFingerprint gained `lang_hash`, so a changed `lang` reaches the lines that \
+         hyphenate in it."
     );
 }
 

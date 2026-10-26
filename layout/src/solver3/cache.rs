@@ -2803,9 +2803,11 @@ fn reconcile_node(
     // A node re-cascades its descendants when the parts of its fingerprint
     // that can change a COMPUTED INHERITED value move: inline CSS (declares
     // them), ids/classes (select the rules that declare them), and the
-    // styled state (:hover/:focus/:active variants). Content, callbacks and
-    // attributes cannot, so a plain text edit still invalidates only its
-    // own node and the incremental-edit path is untouched.
+    // styled state (:hover/:focus/:active variants). The `lang` attribute is
+    // inherited too: the content language every line below hyphenates in
+    // (`fc::LineStyle`). Content, callbacks and the other attributes are the
+    // node's own, so a plain text edit still invalidates only its own node
+    // and the incremental-edit path is untouched.
     //
     // The CSS diff of this pass names the nodes whose computed style moved
     // with the fingerprint untouched (another stylesheet, a dynamic
@@ -2813,10 +2815,9 @@ fn reconcile_node(
     let css_relayout_here = recon.css_relayout.contains(&new_dom_id);
     let own_style_changed = css_relayout_here
         || old_cold.is_none_or(|old_c| {
-            let old_fp = &old_c.node_data_fingerprint;
-            old_fp.inline_css_hash != new_fingerprint.inline_css_hash
-                || old_fp.ids_classes_hash != new_fingerprint.ids_classes_hash
-                || old_fp.state_hash != new_fingerprint.state_hash
+            old_c
+                .node_data_fingerprint
+                .may_restyle_descendants(&new_fingerprint)
         });
     let subtree_style_changed = ancestor_style_changed || own_style_changed;
 

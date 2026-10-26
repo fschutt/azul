@@ -94,6 +94,11 @@ impl NodeChangeSet {
     /// list patch spliced the readers' stale items (design §9.1 pitfall 11,
     /// "a rice edit repaints half the window").
     pub const CUSTOM_PROPERTIES: u32 = 0b0010_0000_0000_0000;
+    /// The node's `lang` attribute changed: the content language of the
+    /// node and of every descendant that states none of its own. Lines
+    /// hyphenate in it (`hyphens: auto`), so the node's own lines and those
+    /// of the inline formatting contexts below it may break anew.
+    pub const CONTENT_LANGUAGE: u32 = 0b0100_0000_0000_0000;
 
     // --- Composite masks ---
 
@@ -105,7 +110,8 @@ impl NodeChangeSet {
         | Self::CHILDREN_CHANGED
         | Self::IMAGE_CHANGED
         | Self::CONTENTEDITABLE
-        | Self::CUSTOM_PROPERTIES;
+        | Self::CUSTOM_PROPERTIES
+        | Self::CONTENT_LANGUAGE;
 
     /// Any change that requires a paint/display-list update (but not layout).
     /// (`CUSTOM_PROPERTIES` is a layout change: a relayout repaints anyway,
@@ -411,6 +417,22 @@ pub fn compute_node_changes(
     // 8. Tab index
     if old_node.get_tab_index() != new_node.get_tab_index() {
         changes.insert(NodeChangeSet::TAB_INDEX);
+    }
+
+    // 8b. Content language: the `lang` attributes, in order (the last one
+    // names the language).
+    {
+        use crate::dom::AttributeType;
+        let is_lang = |a: &&AttributeType| matches!(a, AttributeType::Lang(_));
+        if !old_node
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter(is_lang)
+            .eq(new_node.attributes().as_ref().iter().filter(is_lang))
+        {
+            changes.insert(NodeChangeSet::CONTENT_LANGUAGE);
+        }
     }
 
     // 9. Styled node state (hover, active, focused, etc.)
@@ -2266,6 +2288,12 @@ impl ChangeAccumulator {
             return RelayoutScope::Full;
         }
 
+        // CONTENT_LANGUAGE → Full: every inline formatting context below may
+        // hyphenate its lines anew, and the boxes holding them resize.
+        if change_set.contains(NodeChangeSet::CONTENT_LANGUAGE) {
+            return RelayoutScope::Full;
+        }
+
         // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full
         // We need to check individual properties for the exact scope.
         // For now, we use SizingOnly as a conservative default since
@@ -2410,6 +2438,12 @@ pub struct NodeDataFingerprint {
     /// the slider beneath it. A dataset change is [`NodeChangeSet::DATASET`],
     /// which affects neither layout nor paint.
     pub dataset_hash: u64,
+    /// Hash of the `lang` attributes: the content language the node states.
+    /// Its descendants inherit it, and lines hyphenate in it, so a change
+    /// is [`NodeChangeSet::CONTENT_LANGUAGE`] and makes the layout compare
+    /// the line styles of the subtree, as an inherited style change does
+    /// ([`Self::may_restyle_descendants`]).
+    pub lang_hash: u64,
 }
 
 impl NodeDataFingerprint {
@@ -2443,9 +2477,11 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // IDs and classes hash (now stored in attributes)
-        let ids_classes_hash = {
+        // IDs and classes hash (now stored in attributes), and the content
+        // language from the same walk over the attributes.
+        let (ids_classes_hash, lang_hash) = {
             let mut h = crate::hash::DefaultHasher::new();
+            let mut lang = crate::hash::DefaultHasher::new();
             for attr in node.attributes().as_ref() {
                 match attr {
                     crate::dom::AttributeType::Id(s) => {
@@ -2454,10 +2490,11 @@ impl NodeDataFingerprint {
                     crate::dom::AttributeType::Class(s) => {
                         crate::dom::IdOrClass::Class(s.clone()).hash(&mut h);
                     }
+                    crate::dom::AttributeType::Lang(tag) => tag.hash(&mut lang),
                     _ => {}
                 }
             }
-            h.finish()
+            (h.finish(), lang.finish())
         };
 
         // Callbacks hash
@@ -2507,11 +2544,12 @@ impl NodeDataFingerprint {
             callbacks_hash,
             attrs_hash,
             dataset_hash,
+            lang_hash,
         }
     }
 
     /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
-    /// This is O(1) — just comparing 7 u64s.
+    /// This is O(1) — just comparing 8 u64s.
     ///
     /// The result is *conservative*: if a field hash differs, we set the
     /// broadest applicable flag. For precise classification (e.g., which
@@ -2556,6 +2594,10 @@ impl NodeDataFingerprint {
             changes.insert(NodeChangeSet::DATASET);
         }
 
+        if self.lang_hash != other.lang_hash {
+            changes.insert(NodeChangeSet::CONTENT_LANGUAGE);
+        }
+
         changes
     }
 
@@ -2572,6 +2614,7 @@ impl NodeDataFingerprint {
             || self.inline_css_hash != other.inline_css_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.attrs_hash != other.attrs_hash
+            || self.lang_hash != other.lang_hash
     }
 
     /// Quick check: could this change affect visuals at all?
@@ -2581,6 +2624,24 @@ impl NodeDataFingerprint {
             || self.state_hash != other.state_hash
             || self.inline_css_hash != other.inline_css_hash
             || self.ids_classes_hash != other.ids_classes_hash
+            || self.lang_hash != other.lang_hash
+    }
+
+    /// Whether a change from `self` to `other` may move what the node's
+    /// descendants inherit: a style its inline CSS declares, its ids and
+    /// classes select or its state (`:hover`, `:focus`) switches on, or the
+    /// content language its `lang` attribute states. The node's content,
+    /// callbacks and other attributes are its own.
+    ///
+    /// The layout's reconcile asks this of every node: below one that says
+    /// yes, it compares what each text and each inline formatting context
+    /// was laid out with against what they inherit now.
+    #[must_use]
+    pub const fn may_restyle_descendants(&self, other: &Self) -> bool {
+        self.inline_css_hash != other.inline_css_hash
+            || self.ids_classes_hash != other.ids_classes_hash
+            || self.state_hash != other.state_hash
+            || self.lang_hash != other.lang_hash
     }
 }
 
