@@ -458,6 +458,49 @@ impl LayoutCacheMap {
         self.entries.resize_with(tree_len, NodeCache::default);
     }
 
+    /// The caches of `old_tree`'s nodes, each moved to where the reconcile
+    /// put its node in `new_tree`. The new tree numbers its nodes anew (a
+    /// node added or dropped before another shifts it), so an entry follows
+    /// its node's identity, never its index: a node of a DOM node by that
+    /// node's id, an anonymous box only into the box the reconcile carried it
+    /// into (`carried`, [`ReconciliationResult::carried_indices`]). Every
+    /// other new node starts with an empty entry and is laid out anew - an
+    /// anonymous block built around another run of words is such a node,
+    /// even though nothing inside it is dirty.
+    #[must_use]
+    pub fn remapped(
+        mut self,
+        old_tree: &LayoutTree,
+        new_tree: &LayoutTree,
+        carried: &HashMap<usize, usize>,
+    ) -> Self {
+        let mut remapped = Self::default();
+        remapped.resize_to_tree(new_tree.nodes.len());
+        let mut hand_over = |old: usize, new: usize| {
+            if old < self.entries.len() && new < remapped.entries.len() {
+                remapped.entries[new] = core::mem::take(&mut self.entries[old]);
+            }
+        };
+        for (dom_id, new_indices) in &new_tree.dom_to_layout {
+            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+                continue;
+            };
+            for (new_idx, old_idx) in new_indices.iter().zip(old_indices) {
+                hand_over(old_idx.index(), new_idx.index());
+            }
+        }
+        for (&old_idx, &new_idx) in carried {
+            let anonymous = new_tree
+                .nodes
+                .get(new_idx)
+                .is_some_and(|n| n.dom_node_id.is_none());
+            if anonymous {
+                hand_over(old_idx, new_idx);
+            }
+        }
+        remapped
+    }
+
     /// O(1) lookup by layout tree index.
     #[inline]
     #[must_use]
@@ -2071,8 +2114,10 @@ fn reconcile_table_children(
 /// re-collections per resize with a bit-identical DOM, ~12 ms). The ordinal
 /// IS the identity: wrappers exist only for inline runs, runs are ordered by
 /// child position, so the Nth wrapper under a node corresponds to the Nth run
-/// — the same matching `layout_document`'s `cache_map` remap already performs
-/// post-hoc for the size caches.
+/// - once its run holds the same children. The match is also what hands the
+/// wrapper its size cache: `layout_document`'s `cache_map` remap moves an
+/// anonymous box's entry only along `carried_indices`, so a wrapper that is
+/// not matched starts with an empty one and is laid out anew.
 ///
 /// A matched wrapper IS its old self, as a clean clone is, and carries what a
 /// clone carries: the content-derived caches (`inline_content_cache`
@@ -2107,8 +2152,9 @@ fn reconcile_table_children(
 ///
 /// The wrapper breaks its lines with the styles of its element,
 /// `style_dom_id`. When a restyle on or above the element (`restyled`) moved
-/// them (`fc::LineStyle`), the wrapper keeps nothing and is laid out anew, as
-/// an element that is an IFC root is built anew (`reconcile_node`).
+/// them (`fc::LineStyle`), the wrapper is not matched: it keeps nothing and
+/// is laid out anew, as an element that is an IFC root is built anew
+/// (`reconcile_node`).
 ///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
@@ -2168,11 +2214,7 @@ fn try_reuse_anon_wrapper(
             text_styles,
         )
     {
-        // Dirty, as a node built anew is: its size cache (handed over from
-        // the old wrapper by position) is dropped and its intrinsic sizes
-        // are measured again.
-        recon.intrinsic_dirty.insert(anon_idx);
-        recon.layout_roots.insert(anon_idx);
+        // Unmatched, it is handed no cache and measured and laid out anew.
         return false;
     }
     if let (Some(old_warm), Some(new_node)) = (

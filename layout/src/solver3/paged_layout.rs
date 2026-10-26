@@ -889,12 +889,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // clean node: it clears the dirty nodes' and their ancestors' (its Step
     // 1.2), and its `cache_map` remap carries each node's
     // `NodeCache::final_layout_current` to the node's new index, which is
-    // what lets a memoised final layout be served. This path resizes the
-    // `cache_map` by POSITION (Step 1.4), so after a structural change a
-    // node can read another node's flag; serving a kept final layout on that
-    // word would skip a subtree a measure has rewritten. So the paged path
-    // lays every flex item out again, as it did when the clone dropped the
-    // measurements.
+    // what lets a memoised final layout be served. This path clears no
+    // dirty closure of its own, so it lays every flex item out again, as it
+    // did when the clone dropped the measurements: a paged layout is not
+    // laid out frame after frame.
     for node_idx in 0..new_tree.nodes.len() {
         if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
@@ -909,9 +907,15 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
-    // Move cache_map out of LayoutCache for the duration of layout.
+    // Move cache_map out of LayoutCache for the duration of layout. Its
+    // entries follow their nodes into the reconciled tree, as in
+    // `layout_document` (`LayoutCacheMap::remapped`).
     let mut cache_map = std::mem::take(&mut cache.cache_map);
-    cache_map.resize_to_tree(new_tree.nodes.len());
+    if let Some(old_tree) = cache.tree.as_deref() {
+        cache_map = cache_map.remapped(old_tree, &new_tree, &recon_result.carried_indices);
+    } else {
+        cache_map.resize_to_tree(new_tree.nodes.len());
+    }
     cache_map.mark_dirty_all(
         recon_result
             .intrinsic_dirty

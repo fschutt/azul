@@ -669,26 +669,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 ) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
-    // Secondary mapping: anonymous wrappers (dom_node_id == None)
-    // by (parent_new_idx, ordinal-among-anon-siblings). An
-    // unchanged DOM produces the same anon wrappers in the same
-    // order under the same parent — matching by position here
-    // preserves their cache slots too. Without this, anon
-    // wrappers re-allocate empty every reconcile and invalidate
-    // their ancestors via `mark_dirty`.
-    fn collect_anon_children_by_parent(tree: &LayoutTree) -> HashMap<usize, Vec<usize>> {
-        let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            if node.dom_node_id.is_some() {
-                continue;
-            }
-            if let Some(parent) = node.parent {
-                map.entry(parent).or_default().push(idx);
-            }
-        }
-        map
-    }
-
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
     layout_tree::IfcId::reset_counter();
@@ -1214,89 +1194,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
     // It will be moved back after the layout pass completes.
     //
-    // Critically: the old `cache_map.entries` is indexed by OLD
-    // layout-tree positions. The NEW tree may have re-ordered
-    // indices (anonymous wrapper slots shifted, whitespace nodes
-    // dropped, etc.). A plain `resize_with(default)` would silently
-    // serve the wrong node's cached result for any shifted index.
-    //
-    // Re-map by stable identity: build `old_layout_idx → new_layout_idx`
-    // via the `(dom_node_id → layout_idx)` tables on both trees,
-    // then move each surviving cache entry into its new slot. Nodes
-    // without a matching DOM id (pure anonymous wrappers) fall
-    // through to the default (empty, i.e. dirty) entry.
+    // The old `cache_map.entries` is indexed by OLD layout-tree positions,
+    // and the new tree numbers its nodes anew (a node added or dropped
+    // before another shifts it): each entry follows its node's identity
+    // into the new tree (`LayoutCacheMap::remapped`).
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
     if let Some(old_tree) = cache.tree.as_deref() {
-        let mut remapped = cache::LayoutCacheMap::default();
-        remapped
-            .entries
-            .resize_with(new_tree.nodes.len(), Default::default);
-
-        // Primary mapping: DOM id → layout idx on both sides. This
-        // covers every node that has a corresponding DOM node.
-        for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
-                continue;
-            };
-            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
-                let Some(&old_layout_idx) = old_indices.get(pair_idx) else {
-                    continue;
-                };
-                if old_layout_idx >= LayoutNodeId::new(cache_map.entries.len())
-                    || new_layout_idx >= LayoutNodeId::new(remapped.entries.len())
-                {
-                    continue;
-                }
-                remapped.entries[new_layout_idx.index()] =
-                    core::mem::take(&mut cache_map.entries[old_layout_idx.index()]);
-            }
-        }
-
-        // Build old-parent → [old_anon_indices] and
-        // new-parent → [new_anon_indices]; match by pair position.
-        let old_anon_by_parent = collect_anon_children_by_parent(old_tree);
-        let new_anon_by_parent = collect_anon_children_by_parent(&new_tree);
-
-        // For each new parent we know: look up its old twin by the
-        // dom-id mapping we just populated, then match anon children
-        // positionally within that parent.
-        // Build a new→old layout-idx lookup from the primary pass.
-        let mut new_to_old_layout_idx: HashMap<LayoutNodeId, LayoutNodeId> = HashMap::new();
-        for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
-                continue;
-            };
-            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
-                if let Some(&old_layout_idx) = old_indices.get(pair_idx) {
-                    new_to_old_layout_idx.insert(new_layout_idx, old_layout_idx);
-                }
-            }
-        }
-
-        for (new_parent_idx, new_anon_children) in new_anon_by_parent {
-            let Some(&old_parent_idx) =
-                new_to_old_layout_idx.get(&LayoutNodeId::new(new_parent_idx))
-            else {
-                continue;
-            };
-            let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx.index()) else {
-                continue;
-            };
-            for (ord, &new_anon_idx) in new_anon_children.iter().enumerate() {
-                let Some(&old_anon_idx) = old_anon_children.get(ord) else {
-                    continue;
-                };
-                if old_anon_idx >= cache_map.entries.len() || new_anon_idx >= remapped.entries.len()
-                {
-                    continue;
-                }
-                remapped.entries[new_anon_idx] =
-                    core::mem::take(&mut cache_map.entries[old_anon_idx]);
-            }
-        }
-
-        cache_map = remapped;
+        cache_map = cache_map.remapped(old_tree, &new_tree, &recon_result.carried_indices);
     } else {
         cache_map.resize_to_tree(new_tree.nodes.len());
     }
