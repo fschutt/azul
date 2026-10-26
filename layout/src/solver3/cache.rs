@@ -135,6 +135,12 @@ pub struct SizingCacheEntry {
 pub struct LayoutCacheEntry {
     /// The available size that was provided as input.
     pub available_size: LogicalSize,
+    /// The measurement slot of the containing block it was laid out in
+    /// ([`NodeCache::classify_size_key`]). With `available_size` it names
+    /// the constraint: a min-content and a max-content block flatten to the
+    /// same size, and a lookup or [`NodeCache::holds`] that compared the
+    /// sizes alone took one for the other.
+    pub size_slot: usize,
     /// The computed border-box size (output).
     pub result_size: LogicalSize,
     /// Content overflow size (for scrolling).
@@ -290,10 +296,9 @@ impl NodeCache {
     /// This is Taffy's slot selection scheme: given whether width/height are
     /// "known" (definite constraint provided by parent) and what type of
     /// constraint applies to the unknown dimension(s), we get a unique slot 0–8.
-    ///
-    /// TODO(superplan): currently unused — the layout cache only ever touches
-    /// slot 0 (see the `get_size(0, ..)` / `store_size(0, ..)` call sites). This
-    /// is the intended entry point for wiring the full 9-slot scheme.
+    /// A known axis is a length, and its type does not matter; an unknown one
+    /// is a min-content or a max-content constraint (a definite type counts
+    /// as max-content), and the two give a box different sizes.
     #[must_use]
     pub fn slot_index(
         width_known: bool,
@@ -304,14 +309,14 @@ impl NodeCache {
         match (width_known, height_known) {
             (true, true) => 0,
             (true, false) => {
-                if width_type == AvailableWidthType::MinContent {
+                if height_type == AvailableWidthType::MinContent {
                     2
                 } else {
                     1
                 }
             }
             (false, true) => {
-                if height_type == AvailableWidthType::MinContent {
+                if width_type == AvailableWidthType::MinContent {
                     4
                 } else {
                     3
@@ -325,10 +330,13 @@ impl NodeCache {
         }
     }
 
-    /// Classify a CONCRETE containing-block size into (measurement slot,
-    /// canonicalized key). The call sites only have resolved `f32`s — the
-    /// availability enums are gone by this depth — so "indefinite" is
-    /// detected by value: non-finite or the ≥1e9 sentinel family.
+    /// Classify the cache key `size` of containing block `block` (its
+    /// flattened size, or what `cache_key_block` made of it) into
+    /// (measurement slot, canonicalized key). An axis is indefinite by value
+    /// - non-finite or the ≥1e9 sentinel family - and the block's typed axis
+    /// says which constraint stands in for it: a min-content and a
+    /// max-content measure flatten to the same size, and only the slot tells
+    /// them apart.
     ///
     /// WHY THIS EXISTS (2026-08-08, measured on big.md): with everything
     /// collapsed onto slot 0, ~507 nodes were each sized TWICE per pass —
@@ -341,23 +349,44 @@ impl NodeCache {
     /// epsilon compare meaningful (`INFINITY - INFINITY` is NaN, which
     /// fails every `<` test and would turn a same-key lookup into a miss).
     #[must_use]
-    pub fn classify_size_key(containing_block_size: LogicalSize) -> (usize, LogicalSize) {
-        const INDEFINITE: f32 = 1.0e9;
-        let w = containing_block_size.width;
-        let h = containing_block_size.height;
-        let w_known = w.is_finite() && w.abs() < INDEFINITE;
-        let h_known = h.is_finite() && h.abs() < INDEFINITE;
-        let slot = Self::slot_index(
-            w_known,
-            h_known,
-            AvailableWidthType::Definite,
-            AvailableWidthType::Definite,
-        );
-        let key = LogicalSize {
-            width: if w_known { w } else { f32::MAX },
-            height: if h_known { h } else { f32::MAX },
+    pub fn classify_size_key(
+        block: &super::geometry::ContainingBlock,
+        size: LogicalSize,
+    ) -> (usize, LogicalSize) {
+        let constraint = |axis: crate::text3::cache::AvailableSpace| match axis {
+            crate::text3::cache::AvailableSpace::MinContent => AvailableWidthType::MinContent,
+            crate::text3::cache::AvailableSpace::MaxContent => AvailableWidthType::MaxContent,
+            crate::text3::cache::AvailableSpace::Definite(_) => AvailableWidthType::Definite,
         };
+        // The key holds an indefinite axis as `f32::MAX`.
+        let key = Self::canonical_size_key(size);
+        let slot = Self::slot_index(
+            key.width < f32::MAX,
+            key.height < f32::MAX,
+            constraint(block.width),
+            constraint(block.height),
+        );
         (slot, key)
+    }
+
+    /// `size` with each indefinite axis (non-finite or ≥1e9) as `f32::MAX`:
+    /// the size half of a [`Self::classify_size_key`] key.
+    #[must_use]
+    pub fn canonical_size_key(size: LogicalSize) -> LogicalSize {
+        const INDEFINITE: f32 = 1.0e9;
+        let known = |v: f32| v.is_finite() && v.abs() < INDEFINITE;
+        LogicalSize {
+            width: if known(size.width) {
+                size.width
+            } else {
+                f32::MAX
+            },
+            height: if known(size.height) {
+                size.height
+            } else {
+                f32::MAX
+            },
+        }
     }
 
     /// Look up a sizing cache entry, implementing Taffy's "result matches request"
@@ -365,12 +394,23 @@ impl NodeCache {
     /// (common in Pass1→Pass2 transitions), it's still a cache hit.
     #[must_use]
     pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
+        self.find_size(slot, known_dims).map(|(_, entry)| entry)
+    }
+
+    /// [`Self::get_size`], with the slot the entry answered from: a result
+    /// that matches the request may be answered from another slot.
+    #[must_use]
+    pub fn find_size(
+        &self,
+        slot: usize,
+        known_dims: LogicalSize,
+    ) -> Option<(usize, &SizingCacheEntry)> {
         if let Some(entry) = self.measure_entries[slot].as_ref() {
             // Exact match on input constraints
             if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
                 && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
             {
-                return Some(entry);
+                return Some((slot, entry));
             }
         }
         // "Result matches request" — if the caller provides the result size
@@ -381,11 +421,14 @@ impl NodeCache {
         // and the matching entry may live in ANY slot — pass 1 stored its
         // result under the measure-constraint slot, not the definite one.
         if known_dims.width < 1.0e9 && known_dims.height < 1.0e9 {
-            for entry in self.measure_entries.iter().flatten() {
+            for (found_in, entry) in self.measure_entries.iter().enumerate() {
+                let Some(entry) = entry.as_ref() else {
+                    continue;
+                };
                 if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
                     && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
                 {
-                    return Some(entry);
+                    return Some((found_in, entry));
                 }
             }
         }
@@ -398,11 +441,15 @@ impl NodeCache {
         self.is_empty = false;
     }
 
-    /// Look up the full layout cache entry.
+    /// Look up the full layout cache entry for containing block `known_dims`
+    /// of measurement slot `slot` (both from [`Self::classify_size_key`]'s
+    /// inputs: the slot tells a min-content from a max-content block of the
+    /// same flattened size).
     #[must_use]
-    pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
+    pub fn get_layout(&self, slot: usize, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
         let entry = self.layout_entry.as_ref()?;
-        if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
+        if entry.size_slot == slot
+            && (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
             && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
         {
             return Some(entry);
@@ -423,14 +470,15 @@ impl NodeCache {
     }
 
     /// Does the subtree still hold the layout computed for the sizing key
-    /// `key` (a [`Self::classify_size_key`] key)? Every computation of the
-    /// node stores its layout slot, so the slot names what its children's
-    /// sizes and offsets were last laid out for.
+    /// `(slot, key)` (a [`Self::classify_size_key`] key)? Every computation
+    /// of the node stores its layout slot, so the slot names what its
+    /// children's sizes and offsets were last laid out for.
     #[must_use]
-    pub fn holds(&self, key: LogicalSize) -> bool {
+    pub fn holds(&self, slot: usize, key: LogicalSize) -> bool {
         self.layout_entry.as_ref().is_some_and(|l| {
-            let (_, laid_out_for) = Self::classify_size_key(l.available_size);
-            (laid_out_for.width - key.width).abs() < CACHE_SIZE_EPSILON
+            let laid_out_for = Self::canonical_size_key(l.available_size);
+            l.size_slot == slot
+                && (laid_out_for.width - key.width).abs() < CACHE_SIZE_EPSILON
                 && (laid_out_for.height - key.height).abs() < CACHE_SIZE_EPSILON
         })
     }
@@ -4515,7 +4563,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // visit (indefinite height) and the final visit (definite
                 // height) land in different slots, so neither evicts the
                 // other — the slot-0 collapse made every visit a miss.
-                let (size_slot, size_key) = NodeCache::classify_size_key(cache_key_size);
+                let (size_slot, size_key) = NodeCache::classify_size_key(cb, cache_key_size);
                 // This is the node's layout (its parent's Pass 1; the children
                 // are only positioned after), and whatever it leaves behind
                 // may be what the page keeps - a final layout further up can
@@ -4525,10 +4573,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // at 148 px and then at 6 px by its flex-grow block's probes,
                 // was served the 148 px entry by the block's final layout and
                 // kept the 6 px input the last probe had laid out inside it.
-                let sizing_hit = ctx.cache_map.entries[node_index]
-                    .get_size(size_slot, size_key)
-                    .copied()
-                    .filter(|hit| ctx.cache_map.entries[node_index].holds(hit.available_size));
+                let entry = &ctx.cache_map.entries[node_index];
+                let sizing_hit = entry
+                    .find_size(size_slot, size_key)
+                    .filter(|&(found_in, hit)| entry.holds(found_in, hit.available_size))
+                    .map(|(_, hit)| *hit);
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
@@ -4545,7 +4594,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 }
                 // Fall through to layout slot check
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(cache_key_size)
+                    .get_layout(size_slot, cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
@@ -4613,8 +4662,9 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
             }
             ComputeMode::PerformLayout => {
                 // PerformLayout: check layout slot (the single "full layout" slot)
+                let (size_slot, _) = NodeCache::classify_size_key(cb, cache_key_size);
                 let layout_hit = ctx.cache_map.entries[node_index]
-                    .get_layout(cache_key_size)
+                    .get_layout(size_slot, cache_key_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
@@ -5109,11 +5159,19 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);
         let escaped_bottom = warm_ref.and_then(|n| n.escaped_bottom_margin);
 
+        // The measurement slot matching THIS constraint shape (same
+        // classification as the lookup — the measure visit and the final
+        // visit must land in different slots or they evict each other every
+        // pass). The canonicalized key replaces the raw containing block so an
+        // indefinite axis compares equal next time.
+        let (size_slot, size_key) = NodeCache::classify_size_key(cb, cache_key_size);
+
         // Store in the layout slot (PerformLayout result)
         ctx.cache_map
             .get_mut(node_index)
             .store_layout(LayoutCacheEntry {
                 available_size: cache_key_size,
+                size_slot,
                 result_size: final_used_size,
                 content_size,
                 child_positions: child_positions_for_cache,
@@ -5122,12 +5180,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 scrollbar_info: merged_scrollbar_info,
             });
 
-        // Also store in the measurement slot matching THIS constraint shape
-        // (same classification as the lookup — the measure visit and the
-        // final visit must land in different slots or they evict each other
-        // every pass). The canonicalized key replaces the raw containing
-        // block so an indefinite axis compares equal next time.
-        let (size_slot, size_key) = NodeCache::classify_size_key(cache_key_size);
+        // Also store in that measurement slot.
         ctx.cache_map.get_mut(node_index).store_size(
             size_slot,
             SizingCacheEntry {
@@ -5382,6 +5435,7 @@ mod autotest_generated {
     fn layout_entry(available: LogicalSize, result: LogicalSize) -> LayoutCacheEntry {
         LayoutCacheEntry {
             available_size: available,
+            size_slot: 0,
             result_size: result,
             content_size: result,
             child_positions: Vec::new(),
@@ -5519,7 +5573,7 @@ mod autotest_generated {
             assert!(c.get_size(slot, size(0.0, 0.0)).is_none());
             assert!(c.get_size(slot, size(100.0, 100.0)).is_none());
         }
-        assert!(c.get_layout(size(0.0, 0.0)).is_none());
+        assert!(c.get_layout(0, size(0.0, 0.0)).is_none());
     }
 
     #[test]
@@ -5683,14 +5737,55 @@ mod autotest_generated {
         c.store_layout(layout_entry(size(800.0, 600.0), size(800.0, 123.0)));
         assert!(!c.is_empty);
 
-        assert!(c.get_layout(size(800.0, 600.0)).is_some());
+        assert!(c.get_layout(0, size(800.0, 600.0)).is_some());
         // "Result matches request" applies to the layout slot too.
         let hit = c
-            .get_layout(size(800.0, 123.0))
+            .get_layout(0, size(800.0, 123.0))
             .expect("result-matches-request");
         assert_eq!(hit.result_size, size(800.0, 123.0));
-        assert!(c.get_layout(size(400.0, 300.0)).is_none());
-        assert!(c.get_layout(size(f32::NAN, f32::NAN)).is_none());
+        assert!(c.get_layout(0, size(400.0, 300.0)).is_none());
+        assert!(c.get_layout(0, size(f32::NAN, f32::NAN)).is_none());
+    }
+
+    #[test]
+    fn a_layout_answers_only_the_constraint_it_was_laid_out_under() {
+        use crate::{solver3::geometry::ContainingBlock, text3::cache::AvailableSpace};
+        // A box measured at the finite sentinel width a table cell's measure
+        // flattens to, in a 600 px tall block, as a min-content and as a
+        // max-content constraint.
+        let sentinel = size(f32::MAX / 2.0, 600.0);
+        let min_content = ContainingBlock::from_axes(
+            AvailableSpace::MinContent,
+            AvailableSpace::Definite(600.0),
+            sentinel,
+        );
+        let max_content = ContainingBlock::from_axes(
+            AvailableSpace::MaxContent,
+            AvailableSpace::Definite(600.0),
+            sentinel,
+        );
+        let (min_slot, min_key) = NodeCache::classify_size_key(&min_content, sentinel);
+        let (max_slot, max_key) = NodeCache::classify_size_key(&max_content, sentinel);
+        assert_eq!(min_key, max_key, "both constraints flatten to one size");
+        assert_ne!(min_slot, max_slot, "and land in two slots");
+
+        let mut c = NodeCache::default();
+        c.store_layout(LayoutCacheEntry {
+            size_slot: max_slot,
+            ..layout_entry(sentinel, size(420.0, 30.0))
+        });
+        c.store_size(max_slot, sizing_entry(max_key, size(420.0, 30.0)));
+        assert!(c.get_layout(max_slot, sentinel).is_some());
+        assert!(c.holds(max_slot, max_key));
+        assert!(
+            c.get_layout(min_slot, sentinel).is_none(),
+            "a max-content layout does not answer a min-content measure"
+        );
+        assert!(c.get_size(min_slot, min_key).is_none());
+        assert!(
+            !c.holds(min_slot, min_key),
+            "the subtree holds the max-content layout, not a min-content one"
+        );
     }
 
     #[test]
@@ -5708,7 +5803,7 @@ mod autotest_generated {
         assert!(c.layout_entry.is_none());
         assert!(c.measure_entries.iter().all(Option::is_none));
         assert!(c.get_size(0, size(10.0, 10.0)).is_none());
-        assert!(c.get_layout(size(10.0, 10.0)).is_none());
+        assert!(c.get_layout(0, size(10.0, 10.0)).is_none());
 
         // Clearing twice is harmless.
         c.clear();
@@ -5752,32 +5847,30 @@ mod autotest_generated {
     #[test]
     fn slot_index_collapses_definite_and_maxcontent_onto_one_slot() {
         use AvailableWidthType::{Definite, MaxContent, MinContent};
-        // Documented: "MaxContent/Definite vs MinContent" share a slot.
+        // Documented: on the unknown axis "MaxContent/Definite vs MinContent"
+        // share a slot.
         assert_eq!(
             NodeCache::slot_index(true, false, Definite, Definite),
-            NodeCache::slot_index(true, false, MaxContent, Definite)
+            NodeCache::slot_index(true, false, Definite, MaxContent)
         );
         assert_ne!(
             NodeCache::slot_index(true, false, Definite, Definite),
-            NodeCache::slot_index(true, false, MinContent, Definite)
+            NodeCache::slot_index(true, false, Definite, MinContent)
         );
     }
 
     #[test]
-    fn slot_index_keys_the_single_unknown_axis_off_the_known_axis_type() {
+    fn slot_index_keys_the_single_unknown_axis_off_its_own_constraint() {
         use AvailableWidthType::{Definite, MinContent};
-        // BEHAVIOUR PIN (deviates from Taffy): when only the width is known, the
-        // slot is chosen from `width_type` — the type of the *known* axis — even
-        // though the doc comment says it keys off "the unknown dimension(s)".
-        // Taffy keys slot 1/2 off the height (the unknown axis) here. Same for
-        // the mirrored (false, true) case, which keys off `height_type`.
-        // Consequence: the height's MinContent-ness cannot select slot 2 at all,
-        // so a MinContent and a Definite height measurement would collide in a
-        // single slot once slots 1-8 are wired up (they are unused today).
-        assert_eq!(NodeCache::slot_index(true, false, Definite, MinContent), 1);
-        assert_eq!(NodeCache::slot_index(true, false, MinContent, Definite), 2);
-        assert_eq!(NodeCache::slot_index(false, true, MinContent, Definite), 3);
-        assert_eq!(NodeCache::slot_index(false, true, Definite, MinContent), 4);
+        // As in Taffy: with only the width known, the height's constraint
+        // picks slot 1 or 2, and the mirrored case keys off the width's. The
+        // known axis is a length, whatever its type says: keyed off it, a
+        // min-content and a max-content measure of the unknown axis would
+        // share one slot.
+        assert_eq!(NodeCache::slot_index(true, false, Definite, MinContent), 2);
+        assert_eq!(NodeCache::slot_index(true, false, MinContent, Definite), 1);
+        assert_eq!(NodeCache::slot_index(false, true, MinContent, Definite), 4);
+        assert_eq!(NodeCache::slot_index(false, true, Definite, MinContent), 3);
     }
 
     // ==================================================================
