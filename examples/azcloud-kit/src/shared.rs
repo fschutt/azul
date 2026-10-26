@@ -167,6 +167,13 @@ impl SharedKeyring {
         &self.namespace
     }
 
+    /// The keyring itself, for the entries azul-storage's drive key flows keep without these
+    /// locks (`crypto::device`: a drive's keys, its member key).
+    #[must_use]
+    pub fn store(&self) -> &dyn KeyringStore {
+        self.keyring.as_ref()
+    }
+
     /// Where the locks are.
     #[must_use]
     pub fn locks(&self) -> &LockDir {

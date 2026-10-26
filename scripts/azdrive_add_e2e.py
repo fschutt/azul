@@ -93,8 +93,8 @@ sheet of `--dialogs inline`:
    14. Cash by post (cash contract v1): with the mock's "cash" offer Buy storage shows the "Cash
        by post" pill; Buy makes a cash checkout (awaiting_cash at the mock, on the keyring's list
        with its slip and method "cash"), the dialog says "Waiting for your letter ..." and shows
-       the AZK1 claim code (the checkout id and the kept claim secret, as scripts/azlin_claim.py
-       writes it), both pages are saved as PDFs (FileDialog::save_bytes under the mock store), a
+       the claim code (the checkout id, the kept claim secret and the id of the drive key made
+       with the order - AZK2 - as scripts/azlin_claim.py writes it), both pages are saved as PDFs (FileDialog::save_bytes under the mock store), a
        look finds it waiting (AZDRIVE_CASH_WAITING) and the drive list shows the order; the
        operator activates it through the mock's switch and the next daily look
        (AZDRIVE_PERIOD_CHECK_SECS) brings the drive; on a second AzDrive profile (its own drives
@@ -320,6 +320,14 @@ def pending_checkouts(path):
     if not text:
         return {}
     return {c["checkout_id"]: c for c in json.loads(text).get("checkouts") or []}
+
+
+def member_entry(path, drive_id):
+    """This computer's member key entry of the drive (azul-storage's crypto::device), parsed:
+    the id of the drive key it holds (`drive_key_id`) or a claim code named (`committed`). It
+    holds the member secret too: never print it."""
+    text = keyring_entries(path).get("azul-storage/member-key/" + drive_id)
+    return json.loads(text) if text else {}
 
 
 def check_period_tokens(stack, drives_file, checkout, drive_id, redeemed=0):
@@ -1067,8 +1075,9 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
 
 # ==== 14. Cash by post, 15. a ban (cash and ban contracts v1) ====
 
-# A claim code as the dialog shows it (AZK1, base32 in blocks of four).
-CLAIM_CODE_RE = re.compile(r"\bAZK1(?:-[A-Z2-7]{1,4})+\b")
+# A claim code as the dialog shows it (AZK1, or AZK2 naming the new drive's key; base32 in
+# blocks of four).
+CLAIM_CODE_RE = re.compile(r"\bAZK[12](?:-[A-Z2-7]{1,4})+\b")
 WAITING = "Waiting for your letter: postal cash takes a while, AzDrive checks once a day."
 
 
@@ -1355,12 +1364,18 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
     if kept.get("method") != "cash" \
             or (kept.get("cash") or {}).get("activation_code") != record.get("activation_code"):
         raise Failure("the keyring's list keeps no slip of %s: %r"
-                      % (checkout, {k: v for k, v in kept.items() if k != "claim_secret"}))
+                      % (checkout, {k: v for k, v in kept.items()
+                                    if k not in ("claim_secret", "drive_key")}))
+    # The new drive's key is made with the order; the claim code names its id.
+    named = kept.get("key_id") or ""
+    if len(named) != 32 or len(kept.get("drive_key") or "") != 64:
+        raise Failure("the new drive's cash order keeps no drive key with its id (%r)" % named)
     dialog.win.until("the waiting line", lambda: dialog.shows(WAITING))
     code = dialog.win.until("the claim code", lambda: found(dialog.win.texts(), CLAIM_CODE_RE))
     code = code.group(0)
-    if code != azlin_claim.claim_code(checkout, kept["claim_secret"]):
-        raise Failure("the claim code shown is not the checkout id and its kept claim secret")
+    if code != azlin_claim.claim_code(checkout, kept["claim_secret"], named):
+        raise Failure("the claim code shown is not the checkout id, its kept claim secret and "
+                      "its drive key's id")
     app.op("mock", set={"save_bytes": {"accept": True}})
     app.after("the buyer's copy saved", "AZDRIVE_CASH_SAVED", r"copy \d+",
               lambda: dialog.click("#__azdrive_cash_copy_save"))
@@ -1395,8 +1410,13 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
               lambda: checkout not in pending_checkouts(keyring_file))
     # "We always encrypt": the buyer's computer made the drive's keys as it arrived.
     recovery = new_drive_encrypted(app, drive_id)
+    pinned = member_entry(keyring_file, drive_id).get("drive_key_id")
+    if pinned != named:
+        raise Failure("the drive was set up with the key %r, not the %r its claim code names"
+                      % (pinned, named))
     log("14. The operator activated %s at the mock; the next daily look claimed %s, encrypted "
-        "as it arrived (its recovery sheet done)" % (checkout, drive_id))
+        "as it arrived with the key its claim code names (its recovery sheet done)"
+        % (checkout, drive_id))
 
     # Another computer picks the drive up with the claim code.
     other_switches, other_env = other_profile(logs, "cash-other", switches, env)
@@ -1418,6 +1438,12 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
             "AZDRIVE_CLAIMED", r"%s \S+" % re.escape(checkout)))[-1]
         if claimed.split()[-1] != drive_id:
             raise Failure("the claim code brought %s, not %s" % (claimed, drive_id))
+        # It takes no other drive key than the one the code names.
+        committed = second.until("the claim code's key id kept", lambda: member_entry(
+            other_env["AZ_KEYRING_FILE"], drive_id).get("committed"))
+        if committed != named:
+            raise Failure("the picked-up drive commits to the key %r, not the %r its claim code "
+                          "names" % (committed, named))
         # Two devices, not one family: the second claimed its own with the drive's ticket.
         def family_of(path):
             text = keyring_entries(path).get("azul-storage/s3/" + drive_id) or "{}"
@@ -1450,6 +1476,10 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
                      r"%s / \d+" % re.escape(drive_id),
                      lambda: popup.click_exact("Unlock"))
         second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
+        pinned = member_entry(other_env["AZ_KEYRING_FILE"], drive_id).get("drive_key_id")
+        if pinned != named:
+            raise Failure("the picked-up drive unlocked with the key %r, not the %r its claim "
+                          "code names" % (pinned, named))
         second.screenshot(os.path.join(out, "14-picked-up.png"))
     finally:
         second.stop()

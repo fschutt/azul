@@ -15,6 +15,12 @@
 //!   bytes of SHA-256(`AZK1` || what comes before) against a mistyped code; written like the
 //!   activation code. On the buyer's copy as text and as a QR code.
 //!
+//!   A new drive's cash checkout makes the drive's key with its order, and its code names the
+//!   key's id too (`AZK2-...`: the 16 bytes of the id after the secret, the check value over
+//!   `AZK2`). Whoever controls the storage could otherwise hand the computer that picks the
+//!   drive up a key of their own; with the id it takes no other key for the drive, whatever the
+//!   bucket holds.
+//!
 //!   Whoever reads the claim code learns the checkout id and can open its sealed sign-up while
 //!   the token server keeps it (30 days after the payment): the drive's id, its bucket, its
 //!   temporary S3 credentials, its first drive token, its period tokens' issue key and its claim
@@ -34,6 +40,12 @@ use crate::{claim::ClaimKey, pending::PendingCheckout};
 pub const ACTIVATION_PREFIX: &str = "AZC1-";
 /// What every claim code starts with (its version).
 pub const CLAIM_CODE_PREFIX: &str = "AZK1-";
+/// What a claim code that names its drive key's id starts with.
+pub const KEYED_CLAIM_CODE_PREFIX: &str = "AZK2-";
+/// The bytes of the drive key id an AZK2 claim code names (azul-storage's `crypto::KEY_ID_LEN`).
+pub const KEY_ID_LEN: usize = 16;
+#[cfg(feature = "encryption")]
+const _: () = assert!(KEY_ID_LEN == azul_storage::crypto::KEY_ID_LEN);
 /// The bytes of the activation code's MAC.
 pub const ACTIVATION_MAC_LEN: usize = 10;
 /// The payment method of a cash checkout (`POST /v1/checkout {"method": "cash"}`).
@@ -187,21 +199,25 @@ impl ActivationCode {
     }
 }
 
-/// The check value of a claim code's bytes.
-fn claim_check(payload: &[u8]) -> [u8; CHECK_LEN] {
+/// The check value of a claim code's bytes under its version's `prefix`: the version is part
+/// of what it covers, so a code relabelled as the other version never reads.
+fn claim_check(prefix: &str, payload: &[u8]) -> [u8; CHECK_LEN] {
     let mut hash = Sha256::new();
-    hash.update(CLAIM_CODE_PREFIX.trim_end_matches('-').as_bytes());
+    hash.update(prefix.trim_end_matches('-').as_bytes());
     hash.update(payload);
     let digest = hash.finalize();
     [digest[0], digest[1], digest[2], digest[3]]
 }
 
 /// What another computer needs to pick up a cash checkout's drive: the checkout id and its
-/// claim key. `Debug` shows the checkout id only.
+/// claim key, and for a new drive the id of the drive's key. `Debug` shows no secret.
 #[derive(Clone)]
 pub struct ClaimCode {
     pub checkout_id: String,
     pub claim: ClaimKey,
+    /// The id of the drive key the buyer's computer made with the order (an AZK2 code): the
+    /// computer that picks the drive up takes no other key for it. `None` in an AZK1 code.
+    pub key_id: Option<[u8; KEY_ID_LEN]>,
 }
 
 impl fmt::Debug for ClaimCode {
@@ -209,65 +225,91 @@ impl fmt::Debug for ClaimCode {
         f.debug_struct("ClaimCode")
             .field("checkout_id", &self.checkout_id)
             .field("claim", &"<hidden>")
+            .field("key_id", &self.key_id.map(|id| crate::period::hex(&id)))
             .finish()
     }
 }
 
 impl ClaimCode {
-    /// The code of the checkout `checkout_id` with the claim key `claim`.
+    /// The code of the checkout `checkout_id` with the claim key `claim`, naming no drive key.
     #[must_use]
     pub fn new(checkout_id: &str, claim: &ClaimKey) -> ClaimCode {
         ClaimCode {
             checkout_id: checkout_id.trim().to_string(),
             claim: claim.clone(),
+            key_id: None,
         }
     }
 
-    /// The code of the kept checkout `checkout`.
+    /// The code of the kept checkout `checkout`, naming the drive key id it keeps.
     ///
     /// # Errors
     ///
-    /// When its claim secret is no claim key.
+    /// When its claim secret is no claim key, or its key id no key id (a damaged one is never
+    /// printed as a code that names none).
     pub fn of(checkout: &PendingCheckout) -> Result<ClaimCode, CashError> {
         let claim = checkout
             .claim_key()
             .map_err(|_| CashError::Malformed("a kept claim key"))?;
-        Ok(ClaimCode::new(&checkout.checkout_id, &claim))
+        let key_id = match checkout.key_id.as_deref() {
+            Some(text) => Some(
+                crate::period::unhex::<KEY_ID_LEN>(text.trim())
+                    .ok_or(CashError::Malformed("a kept drive key id"))?,
+            ),
+            None => None,
+        };
+        Ok(ClaimCode {
+            key_id,
+            ..ClaimCode::new(&checkout.checkout_id, &claim)
+        })
     }
 
-    /// The code as the buyer's copy prints it (`AZK1-` and blocks of four). A secret: never
-    /// print it anywhere else.
+    /// The code as the buyer's copy prints it (`AZK1-`, or `AZK2-` when it names a drive key,
+    /// and blocks of four). A secret: never print it anywhere else.
     #[must_use]
     pub fn to_text(&self) -> Zeroizing<String> {
         let id = self.checkout_id.as_bytes();
-        let mut payload =
-            Zeroizing::new(Vec::with_capacity(1 + id.len() + SECRET_LEN + CHECK_LEN));
+        let mut payload = Zeroizing::new(Vec::with_capacity(
+            1 + id.len() + SECRET_LEN + KEY_ID_LEN + CHECK_LEN,
+        ));
         payload.push(u8::try_from(id.len()).unwrap_or(u8::MAX));
         payload.extend_from_slice(id);
         payload.extend_from_slice(&self.claim.secret_bytes()[..]);
-        let check = claim_check(&payload);
+        let prefix = match &self.key_id {
+            Some(key_id) => {
+                payload.extend_from_slice(key_id);
+                KEYED_CLAIM_CODE_PREFIX
+            }
+            None => CLAIM_CODE_PREFIX,
+        };
+        let check = claim_check(prefix, &payload);
         payload.extend_from_slice(&check);
-        Zeroizing::new(code_text(CLAIM_CODE_PREFIX, &payload))
+        Zeroizing::new(code_text(prefix, &payload))
     }
 
-    /// Reads a claim code as typed or scanned (any case; blanks and dashes do not matter).
+    /// Reads a claim code as typed or scanned (any case; blanks and dashes do not matter): an
+    /// AZK2 code with the drive key id it names, an AZK1 code without one.
     ///
     /// # Errors
     ///
-    /// [`CashError::Malformed`] for anything but a whole `AZK1` code whose check value holds (a
-    /// mistyped one is refused, never read as another checkout).
+    /// [`CashError::Malformed`] for anything but a whole `AZK1` or `AZK2` code whose check
+    /// value holds (a mistyped one is refused, never read as another checkout).
     pub fn parse(text: &str) -> Result<ClaimCode, CashError> {
-        const WHAT: &str = "a claim code (AZK1-...)";
-        let bytes = Zeroizing::new(code_bytes(text, CLAIM_CODE_PREFIX, WHAT)?);
+        const WHAT: &str = "a claim code (AZK1-... or AZK2-...)";
+        let (prefix, key_len, bytes) = match code_bytes(text, KEYED_CLAIM_CODE_PREFIX, WHAT) {
+            Ok(bytes) => (KEYED_CLAIM_CODE_PREFIX, KEY_ID_LEN, bytes),
+            Err(_) => (CLAIM_CODE_PREFIX, 0, code_bytes(text, CLAIM_CODE_PREFIX, WHAT)?),
+        };
+        let bytes = Zeroizing::new(bytes);
         let Some((&id_len, rest)) = bytes.split_first() else {
             return Err(CashError::Malformed(WHAT));
         };
         let id_len = usize::from(id_len);
-        if id_len == 0 || rest.len() != id_len + SECRET_LEN + CHECK_LEN {
+        if id_len == 0 || rest.len() != id_len + SECRET_LEN + key_len + CHECK_LEN {
             return Err(CashError::Malformed(WHAT));
         }
         let (payload, check) = bytes.split_at(bytes.len() - CHECK_LEN);
-        if claim_check(payload).as_slice() != check {
+        if claim_check(prefix, payload).as_slice() != check {
             return Err(CashError::Malformed(WHAT));
         }
         let id = &rest[..id_len];
@@ -278,23 +320,32 @@ impl ClaimCode {
         {
             return Err(CashError::Malformed(WHAT));
         }
+        let secret_end = id_len + SECRET_LEN;
         let mut secret = Zeroizing::new([0u8; SECRET_LEN]);
-        secret.copy_from_slice(&rest[id_len..id_len + SECRET_LEN]);
+        secret.copy_from_slice(&rest[id_len..secret_end]);
+        let key_id = (key_len > 0).then(|| {
+            let mut key_id = [0u8; KEY_ID_LEN];
+            key_id.copy_from_slice(&rest[secret_end..secret_end + KEY_ID_LEN]);
+            key_id
+        });
         Ok(ClaimCode {
             checkout_id: checkout_id.to_string(),
             claim: ClaimKey::from_secret_bytes(*secret),
+            key_id,
         })
     }
 
     /// The unfinished cash checkout this code picks up on this computer: asked at `token_url`
     /// (this run's token server: the code does not name one), the drive to be called `name`;
-    /// its tier comes with the sealed sign-up.
+    /// its tier comes with the sealed sign-up. It keeps the drive key id the code names: every
+    /// key this computer takes for the drive must have it.
     #[must_use]
     pub fn pending(&self, token_url: &str, name: &str) -> PendingCheckout {
         let mut kept = PendingCheckout::new(&self.checkout_id, &self.claim, "", token_url, name);
         kept.method = CASH_METHOD.to_string();
         // Its drive is claimed as a token family of this computer's own.
         kept.picked_up = true;
+        kept.key_id = self.key_id.map(|id| crate::period::hex(&id));
         kept
     }
 }

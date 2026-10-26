@@ -249,9 +249,14 @@ def new_claim_key():
 # What another computer picks a cash checkout's drive up with when the buyer's one is lost -
 # azcloud-kit's `cash::ClaimCode`: `AZK1-` and the RFC 4648 base32 (upper case, no padding,
 # blocks of four joined by `-`) of the checkout id's length (one byte), the id (ASCII), the 32
-# bytes of the claim secret and four bytes of SHA-256(b"AZK1" || what comes before).
+# bytes of the claim secret and four bytes of SHA-256(b"AZK1" || what comes before). The code of
+# a new drive's cash checkout names the id of the drive's key too (its 16 bytes after the
+# secret), so the computer that picks the drive up takes no other key: it starts with `AZK2-`,
+# its check value is over b"AZK2".
 
 CLAIM_CODE_PREFIX = 'AZK1-'
+KEYED_CLAIM_CODE_PREFIX = 'AZK2-'
+KEY_ID_LEN = 16
 
 
 def _b32(raw):
@@ -263,24 +268,36 @@ def grouped(text):
     return '-'.join(text[i:i + 4] for i in range(0, len(text), 4))
 
 
-def _claim_check(payload):
-    return hashlib.sha256(b'AZK1' + payload).digest()[:4]
+def _claim_check(version, payload):
+    return hashlib.sha256(version + payload).digest()[:4]
 
 
-def claim_code(checkout_id, claim_secret):
-    """The claim code of `checkout_id` with `claim_secret` (its bytes, or standard base64)."""
+def claim_code(checkout_id, claim_secret, key_id=None):
+    """The claim code of `checkout_id` with `claim_secret` (its bytes, or standard base64): AZK1,
+    or AZK2 when it names the id of the drive's key (`key_id`: its 16 bytes, or 32 hex digits)."""
     secret = claim_secret if isinstance(claim_secret, bytes) else base64.b64decode(claim_secret)
     ident = checkout_id.encode('ascii')
     payload = bytes([len(ident)]) + ident + secret
-    return CLAIM_CODE_PREFIX + grouped(_b32(payload + _claim_check(payload)))
+    if key_id is None:
+        return CLAIM_CODE_PREFIX + grouped(_b32(payload + _claim_check(b'AZK1', payload)))
+    key = key_id if isinstance(key_id, bytes) else bytes.fromhex(key_id)
+    if len(key) != KEY_ID_LEN:
+        raise ValueError('a drive key id is %d bytes, not %d' % (KEY_ID_LEN, len(key)))
+    payload += key
+    return KEYED_CLAIM_CODE_PREFIX + grouped(_b32(payload + _claim_check(b'AZK2', payload)))
 
 
-def parse_claim_code(text):
-    """(checkout id, claim secret bytes) of a claim code as typed (any case, blanks and dashes
-    do not matter); ValueError for anything else - a mistyped code too."""
+def parse_claim_code_keyed(text):
+    """(checkout id, claim secret bytes, drive key id bytes or None) of a claim code as typed
+    (any case, blanks and dashes do not matter): an AZK1 code names no key id. ValueError for
+    anything else - a mistyped code too."""
     compact = ''.join(c for c in text if not c.isspace() and c != '-').upper()
-    if not compact.startswith('AZK1'):
-        raise ValueError('not a claim code (AZK1-...)')
+    if compact.startswith('AZK2'):
+        version, key_len = b'AZK2', KEY_ID_LEN
+    elif compact.startswith('AZK1'):
+        version, key_len = b'AZK1', 0
+    else:
+        raise ValueError('not a claim code (AZK1-... or AZK2-...)')
     body = compact[4:]
     try:
         raw = base64.b32decode(body + '=' * (-len(body) % 8))
@@ -289,11 +306,20 @@ def parse_claim_code(text):
     if _b32(raw) != body or not raw:
         raise ValueError('not a claim code: no base32 of whole bytes')
     size = raw[0]
-    if size == 0 or len(raw) != 1 + size + KEY_LEN + 4:
+    if size == 0 or len(raw) != 1 + size + KEY_LEN + key_len + 4:
         raise ValueError('not a claim code: its length')
-    if _claim_check(raw[:-4]) != raw[-4:]:
+    if _claim_check(version, raw[:-4]) != raw[-4:]:
         raise ValueError('not a claim code: its check value (a typo?)')
-    return raw[1:1 + size].decode('ascii'), raw[1 + size:1 + size + KEY_LEN]
+    secret_end = 1 + size + KEY_LEN
+    key = raw[secret_end:secret_end + key_len] if key_len else None
+    return raw[1:1 + size].decode('ascii'), raw[1 + size:secret_end], key
+
+
+def parse_claim_code(text):
+    """(checkout id, claim secret bytes) of a claim code (AZK1 or AZK2) as typed; ValueError for
+    anything else - a mistyped code too."""
+    checkout_id, secret, _ = parse_claim_code_keyed(text)
+    return checkout_id, secret
 
 
 # ==== The checks ====
@@ -401,6 +427,21 @@ def claim_code_test():
         raise AssertionError('a mistyped claim code was read')
     except ValueError:
         pass
+    # A new drive's cash checkout names its drive key's id (the bytes 32, 33, ..., 47).
+    keyed = claim_code('ck_' + 'a' * 26, bytes(range(32)), bytes(range(32, 48)))
+    assert keyed == ('AZK2-DVRW-WX3B-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-AAAQ-'
+                     'EAYE-AUDA-OCAJ-BIFQ-YDIO-B4IB-CEQT-CQKR-MFYY-DENB-WHA5-DYPS-AIJC-EMSC-'
+                     'KJRH-FAUS-UKZM-FUXC-6WYA-OWAA'), keyed
+    assert keyed == claim_code('ck_' + 'a' * 26, bytes(range(32)), bytes(range(32, 48)).hex())
+    assert parse_claim_code_keyed(keyed.lower()) == (
+        'ck_' + 'a' * 26, bytes(range(32)), bytes(range(32, 48)))
+    assert parse_claim_code_keyed(code)[2] is None, 'an AZK1 code names no key'
+    for wrong in (keyed.replace('AZK2', 'AZK1', 1), code.replace('AZK1', 'AZK2', 1)):
+        try:
+            parse_claim_code(wrong)
+            raise AssertionError('a claim code of the other version was read: %s' % wrong)
+        except ValueError:
+            pass
 
 
 if __name__ == '__main__':

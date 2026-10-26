@@ -30,6 +30,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use azlin_contract::{AbandonAnswer, IdempotentScope};
+#[cfg(feature = "encryption")]
+use azul_storage::crypto::{device, DriveKey, KeyId, KEY_LEN};
+#[cfg(feature = "encryption")]
+use zeroize::Zeroizing;
 
 use crate::{
     bundle::{DriveBundle, PeriodTokens},
@@ -108,6 +112,16 @@ pub struct PendingCheckout {
     /// The signed price ladder version the checkout's answer named: its drive's lock keeps it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ladder_version: Option<u64>,
+    /// The key a cash checkout of a new drive made for the drive with its order (64 hex digits,
+    /// a secret): the drive is set up with it, so the claim code printed before the drive
+    /// exists names its id. Only on the buyer's computer, and only until the drive is claimed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drive_key: Option<String>,
+    /// The id of the drive key its claim code names (32 hex digits): the buyer's of its
+    /// `drive_key`, a picked-up one's from its code. This computer takes no other key for the
+    /// drive. `None` for every other checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -154,6 +168,8 @@ impl fmt::Debug for PendingCheckout {
             .field("renews", &self.renews)
             .field("change_tier", &self.change_tier)
             .field("ladder_version", &self.ladder_version)
+            .field("drive_key", &self.drive_key.as_ref().map(|_| "<hidden>"))
+            .field("key_id", &self.key_id)
             .finish()
     }
 }
@@ -223,6 +239,8 @@ impl PendingCheckout {
             renews: String::new(),
             change_tier: false,
             ladder_version: None,
+            drive_key: None,
+            key_id: None,
         }
     }
 
@@ -240,6 +258,61 @@ impl PendingCheckout {
     /// When the kept secret is no claim key.
     pub fn claim_key(&self) -> Result<ClaimKey, ClaimError> {
         ClaimKey::from_base64(&self.claim_secret)
+    }
+}
+
+#[cfg(feature = "encryption")]
+impl PendingCheckout {
+    /// A cash checkout of a new drive makes the drive's key with its order: the claim code on
+    /// the buyer's copy names its id, so the computer that picks the drive up takes no other
+    /// key for it, and the claim of the drive keeps it as the key the drive is set up with
+    /// ([`poll`]).
+    ///
+    /// # Errors
+    ///
+    /// When the OS random source gives no key.
+    pub fn mint_drive_key(&mut self) -> CloudResult<()> {
+        let key = DriveKey::generate().map_err(|e| {
+            CloudError::failed(format!("the new drive's key could not be made: {e}"))
+        })?;
+        self.drive_key = Some(crate::period::hex(key.as_bytes()));
+        self.key_id = Some(key.id().to_hex());
+        Ok(())
+    }
+
+    /// The drive key this checkout made for its new drive; `None` for every other checkout.
+    ///
+    /// # Errors
+    ///
+    /// A kept key that is no key, or not the one its claim code names.
+    pub fn planned_drive_key(&self) -> CloudResult<Option<DriveKey>> {
+        let Some(text) = self.drive_key.as_deref() else {
+            return Ok(None);
+        };
+        let Some(bytes) = crate::period::unhex::<KEY_LEN>(text.trim()) else {
+            fail!("the checkout's kept drive key is damaged");
+        };
+        let bytes = Zeroizing::new(bytes);
+        let key = DriveKey::from_bytes(*bytes);
+        if self.named_key_id()? != Some(key.id()) {
+            fail!("the checkout's kept drive key is not the one its claim code names");
+        }
+        Ok(Some(key))
+    }
+
+    /// The id of the drive key this checkout's claim code names; `None` when it names none.
+    ///
+    /// # Errors
+    ///
+    /// A kept id that is no key id (never read as none: that would take any key).
+    pub fn named_key_id(&self) -> CloudResult<Option<KeyId>> {
+        match self.key_id.as_deref() {
+            Some(text) => match KeyId::from_hex(text.trim()) {
+                Some(id) => Ok(Some(id)),
+                None => fail!("the checkout's kept drive key id is damaged"),
+            },
+            None => Ok(None),
+        }
     }
 }
 
@@ -670,6 +743,16 @@ fn claim_drive(
         Ok(kept) => kept,
         Err(polled) => return polled,
     };
+    // The drive key its claim code names is in the keyring before the app sees the drive, so
+    // nothing sets the drive up, or unlocks it, with another one.
+    #[cfg(feature = "encryption")]
+    {
+        if let Err(e) = keep_drive_key(shared, checkout, bundle.drive_id()) {
+            return Polled::Transient(Transient::NotKept(format!(
+                "the new drive's key could not be kept: {e}"
+            )));
+        }
+    }
     // A checkout picked up by its claim code learns its tier here: its period tokens are
     // issued for it. Quietly: the next claim tries again.
     if checkout.tier.is_empty() {
@@ -682,6 +765,27 @@ fn claim_drive(
         session,
         already,
     })))
+}
+
+/// The drive key of the cash checkout `checkout` for its drive `drive_id`, in the keyring's
+/// drive entries: on the buyer's computer the key made with the order, as the one the drive is
+/// set up with (unless this computer holds the drive's key already); on a computer that picked
+/// the drive up the id its claim code names, which every key it takes for the drive must have.
+#[cfg(feature = "encryption")]
+fn keep_drive_key(
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    drive_id: &str,
+) -> CloudResult<()> {
+    let keyring = shared.store();
+    if let Some(key) = checkout.planned_drive_key()? {
+        if device::load_drive_key(keyring, drive_id)?.is_none() {
+            device::plan_drive_key(keyring, drive_id, &key)?;
+        }
+    } else if let Some(id) = checkout.named_key_id()? {
+        device::commit_drive_key(keyring, drive_id, &id)?;
+    }
+    Ok(())
 }
 
 /// A sealed sign-up of `checkout` that did not open, `why`: counted on the list, given up the
@@ -890,6 +994,8 @@ pub fn claimed(
     // Claimed: neither in flight nor unopened any more, and their room is the tokens' now.
     checkout.in_flight_since = None;
     checkout.open_failures = 0;
+    // Its drive key went into the keyring's drive entries with the claim: no second copy.
+    checkout.drive_key = None;
     let text = text_of(checkouts)?;
     if text.len() > MAX_PENDING_BYTES {
         fail!(

@@ -16,7 +16,8 @@
 //! - [`pending`]: the checkouts this device has no drive of yet - one keyring entry that
 //!   outlives the app - polled into their drives (after "Stop waiting", at the next start).
 //! - [`cash`]: cash by post - the activation code a slip carries to the operator, the claim
-//!   code (AZK1) that picks a cash checkout's drive up on another computer.
+//!   code (AZK1; AZK2 names the new drive's key too) that picks a cash checkout's drive up on
+//!   another computer.
 //! - [`period`]: a paid checkout's months as blind-signed period tokens (RFC 9474) - blinded
 //!   here, issued against the sealed sign-up's issue key one month at a time, finalized, kept
 //!   per drive until each buys the drive a month.

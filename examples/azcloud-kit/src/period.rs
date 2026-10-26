@@ -1413,6 +1413,20 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// The `N` bytes of hex text (either case); `None` for anything else.
+pub(crate) fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
+    let text = text.as_bytes();
+    if text.len() != N * 2 {
+        return None;
+    }
+    let digit = |c: u8| char::from(c).to_digit(16).and_then(|d| u8::try_from(d).ok());
+    let mut out = [0u8; N];
+    for (byte, pair) in out.iter_mut().zip(text.chunks(2)) {
+        *byte = (digit(pair[0])? << 4) | digit(pair[1])?;
+    }
+    Some(out)
+}
+
 // ==== The tokens a device keeps ====
 
 /// The period tokens a device keeps, in one folder (readable by this user only): each drive's

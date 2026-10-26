@@ -4,10 +4,12 @@
 //!
 //! - **the buyer's copy**: what was bought, the amount in digits and in words, the checkout id,
 //!   "Keep this; AzDrive picks up your drive once the money arrived.", and the CLAIM CODE
-//!   (azcloud-kit's AZK1: the checkout id and the claim key's secret) as text and QR code - what
-//!   another computer picks the drive up with when this one is lost (Add drive > "Pick up a paid
-//!   drive with a claim code": that computer claims a token family of its own with the sealed
-//!   sign-up's ticket, azcloud-kit's `pending::poll`);
+//!   (azcloud-kit's AZK1: the checkout id and the claim key's secret; AZK2 for a new drive, with
+//!   the id of the drive key made with the order) as text and QR code - what another computer
+//!   picks the drive up with when this one is lost (Add drive > "Pick up a paid drive with a
+//!   claim code": that computer claims a token family of its own with the sealed sign-up's
+//!   ticket, azcloud-kit's `pending::poll`, and takes no other drive key than the one the code
+//!   names);
 //! - **the slip** posted with the cash: the operator's address, the amount in words and digits,
 //!   the activation code as text and QR code and "Put this slip and exactly <amount> in cash in
 //!   the envelope." - no secret of the drive.
@@ -270,6 +272,30 @@ pub(crate) fn picked_up(code: &str, token_url: &str, name: &str) -> Result<Pendi
         name
     };
     Ok(code.pending(token_url, name))
+}
+
+/// The cash order `kept` (its entry in the keyring's list, for `tier` paid `months` at once)
+/// with its checked slip. A new drive's order makes the drive's key now: the claim code on the
+/// buyer's copy names its id, so a computer that picks the drive up takes no other key for it.
+///
+/// # Errors
+///
+/// A sentence: no key could be made.
+pub(crate) fn keep_order(
+    kept: &mut PendingCheckout,
+    slip: &CashSlip,
+    tier: &str,
+    months: u32,
+) -> Result<(), String> {
+    kept.method = String::from(azcloud_kit::cash::CASH_METHOD);
+    kept.cash = Some(Letter::of_slip(slip, tier, months).kept());
+    #[cfg(feature = "encryption")]
+    {
+        if kept.for_drive.is_empty() {
+            kept.mint_drive_key().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 // ==== The waits, as the jobs report them ====

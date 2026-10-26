@@ -2478,12 +2478,12 @@ fn finish_start(
     mut kept: PendingCheckout,
 ) -> Result<Started, String> {
     // Cash by post: the slip, checked, waits in the list with its checkout (it is printed
-    // again from there); one that is not this order's is never printed.
+    // again from there); one that is not this order's is never printed. A new drive's order
+    // keeps the drive's key there too, whose id the buyer's copy prints.
     let cash = match (via, &answer) {
         (Some(via), Some(answer)) if via.surface == SurfaceKind::Paper => {
             let slip = cash_slip(answer, via)?;
-            kept.method = String::from(azcloud_kit::cash::CASH_METHOD);
-            kept.cash = Some(crate::cash::Letter::of_slip(&slip, tier, months).kept());
+            crate::cash::keep_order(&mut kept, &slip, tier, months)?;
             Some(slip)
         }
         _ => None,
