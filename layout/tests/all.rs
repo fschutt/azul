@@ -1301,3 +1301,5 @@ mod a_label_re_wraps_when_a_line_breaking_style_it_inherits_changes;
 mod a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them;
 #[path = "a_paragraph_hyphenates_again_when_its_language_changes.rs"]
 mod a_paragraph_hyphenates_again_when_its_language_changes;
+#[path = "an_anonymous_block_around_other_words_is_laid_out_anew.rs"]
+mod an_anonymous_block_around_other_words_is_laid_out_anew;
