@@ -2835,7 +2835,7 @@ impl LayoutWindow {
             dom_lint_runs: 0,
             dom_lint_stamps: BTreeMap::new(),
             dom_lint_scope: NEXT_DOM_LINT_SCOPE
-                .fetch_add(1, core::sync::atomic::Ordering::Relaxed),
+                .fetch_add(1, Ordering::Relaxed),
             a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),

@@ -5240,7 +5240,7 @@ impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
 /// transparent of no background for a value that names none (`auto`, `none`,
 /// `initial`, `unset`); `None` for one that cannot be read without the
 /// cascade (`inherit`, `revert`) or is no colour.
-fn background_colour_or_none(v: &CssPropertyValue<StyleBackgroundContent>) -> Option<ColorU> {
+const fn background_colour_or_none(v: &CssPropertyValue<StyleBackgroundContent>) -> Option<ColorU> {
     match v {
         CssPropertyValue::Exact(StyleBackgroundContent::Color(c)) => Some(*c),
         CssPropertyValue::Auto

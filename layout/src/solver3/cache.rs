@@ -1546,13 +1546,13 @@ pub struct TextStyleReader<'a> {
 /// `None` for a node never laid out as one) are not what the cascade says
 /// now for `style_dom_id`, the element the root takes its style from.
 fn line_style_moved(
-    laid_out_with: Option<&crate::solver3::fc::LineStyle>,
+    laid_out_with: Option<&fc::LineStyle>,
     styled_dom: &StyledDom,
     style_dom_id: NodeId,
     text_styles: &mut TextStyleReader<'_>,
 ) -> bool {
     laid_out_with.is_some_and(|old| {
-        let now = crate::solver3::fc::LineStyle::of(
+        let now = fc::LineStyle::of(
             styled_dom,
             style_dom_id,
             text_styles.styles,

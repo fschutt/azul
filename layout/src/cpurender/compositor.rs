@@ -5474,13 +5474,13 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
             let mut j = i + 1;
             while j < rects.len() {
                 if rects_overlap_or_adjacent(&rects[i], &rects[j], 8.0) {
-                    let u = union_rect(&rects[i], &rects[j]);
-                    let (a, b) = (area(&rects[i]), area(&rects[j]));
+                    let union = union_rect(&rects[i], &rects[j]);
+                    let (area_i, area_j) = (area(&rects[i]), area(&rects[j]));
                     let both = intersect_logical_rects(rects[i], rects[j]);
-                    let covered = a + b - area(&both);
-                    let added = area(&u) - covered;
-                    if added <= 0.5 * a.min(b) + 64.0 {
-                        rects[i] = u;
+                    let covered = area_i + area_j - area(&both);
+                    let added = area(&union) - covered;
+                    if added <= 0.5 * area_i.min(area_j) + 64.0 {
+                        rects[i] = union;
                         rects.swap_remove(j);
                         changed = true;
                     } else {

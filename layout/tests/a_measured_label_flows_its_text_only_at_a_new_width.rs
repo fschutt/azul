@@ -148,9 +148,12 @@ pub(crate) fn painted_glyphs(lw: &LayoutWindow) -> Vec<(u32, f32, f32)> {
         .collect()
 }
 
-/// The final inline layout of every element that holds one: its DOM node,
-/// the width it was laid out at, and where it put each of its items.
-fn final_inline_layouts(lw: &LayoutWindow) -> Vec<(usize, AvailableSpace, Vec<(f32, f32)>)> {
+/// One element's final inline layout: its DOM node, the width it was laid
+/// out at, and where it put each of its items.
+type InlineLayoutAt = (usize, AvailableSpace, Vec<(f32, f32)>);
+
+/// The final inline layout of every element that holds one.
+fn final_inline_layouts(lw: &LayoutWindow) -> Vec<InlineLayoutAt> {
     let tree = lw
         .layout_cache
         .tree
