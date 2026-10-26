@@ -11304,7 +11304,8 @@
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Default"
+                            "Default",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
@@ -11431,7 +11432,8 @@
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Default"
+                            "Default",
+                            "Eq"
                         ],
                         "enum_fields": [
                             {
