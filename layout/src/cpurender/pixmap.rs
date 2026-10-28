@@ -101,7 +101,10 @@ pub fn blit_pixmap_clipped(
             let sr = u32::from(src.data[si]);
             let sg = u32::from(src.data[si + 1]);
             let sb = u32::from(src.data[si + 2]);
-            let sa = (u32::from(src.data[si + 3]) * op) / 255;
+            // Rounded, not truncated: a faint pixel of the layer (a shadow's
+            // tail) under a group opacity keeps the level it paints, as it
+            // does when the group is blended in place.
+            let sa = (u32::from(src.data[si + 3]) * op + 127) / 255;
 
             if sa == 0 {
                 continue;
@@ -281,7 +284,7 @@ pub fn blit_pixmap_affine_clipped(
             let bot = lerp2(p01, p11, wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
+            let sa = ((px[3] as u32) * op + 127) / 255;
             if sa == 0 {
                 continue;
             }
@@ -462,7 +465,7 @@ pub fn blit_pixmap_projective_clipped(
             let bot = lerp2(fetch(x_lo, y_lo + 1), fetch(x_lo + 1, y_lo + 1), wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
+            let sa = ((px[3] as u32) * op + 127) / 255;
             if sa == 0 {
                 continue;
             }
