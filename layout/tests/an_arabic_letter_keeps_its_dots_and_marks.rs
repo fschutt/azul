@@ -20,7 +20,7 @@ use azul_layout::{
             create_logical_items, perform_fragment_layout, reorder_logical_items,
             shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
             FontStack, Glyph, InlineContent, LoadedFonts, Point, StyleProperties, StyledRun,
-            UnicodeBidi, UnifiedConstraints,
+            TextWrap, UnicodeBidi, UnifiedConstraints,
         },
         default::shape_text_for_parsed_font,
         glyphs::{get_glyph_positions, PositionedGlyph},
@@ -233,6 +233,16 @@ fn a_cursive_join_moves_the_letter_whose_exit_meets_the_next_letters_entry() {
 /// `text` laid out on one right-to-left line at `font_size_px`, and where
 /// each of its glyphs is drawn.
 fn draw_right_to_left(parsed: ParsedFont, text: &str, font_size_px: f32) -> Vec<PositionedGlyph> {
+    draw_right_to_left_wrapping(parsed, text, font_size_px, TextWrap::Wrap)
+}
+
+/// [`draw_right_to_left`], with the lines broken by `text_wrap`.
+fn draw_right_to_left_wrapping(
+    parsed: ParsedFont,
+    text: &str,
+    font_size_px: f32,
+    text_wrap: TextWrap,
+) -> Vec<PositionedGlyph> {
     let font_ref = parsed_font_to_font_ref(parsed);
     let style = Arc::new(StyleProperties {
         font_stack: FontStack::Ref(font_ref.clone()),
@@ -258,6 +268,7 @@ fn draw_right_to_left(parsed: ParsedFont, text: &str, font_size_px: f32) -> Vec<
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::MaxContent,
         direction: Some(BidiDirection::Rtl),
+        text_wrap,
         ..UnifiedConstraints::default()
     };
     let layout = perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
@@ -306,4 +317,37 @@ fn the_beh_its_dot_and_its_kasra_are_drawn_where_the_font_puts_them() {
              {from_beh:?}: {drawn:?}"
         );
     }
+}
+
+#[test]
+fn a_balanced_line_draws_a_letter_from_where_its_pen_stands() {
+    // `text-wrap: balance` breaks and places its lines on its own. A line of
+    // one cluster starts at x = 0 on the line's baseline, and the beh has no
+    // offset of its own, so it is drawn there like the dotless hah of a line
+    // of its own; the dot's offset moves only the dot.
+    let first_glyph_drawn = |text: &str, pick: fn(&Glyph) -> bool| -> Point {
+        let shaped = shape_arabic(&noto(), text);
+        let glyph_id = shaped
+            .iter()
+            .find(|g| pick(g))
+            .map(|g| g.glyph_id)
+            .unwrap_or_else(|| panic!("the letter of {text:?}:\n  {}", describe(&shaped)));
+        let drawn = draw_right_to_left_wrapping(noto(), text, 100.0, TextWrap::Balance);
+        drawn
+            .iter()
+            .find(|p| p.glyph_id == glyph_id)
+            .map(|p| p.position)
+            .unwrap_or_else(|| panic!("the letter of {text:?} is drawn: {drawn:?}"))
+    };
+    let hah_at = first_glyph_drawn("ح", |g| g.advance > 0.0);
+    let beh_at = first_glyph_drawn("بِ", |g| g.advance > 0.0);
+    assert!(
+        hah_at.x.abs() <= 0.01,
+        "a lone hah should be drawn at the start of its balanced line, it is drawn at {hah_at:?}"
+    );
+    assert!(
+        near((beh_at.x, beh_at.y), (hah_at.x, hah_at.y), 0.01),
+        "the beh should be drawn where the hah is, at the pen on the baseline, it is drawn at \
+         {beh_at:?}: the balanced line moved the beh's whole cluster by the offset of its dot"
+    );
 }
