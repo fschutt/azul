@@ -351,3 +351,28 @@ fn a_balanced_line_draws_a_letter_from_where_its_pen_stands() {
          {beh_at:?}: the balanced line moved the beh's whole cluster by the offset of its dot"
     );
 }
+
+#[test]
+fn a_balanced_right_to_left_line_is_drawn_like_a_wrapped_one() {
+    // A line of one word does not break either way, so `text-wrap: balance`
+    // must draw it as the greedy line breaker does: its letters right to
+    // left, the first one, the beh, rightmost.
+    let text = "بالعالم";
+    let wrapped = draw_right_to_left_wrapping(noto(), text, 100.0, TextWrap::Wrap);
+    let balanced = draw_right_to_left_wrapping(noto(), text, 100.0, TextWrap::Balance);
+    let from_the_first = |drawn: &[PositionedGlyph]| -> Vec<(u16, f32)> {
+        let left = drawn.first().map_or(0.0, |p| p.position.x);
+        drawn.iter().map(|p| (p.glyph_id, p.position.x - left)).collect()
+    };
+    let (wrapped, balanced) = (from_the_first(&wrapped), from_the_first(&balanced));
+    let same = wrapped.len() == balanced.len()
+        && wrapped
+            .iter()
+            .zip(&balanced)
+            .all(|(w, b)| w.0 == b.0 && (w.1 - b.1).abs() <= 0.01);
+    assert!(
+        same,
+        "the balanced line should draw the glyphs (id, x from the leftmost) as the wrapped one \
+         does, right to left:\n  wrapped  {wrapped:?}\n  balanced {balanced:?}"
+    );
+}
