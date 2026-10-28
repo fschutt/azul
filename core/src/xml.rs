@@ -7132,6 +7132,7 @@ pub fn parse_bool(input: &str) -> Option<bool> {
 /// ONE table: which XML attribute sets what on a node (the XML → DOM
 /// builders and the code generator both read it). Only with the CSS parser:
 /// a `style` attribute, and every presentational hint, is CSS.
+///
 #[path = "xml_attributes.rs"]
 #[cfg(feature = "css_parser")]
 pub mod attributes;
@@ -7139,6 +7140,7 @@ pub mod attributes;
 /// One element of markup -> one DOM node: the builtin renderers every XML
 /// loader instantiates its elements with. Only with the CSS parser, like
 /// [`attributes`].
+///
 #[path = "xml_element.rs"]
 #[cfg(feature = "css_parser")]
 pub mod element;
