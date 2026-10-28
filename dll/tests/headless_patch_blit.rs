@@ -79,6 +79,12 @@ fn run(patching: bool) -> (Vec<u8>, bool) {
         );
     }
 
+    // The control paints the second frame in full: a new backend holds no
+    // frame to move. (A move hint outlives a list built again without
+    // patching, so the control's own backend would blit as well.)
+    if !patching {
+        backend = CpuBackend::new();
+    }
     backend.render_frame(&lw, &rr, 680.0, 480.0, 1.0);
     let blit_applied = backend.last_patch_shift_dl != 0;
     let frame = backend
