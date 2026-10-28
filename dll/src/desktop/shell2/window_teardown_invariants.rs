@@ -173,9 +173,11 @@ fn a_macos_close_is_carried_out_by_the_loop_never_inside_the_pass_that_raised_it
     );
     at(
         body(MACOS_RS, "pub(crate) fn drain_closed_windows()"),
-        "inside_modal_session()",
+        "inside_nested_run_loop()",
         "drain_closed_windows",
     );
+    let menu = body(MACOS_RS, "pub(crate) fn present_pending_context_menu(");
+    in_order(menu, "MENUS_TRACKING", "popUpMenuPositioningItem", "present_pending_context_menu");
     at(
         body(MACOS_RS, "pub fn poll_event(&mut self) -> Option<MacOSEvent>"),
         "if !self.is_open",

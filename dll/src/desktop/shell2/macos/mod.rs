@@ -4737,6 +4737,7 @@ unsafe fn ime_first_rect_for_character_range(
 /// called once every `&mut MacOSWindow` has been dropped — the retained menu and
 /// view keep themselves alive without borrowing the window.
 pub(crate) fn present_pending_context_menu(pending: &PendingContextMenu) {
+    MENUS_TRACKING.with(|n| n.set(n.get() + 1));
     // Typed binding, not msg_send!: the method returns BOOL (YES if an item was
     // selected), and the moved-verbatim `let _: () = msg_send![…]` declared a
     // void return — objc2's debug-assertions signature verification panics on
@@ -4748,6 +4749,15 @@ pub(crate) fn present_pending_context_menu(pending: &PendingContextMenu) {
         pending.location,
         Some(&*pending.view),
     );
+    MENUS_TRACKING.with(|n| n.set(n.get() - 1));
+}
+
+thread_local! {
+    /// Native context menus tracking right now. Each spins a nested run loop
+    /// inside the view handler that popped it up, which goes on with its
+    /// window afterwards: no window is freed meanwhile
+    /// ([`inside_nested_run_loop`]).
+    static MENUS_TRACKING: Cell<u32> = const { Cell::new(0) };
 }
 
 pub struct MacOSWindow {
@@ -9773,9 +9783,14 @@ fn queue_window_free(window_ptr: *mut MacOSWindow) {
     PENDING_WINDOW_FREES.with(|q| q.borrow_mut().push(window_ptr));
 }
 
-/// Whether a modal session runs (`NSApplication.modalWindow` is set): its
-/// nested run loop runs inside the callback that opened it.
-fn inside_modal_session() -> bool {
+/// Whether a nested run loop runs inside a callback: a native context menu
+/// tracks ([`MENUS_TRACKING`]), or a modal session runs
+/// (`NSApplication.modalWindow` is set: an alert, a file dialog's
+/// `runModal`).
+fn inside_nested_run_loop() -> bool {
+    if MENUS_TRACKING.with(Cell::get) > 0 {
+        return true;
+    }
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
@@ -9789,14 +9804,14 @@ fn inside_modal_session() -> bool {
 ///
 /// Must only be called from the event loop, i.e. outside any window delegate
 /// callback or `&mut MacOSWindow` borrow. `NSApplication.run()`'s loop work
-/// (`run_before_main_loop_waits`) also runs inside the nested run loop of a
-/// modal session (an alert, a file dialog's `runModal`) that a callback
-/// opened, with that window still borrowed further down the stack: the
-/// windows stay parked until the session is over.
+/// (`run_before_main_loop_waits`) also runs inside the nested run loops a
+/// callback starts (a modal session, a context menu's tracking), with that
+/// window still in use further down the stack: the windows stay parked until
+/// the nested loop is over.
 pub(crate) fn drain_closed_windows() {
     use crate::desktop::shell2::common::event::PlatformWindow;
 
-    if inside_modal_session() {
+    if inside_nested_run_loop() {
         return;
     }
     let pending: Vec<*mut MacOSWindow> =
