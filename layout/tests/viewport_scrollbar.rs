@@ -288,7 +288,9 @@ fn a_press_on_the_viewport_bar_is_not_taken_by_a_bar_under_it() {
 /// no layout tag, so the patch's changed-node damage never saw one - and the
 /// viewport's bar changes without its node: a taller window lengthens the
 /// track while the root's box stays where it was. The patch's damage is what
-/// a frame paints with ALONE when the item diff bails on a changed count.
+/// a frame paints with ALONE when the item diff bails on a changed count; a
+/// list that pairs item for item with the one before leaves its damage to the
+/// diff, which then has to find the bar.
 #[test]
 fn a_patched_pass_damages_the_viewport_bar_it_changed() {
     // The patch toggle is process-global, and `dl_patch_golden` switches it off
@@ -298,6 +300,7 @@ fn a_patched_pass_damages_the_viewport_bar_it_changed() {
         set_dl_patching_enabled(true);
         let mut lw = fresh_window(400.0, 300.0);
         let before = painted_bar(&lw).expect("the page overflows: the viewport's bar is painted");
+        let old_list = lw.layout_results[&DomId::ROOT_ID].display_list.clone();
         lw.layout_cache.resize_only_hint = true;
         relayout(&mut lw, 400.0, 340.0);
         if !lw.layout_cache.last_build_was_patched {
@@ -309,11 +312,21 @@ fn a_patched_pass_damages_the_viewport_bar_it_changed() {
             geometry(&after),
             "harness: the taller window must repaint the viewport's bar"
         );
-        let damage = lw
-            .layout_cache
-            .last_patch_damage
-            .clone()
-            .unwrap_or_default();
+        let new_list = lw.layout_results[&DomId::ROOT_ID].display_list.clone();
+        let pairs = old_list.items.len() == new_list.items.len()
+            && old_list.layout_node_mapping == new_list.layout_node_mapping;
+        let damage = if pairs {
+            let offsets = azul_layout::cpurender::ScrollOffsetMap::new();
+            azul_layout::cpurender::compute_display_list_damage(
+                &old_list, &new_list, &offsets, &offsets,
+            )
+            .expect("a paired list is no structural change")
+        } else {
+            lw.layout_cache
+                .last_patch_damage
+                .clone()
+                .unwrap_or_default()
+        };
         for (which, bar) in [("old", &before), ("new", &after)] {
             let rect = bar.bounds.0;
             assert!(

@@ -477,9 +477,17 @@ fn a_flat_button_on_a_dark_desktop_fades_from_its_desktop_face_into_its_hover_gr
             panic!("{look:?}: harness - hovered, Office's gradient: {lit:?}");
         };
 
-        let [mid_face] = mid.as_slice() else {
-            panic!("{look:?}: half way, the face is one layer on its way: {mid:?}");
+        // The face is the gradient on its way. The desktop colour, a
+        // property of its own, fades out under it; while the gradient is
+        // opaque nothing of it shows.
+        let Some(mid_face @ DisplayListItem::LinearGradient { .. }) = mid.last() else {
+            panic!("{look:?}: half way, the face on top is the gradient on its way: {mid:?}");
         };
+        assert!(
+            mid.len() == 1
+                || linear_stops(mid_face).iter().all(|(_, c)| c.a == 255),
+            "{look:?}: half way, anything under the face is hidden by it: {mid:?}"
+        );
         let (m, l) = (linear_stops(mid_face), linear_stops(lit_face));
         assert_eq!(m.len(), l.len(), "{look:?}: {m:?} / {l:?}");
         for (i, ((_, mc), (_, lc))) in m.iter().zip(&l).enumerate() {

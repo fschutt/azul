@@ -6,7 +6,8 @@
 //! not changed was broken into lines again and every box was measured again:
 //! AzPdf's page view paid a cold layout of ~3600 nodes (~110 ms) for every
 //! re-render. The child DOM keeps a layout cache of its own between passes, as
-//! the root does, and an unchanged child lays out from it.
+//! the root does, and an unchanged child lays out from it - or, when the
+//! callback built the very DOM it built last, keeps its laid-out child whole.
 
 use azul_core::{
     callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
@@ -26,8 +27,12 @@ use rust_fontconfig::FcFontCache;
 
 struct ViewData;
 
+/// How often the view's callback ran.
+static RENDERS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
 /// The view's content: a column of paragraphs, the same on every render.
 extern "C" fn render_view(_data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    RENDERS.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
     let mut column = Dom::create_div().with_css("width: 300px;");
     for i in 0..12 {
         column = column.with_child(Dom::create_p().with_child(
@@ -90,8 +95,10 @@ fn a_virtual_views_child_dom_lays_out_warm() {
     }
     Probe::set_recording(true);
     let _ = Probe::drain();
+    let renders_before = RENDERS.load(core::sync::atomic::Ordering::SeqCst);
     lay_out_new_generation(&mut lw);
     let events = Probe::drain();
+    let rendered = RENDERS.load(core::sync::atomic::Ordering::SeqCst) > renders_before;
     let ambient = azul_core::profile::cpu_enabled()
         || azul_core::profile::memory_enabled()
         || azul_core::profile::heap_enabled();
@@ -99,8 +106,12 @@ fn a_virtual_views_child_dom_lays_out_warm() {
     let _ = Probe::drain();
 
     assert!(
-        count(&events, "solver3_layout_document") >= 2,
-        "harness: the pass laid out the host and the view's child DOM"
+        rendered,
+        "harness: the new generation ran the view's callback again"
+    );
+    assert!(
+        lw.layout_results.keys().any(|d| *d != DomId::ROOT_ID),
+        "the view's child DOM is still laid out after it rendered again"
     );
     let flows = count(&events, "text_layout_flow");
     assert_eq!(

@@ -94,9 +94,12 @@ fn a_scrolling_flex_item_keeps_the_height_its_container_gave_it() {
     for _ in 0..30 {
         list = list.with_child(Dom::create_div().with_css("height: 20px;"));
     }
+    // The header does not shrink: a shrinkable one gives up its share of the
+    // 400 px the column is short by (100 of 700 px of bases), and the list
+    // ends at 257 px, as in a browser.
     let page = Dom::create_body()
         .with_css("margin: 0; height: 300px; display: flex; flex-direction: column;")
-        .with_child(Dom::create_div().with_css("height: 100px;"))
+        .with_child(Dom::create_div().with_css("height: 100px; flex-shrink: 0;"))
         .with_child(list);
     // body = 0, header = 1, list = 2
     assert_eq!(height_of(page, 2).0, 200.0, "the column's rest, not its 600 px of rows");
