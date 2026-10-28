@@ -1200,6 +1200,11 @@ pub struct HyphenationBreak {
 /// Every place the hyphenation dictionary breaks the word made of
 /// `word_clusters`, as the clusters on each side and the line part's width.
 ///
+/// The dictionary is handed the word's letters only (`letter_runs`): the
+/// comma of "Month," or the quote of "‘ahead" would hide where the word ends
+/// or starts from its patterns, and count among the letters a break must
+/// leave on either side.
+///
 /// The dictionary names its breaks as byte offsets into the word's text.
 /// A break is taken where a cluster starts at that byte; one inside a
 /// cluster (between the letters of a ligature, or inside a grapheme) has no
@@ -1231,8 +1236,22 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 
     // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and
     // explicit (soft hyphen) opportunities
-    let opportunities = hyphenator.hyphenate(&word_string);
-    if opportunities.breaks.is_empty() {
+    // Each run of letters is a word of its own to the dictionary, and its
+    // breaks are moved back to bytes of the whole unit.
+    let unit_end = word_string.len();
+    let break_bytes: Vec<usize> = letter_runs(word_clusters, apostrophe_is_a_letter(hyphenator))
+        .into_iter()
+        .flat_map(|run| {
+            let start = cluster_starts[run.start];
+            let end = cluster_starts.get(run.end).copied().unwrap_or(unit_end);
+            hyphenator
+                .hyphenate(&word_string[start..end])
+                .breaks
+                .into_iter()
+                .map(move |byte| start + byte)
+        })
+        .collect();
+    if break_bytes.is_empty() {
         return None;
     }
 
@@ -1279,8 +1298,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
         is_last_fragment: true,
     });
 
-    let possible_breaks: Vec<HyphenationBreak> = opportunities
-        .breaks
+    let possible_breaks: Vec<HyphenationBreak> = break_bytes
         .iter()
         .filter_map(|&break_byte| {
             // The break is before the cluster that starts at its byte.
@@ -1315,6 +1333,85 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     } else {
         Some(possible_breaks)
     }
+}
+
+/// The runs of letters in a line breaker's unit, as ranges of its clusters.
+///
+/// These are the words the hyphenation dictionary breaks. A cluster is a
+/// letter when its first character is alphabetic, in any script; a cluster
+/// that continues the grapheme before it (a combining mark shaped apart from
+/// its letter) goes with that grapheme. Every other cluster ends a word: the
+/// punctuation around "Month," or "(Egypt", a digit, a dash, and an
+/// apostrophe unless the language spells words with it, so "deliver'd" is
+/// broken as "deliver". A soft hyphen between letters stays in its word,
+/// where the dictionary takes it as the word's only break.
+fn letter_runs(
+    word_clusters: &[ShapedCluster],
+    apostrophe_in_words: bool,
+) -> Vec<core::ops::Range<usize>> {
+    let mut runs = Vec::new();
+    // The open run's first cluster, and the cluster after its last letter.
+    let mut open: Option<(usize, usize)> = None;
+    let mut previous_is_letter = false;
+    for (index, cluster) in word_clusters.iter().enumerate() {
+        let text = cluster.text();
+        let is_letter = if cluster.flags.has(ClusterFlags::GRAPHEME_CONTINUATION) {
+            previous_is_letter
+        } else {
+            text.chars().next().is_some_and(char::is_alphabetic)
+        };
+        previous_is_letter = is_letter;
+        let stays_in_word = text.starts_with('\u{00AD}')
+            || (apostrophe_in_words && matches!(text, "'" | "\u{2019}"));
+        if is_letter {
+            let start = open.map_or(index, |(start, _)| start);
+            open = Some((start, index + 1));
+        } else if !stays_in_word {
+            if let Some((start, end)) = open.take() {
+                runs.push(start..end);
+            }
+        }
+    }
+    if let Some((start, end)) = open {
+        runs.push(start..end);
+    }
+    runs
+}
+
+/// Whether the hyphenation patterns of `hyphenator`'s language spell words
+/// with an apostrophe.
+///
+/// French and Italian elide into the next word ("l'homme"), Ukrainian and
+/// Belarusian write the apostrophe inside words, and their patterns say
+/// where to break around it; so do those listed here, the languages whose
+/// pattern files hold an apostrophe. The patterns of every other language
+/// hold none, and the typesetting tradition they come from ends a word at
+/// an apostrophe, so an English "deliver'd" is the word "deliver" and an
+/// ending.
+#[cfg(feature = "text_layout_hyphenation")]
+fn apostrophe_is_a_letter(hyphenator: &Standard) -> bool {
+    matches!(
+        hyphenator.language(),
+        HyphenationLanguage::Afrikaans
+            | HyphenationLanguage::Albanian
+            | HyphenationLanguage::Belarusian
+            | HyphenationLanguage::French
+            | HyphenationLanguage::Friulan
+            | HyphenationLanguage::GreekAncient
+            | HyphenationLanguage::GreekMono
+            | HyphenationLanguage::GreekPoly
+            | HyphenationLanguage::Italian
+            | HyphenationLanguage::Occitan
+            | HyphenationLanguage::Piedmontese
+            | HyphenationLanguage::Romansh
+            | HyphenationLanguage::Ukrainian
+    )
+}
+
+/// Without dictionaries no word is hyphenated, and an apostrophe ends one.
+#[cfg(not(feature = "text_layout_hyphenation"))]
+const fn apostrophe_is_a_letter(_hyphenator: &Standard) -> bool {
+    false
 }
 
 /// Tries to find a hyphenation point within a word, returning the line part and remainder.
