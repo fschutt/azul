@@ -7732,11 +7732,14 @@ mod autotest_generated {
     ///
     /// The invariant, stated once so every future mover inherits it:
     ///
-    ///   when an item moves, the damage must cover BOTH the rect it left and
-    ///   the rect it arrived at.
+    ///   when an item moves, the damage must cover every pixel it left and
+    ///   every pixel it newly covers.
     ///
-    /// Covering only the new rect is the trail. Covering only the old one is an
+    /// Missing what it left is the trail. Missing what it newly covers is an
     /// element that never appears. Same defect, two symptoms, one assertion.
+    /// A flat fill paints the pixels its old and new rect share alike, so
+    /// those need no repaint; a move past its own size leaves no shared
+    /// pixels, and both rects are covered whole.
     #[test]
     fn a_moved_item_damages_the_pixels_it_vacated() {
         let off = ScrollOffsetMap::new();
@@ -7760,13 +7763,15 @@ mod autotest_generated {
                 })
             };
 
+            // Old rect 0..16, new rect delta..delta+16 (same row).
+            let arrived_from = delta.max(16.0);
             assert!(
-                covers(delta, 0.0, 16.0, 16.0),
-                "delta={delta}: damage misses the NEW rect, so the item would never appear there. \
-                 damage={d:?}"
+                covers(arrived_from, 0.0, delta + 16.0 - arrived_from, 16.0),
+                "delta={delta}: damage misses the pixels the item newly covers, so it would never \
+                 appear there. damage={d:?}"
             );
             assert!(
-                covers(0.0, 0.0, 16.0, 16.0),
+                covers(0.0, 0.0, delta.min(16.0), 16.0),
                 "delta={delta}: damage misses the pixels the item VACATED. The old paint stays on \
                  screen — this is the slider's trail of blue thumbs on the grey track, and it is \
                  a property of the damage diff, not of the slider. damage={d:?}"

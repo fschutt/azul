@@ -9894,9 +9894,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn push_opacity_with_degenerate_bounds_pushes_nothing() {
-        // No rect -> no snapshot -> nothing to pop; the matching PopOpacity must
-        // not blow up or consume an unrelated mask entry.
+    fn push_opacity_with_degenerate_bounds_pushes_an_empty_group_its_pop_takes() {
+        // No rect -> an empty group: it still leaves its own entry, so the
+        // matching PopOpacity takes that one and never an entry of the frame
+        // or clip around it.
         let mut p = pixmap(8, 8);
         let state = CpuRenderState::new(ScrollOffsetMap::new());
         let mut st = Stacks::new();
@@ -9911,11 +9912,13 @@ mod autotest_generated {
             &state,
         )
         .unwrap();
-        assert!(st.masks.is_empty());
+        assert_eq!(st.masks.len(), 1);
+        assert!(matches!(st.masks[0], MaskEntry::Opacity { .. }));
         assert_eq!(
             run_item(&DisplayListItem::PopOpacity, &mut p, &mut st, &state),
             Ok(())
         );
+        assert!(st.masks.is_empty());
     }
 
     // ==================================================================
