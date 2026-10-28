@@ -9,8 +9,8 @@ use azul_core::{
 use azul_css::props::{basic::ColorU, style::StyleBackgroundContent};
 
 use crate::text3::cache::{
-    get_item_vertical_metrics_approx, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
-    ShapedGlyph, ShapedItem, UnifiedLayout,
+    get_item_vertical_metrics_approx, BidiDirection, InlineBorderInfo, LoadedFonts,
+    ParsedFontTrait, Point, ShapedGlyph, ShapedItem, UnifiedLayout,
 };
 
 /// Represents a single glyph ready for rendering, with an absolute position on the baseline.
@@ -518,9 +518,35 @@ pub struct PdfPositionedGlyph {
     pub position: Point,
     /// The advance width of this glyph
     pub advance: f32,
-    /// The Unicode character(s) this glyph represents (for PDF `ToUnicode` `CMap`)
-    /// This is extracted from the cluster text using the glyph's `cluster_offset`
+    /// The Unicode character(s) this glyph represents (for PDF `ToUnicode` `CMap`
+    /// and `ActualText`), see [`cluster_glyph_text`]
     pub unicode_codepoint: String,
+}
+
+/// The text one glyph of a cluster stands for in a PDF's text layer.
+///
+/// A cluster is one piece of the text, however many glyphs the font draws it
+/// with: the whole piece goes on its first glyph in logical order and nothing
+/// on the others (the pieces a substitution split off a letter, like a dot
+/// drawn as a glyph of its own), so copying the text out of the PDF reads
+/// every character once. A right-to-left cluster holds its glyphs in drawing
+/// order, so its first glyph in logical order is its last one.
+pub(crate) fn cluster_glyph_text(
+    cluster_text: &str,
+    glyph_index: usize,
+    glyph_count: usize,
+    direction: BidiDirection,
+) -> String {
+    let first = if direction.is_rtl() {
+        glyph_count.saturating_sub(1)
+    } else {
+        0
+    };
+    if glyph_index == first {
+        cluster_text.to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// Extract glyph runs optimized for PDF rendering.
@@ -555,9 +581,6 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
         // Process each glyph in the cluster
         let mut pen_x = positioned_item.position.x;
 
-        // For extracting the correct unicode codepoint per glyph, we need to track
-        // which portion of the cluster text each glyph represents.
-        // The cluster_offset in ShapedGlyph is the byte offset into cluster.text
         let cluster_text = cluster.text();
         let cluster_glyphs_count = cluster.glyphs.len();
 
@@ -587,33 +610,8 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 y: baseline_y - glyph.offset.y, // Y-down: subtract positive GPOS offset
             };
 
-            // Extract the unicode codepoint for this specific glyph
-            // For simple 1:1 mappings, each glyph gets one character
-            // For complex scripts (ligatures, etc.), we may need to assign
-            // the whole cluster text to the first glyph, or split it appropriately
-            let unicode_codepoint = if cluster_glyphs_count == 1 {
-                // Simple case: one glyph represents the entire cluster
-                cluster_text.to_string()
-            } else {
-                // Multiple glyphs in cluster - try to extract the character at cluster_offset
-                // cluster_offset is the byte offset into the cluster text
-                let byte_offset = glyph.cluster_offset as usize;
-                if byte_offset < cluster_text.len() {
-                    // Get the character at this byte offset
-                    cluster_text[byte_offset..]
-                        .chars()
-                        .next()
-                        .map_or_else(|| cluster_text.to_string(), |c| c.to_string())
-                } else {
-                    // Fallback: if offset is out of range, use the whole cluster for first glyph
-                    // or empty for subsequent glyphs (they share the same codepoint)
-                    if glyph_idx == 0 {
-                        cluster_text.to_string()
-                    } else {
-                        String::new()
-                    }
-                }
-            };
+            let unicode_codepoint =
+                cluster_glyph_text(cluster_text, glyph_idx, cluster_glyphs_count, direction);
 
             let pdf_glyph = PdfPositionedGlyph {
                 glyph_id: glyph.glyph_id,

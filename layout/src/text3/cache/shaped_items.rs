@@ -396,7 +396,9 @@ pub struct ShapedCluster {
     /// The DOM `NodeId` of the Text node this cluster originated from.
     /// None for generated content (list markers, `::before/::after`, etc.)
     pub source_node_id: Option<NodeId>,
-    /// The glyphs that make up this cluster. `SmallVec<[T; 1]>` — inline
+    /// The glyphs that make up this cluster, in the order they are drawn:
+    /// a right-to-left cluster holds them right to left, the reverse of the
+    /// shaper's logical order. `SmallVec<[T; 1]>` — inline
     /// single-glyph clusters (the common case for Latin text), spill to
     /// heap only for ligatures / combining marks.
     pub glyphs: ShapedGlyphVec,

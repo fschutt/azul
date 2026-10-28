@@ -1524,22 +1524,12 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
             let count = dgs.len();
             let mut pen_x = c.x;
             for (glyph_idx, dg) in dgs.iter().enumerate() {
-                // The reference's per-glyph codepoint split, verbatim.
-                let unicode_codepoint = if count == 1 {
-                    cluster_text.to_string()
-                } else {
-                    let byte_offset = dg.cluster_offset as usize;
-                    if byte_offset < cluster_text.len() {
-                        cluster_text[byte_offset..]
-                            .chars()
-                            .next()
-                            .map_or_else(|| cluster_text.to_string(), |ch| ch.to_string())
-                    } else if glyph_idx == 0 {
-                        cluster_text.to_string()
-                    } else {
-                        String::new()
-                    }
-                };
+                let unicode_codepoint = crate::text3::glyphs::cluster_glyph_text(
+                    cluster_text,
+                    glyph_idx,
+                    count,
+                    run.direction,
+                );
                 open.glyphs.push(PdfPositionedGlyph {
                     glyph_id: dg.glyph_id,
                     position: Point {
