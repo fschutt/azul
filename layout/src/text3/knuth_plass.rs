@@ -172,43 +172,25 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     });
                 }
             }
-            ShapedItem::Cluster(cluster)
-                if cluster.text().ends_with('\u{002D}') || cluster.text().ends_with('\u{2010}') =>
-            {
-                let width = get_item_measure_with_spacing(item, is_vertical);
-                nodes.push(LayoutNode::Box(item.clone(), width));
-                // +spec:line-breaking:2d3674 - U+002D/U+2010 are soft wrap opportunities, not
-                // hyphenation opportunities (no extra glyph inserted) Zero-width
-                // penalty: allows a line break after the visible hyphen character
-                // without inserting an additional hyphen glyph.
-                nodes.push(LayoutNode::Penalty {
-                    item: None,
-                    width: 0.0,
-                    penalty: 0.0,
-                });
-            }
             ShapedItem::Cluster(cluster) => {
                 // 1. Collect all adjacent clusters to form a full "word".
                 let mut current_word_clusters = vec![cluster.clone()];
                 while let Some(peeked_item) = item_iter.peek() {
                     if let ShapedItem::Cluster(next_cluster) = peeked_item {
-                        // Stop collecting *before* any soft-wrap boundary so the outer
-                        // loop can emit the correct node for it. Word separators are
+                        // Stop collecting *before* a space or a zero width space so the
+                        // outer loop can emit the node for it. Word separators are
                         // shaped as ordinary Clusters (text " "), so without these guards
                         // the greedy collection would absorb every space into one giant
                         // "word" and the paragraph could never break — it would collapse
                         // onto a single line. Boundaries handled by the outer loop:
                         //   * word separator     -> Glue + Penalty (soft wrap)
                         //   * zero-width space    -> Penalty (soft wrap)
-                        //   * cluster ending '-'  -> Box + zero-width Penalty
-                        //     (+spec:line-breaking:2d3674 — U+002D/U+2010 are UAX#14 class BA break
-                        //     opportunities AFTER the hyphen; a hyphen occurs mid-word, e.g.
-                        //     "well-being").
-                        if is_word_separator(peeked_item)
-                            || is_zero_width_space(peeked_item)
-                            || next_cluster.text().ends_with('\u{002D}')
-                            || next_cluster.text().ends_with('\u{2010}')
-                        {
+                        // The other soft wrap opportunities, after a hyphen
+                        // (+spec:line-breaking:2d3674 - U+002D/U+2010 are UAX#14 class BA
+                        // break opportunities AFTER the hyphen, "well-being", with no
+                        // extra glyph inserted), around a CJK ideograph, are between the
+                        // word's units below.
+                        if is_word_separator(peeked_item) || is_zero_width_space(peeked_item) {
                             break;
                         }
                         current_word_clusters.push(next_cluster.clone());
@@ -253,6 +235,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     let next = word_items.get(index + 1);
                     let unit_ends = next.is_none_or(|next| {
                         crate::text3::cache::is_soft_wrap_between(
+                            index.checked_sub(1).and_then(|before| word_items.get(before)),
                             item,
                             next,
                             constraints.word_break,
@@ -263,8 +246,11 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         continue;
                     }
                     let unit = &current_word_clusters[unit_start..=index];
+                    // A unit that ends at a break opportunity of its own
+                    // (after a hyphen) is not hyphenated, as on the greedy path.
                     let hyphenations = if hyphenation_allowed
                         && constraints.hyphenation != crate::text3::cache::Hyphens::None
+                        && !crate::text3::cache::is_break_opportunity(item)
                     {
                         crate::text3::cache::find_all_hyphenation_breaks(
                             unit,

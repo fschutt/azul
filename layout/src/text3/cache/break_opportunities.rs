@@ -150,9 +150,8 @@ pub(crate) fn is_break_opportunity_with_word_break(
     // +spec:line-breaking:05e09a - U+002D HYPHEN-MINUS / U+2010 HYPHEN always create a
     // soft-wrap opportunity AFTER them (UAX#14 class HY/BA), independent of the hyphens
     // property (they are NOT hyphenation opportunities — no extra glyph is inserted).
-    // U+002F SOLIDUS (UAX#14 class SY) likewise offers a break AFTER it (URLs/paths),
-    // matching browser practice. Mirrors is_break_opportunity(); this predicate drives
-    // the greedy BreakCursor path, which previously never broke after a plain hyphen/slash.
+    // U+002F SOLIDUS (UAX#14 class SY) may offer one after it too. Whether the
+    // line breaks after them, and never before, is `is_soft_wrap_between`'s.
     if let ShapedItem::Cluster(c) = item {
         if c.flags.has(ClusterFlags::ENDS_BREAKABLE) {
             return true;
@@ -187,39 +186,91 @@ pub(crate) fn is_break_opportunity_with_word_break(
 }
 
 /// Whether a line may break between `prev` and `next`, two items next to
-/// each other in a paragraph.
+/// each other in a paragraph; `before` is the item before `prev`, if any.
 ///
-/// The one rule of soft wrap opportunities both line breakers keep: the
-/// greedy breaker ends its units there, the balanced one puts a penalty
-/// there. An item that is a soft wrap opportunity of its own
-/// (`is_break_opportunity_with_word_break`: a space, a forced break, a zero
-/// width space, a CJK ideograph, any letter with `word-break: break-all`)
-/// offers a break after it, and one before it unless a joiner or the
-/// `line-break` strictness keeps it with the item before. A soft hyphen is
-/// none here: it is a break inside its word, where a hyphen ends the line,
-/// and the word's hyphenation breaks hold it (`find_all_hyphenation_breaks`).
+/// The one rule of soft wrap opportunities both line breakers and the
+/// intrinsic sizes keep: the greedy breaker ends its units there, the
+/// balanced one puts a penalty there. An item that breaks on both its sides
+/// (`breaks_around`) offers a break after it, and one before it unless a
+/// joiner or the `line-break` strictness keeps it with the item before. A
+/// hyphen or a solidus offers a break after it only, by the rules of
+/// `breaks_after_hyphen_or_solidus`. A soft hyphen is none here: it is a
+/// break inside its word, where a hyphen ends the line, and the word's
+/// hyphenation breaks hold it (`find_all_hyphenation_breaks`).
 pub(crate) fn is_soft_wrap_between(
+    before: Option<&ShapedItem>,
     prev: &ShapedItem,
     next: &ShapedItem,
     word_break: WordBreak,
     line_break: LineBreakStrictness,
 ) -> bool {
-    // `Hyphens::None` keeps the soft hyphen out, the one item it decides.
-    let hyphens = Hyphens::None;
-    if is_break_opportunity_with_word_break(prev, word_break, hyphens)
+    if breaks_around(prev, word_break)
         || (word_break == WordBreak::BreakAll && matches!(prev, ShapedItem::Cluster(_)))
     {
         return true;
     }
-    let joined = prev
-        .as_cluster()
-        .and_then(|c| c.text().chars().next_back())
-        .is_some_and(is_break_suppressing_control);
+    let prev_text = prev.as_cluster().map_or("", ShapedCluster::text);
     let first = next.as_cluster().and_then(|c| c.text().chars().next());
-    !joined
-        && !first.is_some_and(is_break_suppressing_control)
+    if prev_text
+        .chars()
+        .next_back()
+        .is_some_and(is_break_suppressing_control)
+        || first.is_some_and(is_break_suppressing_control)
+    {
+        return false;
+    }
+    if breaks_around(next, word_break)
         && first.is_none_or(|ch| is_cjk_break_allowed_by_strictness(ch, None, line_break))
-        && is_break_opportunity_with_word_break(next, word_break, hyphens)
+    {
+        return true;
+    }
+    prev.as_cluster()
+        .is_some_and(|c| c.flags.has(ClusterFlags::ENDS_BREAKABLE))
+        && breaks_after_hyphen_or_solidus(before, prev_text, first)
+}
+
+/// Whether `item` is a soft wrap opportunity on both its sides: a space, a
+/// forced break, a zero width space, a CJK ideograph, any letter with
+/// `word-break: break-all`.
+///
+/// A hyphen and a solidus are one after them only, and a soft hyphen is
+/// none: `Hyphens::None` keeps it out, the one item that setting decides.
+pub(super) fn breaks_around(item: &ShapedItem, word_break: WordBreak) -> bool {
+    !item
+        .as_cluster()
+        .is_some_and(|c| c.flags.has(ClusterFlags::ENDS_BREAKABLE))
+        && is_break_opportunity_with_word_break(item, word_break, Hyphens::None)
+}
+
+/// Whether a line may break after the hyphen or solidus that ends
+/// `prev_text`, before the character `next_first`; `before` is the item
+/// before it.
+///
+/// A hyphen breaks after it (UAX 14), except a minus sign: a hyphen-minus
+/// before a digit with no letter or digit in front of it keeps its number
+/// whole ("-12"); between two words it breaks, "ab-12" as Chrome does. A
+/// solidus breaks after it only before a character outside ASCII that is
+/// no digit, as in Chrome: its line breaking table for ASCII text keeps
+/// "and/or", a path and a URL whole, and its ICU rules keep "1/2" whole and
+/// break "Ελλάδα/Κύπρος" after the solidus.
+fn breaks_after_hyphen_or_solidus(
+    before: Option<&ShapedItem>,
+    prev_text: &str,
+    next_first: Option<char>,
+) -> bool {
+    let mut chars = prev_text.chars();
+    match chars.next_back() {
+        Some('/') => next_first.is_some_and(|ch| !ch.is_ascii() && !ch.is_numeric()),
+        Some('-') if next_first.is_some_and(char::is_numeric) => chars
+            .next_back()
+            .or_else(|| {
+                before
+                    .and_then(ShapedItem::as_cluster)
+                    .and_then(|c| c.text().chars().next_back())
+            })
+            .is_some_and(char::is_alphanumeric),
+        _ => true,
+    }
 }
 
 // +spec:line-breaking:db0289 - line-break strictness: anywhere allows soft wrap around every
@@ -305,7 +356,7 @@ pub(super) const fn is_small_kana(ch: char) -> bool {
 
 // for every typographic character unit, disregarding GL/WJ/ZWJ line breaking classes
 // replaced element or other atomic inline for web-compat
-pub(super) fn is_break_opportunity(item: &ShapedItem) -> bool {
+pub(crate) fn is_break_opportunity(item: &ShapedItem) -> bool {
     // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
     // after each replaced element or other atomic inline"
     if matches!(
@@ -452,14 +503,16 @@ impl<'a> BreakCursor<'a> {
 
         // The unit runs up to the next soft wrap opportunity, by the rule the
         // balanced breaker keeps too (`is_soft_wrap_between`).
+        let mut before = None;
         while let Some(item) = stream.next() {
             unit.push(item.clone());
             let ends_here = stream.peek().is_none_or(|next| {
-                is_soft_wrap_between(item, next, self.word_break, self.line_break)
+                is_soft_wrap_between(before, item, next, self.word_break, self.line_break)
             });
             if ends_here {
                 break;
             }
+            before = Some(item);
         }
         unit
     }

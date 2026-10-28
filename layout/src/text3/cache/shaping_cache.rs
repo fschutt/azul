@@ -1452,7 +1452,7 @@ impl TextShapingCache {
                     word_indent = soft_wrap_indent;
                 }
                 cur_word = adv;
-            } else if is_break_opportunity_with_word_break(item, word_break, hyphens) {
+            } else if breaks_around(item, word_break) {
                 if cur_word > 0.0 {
                     if cur_word + word_indent > max_word {
                         max_word = cur_word + word_indent;
@@ -1474,6 +1474,28 @@ impl TextShapingCache {
                 cur_word = 0.0;
             } else {
                 cur_word += adv;
+                // A hyphen or a solidus ends its word after it where a line may
+                // break there (`is_soft_wrap_between`): "well-" is a word of its
+                // own, "and/or" and "-12" are one word each.
+                let ends_word = item
+                    .as_cluster()
+                    .is_some_and(|c| c.flags.has(ClusterFlags::ENDS_BREAKABLE))
+                    && scan_items.get(item_idx + 1).is_some_and(|next| {
+                        is_soft_wrap_between(
+                            item_idx.checked_sub(1).and_then(|before| scan_items.get(before)),
+                            item,
+                            next,
+                            word_break,
+                            constraints.line_break,
+                        )
+                    });
+                if ends_word {
+                    if cur_word + word_indent > max_word {
+                        max_word = cur_word + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
+                    cur_word = 0.0;
+                }
             }
         }
         if cur_word > 0.0 && cur_word + word_indent > max_word {

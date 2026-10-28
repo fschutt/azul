@@ -1035,17 +1035,21 @@ pub fn break_one_line<T: ParsedFontTrait>(
             // own line (min-content = widest unbreakable unit). `total_available` is a
             // sentinel (f32::MAX/2) during intrinsic sizing and never overflows, so
             // without this the run would collapse onto one line and min-content would
-            // wrongly equal max-content. Once the line holds content and the next unit
-            // is a break opportunity (a space, CJK ideograph, hyphen, …), finish here;
-            // a leading space is stripped at the next line's start (collapsing modes).
+            // wrongly equal max-content. Every unit ends at a soft wrap opportunity, so
+            // once the line holds content the next unit starts a line of its own: after
+            // a word, a hyphen ("well-" / "known") or a CJK ideograph, and before a space
+            // or another break opportunity of its own, a leading space being stripped
+            // at the next line's start (collapsing modes). A word after a space the line
+            // keeps (pre-wrap) stays with it.
             if line_constraints.is_min_content
                 && !line_items.is_empty()
-                && next_unit.len() == 1
-                && is_break_opportunity_with_word_break(
-                    &next_unit[0],
-                    cursor.word_break,
-                    cursor.hyphens,
-                )
+                && ((next_unit.len() == 1
+                    && is_break_opportunity_with_word_break(
+                        &next_unit[0],
+                        cursor.word_break,
+                        cursor.hyphens,
+                    ))
+                    || !line_items.last().is_some_and(is_word_separator))
             {
                 break;
             }
