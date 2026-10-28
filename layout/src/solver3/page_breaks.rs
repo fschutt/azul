@@ -400,6 +400,11 @@ fn compute_page_breaks_impl(
         } else {
             BreakKind::Avoided(naive)
         };
+        // A break that no longer moves past the last one (an f32 too large
+        // to move by a page) ends the pages: repeating it never would.
+        if adjusted <= prev_end {
+            break;
+        }
         breaks.push(PageBreakPosition {
             y: adjusted,
             kind,
@@ -858,7 +863,13 @@ pub fn compute_page_breaks_from_forced(
         if normal <= 0.0 || normal.is_nan() {
             break;
         }
-        y += normal;
+        // Past 2^24 pages' worth of height an f32 no longer moves by one
+        // page: the breaks end there instead of repeating forever.
+        let next = y + normal;
+        if next <= y {
+            break;
+        }
+        y = next;
     }
 
     breaks.sort_by(|a, b| a.y.total_cmp(&b.y));
