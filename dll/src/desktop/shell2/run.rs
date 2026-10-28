@@ -2033,6 +2033,13 @@ pub fn run(
                     // it; the text, title, timers and threads are this window's.
                     window.run_menu_picks_from_loop();
 
+                    // A close a pass confirmed (a popup its parent closed or that
+                    // dismissed itself) is carried out here, outside the window
+                    // procedure; the closed window opens no more windows.
+                    if window.finish_confirmed_close() {
+                        continue;
+                    }
+
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         log_debug!(

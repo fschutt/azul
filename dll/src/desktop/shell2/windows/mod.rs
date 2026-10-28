@@ -199,6 +199,10 @@ pub struct Win32Window {
     // Window state
     /// Window is open flag
     pub is_open: bool,
+    /// `close` posted a WM_CLOSE that has not run yet: the raised
+    /// `close_requested` is still waiting for its protocol there, not one a
+    /// pass confirmed (see [`Win32Window::finish_confirmed_close`]).
+    wm_close_posted: bool,
     /// Whether the first frame has been shown (for deferred window visibility)
     pub first_frame_shown: bool,
     /// A redraw was explicitly requested (route_main_window_result invalidated
@@ -856,6 +860,7 @@ impl Win32Window {
             common,
             win32, // Store Win32 libraries for later use
             is_open: true,
+            wm_close_posted: false,
             first_frame_shown: false, // Window will be shown after first SwapBuffers
             needs_gpu_present: false,
             menu_bar,
@@ -4318,6 +4323,7 @@ unsafe extern "system" fn window_proc(
 
         WM_CLOSE => {
             log_debug!(LogCategory::Window, "[Win32] WM_CLOSE - Close requested");
+            window.wm_close_posted = false;
             // User clicked close button - set close_requested flag
             // and process callbacks to allow cancellation. Snapshot first so the
             // false -> true transition is what the pass diffs, rather than
@@ -7177,47 +7183,61 @@ impl Win32Window {
 
     /// Release the GPU-side resources of this window.
     ///
-    /// WebRender's `Renderer` must be `deinit()`'d, not dropped — texture
-    /// deletion has to happen inside a frame. Never doing so crashed debug
-    /// builds on close and leaked GPU resources in release.
+    /// The window's GPU side, released while the HWND and the GL context are
+    /// still alive (before `DestroyWindow`), in the window's OWN context:
+    /// WebRender's renderer is `deinit()`'d (texture deletion happens inside a
+    /// frame), the app's GL textures of this document go, and so does the GL
+    /// context pointer, whose last clone deletes the SVG / FXAA / brush shader
+    /// programs. Every one of those is a real GL call, and with several
+    /// windows open the current context is whichever window drew last: run in
+    /// that one, the deletions would free another window's textures and
+    /// programs that happen to have the same numbers. Then the context itself
+    /// is deleted, and the context that was current before comes back.
     ///
-    /// `deinit()` issues real GL calls, so OUR context must be current: with
-    /// several windows open, whichever window rendered last left ITS context
-    /// current, and deinit would then delete textures/programs in the wrong
-    /// context (cross-context corruption + leaking the real resources). Same
-    /// reasoning, and the same prologue, as `X11Window::close`.
-    ///
-    /// Must run while the HWND and the GL context are still alive, i.e. before
-    /// `DestroyWindow`. `deinit_renderer()` takes the renderer out of the
-    /// common state, so calling this twice is a no-op.
-    ///
-    /// `pub(crate)` because the WM_QUIT exit in `shell2::run` tears its windows
-    /// down without a WM_CLOSE/WM_DESTROY ever running.
+    /// Runs once: a second call (WM_DESTROY after WM_CLOSE) finds no GL
+    /// context left. `pub(crate)` because the WM_QUIT exit in `shell2::run`
+    /// tears its windows down without a WM_CLOSE/WM_DESTROY ever running.
     pub(crate) fn release_gpu_resources(&mut self) {
         // Every close path of a Win32 window runs this teardown (WM_CLOSE,
         // WM_DESTROY, the WM_QUIT exit): the popups this window opened close
         // with it here too (a popup's own popup has no other parent to close
         // it). Idempotent, as the rest of this teardown.
         PlatformWindow::close_transient_windows(self);
-        if let RenderMode::Gpu {
-            gl_context: hglrc,
-            hdc: stored_hdc,
-        } = &self.render_mode
-        {
-            if let Some(wgl) = self.win32.opengl32 {
-                unsafe {
-                    let hdc = if !stored_hdc.is_null() {
-                        *stored_hdc
-                    } else {
-                        (self.win32.user32.GetDC)(self.hwnd)
-                    };
-                    (wgl.wglMakeCurrent)(hdc, *hglrc);
-                }
+        let gpu = match self.render_mode {
+            RenderMode::Gpu { gl_context, hdc } => Some((gl_context, hdc)),
+            RenderMode::Cpu => None,
+        };
+        let wgl = self.win32.opengl32;
+        let mut previous = None;
+        if let (Some((hglrc, stored_hdc)), Some(wgl)) = (gpu, wgl) {
+            unsafe {
+                previous = Some(((wgl.wglGetCurrentDC)(), (wgl.wglGetCurrentContext)()));
+                let hdc = if !stored_hdc.is_null() {
+                    stored_hdc
+                } else {
+                    (self.win32.user32.GetDC)(self.hwnd)
+                };
+                (wgl.wglMakeCurrent)(hdc, hglrc);
             }
         }
         self.common.deinit_renderer();
         if let Some(doc_id) = self.common.document_id {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+        }
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
+        if let (Some((hglrc, _)), Some(wgl)) = (gpu, wgl) {
+            unsafe {
+                (wgl.wglMakeCurrent)(ptr::null_mut(), ptr::null_mut());
+                (wgl.wglDeleteContext)(hglrc);
+                if let Some((previous_dc, previous_context)) = previous {
+                    if !previous_context.is_null() && previous_context != hglrc {
+                        (wgl.wglMakeCurrent)(previous_dc, previous_context);
+                    }
+                }
+            }
+            // Nothing GL is left: the window draws no more frames (its HWND
+            // goes next), and a second call has no context to release.
+            self.render_mode = RenderMode::Cpu;
         }
     }
 
@@ -7229,10 +7249,36 @@ impl Win32Window {
         // frame had nothing to render with. The WM_CLOSE handler releases the
         // GPU resources on the path where the close actually proceeds, and
         // WM_DESTROY clears `is_open`.
+        self.wm_close_posted = true;
         unsafe {
             const WM_CLOSE: u32 = 0x0010;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_CLOSE, 0, 0);
         }
+    }
+
+    /// A close a pass confirmed and nothing carried out yet: a popup its
+    /// parent closed, or that dismissed itself on Escape or a focus loss
+    /// (`request_window_close`), raises `close_requested` with its protocol
+    /// already run, and no WM_CLOSE comes for it - the popup would stay on
+    /// screen. It goes here as after an agreed WM_CLOSE: the GPU side first,
+    /// then the HWND (WM_DESTROY parks the box for the loop to free). Only the
+    /// run loop calls this, between dispatches, so no handler of the window
+    /// is on the stack. A close still owed to its protocol (the app's, posted
+    /// as WM_CLOSE) is left to WM_CLOSE. Returns whether the window closed.
+    pub(crate) fn finish_confirmed_close(&mut self) -> bool {
+        if !self.is_open
+            || self.wm_close_posted
+            || self.common.close_unconfirmed()
+            || !self.common.current_window_state().flags.close_requested
+        {
+            return false;
+        }
+        self.is_open = false;
+        self.release_gpu_resources();
+        unsafe {
+            (self.win32.user32.DestroyWindow)(self.hwnd);
+        }
+        true
     }
 
     /// One turn of the window's `<webview>`s (`common::webview::pump`):

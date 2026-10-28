@@ -1061,6 +1061,11 @@ pub struct Opengl32Functions {
     pub wglDeleteContext: unsafe extern "system" fn(HGLRC) -> BOOL,
     pub wglMakeCurrent: unsafe extern "system" fn(HDC, HGLRC) -> BOOL,
     pub wglGetProcAddress: unsafe extern "system" fn(*const i8) -> *mut core::ffi::c_void,
+    /// The context current on the calling thread (null: none), and the DC it
+    /// is bound to: what a window's teardown gives back once its own GL
+    /// work is done.
+    pub wglGetCurrentContext: unsafe extern "system" fn() -> HGLRC,
+    pub wglGetCurrentDC: unsafe extern "system" fn() -> HDC,
 }
 
 /// Pre-load commonly used Win32 DLLs.
@@ -1379,6 +1384,8 @@ impl Win32Libraries {
                 wglDeleteContext: dll.get_symbol("wglDeleteContext").ok()?,
                 wglMakeCurrent: dll.get_symbol("wglMakeCurrent").ok()?,
                 wglGetProcAddress: dll.get_symbol("wglGetProcAddress").ok()?,
+                wglGetCurrentContext: dll.get_symbol("wglGetCurrentContext").ok()?,
+                wglGetCurrentDC: dll.get_symbol("wglGetCurrentDC").ok()?,
             })
         });
 
