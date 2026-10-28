@@ -250,6 +250,17 @@ fn x11_releases_its_graphics_before_the_window_and_the_display_go() {
     );
     at(X11_GL_RS, "pub fn restore_unless(", "EglBinding");
     at(X11_DLOPEN_RS, "load_symbol!(lib, _, \"eglGetCurrentContext\")", "Egl");
+    // A confirmed WM_DELETE_WINDOW (or session end) leaves the window open for
+    // the loop's `close`, which destroys the X window only while `is_open`.
+    for (decl, what) in [
+        ("if msg_atom == self.wm_delete_window_atom", "WM_DELETE_WINDOW"),
+        ("pub(crate) fn ask_to_close_for_session_end(&mut self)", "session end"),
+    ] {
+        assert!(
+            !body(X11_RS, decl).contains("self.is_open = false"),
+            "{what}: the window manager would keep a window the loop never destroys"
+        );
+    }
 }
 
 /// Wayland's `close` releases the GPU side in the window's own context, and

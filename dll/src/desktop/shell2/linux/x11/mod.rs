@@ -3452,10 +3452,8 @@ impl X11Window {
             return;
         }
         let outcome = self.run_close_protocol("x11.session_end");
-        if outcome.confirmed {
-            PlatformWindow::close_transient_windows(self);
-            self.is_open = false;
-        }
+        // Confirmed, `close_requested` stays up and the run loop closes the
+        // window this turn, as after WM_DELETE_WINDOW.
         self.apply_event_result(outcome.result);
     }
 
@@ -5438,10 +5436,16 @@ impl X11Window {
                     // ConfigureNotify's regenerate_now does in this handler).
                     let outcome = self.run_close_protocol("x11.wm_delete_window");
                     if outcome.confirmed {
-                        // The loop drops the window without close(): the
-                        // popups it opened are told here.
-                        PlatformWindow::close_transient_windows(self);
-                        self.is_open = false;
+                        // The protocol leaves `close_requested` up: the run
+                        // loop closes the window (`close`, which takes its
+                        // popups, its graphics and the X window down) at its
+                        // safe point, then drops it. With `is_open` cleared
+                        // here that `close` would skip the XDestroyWindow, and
+                        // the window manager would keep the window on screen.
+                        log_debug!(
+                            LogCategory::Window,
+                            "[X11] WM_DELETE_WINDOW confirmed: the loop closes the window"
+                        );
                     } else {
                         log_debug!(
                             LogCategory::Window,
