@@ -3081,4 +3081,128 @@ mod tests {
         let listed: Vec<&str> = ben.room.messages().iter().map(|m| m.text.as_str()).collect();
         assert_eq!(listed, vec!["First", "Earlier", "Later"]);
     }
+
+    /// `writer` writes `text` in a room the peers alone carry, then it and `others` read the
+    /// room (the writer first: its new key reaches them in that read). The one record the writer
+    /// hands to the peers.
+    fn written_for_the_peers(
+        writer: &mut Device,
+        others: &mut [&mut Device],
+        w: &mut FakeWorker,
+        text: &str,
+    ) -> ChatRecord {
+        writer.room.send(&writer.me, text, w.now).unwrap();
+        settle(writer, w);
+        for other in others.iter_mut() {
+            settle(&mut **other, w);
+        }
+        let mut records = writer.room.peer_records(&writer.me);
+        assert_eq!(records.len(), 1, "{text:?} is sealed for the peers once its key is there");
+        records.remove(0)
+    }
+
+    /// Once the peers alone carry the chat nothing goes into the outbox, yet the rotation rule
+    /// still holds: a message waiting for the peers asks for a key for the members as listed
+    /// now. A room that never had a key makes its first, a member who joins gets a new one
+    /// before the next message is handed on, and one who leaves holds no copy of the key the
+    /// next message is sealed with. Either device may write: the one whose id sorts first or the
+    /// one whose id sorts last.
+    #[test]
+    fn a_room_the_peers_alone_carry_seals_each_message_for_the_members_of_its_time() {
+        for ada_writes in [true, false] {
+            let mut w = FakeWorker::new();
+            let (mut ada, mut ben, id, invite) = ada_and_ben(&mut w);
+            w.dropped_messages = true;
+            settle(&mut ada, &mut w);
+            settle(&mut ben, &mut w);
+            let (writer, reader, name) = if ada_writes {
+                (&mut ada, &mut ben, "Ada")
+            } else {
+                (&mut ben, &mut ada, "Ben")
+            };
+            assert!(writer.room.current_key(writer.me.device()).is_none(), "no message yet, no key");
+            let key_of = |d: &Device| d.room.current_key(d.me.device()).map(|k| (k.0, k.2));
+
+            let first = written_for_the_peers(writer, &mut [&mut *reader], &mut w, "No key before");
+            assert_eq!(key_of(writer), Some((1, 2)), "the room's first key, for the two");
+            let (got, _) = reader.room.take_record(&reader.me, first);
+            assert_eq!(texts(&got), vec![pair(name, "No key before")]);
+
+            let mut cleo = device(3, "Cleo", &id, Some(invite));
+            cleo.room.join();
+            settle(&mut cleo, &mut w);
+            settle(writer, &mut w);
+            settle(reader, &mut w);
+            assert!(cleo.room.peers_only());
+            let second =
+                written_for_the_peers(writer, &mut [&mut *reader, &mut cleo], &mut w, "Hello Cleo");
+            assert_eq!(key_of(writer), Some((2, 3)), "a new key that Cleo holds too");
+            let (got, _) = cleo.room.take_record(&cleo.me, second.clone());
+            assert_eq!(texts(&got), vec![pair(name, "Hello Cleo")]);
+            let (got, _) = reader.room.take_record(&reader.me, second.clone());
+            assert_eq!(texts(&got), vec![pair(name, "Hello Cleo")]);
+
+            cleo.room.leave();
+            settle(&mut cleo, &mut w);
+            assert_eq!(cleo.room.state, Membership::Left);
+            settle(writer, &mut w);
+            settle(reader, &mut w);
+            let third = written_for_the_peers(writer, &mut [&mut *reader], &mut w, "Just us two");
+            assert_ne!(third.key_id, second.key_id, "not the key Cleo holds");
+            assert_eq!(key_of(writer).map(|k| k.1), Some(2), "a key of the two left");
+            assert!(
+                !w.rooms[&id]
+                    .envelopes
+                    .iter()
+                    .any(|e| e.1 == third.key_id && e.2 == cleo.me.device()),
+                "no copy of it is hers"
+            );
+            let (got, _) = reader.room.take_record(&reader.me, third);
+            assert_eq!(texts(&got), vec![pair(name, "Just us two")]);
+        }
+    }
+
+    /// Two members of a room the peers alone carry write before either has seen the other's key:
+    /// each makes one of the same epoch, and both seal with the one whose id is higher, so each
+    /// reads the other. Which of the two random ids is higher changes nothing: the rounds go on
+    /// until both ways came up.
+    #[test]
+    fn two_members_writing_at_once_where_the_peers_alone_carry_the_chat_read_each_other() {
+        let made_here = |changes: &Changes| {
+            changes
+                .keys
+                .iter()
+                .find(|k| k.made_here)
+                .map(|k| k.key_id.clone())
+        };
+        let mut orders = BTreeSet::new();
+        for _ in 0..64 {
+            let mut w = FakeWorker::new();
+            let (mut ada, mut ben, _, _) = ada_and_ben(&mut w);
+            w.dropped_messages = true;
+            settle(&mut ada, &mut w);
+            settle(&mut ben, &mut w);
+            ada.room.send(&ada.me, "From Ada", w.now).unwrap();
+            ben.room.send(&ben.me, "From Ben", w.now).unwrap();
+            let adas = made_here(&settle(&mut ada, &mut w)).expect("Ada makes a key");
+            let bens = made_here(&settle(&mut ben, &mut w))
+                .expect("Ben makes one too, not having seen hers");
+            settle(&mut ada, &mut w);
+            let from_ada = ada.room.peer_records(&ada.me);
+            let from_ben = ben.room.peer_records(&ben.me);
+            assert_eq!((from_ada.len(), from_ben.len()), (1, 1));
+            let higher = adas.clone().max(bens.clone());
+            assert_eq!(from_ada[0].key_id, higher);
+            assert_eq!(from_ben[0].key_id, higher);
+            let (got, _) = ben.room.take_record(&ben.me, from_ada[0].clone());
+            assert_eq!(texts(&got), vec![pair("Ada", "From Ada")]);
+            let (got, _) = ada.room.take_record(&ada.me, from_ben[0].clone());
+            assert_eq!(texts(&got), vec![pair("Ben", "From Ben")]);
+            orders.insert(adas > bens);
+            if orders.len() == 2 {
+                break;
+            }
+        }
+        assert_eq!(orders.len(), 2, "Ada's key was the higher in some rounds, Ben's in others");
+    }
 }
