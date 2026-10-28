@@ -1849,22 +1849,101 @@ mod autotest_generated {
             .all(|g| g.unicode_codepoint.is_empty()));
     }
 
-    /// BUG (pinned): the codepoint extractor slices `cluster_text[byte_offset..]`
-    /// after only checking `byte_offset < len`, never that the offset is a UTF-8
-    /// char boundary. A multi-glyph cluster over a multi-byte character (any
-    /// decomposed/combining sequence where the shaper reports a mid-char offset)
-    /// therefore panics inside `get_glyph_runs_pdf` instead of degrading.
-    /// The correct behaviour would be `is_char_boundary()` + fallback.
-    #[test]
-    #[should_panic(expected = "char boundary")]
-    fn pdf_cluster_offset_inside_multibyte_char_panics() {
-        let st = style();
-        let g0 = glyph(1, 10.0, &st); // cluster_offset 0 — fine
-        let mut g1 = glyph(2, 10.0, &st);
-        g1.cluster_offset = 1; // 1 < 2, but it is inside 'é'
-        let l = layout(vec![at(item(cluster("é", vec![g0, g1], &st)), 0.0, 0.0, 0)]);
+    /// The text each glyph of `l` carries into a PDF's text layer, from the
+    /// reference walker and from its dense twin, which must agree.
+    fn pdf_glyph_texts(l: &UnifiedLayout) -> [Vec<String>; 2] {
+        let fonts = fonts_with(&[FONT_A]);
+        let texts = |runs: Vec<PdfGlyphRun<TestFont>>| -> Vec<String> {
+            runs.iter()
+                .flat_map(|r| r.glyphs.iter().map(|g| g.unicode_codepoint.clone()))
+                .collect()
+        };
+        let dense = crate::text3::dense::DenseText::from_unified(l);
+        [
+            texts(get_glyph_runs_pdf(l, &fonts)),
+            texts(crate::text3::dense::get_glyph_runs_pdf_dense(&dense, &fonts)),
+        ]
+    }
 
-        let _ = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
+    #[test]
+    fn a_letter_split_into_two_glyphs_is_copied_once_from_a_pdf() {
+        // A font that draws a letter as two glyphs (a dotless letter and its
+        // dot) shapes them into one cluster; the letter goes on the first
+        // glyph and the piece split off it carries nothing.
+        let st = style();
+        let l = layout(vec![at(
+            item(cluster(
+                "b",
+                vec![glyph(1, 10.0, &st), glyph(2, 0.0, &st)],
+                &st,
+            )),
+            0.0,
+            0.0,
+            0,
+        )]);
+        for texts in pdf_glyph_texts(&l) {
+            assert_eq!(
+                texts,
+                ["b", ""],
+                "the letter should be copied once, not once per glyph"
+            );
+        }
+    }
+
+    #[test]
+    fn a_right_to_left_letter_is_copied_from_its_first_glyph_in_logical_order() {
+        // A right-to-left cluster holds its glyphs in drawing order, so the
+        // dot split off the beh comes first and the beh, first in logical
+        // order, last. The beh carries the letter.
+        let st = style();
+        let mut beh = cluster("ب", vec![glyph(2, 0.0, &st), glyph(1, 10.0, &st)], &st);
+        beh.direction = BidiDirection::Rtl;
+        let l = layout(vec![at(item(beh), 0.0, 0.0, 0)]);
+        for texts in pdf_glyph_texts(&l) {
+            assert_eq!(
+                texts,
+                ["", "ب"],
+                "the beh should carry the letter and its dot nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ligature_split_again_keeps_every_character_of_its_cluster() {
+        // A two-letter cluster drawn as two glyphs loses no letter: the whole
+        // text goes on the first glyph.
+        let st = style();
+        let l = layout(vec![at(
+            item(cluster(
+                "fi",
+                vec![glyph(1, 10.0, &st), glyph(2, 4.0, &st)],
+                &st,
+            )),
+            0.0,
+            0.0,
+            0,
+        )]);
+        for texts in pdf_glyph_texts(&l) {
+            assert_eq!(
+                texts,
+                ["fi", ""],
+                "both letters should be copied, the second one was lost"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cluster_over_a_multibyte_character_gives_it_to_its_first_glyph() {
+        // A glyph offset inside a multi-byte character does not decide what
+        // the glyph carries, the cluster does: no slicing, no panic.
+        let st = style();
+        let g0 = glyph(1, 10.0, &st);
+        let mut g1 = glyph(2, 10.0, &st);
+        g1.cluster_offset = 1; // inside 'é'
+        let l = layout(vec![at(item(cluster("é", vec![g0, g1], &st)), 0.0, 0.0, 0)]);
+        for texts in pdf_glyph_texts(&l) {
+            assert_eq!(texts, ["é", ""], "the first glyph should carry the é");
+        }
     }
 
     /// BUG (pinned): the `continue` that drops an unknown-font glyph happens BEFORE
