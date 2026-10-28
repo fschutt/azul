@@ -202,7 +202,7 @@ pub fn routing_source_keeping(template: &str, cache_root: &Path, keep_days: Opti
         // thread of its own: removing a cache of many tiles may take a moment.
         let (root, current) = (cache_root.to_path_buf(), cache.clone());
         let _ = std::thread::Builder::new()
-            .name("azmaps-routing-cache".into())
+            .name("azmaps routing cache".into())
             .spawn(move || {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
