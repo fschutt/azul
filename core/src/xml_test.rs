@@ -2456,15 +2456,16 @@ mod autotest_generated {
         assert_eq!(parse_svg_float(Some(zero.as_str())), Some(0.0));
         let negzero = AzString::from("-0");
         assert!(parse_svg_float(Some(negzero.as_str())).unwrap().is_sign_negative());
-        let huge = AzString::from("1e400");
-        assert!(
-            parse_svg_float(Some(huge.as_str())).unwrap().is_infinite(),
-            "overflow saturates to inf rather than erroring"
-        );
-        let nan = AzString::from("NaN");
-        assert!(parse_svg_float(Some(nan.as_str())).unwrap().is_nan());
-        let inf = AzString::from("-inf");
-        assert_eq!(parse_svg_float(Some(inf.as_str())), Some(f32::NEG_INFINITY));
+        // NaN and infinity are not SVG numbers, and neither is one past the
+        // f32 range: each is an invalid value, which the caller treats as not
+        // given, as Chrome does. As numbers they reached the rasterizer, where
+        // a NaN corner kept the curve flattener subdividing for minutes.
+        for not_a_number in ["1e400", "-1e400", "NaN", "nan", "inf", "-inf", "infinity"] {
+            let value = AzString::from(not_a_number);
+            assert_eq!(parse_svg_float(Some(value.as_str())), None, "{not_a_number}");
+        }
+        let big = AzString::from("1e30");
+        assert_eq!(parse_svg_float(Some(big.as_str())), Some(1e30), "large is still a number");
     }
 
     #[test]
@@ -2508,8 +2509,28 @@ mod autotest_generated {
         let p = parse_svg_points("0,0 junk 10,0", false).expect("junk token dropped");
         assert_eq!(p.rings.as_ref()[0].items.as_ref().len(), 1);
 
-        let nan = parse_svg_points("NaN,0 1,1", false).expect("NaN is a parseable f32");
-        assert_eq!(nan.rings.as_ref()[0].items.as_ref().len(), 1);
+        // NaN is not an SVG number: dropped like junk, it leaves an odd count.
+        assert!(parse_svg_points("NaN,0 1,1", false).is_none());
+        let inf = parse_svg_points("0,0 inf,3 1,1", false).expect("inf dropped like junk");
+        assert_eq!(inf.rings.as_ref()[0].items.as_ref().len(), 1);
+    }
+
+    // A viewBox of NaN or infinite numbers is no viewBox, like any other
+    // malformed one: its mapping would scale every coordinate to NaN.
+    #[test]
+    fn parse_svg_view_box_rejects_non_finite_numbers() {
+        assert_eq!(parse_svg_view_box("0 0 10 20"), Some((0.0, 0.0, 10.0, 20.0)));
+        for bad in ["NaN 0 10 10", "0 inf 10 10", "0 0 inf 10", "0 0 10 1e400"] {
+            assert_eq!(parse_svg_view_box(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn parse_svg_length_rejects_non_finite_numbers() {
+        assert_eq!(parse_svg_length(Some("16px")), Some(16.0));
+        for bad in ["NaN", "infpx", "1e400", "-inf"] {
+            assert_eq!(parse_svg_length(Some(bad)), None, "{bad}");
+        }
     }
 
     #[test]

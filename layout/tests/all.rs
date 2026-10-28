@@ -1303,3 +1303,5 @@ mod a_block_lays_its_lines_out_again_when_a_style_it_inherits_moves_them;
 mod a_paragraph_hyphenates_again_when_its_language_changes;
 #[path = "an_anonymous_block_around_other_words_is_laid_out_anew.rs"]
 mod an_anonymous_block_around_other_words_is_laid_out_anew;
+#[path = "an_svg_with_absurd_geometry_renders_in_bounded_time.rs"]
+mod an_svg_with_absurd_geometry_renders_in_bounded_time;
