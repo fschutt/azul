@@ -23,10 +23,10 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 /// The paragraph's element: body(0) > div[contenteditable](1) > div(2).
-const PARAGRAPH: usize = 2;
+pub(crate) const PARAGRAPH: usize = 2;
 
 /// The page with `text` in a paragraph styled `css`.
-fn page(text: &str, css: &str) -> Dom {
+pub(crate) fn page(text: &str, css: &str) -> Dom {
     Dom::create_body().with_css("margin: 0px;").with_child(
         Dom::create_div().with_contenteditable(true).with_child(
             Dom::create_div()
@@ -38,7 +38,7 @@ fn page(text: &str, css: &str) -> Dom {
 }
 
 /// A window that has laid out `dom` once.
-fn window(mut dom: Dom) -> LayoutWindow {
+pub(crate) fn window(mut dom: Dom) -> LayoutWindow {
     let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
     let mut ws = FullWindowState::default();
@@ -56,7 +56,7 @@ fn window(mut dom: Dom) -> LayoutWindow {
 }
 
 /// Types `letter` in front of the paragraph's text.
-fn type_in_front(lw: &mut LayoutWindow, letter: &str) {
+pub(crate) fn type_in_front(lw: &mut LayoutWindow, letter: &str) {
     lw.focus_manager.set_focused_node(Some(DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(PARAGRAPH))),
@@ -74,7 +74,7 @@ fn type_in_front(lw: &mut LayoutWindow, letter: &str) {
 }
 
 /// The paragraph's text, as the edit model reads it.
-fn text_of(lw: &LayoutWindow) -> String {
+pub(crate) fn text_of(lw: &LayoutWindow) -> String {
     let content = lw.get_text_before_textinput(DomId::ROOT_ID, NodeId::new(PARAGRAPH));
     lw.extract_text_from_inline_content(&content)
 }

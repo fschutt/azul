@@ -1231,6 +1231,8 @@ mod a_line_breaks_after_a_hyphen_and_not_at_a_solidus;
 mod an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does;
 #[path = "a_hyphenated_words_min_content_is_its_widest_fragment_with_its_hyphen.rs"]
 mod a_hyphenated_words_min_content_is_its_widest_fragment_with_its_hyphen;
+#[path = "an_edit_in_a_vertical_paragraph_lays_out_as_a_fresh_layout_does.rs"]
+mod an_edit_in_a_vertical_paragraph_lays_out_as_a_fresh_layout_does;
 #[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
 mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
 #[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
