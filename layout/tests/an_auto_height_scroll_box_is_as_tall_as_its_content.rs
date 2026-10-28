@@ -104,3 +104,63 @@ fn a_scrolling_flex_item_keeps_the_height_its_container_gave_it() {
     // body = 0, header = 1, list = 2
     assert_eq!(height_of(page, 2).0, 200.0, "the column's rest, not its 600 px of rows");
 }
+
+/// A scroll box that is a flex item and overflows lays its rows out inside
+/// its scrollbar's gutter (CSS 2.2 11.1.1), so the rows fit across it and no
+/// horizontal bar is asked for: the pass that finds the vertical bar has to
+/// reach the box again, past the layouts the flex algorithm kept for it.
+#[test]
+fn an_overflowing_flex_item_lays_its_rows_out_inside_its_gutter() {
+    let mut list = Dom::create_div()
+        .with_css("display: block; flex-grow: 1; overflow-y: auto; min-height: 0;");
+    for _ in 0..30 {
+        list = list.with_child(Dom::create_div().with_css("height: 20px;"));
+    }
+    let page = Dom::create_body()
+        .with_css("margin: 0; height: 300px; display: flex; flex-direction: row;")
+        .with_child(Dom::create_div().with_css("width: 100px; flex-shrink: 0;"))
+        .with_child(list);
+    // body = 0, pane = 1, list = 2, first row = 3
+    let (list_width, _) = width_of(page.clone(), 2);
+    let (row_width, horizontal_bar) = width_of(page, 3);
+    assert_eq!(list_width, 300.0, "harness: the list takes the row's rest");
+    assert!(
+        row_width < list_width - 0.5,
+        "the rows are laid out inside the vertical bar's gutter: {row_width} of {list_width}"
+    );
+    assert!(!horizontal_bar, "rows that fit across the gutter make no horizontal bar");
+}
+
+/// `dom` laid out in a 400 x 300 window: the width of node `node`, and
+/// whether the list (node 2) asks for a horizontal bar.
+fn width_of(mut dom: Dom, node: usize) -> (f32, bool) {
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .unwrap();
+    let width = lw
+        .get_node_layout_rect(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        })
+        .expect("laid out")
+        .size
+        .width;
+    let result = &lw.layout_results[&DomId::ROOT_ID];
+    let list = result.layout_tree.dom_to_layout[&NodeId::new(2)][0];
+    let horizontal = result
+        .layout_tree
+        .warm(list)
+        .and_then(|w| w.scrollbar_info)
+        .is_some_and(|s| s.needs_horizontal);
+    (width, horizontal)
+}
