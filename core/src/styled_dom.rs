@@ -3361,6 +3361,25 @@ impl StyledDom {
     /// condition on the viewport's shape and the shape changed. A custom
     /// property defined under a condition counts as flipped, as its
     /// conditions are not harvested.
+    /// Whether offering `context` would change what the cascade selects: any
+    /// change but a resize that crosses no threshold a condition of this DOM
+    /// names. (`set_dynamic_selector_context` still starts a new cascade
+    /// generation for such a resize: the display-list cache keys on it.)
+    #[must_use]
+    pub fn context_moves_the_cascade(
+        &self,
+        context: &azul_css::dynamic_selector::DynamicSelectorContext,
+    ) -> bool {
+        self.get_css_property_cache()
+            .dynamic_context
+            .as_deref()
+            .is_none_or(|old| {
+                old != context
+                    && (!old.differs_only_in_viewport(context)
+                        || self.resize_flips_a_condition(old, context))
+            })
+    }
+
     fn resize_flips_a_condition(
         &self,
         old: &azul_css::dynamic_selector::DynamicSelectorContext,

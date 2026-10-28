@@ -12002,6 +12002,11 @@ impl LayoutWindow {
             self.child_layout_caches.remove(&child);
         }
         let mut styled_dom = kept.styled_dom;
+        // Read before the context is offered: a resize that flips no
+        // condition still starts a new cascade generation, which is no
+        // restyle of the view's document.
+        let epoch_before = styled_dom.get_css_property_cache().cascade_epoch;
+        let context_restyles = styled_dom.context_moves_the_cascade(&context);
         // The context first, the host's values under it: both re-run what
         // they invalidate (and the layout pass below finds the context in
         // place).
@@ -12013,10 +12018,12 @@ impl LayoutWindow {
         // the new size, no reconcile of every row). A restyle since its last
         // pass (a new cascade epoch) or a diff staged for it reconciles.
         if !host_moved && !mode_moved && !content_moved {
-            let restyled_since = self.pending_css_dirty.as_ref().is_some_and(|(d, _)| *d == child)
-                || self.child_layout_caches.get(&child).is_none_or(|c| {
-                    c.last_cascade_epoch != styled_dom.get_css_property_cache().cascade_epoch
-                });
+            let restyled_since = context_restyles
+                || self.pending_css_dirty.as_ref().is_some_and(|(d, _)| *d == child)
+                || self
+                    .child_layout_caches
+                    .get(&child)
+                    .is_none_or(|c| c.last_cascade_epoch != epoch_before);
             if !restyled_since {
                 if let Some(c) = self.child_layout_caches.get_mut(&child) {
                     c.resize_only_hint = true;
