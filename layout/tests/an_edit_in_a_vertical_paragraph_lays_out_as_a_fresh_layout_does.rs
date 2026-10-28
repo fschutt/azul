@@ -18,7 +18,7 @@ use crate::an_edit_re_wraps_its_paragraph_as_a_fresh_layout_does::{
 };
 
 /// The paragraph's text items: (line, text, x, y), in layout order.
-fn items_of(lw: &LayoutWindow) -> Vec<(usize, String, f32, f32)> {
+pub(crate) fn items_of(lw: &LayoutWindow) -> Vec<(usize, String, f32, f32)> {
     let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
     let layout = (0..tree.nodes.len())
         .filter(|&index| tree.nodes[index].dom_node_id == Some(NodeId::new(PARAGRAPH)))
@@ -41,7 +41,10 @@ fn items_of(lw: &LayoutWindow) -> Vec<(usize, String, f32, f32)> {
 
 /// Whether two layouts put the same text on the same lines at the same
 /// places.
-fn same_layout(a: &[(usize, String, f32, f32)], b: &[(usize, String, f32, f32)]) -> bool {
+pub(crate) fn same_layout(
+    a: &[(usize, String, f32, f32)],
+    b: &[(usize, String, f32, f32)],
+) -> bool {
     a.len() == b.len()
         && a.iter().zip(b).all(|(x, y)| {
             x.0 == y.0 && x.1 == y.1 && (x.2 - y.2).abs() < 0.01 && (x.3 - y.3).abs() < 0.01
