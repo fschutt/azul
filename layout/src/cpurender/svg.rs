@@ -2322,10 +2322,9 @@ mod autotest_generated {
             f32::INFINITY,
             f32::NEG_INFINITY,
         )])]));
-        // total_vertices() is the real check: the extreme coords are stored, no panic,
-        // no data loss. (last_x() is NOT usable here -- close_polygon() appends its own
-        // bookkeeping vertex at (0,0), so last_x() reads that marker, not our coord.)
-        assert_eq!(p.total_vertices(), 3);
+        // A ring with a non-finite point is left out whole: AGG never sees a NaN
+        // or an infinite coordinate to rasterize.
+        assert_eq!(p.total_vertices(), 0);
     }
 
     #[test]
