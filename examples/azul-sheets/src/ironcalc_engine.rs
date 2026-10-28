@@ -1109,9 +1109,8 @@ mod tests {
         assert_eq!(back.frozen(0), (1, 0));
     }
 
-    /// IronCalc keeps a sheet's merges (`<mergeCells>`) but its UserModel
-    /// cannot change them: the engine keeps them by the sheet's stable id
-    /// and writes them into the saved file.
+    /// IronCalc keeps a sheet's merges (`<mergeCells>`) on the sheet: they
+    /// follow it when it moves and come back from the saved file.
     #[test]
     fn merges_are_saved_into_the_xlsx_and_follow_their_sheet() {
         let mut e = IronCalcEngine::new_empty();
@@ -1133,6 +1132,49 @@ mod tests {
         assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 3, 2, 5)]);
         back.unmerge(CellArea::cell(CellAddr::new(1, 2, 4))).unwrap();
         assert!(back.merges(1).is_empty());
+    }
+
+    /// IronCalc refuses input into a cell a merge covers. A merge the file
+    /// brought is IronCalc's own like any other, so once it is unmerged its
+    /// cells take input again.
+    #[test]
+    fn an_unmerged_area_from_the_file_takes_input_in_every_cell() {
+        let mut e = IronCalcEngine::new_empty();
+        let area = CellArea::spanning(0, 1, 1, 2, 2); // A1:B2
+        e.merge(area).unwrap();
+        assert!(e.set_cell_input(at(2, 2), "covered").is_err(), "B2 is covered by A1:B2");
+
+        let mut back = IronCalcEngine::new_empty();
+        back.load_xlsx(&e.save_xlsx().unwrap(), "copy").unwrap();
+        assert_eq!(back.merges(0), vec![area]);
+        back.unmerge(area).unwrap();
+        assert!(back.merges(0).is_empty());
+        back.set_cell_input(at(2, 2), "free").unwrap();
+        assert_eq!(back.cell_input(at(2, 2)), "free");
+    }
+
+    /// A merge is an undo step like any other edit, and a merge IronCalc
+    /// refuses (two of its cells hold input) leaves the merge it would have
+    /// replaced where it was.
+    #[test]
+    fn a_merge_undoes_and_a_refused_merge_keeps_the_merge_it_overlaps() {
+        let mut e = IronCalcEngine::new_empty();
+        let first = CellArea::spanning(0, 1, 1, 2, 2); // A1:B2
+        e.set_cell_input(at(1, 1), "kept").unwrap();
+        e.merge(first).unwrap();
+        e.undo().unwrap();
+        assert!(e.merges(0).is_empty(), "undo takes the merge back");
+        e.redo().unwrap();
+        assert_eq!(e.merges(0), vec![first]);
+
+        e.set_cell_input(at(1, 3), "second").unwrap(); // C1, beside the merge
+        assert!(
+            e.merge(CellArea::spanning(0, 1, 1, 2, 3)).is_err(),
+            "A1 and C1 both hold input"
+        );
+        assert_eq!(e.merges(0), vec![first], "the refused merge did not replace A1:B2");
+        assert_eq!(e.cell_input(at(1, 1)), "kept");
+        assert_eq!(e.cell_input(at(1, 3)), "second");
     }
 
     /// The brief's conditional formatting, IronCalc evaluating it: a cell

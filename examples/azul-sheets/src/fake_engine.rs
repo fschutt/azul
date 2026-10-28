@@ -1068,6 +1068,21 @@ mod tests {
         assert_eq!(e.cell_input(at(2, 2)), "x", "and only it");
     }
 
+    /// Like IronCalc, the fake keeps one value per merged cell: a merge over two
+    /// inputs is refused and leaves no undo step.
+    #[test]
+    fn a_merge_over_two_inputs_is_refused_like_ironcalcs() {
+        let mut e = FakeEngine::new();
+        e.set_cell_input(at(1, 1), "a").unwrap();
+        e.set_cell_input(at(1, 2), "b").unwrap();
+        assert!(e.merge(CellArea::spanning(0, 1, 1, 1, 2)).is_err());
+        assert!(e.merges(0).is_empty());
+        e.undo().unwrap();
+        assert_eq!(e.cell_input(at(1, 2)), "", "the last undo step was B1's input");
+        e.merge(CellArea::spanning(0, 1, 1, 1, 2)).unwrap(); // only A1 holds input now
+        assert_eq!(e.merges(0), vec![CellArea::spanning(0, 1, 1, 1, 2)]);
+    }
+
     #[test]
     fn numbers_booleans_and_text_parse_into_their_values() {
         let mut e = FakeEngine::new();
