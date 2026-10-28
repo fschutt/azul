@@ -439,6 +439,24 @@ impl<'a> BreakCursor<'a> {
         }
     }
 
+    /// A cursor over `items` that breaks them as `constraints` say, by their
+    /// `word-break`, `hyphens` and `line-break`.
+    ///
+    /// Every line breaker of a paragraph starts here, its first layout and a
+    /// relayout after an edit alike, so the lines of both follow the same
+    /// style.
+    #[must_use]
+    pub fn for_constraints(items: &'a [ShapedItem], constraints: &UnifiedConstraints) -> Self {
+        Self {
+            items,
+            next_item_index: 0,
+            partial_remainder: Vec::new(),
+            word_break: constraints.word_break,
+            hyphens: constraints.hyphenation,
+            line_break: constraints.line_break,
+        }
+    }
+
     /// Checks if the cursor is at the very beginning of the content stream.
     #[must_use]
     pub const fn is_at_start(&self) -> bool {

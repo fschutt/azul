@@ -25835,7 +25835,9 @@ impl LayoutWindow {
         use crate::text3::cache::{perform_fragment_layout, BreakCursor};
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let mut cursor = BreakCursor::new(shaped_items);
+        // The paragraph's word-break, hyphens and line-break, as its full
+        // layout breaks it.
+        let mut cursor = BreakCursor::for_constraints(shaped_items, constraints);
         perform_fragment_layout(
             &mut cursor,
             logical_items,

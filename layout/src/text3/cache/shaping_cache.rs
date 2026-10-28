@@ -1140,12 +1140,9 @@ impl TextShapingCache {
 
         // --- Stage 5: The Flow Loop ---
         let mut fragment_layouts = HashMap::new();
-        // The cursor now manages the stream of items for the entire flow.
-        // §5.2 word-break: pass word_break from constraints to cursor
-        let mut cursor =
-            BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
-        cursor.hyphens = first_constraints.hyphenation;
-        cursor.line_break = first_constraints.line_break;
+        // The cursor now manages the stream of items for the entire flow, with
+        // the first fragment's word-break, hyphens and line-break.
+        let mut cursor = BreakCursor::for_constraints(&oriented_items, first_constraints);
 
         // [g147 az-web-lift] Hard safety bound on the Stage-5 flow loop. On the remill lift this
         // `for fragment in flow_chain` (or the `cursor.is_done()` break) mis-lifts for the NESTED
