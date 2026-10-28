@@ -366,6 +366,9 @@ pub struct Egl {
     pub eglDestroySurface: eglDestroySurface,
     pub eglDestroyContext: eglDestroyContext,
     pub eglTerminate: eglTerminate,
+    pub eglGetCurrentDisplay: eglGetCurrentDisplay,
+    pub eglGetCurrentContext: eglGetCurrentContext,
+    pub eglGetCurrentSurface: eglGetCurrentSurface,
 }
 
 impl Egl {
@@ -388,6 +391,9 @@ impl Egl {
             eglDestroySurface: load_symbol!(lib, _, "eglDestroySurface"),
             eglDestroyContext: load_symbol!(lib, _, "eglDestroyContext"),
             eglTerminate: load_symbol!(lib, _, "eglTerminate"),
+            eglGetCurrentDisplay: load_symbol!(lib, _, "eglGetCurrentDisplay"),
+            eglGetCurrentContext: load_symbol!(lib, _, "eglGetCurrentContext"),
+            eglGetCurrentSurface: load_symbol!(lib, _, "eglGetCurrentSurface"),
             _lib: lib,
         }))
     }

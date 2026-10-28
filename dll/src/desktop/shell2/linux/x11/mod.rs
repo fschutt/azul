@@ -239,9 +239,9 @@ extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent)
 enum RenderMode {
     Gpu(gl::GlContext, GlFunctions),
     Cpu(Option<GC>), // Option to hold the Graphics Context
-    /// Transient teardown state: the GL context / graphics context has been
-    /// dropped early (before the X window + display it depends on). Only ever
-    /// set in the Drop impl; never rendered in this state.
+    /// Teardown state: the GL context / graphics context has been released
+    /// (`X11Window::release_graphics`, before the X window and display it
+    /// depends on go). Set only on the way out; never rendered in this state.
     None,
 }
 
@@ -3333,29 +3333,15 @@ impl X11Window {
     }
 
     /// Destroy the X11 window, free the ARGB colormap, and close the display.
+    /// Its graphics go first ([`Self::release_graphics`]), while the window
+    /// and the display they depend on are alive.
     pub fn close(&mut self) {
         // The popups this window opened close with it (a popup's own popup has
         // no other parent to close it).
         PlatformWindow::close_transient_windows(self);
-        // WebRender's Renderer must be deinit()'d, not dropped — texture
-        // deletion has to happen inside a frame. Never doing so crashed debug
-        // builds on close and leaked GPU resources in release.
-        //
-        // deinit() issues real GL calls, so OUR context must be current: with
-        // several windows open, whichever window rendered last left ITS
-        // context current, and deinit would then delete textures/programs in
-        // the wrong context (cross-context corruption + leaking the real
-        // resources). No-op when render_mode is already None (the Drop path
-        // deinits the renderer itself, before tearing the context down).
-        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
-            gl_context.make_current();
-        }
-        self.common.deinit_renderer();
+        self.release_graphics();
         if self.is_open {
             self.is_open = false;
-            if let Some(doc_id) = self.common.document_id {
-                crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
-            }
             unsafe {
                 // Release a menu/popup's pointer grab on close (no-op otherwise).
                 if self.common.current_window_state().flags.window_type
@@ -3400,6 +3386,56 @@ impl X11Window {
                     }
                 }
             }
+        }
+    }
+
+    /// The window's graphics, released in its own GL context while the X
+    /// window and the display they depend on are alive: WebRender's renderer
+    /// is deinit()'d (texture deletion happens inside a frame), the app's GL
+    /// textures of this document go, and so does the GL context pointer, whose
+    /// last clone deletes the SVG / FXAA / brush shader programs - real GL
+    /// calls all, and with several windows open the current context is
+    /// whichever window drew last: run in that one, they would free another
+    /// window's textures and programs that happen to have the same numbers.
+    /// Then the EGL context and surface go (or the CPU path's graphics
+    /// context and shared-memory segment), and the thread gets back the
+    /// binding it had. Not in `Drop`: the run loop drops a window after
+    /// `close` destroyed it and maybe closed the display that the GC and the
+    /// EGL display point into.
+    ///
+    /// Runs once: afterwards the render mode is `None`.
+    fn release_graphics(&mut self) {
+        let mut binding = None;
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            binding = Some((
+                gl::EglBinding::current(&gl_context.egl),
+                gl_context.egl.clone(),
+                gl_context.egl_context,
+            ));
+            gl_context.make_current();
+        }
+        self.common.deinit_renderer();
+        if let Some(doc_id) = self.common.document_id {
+            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+        }
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
+        // `RenderMode::Cpu(Option<GC>)` holds a bare X resource id and the enum
+        // has no `Drop`: the GC is freed by hand, or the X server keeps one
+        // per window for the life of the connection.
+        if let RenderMode::Cpu(Some(gc)) = self.render_mode {
+            unsafe {
+                (self.xlib.XFreeGC)(self.display, gc);
+            }
+        }
+        // The MIT-SHM segment: detached while the display is still open.
+        if let Some(mut shm) = self.shm_upload.take() {
+            unsafe { shm.destroy(&self.xlib, self.display) };
+        }
+        // The EGL context and surface go here (`GlContext::drop`, which also
+        // unbinds whatever is current).
+        self.render_mode = RenderMode::None;
+        if let Some((binding, egl, closing)) = binding {
+            binding.restore_unless(&egl, closing);
         }
     }
 
@@ -8815,69 +8851,10 @@ impl Drop for X11Window {
         // Unregister from global registry before closing
         super::registry::unregister_window(self.window as u64);
 
-        // Tear down the GL context / graphics context BEFORE the X resources it
-        // depends on. close() destroys the X window and (for a display owner)
-        // closes the X display; the EGL context / GC live in `render_mode`, a
-        // struct field that would otherwise drop AFTER close() returns — i.e.
-        // eglDestroyContext / XFreeGC would run against a destroyed window /
-        // closed display, crashing on exit (the exit-time GL crash). Assigning
-        // None drops the old RenderMode (running its GL teardown) while the
-        // window + display are still alive, fixing the teardown ordering.
-        //
-        // `common.gl_context_ptr` has to go FIRST, and while the context is
-        // still current: its Drop runs `glDeleteProgram` for the SVG/FXAA/
-        // brush shaders (`azul_core::gl::GlContextPtrInner::drop`), which are
-        // real GL calls, and it is a field of `self.common` so it would
-        // otherwise drop after this whole body.
-        //
-        // On X11 that ordering is currently survivable rather than correct:
-        // this backend's `GlContext::drop` destroys the surface and context
-        // but does NOT call `eglTerminate`, so the driver stays loaded and the
-        // late `glDeleteProgram` dispatches into a live library. Wayland's
-        // does call `eglTerminate`, and there the same code jumped into freed
-        // memory — a hard SIGSEGV on every exit. Fixed here too so the two
-        // backends do not differ on whether a latent bug happens to be fatal.
-        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
-            gl_context.make_current();
-        }
-
-        // WebRender's Renderer::deinit BEFORE the context teardown below: it
-        // issues real GL calls (texture/shader deletion) and needs the live,
-        // CURRENT context. It used to run inside close() at the END of this
-        // body — but the WM_DELETE path never calls close() itself (the run
-        // loop drops the window on !is_open), so on every WM-close the deinit
-        // dispatched GL through a context `render_mode = None` had already
-        // destroyed. deinit_renderer() takes the renderer out, so the later
-        // close() call is a no-op — nothing runs twice.
-        self.common.deinit_renderer();
-
-        self.common.gl_context_ptr = OptionGlContextPtr::None;
-
-        // Free the CPU-path graphics context EXPLICITLY.
-        //
-        // `RenderMode::Cpu(Option<GC>)` holds a bare X resource id and the enum
-        // has no `Drop`, so assigning `RenderMode::None` below drops the
-        // Option<GC> without telling the X server anything — one leaked GC per
-        // window, for the life of the connection. The comment above this block
-        // asserts that "eglDestroyContext / XFreeGC would run against a
-        // destroyed window", i.e. it was written believing this teardown
-        // already happened. It did not; only the GL arm has a Drop.
-        //
-        // Order matters and is why this sits here rather than in a Drop impl:
-        // the GC must go while `self.display` and `self.window` are still
-        // alive, which is exactly the window this block was built to provide —
-        // `self.close()` on the next line destroys both.
-        if let RenderMode::Cpu(Some(gc)) = self.render_mode {
-            unsafe {
-                (self.xlib.XFreeGC)(self.display, gc);
-            }
-        }
-        // The MIT-SHM segment: detached while the display is still open.
-        if let Some(mut shm) = self.shm_upload.take() {
-            unsafe { shm.destroy(&self.xlib, self.display) };
-        }
-
-        self.render_mode = RenderMode::None;
+        // The graphics BEFORE the X resources they depend on, then the window
+        // and the display (`close`). A window the loop closed already let
+        // go of both; one dropped open (the end of the run) does it here.
+        self.release_graphics();
         self.close();
     }
 }

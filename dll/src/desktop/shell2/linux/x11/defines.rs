@@ -668,6 +668,12 @@ pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_voi
 pub type eglDestroySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
 pub type eglDestroyContext = unsafe extern "C" fn(EGLDisplay, EGLContext) -> u32;
 pub type eglTerminate = unsafe extern "C" fn(EGLDisplay) -> u32;
+pub type eglGetCurrentDisplay = unsafe extern "C" fn() -> EGLDisplay;
+pub type eglGetCurrentContext = unsafe extern "C" fn() -> EGLContext;
+pub type eglGetCurrentSurface = unsafe extern "C" fn(i32) -> EGLSurface;
+/// eglGetCurrentSurface: the surface bound for drawing, and for reading.
+pub const EGL_DRAW: i32 = 0x3059;
+pub const EGL_READ: i32 = 0x305A;
 
 // XKB types
 #[repr(C)]

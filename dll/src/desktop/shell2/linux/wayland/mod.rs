@@ -1421,14 +1421,54 @@ impl WaylandWindow {
         // The popups this window opened close with it (a popup's own popup has
         // no other parent to close it).
         PlatformWindow::close_transient_windows(self);
-        // WebRender's Renderer must be deinit()'d, not dropped — texture
-        // deletion has to happen inside a frame. Never doing so crashed debug
-        // builds on close and leaked GPU resources in release.
+        let binding = self.egl_binding();
+        self.release_gpu_in_own_context();
+        if let Some((binding, egl, closing)) = binding {
+            binding.restore_unless(&egl, closing);
+        }
+        self.is_open = false;
+    }
+
+    /// The EGL binding of the thread before this window's teardown, with what
+    /// gives it back (`EglBinding::restore_unless`): the library and this
+    /// window's own context. `None` on the CPU path.
+    fn egl_binding(
+        &self,
+    ) -> Option<(
+        crate::desktop::shell2::linux::x11::gl::EglBinding,
+        Rc<crate::desktop::shell2::linux::x11::dlopen::Egl>,
+        *mut core::ffi::c_void,
+    )> {
+        let RenderMode::Gpu(ref gl_context, _) = self.render_mode else {
+            return None;
+        };
+        let egl = gl_context.egl.clone()?;
+        let binding = crate::desktop::shell2::linux::x11::gl::EglBinding::current(&egl);
+        Some((
+            binding,
+            egl,
+            gl_context.egl_context.unwrap_or(core::ptr::null_mut()),
+        ))
+    }
+
+    /// The window's GPU side in its OWN context: WebRender's renderer is
+    /// deinit()'d (texture deletion happens inside a frame), the app's GL
+    /// textures of this document go, and so does the GL context pointer,
+    /// whose last clone deletes the SVG / FXAA / brush shader programs. Real
+    /// GL calls all, and with several windows open the current context is
+    /// whichever window drew last: run in that one, they would free another
+    /// window's textures and programs that happen to have the same numbers.
+    /// The EGL context itself goes with the surface it wraps, in `Drop`.
+    /// A second call finds nothing left to release.
+    fn release_gpu_in_own_context(&mut self) {
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
         self.common.deinit_renderer();
         if let Some(doc_id) = self.common.document_id {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
         }
-        self.is_open = false;
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
     }
 
     /// Re-point every proxy's listener user-data to this (now stable, boxed) `self`.
@@ -8828,15 +8868,18 @@ impl Drop for WaylandWindow {
         //      below, dispatching through function pointers into a library eglTerminate had already
         //      torn down — the crash landed in `?? ()` one frame under `delete_program`.
         //   2. Only then may the EGL context itself go.
-        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
-            gl_context.make_current();
-        }
-        self.common.gl_context_ptr = OptionGlContextPtr::None;
+        //   3. Its destruction unbinds whatever is current: the binding the
+        //      thread had comes back after it.
+        let binding = self.egl_binding();
+        self.release_gpu_in_own_context();
 
         drop(std::mem::replace(
             &mut self.render_mode,
             RenderMode::Cpu(None),
         ));
+        if let Some((binding, egl, closing)) = binding {
+            binding.restore_unless(&egl, closing);
+        }
 
         // Close all timerfd's
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
