@@ -1375,6 +1375,24 @@ impl E2eCommandCallback {
     }
 }
 
+// Host-invoker plumbing for E2E commands, so a managed binding can register
+// a closure as an app command like any other callback. A command whose host
+// callable cannot answer reports the op as not handled, which the scenario
+// sees as an unknown op instead of a silent success.
+azul_core::impl_managed_callback! {
+    wrapper:        E2eCommandCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      azul_core::events::CustomE2eOpResult,
+    default_ret:    azul_core::events::CustomE2eOpResult::default(),
+    invoker_static: E2E_COMMAND_CALLBACK_INVOKER,
+    invoker_ty:     AzE2eCommandCallbackInvoker,
+    thunk_fn:       az_e2e_command_callback_thunk,
+    setter_fn:      AzApp_setE2eCommandCallbackInvoker,
+    from_handle_fn: AzE2eCommandCallback_createFromHostHandle,
+    from_handle_byref_fn: AzE2eCommandCallback_createFromHostHandleByref,
+    extra_args:     [ op: AzString, args: AzString ],
+}
+
 /// Allow Callback to be passed to functions expecting `C: Into<CoreCallback>`
 impl From<Callback> for CoreCallback {
     fn from(callback: Callback) -> Self {

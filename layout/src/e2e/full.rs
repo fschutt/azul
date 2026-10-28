@@ -16771,7 +16771,7 @@ pub fn process_debug_event(
                 // starts threads and timers and changes the UI through it,
                 // and those changes are applied after this op like any
                 // callback's.
-                (command.cb)(
+                command.invoke(
                     app_data.clone(),
                     *callback_info,
                     azul_css::AzString::from(name.clone()),
