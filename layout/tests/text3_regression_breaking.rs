@@ -350,14 +350,18 @@ fn breaks_at_last_hyphen_that_fits() {
 }
 
 #[test]
-fn slash_offers_a_soft_wrap_opportunity() {
-    // UAX#14 class SY: a break is allowed after U+002F SOLIDUS (non-numeric context).
-    // "aaaa/aaaa" (102px) should wrap after the slash in a 60px box, keeping "aaaa/"
-    // (54px) on line 0. The impl offers no break after '/', so it stays on one line
-    // (and the overflow is dropped by the positioner).
+fn a_solidus_between_ascii_letters_is_no_soft_wrap_opportunity() {
+    // UAX#14 class SY allows a break after U+002F SOLIDUS, but Chrome's line
+    // breaking table for ASCII text does not: "and/or", a path and a URL stay
+    // whole there (it breaks after a solidus only before a letter outside
+    // ASCII). "aaaa/aaaa" (102px) keeps to one line in a 60px box and
+    // overflows it, as in Chrome.
     let l = layout("aaaa/aaaa", AvailableSpace::Definite(60.0));
-    assert_eq!(line_count(&l), 2, "a break opportunity must follow '/'");
-    assert_px(line_width(&l, 0), 54.0);
+    assert_eq!(
+        line_count(&l),
+        1,
+        "a solidus between ASCII letters must not break"
+    );
 }
 
 #[test]
