@@ -1068,29 +1068,7 @@ impl TextShapingCache {
         // when unicode-bidi is plaintext, the paragraph's base direction is determined from
         // text content (first strong character), ignoring the containing block's direction
         // property. Empty paragraphs fall back to the containing block's direction.
-        let unicode_bidi_val = first_constraints.unicode_bidi;
-        let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
-            // Auto-detect from text content; fall back to containing block direction
-            let has_strong = logical_items.iter().any(|item| {
-                if let LogicalItem::Text { text, .. } = item {
-                    matches!(
-                        unicode_bidi::get_base_direction(&**text),
-                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl
-                    )
-                } else {
-                    false
-                }
-            });
-            if has_strong {
-                get_base_direction_from_logical(&logical_items)
-            } else {
-                // Empty paragraph: use containing block's direction
-                first_constraints.direction.unwrap_or(BidiDirection::Ltr)
-            }
-        } else {
-            // Normal case: use CSS direction property
-            first_constraints.direction.unwrap_or(BidiDirection::Ltr)
-        };
+        let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, first_constraints);
         let visual_key = VisualItemsKey {
             logical_items_id,
             base_direction,
@@ -1267,27 +1245,8 @@ impl TextShapingCache {
             })
             .clone();
 
-        // Stage 2: BiDi (same derivation as layout_flow)
-        let unicode_bidi_val = constraints.unicode_bidi;
-        let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
-            let has_strong = logical_items.iter().any(|item| {
-                if let LogicalItem::Text { text, .. } = item {
-                    matches!(
-                        unicode_bidi::get_base_direction(&**text),
-                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl
-                    )
-                } else {
-                    false
-                }
-            });
-            if has_strong {
-                get_base_direction_from_logical(&logical_items)
-            } else {
-                constraints.direction.unwrap_or(BidiDirection::Ltr)
-            }
-        } else {
-            constraints.direction.unwrap_or(BidiDirection::Ltr)
-        };
+        // Stage 2: BiDi (the derivation every layout of the paragraph shares)
+        let (base_direction, unicode_bidi_val) = paragraph_bidi(&logical_items, constraints);
         let visual_key = VisualItemsKey {
             logical_items_id,
             base_direction,

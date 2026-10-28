@@ -364,6 +364,40 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDir
     }
 }
 
+/// The base direction and the `unicode-bidi` a paragraph's text is put in
+/// visual order with: its constraints' `direction`, or with
+/// `unicode-bidi: plaintext` the direction of its first strong letter (that
+/// of `direction` in a paragraph without one).
+///
+/// The full layout, the intrinsic sizes and a relayout after an edit all
+/// reorder a paragraph by these, so none of them sees it in another order.
+#[must_use]
+pub fn paragraph_bidi(
+    logical_items: &[LogicalItem],
+    constraints: &UnifiedConstraints,
+) -> (BidiDirection, UnicodeBidi) {
+    let mode = constraints.unicode_bidi;
+    let given = constraints.direction.unwrap_or(BidiDirection::Ltr);
+    if mode != UnicodeBidi::Plaintext {
+        return (given, mode);
+    }
+    let has_strong = logical_items.iter().any(|item| {
+        matches!(
+            item,
+            LogicalItem::Text { text, .. } if matches!(
+                unicode_bidi::get_base_direction(&**text),
+                unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl
+            )
+        )
+    });
+    let base_direction = if has_strong {
+        get_base_direction_from_logical(logical_items)
+    } else {
+        given
+    };
+    (base_direction, mode)
+}
+
 // +spec:containing-block:149255 - bidi reordering produces inline box fragments that may separate
 // in wide containing blocks +spec:containing-block:c7c08f - bidi reordering produces inline box
 // fragments that may be adjacent in narrow containing blocks +spec:containing-block:2936ae - bidi

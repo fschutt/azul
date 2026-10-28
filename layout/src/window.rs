@@ -25792,7 +25792,7 @@ impl LayoutWindow {
         crate::text3::cache::ParagraphToBreak<'c>,
     )> {
         use crate::text3::cache::{
-            create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
+            create_logical_items, paragraph_bidi, reorder_logical_items, shape_visual_items,
             ParagraphToBreak,
         };
 
@@ -25808,14 +25808,11 @@ impl LayoutWindow {
         // introduces a style no full layout has seen.
         self.ensure_fonts_loaded_for_content(content);
 
-        let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-        let visual_items = reorder_logical_items(
-            &logical_items,
-            base_direction,
-            crate::text3::cache::UnicodeBidi::Normal,
-            &mut None,
-        )
-        .ok()?;
+        // The paragraph's base direction and unicode-bidi, as its full layout
+        // reorders it.
+        let (base_direction, unicode_bidi) = paragraph_bidi(&logical_items, constraints);
+        let visual_items =
+            reorder_logical_items(&logical_items, base_direction, unicode_bidi, &mut None).ok()?;
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
         let shaped_items = shape_visual_items(
