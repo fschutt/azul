@@ -131,9 +131,11 @@ fn a_macos_window_releases_its_gpu_side_in_its_own_context_and_gives_the_previou
 
     let own = body(MACOS_RS, "fn with_own_gl_context(");
     in_order(own, "currentContext", "own.makeCurrentContext()", "with_own_gl_context");
-    in_order(own, "own.makeCurrentContext()", "f(self)", "with_own_gl_context");
-    in_order(own, "f(self)", "previous.makeCurrentContext()", "with_own_gl_context");
-    at(own, "clearCurrentContext", "with_own_gl_context");
+    // What runs after the window's own context is made current (the CPU
+    // backend's `f(self)` comes earlier, without a context).
+    let with_own = &own[at(own, "own.makeCurrentContext()", "with_own_gl_context")..];
+    in_order(with_own, "f(self)", "previous.makeCurrentContext()", "with_own_gl_context");
+    at(with_own, "clearCurrentContext", "with_own_gl_context");
 
     let drop = body(MACOS_RS, "impl Drop for MacOSWindow");
     in_order(drop, "with_own_gl_context", "layout_window.take()", "Drop for MacOSWindow");
