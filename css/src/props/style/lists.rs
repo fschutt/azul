@@ -358,28 +358,23 @@ pub fn to_greek(num: usize, uppercase: bool) -> String {
 
 // --- Parsing Logic ---
 
-#[cfg(feature = "parser")]
 #[derive(Clone, PartialEq, Eq)]
 pub enum StyleListStyleTypeParseError<'a> {
     InvalidValue(&'a str),
 }
 
-#[cfg(feature = "parser")]
 impl_debug_as_display!(StyleListStyleTypeParseError<'a>);
 
-#[cfg(feature = "parser")]
 impl_display! { StyleListStyleTypeParseError<'a>, {
     InvalidValue(val) => format!("Invalid list-style-type value: \"{}\"", val),
 }}
 
-#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleListStyleTypeParseErrorOwned {
     InvalidValue(AzString),
 }
 
-#[cfg(feature = "parser")]
 impl StyleListStyleTypeParseError<'_> {
     #[must_use]
     pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
@@ -391,7 +386,6 @@ impl StyleListStyleTypeParseError<'_> {
     }
 }
 
-#[cfg(feature = "parser")]
 impl StyleListStyleTypeParseErrorOwned {
     #[must_use]
     pub fn to_shared(&self) -> StyleListStyleTypeParseError<'_> {
@@ -402,7 +396,10 @@ impl StyleListStyleTypeParseErrorOwned {
 }
 
 /// Parses a CSS `list-style-type` value from a string.
-#[cfg(feature = "parser")]
+///
+/// Not behind `parser`: azul-core reads the style of `counter(name, style)`
+/// with it when it builds generated content.
+///
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `list-style-type` value.

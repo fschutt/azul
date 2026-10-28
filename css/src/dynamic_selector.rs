@@ -2117,7 +2117,9 @@ impl DynamicSelector {
 ///
 /// Returns `None` only when the content is a parse error.
 /// `Some(vec![])` means "always match" (the rule applies unconditionally).
-#[cfg(feature = "parser")]
+///
+/// Not behind `parser`: azul-core reads icon rules' `apply-if` conditions
+/// with it.
 #[must_use]
 pub fn parse_os_at_rule_content(content: &str) -> Option<Vec<DynamicSelector>> {
     let trimmed = content.trim();
@@ -2202,7 +2204,6 @@ pub fn parse_os_at_rule_content(content: &str) -> Option<Vec<DynamicSelector>> {
     Some(out)
 }
 
-#[cfg(feature = "parser")]
 #[derive(Copy, Clone)]
 enum VersionOp {
     Min,
@@ -2212,7 +2213,6 @@ enum VersionOp {
 
 /// Find the first comparison operator (`>=`, `<=`, `=`, `>`, `<`) in `s` and split.
 /// `>` and `<` are treated as `>=` / `<=` because version IDs are discrete integers.
-#[cfg(feature = "parser")]
 fn split_op_and_version(s: &str) -> (&str, Option<(VersionOp, &str)>) {
     // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same
     // position).
@@ -2240,7 +2240,6 @@ fn split_op_and_version(s: &str) -> (&str, Option<(VersionOp, &str)>) {
     }
 }
 
-#[cfg(feature = "parser")]
 fn parse_os_family_token(s: &str) -> Option<OsCondition> {
     match s.to_lowercase().as_str() {
         "linux" => Some(OsCondition::Linux),
@@ -2255,7 +2254,6 @@ fn parse_os_family_token(s: &str) -> Option<OsCondition> {
     }
 }
 
-#[cfg(feature = "parser")]
 fn parse_de_token(s: &str) -> LinuxDesktopEnv {
     match s.to_lowercase().as_str() {
         "gnome" => LinuxDesktopEnv::Gnome,
