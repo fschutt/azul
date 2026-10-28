@@ -1181,6 +1181,36 @@ mod tests {
         )
     }
 
+    /// A document taller than an f32 can step through by pages (a fuzzer's
+    /// `height="1e12"` SVG) ends its breaks where a page no longer moves the
+    /// position, instead of pushing the same break forever.
+    #[test]
+    fn interval_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let breaks = compute_page_breaks_from_forced(&[], &constraints(3.0e7, 1.0), 1.0e12);
+        assert!(!breaks.is_empty(), "harness: the first page breaks");
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
+    }
+
+    /// The same for the pass that moves breaks around boxes that avoid one.
+    #[test]
+    fn avoiding_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let (styled, dl) = avoid_fixture(vec![(rect_item(0.0, 1.0e12), None)]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 3.0e7, 1.0);
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
+    }
+
     #[test]
     fn policy_off_is_byte_identical_to_the_plain_algorithm() {
         let (styled, dl) = avoid_fixture(vec![
