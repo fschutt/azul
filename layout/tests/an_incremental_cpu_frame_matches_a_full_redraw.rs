@@ -667,6 +667,10 @@ fn one_change(change: impl Fn(&mut Scene), budget_px: f64, what: &str) {
     };
     for dpi in [96, 192] {
         let mut lw = window(dpi);
+        // Twice: the first pass builds its list before the scroll box is
+        // scrolled, the second with the scroll in it, as the page stands on
+        // screen before the change.
+        lay_out(&mut lw, &base);
         lay_out(&mut lw, &base);
         let mut last = Presented::first(&lw);
         let mut scene = base.clone();
