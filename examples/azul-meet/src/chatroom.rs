@@ -3219,4 +3219,51 @@ mod tests {
         }
         assert_eq!(orders.len(), 2, "Ada's key was the higher in some rounds, Ben's in others");
     }
+
+    /// A message the service took and the peers get only later (nobody was online) is the very
+    /// record the service got, sealed once for the members of the time it was posted: a member
+    /// let in meanwhile cannot read it over the peers, though she holds the room's newer key.
+    #[test]
+    fn a_message_handed_to_the_peers_late_is_the_record_the_service_got() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, id, invite) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "Before Cleo", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        // The service stops carrying messages, then Cleo joins: she reads none from it.
+        w.dropped_messages = true;
+        settle(&mut ada, &mut w);
+        let mut cleo = device(3, "Cleo", &id, Some(invite));
+        cleo.room.join();
+        settle(&mut cleo, &mut w);
+        settle(&mut ada, &mut w);
+        ada.room.send(&ada.me, "Hello Cleo", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        assert_eq!(
+            ada.room.current_key(ada.me.device()).map(|k| k.2),
+            Some(3),
+            "the room's key includes Cleo now"
+        );
+        settle(&mut cleo, &mut w);
+        let records = ada.room.peer_records(&ada.me);
+        assert_eq!(records.len(), 2, "both waited for a peer");
+        let posted = &w.rooms[&id].messages;
+        assert_eq!(posted.len(), 1, "the service took the first only");
+        let first = records.iter().find(|r| r.id == posted[0].id).unwrap();
+        assert_eq!(
+            (&first.key_id, &first.body, &first.sig),
+            (&posted[0].key_id, &posted[0].body, &posted[0].sig),
+            "the peers get the record the service got"
+        );
+        let read: Vec<String> = records
+            .iter()
+            .flat_map(|r| cleo.room.take_record(&cleo.me, r.clone()).0.arrived)
+            .map(|m| m.text)
+            .collect();
+        assert_eq!(read, vec!["Hello Cleo"], "what was written before she joined stays sealed");
+        settle(&mut cleo, &mut w);
+        settle(&mut cleo, &mut w);
+        assert_eq!(cleo.room.before_join(), 1, "it counts as written before she could read it");
+        assert_eq!(cleo.room.unreadable(), 0);
+    }
 }
