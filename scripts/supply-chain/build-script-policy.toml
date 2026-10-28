@@ -2868,21 +2868,21 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.11.2+zstd.1.5.2:076775d7f364a613e05f815206c948398e8d2faba69c5e66d42f6dc5337e9e75", "0.13.3:d6354027262844abf2d4d8861dc7602704e61292785cea99bacb3bbee872de65"]
+reviewed = ["0.11.2+zstd.1.5.2:076775d7f364a613e05f815206c948398e8d2faba69c5e66d42f6dc5337e9e75", "0.13.3:d6354027262844abf2d4d8861dc7602704e61292785cea99bacb3bbee872de65", "0.14.3:ddbe30cff234dbc17a714fbd53c63023b2e36718b48b786a9971eb4496273aa0"]
 
 [crate."zstd-safe"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "reads CARGO_CFG_TARGET_ARCH/OS to force the std feature on wasm32 and hermit"
-reviewed = ["5.0.2+zstd.1.5.2:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "7.2.4:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331"]
+reviewed = ["5.0.2+zstd.1.5.2:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "7.2.4:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "8.2.0:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331"]
 
 [crate."zstd-sys"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
-reason = "compiles the vendored zstd C/asm sources with cc; optional pkg-config probe and bindgen"
-reviewed = ["2.0.16+zstd.1.5.7:fab53176ea922925d985673b86c0b4717da96636ef355122faa95dd1c43e16d9"]
+reason = "compiles the vendored zstd C sources with cc (the asm file on x86_64 only); optional pkg-config probe, bindgen and cmake backend; reads ZSTD_SYS_USE_PKG_CONFIG, ZSTD_SYS_NO_HIDE_SYMBOLS and CARGO_CFG_*"
+reviewed = ["2.1.2+zstd.1.5.7:dcc14b3b93362d856cc77a70c6d4118361469069b2b72db6c1d3e06320188cc0"]
 
 [crate."zvariant_derive"]  # proc-macro
 allow = true

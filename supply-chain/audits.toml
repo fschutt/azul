@@ -54,3 +54,21 @@ who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"
 delta = "1.0.9 -> 1.0.10"
 notes = "RUSTSEC-2026-0381 fix: the emSign trust anchors are removed from the bundled root list; data only, MSRV 1.71."
+
+[[audits.zstd]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.13.3 -> 0.14.3"
+notes = "RUSTSEC-2026-0391 fix: Encoder::with_context and Decoder::with_context reset the borrowed context's session first, so input an abandoned stream left buffered no longer becomes the start of the next frame. Also: decoder contexts come from the fallible DCtx::try_create, try_new/try_with_buffer hand the reader back on failure, decode_all and bulk::Decompressor::decompress size their output from the frame header (decode_all reserves at most 32 MiB; a frame larger than the given capacity fails before decoding), bulk::Compressor::set_pledged_src_size, new compress_sized/compress_file helpers (they open only the path they are given), the cmake/vendored/with-rust-allocator features passed through to zstd-safe, licence MIT -> BSD-3-Clause. No unsafe added, no build script, no env or network use; zstd-safe moves to 8.2."
+
+[[audits.zstd-safe]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "7.2.4 -> 8.2.0"
+notes = "The soundness release behind RUSTSEC-2026-0395 to -0406: CCtx/DCtx remember a failed streaming call and refuse further stream calls until a reset, one-shot calls end with a session reset, multithreaded frames are tracked so the dictionary and NbWorkers cannot change under running workers (wait_for_workers), StableInBuffer(true) is refused, init_using_cdict/ddict and ref_cdict/ref_ddict tie the dictionary to the context's lifetime, try_clone refuses contexts it cannot copy soundly and resets the copy, InBuffer/OutBuffer positions are checked after each call, and the block API becomes unsafe and deprecated. Seekable gets NULL and bounds checks and the with-rust-allocator feature adds allocator callbacks (both features are off in azul's tree; skimmed). build.rs unchanged. Read: the CCtx, DCtx, CDict, DDict and buffer changes of lib.rs."
+
+[[audits.zstd-sys]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "2.0.16+zstd.1.5.7 -> 2.1.2+zstd.1.5.7"
+notes = "RUSTSEC-2026-0410 fix: the wasm allocator shim checks the calloc/malloc size for overflow, builds its Layout checked, returns NULL when allocation fails and treats free(NULL) as a no-op. The vendored zstd 1.5.7 C sources are byte-identical (zstd/build/cmake and libzstd.pc.in are added for the new cmake feature, off here); the pre-generated bindings are regenerated with bindgen 0.73 and differ only in doc attributes. build.rs: an optional cmake backend (feature off), the x86-64 asm file only for x86_64 targets, -fvisibility=hidden only off MSVC (from CARGO_CFG_TARGET_ENV), ZSTD_SYS_NO_HIDE_SYMBOLS exports the symbols, and the vendored feature wins over pkg-config; no network, no process beyond cc."

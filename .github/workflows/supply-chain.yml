@@ -180,6 +180,13 @@ jobs:
             EXEMPT+=(--exempt tokio)
             echo "cooldown: tokio exempt until 2026-10-28 (RUSTSEC-2026-0386 fix, AsyncFd I/O safety)"
           fi
+          # zstd 0.14.3, zstd-safe 8.2.0, zstd-sys 2.1.2 (published 2026-10-16): RUSTSEC-2026-0391, -0398, -0403
+          # and -0410 fixes; delta audits from 0.13.3, 7.2.4 and 2.0.16 in supply-chain/audits.toml.
+          # Exempt until they are 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-10-31" ]]; then
+            EXEMPT+=(--exempt zstd --exempt zstd-safe --exempt zstd-sys)
+            echo "cooldown: zstd, zstd-safe, zstd-sys exempt until 2026-10-31 (RUSTSEC-2026-0391/0398/0403/0410 fixes)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"

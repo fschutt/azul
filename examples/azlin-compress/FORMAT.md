@@ -18,7 +18,7 @@ A file written today must still open in twenty years. So:
   - `lepton_jpeg = "=0.5.8"`. Moving to another Lepton version needs either a proof that the new
     version decodes every stream the old one wrote (checked against the golden vectors), or a new
     transform version that keeps the old crate as a second, renamed dependency.
-  - `zstd = "=0.13.3"` and `brotli`: standard formats; any later decoder reads them.
+  - `zstd = "=0.14.3"` and `brotli`: standard formats; any later decoder reads them.
   - `examples/azlin-preflate` (vendored, see below): its rebuild turns corrections into deflate
     bytes, so it **is** transform 2 version 1. A change that alters what it rebuilds from any
     valid corrections needs transform 2 version 2, with the version 1 code kept beside it. Changes

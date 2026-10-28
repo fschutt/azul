@@ -9,7 +9,7 @@ description = "AzDrive's client-side lossless compression: file type detection, 
 [dependencies]
 # zstd per segment, with and without the shipped dictionaries. The C library (libzstd 1.5.7) is the
 # one AzDrive already links; no training code (`zdict_builder`), no legacy formats.
-zstd = { version = "=0.13.3", default-features = false }
+zstd = { version = "=0.14.3", default-features = false }
 # brotli where it beats zstd (text, markup, source code). Pure Rust; already in Cargo.lock.
 brotli = "8"
 # Lossless JPEG recompression (Lepton), pure Rust, `forbid(unsafe_code)`. Pinned exactly: every
