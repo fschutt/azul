@@ -16,6 +16,10 @@ instead of "roughly this wide".
   `(advance-50, 700)`. Nothing about glyph *shape* matters; only *metrics* and
   the presence/behaviour of OpenType layout tables (GSUB/GPOS/vmtx) do. A CPU
   rasterizer will draw these as visible coloured boxes.
+* **Except sections 7 and 8:** those two are small subsets of real OFL fonts,
+  kept for what real Arabic fonts do and the synthetic ones cannot (dots split
+  off their letters, mark and cursive anchors). They are not made by the script
+  above; each one's licence text sits next to it.
 
 ## Shared conventions (unless a font overrides them)
 
@@ -250,3 +254,54 @@ Purpose: varying widths make Knuth-Plass line-breaking and justification
 non-trivial. Worked example — the string `"Ww ll"` (no ligatures/kerning here):
 `W`(900) + `w`(900) + space(250) + `l`(200) + `l`(200) = **2450** units =
 2.45 em, versus 2450/1000·font_size px.
+
+---
+
+## 7. NotoSansArabic-DotsAndMarks.ttf — dots split off letters, mark anchors
+
+| | |
+|---|---|
+| family name | **Noto Sans Arabic** (Regular 2.012, a subset) |
+| licence | SIL OFL 1.1, `NotoSansArabic-OFL.txt` |
+| upem | 1000 |
+| numGlyphs | 42 |
+| cmap | U+0020, U+0627 U+0628 U+062A U+062B U+062D U+062F U+0639 U+0644 U+0645, U+0650 |
+| GSUB | `ccmp init medi fina rlig locl aalt`; `ccmp` splits beh / teh / theh into a dotless letter plus a separate dot glyph (one-to-many substitution) |
+| GPOS | `mark` (mark to base) and `mkmk` (mark to mark) only, no kerning |
+
+**Made with:** `pyftsubset NotoSansArabic-Regular.ttf --text="بالعالم تحدث بِ"
+--layout-features='*' --no-hinting`.
+
+**What HarfBuzz 15.0.0 gives** (font units, RTL, glyphs in logical order,
+offsets relative to the pen at the glyph):
+
+| text | glyph | cluster (byte) | offset |
+|------|-------|----------------|--------|
+| `بالعالم` | dot below of the beh | 0 | (31, -3) |
+| `تحدث` | two dots of the teh | 0 | (5, -59) |
+| `تحدث` | three dots of the theh | 6 | (344, -165) |
+| `بِ` | dot below of the beh | 0 | (410, -23) |
+| `بِ` | kasra U+0650 (mark to mark on the dot) | 2 | (344, -211) |
+
+---
+
+## 8. Amiri-CursiveSample.ttf — cursive attachment
+
+| | |
+|---|---|
+| family name | **Amiri** (Regular 1.002, a subset) |
+| licence | SIL OFL 1.1, `Amiri-OFL.txt` |
+| upem | 1000 |
+| numGlyphs | 51 |
+| cmap | U+0645 meem, U+062C jeem, U+062F dal |
+| GPOS | `curs` only: one lookup, flag `RightToLeft` + `IgnoreMarks` |
+
+**Made with:** `pyftsubset Amiri-Regular.ttf --text="مجد" --layout-features='*'
+--no-hinting`.
+
+`مجد` shapes (logical order) to the initial meem (advance 550, exit anchor
+(0, 254)), the medial jeem (advance 55, entry anchor (55, 235)) and the final
+dal (advance 471). The lookup's `RightToLeft` flag makes the first glyph the
+one that moves, so HarfBuzz 15.0.0 draws the meem at offset (0, -19): its exit
+then meets the jeem's entry. The advances do not change, the anchors' x
+already match them.

@@ -1305,3 +1305,5 @@ mod a_paragraph_hyphenates_again_when_its_language_changes;
 mod an_anonymous_block_around_other_words_is_laid_out_anew;
 #[path = "an_svg_with_absurd_geometry_renders_in_bounded_time.rs"]
 mod an_svg_with_absurd_geometry_renders_in_bounded_time;
+#[path = "an_arabic_letter_keeps_its_dots_and_marks.rs"]
+mod an_arabic_letter_keeps_its_dots_and_marks;
