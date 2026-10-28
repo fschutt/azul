@@ -6259,10 +6259,10 @@ fn build_rounded_rect_path(
     if ![x, y, w, h].iter().all(|v| v.is_finite()) {
         return path;
     }
-    let radius = |r: f32| {
-        let r = f64::from(r * dpi_factor);
-        if r.is_finite() {
-            r
+    let radius = |corner: f32| {
+        let px = f64::from(corner * dpi_factor);
+        if px.is_finite() {
+            px
         } else {
             0.0
         }
