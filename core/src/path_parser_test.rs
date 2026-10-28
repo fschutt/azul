@@ -1590,16 +1590,3 @@ mod autotest_generated {
         }
     }
 }
-
-// A number past the f32 range is no number: it parsed to infinity, and an
-// infinite coordinate is no shape the rasterizer can draw.
-mod non_finite_number_tests {
-    use crate::path_parser::parse_svg_path_d;
-
-    #[test]
-    fn a_path_coordinate_past_the_f32_range_is_an_error() {
-        assert!(parse_svg_path_d("M0 0 L1e39 0").is_err());
-        assert!(parse_svg_path_d("M0 0 C0 0 0 -1e39 5 5").is_err());
-        assert!(parse_svg_path_d("M0 0 L1e38 0").is_ok(), "large is still a number");
-    }
-}

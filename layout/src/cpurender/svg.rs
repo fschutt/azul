@@ -1663,18 +1663,20 @@ mod autotest_generated {
 
     #[test]
     fn parse_svg_transform_boundary_numbers_saturate_not_panic() {
+        // NaN, infinity and numbers past the f64 range are not SVG numbers:
+        // dropped like other junk (as Chrome ignores such a transform), so no
+        // transform can map the shape to NaN.
         let t = parse_svg_transform("translate(1e400, -1e400)");
-        assert!(t.tx.is_infinite() && t.tx > 0.0, "1e400 -> +inf");
-        assert!(t.ty.is_infinite() && t.ty < 0.0, "-1e400 -> -inf");
+        assert_eq!((t.tx, t.ty), (0.0, 0.0), "1e400 is no number");
 
         let t = parse_svg_transform("scale(NaN)");
-        assert!(t.sx.is_nan() && t.sy.is_nan(), "NaN propagates, no panic");
+        assert!(t.is_identity(1e-12), "NaN is no number");
 
         let t = parse_svg_transform("rotate(NaN)");
-        assert!(t.sx.is_nan() && t.shy.is_nan());
+        assert!(t.is_identity(1e-12));
 
         let t = parse_svg_transform("scale(inf)");
-        assert!(t.sx.is_infinite());
+        assert!(t.is_identity(1e-12));
 
         let t = parse_svg_transform("translate(-0, 9223372036854775807)");
         assert!(t.tx.is_sign_negative() && t.tx == 0.0, "-0 stays -0.0");
