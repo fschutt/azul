@@ -766,23 +766,15 @@ fn position_lines_from_breaks(
             // every line (position_one_line).
             let item_advance = get_item_measure_with_spacing(&item, false);
 
-            let draw_pos = match &item {
-                ShapedItem::Cluster(c) if !c.glyphs.is_empty() => {
-                    let glyph = &c.glyphs[0];
-                    Point {
-                        x: main_axis_pen + glyph.offset.x,
-                        y: cross_axis_pen - glyph.offset.y, // Use - for GPOS offset
-                    }
-                }
-                _ => Point {
+            // An item stands where the pen is, as on every line
+            // (position_one_line); whoever draws its glyphs adds each
+            // glyph's own offset.
+            positioned_items.push(PositionedItem {
+                item: item.clone(),
+                position: Point {
                     x: main_axis_pen,
                     y: cross_axis_pen,
                 },
-            };
-
-            positioned_items.push(PositionedItem {
-                item: item.clone(),
-                position: draw_pos,
                 line_index,
             });
 
