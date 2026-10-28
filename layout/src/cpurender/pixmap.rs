@@ -98,31 +98,36 @@ pub fn blit_pixmap_clipped(
                 continue;
             }
 
-            let sr = u32::from(src.data[si]);
-            let sg = u32::from(src.data[si + 1]);
-            let sb = u32::from(src.data[si + 2]);
-            // Rounded, not truncated: a faint pixel of the layer (a shadow's
-            // tail) under a group opacity keeps the level it paints, as it
-            // does when the group is blended in place.
-            let sa = (u32::from(src.data[si + 3]) * op + 127) / 255;
-
-            if sa == 0 {
-                continue;
-            }
-            if sa == 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            let px = [src.data[si], src.data[si + 1], src.data[si + 2], src.data[si + 3]];
+            blend_over(&mut dst.data[di..di + 4], px, op);
         }
+    }
+}
+
+/// Blends the layer pixel `src` (straight alpha) over the pixel `dst` at the
+/// layer's opacity `op` (0-255): what a composited layer does to each pixel,
+/// and what an opacity group blended in place does with the pixels it
+/// painted, so both paint the same levels.
+#[inline]
+pub(crate) fn blend_over(dst: &mut [u8], src: [u8; 4], op: u32) {
+    let [sr, sg, sb, a] = src.map(u32::from);
+    // Rounded, not truncated: a faint pixel of the layer (a shadow's tail)
+    // under a group opacity keeps the level it paints.
+    let sa = (a * op + 127) / 255;
+    if sa == 0 {
+        return;
+    }
+    if sa == 255 {
+        dst[0] = sr as u8;
+        dst[1] = sg as u8;
+        dst[2] = sb as u8;
+        dst[3] = 255;
+    } else {
+        let inv_sa = 255 - sa;
+        dst[0] = ((sr * sa + u32::from(dst[0]) * inv_sa) / 255) as u8;
+        dst[1] = ((sg * sa + u32::from(dst[1]) * inv_sa) / 255) as u8;
+        dst[2] = ((sb * sa + u32::from(dst[2]) * inv_sa) / 255) as u8;
+        dst[3] = ((sa + u32::from(dst[3]) * inv_sa / 255).min(255)) as u8;
     }
 }
 

@@ -3284,12 +3284,24 @@ pub fn render_single_item(
                 clip_stack.last().copied().flatten(),
                 dpi_factor,
             );
+            // The group is isolated, as the compositor's layer for it is:
+            // its region is set aside and cleared, the group paints into the
+            // cleared pixels, and the pop composites them over what was set
+            // aside with the layer blend (`blend_over`).
             let snap = snapshot_region(
                 pixmap,
                 rect.x as i32,
                 rect.y as i32,
                 rect.width as u32,
                 rect.height as u32,
+            );
+            write_region(
+                pixmap,
+                &vec![0u8; snap.len()],
+                rect.width as u32,
+                rect.height as u32,
+                rect.x as i32,
+                rect.y as i32,
             );
             mask_stack.push(MaskEntry::Opacity {
                 snapshot: snap,
@@ -3317,7 +3329,11 @@ pub fn render_single_item(
                 let h = rect.height as u32;
                 let pw = pixmap.width as i32;
                 let ph = pixmap.height as i32;
-                // Blend: result = snapshot + (current - snapshot) * opacity
+                // What the group painted into its cleared region, then the
+                // backdrop back, then the one over the other at its opacity.
+                let painted = snapshot_region(pixmap, x, y, w, h);
+                write_region(pixmap, &snapshot, w, h, x, y);
+                let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
                 for py in 0..h as i32 {
                     let dy = y + py;
                     if dy < 0 || dy >= ph {
@@ -3330,16 +3346,11 @@ pub fn render_single_item(
                         }
                         let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
                         let si = ((py as u32 * w + px as u32) * 4) as usize;
-                        if pi + 3 >= pixmap.data.len() || si + 3 >= snapshot.len() {
+                        if pi + 3 >= pixmap.data.len() || si + 3 >= painted.len() {
                             continue;
                         }
-                        let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
-                        let inv_op = 255 - op;
-                        for c in 0..4 {
-                            let snap_c = u32::from(snapshot[si + c]);
-                            let cur_c = u32::from(pixmap.data[pi + c]);
-                            pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
-                        }
+                        let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
+                        blend_over(&mut pixmap.data[pi..pi + 4], src, op);
                     }
                 }
             }
