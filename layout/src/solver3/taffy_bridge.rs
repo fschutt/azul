@@ -368,8 +368,7 @@ enum ContentSizeOrigin {
 
 /// Whether a box's own `min-width` / `max-width` can move its width away from
 /// the width its content was laid out at: a `max-width`, or a `min-width`
-/// above zero. The zero `min-width` the bridge gives every stretched item
-/// clamps nothing.
+/// above zero. An auto or zero `min-width` clamps nothing.
 fn width_can_be_clamped(style: &Style) -> bool {
     !style.max_size.width.is_auto()
         || !(style.min_size.width.is_auto() || style.min_size.width == Dimension::length(0.0))
@@ -1556,24 +1555,20 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             self.should_suppress_cross_intrinsic(node_idx, &style);
 
         // Force the cross size to Auto: taffy treats Auto size + Stretch
-        // alignment as a signal to fill the line. An AUTO min-size becomes 0
-        // there (a cross-axis `min-*: auto` has no content minimum); a
-        // DECLARED one stays - the stretched size is clamped by it again
-        // (CSS Flexbox 9.4 step 11, Chrome). It was zeroed too: a stretched
-        // flex-container item with `min-height: 22px` (every TextInput in a
-        // stretching row) came out as its 12px of content.
+        // alignment as a signal to fill the line. The min-size stays as
+        // declared. A cross-axis `min-*: auto` has no content minimum, and
+        // taffy clamps nothing with it; a declared one clamps the stretched
+        // size again (CSS Flexbox 9.4 step 11, as Chrome does). An auto
+        // min-size must not become 0: under a min-content measure taffy
+        // hands the item its min cross size as a definite space, and the
+        // item would be laid out zero wide where the flex algorithm asks for
+        // its fit-content size.
         if suppress_width {
             style.size.width = Dimension::auto();
-            if style.min_size.width == Dimension::auto() {
-                style.min_size.width = Dimension::length(0.0);
-            }
         }
 
         if suppress_height {
             style.size.height = Dimension::auto();
-            if style.min_size.height == Dimension::auto() {
-                style.min_size.height = Dimension::length(0.0);
-            }
         }
 
         style
