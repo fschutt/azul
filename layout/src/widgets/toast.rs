@@ -907,18 +907,15 @@ impl Toast {
 
     /// The container CSS this toast renders with.
     ///
-    /// `None` means no opinion, so the kind's default in the toast's theme
-    /// applies. Pinned to flat that is the kind's LIGHT face alone - `dom()`
-    /// appends its dark twins (`build_toast_dark_twins`); the flora card
-    /// comes complete; unpinned, it is the card of the theme the DOM is
-    /// built for (the toast follows the app theme).
+    /// `None` means no opinion, so the kind's card in the toast's theme
+    /// applies, its dark twins included: the card `dom()` paints. Unpinned,
+    /// it is the card of the theme the DOM is built for (the toast follows
+    /// the app theme).
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style.clone().into_option().unwrap_or_else(|| {
-            match crate::widgets::themes::theme_blocks::live_theme(self.theme) {
-                UiTheme::Flat => build_toast_style(self.kind),
-                UiTheme::Flora => (skin_for(UiTheme::Flora).container)(self.kind),
-            }
+            let theme = crate::widgets::themes::theme_blocks::live_theme(self.theme);
+            (skin_for(theme).container)(self.kind)
         })
     }
 
@@ -1255,6 +1252,11 @@ mod autotest_generated {
         ToastKind::Warning,
         ToastKind::Danger,
     ];
+
+    /// The flat card of a kind: its light face, then its dark twins.
+    fn flat_card(kind: ToastKind) -> CssPropertyWithConditionsVec {
+        (skin_for(UiTheme::Flat).container)(kind)
+    }
 
     /// The text of a text node, looking through the `<p>` block wrapper the
     /// label convention mandates (`p > text`).
@@ -1950,7 +1952,7 @@ mod autotest_generated {
         // The flat card.
         assert_eq!(
             toast.clone().with_theme(UiTheme::Flat).resolved_container_style(),
-            build_toast_style(ToastKind::Info)
+            flat_card(ToastKind::Info)
         );
     }
 
@@ -2034,7 +2036,7 @@ mod autotest_generated {
             assert!(toast.toast_state.inner.visible);
             assert_eq!(
                 toast.clone().with_theme(UiTheme::Flat).resolved_container_style(),
-                build_toast_style(kind),
+                flat_card(kind),
                 "{kind:?}: the container style must match the kind it was built with"
             );
         }
@@ -2064,7 +2066,7 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             toast.set_kind(kind);
             assert_eq!(toast.kind, kind);
-            assert_eq!(toast.resolved_container_style(), build_toast_style(kind));
+            assert_eq!(toast.resolved_container_style(), flat_card(kind));
 
             // applying the same kind twice must not append/duplicate anything
             let before = toast.resolved_container_style();
@@ -2076,7 +2078,7 @@ mod autotest_generated {
             );
             assert_eq!(
                 toast.resolved_container_style().len(),
-                32,
+                38,
                 "{kind:?}: restyling must not grow the property vec"
             );
         }
@@ -2131,7 +2133,7 @@ mod autotest_generated {
         assert_eq!(toast.kind, ToastKind::Success);
         assert_eq!(
             toast.resolved_container_style(),
-            build_toast_style(ToastKind::Success)
+            flat_card(ToastKind::Success)
         );
     }
 
@@ -2253,7 +2255,7 @@ mod autotest_generated {
         assert_eq!(toast.kind, ToastKind::Danger);
         assert_eq!(
             toast.resolved_container_style(),
-            build_toast_style(ToastKind::Danger)
+            flat_card(ToastKind::Danger)
         );
         assert!(toast.dismissible);
         assert!(toast.toast_state.on_dismiss.is_some());
@@ -2379,9 +2381,9 @@ mod autotest_generated {
         );
         assert_eq!(
             dom.root.style.iter_inline_properties().count(),
-            style.len() + build_toast_dark_twins(ToastKind::Info).len(),
-            "every container property - and each colour's dark twin - must reach the node's \
-             inline style"
+            style.len(),
+            "every container property - each colour's dark twin among them - must reach the \
+             node's inline style"
         );
 
         let children = dom.children.as_ref();
