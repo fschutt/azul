@@ -35,6 +35,8 @@ pub mod apply_midlevel;
 pub mod autodebug;
 pub mod autodoc;
 pub mod autoreview;
+pub mod comment_context;
+pub mod style_guard;
 pub mod debug;
 pub mod pipeline;
 pub mod regression;
