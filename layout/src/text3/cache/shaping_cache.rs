@@ -1333,7 +1333,12 @@ impl TextShapingCache {
         let mut total = 0.0f32; // running width of the current line
         let mut max_line = 0.0f32; // widest line between forced breaks = max-content
         let mut max_word = 0.0f32;
-        let mut cur_word = 0.0f32;
+        // The min-content's words, the units between soft wrap opportunities:
+        // where the one being measured starts, and the width of each of its
+        // items so far.
+        let hyphenator = hyphenator_for(constraints);
+        let mut word_start = 0usize;
+        let mut word_advances: Vec<f32> = Vec::new();
         let mut max_line_height = 0.0f32;
 
         // CSS Text 3 4.1.2 (white-space Phase II): in the collapsing modes the
@@ -1375,13 +1380,25 @@ impl TextShapingCache {
                 if width + line_indent > max_line {
                     max_line = width + line_indent;
                 }
-                if cur_word > 0.0 && cur_word + word_indent > max_word {
-                    max_word = cur_word + word_indent;
+                // The word before a forced break ends at it.
+                if word_start < item_idx {
+                    let widest = widest_min_content_piece(
+                        &scan_items[word_start..item_idx],
+                        &word_advances,
+                        hyphens,
+                        hyphenator.as_deref(),
+                        scan_is_vertical,
+                        loaded_fonts,
+                    );
+                    if widest > 0.0 && widest + word_indent > max_word {
+                        max_word = widest + word_indent;
+                    }
                 }
+                word_start = item_idx + 1;
+                word_advances.clear();
                 total = 0.0;
                 line_content = 0.0;
                 line_has_content = false;
-                cur_word = 0.0;
                 forced_lines += 1;
                 line_indent = text_indent_of_line(constraints, false, forced_lines > 0);
                 word_indent = line_indent;
@@ -1427,76 +1444,40 @@ impl TextShapingCache {
                 max_line_height = h;
             }
 
-            // A line broken at a soft hyphen holds the word up to it and
-            // the hyphen the line breaker puts there (`hyphen_after`, after
-            // the cluster before the soft hyphen); the rest of the word, the
-            // soft hyphen first, starts the next line.
-            let soft_hyphen =
-                hyphens != Hyphens::None && item.as_cluster().is_some_and(is_soft_hyphen);
-            if soft_hyphen {
-                let hyphen_width = item_idx
-                    .checked_sub(1)
-                    .and_then(|before| scan_items.get(before))
-                    .and_then(ShapedItem::as_cluster)
-                    .and_then(|cluster| hyphen_after(cluster, loaded_fonts))
-                    .map_or(0.0, |hyphen| {
-                        get_item_measure_with_spacing(&hyphen, scan_is_vertical).max(0.0)
-                    });
-                if cur_word > 0.0 {
-                    if cur_word + hyphen_width + word_indent > max_word {
-                        max_word = cur_word + hyphen_width + word_indent;
+            // A word of the min-content is a unit the line breakers end at a
+            // soft wrap opportunity (`is_soft_wrap_between`), as wide as its
+            // widest line there (`widest_min_content_piece`): its widest part
+            // between the hyphenation breaks the line breakers take inside it,
+            // the hyphen ending it, or all of it. A CJK ideograph is one of its
+            // own, and under break-all every letter, so pure-CJK and break-all
+            // text does not measure a min-content of zero; a space the line
+            // removes counts nothing.
+            word_advances.push(adv);
+            let before = item_idx
+                .checked_sub(1)
+                .filter(|&before| before >= word_start)
+                .and_then(|before| scan_items.get(before));
+            let ends_word = scan_items.get(item_idx + 1).is_none_or(|next| {
+                is_soft_wrap_between(before, item, next, word_break, constraints.line_break)
+            });
+            if ends_word {
+                let widest = widest_min_content_piece(
+                    &scan_items[word_start..=item_idx],
+                    &word_advances,
+                    hyphens,
+                    hyphenator.as_deref(),
+                    scan_is_vertical,
+                    loaded_fonts,
+                );
+                if widest > 0.0 {
+                    if widest + word_indent > max_word {
+                        max_word = widest + word_indent;
                     }
                     word_indent = soft_wrap_indent;
                 }
-                cur_word = adv;
-            } else if breaks_around(item, word_break) {
-                if cur_word > 0.0 {
-                    if cur_word + word_indent > max_word {
-                        max_word = cur_word + word_indent;
-                    }
-                    word_indent = soft_wrap_indent;
-                }
-                // A break opportunity that is itself a rendered unit (a CJK
-                // ideograph in normal mode, or any cluster under break-all /
-                // overflow-wrap:anywhere) still forms a minimal unbreakable unit
-                // of its own advance; only true separators (spaces) contribute 0.
-                // Without this, pure-CJK / break-all text measures min-content = 0
-                // and the box collapses to zero inline width.
-                if !is_word_separator(item) {
-                    if adv + word_indent > max_word {
-                        max_word = adv + word_indent;
-                    }
-                    word_indent = soft_wrap_indent;
-                }
-                cur_word = 0.0;
-            } else {
-                cur_word += adv;
-                // A hyphen or a solidus ends its word after it where a line may
-                // break there (`is_soft_wrap_between`): "well-" is a word of its
-                // own, "and/or" and "-12" are one word each.
-                let ends_word = item
-                    .as_cluster()
-                    .is_some_and(|c| c.flags.has(ClusterFlags::ENDS_BREAKABLE))
-                    && scan_items.get(item_idx + 1).is_some_and(|next| {
-                        is_soft_wrap_between(
-                            item_idx.checked_sub(1).and_then(|before| scan_items.get(before)),
-                            item,
-                            next,
-                            word_break,
-                            constraints.line_break,
-                        )
-                    });
-                if ends_word {
-                    if cur_word + word_indent > max_word {
-                        max_word = cur_word + word_indent;
-                    }
-                    word_indent = soft_wrap_indent;
-                    cur_word = 0.0;
-                }
+                word_start = item_idx + 1;
+                word_advances.clear();
             }
-        }
-        if cur_word > 0.0 && cur_word + word_indent > max_word {
-            max_word = cur_word + word_indent;
         }
         // The last line: an indent only counts on a line that holds something
         // (an empty paragraph has no line box to indent).
@@ -1507,7 +1488,7 @@ impl TextShapingCache {
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
         // min-content width equals the max-content width (one unbreakable line).
-        // Without this the scan resets cur_word at each space and reports a
+        // Without this the scan ends a word at each space and reports a
         // too-small min-content, letting flex/shrink-to-fit clip the text.
         let min_content_width = if matches!(constraints.white_space_mode, WhiteSpaceMode::Nowrap) {
             max_line

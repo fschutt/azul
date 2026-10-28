@@ -164,33 +164,21 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
         // +spec:line-breaking:90c1bd - only auto-hyphenate when language is known and hyphenation
         // resource available
-        let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
-            fragment_constraints
-                .hyphenation_language
-                .and_then(|lang| get_hyphenator(lang).ok())
-        } else {
-            None
-        };
+        let hyphenator = hyphenator_for(fragment_constraints);
 
         // Use the Knuth-Plass algorithm for optimal line breaking
         return Ok(crate::text3::knuth_plass::kp_layout(
             &shaped_items,
             logical_items,
             fragment_constraints,
-            hyphenator.as_ref(),
+            hyphenator.as_deref(),
             fonts,
             starts_paragraph,
         ));
     }
 
     // +spec:intrinsic-sizing:57e02d - hyphenation opportunities considered in min-content sizing
-    let hyphenator = if fragment_constraints.hyphenation == Hyphens::Auto {
-        fragment_constraints
-            .hyphenation_language
-            .and_then(|lang| get_hyphenator(lang).ok())
-    } else {
-        None
-    };
+    let hyphenator = hyphenator_for(fragment_constraints);
 
     let mut positioned_items = Vec::new();
     let mut layout_bounds = Rect::default();
@@ -323,7 +311,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 &mut probe,
                 &lc,
                 false,
-                hyphenator.as_ref(),
+                hyphenator.as_deref(),
                 fonts,
                 fragment_constraints.line_break,
                 fragment_constraints.white_space_mode,
@@ -610,7 +598,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 cursor,
                 &line_constraints,
                 false,
-                hyphenator.as_ref(),
+                hyphenator.as_deref(),
                 fonts,
                 fragment_constraints.line_break,
                 fragment_constraints.white_space_mode,
@@ -1053,14 +1041,16 @@ pub fn break_one_line<T: ParsedFontTrait>(
             {
                 break;
             }
-            // The min-content takes a soft hyphen's break too: the unit's
-            // part up to its first soft hyphen ends the line, with the hyphen
-            // shown there, as the intrinsic scan measures it.
-            if line_constraints.is_min_content && cursor.hyphens != Hyphens::None {
-                if let Some(first) = first_soft_hyphen_break(&next_unit, is_vertical, fonts) {
-                    line_items.extend(first.line_part);
-                    cursor.consume(next_unit.len());
-                    cursor.partial_remainder = first.remainder_part;
+            // The min-content takes every hyphenation break too, a soft
+            // hyphen's and the dictionary's: the unit's part up to its first
+            // one ends the line, with the hyphen shown there, and the rest
+            // keeps the unit's later breaks for the lines after it, as the
+            // intrinsic scan measures the unit's fragments.
+            if line_constraints.is_min_content {
+                let breaks =
+                    unit_hyphenation_breaks(&next_unit, cursor, hyphenator, is_vertical, fonts);
+                if !breaks.is_empty() {
+                    take_hyphenation_break(&mut line_items, cursor, next_unit.len(), breaks, 0);
                     return (line_items, true);
                 }
             }
@@ -1086,21 +1076,22 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 // 3. The unit overflows. Can we hyphenate it? It breaks at
                 // its soft hyphens (hyphens: manual or auto) or, with none
                 // and a dictionary, where the dictionary breaks it, with a
-                // hyphen at the end of the line either way.
-                if line_break != LineBreakStrictness::Anywhere
-                    && cursor.hyphens != Hyphens::None
-                    && !is_break_opportunity(next_unit.last().unwrap())
-                {
-                    if let Some(hyphenation_result) = try_hyphenate_word_cluster(
-                        &next_unit,
-                        available_width,
-                        is_vertical,
-                        hyphenator,
-                        fonts,
-                    ) {
-                        line_items.extend(hyphenation_result.line_part);
-                        cursor.consume(next_unit.len());
-                        cursor.partial_remainder = hyphenation_result.remainder_part;
+                // hyphen at the end of the line either way: at the last
+                // break whose part fits.
+                if line_break != LineBreakStrictness::Anywhere {
+                    let breaks =
+                        unit_hyphenation_breaks(&next_unit, cursor, hyphenator, is_vertical, fonts);
+                    if let Some(chosen) = breaks
+                        .iter()
+                        .rposition(|b| b.width_on_line <= available_width)
+                    {
+                        take_hyphenation_break(
+                            &mut line_items,
+                            cursor,
+                            next_unit.len(),
+                            breaks,
+                            chosen,
+                        );
                         return (line_items, true);
                     }
                 }
@@ -1279,16 +1270,35 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
         }
         _ => soft_hyphens,
     };
-    if break_bytes.is_empty() {
-        return None;
-    }
-
-    let possible_breaks: Vec<HyphenationBreak> = break_bytes
+    // The break is before the cluster that starts at its byte.
+    let splits: Vec<usize> = break_bytes
         .iter()
-        .filter_map(|&break_byte| {
-            // The break is before the cluster that starts at its byte.
-            let split = cluster_starts.binary_search(&break_byte).ok()?;
-            if split == 0 {
+        .filter_map(|break_byte| cluster_starts.binary_search(break_byte).ok())
+        .collect();
+    let possible_breaks = hyphenation_breaks_at(word_clusters, &splits, is_vertical, fonts);
+    if possible_breaks.is_empty() {
+        None
+    } else {
+        Some(possible_breaks)
+    }
+}
+
+/// The hyphenation breaks of the word made of `word_clusters` before the
+/// clusters at `splits`, in their order: the clusters on each side, the line
+/// part's width and the hyphen ending it.
+///
+/// A split at the word's start or end breaks nothing, and none is made
+/// where `hyphen_after` finds no hyphen.
+fn hyphenation_breaks_at<T: ParsedFontTrait>(
+    word_clusters: &[ShapedCluster],
+    splits: &[usize],
+    is_vertical: bool,
+    fonts: &LoadedFonts<T>,
+) -> Vec<HyphenationBreak> {
+    splits
+        .iter()
+        .filter_map(|&split| {
+            if split == 0 || split >= word_clusters.len() {
                 return None;
             }
             let hyphen_item = hyphen_after(&word_clusters[split - 1], fonts)?;
@@ -1305,20 +1315,126 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 .chain(std::iter::once(&hyphen_item))
                 .fold(0.0, |width, item| fold_line_width(width, item, is_vertical));
             Some(HyphenationBreak {
-                char_len_on_line: word_string[..break_byte].chars().count(),
+                char_len_on_line: word_clusters[..split]
+                    .iter()
+                    .map(|c| c.text().chars().count())
+                    .sum(),
                 width_on_line,
                 line_part,
                 hyphen_item,
                 remainder_part,
             })
         })
-        .collect();
+        .collect()
+}
 
-    if possible_breaks.is_empty() {
-        None
-    } else {
-        Some(possible_breaks)
+/// The clusters of a unit the line breakers hyphenate, or none.
+///
+/// None is hyphenated with `hyphens: none`, nor one that ends at a break
+/// opportunity of its own (after a hyphen: the line takes it whole up to
+/// there), nor one that holds anything but text: an inline-block inside a
+/// word would be lost from the line and remainder parts, made of clusters
+/// only.
+pub(super) fn hyphenatable_clusters(
+    unit: &[ShapedItem],
+    hyphens: Hyphens,
+) -> Option<Vec<ShapedCluster>> {
+    if hyphens == Hyphens::None || unit.last().is_none_or(is_break_opportunity) {
+        return None;
     }
+    unit.iter().map(|item| item.as_cluster().cloned()).collect()
+}
+
+/// Where the greedy breaker may hyphenate `unit`, the next unit of `cursor`:
+/// the one source of the breaks of its lines and of its min-content, as of
+/// the intrinsic scan's.
+///
+/// The rest of a word carried from the line before keeps the word's own
+/// breaks (`BreakCursor::partial_remainder_breaks`); any other unit is
+/// broken by `find_all_hyphenation_breaks`, as the intrinsic scan breaks it.
+fn unit_hyphenation_breaks<T: ParsedFontTrait>(
+    unit: &[ShapedItem],
+    cursor: &BreakCursor<'_>,
+    hyphenator: Option<&Standard>,
+    is_vertical: bool,
+    fonts: &LoadedFonts<T>,
+) -> Vec<HyphenationBreak> {
+    let Some(clusters) = hyphenatable_clusters(unit, cursor.hyphens) else {
+        return Vec::new();
+    };
+    match &cursor.partial_remainder_breaks {
+        Some(splits) if unit.len() == cursor.partial_remainder.len() => {
+            hyphenation_breaks_at(&clusters, splits, is_vertical, fonts)
+        }
+        _ => find_all_hyphenation_breaks(&clusters, hyphenator, is_vertical, fonts)
+            .unwrap_or_default(),
+    }
+}
+
+/// How wide the min-content's widest line of the unit made of `unit` is,
+/// with the width of each of its items in `advances`.
+///
+/// The line breakers break a unit at its hyphenation breaks there
+/// (`hyphenatable_clusters`, `find_all_hyphenation_breaks`, as
+/// `unit_hyphenation_breaks`), each line part ending in its hyphen: the
+/// widest of those parts, or the whole unit. A space a line removes at a
+/// break is no part of it.
+pub(super) fn widest_min_content_piece<T: ParsedFontTrait>(
+    unit: &[ShapedItem],
+    advances: &[f32],
+    hyphens: Hyphens,
+    hyphenator: Option<&Standard>,
+    is_vertical: bool,
+    fonts: &LoadedFonts<T>,
+) -> f32 {
+    if unit
+        .iter()
+        .all(|item| is_word_separator(item) && !is_no_break_space(item))
+    {
+        return 0.0;
+    }
+    let width_of = |range: core::ops::Range<usize>| -> f32 {
+        advances.get(range).map_or(0.0, |part| part.iter().sum())
+    };
+    let breaks = hyphenatable_clusters(unit, hyphens)
+        .and_then(|clusters| {
+            find_all_hyphenation_breaks(&clusters, hyphenator, is_vertical, fonts)
+        })
+        .unwrap_or_default();
+    let mut widest = 0.0_f32;
+    let mut start = 0;
+    for hyphenation in &breaks {
+        let split = hyphenation.line_part.len();
+        let hyphen = get_item_measure_with_spacing(&hyphenation.hyphen_item, is_vertical).max(0.0);
+        widest = widest.max(width_of(start..split) + hyphen);
+        start = split;
+    }
+    widest.max(width_of(start..advances.len()))
+}
+
+/// Puts the line part of `breaks[chosen]` on the line, its hyphen ending it,
+/// and carries the rest of the unit, `unit_len` items long, to the next
+/// line with the unit's later breaks.
+fn take_hyphenation_break(
+    line_items: &mut Vec<ShapedItem>,
+    cursor: &mut BreakCursor<'_>,
+    unit_len: usize,
+    breaks: Vec<HyphenationBreak>,
+    chosen: usize,
+) {
+    let split = breaks[chosen].line_part.len();
+    let later: Vec<usize> = breaks[chosen + 1..]
+        .iter()
+        .map(|b| b.line_part.len() - split)
+        .collect();
+    let Some(taken) = breaks.into_iter().nth(chosen) else {
+        return;
+    };
+    line_items.extend(taken.line_part);
+    line_items.push(taken.hyphen_item);
+    cursor.consume(unit_len);
+    cursor.partial_remainder = taken.remainder_part;
+    cursor.partial_remainder_breaks = Some(later);
 }
 
 /// The hyphen a line breaker puts at the end of a line it breaks inside a
@@ -1367,34 +1483,6 @@ pub(super) fn hyphen_after<T: ParsedFontTrait>(
         is_first_fragment: true,
         is_last_fragment: true,
     }))
-}
-
-/// The line part, hyphen included, and the rest of a unit broken at its
-/// first soft hyphen, if it holds one: the min-content's break of it.
-fn first_soft_hyphen_break<T: ParsedFontTrait>(
-    unit: &[ShapedItem],
-    is_vertical: bool,
-    fonts: &LoadedFonts<T>,
-) -> Option<HyphenationResult> {
-    if !unit
-        .iter()
-        .any(|item| item.as_cluster().is_some_and(is_soft_hyphen))
-    {
-        return None;
-    }
-    let clusters: Vec<ShapedCluster> = unit
-        .iter()
-        .map(|item| item.as_cluster().cloned())
-        .collect::<Option<_>>()?;
-    let first = find_all_hyphenation_breaks(&clusters, None, is_vertical, fonts)?
-        .into_iter()
-        .next()?;
-    let mut line_part = first.line_part;
-    line_part.push(first.hyphen_item);
-    Some(HyphenationResult {
-        line_part,
-        remainder_part: first.remainder_part,
-    })
 }
 
 /// The runs of letters in a line breaker's unit, as ranges of its clusters.
@@ -1472,46 +1560,6 @@ fn apostrophe_is_a_letter(hyphenator: &Standard) -> bool {
 #[cfg(not(feature = "text_layout_hyphenation"))]
 const fn apostrophe_is_a_letter(_hyphenator: &Standard) -> bool {
     false
-}
-
-/// Tries to find a hyphenation point within a word, returning the line part and remainder.
-///
-/// `word_items` is one unbreakable unit of the line breaker. A unit that
-/// holds anything but text clusters (an inline-block inside a word) is not
-/// hyphenated: the line and remainder parts are made of clusters only, and
-/// the other items would be lost.
-pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
-    word_items: &[ShapedItem],
-    remaining_width: f32,
-    is_vertical: bool,
-    hyphenator: Option<&Standard>,
-    fonts: &LoadedFonts<T>,
-) -> Option<HyphenationResult> {
-    let word_clusters: Vec<ShapedCluster> = word_items
-        .iter()
-        .map(|item| item.as_cluster().cloned())
-        .collect::<Option<_>>()?;
-
-    if word_clusters.is_empty() {
-        return None;
-    }
-
-    let all_breaks = find_all_hyphenation_breaks(&word_clusters, hyphenator, is_vertical, fonts)?;
-
-    if let Some(best_break) = all_breaks
-        .into_iter()
-        .rfind(|b| b.width_on_line <= remaining_width)
-    {
-        let mut line_part = best_break.line_part;
-        line_part.push(best_break.hyphen_item);
-
-        return Some(HyphenationResult {
-            line_part,
-            remainder_part: best_break.remainder_part,
-        });
-    }
-
-    None
 }
 
 /// Positions a single line of items, handling alignment and justification within segments.
@@ -2405,26 +2453,53 @@ pub(super) fn get_line_constraints(
     }
 }
 
-// ADDITION: A helper function to get a hyphenator.
-/// Helper to get a hyphenator for a given language.
-/// TODO: In a real app, this would be cached.
+/// The hyphenation dictionary of `language`.
+///
+/// Every paragraph in a language breaks its words with the same patterns,
+/// and the line breakers and the intrinsic sizes of each ask for them: they
+/// are read from the embedded dictionary once and shared after that.
 #[cfg(feature = "text_layout_hyphenation")]
-pub(super) fn get_hyphenator(language: HyphenationLanguage) -> Result<Standard, LayoutError> {
-    Standard::from_embedded(language).map_err(|e| LayoutError::HyphenationError(e.to_string()))
+pub(super) fn get_hyphenator(language: HyphenationLanguage) -> Result<Arc<Standard>, LayoutError> {
+    static DICTIONARIES: std::sync::OnceLock<Mutex<HashMap<HyphenationLanguage, Arc<Standard>>>> =
+        std::sync::OnceLock::new();
+    let mut dictionaries = DICTIONARIES
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dictionary = if let Some(dictionary) = dictionaries.get(&language) {
+        Arc::clone(dictionary)
+    } else {
+        let dictionary = Arc::new(
+            Standard::from_embedded(language)
+                .map_err(|e| LayoutError::HyphenationError(e.to_string()))?,
+        );
+        dictionaries.insert(language, Arc::clone(&dictionary));
+        dictionary
+    };
+    drop(dictionaries);
+    Ok(dictionary)
 }
 
 /// Stub when hyphenation is disabled - always returns an error
 #[cfg(not(feature = "text_layout_hyphenation"))]
-pub(super) fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
+pub(super) fn get_hyphenator(_language: Language) -> Result<Arc<Standard>, LayoutError> {
     Err(LayoutError::HyphenationError(
         "Hyphenation feature not enabled".to_string(),
     ))
 }
 
-// A structured result from a hyphenation attempt.
-pub(super) struct HyphenationResult {
-    /// The items that fit on the current line, including the new hyphen.
-    line_part: Vec<ShapedItem>,
-    /// The remainder of the split item to be carried over to the next line.
-    remainder_part: Vec<ShapedItem>,
+/// The dictionary `hyphens: auto` breaks the words of a paragraph with
+/// `constraints` by: that of its language, and none for `manual` and
+/// `none` or a language without patterns.
+///
+/// The line breakers and the intrinsic scan all take theirs from here, so
+/// a paragraph's lines and its min-content break its words alike.
+pub(super) fn hyphenator_for(constraints: &UnifiedConstraints) -> Option<Arc<Standard>> {
+    if constraints.hyphenation == Hyphens::Auto {
+        constraints
+            .hyphenation_language
+            .and_then(|lang| get_hyphenator(lang).ok())
+    } else {
+        None
+    }
 }

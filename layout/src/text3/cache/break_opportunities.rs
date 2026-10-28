@@ -408,6 +408,13 @@ pub struct BreakCursor<'a> {
     /// The remainder of an item that was split by hyphenation on the previous line.
     /// This will be the very first piece of content considered for the next line.
     pub partial_remainder: Vec<ShapedItem>,
+    /// Where the word the remainder is the rest of may still be hyphenated:
+    /// the index of the remainder's cluster each of its line parts ends
+    /// before. These are the breaks the whole word had past the part the
+    /// line before took (soft hyphens or the dictionary's), so the rest of a
+    /// word breaks where the word does, and not where the dictionary breaks
+    /// the rest as a word of its own. `None` when they are not known.
+    pub partial_remainder_breaks: Option<Vec<usize>>,
     // §5.2 word-break property stored on cursor
     pub word_break: WordBreak,
     pub hyphens: Hyphens,
@@ -421,6 +428,7 @@ impl<'a> BreakCursor<'a> {
             items,
             next_item_index: 0,
             partial_remainder: Vec::new(),
+            partial_remainder_breaks: None,
             word_break: WordBreak::Normal,
             hyphens: Hyphens::default(),
             line_break: LineBreakStrictness::default(),
@@ -433,6 +441,7 @@ impl<'a> BreakCursor<'a> {
             items,
             next_item_index: 0,
             partial_remainder: Vec::new(),
+            partial_remainder_breaks: None,
             word_break,
             hyphens: Hyphens::default(),
             line_break: LineBreakStrictness::default(),
@@ -451,6 +460,7 @@ impl<'a> BreakCursor<'a> {
             items,
             next_item_index: 0,
             partial_remainder: Vec::new(),
+            partial_remainder_breaks: None,
             word_break: constraints.word_break,
             hyphens: constraints.hyphenation,
             line_break: constraints.line_break,
@@ -466,6 +476,7 @@ impl<'a> BreakCursor<'a> {
     /// Consumes the cursor and returns all remaining items as a `Vec`.
     pub fn drain_remaining(&mut self) -> Vec<ShapedItem> {
         let mut remaining = std::mem::take(&mut self.partial_remainder);
+        self.partial_remainder_breaks = None;
         if self.next_item_index < self.items.len() {
             remaining.extend_from_slice(&self.items[self.next_item_index..]);
         }
@@ -487,12 +498,24 @@ impl<'a> BreakCursor<'a> {
 
         let remainder_len = self.partial_remainder.len();
         if count <= remainder_len {
-            // Consuming only from the remainder.
+            // Consuming only from the remainder; its breaks move with its start.
             self.partial_remainder.drain(..count);
+            self.partial_remainder_breaks = self
+                .partial_remainder_breaks
+                .take()
+                .filter(|_| !self.partial_remainder.is_empty())
+                .map(|breaks| {
+                    breaks
+                        .into_iter()
+                        .filter(|&split| split > count)
+                        .map(|split| split - count)
+                        .collect()
+                });
         } else {
             // Consuming all of the remainder and some from the main list.
             let from_main_list = count - remainder_len;
             self.partial_remainder.clear();
+            self.partial_remainder_breaks = None;
             self.next_item_index += from_main_list;
         }
     }
