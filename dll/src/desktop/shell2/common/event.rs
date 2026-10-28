@@ -4314,7 +4314,9 @@ pub trait PlatformWindow {
             });
         let result = self.process_window_events(0);
         let confirmed = self.get_current_window_state().flags.close_requested;
-        if !confirmed {
+        if confirmed {
+            self.close_owed();
+        } else {
             // A veto lowered the flag the protocol raised: the app's answer to
             // this request, not input owed to a later pass. Left in the
             // baseline, the next snapshot read it as an unconsumed delta.
@@ -5501,6 +5503,13 @@ pub trait PlatformWindow {
         }
     }
 
+    /// A close of this window is owed: the backend's loop carries it out at
+    /// its safe point, outside every callback of the window. A loop that can
+    /// be parked while a run-loop callout raises the request (a timer tick, a
+    /// draw) must come around for it. The default does nothing: those loops
+    /// check every window for a close in the same turn that ran its events.
+    fn close_owed(&mut self) {}
+
     /// The app asks this window to close (`CallbackInfo::close_window`, here
     /// or in one of its popups): a REQUEST, like the window manager's - the
     /// backend's loop runs the close protocol for it (`confirm_app_close`)
@@ -5521,6 +5530,7 @@ pub trait PlatformWindow {
             previous.flags.close_requested = true;
             self.set_previous_window_state(previous);
         }
+        self.close_owed();
     }
 
     /// Give the OS the window's shape: `rects` (physical pixels of the
@@ -5592,6 +5602,9 @@ pub trait PlatformWindow {
         let following = proxy_is_following(self.get_current_window_state());
         self.set_window_mouse_transparent(following);
         match poll_popup(self.get_current_window_state()) {
+            // A popup that closes already (it dismissed itself, which is what
+            // closed it in its parent) is not asked to close a second time.
+            PopupAction::Close if self.get_current_window_state().flags.close_requested => {}
             PopupAction::Close => {
                 self.blur_focus_before_close();
                 let _ = self.request_window_close("transient.closed_by_parent");
@@ -6235,6 +6248,7 @@ pub trait PlatformWindow {
                 // close button) asks for a close, like `close_window`.
                 if state.flags.close_requested && !old_state.flags.close_requested {
                     self.get_common_mut().close_unconfirmed = true;
+                    self.close_owed();
                 }
 
                 // THE PRESS ROUTER, for a scripted pointer (`DebugEvent::MouseDown`,

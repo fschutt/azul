@@ -1243,7 +1243,7 @@ pub struct GLViewIvars {
     needs_reshape: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker,
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
     /// Set to true by setMarkedText / insertText to prevent handle_key_down
     /// from double-processing the same key event during IME composition.
     ime_key_handled: Cell<bool>,
@@ -1271,13 +1271,14 @@ define_class!(
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => {
-                    log_warn!(LogCategory::Rendering, "[GLView] drawRect: No window pointer set yet, skipping render");
+                    log_debug!(LogCategory::Rendering, "[GLView] drawRect: no window (not set up yet, or closed), nothing to draw");
                     return;
                 }
             };
 
-            // SAFETY: We trust that the window pointer is valid and points to a MacOSWindow
-            // The window owns the view, so the window outlives the view
+            // SAFETY: the pointer is set while its MacOSWindow lives: the window
+            // takes it back (`forget_window`) before it closes or is freed,
+            // since AppKit may keep the view alive longer.
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
 
@@ -1346,27 +1347,27 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         // Middle / extra buttons and non-left drags. `process_event` routes
@@ -1376,22 +1377,22 @@ define_class!(
         // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
         #[unsafe(method(otherMouseDown:))]
         fn other_mouse_down(&self, event: &NSEvent) {
-            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseUp:))]
         fn other_mouse_up(&self, event: &NSEvent) {
-            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseDragged:))]
         fn other_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDragged:))]
         fn right_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         /// A runtime light/dark switch, as AppKit reports it.
@@ -1403,12 +1404,12 @@ define_class!(
         /// (GL and CPU) owe it identically.
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn view_did_change_effective_appearance(&self) {
-            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
+            view_handlers::effective_appearance_changed(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::scroll_wheel(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B4: trackpad pinch / rotate — injected into the gesture
@@ -1416,22 +1417,22 @@ define_class!(
         // report OS-quality results (previously never wired on macOS).
         #[unsafe(method(magnifyWithEvent:))]
         fn magnify_with_event(&self, event: &NSEvent) {
-            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::magnify(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
-            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::rotate(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(swipeWithEvent:))]
         fn swipe_with_event(&self, event: &NSEvent) {
-            view_handlers::swipe(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::swipe(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
-            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -1441,7 +1442,7 @@ define_class!(
         #[unsafe(method(copy:))]
         fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Copy,
             );
         }
@@ -1449,7 +1450,7 @@ define_class!(
         #[unsafe(method(cut:))]
         fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Cut,
             );
         }
@@ -1457,7 +1458,7 @@ define_class!(
         #[unsafe(method(paste:))]
         fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Paste,
             );
         }
@@ -1465,7 +1466,7 @@ define_class!(
         #[unsafe(method(selectAll:))]
         fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::SelectAll,
             );
         }
@@ -1473,7 +1474,7 @@ define_class!(
         #[unsafe(method(undo:))]
         fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Undo,
             );
         }
@@ -1481,7 +1482,7 @@ define_class!(
         #[unsafe(method(redo:))]
         fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Redo,
             );
         }
@@ -1490,22 +1491,22 @@ define_class!(
 
         #[unsafe(method(draggingEntered:))]
         fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingUpdated:))]
         fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingExited:))]
         fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
-            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+            view_handlers::dragging_exited(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(performDragOperation:))]
         fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
-            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::perform_drag(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -1513,12 +1514,12 @@ define_class!(
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
             log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
-                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
                 }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
 
-            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+            let has_editing = self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
@@ -1546,7 +1547,7 @@ define_class!(
                 let ime_consumed = self.ivars().ime_key_handled.get();
                 log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
-                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    if let Some(window_ptr) = self.ivars().window_ptr.get() {
                         unsafe {
                             use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1570,7 +1571,7 @@ define_class!(
             }
 
             log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1602,12 +1603,12 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::key_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::flags_changed(self.ivars().window_ptr.get(), event);
         }
 
         // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
@@ -1630,7 +1631,7 @@ define_class!(
             };
 
             if action == Some(sel!(undo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_undo());
@@ -1638,7 +1639,7 @@ define_class!(
                 }
                 return Bool::from(false);
             } else if action == Some(sel!(redo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_redo());
@@ -1656,7 +1657,7 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event::PlatformWindow;
 
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // The BACKSTOP for a system-appearance change. The switch
@@ -1710,7 +1711,7 @@ define_class!(
         #[unsafe(method(presentPendingMenu:))]
         fn present_pending_menu(&self, _sender: Option<&NSObject>) {
             let pending = {
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 window_ptr.and_then(|window_ptr| unsafe {
                     (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
                 })
@@ -1726,7 +1727,7 @@ define_class!(
                 // borrow (the presenting borrow ended above), so the item's
                 // callback runs and its redraw is scheduled immediately
                 // instead of on the next unrelated event.
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 if let Some(window_ptr) = window_ptr {
                     unsafe {
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
@@ -1750,7 +1751,7 @@ define_class!(
                 needs_reshape: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
                 ime_key_handled: Cell::new(false),
                 transparent: Cell::new(false),
             });
@@ -1806,17 +1807,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_entered(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_exited(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_moved(self.ivars().window_ptr.get(), event);
         }
 
     }
@@ -1971,7 +1972,7 @@ define_class!(
             _session: &NSDraggingSession,
             _context: NSDraggingContext,
         ) -> NSDragOperation {
-            view_handlers::os_drag_operations(*self.ivars().window_ptr.borrow())
+            view_handlers::os_drag_operations(self.ivars().window_ptr.get())
         }
 
         #[unsafe(method(draggingSession:endedAtPoint:operation:))]
@@ -1981,7 +1982,7 @@ define_class!(
             _screen_point: NSPoint,
             operation: NSDragOperation,
         ) {
-            view_handlers::os_drag_ended(*self.ivars().window_ptr.borrow(), operation);
+            view_handlers::os_drag_ended(self.ivars().window_ptr.get(), operation);
         }
     }
 );
@@ -2006,7 +2007,7 @@ pub struct CPUViewIvars {
     needs_redraw: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker,
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
     /// Set to true by setMarkedText / insertText during IME composition.
     ime_key_handled: Cell<bool>,
     /// Cached NSBitmapImageRep reused across frames (only reallocated on resize).
@@ -2386,7 +2387,7 @@ define_class!(
             // `redraw_requested` covers frames whose only change is invisible to
             // the dirty flags — above all scroll offsets moved by the physics
             // timer (request_redraw() raised it; render_and_present consumes it).
-            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+            if let Some(window_ptr) = ivars.window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
                     // A resize WHITENED the framebuffer above, so this frame
@@ -2493,7 +2494,7 @@ define_class!(
                 }
             }
 
-            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+            if let Some(window_ptr) = ivars.window_ptr.get() {
                 unsafe {
                     // The CPU renderer drew the document in this very pass.
                     (*(window_ptr as *mut MacOSWindow)).reveal_after_first_frame(true);
@@ -2515,27 +2516,27 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         // Middle / extra buttons and non-left drags. `process_event` routes
@@ -2545,22 +2546,22 @@ define_class!(
         // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
         #[unsafe(method(otherMouseDown:))]
         fn other_mouse_down(&self, event: &NSEvent) {
-            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseUp:))]
         fn other_mouse_up(&self, event: &NSEvent) {
-            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseDragged:))]
         fn other_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDragged:))]
         fn right_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         /// A runtime light/dark switch, as AppKit reports it.
@@ -2572,12 +2573,12 @@ define_class!(
         /// (GL and CPU) owe it identically.
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn view_did_change_effective_appearance(&self) {
-            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
+            view_handlers::effective_appearance_changed(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::scroll_wheel(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B4: trackpad pinch / rotate — injected into the gesture
@@ -2585,22 +2586,22 @@ define_class!(
         // report OS-quality results (previously never wired on macOS).
         #[unsafe(method(magnifyWithEvent:))]
         fn magnify_with_event(&self, event: &NSEvent) {
-            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::magnify(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
-            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::rotate(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(swipeWithEvent:))]
         fn swipe_with_event(&self, event: &NSEvent) {
-            view_handlers::swipe(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::swipe(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
-            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -2610,7 +2611,7 @@ define_class!(
         #[unsafe(method(copy:))]
         fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Copy,
             );
         }
@@ -2618,7 +2619,7 @@ define_class!(
         #[unsafe(method(cut:))]
         fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Cut,
             );
         }
@@ -2626,7 +2627,7 @@ define_class!(
         #[unsafe(method(paste:))]
         fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Paste,
             );
         }
@@ -2634,7 +2635,7 @@ define_class!(
         #[unsafe(method(selectAll:))]
         fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::SelectAll,
             );
         }
@@ -2642,7 +2643,7 @@ define_class!(
         #[unsafe(method(undo:))]
         fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Undo,
             );
         }
@@ -2650,7 +2651,7 @@ define_class!(
         #[unsafe(method(redo:))]
         fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Redo,
             );
         }
@@ -2659,22 +2660,22 @@ define_class!(
 
         #[unsafe(method(draggingEntered:))]
         fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingUpdated:))]
         fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingExited:))]
         fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
-            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+            view_handlers::dragging_exited(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(performDragOperation:))]
         fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
-            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::perform_drag(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -2682,12 +2683,12 @@ define_class!(
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
             log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
-                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
                 }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
 
-            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+            let has_editing = self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
@@ -2715,7 +2716,7 @@ define_class!(
                 let ime_consumed = self.ivars().ime_key_handled.get();
                 log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
-                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    if let Some(window_ptr) = self.ivars().window_ptr.get() {
                         unsafe {
                             use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -2739,7 +2740,7 @@ define_class!(
             }
 
             log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -2771,12 +2772,12 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::key_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::flags_changed(self.ivars().window_ptr.get(), event);
         }
 
         // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
@@ -2790,7 +2791,7 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event::PlatformWindow;
 
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // The BACKSTOP for a system-appearance change. The switch
@@ -2845,7 +2846,7 @@ define_class!(
         #[unsafe(method(presentPendingMenu:))]
         fn present_pending_menu(&self, _sender: Option<&NSObject>) {
             let pending = {
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 window_ptr.and_then(|window_ptr| unsafe {
                     (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
                 })
@@ -2855,7 +2856,7 @@ define_class!(
                 // Same as the GLView twin: the selected item's tag is queued by
                 // the time the pop-up returns — drain it now so the callback
                 // and its redraw do not wait for the next unrelated event.
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 if let Some(window_ptr) = window_ptr {
                     unsafe {
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
@@ -2878,7 +2879,7 @@ define_class!(
             };
 
             if action == Some(sel!(undo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_undo());
@@ -2886,7 +2887,7 @@ define_class!(
                 }
                 return Bool::from(false);
             } else if action == Some(sel!(redo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_redo());
@@ -2914,7 +2915,7 @@ define_class!(
                 needs_redraw: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
                 ime_key_handled: Cell::new(false),
                 cached_bitmap: RefCell::new(None),
                 cached_bitmap_w: Cell::new(0),
@@ -2975,17 +2976,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_entered(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_exited(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_moved(self.ivars().window_ptr.get(), event);
         }
 
     }
@@ -3142,7 +3143,7 @@ define_class!(
             _session: &NSDraggingSession,
             _context: NSDraggingContext,
         ) -> NSDragOperation {
-            view_handlers::os_drag_operations(*self.ivars().window_ptr.borrow())
+            view_handlers::os_drag_operations(self.ivars().window_ptr.get())
         }
 
         #[unsafe(method(draggingSession:endedAtPoint:operation:))]
@@ -3152,10 +3153,27 @@ define_class!(
             _screen_point: NSPoint,
             operation: NSDragOperation,
         ) {
-            view_handlers::os_drag_ended(*self.ivars().window_ptr.borrow(), operation);
+            view_handlers::os_drag_ended(self.ivars().window_ptr.get(), operation);
         }
     }
 );
+
+/// A render view lets go of the window it draws for. AppKit keeps a closed window and its views
+/// alive past the `MacOSWindow` that owns them - the autorelease pool of the turn that closed it,
+/// a display-link tick that retained it, a layer display it had queued - and every later call
+/// into the view (a `drawRect:`, a tracking area's exit, a `tickTimers:` on its way) goes
+/// through this back-pointer. Cleared, such a call finds no window and does nothing instead of
+/// reading the freed one; the `performSelector:` requests still queued for the view (the first
+/// `tickTimers:`, a context menu waiting to pop up) are dropped with it.
+fn forget_window(view: &NSView, window_ptr: &Cell<Option<*mut std::ffi::c_void>>) {
+    window_ptr.set(None);
+    unsafe {
+        let _: () = msg_send![
+            objc2::class!(NSObject),
+            cancelPreviousPerformRequestsWithTarget: view
+        ];
+    }
+}
 
 // GLView Helper Methods (outside define_class!)
 
@@ -3163,7 +3181,7 @@ impl GLView {
     /// Set the back-pointer to the owning MacOSWindow
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
 
         // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
         // ONCE — it does not reschedule). It drains timers/threads registered
@@ -3179,7 +3197,12 @@ impl GLView {
 
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
-        *self.ivars().window_ptr.borrow()
+        self.ivars().window_ptr.get()
+    }
+
+    /// The window this view draws for is going away: see [`forget_window`].
+    pub fn forget_window(&self) {
+        forget_window(self, &self.ivars().window_ptr);
     }
 
     /// Whether the view composites the GL surface's alpha (see the ivar).
@@ -3191,10 +3214,15 @@ impl GLView {
 // CPUView Helper Methods (outside define_class!)
 
 impl CPUView {
+    /// The window this view draws for is going away: see [`forget_window`].
+    pub fn forget_window(&self) {
+        forget_window(self, &self.ivars().window_ptr);
+    }
+
     /// Set the back-pointer to the owning MacOSWindow
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
 
         // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
         // ONCE — it does not reschedule). It drains timers/threads registered
@@ -3210,7 +3238,7 @@ impl CPUView {
 
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
-        *self.ivars().window_ptr.borrow()
+        self.ivars().window_ptr.get()
     }
 
     /// Copy an RGBA pixmap into the CPUView's framebuffer and request redraw.
@@ -3410,7 +3438,7 @@ impl CPUView {
 pub struct WindowDelegateIvars {
     /// Back-pointer to the owning MacOSWindow for handling close callbacks
     /// This is set after window creation via set_window_ptr()
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
 }
 
 /// Set up the main menu bar with a Quit item bound to Cmd+Q.
@@ -3578,13 +3606,13 @@ define_class!(
     impl WindowDelegate {
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: Option<&NSWindow>) -> Bool {
-            let window_ptr = *self.ivars().window_ptr.borrow();
+            let window_ptr = self.ivars().window_ptr.get();
 
             if let Some(window_ptr) = window_ptr {
                 log_debug!(LogCategory::Window, "[WindowDelegate] Close requested, invoking callback");
 
-                // SAFETY: window_ptr points to MacOSWindow which owns this delegate
-                // The window outlives the delegate, so this pointer is always valid
+                // SAFETY: set while the MacOSWindow that owns this delegate lives;
+                // it takes the pointer back (`forget_window`) before it goes.
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
 
@@ -3613,38 +3641,28 @@ define_class!(
             }
         }
 
-        /// Called when the window is about to close
-        /// This is where we unregister the window from the global registry
+        /// AppKit closes the window (its title bar's close button, once
+        /// `windowShouldClose:` agreed): the window lets go of everything native
+        /// and leaves the registry. The box is PARKED, not freed: this runs
+        /// inside the window's own delegate, which the `MacOSWindow` owns, and
+        /// the event loop frees it at its safe point (`drain_closed_windows`).
+        /// A close of our own (`close_window`) let the delegate go first, so it
+        /// finds no window here.
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
-            log_debug!(LogCategory::Window, "[WindowDelegate] Window will close, unregistering from registry");
-
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // AppKit is about to release this NSWindow; the display
-                    // link must not retain it from its own thread any more
-                    // (see DisplayLinkTarget). Idempotent after close_window().
-                    macos_window.retire_display_link();
-                    let ns_window = macos_window.get_ns_window_ptr();
-
-                    // Unregister from the global registry and PARK the box for
-                    // deferred drop. We are executing inside this window's own
-                    // WindowDelegate (owned by the MacOSWindow), so dropping the
-                    // box here would free `self` out from under us — the event
-                    // loop reclaims it via drain_closed_windows() instead.
-                    if let Some(freed) = registry::unregister_window(ns_window) {
-                        queue_window_free(freed);
-                    }
-                    log_debug!(LogCategory::Window, "[WindowDelegate] Window unregistered, remaining windows: {}", registry::window_count());
+                    macos_window.closed_by_appkit();
                 }
+                log_debug!(LogCategory::Window, "[WindowDelegate] Window closed by AppKit, remaining windows: {}", registry::window_count());
             }
         }
 
         /// Called when the window is minimized to the Dock
         #[unsafe(method(windowDidMiniaturize:))]
         fn window_did_miniaturize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
@@ -3657,7 +3675,7 @@ define_class!(
         /// Called when the window is restored from the Dock
         #[unsafe(method(windowDidDeminiaturize:))]
         fn window_did_deminiaturize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
@@ -3673,7 +3691,7 @@ define_class!(
         /// work) for a window nobody could see.
         #[unsafe(method(windowDidChangeOcclusionState:))]
         fn window_did_change_occlusion_state(&self, notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use objc2::msg_send;
                     let ns_window: *mut NSObject = msg_send![notification, object];
@@ -3703,7 +3721,7 @@ define_class!(
         /// Called when the window enters fullscreen mode
         #[unsafe(method(windowDidEnterFullScreen:))]
         fn window_did_enter_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Fullscreen);
@@ -3715,7 +3733,7 @@ define_class!(
         /// Called when the window exits fullscreen mode
         #[unsafe(method(windowDidExitFullScreen:))]
         fn window_did_exit_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
@@ -3730,7 +3748,7 @@ define_class!(
         /// Called when the window is resized
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -3815,7 +3833,7 @@ define_class!(
         /// Called when the window becomes the key window (receives focus)
         #[unsafe(method(windowDidBecomeKey:))]
         fn window_did_become_key(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // MWA-A3d: snapshot BEFORE mutating (same fix as the X11
@@ -3861,7 +3879,7 @@ define_class!(
         /// Called when the window resigns key window status (loses focus)
         #[unsafe(method(windowDidResignKey:))]
         fn window_did_resign_key(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // MWA-A3d: snapshot BEFORE mutating — see
@@ -3931,7 +3949,7 @@ define_class!(
         /// Called when the window is moved
         #[unsafe(method(windowDidMove:))]
         fn window_did_move(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let frame = macos_window.window.frame();
@@ -3985,7 +4003,7 @@ define_class!(
         #[unsafe(method(windowDidChangeBackingProperties:))]
         fn window_did_change_backing_properties(&self, _notification: &NSNotification) {
             // DPI/scale factor changed (e.g., moved to different display)
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Err(e) = window.handle_dpi_change() {
@@ -4004,7 +4022,7 @@ define_class!(
             // somebody dragged a window across a bezel. The count diff lives
             // in `windowDidChangeScreenProfile:`, which is what AppKit sends
             // when the screen CONFIGURATION changes.
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     window.surface_needs_update = true;
@@ -4038,7 +4056,7 @@ define_class!(
             // which of those happened, so the before/after monitor count is
             // the only thing that separates a hotplug from a mode change —
             // equal counts emit nothing.
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = window.common.layout_window {
@@ -4058,7 +4076,7 @@ define_class!(
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
             });
             unsafe { msg_send_id![super(this), init] }
         }
@@ -4082,7 +4100,12 @@ impl WindowDelegate {
     ///
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the delegate
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
+    }
+
+    /// The window is going away: a notification AppKit still sends finds no window.
+    pub fn forget_window(&self) {
+        self.ivars().window_ptr.set(None);
     }
 }
 
@@ -4873,6 +4896,10 @@ pub struct MacOSWindow {
     /// tracks the pointer meanwhile, so no `mouseUp:` ends the node drag, and
     /// the window declines the session as a drop target of its own.
     os_drag_running: bool,
+    /// [`MacOSWindow::release_native`] ran: nothing native points back at this
+    /// struct any more and its GPU side is gone. The window is closed (or being
+    /// dropped); only its free at the event loop's safe point is left.
+    released: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -5226,6 +5253,15 @@ impl PlatformWindow for MacOSWindow {
 
     fn queue_window_create(&mut self, options: WindowCreateOptions) {
         self.pending_window_creates.push(options);
+    }
+
+    /// `drain_loop_work` carries the close out, and the loop may be parked in
+    /// `runMode:beforeDate:` (or `NSApplication.run()`) while the request is
+    /// raised: a timer tick or a `drawRect:` runs inside that park, which
+    /// would go on until the next unrelated event. The loop's wake brings it
+    /// around.
+    fn close_owed(&mut self) {
+        crate::desktop::loop_waker::wake();
     }
 
     fn set_window_mouse_transparent(&mut self, transparent: bool) {
@@ -6710,6 +6746,7 @@ impl MacOSWindow {
             blank_first_draws: 0,
             frame_waiting: false,
             os_drag_running: false,
+            released: false,
         };
 
         // The titlebar in the mode the window will show, before it is ever
@@ -7308,18 +7345,18 @@ impl MacOSWindow {
             None => return, // First frame, nothing to sync
         };
 
-        // Close requested? Only a close the protocol CONFIRMED is acted on
-        // here. One the app raised (`close_window`, the CSD titlebar's close
-        // button) is a request: `drain_loop_work` runs the close protocol for
-        // it, a CloseRequested callback may veto it - so the rest (a title it
-        // set) is synced as for any other state change. Closing here, straight
-        // from the diff, closed with no CloseRequested at all.
+        // A close the protocol confirmed: nothing else is synced to a window
+        // that goes. It is carried out by `drain_loop_work`, at the event
+        // loop's safe point, not here: this runs inside the pass that raised it
+        // (an event handler, a `drawRect:`). One the app raised (`close_window`,
+        // the CSD titlebar's close button) is still a request - its protocol
+        // runs there too and may be vetoed - so the rest (a title it set) is
+        // synced as for any other state change.
         if !previous.flags.close_requested
             && current.flags.close_requested
             && !self.common.close_unconfirmed()
         {
-            self.close_window();
-            return; // Don't sync other state if closing
+            return;
         }
 
         // Title changed?
@@ -7685,27 +7722,6 @@ impl MacOSWindow {
         Ok(should_close)
     }
 
-    /// Handle close request from WindowDelegate
-    fn handle_close_request(&mut self) {
-        log_debug!(
-            LogCategory::Window,
-            "[MacOSWindow] Processing close request"
-        );
-
-        if self.process_close_event() {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close confirmed, closing window"
-            );
-            self.close_window();
-        } else {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close cancelled by callback"
-            );
-        }
-    }
-
     /// Start the thread-polling tick timer (delegates to the trait
     /// `start_thread_poll_timer` so external callers have a stable inherent API,
     /// same as the Win32 method of this name).
@@ -7726,7 +7742,6 @@ impl MacOSWindow {
         PlatformWindow::stop_thread_poll_timer(self);
     }
 
-    /// Actually close the window
     /// Detach a child popup from the parent it was added to, if that parent
     /// is still around. AppKit keeps child windows ordered with the parent;
     /// a closed child must leave that list first.
@@ -7745,8 +7760,8 @@ impl MacOSWindow {
     }
 
     /// Stop the display link and mark its target dead, BEFORE the NSWindow
-    /// is closed or released. Idempotent; called from `close_window` and
-    /// `Drop`. See `DisplayLinkTarget` for the crash this prevents.
+    /// is closed or released. Idempotent; called from `release_native`. See
+    /// `DisplayLinkTarget` for the crash this prevents.
     fn retire_display_link(&mut self) {
         if let Some(target) = self.display_link_target.take() {
             // SAFETY: the target is leaked and therefore always valid.
@@ -7765,28 +7780,128 @@ impl MacOSWindow {
         }
     }
 
+    /// Close the window: everything native lets go of it and its GPU side goes
+    /// ([`Self::release_native`]), then the NSWindow closes and the box is
+    /// parked for the event loop to free (`drain_closed_windows`): it cannot
+    /// be dropped from behind `&mut self`. Only `drain_loop_work` calls this,
+    /// at the loop's safe point; a second call finds the window closed.
     fn close_window(&mut self) {
-        // The display link must be dead before the NSWindow goes: its callback
-        // retains the window on another thread.
-        self.retire_display_link();
-        self.detach_from_parent();
-        // Unregister from the global registry before closing, and park the box
-        // for deferred drop — we cannot drop `self` from behind `&mut self`.
-        // `self.window.close()` below re-enters windowWillClose:, whose
-        // unregister then returns None (already removed), so the box is parked
-        // exactly once and freed later by drain_closed_windows().
-        let ns_window = self.get_ns_window_ptr();
-        if let Some(freed) = registry::unregister_window(ns_window) {
-            queue_window_free(freed);
+        if self.released {
+            return;
         }
-
+        self.release_native();
+        self.detach_from_parent();
+        self.unregister_and_park();
+        // The delegate let go above, so the windowWillClose: this sends finds
+        // no window to close a second time.
         unsafe {
             self.window.close();
         }
-        if let Some(doc_id) = self.common.document_id {
-            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
-        }
         self.is_open = false;
+    }
+
+    /// AppKit closes the window itself (its title bar's close button once
+    /// `windowShouldClose:` agreed, `performClose:`): the same teardown as
+    /// [`Self::close_window`], inside this window's own `windowWillClose:`,
+    /// without closing the NSWindow again.
+    fn closed_by_appkit(&mut self) {
+        self.release_native();
+        self.detach_from_parent();
+        self.unregister_and_park();
+        self.is_open = false;
+    }
+
+    /// Leave the registry, and park the box for `drain_closed_windows`, once.
+    fn unregister_and_park(&mut self) {
+        if let Some(freed) = registry::unregister_window(self.get_ns_window_ptr()) {
+            queue_window_free(freed);
+        }
+    }
+
+    /// Everything native that could still call into this window lets go of it,
+    /// and its GPU side is released while the NSWindow and the GL context are
+    /// alive. AppKit keeps a closed window and its views alive past this struct
+    /// (the autorelease pool of the turn that closed it, a display-link tick
+    /// that retained it, a layer display it had queued), so a later
+    /// `drawRect:` or notification must find no window instead of the freed
+    /// one. Runs once, on every way out (our close, AppKit's close, a drop
+    /// without a close).
+    fn release_native(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        if self.released {
+            return;
+        }
+        self.released = true;
+        // The display link first: its callback retains the window on another
+        // thread.
+        self.retire_display_link();
+        for (_, timer) in self.timers.drain() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+        if let Some(timer) = self.thread_timer_running.take() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+        self.window_delegate.forget_window();
+        unsafe {
+            self.window.setDelegate(None);
+        }
+        if let Some(view) = self.gl_view.as_ref() {
+            view.forget_window();
+        }
+        if let Some(view) = self.cpu_view.as_ref() {
+            view.forget_window();
+        }
+        // The popups this window opened close with it: a popup's own popup has
+        // no other parent to close it.
+        PlatformWindow::close_transient_windows(self);
+        self.release_gpu_resources();
+    }
+
+    /// WebRender's renderer is deinit()'d, not dropped (its textures are
+    /// deleted inside a frame), and the app's GL textures of this document go
+    /// with it - in THIS window's GL context. Each window has its own, and the
+    /// current one is whichever window drew last: deleted in that one, the
+    /// names would free another window's textures and programs that happen to
+    /// have the same numbers.
+    fn release_gpu_resources(&mut self) {
+        let document = self.common.document_id;
+        self.with_own_gl_context(|window| {
+            window.common.deinit_renderer();
+            if let Some(document) = document {
+                crate::desktop::gl_texture_integration::remove_document_textures(&document);
+            }
+        });
+    }
+
+    /// Run `f` with this window's GL context current, and give the thread back
+    /// the context that was current before (none, if that was this one). The
+    /// CPU backend has no context: `f` just runs.
+    fn with_own_gl_context(&mut self, f: impl FnOnce(&mut Self)) {
+        let Some(own) = self.gl_context.clone() else {
+            f(self);
+            return;
+        };
+        unsafe {
+            let current: *mut NSOpenGLContext =
+                msg_send![objc2::class!(NSOpenGLContext), currentContext];
+            let previous = Retained::retain(current);
+            own.makeCurrentContext();
+            f(self);
+            match previous {
+                Some(previous)
+                    if !core::ptr::eq(Retained::as_ptr(&previous), Retained::as_ptr(&own)) =>
+                {
+                    previous.makeCurrentContext();
+                }
+                _ => {
+                    let _: () = msg_send![objc2::class!(NSOpenGLContext), clearCurrentContext];
+                }
+            }
+        }
     }
 
     /// Check if the window is still open
@@ -9658,14 +9773,32 @@ fn queue_window_free(window_ptr: *mut MacOSWindow) {
     PENDING_WINDOW_FREES.with(|q| q.borrow_mut().push(window_ptr));
 }
 
+/// Whether a modal session runs (`NSApplication.modalWindow` is set): its
+/// nested run loop runs inside the callback that opened it.
+fn inside_modal_session() -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let modal: *mut objc2::runtime::AnyObject = unsafe { msg_send![&*app, modalWindow] };
+    !modal.is_null()
+}
+
 /// Reclaim every window parked by [`queue_window_free`], running `MacOSWindow`'s
 /// destructor (CVDisplayLink stop, timer invalidation, GL/NSWindow teardown).
 ///
 /// Must only be called from the event loop, i.e. outside any window delegate
-/// callback or `&mut MacOSWindow` borrow.
+/// callback or `&mut MacOSWindow` borrow. `NSApplication.run()`'s loop work
+/// (`run_before_main_loop_waits`) also runs inside the nested run loop of a
+/// modal session (an alert, a file dialog's `runModal`) that a callback
+/// opened, with that window still borrowed further down the stack: the
+/// windows stay parked until the session is over.
 pub(crate) fn drain_closed_windows() {
     use crate::desktop::shell2::common::event::PlatformWindow;
 
+    if inside_modal_session() {
+        return;
+    }
     let pending: Vec<*mut MacOSWindow> =
         PENDING_WINDOW_FREES.with(|q| std::mem::take(&mut *q.borrow_mut()));
     for window_ptr in pending {
@@ -9713,9 +9846,9 @@ impl Drop for MacOSWindow {
         // their views leave the render view before it goes.
         drop(self.webviews.take());
 
-        // SAFETY: display_link must be stopped before window is dropped, because the
-        // CVDisplayLink callback retains the NSWindow from another thread.
-        self.retire_display_link();
+        // A window dropped without a close (the end of the run loop) lets go of
+        // everything native here; a closed one did when it closed.
+        self.release_native();
 
         // Release power management assertion if active
         if let Some(assertion_id) = self.pm_assertion_id.take() {
@@ -9728,19 +9861,17 @@ impl Drop for MacOSWindow {
             }
         }
 
-        // Invalidate all active timers
-        for (_, timer) in self.timers.drain() {
-            unsafe {
-                timer.invalidate();
-            }
-        }
-
-        // Invalidate thread poll timer
-        if let Some(timer) = self.thread_timer_running.take() {
-            unsafe {
-                timer.invalidate();
-            }
-        }
+        // The rest that holds GL names of this window goes in its own context
+        // as well: the GL textures in the layout window's image caches, and
+        // the shader programs its GL context pointer deletes when the last
+        // clone goes. As fields they would drop after this body, in whatever
+        // context another window left current. The layout window lives until
+        // here because the loop hands its threads to an heir just before the
+        // drop (`drain_closed_windows`).
+        self.with_own_gl_context(|window| {
+            drop(window.common.layout_window.take());
+            window.common.gl_context_ptr = OptionGlContextPtr::None;
+        });
 
         log_trace!(
             LogCategory::Window,
@@ -9812,27 +9943,25 @@ impl MacOSWindow {
             self.request_redraw();
         }
 
-        // Check for close request from WindowDelegate
-        if self.common.current_window_state().flags.close_requested {
-            if self.is_open {
-                // Nobody has run the protocol for this one yet — it came from
-                // app code (info.close_window(), the CSD close button), not
-                // from the title bar. Run it, so the app's CloseRequested
-                // callbacks still get their veto: `request_window_close`
-                // lowers the raised flag and raises it again inside its pass.
-                self.handle_close_request();
-            } else {
-                // `windowShouldClose:` already ran the whole protocol and
-                // confirmed (that is what cleared `is_open`), and it leaves the
-                // flag standing. Calling handle_close_request again here ran
-                // the app's close callback a SECOND time for one user close.
-                // Finish the teardown instead.
-                self.common
-                    .update_window_state(event::WindowStateSource::Os, |ws| {
-                        ws.flags.close_requested = false;
-                    });
-                self.discard_input_delta("macos.drain_loop_work.close_already_processed");
+        // THE place a close is carried out: here, outside every callback of
+        // this window. A pass only raises `close_requested` (a popup its
+        // parent closed or that lost the focus, the title bar's confirmed
+        // close, `close_window` from the app): torn down inside that pass - a
+        // `drawRect:`, its own resign-key notification - the window would run
+        // the rest of it with its renderer gone. A close the app raised is
+        // still a request: its protocol runs first, once, and a CloseRequested
+        // callback may veto it. One the protocol already confirmed (the title
+        // bar's, a popup's) is not asked a second time.
+        if self.common.current_window_state().flags.close_requested && !self.released {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            if let Some(outcome) = PlatformWindow::confirm_app_close(self, "macos.drain_loop_work") {
+                if !outcome.confirmed {
+                    self.request_redraw();
+                }
+            }
+            if self.common.current_window_state().flags.close_requested {
                 self.close_window();
+                return;
             }
         }
 
@@ -9925,6 +10054,11 @@ impl MacOSWindow {
 
     pub fn poll_event(&mut self) -> Option<MacOSEvent> {
         self.drain_loop_work();
+        // Closed by the work above: it takes no more events, and asks for no
+        // more frames.
+        if !self.is_open {
+            return None;
+        }
 
         let app = NSApplication::sharedApplication(self.mtm);
 
@@ -9992,14 +10126,11 @@ impl MacOSWindow {
         Ok(())
     }
 
+    /// Close the window now (its popups, renderer and GL side with it, see
+    /// [`Self::close_window`]). Not from inside one of this window's own
+    /// callbacks: there a close is requested (`flags.close_requested`) and the
+    /// loop carries it out.
     pub fn close(&mut self) {
-        // The popups this window opened close with it (a popup's own popup has
-        // no other parent to close it).
-        PlatformWindow::close_transient_windows(self);
-        // WebRender's Renderer must be deinit()'d, not dropped — texture
-        // deletion has to happen inside a frame. Never doing so crashed debug
-        // builds on close and leaked GPU resources in release.
-        self.common.deinit_renderer();
         self.close_window();
     }
 

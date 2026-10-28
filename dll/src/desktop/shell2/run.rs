@@ -1052,6 +1052,11 @@ pub fn run(
                         for wptr in window_ptrs {
                             let window = unsafe { &mut *wptr };
                             window.drain_loop_work();
+                            // Closed by its loop work (or earlier in this turn): parked for
+                            // the free below, it opens no more windows.
+                            if !window.is_open() {
+                                continue;
+                            }
 
                             #[cfg(feature = "a11y")]
                             window.process_accessibility_actions();
@@ -1226,6 +1231,12 @@ pub fn run(
                                 // This handles scroll wheel, touch events, etc.
                                 while window.poll_event().is_some() {
                                     // Event handling is done inside poll_event
+                                }
+                                // Closed by its loop work (or earlier in this turn):
+                                // parked for the next turn's free, it opens no more
+                                // windows.
+                                if !window.is_open() {
+                                    continue;
                                 }
 
                                 // Process accessibility actions from VoiceOver.
