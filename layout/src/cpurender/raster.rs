@@ -1455,12 +1455,24 @@ fn rounded_clip_corners(
 }
 
 /// Extract and scale mask image data (R8) to target dimensions.
+fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
+    extract_mask_window(mask_image, target_w, target_h, (0, 0, target_w, target_h))
+}
+
+/// The window `(x, y, w, h)` of the mask image scaled to `target_w` x
+/// `target_h`, `w * h` bytes: only the part of a large mask rect a region
+/// sees is resampled.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )] // software rasterizer: bounded pixel/coord/colour casts
-fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
+fn extract_mask_window(
+    mask_image: &ImageRef,
+    target_w: u32,
+    target_h: u32,
+    (win_x, win_y, win_w, win_h): (u32, u32, u32, u32),
+) -> Option<Vec<u8>> {
     let image_data = mask_image.get_data();
     let (mask_bytes, src_w, src_h) = match image_data {
         DecodedImage::Raw((descriptor, data)) => {
@@ -1500,7 +1512,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
         _ => return None,
     };
 
-    if target_w == 0 || target_h == 0 {
+    if target_w == 0 || target_h == 0 || win_w == 0 || win_h == 0 {
         return None;
     }
 
@@ -1513,28 +1525,60 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
     //
     // 1:1 is the common case and still costs one sample per pixel, because
     // both weights land on 0.
-    let mut scaled = vec![0u8; (target_w * target_h) as usize];
+    let mut scaled = vec![0u8; (win_w as usize) * (win_h as usize)];
     let sx = src_w as f32 / target_w as f32;
     let sy = src_h as f32 / target_h as f32;
     let sample = |x: u32, y: u32| -> f32 {
         f32::from(mask_bytes[(y.min(src_h - 1) * src_w + x.min(src_w - 1)) as usize])
     };
-    for py in 0..target_h {
+    for (row, py) in (win_y..win_y.saturating_add(win_h)).enumerate() {
         // Sample at the pixel CENTRE, or the image shifts half a texel.
         let fy = ((py as f32 + 0.5) * sy - 0.5).max(0.0);
         let y0 = fy as u32;
         let wy = fy - y0 as f32;
-        for px in 0..target_w {
+        let out = &mut scaled[row * win_w as usize..(row + 1) * win_w as usize];
+        for (slot, px) in out.iter_mut().zip(win_x..win_x.saturating_add(win_w)) {
             let fx = ((px as f32 + 0.5) * sx - 0.5).max(0.0);
             let x0 = fx as u32;
             let wx = fx - x0 as f32;
             let top = sample(x0, y0) * (1.0 - wx) + sample(x0 + 1, y0) * wx;
             let bottom = sample(x0, y0 + 1) * (1.0 - wx) + sample(x0 + 1, y0 + 1) * wx;
             let value = top * (1.0 - wy) + bottom * wy;
-            scaled[(py * target_w + px) as usize] = value.round().clamp(0.0, 255.0) as u8;
+            *slot = value.round().clamp(0.0, 255.0) as u8;
         }
     }
     Some(scaled)
+}
+
+/// The box `(x, y, w, h)` in device pixels cut to the pixmap's area; empty
+/// (`w` or `h` 0) when they do not meet.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside the pixmap
+fn on_pixmap((x, y, w, h): (i32, i32, u32, u32), pixmap: &AzulPixmap) -> (i32, i32, u32, u32) {
+    let x0 = i64::from(x).max(0);
+    let y0 = i64::from(y).max(0);
+    let x1 = (i64::from(x) + i64::from(w)).min(i64::from(pixmap.width));
+    let y1 = (i64::from(y) + i64::from(h)).min(i64::from(pixmap.height));
+    if x1 <= x0 || y1 <= y0 {
+        return (0, 0, 0, 0);
+    }
+    (x0 as i32, y0 as i32, (x1 - x0) as u32, (y1 - y0) as u32)
+}
+
+/// The part of the mask rect `mask` inside `region` (device-pixel boxes),
+/// in the mask rect's own pixels; `None` when they do not meet.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside the mask rect
+fn mask_window(
+    (mask_x, mask_y, mask_w, mask_h): (i32, i32, u32, u32),
+    (region_x, region_y, region_w, region_h): (i32, i32, u32, u32),
+) -> Option<(u32, u32, u32, u32)> {
+    let x0 = (i64::from(region_x) - i64::from(mask_x)).max(0);
+    let y0 = (i64::from(region_y) - i64::from(mask_y)).max(0);
+    let x1 = (i64::from(region_x) + i64::from(region_w) - i64::from(mask_x)).min(i64::from(mask_w));
+    let y1 = (i64::from(region_y) + i64::from(region_h) - i64::from(mask_y)).min(i64::from(mask_h));
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32))
 }
 
 /// Apply a mask: for each pixel in the mask region, blend between the snapshot
@@ -3520,28 +3564,32 @@ pub fn render_single_item(
             // the mask rect left everything the mask does not reach fully
             // painted, so the two backends disagreed about every mask smaller
             // than its element.
-            let (px_x, px_y, px_w, px_h) = pixel_box(&scroll_rect(bounds.inner()));
+            //
+            // Only where it lies on the pixmap, though: nothing is drawn
+            // anywhere else, and an element a billion pixels wide (an SVG of
+            // `width="1e9"`) must not cost a billion pixels of snapshot,
+            // mask and resampling.
+            let region = on_pixmap(pixel_box(&scroll_rect(bounds.inner())), pixmap);
+            let (px_x, px_y, px_w, px_h) = region;
 
             if px_w > 0 && px_h > 0 && mask_w > 0 && mask_h > 0 {
                 let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
-                let mask = extract_mask_data(mask_image, mask_w, mask_h)
-                    .unwrap_or_else(|| vec![255u8; (mask_w * mask_h) as usize]);
 
-                // Zero everywhere, then the mask blitted where it sits.
-                let mut mask_data = vec![0u8; (px_w * px_h) as usize];
-                let (off_x, off_y) = (mask_x - px_x, mask_y - px_y);
-                for y in 0..mask_h as i32 {
-                    let dst_y = y + off_y;
-                    if dst_y < 0 || dst_y >= px_h as i32 {
-                        continue;
-                    }
-                    for x in 0..mask_w as i32 {
-                        let dst_x = x + off_x;
-                        if dst_x < 0 || dst_x >= px_w as i32 {
-                            continue;
-                        }
-                        mask_data[(dst_y as u32 * px_w + dst_x as u32) as usize] =
-                            mask[(y as u32 * mask_w + x as u32) as usize];
+                // Zero everywhere, then the mask blitted where it sits: the
+                // window of the mask rect the region sees, resampled.
+                let mut mask_data = vec![0u8; (px_w as usize) * (px_h as usize)];
+                let window = mask_window((mask_x, mask_y, mask_w, mask_h), region);
+                if let Some((wx, wy, ww, wh)) = window {
+                    let mask = extract_mask_window(mask_image, mask_w, mask_h, (wx, wy, ww, wh))
+                        .unwrap_or_else(|| vec![255u8; (ww as usize) * (wh as usize)]);
+                    // Where the window's first pixel lands in the region: not
+                    // negative and inside it, as the window lies in both.
+                    let off_x = (i64::from(mask_x) + i64::from(wx) - i64::from(px_x)) as usize;
+                    let off_y = (i64::from(mask_y) + i64::from(wy) - i64::from(px_y)) as usize;
+                    let (ww, wh, region_w) = (ww as usize, wh as usize, px_w as usize);
+                    for y in 0..wh {
+                        let dst = (off_y + y) * region_w + off_x;
+                        mask_data[dst..dst + ww].copy_from_slice(&mask[y * ww..(y + 1) * ww]);
                     }
                 }
 
