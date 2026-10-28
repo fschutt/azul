@@ -647,6 +647,9 @@ fn position_lines_from_breaks(
         while line_items.last().is_some_and(is_word_separator) {
             line_items.pop();
         }
+        // The runs of the line are in visual order already; the clusters of a
+        // right-to-left run still read left to right until this turns them.
+        crate::text3::cache::apply_l2_visual_reversal(&mut line_items, base_direction);
 
         // The line's width as the pen below moves over it, the letter- and
         // word-spacing after each item included.

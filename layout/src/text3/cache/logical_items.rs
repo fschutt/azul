@@ -583,8 +583,9 @@ pub fn reorder_logical_items(
 /// paragraph are reversed like its letters (Cerberus's `<td dir="rtl">`
 /// columns; they were run boundaries and stayed in logical order). Breaks and
 /// tabs act as run boundaries. Applied per line, so a wrapped RTL run reorders
-/// correctly per line.
-pub(super) fn apply_l2_visual_reversal(line_items: &mut [ShapedItem], base: BidiDirection) {
+/// correctly per line - by both line positioners, the greedy one and the
+/// Knuth-Plass one of `text-wrap: balance`.
+pub(crate) fn apply_l2_visual_reversal(line_items: &mut [ShapedItem], base: BidiDirection) {
     let cluster_dir = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
     let directions: Vec<Option<BidiDirection>> = (0..line_items.len())
         .map(|k| match &line_items[k] {

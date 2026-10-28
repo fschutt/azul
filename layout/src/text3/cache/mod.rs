@@ -83,6 +83,7 @@ pub use unified_layout::*;
 #[allow(clippy::redundant_pub_crate)]
 mod shaping_cache;
 pub use shaping_cache::*;
+#[allow(clippy::redundant_pub_crate)]
 mod logical_items;
 pub use logical_items::*;
 #[allow(clippy::redundant_pub_crate)]
