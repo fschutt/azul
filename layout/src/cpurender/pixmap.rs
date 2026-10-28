@@ -17,6 +17,11 @@ use agg_rust::{
 };
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
+use crate::geometry_guard::{
+    add_svg_rings, target_bounds, BoundedPath, ClampBox, ClampedVertexSource, RingEnd,
+    COORD_LIMIT,
+};
+
 use super::*;
 
 pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
@@ -1170,44 +1175,21 @@ impl AzRect {
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
 
-/// Wraps a `VertexSource` and clamps every coordinate to a finite range the AGG
-/// rasterizer can handle. A coordinate of ~1e30 (or ±inf) saturates the rasterizer's
-/// 24.8 fixed-point conversion to ~`i32::MAX` and makes its scanline sweep run once per
-/// row crossed — O(coordinate magnitude), i.e. an effective hang (>1GB RAM, spins
-/// forever) on a large-but-legal transform or an SVG numeric attribute. Anything far
-/// outside the target contributes no visible pixels, so clamping it to just off-screen
-/// is visually equivalent and bounds the work to the visible area.
-struct ClampVertexSource<'a> {
-    inner: &'a mut dyn VertexSource,
-    limit: f64,
-}
-
-impl VertexSource for ClampVertexSource<'_> {
-    fn rewind(&mut self, path_id: u32) {
-        self.inner.rewind(path_id);
-    }
-
-    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
-        let cmd = self.inner.vertex(x, y);
-        *x = if x.is_nan() {
-            0.0
-        } else {
-            x.clamp(-self.limit, self.limit)
-        };
-        *y = if y.is_nan() {
-            0.0
-        } else {
-            y.clamp(-self.limit, self.limit)
-        };
-        cmd
-    }
-}
-
-/// Coordinate clamp limit for a `w`×`h` target: far larger than any on-screen coordinate
-/// (so real geometry is untouched) yet small enough that the rasterizer's work stays
-/// bounded. Off-screen geometry gets pinned just outside the target.
-fn coord_clamp_limit(w: u32, h: u32) -> f64 {
-    (f64::from(w) + f64::from(h)).mul_add(4.0, 4096.0)
+/// Adds `path` to `ras` for a `w`×`h` target, the one way every fill reaches the
+/// rasterizer: its geometry clamped exactly to [`target_bounds`] with its non-finite
+/// vertices taken out ([`ClampedVertexSource`]), and the rasterizer clipped to the
+/// target (plus `clip`), which bounds its sweep to the visible area. Resets `ras`.
+pub(crate) fn add_path_for_target(
+    ras: &mut RasterizerScanlineAa,
+    path: &mut dyn VertexSource,
+    w: u32,
+    h: u32,
+    clip: Option<AzRect>,
+) {
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
+    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
+    let mut clamped = ClampedVertexSource::new(path, target_bounds(w, h));
+    ras.add_path(&mut clamped, 0);
 }
 
 pub fn agg_fill_path(
@@ -1257,9 +1239,48 @@ impl VertexSource for SvgStrokeOutline<'_> {
     }
 }
 
+/// The widest stroke drawn, in device pixels: far wider than any mask or pixmap, while
+/// a round join on it stays a few thousand points (AGG steps round joins by angle, the
+/// finer the wider the stroke).
+const MAX_STROKE_WIDTH_PX: f64 = 1_048_576.0;
+
+/// How far a miter may reach from its corner, in device pixels. Stroke geometry is
+/// clamped to [`COORD_LIMIT`], so its clamped pieces run along that box's edge, millions
+/// of pixels out; reaching less than half that far, neither their stroke nor a miter at
+/// one of their corners comes near anything on screen.
+const MAX_STROKE_REACH_PX: f64 = 2_097_152.0;
+
+/// The most dashes one stroke is cut into. AGG's dasher walks dash by dash, so the
+/// work grows with the count; a pattern that fine against its path is drawn solid.
+const MAX_DASHES: f64 = 1_048_576.0;
+
+/// The length of `path`'s polygon, its curves' control points included: never less
+/// than the length of the curves themselves.
+fn polygon_length(path: &PathStorage) -> f64 {
+    let mut length = 0.0;
+    let mut last: Option<(f64, f64)> = None;
+    for i in 0..path.total_vertices() {
+        let (mut x, mut y) = (0.0, 0.0);
+        let cmd = path.vertex_idx(i, &mut x, &mut y);
+        if agg_rust::basics::is_move_to(cmd) {
+            last = Some((x, y));
+        } else if agg_rust::basics::is_vertex(cmd) {
+            if let Some((last_x, last_y)) = last {
+                length += (x - last_x).hypot(y - last_y);
+            }
+            last = Some((x, y));
+        }
+    }
+    length
+}
+
 /// The stroke of `geometry` (device pixels): `width` device pixels wide,
 /// with `outline`'s caps, joins and dashes, whose lengths are user units of
 /// `scale` device pixels each.
+///
+/// The width is held to `MAX_STROKE_WIDTH_PX` (a NaN width draws nothing), the miter
+/// to `MAX_STROKE_REACH_PX`, and a pattern of no length, or of more than
+/// `MAX_DASHES` dashes along the path, is drawn solid.
 pub fn svg_stroke_outline<'a>(
     geometry: &'a mut PathStorage,
     outline: &crate::solver3::display_list::StrokeOutline,
@@ -1274,6 +1295,9 @@ pub fn svg_stroke_outline<'a>(
         outline: &crate::solver3::display_list::StrokeOutline,
         width: f64,
     ) {
+        let miter_limit = f64::from(outline.miter_limit)
+            .min(MAX_STROKE_REACH_PX / (width * 0.5).max(1.0))
+            .max(1.0);
         stroke.set_width(width);
         stroke.set_line_cap(match outline.cap {
             SvgLineCap::Butt => LineCap::Butt,
@@ -1288,23 +1312,32 @@ pub fn svg_stroke_outline<'a>(
             SvgLineJoin::Round => LineJoin::Round,
             SvgLineJoin::Bevel => LineJoin::Bevel,
         });
-        stroke.set_miter_limit(f64::from(outline.miter_limit));
+        stroke.set_miter_limit(miter_limit);
     }
 
-    // Flattened before stroking: `PathStorage` holds curves as COMMANDS, and
-    // the dasher and the stroker walk vertices.
-    let flattened = agg_rust::conv_curve::ConvCurve::new(geometry);
-    if outline.dashes.is_empty() {
-        let mut stroke = agg_rust::conv_stroke::ConvStroke::new(flattened);
-        configure(&mut stroke, outline, width);
-        return SvgStrokeOutline::Solid(stroke);
-    }
-    let mut dashed = agg_rust::conv_dash::ConvDash::new(flattened);
+    let width = if width.is_nan() {
+        0.0
+    } else {
+        width.min(MAX_STROKE_WIDTH_PX)
+    };
     let period: f64 = outline
         .dashes
         .iter()
         .map(|(dash, gap)| f64::from(dash + gap) * scale)
         .sum();
+    // NaN, a period of no length or too many dashes all fail this.
+    let dashes_along = polygon_length(geometry) / period * outline.dashes.len() as f64;
+    let dashed_pattern = period > 0.0 && dashes_along <= MAX_DASHES;
+
+    // Flattened before stroking: `PathStorage` holds curves as COMMANDS, and
+    // the dasher and the stroker walk vertices.
+    let flattened = agg_rust::conv_curve::ConvCurve::new(geometry);
+    if outline.dashes.is_empty() || !dashed_pattern {
+        let mut stroke = agg_rust::conv_stroke::ConvStroke::new(flattened);
+        configure(&mut stroke, outline, width);
+        return SvgStrokeOutline::Solid(stroke);
+    }
+    let mut dashed = agg_rust::conv_dash::ConvDash::new(flattened);
     for (dash, gap) in &outline.dashes {
         dashed.add_dash(f64::from(*dash) * scale, f64::from(*gap) * scale);
     }
@@ -1328,50 +1361,26 @@ pub fn svg_stroke_outline<'a>(
 /// One builder for both consumers - the clip-mask rasteriser and the stroke -
 /// because two copies of a curve-by-curve translation drift apart silently:
 /// the reader only sees the shape being wrong, never which copy did it.
+///
+/// The geometry is made safe for AGG on the way: a ring with a non-finite
+/// point is left out, and the rest is clamped exactly to `COORD_LIMIT` device
+/// pixels (`geometry_guard`), which nothing on screen ever reaches.
+/// `close_rings` closes each ring along its exact closing edge, as a fill
+/// does; a stroke passes `false`, an open path having no closing edge.
 pub fn svg_path_to_agg(
     path: &azul_core::svg::SvgMultiPolygon,
     mx: &dyn Fn(f32) -> f64,
     my: &dyn Fn(f32) -> f64,
+    close_rings: bool,
 ) -> PathStorage {
-    use azul_core::svg::SvgPathElement;
-
-    let mut out = PathStorage::new();
-    for ring in path.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                SvgPathElement::Line(l) => {
-                    if first {
-                        out.move_to(mx(l.start.x), my(l.start.y));
-                        first = false;
-                    }
-                    out.line_to(mx(l.end.x), my(l.end.y));
-                }
-                SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        out.move_to(mx(q.start.x), my(q.start.y));
-                        first = false;
-                    }
-                    out.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
-                }
-                SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        out.move_to(mx(c.start.x), my(c.start.y));
-                        first = false;
-                    }
-                    out.curve4(
-                        mx(c.ctrl_1.x),
-                        my(c.ctrl_1.y),
-                        mx(c.ctrl_2.x),
-                        my(c.ctrl_2.y),
-                        mx(c.end.x),
-                        my(c.end.y),
-                    );
-                }
-            }
-        }
-    }
-    out
+    let mut out = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    let end = if close_rings {
+        RingEnd::Filled
+    } else {
+        RingEnd::Open
+    };
+    add_svg_rings(&mut out, path, &|p| (mx(p.x), my(p.y)), end);
+    out.finish()
 }
 
 /// The user-space -> device-pixel mapping for SVG geometry painted into
@@ -1451,21 +1460,7 @@ pub fn agg_fill_path_clipped(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(rule);
-    // Clip GEOMETRY to the target pixmap (intersected with any caller clip) before
-    // rasterizing. Without this, the scanline sweep runs once per row the path crosses,
-    // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
-    // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
-    // rasterizer's clip box bounds the work to the visible area.
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
-    // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
-    // above does not bound the work for saturated fixed-point coords).
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
@@ -1551,13 +1546,7 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
 
     let interp = SpanInterpolatorLinear::new(transform);

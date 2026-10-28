@@ -604,10 +604,13 @@ pub fn parse_svg_transform(s: &str) -> SvgAffine {
             return SvgAffine::IDENTITY;
         };
         let close = open + len;
+        // NaN and infinity are not SVG numbers: dropped like other junk,
+        // rather than mapping every point of the shape to NaN.
         let args: Vec<f64> = rest[open + 1..close]
             .split(is_separator)
             .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
+            .filter_map(|s| s.parse::<f64>().ok())
+            .filter(|v| v.is_finite())
             .collect();
         let Some(function) = svg_transform_function(rest[..open].trim(), &args) else {
             return SvgAffine::IDENTITY;

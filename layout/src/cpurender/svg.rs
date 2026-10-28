@@ -1131,52 +1131,24 @@ fn attr_f64(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
     }
 }
 
-/// Convert `SvgMultiPolygon` to agg `PathStorage`.
+/// Convert `SvgMultiPolygon` to agg `PathStorage`, each ring closed.
+///
+/// Flattened in user space (the element's transform applies after), so the
+/// geometry is clamped to `COORD_LIMIT` user units: a ring with a non-finite
+/// point is left out, and a curve reaching past the box is split there, which
+/// keeps the flattener's work bounded (`geometry_guard`).
 #[cfg(all(feature = "std", feature = "xml"))]
 fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> PathStorage {
-    let mut path = PathStorage::new();
-    for ring in mp.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                azul_core::svg::SvgPathElement::Line(l) => {
-                    if first {
-                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
-                        first = false;
-                    }
-                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
-                }
-                azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
-                        first = false;
-                    }
-                    path.curve3(
-                        f64::from(q.ctrl.x),
-                        f64::from(q.ctrl.y),
-                        f64::from(q.end.x),
-                        f64::from(q.end.y),
-                    );
-                }
-                azul_core::svg::SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
-                        first = false;
-                    }
-                    path.curve4(
-                        f64::from(c.ctrl_1.x),
-                        f64::from(c.ctrl_1.y),
-                        f64::from(c.ctrl_2.x),
-                        f64::from(c.ctrl_2.y),
-                        f64::from(c.end.x),
-                        f64::from(c.end.y),
-                    );
-                }
-            }
-        }
-        path.close_polygon(PATH_FLAGS_NONE);
-    }
-    path
+    use crate::geometry_guard::{add_svg_rings, BoundedPath, ClampBox, RingEnd, COORD_LIMIT};
+
+    let mut path = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    add_svg_rings(
+        &mut path,
+        mp,
+        &|p| (f64::from(p.x), f64::from(p.y)),
+        RingEnd::ClosePolygon,
+    );
+    path.finish()
 }
 
 /// An SVG `transform` attribute as the rasteriser's matrix: azul's one

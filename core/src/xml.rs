@@ -6182,7 +6182,16 @@ pub fn str_to_dom_unstyled_loading_fonts<'a>(
 /// `cx="10px"` is not valid SVG. The `<svg>` element's own `width`/`height`
 /// are CSS lengths and a different thing entirely - see [`parse_svg_length`].
 fn parse_svg_float(attr: Option<&str>) -> Option<f32> {
-    attr?.trim().parse::<f32>().ok()
+    svg_number(attr?.trim())
+}
+
+/// One SVG number: what Rust's f32 parser reads, except NaN, infinity and a
+/// value past the f32 range, which SVG's number grammar does not have. An
+/// attribute holding one is invalid and counts as not given, as in Chrome;
+/// read as a number, a NaN corner would send the rasterizer's curve flattener
+/// through 2^33 subdivisions.
+fn svg_number(s: &str) -> Option<f32> {
+    s.parse::<f32>().ok().filter(|v| v.is_finite())
 }
 
 /// Parse the `<svg>` element's own `width`/`height`, which - unlike the
@@ -6195,7 +6204,7 @@ fn parse_svg_float(attr: Option<&str>) -> Option<f32> {
 fn parse_svg_length(attr: Option<&str>) -> Option<f32> {
     let raw = attr?.trim();
     let number = raw.strip_suffix("px").unwrap_or(raw).trim();
-    number.parse::<f32>().ok()
+    svg_number(number)
 }
 
 /// Parse an SVG `viewBox` into `(min_x, min_y, width, height)`.
@@ -6207,9 +6216,8 @@ fn parse_svg_view_box(value: &str) -> Option<(f32, f32, f32, f32)> {
     let nums: Vec<f32> = value
         .split(|c: char| c == ',' || c.is_ascii_whitespace())
         .filter(|s| !s.is_empty())
-        .map(str::parse::<f32>)
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
+        .map(svg_number)
+        .collect::<Option<Vec<_>>>()?;
     match nums[..] {
         [min_x, min_y, width, height] if width > 0.0 && height > 0.0 => {
             Some((min_x, min_y, width, height))
@@ -6223,7 +6231,7 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     let nums: Vec<f32> = pts
         .split(|c: char| c == ',' || c.is_ascii_whitespace())
         .filter(|s| !s.is_empty())
-        .filter_map(|s| s.parse::<f32>().ok())
+        .filter_map(svg_number)
         .collect();
     if nums.len() < 4 || !nums.len().is_multiple_of(2) {
         return None;

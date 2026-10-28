@@ -14112,20 +14112,19 @@ fn rasterize_svg_stroke_to_r8(
         renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
         scanline_u::ScanlineU8,
     };
-    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
-
-    const OVERSAMPLE: f32 = 2.0;
-    let w = (paint_rect.size.width * OVERSAMPLE).ceil() as u32;
-    let h = (paint_rect.size.height * OVERSAMPLE).ceil() as u32;
-    if w == 0 || h == 0 || !width.is_finite() || width <= 0.0 {
+    if !width.is_finite() || width <= 0.0 {
         return None;
     }
+    let raster = SvgMaskRaster::over(paint_rect)?;
 
+    // The viewBox mapping at one mask pixel per logical px, scaled per axis
+    // to the mask's own resolution.
     let (sx, sy, tx, ty) =
-        crate::cpurender::pixmap::svg_user_space_mapping(paint_rect, view_box, OVERSAMPLE);
+        crate::cpurender::pixmap::svg_user_space_mapping(paint_rect, view_box, 1.0);
+    let (sx, sy) = (sx * raster.scale_x, sy * raster.scale_y);
     let mx = |x: f32| f64::from((x + tx) * sx);
     let my = |y: f32| f64::from((y + ty) * sy);
-    let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
+    let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my, false);
 
     let scale = f64::from(f32::midpoint(sx, sy));
     let mut stroke = crate::cpurender::pixmap::svg_stroke_outline(
@@ -14135,15 +14134,29 @@ fn rasterize_svg_stroke_to_r8(
         scale,
     );
 
-    let mut rgba_buf = vec![0u8; (w * h * 4) as usize];
+    let mut rgba_buf = raster.rgba_scratch()?;
     {
-        let stride = (w * 4) as i32;
-        let mut ra = unsafe { RowAccessor::new_with_buf(rgba_buf.as_mut_ptr(), w, h, stride) };
+        // SAFETY: `rgba_scratch` holds `height` rows of `stride` bytes, and
+        // outlives `ra`.
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(
+                rgba_buf.as_mut_ptr(),
+                raster.width,
+                raster.height,
+                raster.stride(),
+            )
+        };
         let pf = PixfmtRgba32::new(&mut ra);
         let mut rb = RendererBase::new(pf);
         let mut ras = RasterizerScanlineAa::new();
         ras.filling_rule(FillingRule::NonZero);
-        ras.add_path(&mut stroke, 0);
+        crate::cpurender::pixmap::add_path_for_target(
+            &mut ras,
+            &mut stroke,
+            raster.width,
+            raster.height,
+            None,
+        );
         let mut sl = ScanlineU8::new();
         let white = Rgba8 {
             r: 255,
@@ -14153,16 +14166,92 @@ fn rasterize_svg_stroke_to_r8(
         };
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
     }
+    raster.r8_image(&rgba_buf)
+}
 
-    let r8_data: Vec<u8> = rgba_buf.chunks_exact(4).map(|px| px[3]).collect();
-    ImageRef::new_rawimage(RawImage {
-        pixels: RawImageData::U8(r8_data.into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::R8,
-        tag: Vec::new().into(),
-    })
+/// The pixel grid an SVG clip or stroke mask is rasterised on.
+///
+/// Twice the logical box per axis, oversampled for the same reason an icon
+/// is, unless that would make a side longer than `MAX_SIDE` or the mask
+/// larger than `MAX_PIXELS`: then the scale drops, on its own axis for a
+/// side and on both for the area. A mask is uploaded as one texture and
+/// rasterised through an RGBA scratch four times its size; an SVG of
+/// `width="1e9"` would ask for more bytes than a u32 holds, and a byte
+/// count that wrapped would leave the rasteriser writing rows past the end
+/// of its buffer. The backends stretch the mask over the paint rect, so a
+/// coarser one only loses detail.
+#[cfg(feature = "cpurender")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SvgMaskRaster {
+    /// The mask's size in pixels, each in `1..=MAX_SIDE`.
+    width: u32,
+    height: u32,
+    /// Mask pixels per logical px on each axis, at most `OVERSAMPLE`.
+    scale_x: f32,
+    scale_y: f32,
+}
+
+#[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // sizes bounded to 1..=MAX_SIDE above
+impl SvgMaskRaster {
+    /// Mask pixels per logical px wherever the caps leave room.
+    const OVERSAMPLE: f32 = 2.0;
+    /// The longest side of a mask: the texture size every GPU backend takes.
+    const MAX_SIDE: f32 = 16384.0;
+    /// The most pixels in one mask (4096 x 4096): 64 MB of RGBA scratch.
+    const MAX_PIXELS: f32 = 16_777_216.0;
+
+    /// The grid for a mask over `paint_rect`; `None` for a box with no area
+    /// or a non-finite size.
+    fn over(paint_rect: &LogicalRect) -> Option<Self> {
+        let (w, h) = (paint_rect.size.width, paint_rect.size.height);
+        if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+            return None;
+        }
+        let mut scale_x = Self::OVERSAMPLE.min(Self::MAX_SIDE / w);
+        let mut scale_y = Self::OVERSAMPLE.min(Self::MAX_SIDE / h);
+        let pixels = (w * scale_x) * (h * scale_y);
+        if pixels > Self::MAX_PIXELS {
+            let shrink = (Self::MAX_PIXELS / pixels).sqrt();
+            scale_x *= shrink;
+            scale_y *= shrink;
+        }
+        let side = |logical: f32, scale: f32| (logical * scale).ceil().clamp(1.0, Self::MAX_SIDE);
+        Some(Self {
+            width: side(w, scale_x) as u32,
+            height: side(h, scale_y) as u32,
+            scale_x,
+            scale_y,
+        })
+    }
+
+    /// Bytes per row of the RGBA scratch.
+    const fn stride(&self) -> i32 {
+        (self.width * 4) as i32
+    }
+
+    /// A zeroed RGBA scratch of `height` rows of `stride` bytes.
+    fn rgba_scratch(&self) -> Option<Vec<u8>> {
+        let len = (self.width as usize)
+            .checked_mul(self.height as usize)?
+            .checked_mul(4)?;
+        Some(vec![0_u8; len])
+    }
+
+    /// The scratch's coverage (its alpha) as the R8 mask image.
+    fn r8_image(&self, rgba: &[u8]) -> Option<ImageRef> {
+        use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
+
+        let r8_data: Vec<u8> = rgba.chunks_exact(4).map(|px| px[3]).collect();
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(r8_data.into()),
+            width: self.width as usize,
+            height: self.height as usize,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::R8,
+            tag: Vec::new().into(),
+        })
+    }
 }
 
 /// One mask image repeated across `area`, as a single image and the rect that
@@ -14278,7 +14367,7 @@ fn mask_pixels_r8(mask: &ImageRef) -> Option<(Vec<u8>, usize, usize)> {
 /// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
 /// paint rect size.
 ///
-/// Returns `None` if the rect has zero size.
+/// Returns `None` for a rect with no area or a non-finite size.
 ///
 /// Gated on `cpurender`, the feature that owns the `agg-rust` rasteriser this
 /// body is written against (`layout/Cargo.toml`: `cpurender = ["dep:agg-rust",
@@ -14294,23 +14383,18 @@ fn rasterize_svg_clip_to_r8(
     even_odd: bool,
 ) -> Option<ImageRef> {
     use agg_rust::{
-        basics::FillingRule, color::Rgba8, path_storage::PathStorage, pixfmt_rgba::PixfmtRgba32,
+        basics::FillingRule, color::Rgba8, pixfmt_rgba::PixfmtRgba32,
         rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
         renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
         scanline_u::ScanlineU8,
     };
-    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
 
     // OVERSAMPLED, for the same reason the stroke mask is: the mask is
     // rasterised here in LOGICAL pixels and applied in DEVICE pixels, so on a
     // HiDPI display it is scaled UP. A 1x mask has no detail to scale, and a
     // circle arrives with a staircase edge no matter how it is resampled.
-    const OVERSAMPLE: f32 = 2.0;
-    let w = (paint_rect.size.width * OVERSAMPLE).ceil() as u32;
-    let h = (paint_rect.size.height * OVERSAMPLE).ceil() as u32;
-    if w == 0 || h == 0 {
-        return None;
-    }
+    // `SvgMaskRaster` holds the size to what can be allocated and uploaded.
+    let raster = SvgMaskRaster::over(paint_rect)?;
 
     // USER SPACE -> MASK PIXELS.
     //
@@ -14322,64 +14406,35 @@ fn rasterize_svg_clip_to_r8(
     // subtracted - the behaviour every existing clip mask relies on.
     let (sx, sy, tx, ty) = match view_box {
         Some((min_x, min_y, vb_w, vb_h)) if vb_w > 0.0 && vb_h > 0.0 => (
-            paint_rect.size.width * OVERSAMPLE / vb_w,
-            paint_rect.size.height * OVERSAMPLE / vb_h,
+            paint_rect.size.width * raster.scale_x / vb_w,
+            paint_rect.size.height * raster.scale_y / vb_h,
             -min_x,
             -min_y,
         ),
         _ => (
-            OVERSAMPLE,
-            OVERSAMPLE,
+            raster.scale_x,
+            raster.scale_y,
             -paint_rect.origin.x,
             -paint_rect.origin.y,
         ),
     };
     let mx = |x: f32| f64::from((x + tx) * sx);
     let my = |y: f32| f64::from((y + ty) * sy);
+    // The fill region: every ring closed, as a fill closes it.
+    let mut path = crate::cpurender::pixmap::svg_path_to_agg(svg_clip, &mx, &my, true);
 
-    // Build agg PathStorage from SvgMultiPolygon
-    let mut path = PathStorage::new();
-    for ring in svg_clip.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                azul_core::svg::SvgPathElement::Line(l) => {
-                    if first {
-                        path.move_to(mx(l.start.x), my(l.start.y));
-                        first = false;
-                    }
-                    path.line_to(mx(l.end.x), my(l.end.y));
-                }
-                azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        path.move_to(mx(q.start.x), my(q.start.y));
-                        first = false;
-                    }
-                    path.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
-                }
-                azul_core::svg::SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        path.move_to(mx(c.start.x), my(c.start.y));
-                        first = false;
-                    }
-                    path.curve4(
-                        mx(c.ctrl_1.x),
-                        my(c.ctrl_1.y),
-                        mx(c.ctrl_2.x),
-                        my(c.ctrl_2.y),
-                        mx(c.end.x),
-                        my(c.end.y),
-                    );
-                }
-            }
-        }
-    }
-
-    // Rasterize to RGBA32 buffer
-    let mut rgba_buf = vec![0u8; (w * h * 4) as usize];
+    let mut rgba_buf = raster.rgba_scratch()?;
     {
-        let stride = (w * 4) as i32;
-        let mut ra = unsafe { RowAccessor::new_with_buf(rgba_buf.as_mut_ptr(), w, h, stride) };
+        // SAFETY: `rgba_scratch` holds `height` rows of `stride` bytes, and
+        // outlives `ra`.
+        let mut ra = unsafe {
+            RowAccessor::new_with_buf(
+                rgba_buf.as_mut_ptr(),
+                raster.width,
+                raster.height,
+                raster.stride(),
+            )
+        };
         let pf = PixfmtRgba32::new(&mut ra);
         let mut rb = RendererBase::new(pf);
 
@@ -14395,7 +14450,13 @@ fn rasterize_svg_clip_to_r8(
         // built from four cubics came out as a four-sided blob. `ConvCurve` is
         // the adaptor that turns those commands into line segments.
         let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut path);
-        ras.add_path(&mut flattened, 0);
+        crate::cpurender::pixmap::add_path_for_target(
+            &mut ras,
+            &mut flattened,
+            raster.width,
+            raster.height,
+            None,
+        );
 
         let mut sl = ScanlineU8::new();
         let white = Rgba8 {
@@ -14406,18 +14467,7 @@ fn rasterize_svg_clip_to_r8(
         };
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
     }
-
-    // Extract alpha channel as R8 mask
-    let r8_data: Vec<u8> = rgba_buf.chunks_exact(4).map(|px| px[3]).collect();
-
-    ImageRef::new_rawimage(RawImage {
-        pixels: RawImageData::U8(r8_data.into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::R8,
-        tag: Vec::new().into(),
-    })
+    raster.r8_image(&rgba_buf)
 }
 
 #[cfg(test)]

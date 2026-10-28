@@ -487,6 +487,10 @@ pub mod callbacks;
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
+/// Geometry made safe for the AGG rasterizer, for every path that feeds it:
+/// the CPU renderer, the SVG clip and stroke masks, the SVG module.
+#[cfg(any(feature = "cpurender", feature = "svg"))]
+mod geometry_guard;
 /// A bounded memo for pictures drawn again and again from the same inputs.
 #[cfg(feature = "cpurender")]
 pub mod image_memo;

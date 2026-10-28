@@ -1951,10 +1951,25 @@ pub fn render_node_clipmask_cpu(
     let mut agg_path = agg_translate_node(node)?;
     let white = Rgba8::new(255, 255, 255, 255);
 
-    // Create pixel buffer and render
-    let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-    let stride = (w * 4) as i32;
+    // Create pixel buffer and render. Checked: the image's size is the
+    // caller's, and a product that wrapped would hand the rasterizer rows
+    // past the end of the buffer.
+    let len = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
+    let stride = i32::try_from(w.checked_mul(4)?).ok()?;
+    let mut buf = vec![0u8; len];
+    // SAFETY: `buf` holds `h` rows of `stride` bytes and outlives `ra`.
     let mut ra = unsafe { RowAccessor::new_with_buf(buf.as_mut_ptr(), w, h, stride) };
+    // The geometry, clamped exactly and without its non-finite vertices
+    // (`geometry_guard`), so neither NaN nor a huge coordinate reaches AGG.
+    fn add_path(
+        ras: &mut RasterizerScanlineAa,
+        path: &mut dyn VertexSource,
+        bounds: crate::geometry_guard::ClampBox,
+    ) {
+        let mut clamped = crate::geometry_guard::ClampedVertexSource::new(path, bounds);
+        ras.add_path(&mut clamped, 0);
+    }
+    let bounds = crate::geometry_guard::target_bounds(w, h);
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     let mut ras = RasterizerScanlineAa::new();
@@ -1967,10 +1982,10 @@ pub fn render_node_clipmask_cpu(
                 SvgFillRule::EvenOdd => FillingRule::EvenOdd,
             });
             if transform.is_identity(0.0001) {
-                ras.add_path(&mut agg_path, 0);
+                add_path(&mut ras, &mut agg_path, bounds);
             } else {
                 let mut transformed = ConvTransform::new(&mut agg_path, transform);
-                ras.add_path(&mut transformed, 0);
+                add_path(&mut ras, &mut transformed, bounds);
             }
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
@@ -1989,10 +2004,10 @@ pub fn render_node_clipmask_cpu(
                 SvgLineJoin::Bevel => LineJoin::Bevel,
             });
             if transform.is_identity(0.0001) {
-                ras.add_path(&mut stroke, 0);
+                add_path(&mut ras, &mut stroke, bounds);
             } else {
                 let mut transformed = ConvTransform::new(&mut stroke, transform);
-                ras.add_path(&mut transformed, 0);
+                add_path(&mut ras, &mut transformed, bounds);
             }
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
         }
@@ -2025,57 +2040,23 @@ pub fn render_node_clipmask_cpu(
 fn rasterize_multi_polygon(
     mp: &SvgMultiPolygon,
 ) -> agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa {
-    use agg_rust::{
-        basics::{FillingRule, PATH_FLAGS_NONE},
-        path_storage::PathStorage,
-        rasterizer_scanline_aa::RasterizerScanlineAa,
-    };
+    use agg_rust::{basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa};
 
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
 
-    let mut path = PathStorage::new();
-    for ring in mp.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                SvgPathElement::Line(l) => {
-                    if first {
-                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
-                        first = false;
-                    }
-                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
-                }
-                SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
-                        first = false;
-                    }
-                    path.curve3(
-                        f64::from(q.ctrl.x),
-                        f64::from(q.ctrl.y),
-                        f64::from(q.end.x),
-                        f64::from(q.end.y),
-                    );
-                }
-                SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
-                        first = false;
-                    }
-                    path.curve4(
-                        f64::from(c.ctrl_1.x),
-                        f64::from(c.ctrl_1.y),
-                        f64::from(c.ctrl_2.x),
-                        f64::from(c.ctrl_2.y),
-                        f64::from(c.end.x),
-                        f64::from(c.end.y),
-                    );
-                }
-            }
-        }
-        path.close_polygon(PATH_FLAGS_NONE);
-    }
+    // Rings with a non-finite point are left out, the rest clamped exactly
+    // to `COORD_LIMIT` units (`geometry_guard`).
+    let mut bounded = crate::geometry_guard::BoundedPath::new(
+        crate::geometry_guard::ClampBox::around_origin(crate::geometry_guard::COORD_LIMIT),
+    );
+    crate::geometry_guard::add_svg_rings(
+        &mut bounded,
+        mp,
+        &|p| (f64::from(p.x), f64::from(p.y)),
+        crate::geometry_guard::RingEnd::ClosePolygon,
+    );
+    let mut path = bounded.finish();
     ras.add_path(&mut path, 0);
     ras
 }

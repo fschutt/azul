@@ -3616,7 +3616,7 @@ fn render_stroked_path(
     let (ox, oy) = (bounds.origin.x * dpi_factor, bounds.origin.y * dpi_factor);
     let mx = |x: f32| f64::from((x + tx) * sx + ox);
     let my = |y: f32| f64::from((y + ty) * sy + oy);
-    let mut geometry = svg_path_to_agg(path, &mx, &my);
+    let mut geometry = svg_path_to_agg(path, &mx, &my, false);
 
     // A non-uniform scale cannot be expressed as one stroke width; the mean
     // is the honest approximation and matches what every SVG renderer does
@@ -6193,17 +6193,37 @@ fn build_rounded_rect_path(
     border_radius: &BorderRadius,
     dpi_factor: f32,
 ) -> PathStorage {
+    /// The largest radius, in device px, that arcs are stepped finely for.
+    /// AGG steps an arc by angle, finer the larger the radius: a radius of
+    /// a trillion pixels takes millions of steps, and past ~1e15 the
+    /// step rounds to 0 and the arc never ends. Beyond this the tolerance
+    /// grows with the radius: three pixels for a radius of a hundred million.
+    const MAX_FINE_ARC_RADIUS: f64 = 4_194_304.0;
+
     let mut path = PathStorage::new();
 
     let x = f64::from(rect.x);
     let y = f64::from(rect.y);
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
+    // A rect with a non-finite edge is no shape; a non-finite radius no
+    // rounding.
+    if ![x, y, w, h].iter().all(|v| v.is_finite()) {
+        return path;
+    }
+    let radius = |r: f32| {
+        let r = f64::from(r * dpi_factor);
+        if r.is_finite() {
+            r
+        } else {
+            0.0
+        }
+    };
 
-    let tl = f64::from(border_radius.top_left * dpi_factor);
-    let tr = f64::from(border_radius.top_right * dpi_factor);
-    let br = f64::from(border_radius.bottom_right * dpi_factor);
-    let bl = f64::from(border_radius.bottom_left * dpi_factor);
+    let tl = radius(border_radius.top_left);
+    let tr = radius(border_radius.top_right);
+    let br = radius(border_radius.bottom_right);
+    let bl = radius(border_radius.bottom_left);
 
     if tl <= 0.0 && tr <= 0.0 && br <= 0.0 && bl <= 0.0 {
         path.move_to(x, y);
@@ -6229,7 +6249,10 @@ fn build_rounded_rect_path(
     rr.rect(x, y, x + w, y + h);
     rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
     rr.normalize_radius();
-    rr.set_approximation_scale(f64::from(dpi_factor.max(1.0)));
+    let largest = tl.max(tr).max(br).max(bl);
+    rr.set_approximation_scale(
+        f64::from(dpi_factor.max(1.0)).min(MAX_FINE_ARC_RADIUS / largest.max(1.0)),
+    );
 
     path.concat_path(&mut rr, 0);
     path

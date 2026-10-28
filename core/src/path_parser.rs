@@ -191,8 +191,12 @@ impl<'a> PathParser<'a> {
 
         let s = core::str::from_utf8(&self.input[start..self.pos])
             .map_err(|_| SvgPathParseError::ExpectedNumber { pos: start })?;
+        // Past the f32 range the parse gives infinity, which is no number
+        // (and no coordinate a rasterizer can draw).
         s.parse::<f32>()
-            .map_err(|_| SvgPathParseError::ExpectedNumber { pos: start })
+            .ok()
+            .filter(|v| v.is_finite())
+            .ok_or(SvgPathParseError::ExpectedNumber { pos: start })
     }
 
     fn parse_flag(&mut self) -> Result<bool, SvgPathParseError> {
