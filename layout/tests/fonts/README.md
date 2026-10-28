@@ -16,10 +16,11 @@ instead of "roughly this wide".
   `(advance-50, 700)`. Nothing about glyph *shape* matters; only *metrics* and
   the presence/behaviour of OpenType layout tables (GSUB/GPOS/vmtx) do. A CPU
   rasterizer will draw these as visible coloured boxes.
-* **Except sections 7 and 8:** those two are small subsets of real OFL fonts,
-  kept for what real Arabic fonts do and the synthetic ones cannot (dots split
-  off their letters, mark and cursive anchors). They are not made by the script
-  above; each one's licence text sits next to it.
+* **Except sections 7 to 9:** those are small subsets of real OFL fonts, kept
+  for what real Arabic and Devanagari fonts do and the synthetic ones cannot
+  (dots split off their letters, mark and cursive anchors, dotted circles for
+  broken syllables). They are not made by the script above; each one's licence
+  text sits next to it.
 
 ## Shared conventions (unless a font overrides them)
 
@@ -305,3 +306,29 @@ dal (advance 471). The lookup's `RightToLeft` flag makes the first glyph the
 one that moves, so HarfBuzz 15.0.0 draws the meem at offset (0, -19): its exit
 then meets the jeem's entry. The advances do not change, the anchors' x
 already match them.
+
+---
+
+## 9. NotoSansDevanagari-BrokenSyllables.ttf — dotted circles
+
+| | |
+|---|---|
+| family name | **Noto Sans Devanagari** (Regular 2.000, a subset) |
+| licence | SIL OFL 1.1, `NotoSansDevanagari-OFL.txt` |
+| upem | 1000 |
+| numGlyphs | 8 |
+| cmap | U+0020, U+0915 ka, U+093E aa sign, U+093F i sign, U+25CC dotted circle |
+| GSUB | `abvs` only; no GPOS |
+
+**Made with:** `pyftsubset NotoSansDevanagari-Regular.ttf --text="◌ािक "
+--layout-features='*' --no-hinting`.
+
+A vowel sign with no consonant before it is a broken syllable: the shaper
+draws it on a dotted circle it inserts, which stands for no text. What
+HarfBuzz 15.0.0 gives (glyphs in order, clusters in UTF-8 bytes):
+
+| text | glyphs (cluster) |
+|------|------------------|
+| `ाक` | dotted circle (0), aa sign (0), ka (3) |
+| `िक` | i sign (0), dotted circle (0), ka (3) - the i sign is drawn before its base |
+| `◌िक` | i sign (0), dotted circle (0), ka (6) - here the dotted circle is the text's own |

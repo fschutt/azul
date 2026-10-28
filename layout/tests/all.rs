@@ -1307,3 +1307,5 @@ mod an_anonymous_block_around_other_words_is_laid_out_anew;
 mod an_svg_with_absurd_geometry_renders_in_bounded_time;
 #[path = "an_arabic_letter_keeps_its_dots_and_marks.rs"]
 mod an_arabic_letter_keeps_its_dots_and_marks;
+#[path = "a_dotted_circle_the_shaper_inserts_stands_for_no_text.rs"]
+mod a_dotted_circle_the_shaper_inserts_stands_for_no_text;
