@@ -5077,8 +5077,8 @@ n3 p2 d4 Inline @8,8 -x- ic=0/0
   dl2 HitTestArea 8,8 784x600
   dl3 LinearGradient 8,8 800x600
   dl4 HitTestArea 8,8 800x600
-  dl5 PopStackingContext
-  dl6 PopScrollFrame
+  dl5 PopScrollFrame
+  dl6 PopStackingContext
   dl7 ScrollBarStyled 788,0 12x600
 === wpt/normalized/css/css-images/color-stop-currentcolor.html
 dom DomId { inner: 0 }
@@ -5090,8 +5090,8 @@ n3 p2 d4 Inline @8,8 -x- ic=0/0
   dl1 PushScrollFrame 0,0 800x600 content=800x608
   dl2 HitTestArea 8,8 784x600
   dl3 HitTestArea 8,8 800x600
-  dl4 PopStackingContext
-  dl5 PopScrollFrame
+  dl4 PopScrollFrame
+  dl5 PopStackingContext
   dl6 ScrollBarStyled 788,0 12x600
 === wpt/normalized/css/css-images/gradient/gradient-single-stop-001.html
 dom DomId { inner: 0 }
@@ -10708,8 +10708,8 @@ n113 p111 d96 Inline @8,632 -x- ic=0/0
   dl98 HitTestArea 8,616 784x16
   dl99 Text -8,616 816x16 glyphs=34 fs=16
   dl100 HitTestArea 8,616.2031 236.79688x16
-  dl101 PopStackingContext
-  dl102 PopScrollFrame
+  dl101 PopScrollFrame
+  dl102 PopStackingContext
   dl103 ScrollBarStyled 788,0 12x600
 === wpt/normalized/css/css-text-decor/reference/text-decoration-propagation-02-ref.html
 dom DomId { inner: 0 }
@@ -11485,8 +11485,8 @@ n113 p111 d96 Inline @8,632 -x- ic=0/0
   dl95 HitTestArea 8,616 784x16
   dl96 Text -8,616 816x16 glyphs=34 fs=16
   dl97 HitTestArea 8,616.2031 236.79688x16
-  dl98 PopStackingContext
-  dl99 PopScrollFrame
+  dl98 PopScrollFrame
+  dl99 PopStackingContext
   dl100 ScrollBarStyled 788,0 12x600
 === wpt/normalized/css/css-text-decor/text-decoration-propagation-02.html
 dom DomId { inner: 0 }

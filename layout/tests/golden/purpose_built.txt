@@ -465,8 +465,8 @@ n73 p72 d71 Inline @0,1064.5313 -x- ic=35.203125/72.8125
   dl149 HitTestArea 0,1048.7344 35.203125x16
   dl150 Text -16,1064.5313 352x16 glyphs=12 fs=16
   dl151 HitTestArea 0,1064.7344 72.796875x16
-  dl152 PopStackingContext
-  dl153 PopScrollFrame
+  dl152 PopScrollFrame
+  dl153 PopStackingContext
   dl154 ScrollBarStyled 788,0 12x600
 === bidi
 dom DomId { inner: 0 }

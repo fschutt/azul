@@ -1775,8 +1775,8 @@ n60 p1 d101 Block { establishes_new_context: true } @0,611 1x1 ov=0x0 ic=1/1 rel
   dl88 HitTestArea 116,562 0x0
   dl89 HitTestArea 116,562 0x0
   dl90 Image 0,611 1x1
-  dl91 PopStackingContext
-  dl92 PopScrollFrame
+  dl91 PopScrollFrame
+  dl92 PopStackingContext
   dl93 ScrollBarStyled 788,0 12x600
 === mail_corpus/exploration/02_gmail_reply.html
 dom DomId { inner: 0 }
