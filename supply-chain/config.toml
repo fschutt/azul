@@ -2090,10 +2090,6 @@ version = "1.0.20"
 criteria = "safe-to-deploy"
 
 [[exemptions.lzma-rust2]]
-version = "0.13.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.lzma-rust2]]
 version = "0.16.5"
 criteria = "safe-to-deploy"
 
@@ -4513,12 +4509,13 @@ version = "0.6.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
-version = "6.0.0"
+version = "8.6.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
-version = "8.6.0"
+version = "9.0.5"
 criteria = "safe-to-deploy"
+notes = "azul-doc's release zips (deflate only); the zip 9 line drops zstd 0.13 (RUSTSEC-2026-0391). Not read in full (2026-10-28): 13,700 changed lines from 8.6.0, mostly extraction hardening (symlinks, permissions, duplicate names) and ZIP64 fixes; no build script, the unsafe count goes from 35 to 28, the new std::fs use is in extraction, which azul never calls."
 
 [[exemptions.zlib-rs]]
 version = "0.6.7"

@@ -25,7 +25,9 @@ material-icons = "0.3"
 indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
 cargo_metadata = "0.21"
-zip = "6.0.0"
+# The release zips (examples.zip, azul-java.zip) are deflate only: azul-doc writes them and reads
+# azul-java.zip back into its bundle. `time` stamps the entries with the time they were written.
+zip = { version = "9.0.5", default-features = false, features = ["deflate", "time"] }
 # gzip for the release's binding bundles (dllgen::bundles writes the tar itself)
 flate2 = "1"
 open = "5.3.2"

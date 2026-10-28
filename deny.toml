@@ -28,7 +28,7 @@ ignore = [
     # import, ironcalc's xlsx import in AzSheets, azul-doc's bundler); nothing
     # calls ZipArchive::extract or ZipStreamReader::extract, the only paths that
     # create files, symlinks or permission bits from an archive. Fixed in zip
-    # >= 9.0.0: a major-version move for azul-layout (2.4) and azul-doc (6.0),
+    # >= 9.0.0, which azul-doc is on: a major-version move for azul-layout (2.4),
     # and ironcalc 0.8 pins 0.6. ──
     { id = "RUSTSEC-2026-0367", reason = "zip keeps SUID/SGID bits when extracting to disk. azul never extracts an archive to the filesystem (in-memory reads by index/name only), so no file is created with archive permissions. Fix: zip >= 9.0.0." },
     { id = "RUSTSEC-2026-0368", reason = "zip's ZipArchive::extract creates symlinks whose targets leave the destination. No caller of ZipArchive::extract exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },

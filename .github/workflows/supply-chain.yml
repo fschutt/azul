@@ -187,6 +187,13 @@ jobs:
             EXEMPT+=(--exempt zstd --exempt zstd-safe --exempt zstd-sys)
             echo "cooldown: zstd, zstd-safe, zstd-sys exempt until 2026-10-31 (RUSTSEC-2026-0391/0398/0403/0410 fixes)"
           fi
+          # zip 9.0.5 (published 2026-10-17): azul-doc's zip 6 brought zstd 0.13 (RUSTSEC-2026-0391, -0398, -0403);
+          # the zip 9 line is on zstd 0.14 and azul-doc takes deflate only; cargo-vet exemption with notes.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-01" ]]; then
+            EXEMPT+=(--exempt zip)
+            echo "cooldown: zip exempt until 2026-11-01 (off zstd 0.13, RUSTSEC-2026-0391/0398/0403)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"

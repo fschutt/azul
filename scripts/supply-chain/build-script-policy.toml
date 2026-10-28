@@ -432,7 +432,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.1.5:f8d19ce9a62e63f9be91a1d1bbc43d3269a29a694e667fd0fb46a841f5a3c985", "0.3.1:148870d014a5e73cf7078915672427dec4a88181264c5c8a899d63218e31cee8", "0.4.2:bf3fd05d8f011a528b2b401eec27349a6f0d497769a86f1c592dcacc83a0fe57"]
+reviewed = ["0.1.5:f8d19ce9a62e63f9be91a1d1bbc43d3269a29a694e667fd0fb46a841f5a3c985", "0.4.2:bf3fd05d8f011a528b2b401eec27349a6f0d497769a86f1c592dcacc83a0fe57"]
 
 [crate."cookie"]  # build-script
 allow = true
@@ -1447,7 +1447,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.13.0:6c73dd6733914059eb5e04df423d27d68bdaacb5fc07afa7d81c697961fa188d", "0.16.5:6798a8877469114da8e15ea61405af6a16965bd17966ab133ef69332992b6c30"]
+reviewed = ["0.16.5:6798a8877469114da8e15ea61405af6a16965bd17966ab133ef69332992b6c30"]
 
 [crate."memchr"]  # build-dependency
 allow = true
@@ -2839,8 +2839,8 @@ reviewed = ["0.11.6:c166c041bac0af6852eea4f7a0665ae22035fe6d071b2d7557ab215d632a
 allow = true
 risk = "high"
 review = "audited"
-reason = "build.rs only warns on the deflate-miniz feature; extraction is zip-slip guarded (used by ext-php-rs on Windows); 0.6.6 has no build.rs at all (ironcalc's runtime dependency, scanned by name)"
-reviewed = ["0.6.6:e4bc84f685d089d216de744feaafadba392b26c38553a8323a8eb2c3c4ab732c", "2.4.2:8af6cb53df7b829c83dee16d0d63dd604e0303529e4ea00eb935d2788beabb8f", "6.0.0:62c2e567fee69d11eee10ffef513f910b2c5fd84944ee906ca6ca579cb016acc", "8.6.0:701aa86c6f603494759a69f6df7a5c9e03987d61665addf9b926282387b8a3b8"]
+reason = "build.rs only warns on the deflate-miniz feature; extraction is zip-slip guarded (used by ext-php-rs on Windows); 0.6.6 and 9.0.5 have no build.rs at all (ironcalc's and azul-doc's runtime dependency, scanned by name)"
+reviewed = ["0.6.6:e4bc84f685d089d216de744feaafadba392b26c38553a8323a8eb2c3c4ab732c", "2.4.2:8af6cb53df7b829c83dee16d0d63dd604e0303529e4ea00eb935d2788beabb8f", "8.6.0:701aa86c6f603494759a69f6df7a5c9e03987d61665addf9b926282387b8a3b8", "9.0.5:af28308d9cbc239b0b499156cc4103610df7f10bb072f7397db16621c0bca36d"]
 
 [crate."zlib-rs"]  # build-dependency
 allow = true
