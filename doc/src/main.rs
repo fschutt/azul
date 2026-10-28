@@ -2714,6 +2714,27 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --dry-run          - Generate prompts without running agents");
     println!("    autoreview --status           - Show review progress");
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
+    println!("    autoreview --force            - Re-queue reviews that are already done");
+    println!("    autoreview --rewrite-source[=KINDS]");
+    println!("                                  - One low-cost agent per file (default");
+    println!("                                    claude-sonnet-5-5, 6 at once) lists findings (crash");
+    println!("                                    risks, global state, allocations, untested code,");
+    println!("                                    idioms, naming, ...) and makes only the KINDS edits:");
+    println!("                                    comments (default), newlines, variables (renames");
+    println!("                                    of too-short locals), fmt (rustfmt, nightly if");
+    println!("                                    installed, with the root rustfmt.toml). Each edit is");
+    println!("                                    checked or the file is put back. idioms / everything");
+    println!("                                    apply findings unchecked: at most 5 files via --file.");
+    println!("                                    Tracked .rs files under core css layout dll doc");
+    println!("                                    examples; each prompt carries repository context;");
+    println!("                                    resumable. [--file=PATTERN] [--agents=N] [--model=M]");
+    println!("                                    [--effort=LEVEL] [--timeout=SECS] [--max-bytes=N]");
+    println!("                                    [--coverage=LCOV] [--dry-run] [--status]");
+    println!("                                    [--retry-failed] [--force]");
+    println!("    autoreview merge --rewrite-source[=KINDS] [--out=PATH]");
+    println!("                                  - That run's findings as one todo list, by category");
+    println!("                                    then file (no agent). Default: doc/target/");
+    println!("                                    autoreview/rewrite-source/<kinds>/merge/todo.md");
     println!(
         "    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor \
          bugs)"

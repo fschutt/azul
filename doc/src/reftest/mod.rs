@@ -40,6 +40,7 @@ pub mod style_guard;
 pub mod debug;
 pub mod pipeline;
 pub mod regression;
+pub mod rewrite_source;
 pub mod telegram;
 
 /// Create a ureq Agent with pure-Rust TLS (rustls + rustls-rustcrypto)
