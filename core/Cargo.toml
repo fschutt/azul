@@ -24,7 +24,8 @@ autoexamples = false
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
-rust-fontconfig = { version = ">=5.0.1, <5.1", default-features = false, features = ["std"] }
+# The system font cache the callbacks hand out (feature `system_fonts`).
+rust-fontconfig = { version = ">=5.0.1, <5.1", default-features = false, features = ["std"], optional = true }
 serde                   = { version = "1.0", features = ["derive"], optional = true }
 # `float_roundtrip`: without it serde_json parses floats "best effort" (a plain
 # f64 multiply by a POW10 table entry), which is NOT exact: `Json::parse` then
@@ -39,11 +40,16 @@ url                     = { version = "2.5", default-features = false, optional 
 # Default: std + CSS parser
 default = ["std", "serde-json"]
 
-# Standard library support (includes CSS parser)
-std = ["css_parser"]
+# Standard library support (includes the CSS parser and the system font cache)
+std = ["css_parser", "system_fonts"]
 
 # CSS parser support
 css_parser = ["azul-css/parser"]
+
+# The system font cache (rust-fontconfig's `FcFontCache`) in the callback
+# infos and the font resource updates. rust-fontconfig links std even with
+# its default features off.
+system_fonts = ["dep:rust-fontconfig"]
 
 # Web-lift diagnostic/shim hooks (the native→wasm remill pipeline). Enables
 # `#[cfg(feature = "web_lift")]` code in azul-core. Pure additive; native
@@ -51,7 +57,7 @@ css_parser = ["azul-css/parser"]
 web_lift = []
 
 # Font parsing/introspection (adds allsorts via rust-fontconfig, heavier)
-font_parsing = ["rust-fontconfig/parsing"]
+font_parsing = ["system_fonts", "rust-fontconfig/parsing"]
 
 # Serde support for ComponentDataModel and related types
 serde-json = ["dep:serde", "dep:serde_json"]

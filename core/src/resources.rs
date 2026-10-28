@@ -30,6 +30,7 @@ use azul_css::{
     system::SystemStyle,
     AzString, F32Vec, LayoutDebugMessage, OptionI32, StringVec, U16Vec, U32Vec, U8Vec,
 };
+#[cfg(feature = "system_fonts")]
 use rust_fontconfig::FcFontCache;
 
 // Re-export Core* callback types for public use
@@ -4607,6 +4608,7 @@ pub struct LoadedFontSource {
 }
 
 // function to load the font source from a file
+#[cfg(feature = "system_fonts")]
 pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSource>;
 
 // function to parse the font given the loaded font source
@@ -4647,6 +4649,7 @@ pub const fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> External
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
 /// add-and-remove fonts after every `VirtualViewCallback`, which would cause a lot of
 /// I/O waiting.
+#[cfg(feature = "system_fonts")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
                                  // branch per input variant)
 pub fn build_add_font_resource_updates(

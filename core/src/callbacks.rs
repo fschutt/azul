@@ -39,6 +39,7 @@ use azul_css::{
     system::SystemStyle,
     AzString,
 };
+#[cfg(feature = "system_fonts")]
 use rust_fontconfig::{FcFontCache, OwnedFontSource};
 
 use crate::{
@@ -471,6 +472,9 @@ pub enum EdgeType {
 #[repr(C)]
 pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
+    /// The window's system font cache: rust-fontconfig's, so only with the
+    /// `system_fonts` feature (rust-fontconfig needs std).
+    #[cfg(feature = "system_fonts")]
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_mode: DarkLightMode,
@@ -568,7 +572,7 @@ impl VirtualViewCallbackInfo {
     #[must_use]
     pub const fn new<'a>(
         reason: VirtualViewCallbackReason,
-        system_fonts: &'a FcFontCache,
+        #[cfg(feature = "system_fonts")] system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
         window_theme: DarkLightMode,
         window_frame: WindowFrame,
@@ -579,6 +583,7 @@ impl VirtualViewCallbackInfo {
     ) -> Self {
         Self {
             reason,
+            #[cfg(feature = "system_fonts")]
             system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
             image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
             window_mode: window_theme,
@@ -679,6 +684,7 @@ impl VirtualViewCallbackInfo {
         self.bounds
     }
 
+    #[cfg(feature = "system_fonts")]
     const fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { &*self.system_fonts }
     }
@@ -882,7 +888,9 @@ pub struct LayoutCallbackInfoRefData<'a> {
     pub image_cache: &'a ImageCache,
     /// OpenGL context so that the `layout()` function can render textures
     pub gl_context: &'a OptionGlContextPtr,
-    /// Reference to the system font cache
+    /// Reference to the system font cache (only with `system_fonts`, see
+    /// `VirtualViewCallbackInfo::system_fonts`)
+    #[cfg(feature = "system_fonts")]
     pub system_fonts: &'a FcFontCache,
     /// Platform-specific system style (colors, spacing, etc.)
     /// Used for CSD rendering and menu windows.
@@ -1845,6 +1853,7 @@ impl LayoutCallbackInfo {
     const fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { (*self.ref_data).image_cache }
     }
+    #[cfg(feature = "system_fonts")]
     const fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { (*self.ref_data).system_fonts }
     }
@@ -1857,6 +1866,7 @@ impl LayoutCallbackInfo {
         self.internal_get_gl_context().clone()
     }
 
+    #[cfg(feature = "system_fonts")]
     #[must_use]
     pub fn get_system_fonts(&self) -> Vec<AzStringPair> {
         let fc_cache = self.internal_get_system_fonts();
@@ -1891,6 +1901,7 @@ impl LayoutCallbackInfo {
     /// The cache is internally `Arc<RwLock<_>>` (rust-fontconfig 4.1+), so
     /// this clone is a handle, not a copy: the caller sees the same fonts
     /// the window already resolved, including builder-thread additions.
+    #[cfg(feature = "system_fonts")]
     #[must_use]
     pub fn get_font_cache(&self) -> FcFontCache {
         self.internal_get_system_fonts().clone()

@@ -38,7 +38,6 @@ use azul_css::{
     },
     AzString, LayoutDebugMessage, OptionF32, OptionI32, OptionString, OptionU32, U8Vec,
 };
-use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType, Update},
