@@ -3363,6 +3363,77 @@ pub type LocalScrollId = u64;
 /// - 0x0200 = Scrollbar component
 pub(crate) type DisplayListTagId = (u64, u16);
 
+/// The union of two rects.
+fn rect_union(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    let (x0, y0) = (a.min_x().min(b.min_x()), a.min_y().min(b.min_y()));
+    let (x1, y1) = (a.max_x().max(b.max_x()), a.max_y().max(b.max_y()));
+    LogicalRect::new(LogicalPosition::new(x0, y0), LogicalSize::new(x1 - x0, y1 - y0))
+}
+
+/// The part of `a` inside `b` (empty when they do not meet).
+fn rect_intersection(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    let (x0, y0) = (a.min_x().max(b.min_x()), a.min_y().max(b.min_y()));
+    let (x1, y1) = (a.max_x().min(b.max_x()), a.max_y().min(b.max_y()));
+    LogicalRect::new(
+        LogicalPosition::new(x0, y0),
+        LogicalSize::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)),
+    )
+}
+
+/// Where the items of a group paint: the union of their visual bounds
+/// (box-shadows included) inside the clips open around each, with a scroll
+/// frame counted as its clip, however far its content runs. Hit-test areas
+/// and the structural items paint nothing. `None` when nothing paints.
+fn group_paint_bounds(items: &[DisplayListItem]) -> Option<LogicalRect> {
+    let mut union: Option<LogicalRect> = None;
+    let mut clips: Vec<Option<LogicalRect>> = Vec::new();
+    let mut in_scroll_frames = 0usize;
+    let add = |union: &mut Option<LogicalRect>, clip: Option<LogicalRect>, r: LogicalRect| {
+        let r = clip.map_or(r, |c| rect_intersection(r, c));
+        if r.size.width > 0.0 && r.size.height > 0.0 {
+            *union = Some(union.map_or(r, |u| rect_union(u, r)));
+        }
+    };
+    for item in items {
+        let clip = clips.last().copied().flatten();
+        match item {
+            DisplayListItem::PushScrollFrame { clip_bounds, .. } => {
+                if in_scroll_frames == 0 {
+                    add(&mut union, clip, *clip_bounds.inner());
+                }
+                in_scroll_frames += 1;
+            }
+            DisplayListItem::PopScrollFrame => in_scroll_frames = in_scroll_frames.saturating_sub(1),
+            _ if in_scroll_frames > 0 => {}
+            DisplayListItem::PushClip { bounds, .. }
+            | DisplayListItem::PushImageMaskClip { bounds, .. } => {
+                let b = *bounds.inner();
+                clips.push(Some(clip.map_or(b, |c| rect_intersection(b, c))));
+            }
+            DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
+                clips.pop();
+            }
+            DisplayListItem::HitTestArea { .. }
+            | DisplayListItem::PushStackingContext { .. }
+            | DisplayListItem::PopStackingContext
+            | DisplayListItem::PushReferenceFrame { .. }
+            | DisplayListItem::PopReferenceFrame
+            | DisplayListItem::PushFilter { .. }
+            | DisplayListItem::PopFilter
+            | DisplayListItem::PushBackdropFilter { .. }
+            | DisplayListItem::PopBackdropFilter
+            | DisplayListItem::PushOpacity { .. }
+            | DisplayListItem::PopOpacity => {}
+            other => {
+                if let Some(b) = other.visual_bounds() {
+                    add(&mut union, clip, b);
+                }
+            }
+        }
+    }
+    union
+}
+
 /// Internal builder to accumulate display list items during generation.
 #[derive(Debug, Default)]
 struct DisplayListBuilder {
@@ -3399,6 +3470,10 @@ struct DisplayListBuilder {
     /// One-shot: the colour key of the NEXT pushed item.
     next_color_binding: Option<ColorKey>,
     color_bindings: Vec<Option<ColorKey>>,
+    /// The indices of the opacity groups open around the next item: each
+    /// `PopOpacity` widens its push to what the group painted
+    /// ([`group_paint_bounds`]).
+    open_opacity_groups: Vec<usize>,
 }
 
 impl DisplayListBuilder {
@@ -3425,6 +3500,7 @@ impl DisplayListBuilder {
             bound_colors: BTreeMap::new(),
             next_color_binding: None,
             color_bindings: Vec::new(),
+            open_opacity_groups: Vec::new(),
         }
     }
 
@@ -3603,6 +3679,26 @@ impl DisplayListBuilder {
         } else {
             self.current_node
         };
+        // An opacity group fades everything it paints, its box-shadow and
+        // the children that overflow its box included, so its push carries
+        // the bounds of that paint rather than of its box: the renderers blend
+        // (incremental CPU) or allocate the layer (compositor) over them.
+        match &item {
+            DisplayListItem::PushOpacity { .. } => self.open_opacity_groups.push(self.items.len()),
+            DisplayListItem::PopOpacity => {
+                if let Some(start) = self.open_opacity_groups.pop() {
+                    let painted = group_paint_bounds(&self.items[start + 1..]);
+                    if let Some(DisplayListItem::PushOpacity { bounds, .. }) =
+                        self.items.get_mut(start)
+                    {
+                        if let Some(painted) = painted {
+                            *bounds = rect_union(*bounds.inner(), painted).into();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
         self.items.push(item);
         self.node_mapping.push(attr);
         self.layout_node_mapping.push(self.current_layout);
