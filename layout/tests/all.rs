@@ -1217,6 +1217,8 @@ mod a_seek_bars_hover_tip_shows_while_the_pointer_is_over_its_trough;
 mod calmet_lines;
 #[path = "a_hyphenated_word_breaks_where_its_dictionary_breaks_it.rs"]
 mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
+#[path = "a_word_beside_punctuation_breaks_where_the_bare_word_breaks.rs"]
+mod a_word_beside_punctuation_breaks_where_the_bare_word_breaks;
 #[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
 mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
 #[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
