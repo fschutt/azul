@@ -16184,10 +16184,12 @@ impl LayoutWindow {
                         new_cache.get_property(new_nd, &m.new_node_id, &new_node_state, ty);
                     if before != after {
                         changed_any = true;
-                        // IFC membership is not known here; `false` is the
-                        // conservative reading for the classifier's font/text
-                        // arm, which upgrades rather than downgrades.
-                        worst = worst.max(ty.relayout_scope(false));
+                        // IFC membership is not known here, so the conservative
+                        // reading is that the node is in one: a text property
+                        // (`word-break`, `text-align`, a font) then lays out the
+                        // inline context again, where the other reading called it
+                        // paint-only and a box that inherits it kept its old lines.
+                        worst = worst.max(ty.relayout_scope(true));
 
                         // The entry of the OLD tree's `animation` covering
                         // this property, if any (`declared_animation_for`).
@@ -33105,7 +33107,8 @@ impl CssTransition {
             duration_s: anim.duration.millis() as f32 / 1000.0,
             delay_s: anim.delay.millis() as f32 / 1000.0,
             timing: anim.timing,
-            scope: prop_type.relayout_scope(false),
+            // As the restyle reads it: the node may hold an inline context.
+            scope: prop_type.relayout_scope(true),
             last_color: None,
             last_layers: None,
             keeps_target,
