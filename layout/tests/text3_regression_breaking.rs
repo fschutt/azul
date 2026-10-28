@@ -297,13 +297,25 @@ fn zwsp_breaks_even_under_keep_all() {
 fn soft_hyphen_creates_break_with_manual_hyphens() {
     // UAX#14 class BA + CSS hyphens:manual (default): a U+00AD SOFT HYPHEN is a
     // conditional break opportunity, so "aaaa\u{00AD}aaaa" wraps in a 60px box.
+    // The line that breaks at it shows a hyphen (CSS Text), so line 0 is
+    // "aaaa-": 48px of letters and the 6px hyphen.
     let l = layout("aaaa\u{00AD}aaaa", AvailableSpace::Definite(60.0));
     assert_eq!(
         line_count(&l),
         2,
         "soft hyphen must offer a break under hyphens:manual"
     );
-    assert_px(line_width(&l, 0), 48.0);
+    assert_px(line_width(&l, 0), 54.0);
+}
+
+#[test]
+fn a_soft_hyphen_break_counts_its_hyphen_in_the_min_content() {
+    // The min-content takes every break, the soft hyphen's too, and a line
+    // broken there holds the hyphen: "aaaa-" (54px) is the widest line, as
+    // Chrome measures `width: min-content`.
+    let l = layout("aaaa\u{00AD}aaaa", AvailableSpace::MinContent);
+    assert_eq!(line_count(&l), 2, "min-content breaks at the soft hyphen");
+    assert_px(widest_line(&l), 54.0);
 }
 
 #[test]

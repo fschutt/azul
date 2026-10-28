@@ -1223,6 +1223,8 @@ mod a_word_beside_punctuation_breaks_where_the_bare_word_breaks;
 mod a_word_with_a_soft_hyphen_breaks_only_at_its_soft_hyphen;
 #[path = "a_balanced_paragraph_fits_wherever_the_wrapped_one_fits.rs"]
 mod a_balanced_paragraph_fits_wherever_the_wrapped_one_fits;
+#[path = "a_line_broken_at_a_soft_hyphen_ends_in_a_hyphen.rs"]
+mod a_line_broken_at_a_soft_hyphen_ends_in_a_hyphen;
 #[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
 mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
 #[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
