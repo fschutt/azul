@@ -503,6 +503,14 @@ pub struct ChatRoom {
     /// the current members is held ([`ChatRoom::peer_records`]). Once the peers alone carry the
     /// chat, a message waiting here is what makes this device ask for that key.
     peer_out: VecDeque<Outgoing>,
+    /// The record each of this device's messages left as the first time it left (the service
+    /// took it, or a peer got it), by id, while the outbox or `peer_out` still holds it: both
+    /// get that one record, readable by the members of that moment. Sealed again when handed on
+    /// later, a message would open for whoever was let in meanwhile.
+    sealed: BTreeMap<String, ChatRecord>,
+    /// The record of the message post in flight: kept in `sealed` once the service takes it. A
+    /// post that fails is sealed again for its retry, for the members as listed then.
+    posting: Option<ChatRecord>,
     /// The newest time of an unnumbered message read here: a peer's record is unread until the
     /// chat is read, as a numbered one is until `read_seq`.
     read_ts: u64,
@@ -568,6 +576,8 @@ impl ChatRoom {
             outbox: VecDeque::new(),
             peers_only: false,
             peer_out: VecDeque::new(),
+            sealed: BTreeMap::new(),
+            posting: None,
             read_ts: 0,
             admit_queue: VecDeque::new(),
             rotate: false,
@@ -599,8 +609,8 @@ impl ChatRoom {
     }
 
     /// This device's messages that have not left it yet, in the queue that carries them now: the
-    /// outbox while the service carries messages, else the one for the peers. What waits here
-    /// needs a key for the members as listed now before it can be sealed.
+    /// outbox while the service carries messages, else the one for the peers. What waits here,
+    /// not sealed yet, needs a key for the members as listed now.
     fn on_its_way(&self) -> &VecDeque<Outgoing> {
         if self.peers_only {
             &self.peer_out
@@ -783,6 +793,7 @@ impl ChatRoom {
             self.state = Membership::Leaving;
             self.outbox.clear();
             self.peer_out.clear();
+            self.sealed.clear();
             self.retry_at = 0;
             self.failures = 0;
         }
@@ -830,7 +841,9 @@ impl ChatRoom {
         // Waiting for a peer to be online: the oldest go past MAX_WAITING (the service has them
         // while it carries messages; a peer that comes online gets the rest).
         if self.peer_out.len() >= MAX_WAITING {
-            self.peer_out.pop_front();
+            if let Some(oldest) = self.peer_out.pop_front() {
+                self.release_sealed(&oldest.id);
+            }
         }
         self.peer_out.push_back(Outgoing {
             id: id.clone(),
@@ -843,29 +856,48 @@ impl ChatRoom {
         Some(message)
     }
 
-    /// This device's messages sealed for the peers, each once, as soon as a key for the current
-    /// members is held (while the service carries messages it gets them too, from the outbox).
+    /// This device's messages for the peers, each once: the record the service got for one it
+    /// took already, else sealed now, as soon as a key for the current members is held (while
+    /// the service carries messages it gets them too, from the outbox).
     pub fn peer_records(&mut self, me: &Identity) -> Vec<ChatRecord> {
-        let Some(key) = self.usable_key(me.device()).map(|k| k.key.clone()) else {
-            return Vec::new();
-        };
+        let has_key = self.usable_key(me.device()).is_some();
         let mut records = Vec::new();
-        while let Some(out) = self.peer_out.pop_front() {
+        let mut unsealed = VecDeque::new();
+        for out in std::mem::take(&mut self.peer_out) {
+            if !has_key && !self.sealed.contains_key(&out.id) {
+                unsealed.push_back(out);
+                continue;
+            }
             // One that cannot be sealed is not handed out; the Worker still gets it.
-            if let Some((body, sig)) = self.seal_outgoing(me, &key, &out) {
-                let record = ChatRecord {
-                    room: self.room.clone(),
-                    id: out.id,
-                    sender: me.device().to_string(),
-                    key_id: key.id().to_string(),
-                    body,
-                    sig,
-                };
+            if let Some(record) = self.record_of(me, &out) {
                 self.hold(out.ts, record.clone());
+                // Kept while the outbox holds it: the service gets this same record.
+                self.sealed.insert(out.id.clone(), record.clone());
                 records.push(record);
             }
+            self.release_sealed(&out.id);
         }
+        self.peer_out = unsealed;
         records
+    }
+
+    /// The record `out` leaves this device as: the one it already left as (to the service or to
+    /// the peers), else sealed now for the members as listed now. `None` while no key for them
+    /// is held.
+    fn record_of(&self, me: &Identity, out: &Outgoing) -> Option<ChatRecord> {
+        if let Some(record) = self.sealed.get(&out.id) {
+            return Some(record.clone());
+        }
+        let key = self.usable_key(me.device())?;
+        self.seal_record(me, &key.key, out)
+    }
+
+    /// Forgets the record of message `id` once neither the outbox nor `peer_out` holds it.
+    fn release_sealed(&mut self, id: &str) {
+        let waits = |queue: &VecDeque<Outgoing>| queue.iter().any(|o| o.id == id);
+        if !waits(&self.outbox) && !waits(&self.peer_out) {
+            self.sealed.remove(id);
+        }
     }
 
     /// A record from a peer, through the checks a synced message goes through: listed (unnumbered
@@ -943,6 +975,7 @@ impl ChatRoom {
             // Never answered: given up.
             self.in_flight = None;
             self.pending_key = None;
+            self.posting = None;
         }
         if now_ms < self.retry_at {
             return None;
@@ -976,9 +1009,12 @@ impl ChatRoom {
         }
         // The rotation rule: a message about to be sealed needs a key for the members as listed
         // now. Once the peers alone carry the chat the outbox stays empty, so the messages
-        // waiting for the peers are the ones that ask for it.
-        let wants_key = self.rotate
-            || (!self.on_its_way().is_empty() && self.usable_key(me.device()).is_none());
+        // waiting for the peers are the ones that ask for it. One sealed already keeps its key.
+        let unsealed = self
+            .on_its_way()
+            .iter()
+            .any(|o| !self.sealed.contains_key(&o.id));
+        let wants_key = self.rotate || (unsealed && self.usable_key(me.device()).is_none());
         if wants_key {
             let fresh = self
                 .members_read_at
@@ -1118,9 +1154,8 @@ impl ChatRoom {
         Some(Call::signed("POST", self.path("keys"), &body, what))
     }
 
-    /// `out` sealed with `key` and signed: its body and signature, as the Worker and the peers get
-    /// them.
-    fn seal_outgoing(&self, me: &Identity, key: &RoomKey, out: &Outgoing) -> Option<(String, String)> {
+    /// `out` sealed with `key` and signed, as the Worker and the peers get it.
+    fn seal_record(&self, me: &Identity, key: &RoomKey, out: &Outgoing) -> Option<ChatRecord> {
         let plain = Plain {
             text: out.text.clone(),
             name: self.name.clone(),
@@ -1128,19 +1163,33 @@ impl ChatRoom {
         };
         let body = crypto::seal_message(key, &self.room, &out.id, me.device(), &plain).ok()?;
         let sig = me.sign(&crypto::message_input(&self.room, &out.id, key.id(), &body));
-        Some((body, sig))
+        Some(ChatRecord {
+            room: self.room.clone(),
+            id: out.id.clone(),
+            sender: me.device().to_string(),
+            key_id: key.id().to_string(),
+            body,
+            sig,
+        })
     }
 
-    fn message_call(&self, me: &Identity) -> Option<Call> {
+    fn message_call(&mut self, me: &Identity) -> Option<Call> {
         let out = self.outbox.front()?;
-        let key = self.usable_key(me.device())?;
-        let (body, sig) = self.seal_outgoing(me, &key.key, out)?;
-        Some(Call::signed(
+        let record = self.record_of(me, out)?;
+        let body = json!({
+            "id": record.id,
+            "key_id": record.key_id,
+            "body": record.body,
+            "sig": record.sig,
+        });
+        let call = Call::signed(
             "POST",
             self.path("messages"),
-            &json!({ "id": out.id, "key_id": key.key.id(), "body": body, "sig": sig }),
-            CallKind::PostMessage(out.id.clone()),
-        ))
+            &body,
+            CallKind::PostMessage(record.id.clone()),
+        );
+        self.posting = Some(record);
+        Some(call)
     }
 
     fn leave_call(&self, me: &Identity) -> Call {
@@ -1190,6 +1239,7 @@ impl ChatRoom {
         }
         let Some(status) = status else {
             self.pending_key = None;
+            self.posting = None;
             self.failed(now_ms, &mut changes, Text::key("azmeet-server-silent-short"));
             return changes;
         };
@@ -1230,40 +1280,50 @@ impl ChatRoom {
                     self.failed(now_ms, &mut changes, refused(status, &error.error));
                 }
             }
-            CallKind::PostMessage(id) => match status {
-                200 | 201 => {
-                    let seq = serde_json::from_str::<Posted>(body).ok().map(|p| p.seq);
-                    if self.outbox.front().is_some_and(|o| &o.id == id) {
-                        self.outbox.pop_front();
+            CallKind::PostMessage(id) => {
+                let posted = self.posting.take().filter(|r| &r.id == id);
+                match status {
+                    200 | 201 => {
+                        let seq = serde_json::from_str::<Posted>(body).ok().map(|p| p.seq);
+                        if self.outbox.front().is_some_and(|o| &o.id == id) {
+                            self.outbox.pop_front();
+                        }
+                        // Taken: a peer that has not got it yet gets this same record.
+                        if let Some(record) = posted {
+                            self.sealed.insert(id.clone(), record);
+                        }
+                        self.release_sealed(id);
+                        if let (Some(seq), Some(own)) =
+                            (seq, self.messages.iter_mut().find(|m| &m.id == id))
+                        {
+                            own.seq = Some(seq);
+                        }
+                        self.reorder();
+                        self.failures = 0;
+                        changes.shown = true;
                     }
-                    if let (Some(seq), Some(own)) =
-                        (seq, self.messages.iter_mut().find(|m| &m.id == id))
-                    {
-                        own.seq = Some(seq);
+                    413 => {
+                        self.outbox.retain(|o| &o.id != id);
+                        self.release_sealed(id);
+                        self.messages.retain(|m| &m.id != id);
+                        changes.problem = Some(Text::key("azmeet-message-too-long"));
+                        changes.shown = true;
                     }
-                    self.reorder();
-                    self.failures = 0;
-                    changes.shown = true;
+                    // The service carries no messages any more: the peers do.
+                    410 => self.chat_over_peers(&mut changes),
+                    403 => {
+                        self.state = Membership::Joining;
+                        self.failed(now_ms, &mut changes, refused(status, &error.error));
+                    }
+                    409 => {
+                        // The key is not there: make another, and seal the message again with it.
+                        self.rotate = true;
+                        self.sealed.remove(id);
+                        self.failed(now_ms, &mut changes, refused(status, &error.error));
+                    }
+                    _ => self.failed(now_ms, &mut changes, refused(status, &error.error)),
                 }
-                413 => {
-                    self.outbox.retain(|o| &o.id != id);
-                    self.messages.retain(|m| &m.id != id);
-                    changes.problem = Some(Text::key("azmeet-message-too-long"));
-                    changes.shown = true;
-                }
-                // The service carries no messages any more: the peers do.
-                410 => self.chat_over_peers(&mut changes),
-                403 => {
-                    self.state = Membership::Joining;
-                    self.failed(now_ms, &mut changes, refused(status, &error.error));
-                }
-                409 => {
-                    // The key is not there: make another.
-                    self.rotate = true;
-                    self.failed(now_ms, &mut changes, refused(status, &error.error));
-                }
-                _ => self.failed(now_ms, &mut changes, refused(status, &error.error)),
-            },
+            }
             CallKind::Admit(device) => {
                 self.admit_queue.retain(|d| d != device);
                 if status == 200 {
@@ -1359,6 +1419,7 @@ impl ChatRoom {
         self.state = Membership::Closed;
         self.outbox.clear();
         self.peer_out.clear();
+        self.sealed.clear();
         changes.problem = Some(why.into());
         changes.shown = true;
     }
@@ -1768,6 +1829,9 @@ impl ChatRoom {
         if !self.peers_only {
             self.peers_only = true;
             self.outbox.clear();
+            let for_the_peers: BTreeSet<String> =
+                self.peer_out.iter().map(|o| o.id.clone()).collect();
+            self.sealed.retain(|id, _| for_the_peers.contains(id));
             changes.shown = true;
         }
     }
