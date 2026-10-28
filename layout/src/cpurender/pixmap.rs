@@ -109,31 +109,34 @@ pub fn blit_pixmap_clipped(
     }
 }
 
-/// Blends the layer pixel `src` (straight alpha) over the pixel `dst` at the
-/// layer's opacity `op` (0-255): what a composited layer does to each pixel,
-/// and what an opacity group blended in place does with the pixels it
-/// painted, so both paint the same levels.
+/// Blends the layer pixel `src` over the pixel `dst` at the layer's opacity
+/// `op` (0-255): what a composited layer does to each pixel, and what an
+/// opacity group blended in place does with the pixels it painted, so both
+/// paint the same levels.
+///
+/// Layer pixels are premultiplied. AGG blends a colour at coverage `a` into a
+/// pixel as `colour * a + pixel * (1 - a)` in every channel, alpha included,
+/// which is source-over of premultiplied pixels: a layer cleared to
+/// transparent black holds each colour already multiplied by its alpha.
+/// Reading it as straight alpha multiplied the colour by its alpha a second
+/// time, and darkened everything translucent inside a group or a layer.
 #[inline]
 pub(crate) fn blend_over(dst: &mut [u8], src: [u8; 4], op: u32) {
-    let [sr, sg, sb, a] = src.map(u32::from);
+    let [red, green, blue, alpha] = src.map(u32::from);
     // Rounded, not truncated: a faint pixel of the layer (a shadow's tail)
     // under a group opacity keeps the level it paints.
-    let sa = (a * op + 127) / 255;
-    if sa == 0 {
+    let covered = (alpha * op + 127) / 255;
+    if covered == 0 {
         return;
     }
-    if sa == 255 {
-        dst[0] = sr as u8;
-        dst[1] = sg as u8;
-        dst[2] = sb as u8;
-        dst[3] = 255;
-    } else {
-        let inv_sa = 255 - sa;
-        dst[0] = ((sr * sa + u32::from(dst[0]) * inv_sa) / 255) as u8;
-        dst[1] = ((sg * sa + u32::from(dst[1]) * inv_sa) / 255) as u8;
-        dst[2] = ((sb * sa + u32::from(dst[2]) * inv_sa) / 255) as u8;
-        dst[3] = ((sa + u32::from(dst[3]) * inv_sa / 255).min(255)) as u8;
-    }
+    let kept = 255 - covered;
+    let over = |layer: u32, below: u8| {
+        ((layer * op + u32::from(below) * kept + 127) / 255).min(255) as u8
+    };
+    dst[0] = over(red, dst[0]);
+    dst[1] = over(green, dst[1]);
+    dst[2] = over(blue, dst[2]);
+    dst[3] = ((covered * 255 + u32::from(dst[3]) * kept + 127) / 255).min(255) as u8;
 }
 
 /// Blit `src` into `dst` through an affine map from SRC DEVICE-PIXEL
@@ -294,28 +297,11 @@ pub fn blit_pixmap_affine_clipped(
             let bot = lerp2(p01, p11, wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op + 127) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
@@ -475,28 +461,11 @@ pub fn blit_pixmap_projective_clipped(
             let bot = lerp2(fetch(x_lo, y_lo + 1), fetch(x_lo + 1, y_lo + 1), wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op + 127) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
