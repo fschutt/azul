@@ -452,15 +452,7 @@ version = "1.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bzip2]]
-version = "0.4.4"
-criteria = "safe-to-deploy"
-
-[[exemptions.bzip2]]
 version = "0.6.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.bzip2-sys]]
-version = "0.1.13+1.0.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.calendrical_calculations]]
@@ -637,10 +629,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.const-random-macro]]
 version = "0.1.16"
-criteria = "safe-to-deploy"
-
-[[exemptions.constant_time_eq]]
-version = "0.1.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.constant_time_eq]]
@@ -1881,12 +1869,14 @@ version = "1.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.ironcalc]]
-version = "0.8.3"
+version = "0.9.1"
 criteria = "safe-to-deploy"
+notes = "IronCalc's xlsx import and export, AzSheets' file format (examples/azul-sheets); on zip 9 with deflate only. Not read in full (2026-10-28): 3,000 changed lines from 0.8.3, the xml readers move from roxmltree to quick-xml, merged cells and links are read and written; no unsafe, build.rs unchanged (read, build-script-policy.toml), the only filesystem use is the path-taking load and save it already had (AzSheets uses the bytes and writer ones), no network, process or env use."
 
 [[exemptions.ironcalc_base]]
-version = "0.8.3"
+version = "0.9.1"
 criteria = "safe-to-deploy"
+notes = "IronCalc's spreadsheet engine, AzSheets' engine (examples/azul-sheets). Not read in full (2026-10-28): 12,300 changed lines from 0.8.3, mostly merged cells, links, new functions and a chunked sheet store; no unsafe, build.rs unchanged (read, build-script-policy.toml), the one env read (IRONCALC_MAX_DEPTH) is under cfg(test), no filesystem, network or process use."
 
 [[exemptions.is_terminal_polyfill]]
 version = "1.70.2"
@@ -2742,10 +2732,6 @@ version = "0.9.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.password-hash]]
-version = "0.4.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.password-hash]]
 version = "0.5.0"
 criteria = "safe-to-deploy"
 
@@ -2759,10 +2745,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.pathfinder_simd]]
 version = "0.5.6"
-criteria = "safe-to-deploy"
-
-[[exemptions.pbkdf2]]
-version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pbkdf2]]
@@ -3005,6 +2987,11 @@ criteria = "safe-to-deploy"
 version = "0.41.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.quick-xml]]
+version = "0.42.0"
+criteria = "safe-to-deploy"
+notes = "IronCalc 0.9.1's xlsx reader (AzSheets); 0.41.0 stays for opendal, plist, reqsign and the Office readers. Not read in full (2026-10-28): a large diff from 0.41.0; as many unsafe blocks as 0.41.0, no build script, the only filesystem use is Reader::from_file as in 0.41.0, no network, process or env use."
+
 [[exemptions.r-efi]]
 version = "5.3.0"
 criteria = "safe-to-deploy"
@@ -3207,10 +3194,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.roaring]]
 version = "0.11.5"
-criteria = "safe-to-deploy"
-
-[[exemptions.roxmltree]]
-version = "0.19.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.roxmltree]]
@@ -3579,8 +3562,9 @@ version = "1.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.statrs]]
-version = "0.18.0"
+version = "0.19.1"
 criteria = "safe-to-deploy"
+notes = "statistics distributions for IronCalc's statistical functions (ironcalc_base 0.9.1, AzSheets). Not read in full (2026-10-28): 11,800 changed lines from 0.18.0; it forbids unsafe code as 0.18.0 does, no build script, no I/O, env or FFI."
 
 [[exemptions.strfmt]]
 version = "0.2.5"
@@ -4505,10 +4489,6 @@ version = "0.11.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
-version = "0.6.6"
-criteria = "safe-to-deploy"
-
-[[exemptions.zip]]
 version = "8.6.0"
 criteria = "safe-to-deploy"
 
@@ -4530,15 +4510,7 @@ version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd]]
-version = "0.11.2+zstd.1.5.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.zstd]]
 version = "0.13.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.zstd-safe]]
-version = "5.0.2+zstd.1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd-safe]]

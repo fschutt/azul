@@ -2087,7 +2087,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                     .with_icon(AzString::from("grid_on"))
                     .with_description(AzString::from(azul_appkit::l10n::app_word(ABOUT.name, "about-summary", ABOUT.summary)))
                     .with_copyright(label("azsheets-copyright"))
-                    .with_credit(AzString::from("IronCalc 0.8.3"), AzString::from("MIT OR Apache-2.0"))
+                    .with_credit(AzString::from("IronCalc 0.9.1"), AzString::from("MIT OR Apache-2.0"))
                     .with_credit(AzString::from("azul"), AzString::from("MIT"))
                     .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
                     .dom(),

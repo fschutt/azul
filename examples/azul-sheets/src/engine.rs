@@ -465,7 +465,10 @@ pub trait SheetEngine: Send {
     /// The merged areas of `sheet`, top to bottom, left to right.
     fn merges(&self, sheet: u32) -> Vec<CellArea>;
     /// Merges `area` (one cell is no merge); a merge it overlaps is
-    /// replaced. The workbook keeps it and writes it into the `.xlsx`.
+    /// replaced. Refused, changing nothing, when more than one of its cells
+    /// holds input: a merged cell keeps one value (`ops::merge_and_center`
+    /// clears the others first). The workbook keeps it and writes it into the
+    /// `.xlsx`.
     fn merge(&mut self, area: CellArea) -> Result<(), EngineError>;
     /// Removes every merge of `area`'s sheet that overlaps `area`.
     fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError>;

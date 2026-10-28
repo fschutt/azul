@@ -987,6 +987,15 @@ impl SheetEngine for FakeEngine {
         if area.width * area.height <= 1 {
             return Ok(());
         }
+        let holding = self.sheet(area.sheet).map_or(0, |s| {
+            s.inputs
+                .iter()
+                .filter(|(&(r, c), input)| area.contains(r, c) && !input.is_empty())
+                .count()
+        });
+        if holding > 1 {
+            return Err(String::from("Cannot merge cells: more than one cell has content"));
+        }
         self.checkpoint();
         let merges = &mut self.book.sheets[area.sheet as usize].merges;
         merges.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));

@@ -306,14 +306,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.4:276f3bad281e41b3e12cb52f00d0d3d469da6fc25161e89a53d67fcbd513c9fe", "0.6.1:947837194f95cf8e77626bd721a7981934ee2ed595c33feba3037dca0a06754a"]
-
-[crate."bzip2-sys"]  # build-script
-allow = true
-risk = "low"
-review = "audited"
-reason = "pkg-config probe for a system libbz2 (non-Windows, without the static feature), else compiles the bundled bzip2 1.0.8 C sources with cc and copies bzlib.h into OUT_DIR"
-reviewed = ["0.1.13+1.0.8:f036f4fd2657e2ec68bb04202afd85e6992f398c402050ed4303d34d80c604eb"]
+reviewed = ["0.6.1:947837194f95cf8e77626bd721a7981934ee2ed595c33feba3037dca0a06754a"]
 
 [crate."camino"]  # build-script
 allow = true
@@ -432,7 +425,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.1.5:f8d19ce9a62e63f9be91a1d1bbc43d3269a29a694e667fd0fb46a841f5a3c985", "0.4.2:bf3fd05d8f011a528b2b401eec27349a6f0d497769a86f1c592dcacc83a0fe57"]
+reviewed = ["0.4.2:bf3fd05d8f011a528b2b401eec27349a6f0d497769a86f1c592dcacc83a0fe57"]
 
 [crate."cookie"]  # build-script
 allow = true
@@ -1251,21 +1244,21 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "generates a #[test] per .xlsx fixture under its own tests/ dirs into OUT_DIR/generated_tests.rs (its own test suite only); reads its crate dir, writes OUT_DIR"
-reviewed = ["0.8.3:a44ecdd98395ed5a07c2ed507bb3d67bf1e04cebce0e475b8c1398d28c2c1f5b"]
+reviewed = ["0.9.1:a44ecdd98395ed5a07c2ed507bb3d67bf1e04cebce0e475b8c1398d28c2c1f5b"]
 
 [crate."ironcalc_base"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "runs git describe --tags (fixed arguments) in its crate dir and bakes the answer (else unknown) into GIT_VERSION for INFO(release); outside a checkout git finds the ENCLOSING repository's tag; no net"
-reviewed = ["0.8.3:6064afdcfc088662b607adb65d3109dd60e0eb327358113903ac606ad9a15ada"]
+reviewed = ["0.9.1:6064afdcfc088662b607adb65d3109dd60e0eb327358113903ac606ad9a15ada"]
 
 [crate."itertools"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.12.1:d6e521ef7ea2f11a9c003b11a8301a36a326626338cee1d0246e134f275a3b85", "0.13.0:6c128e4f3e899447e5d75864894d53bf6ba4123fd78fc8aa872ad69813435409", "0.14.0:3859ed60595f1eaef0c9e14ffa8068d520663650b9423218445c012e737ce86d"]
+reviewed = ["0.12.1:d6e521ef7ea2f11a9c003b11a8301a36a326626338cee1d0246e134f275a3b85", "0.13.0:6c128e4f3e899447e5d75864894d53bf6ba4123fd78fc8aa872ad69813435409", "0.14.0:3859ed60595f1eaef0c9e14ffa8068d520663650b9423218445c012e737ce86d", "0.15.0:4f74057710a827ac8a6ece79ac8b6d8c6116376f6cbd0e8d4a77a152583f8335"]
 
 [crate."itoa"]  # build-dependency
 allow = true
@@ -1734,7 +1727,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.11.0:514bf762bea5b77171b0ed9f41297de9f8e3851657b04594d4cf567a5d961fdb", "0.12.2:b57eda3acca7833075157677dc628e2d28fc4f4911111f517c44f0823ba9b453", "0.13.0:733d0dc45faf224d6cb5cd33a6c91c610c6f648c4990c2096562d40206393384"]
+reviewed = ["0.12.2:b57eda3acca7833075157677dc628e2d28fc4f4911111f517c44f0823ba9b453", "0.13.0:733d0dc45faf224d6cb5cd33a6c91c610c6f648c4990c2096562d40206393384"]
 
 [crate."peeking_take_while"]  # build-dependency
 allow = true
@@ -2839,8 +2832,8 @@ reviewed = ["0.11.6:c166c041bac0af6852eea4f7a0665ae22035fe6d071b2d7557ab215d632a
 allow = true
 risk = "high"
 review = "audited"
-reason = "build.rs only warns on the deflate-miniz feature; extraction is zip-slip guarded (used by ext-php-rs on Windows); 0.6.6 and 9.0.5 have no build.rs at all (ironcalc's and azul-doc's runtime dependency, scanned by name)"
-reviewed = ["0.6.6:e4bc84f685d089d216de744feaafadba392b26c38553a8323a8eb2c3c4ab732c", "2.4.2:8af6cb53df7b829c83dee16d0d63dd604e0303529e4ea00eb935d2788beabb8f", "8.6.0:701aa86c6f603494759a69f6df7a5c9e03987d61665addf9b926282387b8a3b8", "9.0.5:af28308d9cbc239b0b499156cc4103610df7f10bb072f7397db16621c0bca36d"]
+reason = "build.rs only warns on the deflate-miniz feature; extraction is zip-slip guarded (used by ext-php-rs on Windows); 9.0.5 has no build.rs at all (ironcalc's and azul-doc's runtime dependency, scanned by name)"
+reviewed = ["2.4.2:8af6cb53df7b829c83dee16d0d63dd604e0303529e4ea00eb935d2788beabb8f", "8.6.0:701aa86c6f603494759a69f6df7a5c9e03987d61665addf9b926282387b8a3b8", "9.0.5:af28308d9cbc239b0b499156cc4103610df7f10bb072f7397db16621c0bca36d"]
 
 [crate."zlib-rs"]  # build-dependency
 allow = true
@@ -2868,14 +2861,14 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.11.2+zstd.1.5.2:076775d7f364a613e05f815206c948398e8d2faba69c5e66d42f6dc5337e9e75", "0.13.3:d6354027262844abf2d4d8861dc7602704e61292785cea99bacb3bbee872de65", "0.14.3:ddbe30cff234dbc17a714fbd53c63023b2e36718b48b786a9971eb4496273aa0"]
+reviewed = ["0.13.3:d6354027262844abf2d4d8861dc7602704e61292785cea99bacb3bbee872de65", "0.14.3:ddbe30cff234dbc17a714fbd53c63023b2e36718b48b786a9971eb4496273aa0"]
 
 [crate."zstd-safe"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "reads CARGO_CFG_TARGET_ARCH/OS to force the std feature on wasm32 and hermit"
-reviewed = ["5.0.2+zstd.1.5.2:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "7.2.4:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "8.2.0:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331"]
+reviewed = ["7.2.4:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331", "8.2.0:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331"]
 
 [crate."zstd-sys"]  # build-script
 allow = true

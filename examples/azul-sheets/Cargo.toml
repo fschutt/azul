@@ -21,9 +21,9 @@ azul-storage = { path = "../azul-storage" }
 # The app skeleton: switches, the data root, the settings file, the
 # shortcuts table, the settings page.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
-# The spreadsheet engine, pinned: the version the engine study benchmarked
-# (crates.io max_stable_version on 2026-10-01).
-ironcalc = "=0.8.3"
+# The spreadsheet engine, pinned. It reads and writes xlsx through zip 9 with deflate only (no zstd
+# in its tree), and it owns the merged cells of a sheet (src/ironcalc_engine.rs).
+ironcalc = "=0.9.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # IronCalc's own CSV reader parses `paste_csv_string`; the same crate writes it.

@@ -1,4 +1,4 @@
-//! [`SheetEngine`] on IronCalc 0.8.3 (`ironcalc_base::UserModel` plus the
+//! [`SheetEngine`] on IronCalc 0.9.1 (`ironcalc_base::UserModel` plus the
 //! `ironcalc` xlsx import / export).
 //!
 //! Embedding rules (planning/engines/ironcalc.md): the model is a
@@ -13,9 +13,11 @@
 //! evaluate, so a load evaluates once; `paste_csv_string` reads TAB-separated
 //! text with a csv reader that drops a row of another length, so
 //! `set_inputs` writes a padded rectangle with the same `csv` crate
-//! (`model::tsv_of`).
+//! (`model::tsv_of`). Merged cells are IronCalc's own: it reads and writes a
+//! sheet's `<mergeCells>`, keeps the covered cells empty and refuses input
+//! into them, so the engine keeps no list of its own beside it.
 
-use std::{collections::BTreeMap, io::Cursor};
+use std::io::Cursor;
 
 use ironcalc::base::{
     cell::CellValue as IcCellValue,
@@ -46,12 +48,6 @@ const LANGUAGE: &str = "en";
 /// The real engine.
 pub struct IronCalcEngine {
     model: UserModel<'static>,
-    /// The merged areas by worksheet `sheet_id` (stable across moves and
-    /// renames). IronCalc reads and writes a sheet's `<mergeCells>`, but its
-    /// UserModel cannot change them: the engine keeps them here and writes
-    /// them into the saved file. (Not undo steps; rows and columns inserted
-    /// or deleted do not move them.)
-    merges: BTreeMap<u32, Vec<CellArea>>,
 }
 
 impl Default for IronCalcEngine {
@@ -70,7 +66,6 @@ impl IronCalcEngine {
     pub fn new_empty() -> Self {
         Self {
             model: empty_model("Book1").expect("the built-in locale, time zone and language"),
-            merges: BTreeMap::new(),
         }
     }
 
@@ -80,22 +75,21 @@ impl IronCalcEngine {
             .map_err(|e| keyed_error("azsheets-read-workbook-failed", &e.to_string()))?;
         let model = Model::from_workbook(workbook, LANGUAGE)
             .map_err(|e| keyed_error("azsheets-open-failed", &e.to_string()))?;
-        let merges = merges_of(&model);
         let mut model = UserModel::from_model(model);
         // The import keeps the cached values; recalculate once so every
         // formula shows what IronCalc computes.
         model.evaluate();
-        Ok(Self { model, merges })
+        Ok(Self { model })
     }
 
-    /// The stable id of the worksheet at `sheet`.
-    fn sheet_id(&self, sheet: u32) -> Option<u32> {
+    /// `Ok` when the workbook has a sheet at index `sheet`.
+    fn check_sheet(&self, sheet: u32) -> Result<(), EngineError> {
         self.model
             .get_model()
             .workbook
-            .worksheets
-            .get(sheet as usize)
-            .map(|w| w.sheet_id)
+            .worksheet(sheet)
+            .map(|_| ())
+            .map_err(|_| keyed_error("azsheets-no-such-sheet", ""))
     }
 
     /// The `#RRGGBB` of `color` (theme colours resolved), `None` for no colour.
@@ -110,26 +104,6 @@ fn empty_model(name: &str) -> Result<UserModel<'static>, EngineError> {
     let mut model = Model::new_empty("Book1", LOCALE, TIMEZONE, LANGUAGE)?;
     model.workbook.name = name.to_string();
     Ok(UserModel::from_model(model))
-}
-
-/// A sheet's merges as the file holds them (`A1:C3`), by sheet id.
-fn merges_of(model: &Model<'_>) -> BTreeMap<u32, Vec<CellArea>> {
-    model
-        .workbook
-        .worksheets
-        .iter()
-        .enumerate()
-        .map(|(i, ws)| {
-            let sheet = u32::try_from(i).unwrap_or(0);
-            let areas = ws
-                .merge_cells
-                .iter()
-                .filter_map(|r| area_of_ref(sheet, r))
-                .filter(|a| a.width * a.height > 1)
-                .collect();
-            (ws.sheet_id, areas)
-        })
-        .collect()
 }
 
 /// `A1:C3` (`$` allowed) as an area on `sheet`.
@@ -425,7 +399,6 @@ impl IronCalcEngine {
 impl SheetEngine for IronCalcEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.model = empty_model(name)?;
-        self.merges.clear();
         Ok(())
     }
 
@@ -435,23 +408,7 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn save_xlsx(&self) -> Result<Vec<u8>, EngineError> {
-        let live = self.model.get_model();
-        let unmerged = self.merges.values().all(Vec::is_empty)
-            && live.workbook.worksheets.iter().all(|w| w.merge_cells.is_empty());
-        if unmerged {
-            return export(live);
-        }
-        // The merges go into a copy of the model (the live one keeps its
-        // undo history).
-        let mut copy = Model::from_bytes(&self.model.to_bytes(), LANGUAGE)?;
-        for ws in &mut copy.workbook.worksheets {
-            ws.merge_cells = self
-                .merges
-                .get(&ws.sheet_id)
-                .map(|list| list.iter().filter_map(ref_of_area).collect())
-                .unwrap_or_default();
-        }
-        export(&copy)
+        export(self.model.get_model())
     }
 
     fn workbook_name(&self) -> String {
@@ -765,31 +722,47 @@ impl SheetEngine for IronCalcEngine {
 
     fn merges(&self, sheet: u32) -> Vec<CellArea> {
         let mut out: Vec<CellArea> = self
-            .sheet_id(sheet)
-            .and_then(|id| self.merges.get(&id))
-            .map(|list| list.iter().map(|m| CellArea { sheet, ..*m }).collect())
-            .unwrap_or_default();
+            .model
+            .get_merged_cells(sheet)
+            .unwrap_or_default()
+            .iter()
+            .map(|m| CellArea {
+                sheet,
+                row: m.row,
+                column: m.column,
+                width: m.width,
+                height: m.height,
+            })
+            .collect();
         out.sort_by_key(|m| (m.row, m.column));
         out
     }
 
-    fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let id = self.sheet_id(area.sheet).ok_or_else(|| keyed_error("azsheets-no-such-sheet", ""))?;
-        if area.width * area.height <= 1 {
+    fn merge(&mut self, a: CellArea) -> Result<(), EngineError> {
+        self.check_sheet(a.sheet)?;
+        if a.width * a.height <= 1 {
             return Ok(());
         }
-        let list = self.merges.entry(id).or_default();
-        list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
-        list.push(area);
+        // IronCalc refuses a merge over another one, so the merges `a` overlaps go
+        // first. When IronCalc then refuses the merge itself (more than one of its
+        // cells holds input, or it cuts an array formula), undoing the unmerge
+        // puts them back.
+        let replaces = self.merges(a.sheet).iter().any(|m| m.overlaps(&a));
+        if replaces {
+            self.model.unmerge_cells(&area(a))?;
+        }
+        if let Err(e) = self.model.merge_cells(&area(a)) {
+            if replaces {
+                self.model.undo()?;
+            }
+            return Err(e);
+        }
         Ok(())
     }
 
-    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let id = self.sheet_id(area.sheet).ok_or_else(|| keyed_error("azsheets-no-such-sheet", ""))?;
-        if let Some(list) = self.merges.get_mut(&id) {
-            list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
-        }
-        Ok(())
+    fn unmerge(&mut self, a: CellArea) -> Result<(), EngineError> {
+        self.check_sheet(a.sheet)?;
+        self.model.unmerge_cells(&area(a))
     }
 
     fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {

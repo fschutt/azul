@@ -31,6 +31,18 @@ criteria = "safe-to-deploy"
 delta = "0.4.5 -> 0.4.6"
 notes = "Adds primitives::borrowing_sub_mask_u32/_u64 (borrow passed as a word-sized mask, MSB significant) by factoring borrowing_sub into a shared inner fn; the borrow bit stays black-boxed before it becomes a mask or a Choice. No new dependencies; the crate still forbids unsafe code; the rest is tests."
 
+[[audits.itertools]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.14.0 -> 0.15.0"
+notes = "Breaking API release: Position becomes a struct, all_equal_value gets its own error type, *_with_hasher adaptors, strip_prefix(_by), array_windows / circular_array_windows and array_combinations_with_replacement, tuple_windows and tuple_combinations deprecated, Debug for the remaining public types, PeekingNext for vec::IntoIter, a PadUsing::next_back fix. The unsafe blocks (either_or_both.rs, next_array.rs) are unchanged; no build script, no I/O, env or FFI; the rest is tests and clippy fixes."
+
+[[audits.rand]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.10.2 -> 0.10.3"
+notes = "Bug fixes in safe code: WeightedIndex returns Error::Overflow instead of panicking on an infinite float sum, Uniform::new_inclusive accepts large finite float ranges (the scale is derived from the range and checked for finiteness), a deserialized Uniform<char> or UniformInt with a bad range no longer panics or wraps when sampled, WeightedIndex::weights() reports exact lengths. No unsafe, no new dependencies; the rest is docs and tests."
+
 [[audits.rustls-webpki]]
 who = "Claude Opus 5.5 <noreply@anthropic.com>"
 criteria = "safe-to-deploy"

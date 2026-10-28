@@ -194,6 +194,13 @@ jobs:
             EXEMPT+=(--exempt zip)
             echo "cooldown: zip exempt until 2026-11-01 (off zstd 0.13, RUSTSEC-2026-0391/0398/0403)"
           fi
+          # ironcalc and ironcalc_base 0.9.1 (published 2026-10-21): 0.8 pins zip 0.6, which brings zstd 0.11 and
+          # zstd-safe 5 (RUSTSEC-2026-0403); 0.9.1 reads xlsx through zip 9, deflate only. cargo-vet exemptions with notes.
+          # Exempt until they are 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-05" ]]; then
+            EXEMPT+=(--exempt ironcalc --exempt ironcalc_base)
+            echo "cooldown: ironcalc, ironcalc_base exempt until 2026-11-05 (off zip 0.6 and zstd 0.11, RUSTSEC-2026-0403)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"
