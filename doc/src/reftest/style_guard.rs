@@ -1,6 +1,6 @@
 //! Proof that an edit changed only the style of a file, never its logic.
 //!
-//! The style pass (`autoreview --rewrite-comments`) lets a low-cost model
+//! The rewrite pass (`autoreview --rewrite-source`) lets a low-cost model
 //! rewrite the comments of one source file, add blank lines and give
 //! too-short local variables readable names. Its edits are kept only if this
 //! module finds the code otherwise untouched: both versions are lexed, the
@@ -329,6 +329,7 @@ fn alnum_run(src: &str, mut j: usize, radix: bool) -> usize {
 
 /// For each line of the original file, the line of the edited file that holds
 /// the same code. Findings are written against the original, then moved.
+#[derive(Debug)]
 pub struct LineMap {
     /// (old line, new line) of every code token, in order.
     pairs: Vec<(usize, usize)>,
@@ -365,10 +366,10 @@ impl LineMap {
 /// Checks that `after` differs from `before` only in style (comments,
 /// whitespace, renamed local variables) under the rules in the module docs,
 /// and returns how line numbers moved.
-pub fn check_style_only(before: &str, after: &str) -> Result<LineMap, String> {
+pub fn check_style_only(before: &str, after: &str, renames: bool) -> Result<LineMap, String> {
     let old = lex(before).map_err(|e| format!("the original does not lex: {e}"))?;
     let new = lex(after).map_err(|e| format!("the edited file does not lex: {e}"))?;
-    let pairs = compare_code(before, &old, &new, true)?;
+    let pairs = compare_code(before, &old, &new, renames)?;
     check_doc_placement(&old, &new)?;
     if doc_code_blocks(&old) != doc_code_blocks(&new) {
         return Err("a code block inside a doc comment (a doctest) changed".into());
@@ -1017,16 +1018,16 @@ let d = b'"'; let e = '\''; let f = 'x; /* real */ let g = 1;"####;
     fn a_comment_only_rewrite_passes_and_moves_line_numbers() {
         let before = "// one\n// two\n// three\nfn a() {}\n\n/// Docs.\nfn b() {}\n";
         let after = "// shorter\nfn a() {}\n\n/// Better docs.\nfn b() {}\n";
-        let map = check_style_only(before, after).unwrap();
+        let map = check_style_only(before, after, true).unwrap();
         assert_eq!(map.map(4), 2);
         assert_eq!(map.map(7), 5);
     }
 
     #[test]
     fn a_changed_code_token_is_rejected() {
-        let err = check_style_only("fn a() { 1 }\n", "fn a() { 2 }\n").unwrap_err();
+        let err = check_style_only("fn a() { 1 }\n", "fn a() { 2 }\n", true).unwrap_err();
         assert!(err.contains("changed"), "{err}");
-        let err = check_style_only("fn a() { b() }\n", "fn a() { c() }\n").unwrap_err();
+        let err = check_style_only("fn a() { b() }\n", "fn a() { c() }\n", true).unwrap_err();
         assert!(err.contains("not a local"), "{err}");
     }
 
@@ -1034,7 +1035,9 @@ let d = b'"'; let e = '\''; let f = 'x; /* real */ let g = 1;"####;
     fn a_local_renamed_everywhere_in_its_function_passes() {
         let before = "fn area(w: f32, h: f32) -> f32 {\n    let tr = w * h;\n    println!(\"{tr}\");\n    tr\n}\n";
         let after = "fn area(w: f32, h: f32) -> f32 {\n    let total_area = w * h;\n    println!(\"{total_area}\");\n    total_area\n}\n";
-        check_style_only(before, after).unwrap();
+        check_style_only(before, after, true).unwrap();
+        // A comments-only run takes no renames at all.
+        assert!(check_style_only(before, after, false).is_err());
     }
 
     #[test]
@@ -1042,19 +1045,19 @@ let d = b'"'; let e = '\''; let f = 'x; /* real */ let g = 1;"####;
         // A field access keeps its name even where a local shares it.
         let field = "struct P { x: f32 }\nfn f(p: P) -> f32 { let x = 1.0; p.x + x }\n";
         let renamed_field = "struct P { x: f32 }\nfn f(p: P) -> f32 { let offset = 1.0; p.offset + offset }\n";
-        assert!(check_style_only(field, renamed_field).is_err());
+        assert!(check_style_only(field, renamed_field, true).is_err());
         // A shorthand field would be renamed with the local.
         let shorthand = "struct P { x: f32 }\nfn f() -> P { let x = 1.0; P { x } }\n";
         let renamed_shorthand = "struct P { x: f32 }\nfn f() -> P { let offset = 1.0; P { offset } }\n";
-        assert!(check_style_only(shorthand, renamed_shorthand).is_err());
+        assert!(check_style_only(shorthand, renamed_shorthand, true).is_err());
         // Every use must follow, or the old uses would name something else.
         let partial = "fn f() -> i32 { let a = 1; let b = a + a; b }\n";
         let renamed_partly = "fn f() -> i32 { let total = 1; let b = total + a; b }\n";
-        assert!(check_style_only(partial, renamed_partly).is_err());
+        assert!(check_style_only(partial, renamed_partly, true).is_err());
         // The new name must not already be in use.
         let clash = "fn f() -> i32 { let a = 1; let b = 2; a + b }\n";
         let renamed_into_clash = "fn f() -> i32 { let b = 1; let b = 2; b + b }\n";
-        assert!(check_style_only(clash, renamed_into_clash).is_err());
+        assert!(check_style_only(clash, renamed_into_clash, true).is_err());
     }
 
     #[test]
@@ -1068,37 +1071,37 @@ let d = b'"'; let e = '\''; let f = 'x; /* real */ let g = 1;"####;
 
     #[test]
     fn joining_two_symbols_is_rejected() {
-        let err = check_style_only("let f = a - /* c */ > b;\n", "let f = a ->b;\n").unwrap_err();
+        let err = check_style_only("let f = a - /* c */ > b;\n", "let f = a ->b;\n", true).unwrap_err();
         assert!(err.contains("spacing"), "{err}");
     }
 
     #[test]
     fn a_new_doc_comment_is_rejected_but_rewording_one_is_not() {
-        assert!(check_style_only("// note\nfn a() {}\n", "/// note\nfn a() {}\n").is_err());
-        assert!(check_style_only("/// note\nfn a() {}\n", "/// A better note.\nfn a() {}\n").is_ok());
+        assert!(check_style_only("// note\nfn a() {}\n", "/// note\nfn a() {}\n", true).is_err());
+        assert!(check_style_only("/// note\nfn a() {}\n", "/// A better note.\nfn a() {}\n", true).is_ok());
     }
 
     #[test]
     fn doctests_spec_annotations_and_todos_must_survive() {
         let doc = "/// Adds.\n///\n/// ```\n/// assert_eq!(1 + 1, 2);\n/// ```\nfn add() {}\n";
         let changed = "/// Adds.\n///\n/// ```\n/// assert_eq!(2, 2);\n/// ```\nfn add() {}\n";
-        assert!(check_style_only(doc, changed).is_err());
-        assert!(check_style_only("// +spec:box:1a - x\nfn a() {}\n", "fn a() {}\n").is_err());
-        assert!(check_style_only("// TODO: later\nfn a() {}\n", "fn a() {}\n").is_err());
+        assert!(check_style_only(doc, changed, true).is_err());
+        assert!(check_style_only("// +spec:box:1a - x\nfn a() {}\n", "fn a() {}\n", true).is_err());
+        assert!(check_style_only("// TODO: later\nfn a() {}\n", "fn a() {}\n", true).is_err());
     }
 
     #[test]
     fn a_comment_turned_into_a_doc_comment_with_no_item_after_it_is_rejected() {
         let before = "fn a() {\n    let x = 1;\n    // end\n}\n";
         let after = "fn a() {\n    let x = 1;\n    /// end\n}\n";
-        assert!(check_style_only(before, after).is_err());
+        assert!(check_style_only(before, after, true).is_err());
     }
 
     #[test]
     fn a_finding_on_a_deleted_comment_line_moves_to_the_code_below() {
         let before = "fn a() {}\n// gone\n// gone\nfn b() {}\n";
         let after = "fn a() {}\nfn b() {}\n";
-        let map = check_style_only(before, after).unwrap();
+        let map = check_style_only(before, after, true).unwrap();
         assert_eq!(map.map(1), 1);
         assert_eq!(map.map(3), 2);
         assert_eq!(map.map(4), 2);

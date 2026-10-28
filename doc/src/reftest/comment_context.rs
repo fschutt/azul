@@ -1,16 +1,17 @@
-//! Repository facts handed to each comment-pass agent, so it does not spend
+//! Repository facts handed to each rewrite-pass agent, so it does not spend
 //! turns searching for them: what the types and functions its file uses look
-//! like, and which items its file defines are mentioned nowhere else.
+//! like, which items its file defines are mentioned nowhere else, and, given
+//! coverage data, which of its functions and lines no test runs.
 //!
 //! Type facts (fields, variants, methods with signatures and docs) come from
 //! the autofix type index of core, css, layout and dll, the same index
 //! `azul-doc autofix` builds. Free functions and the "who mentions this name"
-//! counts come from one pass of the comment guard's lexer over every tracked
+//! counts come from one pass of the style guard's lexer over every tracked
 //! Rust file, plus the words of api.json, so a name the bindings export counts
-//! as used.
+//! as used. Coverage comes from an lcov file (`cargo llvm-cov --lcov`).
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs,
     path::Path,
     process::Command,
@@ -57,12 +58,106 @@ pub struct RepoContext {
     mentions: HashMap<String, Vec<u32>>,
     /// Function name -> its definitions.
     fns: HashMap<String, Vec<FnDef>>,
+    /// Coverage per source path as the lcov file names it, if one was given.
+    coverage: Option<(String, BTreeMap<String, FileCoverage>)>,
+}
+
+/// What the tests leave unrun in one file, from an lcov record.
+#[derive(Default)]
+struct FileCoverage {
+    /// Start lines of functions no test calls.
+    unrun_fns: BTreeSet<usize>,
+    /// Lines with code no test runs.
+    unrun_lines: BTreeSet<usize>,
+    /// Lines with a branch no test takes.
+    untaken_branches: BTreeSet<usize>,
+}
+
+/// Reads an lcov file: `SF:` starts a file, `FN:`/`FNDA:` name functions and
+/// their call counts, `DA:` counts a line, `BRDA:` counts a branch (`-` or
+/// `0` means never taken).
+fn read_lcov(text: &str) -> BTreeMap<String, FileCoverage> {
+    let mut files = BTreeMap::new();
+    let mut current: Option<(String, FileCoverage, HashMap<String, usize>)> = None;
+    for line in text.lines() {
+        let Some((tag, value)) = line.split_once(':') else {
+            if line == "end_of_record" {
+                if let Some((path, cov, _)) = current.take() {
+                    files.insert(path, cov);
+                }
+            }
+            continue;
+        };
+        if tag == "SF" {
+            current = Some((value.to_string(), FileCoverage::default(), HashMap::new()));
+            continue;
+        }
+        let Some((_, cov, fn_lines)) = current.as_mut() else {
+            continue;
+        };
+        let fields: Vec<&str> = value.split(',').collect();
+        match (tag, fields.as_slice()) {
+            ("FN", [line, name, ..]) => {
+                if let Ok(line) = line.parse() {
+                    fn_lines.insert(name.to_string(), line);
+                }
+            }
+            ("FNDA", ["0", name, ..]) => {
+                if let Some(&line) = fn_lines.get(*name) {
+                    cov.unrun_fns.insert(line);
+                }
+            }
+            ("DA", [line, "0", ..]) => {
+                if let Ok(line) = line.parse() {
+                    cov.unrun_lines.insert(line);
+                }
+            }
+            ("BRDA", [line, _, _, taken]) if *taken == "-" || *taken == "0" => {
+                if let Ok(line) = line.parse() {
+                    cov.untaken_branches.insert(line);
+                }
+            }
+            _ => {}
+        }
+    }
+    files
+}
+
+/// `1, 2, 3, 7` -> `1-3, 7`, at most `max` ranges.
+fn line_ranges(lines: &BTreeSet<usize>, max: usize) -> String {
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for &l in lines {
+        match ranges.last_mut() {
+            Some((_, end)) if *end + 1 == l => *end = l,
+            _ => ranges.push((l, l)),
+        }
+    }
+    let shown: Vec<String> = ranges
+        .iter()
+        .take(max)
+        .map(|&(a, b)| if a == b { a.to_string() } else { format!("{a}-{b}") })
+        .collect();
+    let more = ranges.len().saturating_sub(max);
+    if more > 0 {
+        format!("{} (+{more} more)", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
 }
 
 impl RepoContext {
-    /// Builds the type index and lexes every tracked `.rs` file. Takes a few
-    /// seconds; the run does it once before writing the prompts.
-    pub fn build(project_root: &Path) -> Result<RepoContext, String> {
+    /// Builds the type index and lexes every tracked `.rs` file, and reads the
+    /// coverage file if given. Takes a few seconds; the run does it once
+    /// before writing the prompts.
+    pub fn build(project_root: &Path, coverage: Option<&Path>) -> Result<RepoContext, String> {
+        let coverage = match coverage {
+            Some(path) => {
+                let text = fs::read_to_string(path)
+                    .map_err(|e| format!("cannot read the coverage file {}: {e}", path.display()))?;
+                Some((path.display().to_string(), read_lcov(&text)))
+            }
+            None => None,
+        };
         let index = TypeIndex::build(project_root, false).map_err(|e| format!("type index: {e}"))?;
         let out = Command::new("git")
             .args(["ls-files", "-z", "--", "*.rs"])
@@ -110,7 +205,51 @@ impl RepoContext {
             files,
             mentions,
             fns,
+            coverage,
         })
+    }
+
+    /// The coverage section for one file, if coverage data names it. The lcov
+    /// paths are absolute paths of the checkout that ran the tests, so a file
+    /// is found by its repo-relative path at the end.
+    fn coverage_section(&self, rel: &str, facts: &FileFacts) -> String {
+        let Some((source, files)) = &self.coverage else {
+            return String::new();
+        };
+        let suffix = format!("/{rel}");
+        let Some(cov) = files
+            .iter()
+            .find(|(path, _)| path.as_str() == rel || path.ends_with(&suffix))
+            .map(|(_, cov)| cov)
+        else {
+            return String::new();
+        };
+        let unrun_fns: Vec<String> = facts
+            .defined
+            .iter()
+            .filter(|(_, line)| cov.unrun_fns.contains(line))
+            .map(|(name, _)| format!("`{name}`"))
+            .collect();
+        let mut out = format!(
+            "\n### Test coverage (from `{source}`; line numbers are those of the file when the \
+             tests ran)\n\n"
+        );
+        if !unrun_fns.is_empty() {
+            out.push_str(&format!("- Functions no test calls: {}.\n", unrun_fns.join(", ")));
+        }
+        if !cov.unrun_lines.is_empty() {
+            out.push_str(&format!("- Lines no test runs: {}.\n", line_ranges(&cov.unrun_lines, 25)));
+        }
+        if !cov.untaken_branches.is_empty() {
+            out.push_str(&format!(
+                "- Branches no test takes, at lines: {}.\n",
+                line_ranges(&cov.untaken_branches, 25)
+            ));
+        }
+        if unrun_fns.is_empty() && cov.unrun_lines.is_empty() && cov.untaken_branches.is_empty() {
+            out.push_str("- The tests run every line and branch of this file.\n");
+        }
+        out
     }
 
     /// The context section for one file's prompt (markdown, capped in size).
@@ -178,6 +317,7 @@ impl RepoContext {
                 ));
             }
         }
+        out.push_str(&self.coverage_section(rel, &facts));
         out
     }
 
@@ -452,5 +592,17 @@ mod tests {
         let (_, defs) = scan_file("pub fn area(w: f32,\n    h: f32) -> f32 { w * h }\n");
         assert_eq!(defs[0].0, "area");
         assert_eq!(defs[0].2, "fn area(w: f32, h: f32) -> f32");
+    }
+
+    #[test]
+    fn lcov_records_give_unrun_functions_lines_and_branches() {
+        let lcov = "SF:/ci/azul/core/src/a.rs\nFN:3,_RNv1a4used\nFN:9,_RNv1a6unused\nFNDA:4,_RNv1a4used\n\
+                    FNDA:0,_RNv1a6unused\nDA:3,4\nDA:10,0\nDA:11,0\nDA:13,0\nBRDA:4,0,0,1\nBRDA:4,0,1,-\n\
+                    end_of_record\n";
+        let files = read_lcov(lcov);
+        let cov = &files["/ci/azul/core/src/a.rs"];
+        assert_eq!(cov.unrun_fns.iter().copied().collect::<Vec<_>>(), [9]);
+        assert_eq!(line_ranges(&cov.unrun_lines, 10), "10-11, 13");
+        assert_eq!(cov.untaken_branches.iter().copied().collect::<Vec<_>>(), [4]);
     }
 }
