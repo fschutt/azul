@@ -1404,7 +1404,9 @@ impl StyledDom {
         // bgcolor align nowrap>`): the attributes the XML loaders keep on
         // the node become inline declarations in front of each element's
         // own style, before the cascade reads any node data. Every way to a
-        // `StyledDom` passes here (both loaders, a built `Dom`).
+        // `StyledDom` passes here (both loaders, a built `Dom`). The hints are
+        // CSS declarations, so without the CSS parser there are none.
+        #[cfg(feature = "css_parser")]
         crate::xml::attributes::apply_presentational_hints(
             &mut compact_dom.node_data.internal,
             node_hierarchy.as_container().internal,

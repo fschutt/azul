@@ -27,7 +27,6 @@ use core::{fmt, fmt::Write, hash::Hash};
 
 use azul_css::{
     css::{Css, CssRuleBlock, NodeTypeTag},
-    parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::{ColorU, StyleFontFamilyVec},
         property::CssProperty,
@@ -39,6 +38,9 @@ use azul_css::{
     },
     AzString, OptionString, StringVec, U8Vec,
 };
+
+#[cfg(feature = "css_parser")]
+use azul_css::parser2::{CssParseErrorOwned, ErrorLocation};
 
 use crate::{
     dom::{Dom, NodeData, NodeType, OptionNodeType},
@@ -2974,6 +2976,7 @@ html_tag_node_types! {
 
 /// Default render function for builtin HTML elements: the element with its
 /// text - what a drop inserts ([`builtin_dom`]; the preview adds its example).
+#[cfg(feature = "css_parser")]
 fn builtin_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
@@ -3011,6 +3014,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
 /// 3. Applies the component's scoped CSS
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
+#[cfg(feature = "css_parser")]
 pub fn user_defined_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
@@ -3199,6 +3203,7 @@ pub fn user_defined_render_fn(
 /// * `css` - Component-level CSS string. For most builtin elements this is `""` because styling
 ///   comes from `ua_css.rs` and the `SystemStyle`. Components that need extra styling (e.g. a
 ///   future high-level button widget) can pass CSS here.
+#[cfg(feature = "css_parser")]
 fn builtin_component_def(
     tag: &str,
     display_name: &str,
@@ -4112,6 +4117,7 @@ impl ComponentMap {
     }
 
     /// Create a `ComponentMap` with the 52 built-in HTML element components pre-registered.
+    #[cfg(feature = "css_parser")]
     #[must_use]
     pub fn with_builtin() -> Self {
         Self {
@@ -5113,6 +5119,7 @@ fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[Previe
 /// where the widgets are, and azul-layout resolves them for the preview as it
 /// does for every document it mounts.
 #[must_use]
+#[cfg(feature = "css_parser")]
 pub fn builtin_preview_dom(tag: &str, data: &ComponentDataModel) -> Dom {
     builtin_dom(tag, data, true)
 }
@@ -5121,6 +5128,7 @@ pub fn builtin_preview_dom(tag: &str, data: &ComponentDataModel) -> Dom {
 /// example. Built by the XML loader's own path (`xml_node_to_dom_fast`: the
 /// one attribute table), so an example attribute sets exactly what markup
 /// would. An unknown tag is the node `tag_to_node_type` makes, with its text.
+#[cfg(feature = "css_parser")]
 fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
     let (attrs, example_text, children) = builtin_element(tag)
         .filter(|_| example)
@@ -5212,6 +5220,7 @@ fn argument_attributes(
 /// Called once during `AppConfig::create()` — the framework dogfoods
 /// its own component registration system for builtins.
 #[must_use]
+#[cfg(feature = "css_parser")]
 pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
         name: AzString::from_const_str("builtin"),
@@ -5447,7 +5456,8 @@ pub enum DomXmlParseError {
     RenderDom(RenderDomError),
     /// Something went wrong while parsing an XML component
     Component(ComponentParseError),
-    /// Error parsing global CSS in head node
+    /// Error parsing global CSS in head node (only with the CSS parser)
+    #[cfg(feature = "css_parser")]
     Css(CssParseErrorOwned),
 }
 
@@ -5469,6 +5479,7 @@ impl From<RenderDomError> for DomXmlParseError {
     }
 }
 
+#[cfg(feature = "css_parser")]
 impl From<CssParseErrorOwned> for DomXmlParseError {
     fn from(e: CssParseErrorOwned) -> Self {
         Self::Css(e)
@@ -5482,6 +5493,8 @@ impl From<CssParseErrorOwned> for DomXmlParseError {
 pub enum CompileError {
     Dom(RenderDomError),
     Xml(DomXmlParseError),
+    /// Only with the CSS parser.
+    #[cfg(feature = "css_parser")]
     Css(CssParseErrorOwned),
 }
 
@@ -5491,6 +5504,7 @@ impl From<ComponentError> for CompileError {
     }
 }
 
+#[cfg(feature = "css_parser")]
 impl From<CssParseErrorOwned> for CompileError {
     fn from(e: CssParseErrorOwned) -> Self {
         Self::Css(e)
@@ -5499,11 +5513,12 @@ impl From<CssParseErrorOwned> for CompileError {
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CompileError::{Css, Dom, Xml};
+        use self::CompileError::{Dom, Xml};
         match self {
             Dom(d) => write!(f, "{d}"),
             Xml(s) => write!(f, "{s}"),
-            Css(s) => write!(f, "{}", s.to_shared()),
+            #[cfg(feature = "css_parser")]
+            Self::Css(s) => write!(f, "{}", s.to_shared()),
         }
     }
 }
@@ -5546,7 +5561,8 @@ pub enum ComponentError {
 #[repr(C, u8)]
 pub enum RenderDomError {
     Component(ComponentError),
-    /// Error parsing the CSS on the component style
+    /// Error parsing the CSS on the component style (only with the CSS parser)
+    #[cfg(feature = "css_parser")]
     CssError(CssParseErrorOwned),
 }
 
@@ -5556,6 +5572,7 @@ impl From<ComponentError> for RenderDomError {
     }
 }
 
+#[cfg(feature = "css_parser")]
 impl From<CssParseErrorOwned> for RenderDomError {
     fn from(e: CssParseErrorOwned) -> Self {
         Self::CssError(e)
@@ -5605,15 +5622,16 @@ pub enum ComponentParseError {
     /// Component type may not contain a whitespace
     /// (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(WhiteSpaceInComponentTypeError),
-    /// Error parsing the <style> tag / CSS
+    /// Error parsing the <style> tag / CSS (only with the CSS parser)
+    #[cfg(feature = "css_parser")]
     CssError(CssParseErrorOwned),
 }
 
 impl fmt::Display for DomXmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::DomXmlParseError::{
-            Component, Css, MalformedHierarchy, MultipleBodyNodes, MultipleHtmlRootNodes,
-            NoBodyInHtml, NoHtmlNode, RenderDom, Xml,
+            Component, MalformedHierarchy, MultipleBodyNodes, MultipleHtmlRootNodes, NoBodyInHtml,
+            NoHtmlNode, RenderDom, Xml,
         };
         match self {
             NoHtmlNode => write!(
@@ -5642,7 +5660,8 @@ impl fmt::Display for DomXmlParseError {
             ),
             RenderDom(e) => write!(f, "Error rendering DOM: {e}"),
             Component(c) => write!(f, "Error parsing component in <head> node:\r\n{c}"),
-            Css(c) => write!(f, "Error parsing CSS in <head> node:\r\n{}", c.to_shared()),
+            #[cfg(feature = "css_parser")]
+            Self::Css(c) => write!(f, "Error parsing CSS in <head> node:\r\n{}", c.to_shared()),
         }
     }
 }
@@ -5650,8 +5669,8 @@ impl fmt::Display for DomXmlParseError {
 impl fmt::Display for ComponentParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ComponentParseError::{
-            CssError, MissingName, MissingType, NotAComponent, UnnamedComponent,
-            WhiteSpaceInComponentName, WhiteSpaceInComponentType,
+            MissingName, MissingType, NotAComponent, UnnamedComponent, WhiteSpaceInComponentName,
+            WhiteSpaceInComponentType,
         };
         match self {
             NotAComponent => write!(f, "Expected <component/> node, found no such node"),
@@ -5683,7 +5702,8 @@ impl fmt::Display for ComponentParseError {
                     e.arg_name, e.arg_pos, e.arg_type
                 )
             }
-            CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf.to_shared()),
+            #[cfg(feature = "css_parser")]
+            Self::CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf.to_shared()),
         }
     }
 }
@@ -5706,10 +5726,11 @@ impl fmt::Display for ComponentError {
 
 impl fmt::Display for RenderDomError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::RenderDomError::{Component, CssError};
+        use self::RenderDomError::Component;
         match self {
             Component(c) => write!(f, "{c}"),
-            CssError(e) => write!(f, "Error parsing CSS in component: {}", e.to_shared()),
+            #[cfg(feature = "css_parser")]
+            Self::CssError(e) => write!(f, "Error parsing CSS in component: {}", e.to_shared()),
         }
     }
 }
@@ -5997,6 +6018,7 @@ fn get_item_internal<'a>(
 ///
 /// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
 /// component).
+#[cfg(feature = "css_parser")]
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -6012,6 +6034,7 @@ pub fn str_to_dom<'a>(
 ///
 /// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
 /// component).
+#[cfg(feature = "css_parser")]
 pub fn str_to_dom_loading_fonts<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -6028,6 +6051,7 @@ pub fn str_to_dom_loading_fonts<'a>(
 /// either one. This function is kept for backward compatibility.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
                                    // break the C ABI/api.json
+#[cfg(feature = "css_parser")]
 fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -6059,6 +6083,7 @@ fn str_to_dom_fast<'a>(
 /// attributes (its inline `style`, `lang`, `dir`, ids and classes) landed as
 /// every other element's are ([`element::render_element`]). Both loaders
 /// built a bare `Html` node and dropped them (WPT8 found (c)).
+#[cfg(feature = "css_parser")]
 fn html_root_node_data(html_node: &XmlNode) -> NodeData {
     let pairs = attribute_pairs(html_node);
     element::render_element(
@@ -6089,6 +6114,7 @@ fn html_root_node_data(html_node: &XmlNode) -> NodeData {
 ///
 /// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
 /// component).
+#[cfg(feature = "css_parser")]
 pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -6104,6 +6130,7 @@ pub fn str_to_dom_unstyled<'a>(
 ///
 /// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
 /// component).
+#[cfg(feature = "css_parser")]
 pub fn str_to_dom_unstyled_loading_fonts<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -6293,6 +6320,7 @@ fn svg_ellipse_path(cx: f32, cy: f32, rx: f32, ry: f32) -> crate::svg::SvgPath {
 /// `ellipse`, `line`, `polygon`, `polyline`) in its user units: what its
 /// node's `SvgNodeData::Path` clips its box to. `None` for an empty or
 /// degenerate shape (a circle of no radius, a path that does not parse).
+#[cfg(feature = "css_parser")]
 fn svg_shape_geometry(element: &element::Element<'_>) -> Option<crate::svg::SvgMultiPolygon> {
     let tag = element.tag;
     match tag {
@@ -6439,6 +6467,7 @@ pub fn is_foreign_element(tag: &str) -> bool {
 /// [`DomTreeSink`]. `RenderDomError` is large but is the crate's public XML
 /// error type, shared with the C ABI, so it is not boxed here.
 #[allow(clippy::result_large_err)]
+#[cfg(feature = "css_parser")]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -6553,6 +6582,7 @@ fn attribute_pairs(xml_node: &XmlNode) -> Vec<(&str, &str)> {
 /// without its children rather than overflowing the native stack.
 #[allow(clippy::result_large_err)]
 // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[cfg(feature = "css_parser")]
 fn walk_element(
     xml_node: &XmlNode,
     component_map: &ComponentMap,
@@ -6758,6 +6788,7 @@ impl CompactDomBuilder {
 /// pass: [`walk_element`] into a [`CompactDomBuilder`].
 #[allow(clippy::result_large_err)]
 // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[cfg(feature = "css_parser")]
 fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -6783,6 +6814,7 @@ fn xml_node_to_fast_dom<'a>(
 /// Builds a `FastDom` directly (no tree intermediary), then creates `StyledDom`.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
                                    // break the C ABI/api.json
+#[cfg(feature = "css_parser")]
 fn render_dom_from_body_node_fast<'a>(
     html_node: &XmlNode,
     body_node: &'a XmlNode,
@@ -7098,13 +7130,17 @@ pub fn parse_bool(input: &str) -> Option<bool> {
 }
 
 /// ONE table: which XML attribute sets what on a node (the XML → DOM
-/// builders and the code generator both read it).
+/// builders and the code generator both read it). Only with the CSS parser:
+/// a `style` attribute, and every presentational hint, is CSS.
 #[path = "xml_attributes.rs"]
+#[cfg(feature = "css_parser")]
 pub mod attributes;
 
 /// One element of markup -> one DOM node: the builtin renderers every XML
-/// loader instantiates its elements with.
+/// loader instantiates its elements with. Only with the CSS parser, like
+/// [`attributes`].
 #[path = "xml_element.rs"]
+#[cfg(feature = "css_parser")]
 pub mod element;
 
 /// HTML as a browser reads it (the lenient loader), and the ONE tree

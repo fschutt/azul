@@ -20,8 +20,9 @@ autoexamples = false
 [dependencies]
 # `azul_css::codegen` (the IR and the per-language printers) only with this
 # crate's own `codegen` feature below; `GetHash` comes from the ungated
-# `azul_css::hash` everywhere.
-azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
+# `azul_css::hash` everywhere. Its parser comes with `css_parser`, its std
+# with `std`.
+azul-css                = { version = "0.0.16", path = "../css", default-features = false }
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 # The system font cache the callbacks hand out (feature `system_fonts`).
@@ -40,10 +41,13 @@ url                     = { version = "2.5", default-features = false, optional 
 # Default: std + CSS parser
 default = ["std", "serde-json"]
 
-# Standard library support (includes the CSS parser and the system font cache)
-std = ["css_parser", "system_fonts"]
+# Standard library support: the environment, threads, time, the CSS parser
+# and the system font cache. Without it the crate is `no_std` + `alloc`.
+std = ["css_parser", "system_fonts", "azul-css/std"]
 
-# CSS parser support
+# CSS parser support: CSS text (`Dom::with_css`, `<style>`), the XML / HTML
+# loaders and the builtin elements, which render through them. azul-css's
+# parser links std (its tokenizer azul-simplecss has no no_std mode).
 css_parser = ["azul-css/parser"]
 
 # The system font cache (rust-fontconfig's `FcFontCache`) in the callback

@@ -4183,6 +4183,7 @@ impl NodeData {
     /// ",
     /// );
     /// ```
+    #[cfg(feature = "css_parser")]
     pub fn set_css(&mut self, style: &str) {
         // Parse via Css::parse_inline so the inline path goes through the same
         // selector + nesting machinery as author CSS. Rules are tagged
@@ -4199,6 +4200,7 @@ impl NodeData {
 
     /// Builder method for `set_css`
     #[must_use]
+    #[cfg(feature = "css_parser")]
     pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
         self
@@ -5188,6 +5190,7 @@ impl Dom {
     /// ```
     #[inline]
     #[must_use]
+    #[cfg(feature = "css_parser")]
     pub fn create_icon_view<S: Into<AzString>>(icon_name: S) -> Self {
         crate::icon::icon_view(icon_name, AzString::from_const_str(""))
     }
@@ -5197,6 +5200,7 @@ impl Dom {
     /// view: a swappable icon drawn at the size its page asks for.
     #[inline]
     #[must_use]
+    #[cfg(feature = "css_parser")]
     pub fn create_icon_view_with_css<S: Into<AzString>, C: Into<AzString>>(
         icon_name: S,
         css: C,
@@ -7767,6 +7771,7 @@ impl Dom {
     /// ",
     /// );
     /// ```
+    #[cfg(feature = "css_parser")]
     pub fn set_css(&mut self, style: &str) {
         // Unified, `@scope`-like model: a CSS string parses into a `Css` struct that is
         // pushed onto THIS Dom subtree's `.css` vec, where the cascade selector-matches
@@ -7783,6 +7788,7 @@ impl Dom {
 
     /// Builder method for `set_css`
     #[must_use]
+    #[cfg(feature = "css_parser")]
     pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
         self

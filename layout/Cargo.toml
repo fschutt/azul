@@ -58,9 +58,10 @@ autotests = false
 # `codegen` only with this crate's `codegen` feature (below); layout's `GetHash`
 # imports use the ungated `azul_css::hash`.
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
-# The parts of azul-core that need the system font cache are on in every
-# feature set, std or not: layout's callback infos use them.
-azul-core              = { version = "0.0.16", path = "../core", default-features = false, features = ["system_fonts"] }
+# The parts of azul-core that need the CSS parser (above) or the system font
+# cache are on in every feature set, std or not: layout's loaders and callback
+# infos use them.
+azul-core              = { version = "0.0.16", path = "../core", default-features = false, features = ["css_parser", "system_fonts"] }
 # `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
 # no dependencies of its own. NOT optional-on-std, though -- regex-lite's own
 # lib.rs is `#[cfg(not(feature = "std"))] compile_error!("'std' is currently a

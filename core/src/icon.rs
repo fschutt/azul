@@ -1557,6 +1557,7 @@ pub struct IconViewState {
 /// Not public itself: the constructor is the API, and two spellings of one
 /// thing is how they drift.
 #[must_use]
+#[cfg(feature = "css_parser")]
 pub(crate) fn icon_view(spec: impl Into<AzString>, css: impl Into<AzString>) -> Dom {
     let dataset = RefAny::new(IconViewState {
         spec: spec.into(),
@@ -1585,6 +1586,7 @@ pub(crate) fn icon_view(spec: impl Into<AzString>, css: impl Into<AzString>) -> 
 }
 
 /// [`icon_view`]'s callback: render the spec the dataset currently holds.
+#[cfg(feature = "css_parser")]
 extern "C" fn render_icon_view(
     mut data: RefAny,
     info: crate::callbacks::VirtualViewCallbackInfo,

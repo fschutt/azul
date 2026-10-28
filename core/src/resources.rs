@@ -1393,9 +1393,14 @@ impl AppConfig {
         // same `add_component_library` API that users call.
         // Annotated binding coerces the fn item to the fn-pointer type that
         // `Into<RegisterComponentLibraryFn>` is implemented for (no `as` cast).
-        let register_builtin: crate::xml::RegisterComponentLibraryFnType =
-            crate::xml::register_builtin_components;
-        s.add_component_library(AzString::from_const_str("builtin"), register_builtin);
+        // The builtin elements render through the XML loader, which reads
+        // their CSS: without the CSS parser there are none.
+        #[cfg(feature = "css_parser")]
+        {
+            let register_builtin: crate::xml::RegisterComponentLibraryFnType =
+                crate::xml::register_builtin_components;
+            s.add_component_library(AzString::from_const_str("builtin"), register_builtin);
+        }
         s
     }
 
