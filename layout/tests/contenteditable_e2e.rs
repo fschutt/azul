@@ -2106,8 +2106,13 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
 /// newly typed glyphs were never painted where they actually are: the damage
 /// rect is right, the pixels in it are a translated copy of the old frame.
 ///
-/// Asserts the invariant directly: after a keystroke, no patch bookkeeping
-/// from an earlier pass may survive.
+/// Asserts the invariant directly: after a keystroke, no damage from an
+/// earlier pass survives, and no move a backend would still take. The move
+/// hint itself may stay (it describes how the nodes moved between two
+/// passes, and a list built again for the same layout still moves by it),
+/// but a backend takes it only while the frame it shows is the pass the move
+/// starts from (`LayoutCache::last_patch_move_from_seq`), and the frame on
+/// screen before the keystroke already shows where the move ends.
 #[test]
 fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
     use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
@@ -2129,9 +2134,11 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
     h.focus_node(dom_id, ce_node_id);
 
     // Stand in for "the previous layout pass was a PATCHED build that moved
-    // content by 40px" — the state a scroll / incremental reflow leaves behind.
-    {
+    // content by 40px, and its frame is on screen" — the state a scroll /
+    // incremental reflow leaves behind once presented.
+    let presented_seq = {
         let lw = h.layout_window.as_mut().unwrap();
+        lw.layout_cache.last_patch_move_from_seq = lw.layout_cache.layout_seq.wrapping_sub(1);
         lw.layout_cache.last_build_was_patched = true;
         lw.layout_cache.last_patch_damage = Some(vec![LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
@@ -2148,7 +2155,8 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
                 mover_rects_old: Vec::new(),
                 rider_rects_new: Vec::new(),
             });
-    }
+        lw.layout_cache.layout_seq
+    };
 
     let (_affected, _old, inserted) = h.type_text("X");
     assert_eq!(
@@ -2167,9 +2175,11 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
         lw.layout_cache.last_patch_damage
     );
     assert!(
-        lw.layout_cache.last_patch_move.is_none(),
-        "the rebuilt list inherited a translate hint ({:?}) — the compositor will BLIT the \
-         previous frame by that delta instead of painting the glyphs the user just typed",
+        lw.layout_cache.last_patch_move.is_none()
+            || lw.layout_cache.last_patch_move_from_seq != presented_seq,
+        "the rebuilt list carries a translate hint ({:?}) from the pass on screen — the \
+         compositor will BLIT the previous frame by that delta instead of painting the glyphs \
+         the user just typed",
         lw.layout_cache.last_patch_move
     );
 }
