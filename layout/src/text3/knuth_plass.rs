@@ -241,7 +241,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 // CJK ones, keep-all suppresses those). A plain Penalty lets
                 // the line break between two units; each unit is hyphenated
                 // on its own, as the greedy breaker hyphenates one, with a
-                // hyphenation Penalty where the dictionary breaks it.
+                // hyphenation Penalty at each of its soft hyphens or, with
+                // none, where the dictionary breaks it.
                 let word_items: Vec<ShapedItem> = current_word_clusters
                     .iter()
                     .cloned()
@@ -255,7 +256,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                             item,
                             next,
                             constraints.word_break,
-                            constraints.hyphenation,
                             constraints.line_break,
                         )
                     });
@@ -263,17 +263,19 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         continue;
                     }
                     let unit = &current_word_clusters[unit_start..=index];
-                    let hyphenations = hyphenator
-                        .filter(|_| hyphenation_allowed)
-                        .and_then(|h| {
-                            crate::text3::cache::find_all_hyphenation_breaks(
-                                unit,
-                                h,
-                                is_vertical,
-                                fonts,
-                            )
-                        })
-                        .unwrap_or_default();
+                    let hyphenations = if hyphenation_allowed
+                        && constraints.hyphenation != crate::text3::cache::Hyphens::None
+                    {
+                        crate::text3::cache::find_all_hyphenation_breaks(
+                            unit,
+                            hyphenator,
+                            is_vertical,
+                            fonts,
+                        )
+                        .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     let mut breaks = hyphenations.iter().peekable();
                     for (offset, unit_item) in word_items[unit_start..=index].iter().enumerate() {
                         nodes.push(LayoutNode::Box(

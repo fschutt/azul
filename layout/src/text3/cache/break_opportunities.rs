@@ -195,14 +195,17 @@ pub(crate) fn is_break_opportunity_with_word_break(
 /// (`is_break_opportunity_with_word_break`: a space, a forced break, a zero
 /// width space, a CJK ideograph, any letter with `word-break: break-all`)
 /// offers a break after it, and one before it unless a joiner or the
-/// `line-break` strictness keeps it with the item before.
+/// `line-break` strictness keeps it with the item before. A soft hyphen is
+/// none here: it is a break inside its word, where a hyphen ends the line,
+/// and the word's hyphenation breaks hold it (`find_all_hyphenation_breaks`).
 pub(crate) fn is_soft_wrap_between(
     prev: &ShapedItem,
     next: &ShapedItem,
     word_break: WordBreak,
-    hyphens: Hyphens,
     line_break: LineBreakStrictness,
 ) -> bool {
+    // `Hyphens::None` keeps the soft hyphen out, the one item it decides.
+    let hyphens = Hyphens::None;
     if is_break_opportunity_with_word_break(prev, word_break, hyphens)
         || (word_break == WordBreak::BreakAll && matches!(prev, ShapedItem::Cluster(_)))
     {
@@ -452,44 +455,13 @@ impl<'a> BreakCursor<'a> {
         while let Some(item) = stream.next() {
             unit.push(item.clone());
             let ends_here = stream.peek().is_none_or(|next| {
-                is_soft_wrap_between(item, next, self.word_break, self.hyphens, self.line_break)
+                is_soft_wrap_between(item, next, self.word_break, self.line_break)
             });
             if ends_here {
                 break;
             }
         }
         unit
-    }
-
-    /// Whether the next unit, `unit_len` items long, is a whole word.
-    ///
-    /// A soft hyphen is a break opportunity inside a word, the only one, so
-    /// the units on either side of it are parts of one word, and a word that
-    /// holds a soft hyphen breaks only there: the dictionary may hyphenate a
-    /// unit only when it is a whole word. The unit ends at a break
-    /// opportunity, so its word goes on after it only when that is a soft
-    /// hyphen; before it, the word reaches back over every item that is no
-    /// break opportunity, or a soft hyphen.
-    #[must_use]
-    pub fn next_unit_is_a_whole_word(&self, unit_len: usize) -> bool {
-        let consumed = self.next_item_index.min(self.items.len());
-        let soft_hyphen_after = self
-            .partial_remainder
-            .iter()
-            .chain(&self.items[consumed..])
-            .nth(unit_len)
-            .and_then(ShapedItem::as_cluster)
-            .is_some_and(is_soft_hyphen);
-        let soft_hyphen_before = self.items[..consumed]
-            .iter()
-            .rev()
-            .take_while(|item| {
-                item.as_cluster().is_some_and(is_soft_hyphen)
-                    || !is_break_opportunity_with_word_break(item, self.word_break, self.hyphens)
-            })
-            .filter_map(ShapedItem::as_cluster)
-            .any(is_soft_hyphen);
-        !soft_hyphen_after && !soft_hyphen_before
     }
 
     #[must_use]

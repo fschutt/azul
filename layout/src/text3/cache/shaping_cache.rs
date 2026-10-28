@@ -1430,7 +1430,29 @@ impl TextShapingCache {
                 max_line_height = h;
             }
 
-            if is_break_opportunity_with_word_break(item, word_break, hyphens) {
+            // A line broken at a soft hyphen holds the word up to it and
+            // the hyphen the line breaker puts there (`hyphen_after`, after
+            // the cluster before the soft hyphen); the rest of the word, the
+            // soft hyphen first, starts the next line.
+            let soft_hyphen =
+                hyphens != Hyphens::None && item.as_cluster().is_some_and(is_soft_hyphen);
+            if soft_hyphen {
+                let hyphen_width = item_idx
+                    .checked_sub(1)
+                    .and_then(|before| scan_items.get(before))
+                    .and_then(ShapedItem::as_cluster)
+                    .and_then(|cluster| hyphen_after(cluster, loaded_fonts))
+                    .map_or(0.0, |hyphen| {
+                        get_item_measure_with_spacing(&hyphen, scan_is_vertical).max(0.0)
+                    });
+                if cur_word > 0.0 {
+                    if cur_word + hyphen_width + word_indent > max_word {
+                        max_word = cur_word + hyphen_width + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
+                }
+                cur_word = adv;
+            } else if is_break_opportunity_with_word_break(item, word_break, hyphens) {
                 if cur_word > 0.0 {
                     if cur_word + word_indent > max_word {
                         max_word = cur_word + word_indent;

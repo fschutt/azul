@@ -1049,6 +1049,17 @@ pub fn break_one_line<T: ParsedFontTrait>(
             {
                 break;
             }
+            // The min-content takes a soft hyphen's break too: the unit's
+            // part up to its first soft hyphen ends the line, with the hyphen
+            // shown there, as the intrinsic scan measures it.
+            if line_constraints.is_min_content && cursor.hyphens != Hyphens::None {
+                if let Some(first) = first_soft_hyphen_break(&next_unit, is_vertical, fonts) {
+                    line_items.extend(first.line_part);
+                    cursor.consume(next_unit.len());
+                    cursor.partial_remainder = first.remainder_part;
+                    return (line_items, true);
+                }
+            }
 
             // Fold the unit onto the line item-by-item in document order - the
             // exact fold the intrinsic max-content scan uses - and compare on the
@@ -1068,29 +1079,25 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 cursor.consume(next_unit.len());
             } else {
                 let available_width = line_constraints.total_available - current_width;
-                // 3. The unit overflows. Can we hyphenate it?
-                if line_break != LineBreakStrictness::Anywhere {
-                    if let Some(hyphenator) = hyphenator {
-                        // A unit that a soft hyphen joins to the rest of its
-                        // word breaks only at that soft hyphen, at the end
-                        // of a unit here, and never where the dictionary
-                        // would break its part of the word.
-                        if !is_break_opportunity(next_unit.last().unwrap())
-                            && cursor.next_unit_is_a_whole_word(next_unit.len())
-                        {
-                            if let Some(hyphenation_result) = try_hyphenate_word_cluster(
-                                &next_unit,
-                                available_width,
-                                is_vertical,
-                                hyphenator,
-                                fonts,
-                            ) {
-                                line_items.extend(hyphenation_result.line_part);
-                                cursor.consume(next_unit.len());
-                                cursor.partial_remainder = hyphenation_result.remainder_part;
-                                return (line_items, true);
-                            }
-                        }
+                // 3. The unit overflows. Can we hyphenate it? It breaks at
+                // its soft hyphens (hyphens: manual or auto) or, with none
+                // and a dictionary, where the dictionary breaks it, with a
+                // hyphen at the end of the line either way.
+                if line_break != LineBreakStrictness::Anywhere
+                    && cursor.hyphens != Hyphens::None
+                    && !is_break_opportunity(next_unit.last().unwrap())
+                {
+                    if let Some(hyphenation_result) = try_hyphenate_word_cluster(
+                        &next_unit,
+                        available_width,
+                        is_vertical,
+                        hyphenator,
+                        fonts,
+                    ) {
+                        line_items.extend(hyphenation_result.line_part);
+                        cursor.consume(next_unit.len());
+                        cursor.partial_remainder = hyphenation_result.remainder_part;
+                        return (line_items, true);
                     }
                 }
 
@@ -1203,29 +1210,27 @@ pub struct HyphenationBreak {
     pub remainder_part: Vec<ShapedItem>,
 }
 
-/// Every place the hyphenation dictionary breaks the word made of
-/// `word_clusters`, as the clusters on each side and the line part's width.
+/// Every place the word made of `word_clusters` may be hyphenated, as the
+/// clusters on each side and the line part's width.
 ///
 /// A word that holds a soft hyphen breaks before its soft hyphens and
-/// nowhere else. Any other word is broken by the dictionary, which is handed
-/// the word's letters only (`letter_runs`): the comma of "Month," or the
-/// quote of "‘ahead" would hide where the word ends or starts from its
-/// patterns, and count among the letters a break must leave on either side.
+/// nowhere else. Any other word is broken by the `hyphenator`'s dictionary,
+/// if there is one, which is handed the word's letters only
+/// (`letter_runs`): the comma of "Month," or the quote of "‘ahead" would
+/// hide where the word ends or starts from its patterns, and count among
+/// the letters a break must leave on either side. Each line part ends in
+/// the hyphen `hyphen_after` makes, a soft hyphen's and the dictionary's
+/// alike.
 ///
 /// The dictionary names its breaks as byte offsets into the word's text.
 /// A break is taken where a cluster starts at that byte; one inside a
 /// cluster (between the letters of a ligature, or inside a grapheme) has no
 /// cluster boundary to split at and is skipped. Bytes, characters and
 /// clusters only coincide for ASCII text with one character per cluster.
-///
-/// # Panics
-///
-/// Panics if a word's last cluster has no glyphs (an internal invariant: the
-/// hyphen takes its font from it).
 #[must_use]
 pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
-    hyphenator: &Standard,
+    hyphenator: Option<&Standard>,
     is_vertical: bool,
     fonts: &LoadedFonts<T>,
 ) -> Option<Vec<HyphenationBreak>> {
@@ -1252,69 +1257,27 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
         .filter(|(cluster, _)| is_soft_hyphen(cluster))
         .map(|(_, &start)| start)
         .collect();
-    let break_bytes: Vec<usize> = if soft_hyphens.is_empty() {
-        let unit_end = word_string.len();
-        letter_runs(word_clusters, apostrophe_is_a_letter(hyphenator))
-            .into_iter()
-            .flat_map(|run| {
-                let start = cluster_starts[run.start];
-                let end = cluster_starts.get(run.end).copied().unwrap_or(unit_end);
-                hyphenator
-                    .hyphenate(&word_string[start..end])
-                    .breaks
-                    .into_iter()
-                    .map(move |byte| start + byte)
-            })
-            .collect()
-    } else {
-        soft_hyphens
+    let break_bytes: Vec<usize> = match hyphenator {
+        Some(hyphenator) if soft_hyphens.is_empty() => {
+            let unit_end = word_string.len();
+            letter_runs(word_clusters, apostrophe_is_a_letter(hyphenator))
+                .into_iter()
+                .flat_map(|run| {
+                    let start = cluster_starts[run.start];
+                    let end = cluster_starts.get(run.end).copied().unwrap_or(unit_end);
+                    hyphenator
+                        .hyphenate(&word_string[start..end])
+                        .breaks
+                        .into_iter()
+                        .map(move |byte| start + byte)
+                })
+                .collect()
+        }
+        _ => soft_hyphens,
     };
     if break_bytes.is_empty() {
         return None;
     }
-
-    let last_cluster = word_clusters.last().unwrap();
-    let last_glyph = last_cluster.glyphs.last().unwrap();
-    let style = last_cluster.style.clone();
-
-    // Look up font from hash
-    let font = fonts.get_by_hash(last_glyph.font_hash)?;
-    let (hyphen_glyph_id, hyphen_advance) =
-        font.get_hyphen_glyph_and_advance(style.font_size_px)?;
-
-    let hyphen_item = ShapedItem::Cluster(ShapedCluster {
-        flags: ClusterFlags::classify("-"),
-        source_text: Arc::from("-"),
-        source_byte_len: 1,
-        source_cluster_id: GraphemeClusterId {
-            source_run: u32::MAX,
-            start_byte_in_run: u32::MAX,
-        },
-        source_content_index: ContentIndex {
-            run_index: u32::MAX,
-            item_index: u32::MAX,
-        },
-        source_node_id: None, // Hyphen is generated, not from DOM
-        glyphs: smallvec![ShapedGlyph {
-            kind: GlyphKind::Hyphen,
-            glyph_id: hyphen_glyph_id,
-            font_hash: last_glyph.font_hash,
-            font_metrics: last_glyph.font_metrics,
-            cluster_offset: 0,
-            script: Script::Latin,
-            advance: hyphen_advance,
-            kerning: 0.0,
-            offset: Point::default(),
-            vertical_advance: hyphen_advance,
-            vertical_offset: Point::default(),
-        }],
-        advance: hyphen_advance,
-        direction: BidiDirection::Ltr,
-        style,
-        marker_position_outside: None,
-        is_first_fragment: true,
-        is_last_fragment: true,
-    });
 
     let possible_breaks: Vec<HyphenationBreak> = break_bytes
         .iter()
@@ -1324,6 +1287,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
             if split == 0 {
                 return None;
             }
+            let hyphen_item = hyphen_after(&word_clusters[split - 1], fonts)?;
             let line_part: Vec<ShapedItem> = word_clusters[..split]
                 .iter()
                 .map(|c| ShapedItem::Cluster(c.clone()))
@@ -1340,7 +1304,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 char_len_on_line: word_string[..break_byte].chars().count(),
                 width_on_line,
                 line_part,
-                hyphen_item: hyphen_item.clone(),
+                hyphen_item,
                 remainder_part,
             })
         })
@@ -1351,6 +1315,82 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     } else {
         Some(possible_breaks)
     }
+}
+
+/// The hyphen a line breaker puts at the end of a line it breaks inside a
+/// word, after `cluster`, the line's last one.
+///
+/// It is the font's hyphen glyph in the font and style of that cluster;
+/// there is none when the cluster has no glyph or its font no hyphen.
+pub(super) fn hyphen_after<T: ParsedFontTrait>(
+    cluster: &ShapedCluster,
+    fonts: &LoadedFonts<T>,
+) -> Option<ShapedItem> {
+    let glyph = cluster.glyphs.last()?;
+    let font = fonts.get_by_hash(glyph.font_hash)?;
+    let (hyphen_glyph_id, hyphen_advance) =
+        font.get_hyphen_glyph_and_advance(cluster.style.font_size_px)?;
+    Some(ShapedItem::Cluster(ShapedCluster {
+        flags: ClusterFlags::classify("-"),
+        source_text: Arc::from("-"),
+        source_byte_len: 1,
+        source_cluster_id: GraphemeClusterId {
+            source_run: u32::MAX,
+            start_byte_in_run: u32::MAX,
+        },
+        source_content_index: ContentIndex {
+            run_index: u32::MAX,
+            item_index: u32::MAX,
+        },
+        source_node_id: None, // Hyphen is generated, not from DOM
+        glyphs: smallvec![ShapedGlyph {
+            kind: GlyphKind::Hyphen,
+            glyph_id: hyphen_glyph_id,
+            font_hash: glyph.font_hash,
+            font_metrics: glyph.font_metrics,
+            cluster_offset: 0,
+            script: Script::Latin,
+            advance: hyphen_advance,
+            kerning: 0.0,
+            offset: Point::default(),
+            vertical_advance: hyphen_advance,
+            vertical_offset: Point::default(),
+        }],
+        advance: hyphen_advance,
+        direction: BidiDirection::Ltr,
+        style: cluster.style.clone(),
+        marker_position_outside: None,
+        is_first_fragment: true,
+        is_last_fragment: true,
+    }))
+}
+
+/// The line part, hyphen included, and the rest of a unit broken at its
+/// first soft hyphen, if it holds one: the min-content's break of it.
+fn first_soft_hyphen_break<T: ParsedFontTrait>(
+    unit: &[ShapedItem],
+    is_vertical: bool,
+    fonts: &LoadedFonts<T>,
+) -> Option<HyphenationResult> {
+    if !unit
+        .iter()
+        .any(|item| item.as_cluster().is_some_and(is_soft_hyphen))
+    {
+        return None;
+    }
+    let clusters: Vec<ShapedCluster> = unit
+        .iter()
+        .map(|item| item.as_cluster().cloned())
+        .collect::<Option<_>>()?;
+    let first = find_all_hyphenation_breaks(&clusters, None, is_vertical, fonts)?
+        .into_iter()
+        .next()?;
+    let mut line_part = first.line_part;
+    line_part.push(first.hyphen_item);
+    Some(HyphenationResult {
+        line_part,
+        remainder_part: first.remainder_part,
+    })
 }
 
 /// The runs of letters in a line breaker's unit, as ranges of its clusters.
@@ -1440,7 +1480,7 @@ pub(super) fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
     word_items: &[ShapedItem],
     remaining_width: f32,
     is_vertical: bool,
-    hyphenator: &Standard,
+    hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
 ) -> Option<HyphenationResult> {
     let word_clusters: Vec<ShapedCluster> = word_items
