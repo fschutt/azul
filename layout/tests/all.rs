@@ -1219,6 +1219,8 @@ mod calmet_lines;
 mod a_hyphenated_word_breaks_where_its_dictionary_breaks_it;
 #[path = "a_word_beside_punctuation_breaks_where_the_bare_word_breaks.rs"]
 mod a_word_beside_punctuation_breaks_where_the_bare_word_breaks;
+#[path = "a_word_with_a_soft_hyphen_breaks_only_at_its_soft_hyphen.rs"]
+mod a_word_with_a_soft_hyphen_breaks_only_at_its_soft_hyphen;
 #[path = "a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge.rs"]
 mod a_justified_line_with_letter_or_word_spacing_ends_on_its_box_edge;
 #[path = "a_paragraph_starting_with_a_word_another_paragraph_has_after_an_inline_draws_its_text.rs"]
