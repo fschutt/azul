@@ -211,12 +211,14 @@ fn test_node_cache_slot_index_deterministic() {
         ),
         1
     );
+    // A measure's slot follows the UNKNOWN axis's own constraint (Taffy's
+    // `compute_cache_slot`): here the height's.
     assert_eq!(
         NodeCache::slot_index(
             true,
             false,
-            AvailableWidthType::MinContent,
-            AvailableWidthType::Definite
+            AvailableWidthType::Definite,
+            AvailableWidthType::MinContent
         ),
         2
     );
@@ -229,12 +231,13 @@ fn test_node_cache_slot_index_deterministic() {
         ),
         3
     );
+    // ...and here the width's.
     assert_eq!(
         NodeCache::slot_index(
             false,
             true,
-            AvailableWidthType::Definite,
-            AvailableWidthType::MinContent
+            AvailableWidthType::MinContent,
+            AvailableWidthType::Definite
         ),
         4
     );
