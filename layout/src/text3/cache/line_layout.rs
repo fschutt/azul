@@ -83,6 +83,46 @@ pub(crate) fn resolve_effective_alignment(
     }
 }
 
+/// A paragraph as the line breaker sees it: its shaped items turned for its
+/// writing mode, with the constraints it is laid out in.
+///
+/// Every layout of a paragraph makes it here from the paragraph's shaped
+/// items, its full layout, its intrinsic sizes and each relayout after an
+/// edit alike, and breaks it from `cursor`, so none of them can see the
+/// paragraph apart from the others.
+#[derive(Debug)]
+pub struct ParagraphToBreak<'c> {
+    /// The shaped items, oriented for a vertical writing mode
+    /// (`apply_text_orientation`): a cluster's advance runs along the line.
+    pub items: Arc<Vec<ShapedItem>>,
+    /// The constraints the paragraph is laid out in.
+    constraints: &'c UnifiedConstraints,
+}
+
+impl<'c> ParagraphToBreak<'c> {
+    /// The paragraph of `shaped_items` laid out in `constraints`.
+    #[must_use]
+    pub fn new(shaped_items: Arc<Vec<ShapedItem>>, constraints: &'c UnifiedConstraints) -> Self {
+        Self {
+            items: apply_text_orientation(shaped_items, constraints),
+            constraints,
+        }
+    }
+
+    /// The constraints the paragraph is laid out in.
+    #[must_use]
+    pub const fn constraints(&self) -> &'c UnifiedConstraints {
+        self.constraints
+    }
+
+    /// A line breaker's cursor at the paragraph's start, which breaks it in
+    /// the word-break, hyphens and line-break of its constraints.
+    #[must_use]
+    pub fn cursor(&self) -> BreakCursor<'_> {
+        BreakCursor::for_constraints(&self.items, self.constraints)
+    }
+}
+
 /// Performs layout for a single fragment, consuming items from a `BreakCursor`.
 ///
 /// This function contains the core line-breaking and positioning logic, but is

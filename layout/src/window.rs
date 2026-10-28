@@ -25697,7 +25697,7 @@ impl LayoutWindow {
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
     ) -> Option<UnifiedLayout> {
-        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
+        let (logical_items, paragraph) = self.shape_text_for_relayout(content, constraints)?;
 
         if logical_items.is_empty() {
             return Some(UnifiedLayout {
@@ -25706,7 +25706,7 @@ impl LayoutWindow {
             });
         }
 
-        self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)
+        self.fragment_layout_from_shaped(&logical_items, &paragraph)
     }
 
     /// Stages 1-3 of the text3 pipeline (logical items, bidi reorder, shape).
@@ -25783,18 +25783,23 @@ impl LayoutWindow {
             });
     }
 
-    fn shape_text_for_relayout(
+    fn shape_text_for_relayout<'c>(
         &self,
         content: &[InlineContent],
-        constraints: &UnifiedConstraints,
-    ) -> Option<(Vec<crate::text3::cache::LogicalItem>, Vec<ShapedItem>)> {
+        constraints: &'c UnifiedConstraints,
+    ) -> Option<(
+        Vec<crate::text3::cache::LogicalItem>,
+        crate::text3::cache::ParagraphToBreak<'c>,
+    )> {
         use crate::text3::cache::{
             create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
+            ParagraphToBreak,
         };
 
         let logical_items = create_logical_items(content, &[], &mut None);
         if logical_items.is_empty() {
-            return Some((logical_items, Vec::new()));
+            let paragraph = ParagraphToBreak::new(Arc::new(Vec::new()), constraints);
+            return Some((logical_items, paragraph));
         }
 
         // See the doc on `ensure_fonts_loaded_for_content`: the pool this
@@ -25822,26 +25827,28 @@ impl LayoutWindow {
         )
         .ok()?;
 
-        Some((logical_items, shaped_items))
+        // The paragraph as the full layout's line breaker sees it: turned
+        // for its writing mode, broken in its line breaking style.
+        Some((
+            logical_items,
+            ParagraphToBreak::new(Arc::new(shaped_items), constraints),
+        ))
     }
 
     /// Stage 4 of the text3 pipeline: line breaking + positioning.
     fn fragment_layout_from_shaped(
         &self,
         logical_items: &[crate::text3::cache::LogicalItem],
-        shaped_items: &[ShapedItem],
-        constraints: &UnifiedConstraints,
+        paragraph: &crate::text3::cache::ParagraphToBreak<'_>,
     ) -> Option<UnifiedLayout> {
-        use crate::text3::cache::{perform_fragment_layout, BreakCursor};
+        use crate::text3::cache::perform_fragment_layout;
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        // The paragraph's word-break, hyphens and line-break, as its full
-        // layout breaks it.
-        let mut cursor = BreakCursor::for_constraints(shaped_items, constraints);
+        let mut cursor = paragraph.cursor();
         perform_fragment_layout(
             &mut cursor,
             logical_items,
-            constraints,
+            paragraph.constraints(),
             &mut None,
             &loaded_fonts,
         )
@@ -26059,7 +26066,8 @@ impl LayoutWindow {
             PositionedItem, ShapedItem,
         };
 
-        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
+        let (logical_items, paragraph) = self.shape_text_for_relayout(content, constraints)?;
+        let shaped_items = &paragraph.items;
 
         if logical_items.is_empty() {
             return Some((
@@ -26134,7 +26142,8 @@ impl LayoutWindow {
                     // assignments, swap in the new shaped items so their
                     // glyph data reflects the edit.
                     let items: Vec<PositionedItem> = shaped_items
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .enumerate()
                         .map(|(i, new_shaped)| {
                             let (position, line_index) = Self::cached_positioned_of(cached, i);
@@ -26162,7 +26171,8 @@ impl LayoutWindow {
                     // line. Items on later lines keep their positions.
                     let affected_line = Self::cached_positioned_of(cached, affected_item).1;
                     let items: Vec<PositionedItem> = shaped_items
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .enumerate()
                         .map(|(i, new_shaped)| {
                             let (mut position, line_index) = Self::cached_positioned_of(cached, i);
@@ -26194,8 +26204,7 @@ impl LayoutWindow {
         // Fall-back: run stage 4 (line breaking + positioning) with the
         // already-computed logical + shaped items. Still cheaper than the
         // plain full path because stages 1-3 aren't repeated.
-        let layout =
-            self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)?;
+        let layout = self.fragment_layout_from_shaped(&logical_items, &paragraph)?;
         Some((layout, false))
     }
 

@@ -1130,19 +1130,19 @@ impl TextShapingCache {
             debug_messages,
         )?);
 
-        // --- Stage 4: Apply Vertical Text Transformations ---
+        // --- Stage 4: The paragraph the line breaker sees ---
 
         // Note: first_constraints was already extracted above for BiDi reordering (Stage 2).
         // This orients all text based on the constraints of the *first* fragment.
         // A more advanced system could defer orientation until inside the loop if
         // fragments can have different writing modes.
-        let oriented_items = apply_text_orientation(shaped_items, first_constraints);
+        let paragraph = ParagraphToBreak::new(shaped_items, first_constraints);
 
         // --- Stage 5: The Flow Loop ---
         let mut fragment_layouts = HashMap::new();
         // The cursor now manages the stream of items for the entire flow, with
         // the first fragment's word-break, hyphens and line-break.
-        let mut cursor = BreakCursor::for_constraints(&oriented_items, first_constraints);
+        let mut cursor = paragraph.cursor();
 
         // [g147 az-web-lift] Hard safety bound on the Stage-5 flow loop. On the remill lift this
         // `for fragment in flow_chain` (or the `cursor.is_done()` break) mis-lifts for the NESTED
@@ -1197,7 +1197,7 @@ impl TextShapingCache {
                  placed_items={total_items} avail_h={:?} text='{text_preview}'",
                 content.len(),
                 logical_items.len(),
-                oriented_items.len(),
+                paragraph.items.len(),
                 fragment_layouts.len(),
                 first_constraints.available_height,
             );
@@ -1322,8 +1322,8 @@ impl TextShapingCache {
             debug_messages,
         )?);
 
-        // Stage 4: Text orientation
-        let oriented_items = apply_text_orientation(shaped_items, constraints);
+        // Stage 4: the paragraph the line breaker sees, oriented as it is.
+        let paragraph = ParagraphToBreak::new(shaped_items, constraints);
 
         // Stage 5 bypass: scan items for min/max contributions.
         let word_break = constraints.word_break;
@@ -1368,7 +1368,7 @@ impl TextShapingCache {
         let mut line_indent = text_indent_of_line(constraints, true, false);
         let mut word_indent = line_indent;
 
-        let scan_items: &[ShapedItem] = &oriented_items;
+        let scan_items: &[ShapedItem] = &paragraph.items;
         for (item_idx, item) in scan_items.iter().enumerate() {
             // A forced break (preserved LF, <br>) ends the current line. max-content
             // is the widest line BETWEEN forced breaks, not the running sum across
