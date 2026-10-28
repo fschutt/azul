@@ -31,6 +31,8 @@
 //! consumer from the smallest frame already made that covers it
 //! ([`fan_out`]).
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::vec::Vec;
 
 use crate::{

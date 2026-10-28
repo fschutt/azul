@@ -10,6 +10,8 @@
 //!   against registered resources and produce WebRender updates
 
 #[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
+#[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{

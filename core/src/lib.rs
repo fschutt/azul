@@ -291,6 +291,9 @@ pub mod hash {
         }
     }
 }
+/// The float functions std puts on `f32` / `f64`, for builds without std.
+#[cfg(not(feature = "std"))]
+mod float_math;
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;

@@ -13,6 +13,8 @@
 //! and asks [`child_role`] what a child element contributes. The builders only
 //! walk the markup.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt::Write as _;
 

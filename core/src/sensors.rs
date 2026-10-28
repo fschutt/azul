@@ -13,6 +13,9 @@
 //! orientation; Android auto-rotates only fused sensors). v1 reports the
 //! raw device frame.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
+
 /// Which motion sensor a [`SensorReading`] came from.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

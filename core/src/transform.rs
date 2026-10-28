@@ -11,6 +11,8 @@
 //! use column-major). The module handles coordinate system differences between WebRender
 //! and hit-testing via the `RotationMode` enum.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::style::{StyleTransform, StyleTransformOrigin};

@@ -4,6 +4,8 @@
 //! Uses typed getters on CssPropertyCache (which cascade through all sources)
 //! to resolve each property for the "normal" state (all pseudo-states = false).
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::vec::Vec;
 use core::hash::{Hash, Hasher};
 

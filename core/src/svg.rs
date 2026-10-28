@@ -11,6 +11,8 @@
 //! The module uses Lyon for geometric tessellation and generates vertex/index buffers
 //! that can be uploaded to WebRender for hardware-accelerated rendering.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{
     string::{String, ToString},
     vec::Vec,

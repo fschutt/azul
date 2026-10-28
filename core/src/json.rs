@@ -3,6 +3,8 @@
 //! The actual parsing/serialization lives in `azul_layout::json` which adds
 //! serde_json-based implementations on top of these types.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 

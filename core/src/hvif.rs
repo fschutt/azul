@@ -10,6 +10,8 @@
 //! CPU renderer draws it at a given pixel size (the icon resolver does, on
 //! demand). Written from the format as Haiku's `FlatIconImporter` reads it.
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::vec::Vec;
 
 /// What the file starts with.

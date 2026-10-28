@@ -4,6 +4,8 @@
 //! geometry, supporting all 14 SVG path commands (M/m, L/l, H/h, V/v,
 //! C/c, S/s, Q/q, T/t, A/a, Z/z).
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{string::String, vec::Vec};
 
 use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};

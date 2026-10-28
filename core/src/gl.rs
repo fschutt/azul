@@ -2,6 +2,8 @@
 //! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
 
 #![allow(unused_variables)]
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{
     boxed::Box,
     rc::Rc,
