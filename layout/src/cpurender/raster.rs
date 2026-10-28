@@ -9975,6 +9975,45 @@ mod autotest_generated {
         assert_eq!(opacity_layer_result(f32::NAN), 255);
     }
 
+    /// A translucent box inside an opacity group is blended once with each
+    /// alpha. Blue (30, 30, 200) at alpha 160 in a group at opacity 0.7, over
+    /// white, covers 160 / 255 * 0.7 of the pixel: blue lands at about 231
+    /// and red at about 156. Reading the group's pixels, which hold each
+    /// colour already multiplied by its alpha, as straight colours gave 198
+    /// blue: the box drawn darker than any browser draws it.
+    #[test]
+    fn a_translucent_box_in_an_opacity_group_keeps_its_own_colour() {
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    opacity: 0.7,
+                    opacity_key: None,
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    color: ColorU {
+                        r: 30,
+                        g: 30,
+                        b: 200,
+                        a: 160,
+                    },
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopOpacity,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(4, 4);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        let [red, _, blue, alpha] = px_at(&p, 1, 1);
+        assert!(
+            (i32::from(blue) - 231).abs() <= 2 && (i32::from(red) - 156).abs() <= 2 && alpha == 255,
+            "the box in the group is painted {:?}, not about (156, 156, 231, 255)",
+            px_at(&p, 1, 1)
+        );
+    }
+
     #[test]
     fn push_opacity_with_degenerate_bounds_pushes_an_empty_group_its_pop_takes() {
         // No rect -> an empty group: it still leaves its own entry, so the

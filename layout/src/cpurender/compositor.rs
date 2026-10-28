@@ -9422,6 +9422,49 @@ mod autotest_generated {
         );
     }
 
+    /// A composited opacity group blends a translucent box once with each
+    /// alpha, as the rasterizer's in-place group does: blue (30, 30, 200) at
+    /// alpha 160 in a group at opacity 0.7, over white, lands at about
+    /// (156, 156, 231). The layer holds each colour already multiplied by its
+    /// alpha; read as a straight colour it came out at 198 blue.
+    #[test]
+    fn a_composited_group_keeps_the_colour_of_a_translucent_box() {
+        let mut c = CompositorState::new(16, 16);
+        let list = dlist(vec![
+            DisplayListItem::PushOpacity {
+                bounds: wlr(0.0, 0.0, 16.0, 16.0),
+                opacity: 0.7,
+                opacity_key: None,
+            },
+            rect_item(
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 30,
+                    g: 30,
+                    b: 200,
+                    a: 160,
+                },
+            ),
+            DisplayListItem::PopOpacity,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(16, 16).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        let [red, _, blue, alpha] = at(&out, 8, 8);
+        assert!(
+            (i32::from(blue) - 231).abs() <= 2 && (i32::from(red) - 156).abs() <= 2 && alpha == 255,
+            "the box in the composited group is {:?}, not about (156, 156, 231, 255)",
+            at(&out, 8, 8)
+        );
+    }
+
     /// CSS opacity is a GROUP effect: it applies to the element and to
     /// everything painted inside it (CSS Color 4, `opacity`). A layer nested
     /// in an opacity group - a transformed descendant, a scroll frame, an
