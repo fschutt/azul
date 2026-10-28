@@ -2212,7 +2212,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 // For Block, Inline, Table, InlineBlock - delegate to layout_formatting_context
                 // This ensures proper recursive layout of all formatting contexts
-                _ => tree.compute_non_flex_layout(node_idx, inputs),
+                _ => tree.compute_non_flex_layout_inside_its_gutter(node_idx, inputs),
             };
             if inputs.run_mode == RunMode::PerformLayout {
                 tree.set_final_layout_current(node_idx, true);
@@ -2485,6 +2485,31 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     // can't merge)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
+    /// [`Self::compute_non_flex_layout`], once more when the final layout
+    /// decided a vertical scrollbar whose gutter it did not reserve, or
+    /// dropped one it did. An `overflow: auto` box reserves the gutter its
+    /// last layout's bar asked for (`layout_bfc`), and only its layout finds
+    /// whether it overflows: in block flow the bar's first appearance asks
+    /// the pass for a reflow, but a flex or grid item lays itself out here,
+    /// and its children stayed as wide as the box beside the bar.
+    fn compute_non_flex_layout_inside_its_gutter(
+        &mut self,
+        node_idx: usize,
+        inputs: LayoutInput,
+    ) -> LayoutOutput {
+        let reserves = |tree: &LayoutTree| {
+            tree.warm(LayoutNodeId::new(node_idx))
+                .and_then(|w| w.scrollbar_info.as_ref())
+                .is_some_and(|s| s.needs_vertical && s.scrollbar_width > 0.0)
+        };
+        let before = reserves(&*self.tree);
+        let output = self.compute_non_flex_layout(node_idx, inputs);
+        if inputs.run_mode == RunMode::PerformLayout && reserves(&*self.tree) != before {
+            return self.compute_non_flex_layout(node_idx, inputs);
+        }
+        output
+    }
+
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).

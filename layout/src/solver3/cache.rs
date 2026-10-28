@@ -5152,19 +5152,6 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         // bars are decided from what overflows THAT layout.
         if superseded_by_reflow {
             ctx.cache_map.get_mut(node_index).clear();
-            // The flex and grid algorithm keeps its own layouts of the box
-            // and of the boxes around it (`taffy_cache`): one of those on the
-            // way down answered the reflow with the layout from before the
-            // gutter, and a flex item that scrolls never had its rows laid
-            // out inside it.
-            let mut at = Some(node_index);
-            while let Some(index) = at {
-                if let Some(warm) = tree.warm_mut(LayoutNodeId::new(index)) {
-                    warm.taffy_cache.clear();
-                    warm.measured_content_sizes = (None, None);
-                }
-                at = tree.get(LayoutNodeId::new(index)).and_then(|n| n.parent);
-            }
             return Ok(());
         }
         let warm_ref = tree.warm(LayoutNodeId::new(node_index));
