@@ -47,6 +47,10 @@ pub mod windows;
 pub mod headless;
 // Main event loop implementation
 pub mod run;
+// How each backend takes a closing window down, pinned in the source of the
+// backends a test binary on one host cannot run.
+#[cfg(test)]
+mod window_teardown_invariants;
 
 // Re-export common types
 pub use common::{

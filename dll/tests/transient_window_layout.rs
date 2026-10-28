@@ -4183,3 +4183,162 @@ fn a_rebuild_that_only_makes_fresh_callback_payloads_is_no_content_change() {
         "the mailbox carries the newest callbacks for the popup's next pass"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A popover opened and light-dismissed again and again (AzDrive's branch
+// switcher): the lifecycle of the window behind it
+// ---------------------------------------------------------------------------
+
+/// The app behind the branch switcher: a chip whose popover the user opens
+/// and closes with a press outside it, over and over.
+struct SwitcherProbe {
+    closes: usize,
+    /// Close requests the switcher's own window heard: its close protocol.
+    close_requests: Arc<AtomicUsize>,
+}
+
+/// The switcher closed: the app hears it once per showing.
+extern "C" fn switcher_closed(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    if let Some(mut p) = data.downcast_mut::<SwitcherProbe>() {
+        p.closes += 1;
+    }
+    Update::RefreshDom
+}
+
+/// The window the switcher's content is in runs its close protocol.
+extern "C" fn switcher_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(p) = data.downcast_ref::<SwitcherProbe>() {
+        p.close_requests.fetch_add(1, Ordering::SeqCst);
+    }
+    Update::DoNothing
+}
+
+/// A 120x30 chip, and under it a non-modal dialog any press outside closes,
+/// without a close button: the switcher's shape.
+extern "C" fn switcher_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{events::WindowEventFilter, transient::TransientAnchor};
+    let on_close: DialogOnCloseCallbackType = switcher_closed;
+    let chip = Dom::create_div()
+        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("switcher-chip".into())].into())
+        .with_css("width: 120px; height: 30px;".into());
+    let branches = Dom::create_div()
+        .with_css("width: 240px; height: 120px;".into())
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            data.clone(),
+            Callback {
+                cb: switcher_close_requested,
+                ctx: azul_core::refany::OptionRefAny::None,
+            }
+            .to_core(),
+        )
+        .with_child(Dom::create_p_with_text("main"));
+    Dom::create_body().with_child(
+        Dialog::create(branches)
+            .with_invoker(chip)
+            .with_title("Switch branch".into())
+            .with_modal(false)
+            .with_anchor(TransientAnchor::Bottom)
+            .with_closed_by(DialogClosedBy::Any)
+            .with_close_button(false)
+            .with_on_close(data, on_close)
+            .dom(),
+    )
+}
+
+/// The shell's turns for `parent` and its child windows until they settle:
+/// what the run loop does between two inputs (create the windows the pass
+/// queued, pump them, drop the ones that closed).
+fn settle(parent: &mut HeadlessWindow) {
+    for _ in 0..6 {
+        parent.pump_once(true);
+        parent.pump_children();
+    }
+}
+
+/// AzDrive's branch switcher is shown and closed by a press outside again and
+/// again. Each showing is a window of its own, and each close takes exactly
+/// that window down, once, at the shell's safe point. Eight times over: every
+/// showing opens exactly one NEW window (its mailbox fresh, every earlier one
+/// closed), every press outside closes it - its close protocol runs once, the
+/// app hears `close` once - and the closed window is gone, never pumped or
+/// shown again.
+#[test]
+fn a_popover_opened_and_dismissed_by_a_press_outside_eight_times_closes_its_window_each_time() {
+    let close_requests = Arc::new(AtomicUsize::new(0));
+    let app_data = Arc::new(RefCell::new(RefAny::new(SwitcherProbe {
+        closes: 0,
+        close_requests: close_requests.clone(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = switcher_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout");
+    settle(&mut parent);
+    assert!(parent.children.is_empty(), "premise: the switcher starts closed");
+
+    let chip = rect_of_class(&parent, "switcher-chip");
+    let on_chip = LogicalPosition::new(
+        chip.origin.x + chip.size.width / 2.0,
+        chip.origin.y + chip.size.height / 2.0,
+    );
+    let outside = LogicalPosition::new(700.0, 550.0);
+    let mut shown: Vec<RefAny> = Vec::new();
+
+    for round in 1..=8_usize {
+        click_at(&mut parent, on_chip);
+        settle(&mut parent);
+        assert_eq!(
+            parent.children.len(),
+            1,
+            "round {round}: the chip opened exactly one switcher window"
+        );
+        let mailbox_now = mailbox_of(parent.children[0].get_current_window_state())
+            .unwrap_or_else(|| panic!("round {round}: the switcher's window is a transient window"));
+        {
+            let mut m = mailbox_now.clone();
+            let d = m.downcast_ref::<TransientWindowData>().expect("mailbox data");
+            assert!(
+                !d.closed && !d.dismissed,
+                "round {round}: the shown window is a fresh one, not a closed one again"
+            );
+        }
+        for (i, earlier) in shown.iter().enumerate() {
+            let mut m = earlier.clone();
+            let d = m.downcast_ref::<TransientWindowData>().expect("mailbox data");
+            assert!(d.closed, "round {round}: the window of showing {} stays closed", i + 1);
+        }
+        shown.push(mailbox_now);
+
+        click_at(&mut parent, outside);
+        settle(&mut parent);
+        assert!(
+            parent.children.is_empty(),
+            "round {round}: the press outside took the switcher's window down"
+        );
+        assert!(
+            parent
+                .get_layout_window()
+                .unwrap()
+                .transient_windows
+                .open_windows()
+                .is_empty(),
+            "round {round}: and its node is closed"
+        );
+        let closes = {
+            let mut app = parent.common.app_data.borrow_mut();
+            app.downcast_ref::<SwitcherProbe>().map_or(usize::MAX, |p| p.closes)
+        };
+        assert_eq!(closes, round, "round {round}: the app heard close once per showing");
+        assert_eq!(
+            close_requests.load(Ordering::SeqCst),
+            round,
+            "round {round}: the closed window ran its close protocol once"
+        );
+    }
+}
