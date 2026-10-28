@@ -7,7 +7,7 @@
 //! The fonts are small subsets of Noto Sans Arabic and Amiri
 //! (`tests/fonts/README.md`, sections 7 and 8). Both have 1000 units per em,
 //! so at a font size of 1000px a pixel is a font unit; the expected values are
-//! what HarfBuzz gives for the same font and text.
+//! what `HarfBuzz` gives for the same font and text.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
