@@ -89,6 +89,15 @@ pub(super) const fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
     cluster.flags.has(ClusterFlags::HAS_CJK)
 }
 
+/// Whether `cluster` is a soft hyphen (U+00AD).
+///
+/// A soft hyphen is a place its word may break, and a word that holds one
+/// breaks only at its soft hyphens: the dictionary's breaks of it are
+/// ignored.
+pub(super) const fn is_soft_hyphen(cluster: &ShapedCluster) -> bool {
+    cluster.flags.has(ClusterFlags::SOFT_HYPHEN_START)
+}
+
 // +spec:line-breaking:e1fc9d - word-break normal/break-all/keep-all break opportunity rules
 // +spec:line-breaking:73d5fe - word-break break-point determination for CJK and Latin text
 // +spec:line-breaking:31ef1a - word-break property controls soft wrap opportunities between letters
@@ -134,12 +143,8 @@ pub(crate) fn is_break_opportunity_with_word_break(
         return true;
     }
     // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
-    if hyphens != Hyphens::None {
-        if let ShapedItem::Cluster(c) = item {
-            if c.flags.has(ClusterFlags::SOFT_HYPHEN_START) {
-                return true;
-            }
-        }
+    if hyphens != Hyphens::None && item.as_cluster().is_some_and(is_soft_hyphen) {
+        return true;
     }
 
     // +spec:line-breaking:05e09a - U+002D HYPHEN-MINUS / U+2010 HYPHEN always create a
@@ -473,6 +478,37 @@ impl<'a> BreakCursor<'a> {
             }
         }
         unit
+    }
+
+    /// Whether the next unit, `unit_len` items long, is a whole word.
+    ///
+    /// A soft hyphen is a break opportunity inside a word, the only one, so
+    /// the units on either side of it are parts of one word, and a word that
+    /// holds a soft hyphen breaks only there: the dictionary may hyphenate a
+    /// unit only when it is a whole word. The unit ends at a break
+    /// opportunity, so its word goes on after it only when that is a soft
+    /// hyphen; before it, the word reaches back over every item that is no
+    /// break opportunity, or a soft hyphen.
+    #[must_use]
+    pub fn next_unit_is_a_whole_word(&self, unit_len: usize) -> bool {
+        let consumed = self.next_item_index.min(self.items.len());
+        let soft_hyphen_after = self
+            .partial_remainder
+            .iter()
+            .chain(&self.items[consumed..])
+            .nth(unit_len)
+            .and_then(ShapedItem::as_cluster)
+            .is_some_and(is_soft_hyphen);
+        let soft_hyphen_before = self.items[..consumed]
+            .iter()
+            .rev()
+            .take_while(|item| {
+                item.as_cluster().is_some_and(is_soft_hyphen)
+                    || !is_break_opportunity_with_word_break(item, self.word_break, self.hyphens)
+            })
+            .filter_map(ShapedItem::as_cluster)
+            .any(is_soft_hyphen);
+        !soft_hyphen_after && !soft_hyphen_before
     }
 
     #[must_use]

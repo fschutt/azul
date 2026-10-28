@@ -1071,7 +1071,13 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 // 3. The unit overflows. Can we hyphenate it?
                 if line_break != LineBreakStrictness::Anywhere {
                     if let Some(hyphenator) = hyphenator {
-                        if !is_break_opportunity(next_unit.last().unwrap()) {
+                        // A unit that a soft hyphen joins to the rest of its
+                        // word breaks only at that soft hyphen, at the end
+                        // of a unit here, and never where the dictionary
+                        // would break its part of the word.
+                        if !is_break_opportunity(next_unit.last().unwrap())
+                            && cursor.next_unit_is_a_whole_word(next_unit.len())
+                        {
                             if let Some(hyphenation_result) = try_hyphenate_word_cluster(
                                 &next_unit,
                                 available_width,
@@ -1200,10 +1206,11 @@ pub struct HyphenationBreak {
 /// Every place the hyphenation dictionary breaks the word made of
 /// `word_clusters`, as the clusters on each side and the line part's width.
 ///
-/// The dictionary is handed the word's letters only (`letter_runs`): the
-/// comma of "Month," or the quote of "‘ahead" would hide where the word ends
-/// or starts from its patterns, and count among the letters a break must
-/// leave on either side.
+/// A word that holds a soft hyphen breaks before its soft hyphens and
+/// nowhere else. Any other word is broken by the dictionary, which is handed
+/// the word's letters only (`letter_runs`): the comma of "Month," or the
+/// quote of "‘ahead" would hide where the word ends or starts from its
+/// patterns, and count among the letters a break must leave on either side.
 ///
 /// The dictionary names its breaks as byte offsets into the word's text.
 /// A break is taken where a cluster starts at that byte; one inside a
@@ -1236,21 +1243,32 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 
     // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and
     // explicit (soft hyphen) opportunities
-    // Each run of letters is a word of its own to the dictionary, and its
-    // breaks are moved back to bytes of the whole unit.
-    let unit_end = word_string.len();
-    let break_bytes: Vec<usize> = letter_runs(word_clusters, apostrophe_is_a_letter(hyphenator))
-        .into_iter()
-        .flat_map(|run| {
-            let start = cluster_starts[run.start];
-            let end = cluster_starts.get(run.end).copied().unwrap_or(unit_end);
-            hyphenator
-                .hyphenate(&word_string[start..end])
-                .breaks
-                .into_iter()
-                .map(move |byte| start + byte)
-        })
+    // A word that holds a soft hyphen breaks only before its soft hyphens.
+    // Any other word is broken by the dictionary, each run of letters a word
+    // of its own to it, and the breaks are moved back to bytes of the unit.
+    let soft_hyphens: Vec<usize> = word_clusters
+        .iter()
+        .zip(&cluster_starts)
+        .filter(|(cluster, _)| is_soft_hyphen(cluster))
+        .map(|(_, &start)| start)
         .collect();
+    let break_bytes: Vec<usize> = if soft_hyphens.is_empty() {
+        let unit_end = word_string.len();
+        letter_runs(word_clusters, apostrophe_is_a_letter(hyphenator))
+            .into_iter()
+            .flat_map(|run| {
+                let start = cluster_starts[run.start];
+                let end = cluster_starts.get(run.end).copied().unwrap_or(unit_end);
+                hyphenator
+                    .hyphenate(&word_string[start..end])
+                    .breaks
+                    .into_iter()
+                    .map(move |byte| start + byte)
+            })
+            .collect()
+    } else {
+        soft_hyphens
+    };
     if break_bytes.is_empty() {
         return None;
     }
@@ -1343,8 +1361,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 /// its letter) goes with that grapheme. Every other cluster ends a word: the
 /// punctuation around "Month," or "(Egypt", a digit, a dash, and an
 /// apostrophe unless the language spells words with it, so "deliver'd" is
-/// broken as "deliver". A soft hyphen between letters stays in its word,
-/// where the dictionary takes it as the word's only break.
+/// broken as "deliver".
 fn letter_runs(
     word_clusters: &[ShapedCluster],
     apostrophe_in_words: bool,
@@ -1361,8 +1378,7 @@ fn letter_runs(
             text.chars().next().is_some_and(char::is_alphabetic)
         };
         previous_is_letter = is_letter;
-        let stays_in_word = text.starts_with('\u{00AD}')
-            || (apostrophe_in_words && matches!(text, "'" | "\u{2019}"));
+        let stays_in_word = apostrophe_in_words && matches!(text, "'" | "\u{2019}");
         if is_letter {
             let start = open.map_or(index, |(start, _)| start);
             open = Some((start, index + 1));
