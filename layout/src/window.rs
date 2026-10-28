@@ -9884,7 +9884,7 @@ impl LayoutWindow {
                             node_id,
                             &state.styled_node_state,
                         );
-                        let from = background_transition_start(&from, painted).unwrap_or(from);
+                        let from = background_transition_start(&from, prop, painted).unwrap_or(from);
                         if from == *prop {
                             return None;
                         }
@@ -10186,7 +10186,7 @@ impl LayoutWindow {
                                     node,
                                     &old_state,
                                 );
-                                background_transition_start(&from, painted).unwrap_or(from)
+                                background_transition_start(&from, &to, painted).unwrap_or(from)
                             })
                             .resolve_system_colors(sys_ctx);
                         (from, to)
@@ -33381,26 +33381,39 @@ fn size_transition_start(
 /// the box paints: layers with no colour over a `background-color`, or no
 /// `background-color` under layers with one, start at the colour the box
 /// paints (`painted`), so a fade leaves that colour instead of transparent.
+/// Only toward something the property paints (`to`): a property that paints
+/// nothing at either end does not fade, and starting it at the painted
+/// colour drew that colour a second time over the fade of the property that
+/// does paint it (a hover from one colour to another).
 fn background_transition_start(
     from: &azul_css::props::property::CssProperty,
+    to: &azul_css::props::property::CssProperty,
     painted: azul_css::props::basic::color::ColorU,
 ) -> Option<azul_css::props::property::CssProperty> {
     use azul_css::props::{
         basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent as B,
     };
+    let no_layers = |p: &CssProperty| match p {
+        CssProperty::BackgroundContent(v) => matches!(
+            v.get_property().map_or(&[][..], |l| l.as_slice()),
+            [] | [B::Color(ColorU { a: 0, .. })]
+        ),
+        _ => false,
+    };
+    let no_colour = |p: &CssProperty| match p {
+        CssProperty::BackgroundColor(v) => {
+            matches!(v.get_property(), None | Some(B::Color(ColorU { a: 0, .. })))
+        }
+        _ => false,
+    };
     if painted.a == 0 {
         return None;
     }
     match from {
-        CssProperty::BackgroundContent(v) => {
-            let layers = v.get_property().map_or(&[][..], |l| l.as_slice());
-            matches!(layers, [] | [B::Color(ColorU { a: 0, .. })])
-                .then(|| CssProperty::background_content(alloc::vec![B::Color(painted)].into()))
-        }
-        CssProperty::BackgroundColor(v) => {
-            matches!(v.get_property(), None | Some(B::Color(ColorU { a: 0, .. })))
-                .then(|| CssProperty::background_color(B::Color(painted)))
-        }
+        CssProperty::BackgroundContent(_) => (no_layers(from) && !no_layers(to))
+            .then(|| CssProperty::background_content(alloc::vec![B::Color(painted)].into())),
+        CssProperty::BackgroundColor(_) => (no_colour(from) && !no_colour(to))
+            .then(|| CssProperty::background_color(B::Color(painted))),
         _ => None,
     }
 }
