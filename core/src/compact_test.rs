@@ -1225,11 +1225,11 @@ mod autotest_generated {
     #[test]
     fn build_with_inheritance_handles_zero_nodes() {
         let cache = CssPropertyCache::empty(0);
-        let r = cache.build_compact_cache_with_inheritance(&[], &[], &[]);
+        let r = cache.build_compact_cache_with_inheritance(&[], &[], &[], &[]);
         assert_eq!(r.node_count(), 0);
 
         let mut msgs = None;
-        let r2 = cache.build_compact_cache_with_inheritance_debug(&[], &[], &[], &mut msgs);
+        let r2 = cache.build_compact_cache_with_inheritance_debug(&[], &[], &[], &[], &mut msgs);
         assert_eq!(r2.node_count(), 0);
         assert!(msgs.is_none());
     }
@@ -1239,7 +1239,7 @@ mod autotest_generated {
         let n = 3;
         let cache = CssPropertyCache::empty(n);
         let r =
-            cache.build_compact_cache_with_inheritance(&div_nodes(n), &linear_hierarchy(n), &[]);
+            cache.build_compact_cache_with_inheritance(&div_nodes(n), &linear_hierarchy(n), &[], &[]);
         assert_eq!(r.node_count(), n);
         // font-size is inheritable: property-less children must match the root exactly.
         assert_eq!(r.tier2_dims[1].font_size, r.tier2_dims[0].font_size);
@@ -1254,12 +1254,12 @@ mod autotest_generated {
         let hierarchy = linear_hierarchy(n);
 
         // Empty prev_font_hashes == first build for this DOM -> force ALL nodes dirty.
-        let first = cache.build_compact_cache_with_inheritance(&nodes, &hierarchy, &[]);
+        let first = cache.build_compact_cache_with_inheritance(&nodes, &hierarchy, &[], &[]);
         assert_eq!(first.font_dirty_nodes, vec![0, 1, 2]);
 
         // Second build with the previous hashes -> nothing changed, nothing dirty.
         let second =
-            cache.build_compact_cache_with_inheritance(&nodes, &hierarchy, &first.prev_font_hashes);
+            cache.build_compact_cache_with_inheritance(&nodes, &hierarchy, &[], &first.prev_font_hashes);
         assert!(second.font_dirty_nodes.is_empty());
     }
 
@@ -1277,7 +1277,7 @@ mod autotest_generated {
             NodeData::create_node(NodeType::Div),
             NodeData::create_text_do_not_use_without_block_level_wrapper("hi"),
         ];
-        let r = cache.build_compact_cache_with_inheritance(&nodes, &linear_hierarchy(2), &[]);
+        let r = cache.build_compact_cache_with_inheritance(&nodes, &linear_hierarchy(2), &[], &[]);
 
         assert_eq!(
             r.tier2_dims[0].padding_top, 50,
@@ -1297,14 +1297,14 @@ mod autotest_generated {
         let hierarchy = linear_hierarchy(n);
 
         let mut on = Some(Vec::new());
-        let _ = cache.build_compact_cache_with_inheritance_debug(&nodes, &hierarchy, &[], &mut on);
+        let _ = cache.build_compact_cache_with_inheritance_debug(&nodes, &hierarchy, &[], &[], &mut on);
         assert!(
             !on.expect("still Some").is_empty(),
             "debug logging must emit at least one cascade message"
         );
 
         let mut off = None;
-        let _ = cache.build_compact_cache_with_inheritance_debug(&nodes, &hierarchy, &[], &mut off);
+        let _ = cache.build_compact_cache_with_inheritance_debug(&nodes, &hierarchy, &[], &[], &mut off);
         assert!(off.is_none(), "a None sink must stay None");
     }
 

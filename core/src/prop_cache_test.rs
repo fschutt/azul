@@ -2001,7 +2001,7 @@ mod autotest_generated {
             NodeData::create_div(),
         ];
         let mut c = CssPropertyCache::empty(2);
-        let changed = c.compute_inherited_values(&hierarchy, &nodes);
+        let changed = c.compute_inherited_values(&hierarchy, &nodes, &[]);
 
         assert_eq!(c.computed_values.len(), 2);
         assert_eq!(changed.len(), 2, "both nodes gained a computed value");
@@ -2027,7 +2027,7 @@ mod autotest_generated {
             div_with(vec![font_size(PixelValue::em(2.0))]),
         ];
         let mut c = CssPropertyCache::empty(2);
-        c.compute_inherited_values(&hierarchy, &nodes);
+        c.compute_inherited_values(&hierarchy, &nodes, &[]);
 
         let entries = c.computed_values.values_for(1);
         let (t, v) = &entries[0];
@@ -2046,9 +2046,9 @@ mod autotest_generated {
             NodeData::create_div(),
         ];
         let mut c = CssPropertyCache::empty(2);
-        assert_eq!(c.compute_inherited_values(&hierarchy, &nodes).len(), 2);
+        assert_eq!(c.compute_inherited_values(&hierarchy, &nodes, &[]).len(), 2);
         assert!(
-            c.compute_inherited_values(&hierarchy, &nodes).is_empty(),
+            c.compute_inherited_values(&hierarchy, &nodes, &[]).is_empty(),
             "nothing changed the second time around"
         );
     }
@@ -2056,7 +2056,7 @@ mod autotest_generated {
     #[test]
     fn compute_inherited_values_on_an_empty_tree_does_not_panic() {
         let mut c = CssPropertyCache::empty(0);
-        assert!(c.compute_inherited_values(&[], &[]).is_empty());
+        assert!(c.compute_inherited_values(&[], &[], &[]).is_empty());
         assert!(c.computed_values.is_empty());
     }
 

@@ -509,11 +509,13 @@ impl CssPropertyCache {
         &self,
         node_data: &[NodeData],
         node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
         self.build_compact_cache_with_inheritance_debug(
             node_data,
             node_hierarchy,
+            node_states,
             prev_font_hashes,
             &mut None,
         )
@@ -528,6 +530,7 @@ impl CssPropertyCache {
         &self,
         node_data: &[NodeData],
         node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
@@ -1138,6 +1141,37 @@ impl CssPropertyCache {
                 }
                 update_dom_declared_flags(prop, &mut result.dom_declared_flags);
                 note_line_height(prop, &mut own_line_height);
+            }
+
+            // Step 4a: what a state the node is in declares for inherited
+            // properties (`CssPropertyCache::state_inherited_values`): the
+            // children copy this node's slots, so the text in a hovered bar
+            // takes the bar's `:hover` colour. A node at rest has none.
+            if let Some(state) = node_states.get(i) {
+                for state_prop in self.state_inherited_values(nd, i, state) {
+                    let Some(prop) = compact_value(
+                        self,
+                        i,
+                        &state_prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut own_line_height,
+                    ) else {
+                        continue;
+                    };
+                    apply_css_property_to_compact(
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut result.font_hash_to_families,
+                    );
+                    update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
+                }
             }
 
             // Step 4b: user-overridden properties (runtime patches via

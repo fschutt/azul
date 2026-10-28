@@ -1481,9 +1481,11 @@ impl StyledDom {
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,
         );
+        // A new DOM has every node at rest: no state to inherit from.
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
+            &[],
         );
 
         let prev_font_hashes: Vec<u64> = css_property_cache
@@ -1494,6 +1496,7 @@ impl StyledDom {
         let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,
+            &[],
             &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
@@ -1869,17 +1872,49 @@ impl StyledDom {
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
+        let states = self.node_states();
         let compact = self
             .css_property_cache
             .downcast_mut()
             .build_compact_cache_with_inheritance(
                 self.node_data.as_container().internal,
                 self.node_hierarchy.as_container().internal,
+                &states,
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
         let cache = self.css_property_cache.downcast_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+    }
+
+    /// The state every node is in (hover, focus, active, ...), in node order:
+    /// what the inheritance passes resolve a node's own declarations under.
+    #[must_use]
+    pub fn node_states(&self) -> Vec<StyledNodeState> {
+        self.styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect()
+    }
+
+    /// Inheritance computed again for the states the nodes are in now, after
+    /// a state change moved a value a node hands to its children
+    /// (`.bar:hover { color: red }` reaching the text in the bar): the
+    /// inherited values, the compact cache, the resolved font sizes.
+    pub fn recompute_inheritance_for_states(&mut self) {
+        let states = self.node_states();
+        self.css_property_cache
+            .downcast_mut()
+            .compute_inherited_values(
+                self.node_hierarchy.as_container().internal,
+                self.node_data.as_container().internal,
+                &states,
+            );
+        self.recompute_inheritance_and_compact_cache();
+        self.css_property_cache
+            .downcast_mut()
+            .invalidate_resolved_font_sizes();
     }
 
     /// Whether `node`'s subtree ends where the arena ends: it is the root, or
@@ -2223,11 +2258,13 @@ impl StyledDom {
         );
 
         // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
+        let states = self.node_states();
         self.css_property_cache
             .downcast_mut()
             .compute_inherited_values(
                 self.node_hierarchy.as_container().internal,
                 self.node_data.as_container().internal,
+                &states,
             );
 
         // The old compact_cache was built from the pre-restyle CSS. If we do not
@@ -2249,6 +2286,7 @@ impl StyledDom {
             .build_compact_cache_with_inheritance(
                 self.node_data.as_container().internal,
                 self.node_hierarchy.as_container().internal,
+                &states,
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
@@ -3027,6 +3065,18 @@ impl StyledDom {
         if result.needs_layout {
             result.needs_display_list = true;
             result.gpu_only_changes = false;
+        }
+
+        // A state that moves an INHERITED value moves it for every descendant
+        // that does not declare its own: they read it from the inheritance
+        // passes, which resolve each node under the state it is in.
+        if result
+            .changed_nodes
+            .values()
+            .flatten()
+            .any(|c| c.current_prop.get_type().is_inheritable())
+        {
+            self.recompute_inheritance_for_states();
         }
 
         result

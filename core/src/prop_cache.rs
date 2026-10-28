@@ -5905,6 +5905,58 @@ impl CssPropertyCache {
             .sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
 
+    /// The inheritable values node `index` holds because of a state it is in
+    /// (`:hover`, `:focus`, ...) rather than at rest: for each inheritable
+    /// property it declares for some pseudo-state, the declaration that wins
+    /// for the states it is in. Empty for a node at rest, the common case.
+    ///
+    /// Inheritance is computed from the resting cascade; this is what a
+    /// node's children take from it on top, so a `.bar:hover { color: red }`
+    /// reaches the text inside the hovered bar as it does in a browser.
+    #[must_use]
+    pub fn state_inherited_values(
+        &self,
+        node_data: &NodeData,
+        index: usize,
+        state: &StyledNodeState,
+    ) -> Vec<CssProperty> {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        if state.is_normal() {
+            return Vec::new();
+        }
+        let mut types: Vec<CssPropertyType> = Vec::new();
+        let mut note = |ty: CssPropertyType| {
+            if ty.is_inheritable() && !types.contains(&ty) {
+                types.push(ty);
+            }
+        };
+        for p in self.css_props.get_slice(index) {
+            if p.state != PseudoStateType::Normal {
+                note(p.prop_type);
+            }
+        }
+        for p in self.cascaded_props.get_slice(index) {
+            if p.state != PseudoStateType::Normal {
+                note(p.prop_type);
+            }
+        }
+        for (p, conds) in self.inline_properties(node_data, index) {
+            let stateful = conds.as_slice().iter().any(|c| {
+                matches!(c, DynamicSelector::PseudoState(s) if *s != PseudoStateType::Normal)
+            });
+            if stateful {
+                note(p.get_type());
+            }
+        }
+        let id = NodeId::new(index);
+        types
+            .iter()
+            .filter_map(|ty| self.get_declared_property(node_data, &id, state, ty))
+            .filter(|p| p.css_wide_keyword().is_none())
+            .cloned()
+            .collect()
+    }
+
     /// Compute inherited values for all nodes in the DOM tree.
     ///
     /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
@@ -5914,6 +5966,7 @@ impl CssPropertyCache {
         &mut self,
         node_hierarchy: &[NodeHierarchyItem],
         node_data: &[NodeData],
+        node_states: &[StyledNodeState],
     ) -> Vec<NodeId> {
         self.computed_values.grow_to(node_hierarchy.len());
         // The cascade rewrites every node, and the transposed store appends to
@@ -5924,6 +5977,9 @@ impl CssPropertyCache {
         self.computed_values.grow_to(node_hierarchy.len());
         // The keywords' values are found node by node below, each from its parent's.
         self.css_wide_values.clear();
+        // The values a node in a state hands its children on top of its
+        // resting ones (Step 5b): few nodes are in a state at a time.
+        let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
         node_hierarchy
             .iter()
             .enumerate()
@@ -5938,7 +5994,31 @@ impl CssPropertyCache {
                 // own resolves against the host's font size.
                 let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
                     match parent_id {
-                        Some(pid) => Some(self.computed_values.values_for(pid.index())),
+                        Some(pid) => {
+                            let mut values = self.computed_values.values_for(pid.index());
+                            // The parent's values as it shows them in the
+                            // state it is in (Step 5b), which is what it hands
+                            // down.
+                            if let Some((_, held)) =
+                                state_overlays.iter().find(|(i, _)| *i == pid.index())
+                            {
+                                for property in held {
+                                    let ty = property.get_type();
+                                    let entry = (
+                                        ty,
+                                        CssPropertyWithOrigin {
+                                            property: property.clone(),
+                                            origin: CssPropertyOrigin::Own,
+                                        },
+                                    );
+                                    match values.binary_search_by_key(&ty, |(k, _)| *k) {
+                                        Ok(at) => values[at] = entry,
+                                        Err(at) => values.insert(at, entry),
+                                    }
+                                }
+                            }
+                            Some(values)
+                        }
                         None if !self.inherited_from_host.is_empty() => {
                             Some(self.inherited_from_host.clone())
                         }
@@ -5969,6 +6049,16 @@ impl CssPropertyCache {
                     node_data,
                     node_index,
                 );
+                // Step 5b: what a state the node is in declares, for its
+                // children to inherit (`state_inherited_values`). Kept out of
+                // the node's own values, which stay its resting ones: the
+                // restyle that ends the state compares against those.
+                if let Some(state) = node_states.get(node_index) {
+                    let held = self.state_inherited_values(&node_data[node_index], node_index, state);
+                    if !held.is_empty() {
+                        state_overlays.push((node_index, held));
+                    }
+                }
 
                 // Step 6: a `line-height` in `em` / `%` computes to a length
                 // against the node's own font size, final only now.

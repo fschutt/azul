@@ -105,3 +105,37 @@ fn a_hover_that_recolours_the_labels_rebuilds_them() {
     let fresh_out = hover(&mut lw, false);
     assert!(fresh_out >= LABELS, "and back: {fresh_out} fresh");
 }
+
+/// The colours the page's text is painted in.
+fn text_colours(lw: &LayoutWindow) -> Vec<azul_css::props::basic::color::ColorU> {
+    lw.layout_results[&DomId::ROOT_ID]
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            azul_layout::solver3::display_list::DisplayListItem::Text { color, .. } => Some(*color),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A colour the bar takes under the pointer is the colour of the text in it:
+/// the labels declare none of their own, so they inherit the bar's, hovered
+/// or not, as in a browser.
+#[test]
+fn a_hovered_bar_paints_its_labels_in_its_hover_colour() {
+    use azul_css::props::basic::color::ColorU;
+    let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+    let mut lw = window(&markup("color: #ff0000;"));
+    let resting = text_colours(&lw);
+    assert_eq!(resting.len(), LABELS, "harness: one text run per label");
+    assert!(resting.iter().all(|c| *c != red), "harness: at rest the labels are not red");
+    let _ = hover(&mut lw, true);
+    let hovered = text_colours(&lw);
+    assert!(
+        hovered.iter().all(|c| *c == red),
+        "the hovered bar's colour reaches its labels: {hovered:?}"
+    );
+    let _ = hover(&mut lw, false);
+    assert_eq!(text_colours(&lw), resting, "and the pointer leaving gives them theirs back");
+}
