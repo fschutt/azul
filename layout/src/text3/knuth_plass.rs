@@ -233,86 +233,74 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     .first()
                     .map_or(base_direction, |c| c.direction);
                 let hyphenation_allowed = word_direction == base_direction;
-                let hyphenation_breaks = hyphenator.filter(|_| hyphenation_allowed).and_then(|h| {
-                    crate::text3::cache::find_all_hyphenation_breaks(
-                        &current_word_clusters,
-                        h,
-                        is_vertical,
-                        fonts,
-                    )
-                });
 
-                if let Some(breaks) = hyphenation_breaks {
-                    // 3. Convert word + hyphenation breaks into a sequence of Boxes and Penalties.
-                    let mut current_item_cursor = 0;
-
-                    for b in &breaks {
-                        // Add the items that form the next syllable (the part between the last
-                        // break and this one)
-                        let num_items_in_syllable = b.line_part.len() - current_item_cursor;
-                        for item in b.line_part.iter().skip(current_item_cursor) {
-                            nodes.push(LayoutNode::Box(
-                                item.clone(),
-                                get_item_measure_with_spacing(item, is_vertical),
-                            ));
-                        }
-                        current_item_cursor += num_items_in_syllable;
-
-                        let hyphen_measure =
-                            get_item_measure_with_spacing(&b.hyphen_item, is_vertical);
-                        nodes.push(LayoutNode::Penalty {
-                            item: Some(b.hyphen_item.clone()),
-                            width: hyphen_measure,
-                            penalty: HYPHENATION_PENALTY, // Standard penalty for hyphenation
-                        });
+                // 3. The word's units, the parts between the soft wrap
+                // opportunities inside it, by the rule the greedy breaker
+                // ends its units at (`is_soft_wrap_between`: word-break:
+                // break-all breaks between any two clusters, `normal` around
+                // CJK ones, keep-all suppresses those). A plain Penalty lets
+                // the line break between two units; each unit is hyphenated
+                // on its own, as the greedy breaker hyphenates one, with a
+                // hyphenation Penalty where the dictionary breaks it.
+                let word_items: Vec<ShapedItem> = current_word_clusters
+                    .iter()
+                    .cloned()
+                    .map(ShapedItem::Cluster)
+                    .collect();
+                let mut unit_start = 0;
+                for (index, item) in word_items.iter().enumerate() {
+                    let next = word_items.get(index + 1);
+                    let unit_ends = next.is_none_or(|next| {
+                        crate::text3::cache::is_soft_wrap_between(
+                            item,
+                            next,
+                            constraints.word_break,
+                            constraints.hyphenation,
+                            constraints.line_break,
+                        )
+                    });
+                    if !unit_ends {
+                        continue;
                     }
-
-                    // Add the final remainder of the word.
-                    if let Some(last_break) = breaks.last() {
-                        for remainder_item in &last_break.remainder_part {
-                            nodes.push(LayoutNode::Box(
-                                remainder_item.clone(),
-                                get_item_measure_with_spacing(remainder_item, is_vertical),
-                            ));
-                        }
-                    } else {
-                        // This case happens if find_all_hyphenation_breaks returned an empty vec.
-                        // Fallback to just adding the original word.
-                        for c in current_word_clusters {
-                            let item = ShapedItem::Cluster(c);
-                            let width = get_item_measure_with_spacing(&item, is_vertical);
-                            nodes.push(LayoutNode::Box(item, width));
-                        }
-                    }
-                } else {
-                    // No hyphenation possible, add the whole word as boxes -
-                    // with the SAME soft-wrap opportunities between clusters
-                    // the greedy path grants (word-break: break-all breaks
-                    // between any two clusters, `normal` between CJK ones,
-                    // keep-all suppresses those; the shared predicate is the
-                    // single source of truth). Without this, `text-wrap:
-                    // balance` (the KP path) silently ignored word-break and
-                    // CJK runs never gained intra-word breaks.
-                    let n_word = current_word_clusters.len();
-                    for (ci, c) in current_word_clusters.iter().enumerate() {
-                        let item = ShapedItem::Cluster(c.clone());
-                        let width = get_item_measure_with_spacing(&item, is_vertical);
-                        nodes.push(LayoutNode::Box(item, width));
-                        let is_last = ci + 1 == n_word;
-                        if !is_last
-                            && crate::text3::cache::is_break_opportunity_with_word_break(
-                                &ShapedItem::Cluster(c.clone()),
-                                constraints.word_break,
-                                constraints.hyphenation,
+                    let unit = &current_word_clusters[unit_start..=index];
+                    let hyphenations = hyphenator
+                        .filter(|_| hyphenation_allowed)
+                        .and_then(|h| {
+                            crate::text3::cache::find_all_hyphenation_breaks(
+                                unit,
+                                h,
+                                is_vertical,
+                                fonts,
                             )
+                        })
+                        .unwrap_or_default();
+                    let mut breaks = hyphenations.iter().peekable();
+                    for (offset, unit_item) in word_items[unit_start..=index].iter().enumerate() {
+                        nodes.push(LayoutNode::Box(
+                            unit_item.clone(),
+                            get_item_measure_with_spacing(unit_item, is_vertical),
+                        ));
+                        if let Some(hyphenation) =
+                            breaks.next_if(|b| b.line_part.len() == offset + 1)
                         {
                             nodes.push(LayoutNode::Penalty {
-                                item: None,
-                                width: 0.0,
-                                penalty: 0.0,
+                                item: Some(hyphenation.hyphen_item.clone()),
+                                width: get_item_measure_with_spacing(
+                                    &hyphenation.hyphen_item,
+                                    is_vertical,
+                                ),
+                                penalty: HYPHENATION_PENALTY,
                             });
                         }
                     }
+                    if next.is_some() {
+                        nodes.push(LayoutNode::Penalty {
+                            item: None,
+                            width: 0.0,
+                            penalty: 0.0,
+                        });
+                    }
+                    unit_start = index + 1;
                 }
             }
             // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and

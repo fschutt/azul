@@ -186,6 +186,39 @@ pub(crate) fn is_break_opportunity_with_word_break(
     }
 }
 
+/// Whether a line may break between `prev` and `next`, two items next to
+/// each other in a paragraph.
+///
+/// The one rule of soft wrap opportunities both line breakers keep: the
+/// greedy breaker ends its units there, the balanced one puts a penalty
+/// there. An item that is a soft wrap opportunity of its own
+/// (`is_break_opportunity_with_word_break`: a space, a forced break, a zero
+/// width space, a CJK ideograph, any letter with `word-break: break-all`)
+/// offers a break after it, and one before it unless a joiner or the
+/// `line-break` strictness keeps it with the item before.
+pub(crate) fn is_soft_wrap_between(
+    prev: &ShapedItem,
+    next: &ShapedItem,
+    word_break: WordBreak,
+    hyphens: Hyphens,
+    line_break: LineBreakStrictness,
+) -> bool {
+    if is_break_opportunity_with_word_break(prev, word_break, hyphens)
+        || (word_break == WordBreak::BreakAll && matches!(prev, ShapedItem::Cluster(_)))
+    {
+        return true;
+    }
+    let joined = prev
+        .as_cluster()
+        .and_then(|c| c.text().chars().next_back())
+        .is_some_and(is_break_suppressing_control);
+    let first = next.as_cluster().and_then(|c| c.text().chars().next());
+    !joined
+        && !first.is_some_and(is_break_suppressing_control)
+        && first.is_none_or(|ch| is_cjk_break_allowed_by_strictness(ch, None, line_break))
+        && is_break_opportunity_with_word_break(next, word_break, hyphens)
+}
+
 // +spec:line-breaking:db0289 - line-break strictness: anywhere allows soft wrap around every
 // typographic character unit +spec:line-breaking:7d242b - line-break strictness levels:
 // loose/normal/strict/anywhere with CJK punctuation rules +spec:line-breaking:67bfe8 - line-break
@@ -408,73 +441,21 @@ impl<'a> BreakCursor<'a> {
         // clones: ~90% of line-breaking time on an ordinary document, and
         // line breaking was ~40% of a full pagination. Only the items that
         // actually enter `unit` (one word) are cloned now.
-        let source_items = || {
-            self.partial_remainder
-                .iter()
-                .chain(self.items[self.next_item_index..].iter())
-        };
+        let mut stream = self
+            .partial_remainder
+            .iter()
+            .chain(self.items[self.next_item_index..].iter())
+            .peekable();
 
-        let Some(first) = source_items().next() else {
-            return unit;
-        };
-
-        // If the first item is a break opportunity (like a space), it's a unit on its own.
-        if is_break_opportunity_with_word_break(first, self.word_break, self.hyphens) {
-            unit.push(first.clone());
-            return unit;
-        }
-
-        // Otherwise, collect all items until the next break opportunity.
-        // For break-all: each cluster is its own unit.
-        // For keep-all: CJK sequences are NOT break opportunities.
-        // For normal: CJK characters are individual break opportunities.
-        // glue items together: if the last cluster ends with a break-suppressing control,
-        // the next item cannot be separated from it.
-        let mut suppress_next_break = false;
-        for (i, item) in source_items().enumerate() {
-            // Also suppress break if this item starts with a break-suppressing control
-            // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
-            let starts_with_suppress = if let ShapedItem::Cluster(c) = item {
-                c.text()
-                    .chars()
-                    .next()
-                    .is_some_and(is_break_suppressing_control)
-            } else {
-                false
-            };
-            // If the item is a CJK cluster, check if the break is allowed by strictness
-            let cjk_strictness_suppressed = if let ShapedItem::Cluster(c) = item {
-                c.text().chars().next().is_some_and(|ch| {
-                    !is_cjk_break_allowed_by_strictness(ch, None, self.line_break)
-                })
-            } else {
-                false
-            };
-            if i > 0
-                && !suppress_next_break
-                && !starts_with_suppress
-                && !cjk_strictness_suppressed
-                && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens)
-            {
-                break;
-            }
-            suppress_next_break = false;
+        // The unit runs up to the next soft wrap opportunity, by the rule the
+        // balanced breaker keeps too (`is_soft_wrap_between`).
+        while let Some(item) = stream.next() {
             unit.push(item.clone());
-
-            // Check if this item ends with a break-suppressing control character
-            if let ShapedItem::Cluster(c) = item {
-                if let Some(last_ch) = c.text().chars().last() {
-                    if is_break_suppressing_control(last_ch) {
-                        suppress_next_break = true;
-                    }
-                }
-            }
-
-            // For break-all, each non-space cluster is a unit on its own
-            if self.word_break == WordBreak::BreakAll {
-                if let ShapedItem::Cluster(_) = item {
-                    break;
-                }
+            let ends_here = stream.peek().is_none_or(|next| {
+                is_soft_wrap_between(item, next, self.word_break, self.hyphens, self.line_break)
+            });
+            if ends_here {
+                break;
             }
         }
         unit
