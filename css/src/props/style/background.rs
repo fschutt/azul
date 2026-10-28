@@ -6,14 +6,21 @@ use alloc::{
 };
 use core::fmt;
 
-#[cfg(feature = "parser")]
 use crate::props::basic::{
-    color::parse_color_or_system,
     error::{InvalidValueErr, InvalidValueErrOwned},
     parse::{
+        CssImageParseError, CssImageParseErrorOwned, ParenthesisParseError,
+        ParenthesisParseErrorOwned,
+    },
+};
+#[cfg(feature = "parser")]
+use crate::props::basic::{
+    angle::parse_angle_value,
+    color::parse_color_or_system,
+    direction::parse_direction,
+    parse::{
         parse_image, parse_parentheses, split_string_respect_comma,
-        split_string_respect_whitespace, CssImageParseError, CssImageParseErrorOwned,
-        ParenthesisParseError, ParenthesisParseErrorOwned,
+        split_string_respect_whitespace,
     },
 };
 use crate::{
@@ -22,15 +29,14 @@ use crate::{
     props::{
         basic::{
             angle::{
-                parse_angle_value, AngleValue, CssAngleValueParseError,
-                CssAngleValueParseErrorOwned, OptionAngleValue,
+                AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned,
+                OptionAngleValue,
             },
             color::{
                 ColorOrSystem, ColorU, CssColorParseError, CssColorParseErrorOwned, SystemColorRef,
             },
             direction::{
-                parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
-                DirectionCorner,
+                CssDirectionParseError, CssDirectionParseErrorOwned, Direction, DirectionCorner,
             },
             length::{
                 parse_percentage_value, FloatValue, OptionPercentageValue, PercentageParseError,
@@ -513,7 +519,7 @@ fn interpolate_direction(from: Direction, to: Direction, t: f32) -> Option<Direc
         },
     };
     let (a, b) = (degrees(from)?, degrees(to)?);
-    Some(Direction::Angle(AngleValue::deg((b - a).mul_add(t, a))))
+    Some(Direction::Angle(AngleValue::deg(libm::fmaf(b - a, t, a))))
 }
 
 /// An angle at `t`: in the unit both ends share, else in degrees.
@@ -527,7 +533,7 @@ fn interpolate_angle(from: AngleValue, to: AngleValue, t: f32) -> AngleValue {
         }
     } else {
         let (a, b) = (from.to_degrees_raw(), to.to_degrees_raw());
-        AngleValue::deg((b - a).mul_add(t, a))
+        AngleValue::deg(libm::fmaf(b - a, t, a))
     }
 }
 

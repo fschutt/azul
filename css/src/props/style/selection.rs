@@ -6,15 +6,14 @@
 //! - `-azul-selection-color` ([`SelectionColor`])
 //! - `-azul-selection-radius` ([`SelectionRadius`])
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 use crate::props::{
-    basic::color::{
-        parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
-        CssColorParseErrorOwned,
-    },
+    basic::color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
     formatter::PrintAsCssValue,
 };
+#[cfg(feature = "parser")]
+use crate::props::basic::color::{parse_color_or_system_token, parse_css_color};
 
 /// Default selection highlight background — light blue, similar to macOS.
 const DEFAULT_SELECTION_BG: ColorU = ColorU::new(173, 214, 255, 255);

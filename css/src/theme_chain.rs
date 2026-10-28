@@ -148,15 +148,28 @@ impl ModeWord {
 /// on first use and kept for the life of the process.
 ///
 /// The theme chain is a startup decision, and a pin that changed mid-run would
-/// make a screenshot disagree with itself.
+/// make a screenshot disagree with itself. Without `std` there is no process
+/// environment, so nothing is asked for.
 #[must_use]
 pub fn theme_env() -> &'static ThemeEnv {
-    static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
-    ENV.get_or_init(|| {
-        let theme = std::env::var("AZ_THEME").ok();
-        let mode = std::env::var("AZ_MODE").ok();
-        ThemeEnv::from_values(theme.as_deref(), mode.as_deref())
-    })
+    #[cfg(feature = "std")]
+    {
+        static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
+        ENV.get_or_init(|| {
+            let theme = std::env::var("AZ_THEME").ok();
+            let mode = std::env::var("AZ_MODE").ok();
+            ThemeEnv::from_values(theme.as_deref(), mode.as_deref())
+        })
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        static NOTHING_ASKED: ThemeEnv = ThemeEnv {
+            theme: None,
+            mode: None,
+            warnings: Vec::new(),
+        };
+        &NOTHING_ASKED
+    }
 }
 
 /// THE app-theme decision: the head of the theme chain.

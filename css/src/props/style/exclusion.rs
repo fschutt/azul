@@ -3,7 +3,8 @@
 //! Defines `StyleExclusionMargin` (spacing between text and shape exclusions)
 //! and `StyleHyphenationLanguage` (BCP 47 language code for automatic hyphenation).
 
-use std::num::ParseFloatError;
+use alloc::string::String;
+use core::num::ParseFloatError;
 
 #[cfg(feature = "parser")]
 use crate::macros::*;
@@ -56,7 +57,7 @@ impl PrintAsCssValue for StyleExclusionMargin {
 }
 
 impl FormatAsCssValue for StyleExclusionMargin {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
@@ -172,7 +173,7 @@ impl PrintAsCssValue for StyleHyphenationLanguage {
 }
 
 impl FormatAsCssValue for StyleHyphenationLanguage {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\"{}\"", self.inner.as_str())
     }
 }
@@ -359,7 +360,7 @@ mod autotest_generated {
     struct AsCss<'a, T: FormatAsCssValue>(&'a T);
 
     impl<T: FormatAsCssValue> std::fmt::Display for AsCss<'_, T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             self.0.format_as_css_value(f)
         }
     }

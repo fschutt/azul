@@ -10,8 +10,9 @@
 //! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not distinguish rem
 //!   from em. Marked `#[doc(hidden)]`.
 
-use core::fmt;
-use std::num::ParseFloatError;
+use alloc::string::{String, ToString};
+
+use core::{fmt, num::ParseFloatError};
 
 use crate::{
     corety::{AzString, OptionF32},

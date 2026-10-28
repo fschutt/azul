@@ -16,6 +16,8 @@
 //! All three are from `css-nav-1`, and each has an initial value that changes
 //! nothing until a stylesheet asks.
 
+use alloc::string::String;
+
 use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
 /// `spatial-navigation-action` - what an arrow key does on a scroll container.

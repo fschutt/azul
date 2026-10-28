@@ -8,7 +8,11 @@
 //!   `initial`, etc.).
 //! - [`BoxOrStatic<T>`] is a smart-pointer enum for heap-allocated or static CSS values.
 //! - [`NodeTypeTag`] enumerates all recognized HTML/SVG element types for selector matching.
-use alloc::{string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::fmt;
 
 use crate::{

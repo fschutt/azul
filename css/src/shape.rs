@@ -2,7 +2,7 @@
 //!
 //! These types are C-compatible (repr(C)) for use across FFI boundaries.
 
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 
 use crate::corety::{AzString, OptionF32};
 

@@ -1,16 +1,16 @@
 //! Shared types for CSS shadow properties (used by both `box-shadow` and `text-shadow`).
 
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::fmt;
 
 use crate::{
     corety::AzString,
     props::{
         basic::{
-            color::{
-                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
-                CssColorParseErrorOwned,
-            },
+            color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
             pixel::{
                 parse_pixel_value_no_percent, CssPixelValueParseError,
                 CssPixelValueParseErrorOwned, PixelValue, PixelValueNoPercent,
@@ -19,6 +19,8 @@ use crate::{
         formatter::PrintAsCssValue,
     },
 };
+#[cfg(feature = "parser")]
+use crate::props::basic::color::{parse_color_or_system_token, parse_css_color};
 
 /// What direction should a `box-shadow` be clipped in (inset or outset).
 #[derive(Debug, Default, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -148,7 +150,7 @@ pub(crate) fn interpolate_shadow(
         (Some(a), Some(b)) => Some(if t < 0.5 {
             a.interpolate(&a.faded_out(), t * 2.0)
         } else {
-            b.faded_out().interpolate(b, t.mul_add(2.0, -1.0))
+            b.faded_out().interpolate(b, libm::fmaf(t, 2.0, -1.0))
         }),
     }
 }

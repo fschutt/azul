@@ -4,6 +4,8 @@
 //! comma/whitespace-aware splitting that respects nesting depth, and CSS
 //! image/url path parsing.
 
+use alloc::{string::ToString, vec::Vec};
+
 use crate::corety::AzString;
 
 /// Whether `byte` is CSS whitespace: space, tab and the newlines LF, CR and FF

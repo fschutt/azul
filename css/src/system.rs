@@ -25,8 +25,6 @@
 //! - `AZ_RICING=watch` (aliases: `live`, `reload`): as the default, and a change to a rice file
 //!   rebuilds every window with the new rice (the app-theme rebuild path) - for writing a theme.
 
-#![cfg(feature = "parser")]
-
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -38,16 +36,21 @@ use crate::{
     corety::{AzString, OptionF32, OptionString, OptionU16},
     css::Css,
     dynamic_selector::{BoolCondition, OsVersion},
-    parser2::{new_from_str, CssParseWarnMsg},
     props::{
         basic::{
-            color::{parse_css_color, ColorU, OptionColorU},
+            color::{ColorU, OptionColorU},
             pixel::{OptionPixelValue, PixelValue},
         },
         style::scrollbar::{
             ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollPhysics,
         },
     },
+};
+
+#[cfg(feature = "parser")]
+use crate::{
+    parser2::{new_from_str, CssParseWarnMsg},
+    props::basic::color::parse_css_color,
 };
 
 // --- End-user customization mode ---
@@ -91,6 +94,7 @@ pub fn ricing_mode_from(value: Option<&str>) -> RicingMode {
 }
 
 /// Read the `AZ_RICING` env var and classify it ([`ricing_mode_from`]).
+#[cfg(feature = "std")]
 #[must_use]
 pub fn ricing_mode() -> RicingMode {
     ricing_mode_from(std::env::var("AZ_RICING").ok().as_deref())
@@ -98,6 +102,7 @@ pub fn ricing_mode() -> RicingMode {
 
 /// True when the rice (`crate::rice`) should be read. False only when
 /// `AZ_RICING=off` is set.
+#[cfg(feature = "std")]
 #[must_use]
 pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
@@ -124,6 +129,7 @@ pub fn ricing_enabled() -> bool {
 /// closures so the caller picks the palette family that matches what it just
 /// discovered — Breeze on a KDE session, Adwaita on GNOME — and so neither is
 /// built when nothing is pinned, which is every normal run.
+#[cfg(feature = "std")]
 pub fn apply_env_mode_pin(
     style: &mut SystemStyle,
     light: impl FnOnce() -> SystemStyle,
@@ -1897,25 +1903,25 @@ impl SystemStyle {
     pub fn to_json_string(&self) -> AzString {
         use alloc::format;
 
-        fn opt_color(c: OptionColorU) -> alloc::string::String {
+        fn opt_color(c: OptionColorU) -> String {
             c.as_ref().map_or_else(
                 || "null".into(),
                 |c| format!("\"#{:02x}{:02x}{:02x}{:02x}\"", c.r, c.g, c.b, c.a),
             )
         }
-        fn opt_str(s: &OptionString) -> alloc::string::String {
+        fn opt_str(s: &OptionString) -> String {
             s.as_ref()
                 .map_or_else(|| "null".into(), |s| format!("\"{}\"", s.as_str()))
         }
-        fn opt_f32(v: OptionF32) -> alloc::string::String {
+        fn opt_f32(v: OptionF32) -> String {
             v.into_option()
                 .map_or_else(|| "null".into(), |v| format!("{v:.2}"))
         }
-        fn opt_u16(v: OptionU16) -> alloc::string::String {
+        fn opt_u16(v: OptionU16) -> String {
             v.into_option()
                 .map_or_else(|| "null".into(), |v| format!("{v}"))
         }
-        fn opt_px(v: &OptionPixelValue) -> alloc::string::String {
+        fn opt_px(v: &OptionPixelValue) -> String {
             v.as_ref().map_or_else(
                 || "null".into(),
                 |v| format!("{:.1}", v.to_pixels_internal(0.0, 0.0, 0.0)),
@@ -2236,6 +2242,7 @@ impl SystemStyle {
     /// This generates CSS rules for the CSD titlebar using system colors,
     /// fonts, and metrics to match the native platform look. Returned rules
     /// carry `rule_priority::SYSTEM`.
+    #[cfg(feature = "parser")]
     #[must_use]
     pub fn create_csd_stylesheet(&self) -> Css {
         use alloc::format;
@@ -2377,6 +2384,7 @@ impl SystemStyle {
 
     /// The button rules of [`Self::create_csd_stylesheet`]: the buttons,
     /// their hover states and the platform's own button faces.
+    #[cfg(feature = "parser")]
     fn write_csd_button_rules(&self, css: &mut String, corner_radius: &str, text_color: ColorU) {
         // Buttons. The glyph inside is CENTRED BY THE BOX, not by the line
         // box: a control's glyph is an `<svg>` (an inline-block) as often as
@@ -2444,6 +2452,7 @@ impl SystemStyle {
 ///
 /// Checks `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`, and specific env markers
 /// to identify GNOME, KDE, XFCE, Cinnamon, MATE, Hyprland, Sway, i3, etc.
+#[cfg(feature = "std")]
 #[must_use]
 pub fn detect_linux_desktop_env() -> DesktopEnvironment {
     // Check XDG_CURRENT_DESKTOP first (most reliable)
@@ -2534,6 +2543,7 @@ pub fn detect_linux_desktop_env() -> DesktopEnvironment {
 /// Checks `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in priority order.
 /// Returns `"en-US"` if detection fails. For runtime detection via native
 /// OS APIs, the platform discovery in `azul-dll` overrides this.
+#[cfg(feature = "std")]
 #[must_use]
 pub fn detect_system_language() -> AzString {
     let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
@@ -2566,6 +2576,8 @@ pub mod defaults {
     //! These are used as a
     //! fallback when the "io" feature is disabled, ensuring deterministic styles
     //! for testing and environments where system calls are not desired.
+
+    use alloc::boxed::Box;
 
     use super::{SystemLanguage, 
         AccessibilitySettings, AnimationMetrics, AudioMetrics, FocusVisuals, Handedness,

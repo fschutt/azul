@@ -13,22 +13,23 @@ use core::{fmt, num::ParseFloatError};
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
+    angle::parse_angle_value,
+    color::{parse_color_or_system_token, parse_css_color},
     error::{InvalidValueErr, InvalidValueErrOwned, WrongComponentCountError},
     length::parse_float_value,
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
+};
+#[cfg(feature = "parser")]
+use crate::props::style::{
+    box_shadow::parse_style_box_shadow,
+    effects::{parse_style_mix_blend_mode, MixBlendModeParseError},
 };
 use crate::{
     hash::GetHash,
     props::{
         basic::{
-            angle::{
-                parse_angle_value, AngleValue, CssAngleValueParseError,
-                CssAngleValueParseErrorOwned,
-            },
-            color::{
-                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
-                CssColorParseErrorOwned,
-            },
+            angle::{AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned},
+            color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
             length::{FloatValue, PercentageParseError, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
@@ -37,11 +38,8 @@ use crate::{
         },
         formatter::PrintAsCssValue,
         style::{
-            box_shadow::{
-                parse_style_box_shadow, CssShadowParseError, CssShadowParseErrorOwned,
-                StyleBoxShadow,
-            },
-            effects::{parse_style_mix_blend_mode, MixBlendModeParseError, StyleMixBlendMode},
+            box_shadow::{CssShadowParseError, CssShadowParseErrorOwned, StyleBoxShadow},
+            effects::StyleMixBlendMode,
         },
     },
 };

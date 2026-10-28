@@ -19,21 +19,17 @@ use crate::codegen::format::FormatAsRustCode;
 use crate::{
     props::{
         basic::{
-            color::{
-                parse_color_or_system, ColorOrSystem, ColorU, CssColorParseError,
-                CssColorParseErrorOwned,
-            },
+            color::{ColorOrSystem, ColorU, CssColorParseError, CssColorParseErrorOwned},
             font::{
-                parse_style_font_family, CssStyleFontFamilyParseError,
-                CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
+                CssStyleFontFamilyParseError, CssStyleFontFamilyParseErrorOwned,
+                StyleFontFamilyVec, *,
             },
             length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
                 PixelValue,
             },
-            DurationParseError, DurationParseErrorOwned, InterpolateResolver, InvalidValueErrOwned,
-            PercentageParseError,
+            InterpolateResolver, InvalidValueErrOwned, PercentageParseError,
         },
         formatter::PrintAsCssValue,
         layout::{
@@ -51,6 +47,11 @@ use crate::{
     corety::AzString,
     css::{BoxOrStatic, CssPropertyValue},
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
+};
+#[cfg(feature = "parser")]
+use crate::props::basic::{
+    color::parse_color_or_system, font::parse_style_font_family, DurationParseError,
+    DurationParseErrorOwned,
 };
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
@@ -599,6 +600,7 @@ std::thread_local! {
 ///
 /// Built on first use and kept for the life of the process, so a parse only
 /// looks its keys up (inline styles are parsed for every row a list renders).
+#[cfg(feature = "std")]
 #[must_use]
 pub fn css_key_map() -> &'static CssKeyMap {
     static MAP: std::sync::OnceLock<CssKeyMap> = std::sync::OnceLock::new();
@@ -607,9 +609,19 @@ pub fn css_key_map() -> &'static CssKeyMap {
 
 /// Returns a map useful for parsing the keys of CSS stylesheets: a copy of
 /// [`css_key_map`], for a caller that wants its own.
+///
+/// Without `std` there is no process-wide cell to keep the maps in, so each
+/// call builds them.
 #[must_use]
 pub fn get_css_key_map() -> CssKeyMap {
-    css_key_map().clone()
+    #[cfg(feature = "std")]
+    {
+        css_key_map().clone()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        build_css_key_map()
+    }
 }
 
 fn build_css_key_map() -> CssKeyMap {
@@ -2029,6 +2041,7 @@ impl CssPropertyType {
 
 // -- PARSING --
 
+#[cfg(feature = "parser")]
 /// Master error type that aggregates all possible CSS parsing errors.
 #[derive(Clone, PartialEq)]
 pub enum CssParsingError<'a> {
@@ -2208,6 +2221,7 @@ pub enum CssParsingError<'a> {
     Zoom(ZoomParseError<'a>),
 }
 
+#[cfg(feature = "parser")]
 /// Owned version of `CssParsingError`.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -2390,7 +2404,9 @@ pub enum CssParsingErrorOwned {
 
 // -- PARSING ERROR IMPLEMENTATIONS --
 
+#[cfg(feature = "parser")]
 impl_debug_as_display!(CssParsingError<'a>);
+#[cfg(feature = "parser")]
 impl_display! { CssParsingError<'a>, {
     CaretColor(e) => format!("Invalid caret-color: {}", e),
     CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
@@ -2536,10 +2552,12 @@ impl_display! { CssParsingError<'a>, {
 }}
 
 // From impls for CssParsingError
+#[cfg(feature = "parser")]
 impl_from!(
     DurationParseError<'a>,
     CssParsingError::CaretAnimationDuration
 );
+#[cfg(feature = "parser")]
 impl<'a> From<crate::props::basic::animation::StyleAnimationParseError<'a>>
     for CssParsingError<'a>
 {
@@ -2547,64 +2565,90 @@ impl<'a> From<crate::props::basic::animation::StyleAnimationParseError<'a>>
         CssParsingError::Animation(e)
     }
 }
+#[cfg(feature = "parser")]
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
+#[cfg(feature = "parser")]
 impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::BorderRadius);
+#[cfg(feature = "parser")]
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::Padding);
+#[cfg(feature = "parser")]
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::Margin);
+#[cfg(feature = "parser")]
 impl_from!(CssShadowParseError<'a>, CssParsingError::BoxShadow);
+#[cfg(feature = "parser")]
 impl_from!(CssColorParseError<'a>, CssParsingError::Color);
+#[cfg(feature = "parser")]
 impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelValue);
+#[cfg(feature = "parser")]
 impl_from!(
     CssStyleFontFamilyParseError<'a>,
     CssParsingError::FontFamily
 );
+#[cfg(feature = "parser")]
 impl_from!(CssFontWeightParseError<'a>, CssParsingError::FontWeight);
+#[cfg(feature = "parser")]
 impl_from!(CssFontStyleParseError<'a>, CssParsingError::FontStyle);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterParseError<'a>,
     CssParsingError::InitialLetter
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineClampParseError<'a>, CssParsingError::LineClamp);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleHangingPunctuationParseError<'a>,
     CssParsingError::HangingPunctuation
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextCombineUprightParseError<'a>,
     CssParsingError::TextCombineUpright
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleUnicodeBidiParseError<'a>, CssParsingError::UnicodeBidi);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextBoxTrimParseError<'a>, CssParsingError::TextBoxTrim);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextBoxEdgeParseError<'a>, CssParsingError::TextBoxEdge);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleDominantBaselineParseError<'a>,
     CssParsingError::DominantBaseline
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleAlignmentBaselineParseError<'a>,
     CssParsingError::AlignmentBaseline
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBaselineSourceParseError<'a>,
     CssParsingError::BaselineSource
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineFitEdgeParseError<'a>, CssParsingError::LineFitEdge);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterAlignParseError<'a>,
     CssParsingError::InitialLetterAlign
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleInitialLetterWrapParseError<'a>,
     CssParsingError::InitialLetterWrap
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleScrollbarGutterParseError<'a>,
     CssParsingError::ScrollbarGutter
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleOverflowClipMarginParseError<'a>,
     CssParsingError::OverflowClipMargin
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleClipRectParseError<'a>, CssParsingError::Clip);
 
 // Manual From implementation for StyleExclusionMarginParseError (no lifetime)
@@ -2622,273 +2666,372 @@ impl From<StyleHyphenationLanguageParseError> for CssParsingError<'_> {
         CssParsingError::HyphenationLanguage(e)
     }
 }
+#[cfg(feature = "parser")]
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrow);
+#[cfg(feature = "parser")]
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrink);
+#[cfg(feature = "parser")]
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::Background);
+#[cfg(feature = "parser")]
 impl_from!(
     CssBackgroundPositionParseError<'a>,
     CssParsingError::BackgroundPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
+#[cfg(feature = "parser")]
 impl_from!(StyleVisibilityParseError<'a>, CssParsingError::Visibility);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutScrollbarWidthParseError<'a>,
     CssParsingError::LayoutScrollbarWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleScrollbarColorParseError<'a>,
     CssParsingError::StyleScrollbarColor
 );
+#[cfg(feature = "parser")]
 impl_from!(
     OverscrollBehaviorParseError<'a>,
     CssParsingError::OverscrollBehavior
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarVisibilityModeParseError<'a>,
     CssParsingError::ScrollbarVisibilityMode
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarFadeDelayParseError<'a>,
     CssParsingError::ScrollbarFadeDelay
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ScrollbarFadeDurationParseError<'a>,
     CssParsingError::ScrollbarFadeDuration
 );
+#[cfg(feature = "parser")]
 impl_from!(CssStyleTransformParseError<'a>, CssParsingError::Transform);
+#[cfg(feature = "parser")]
 impl_from!(
     CssStyleTransformOriginParseError<'a>,
     CssParsingError::TransformOrigin
 );
+#[cfg(feature = "parser")]
 impl_from!(
     CssStylePerspectiveOriginParseError<'a>,
     CssParsingError::PerspectiveOrigin
 );
+#[cfg(feature = "parser")]
 impl_from!(CssStyleFilterParseError<'a>, CssParsingError::Filter);
 
 // Layout dimensions
+#[cfg(feature = "parser")]
 impl_from!(LayoutWidthParseError<'a>, CssParsingError::LayoutWidth);
+#[cfg(feature = "parser")]
 impl_from!(LayoutHeightParseError<'a>, CssParsingError::LayoutHeight);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMinWidthParseError<'a>,
     CssParsingError::LayoutMinWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMinHeightParseError<'a>,
     CssParsingError::LayoutMinHeight
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMaxWidthParseError<'a>,
     CssParsingError::LayoutMaxWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutMaxHeightParseError<'a>,
     CssParsingError::LayoutMaxHeight
 );
 
 // Layout position
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutPositionParseError<'a>,
     CssParsingError::LayoutPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
+#[cfg(feature = "parser")]
 impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
+#[cfg(feature = "parser")]
 impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutInsetBottomParseError<'a>,
     CssParsingError::LayoutInsetBottom
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutZIndexParseError<'a>, CssParsingError::LayoutZIndex);
 
 // Layout flex
+#[cfg(feature = "parser")]
 impl_from!(FlexWrapParseError<'a>, CssParsingError::FlexWrap);
+#[cfg(feature = "parser")]
 impl_from!(FlexDirectionParseError<'a>, CssParsingError::FlexDirection);
+#[cfg(feature = "parser")]
 impl_from!(FlexBasisParseError<'a>, CssParsingError::FlexBasis);
+#[cfg(feature = "parser")]
 impl_from!(
     JustifyContentParseError<'a>,
     CssParsingError::JustifyContent
 );
+#[cfg(feature = "parser")]
 impl_from!(AlignItemsParseError<'a>, CssParsingError::AlignItems);
+#[cfg(feature = "parser")]
 impl_from!(AlignContentParseError<'a>, CssParsingError::AlignContent);
 
 // Layout grid
+#[cfg(feature = "parser")]
 impl_from!(GridParseError<'a>, CssParsingError::Grid);
+#[cfg(feature = "parser")]
 impl_from!(GridAutoFlowParseError<'a>, CssParsingError::GridAutoFlow);
+#[cfg(feature = "parser")]
 impl_from!(JustifySelfParseError<'a>, CssParsingError::JustifySelf);
+#[cfg(feature = "parser")]
 impl_from!(JustifyItemsParseError<'a>, CssParsingError::JustifyItems);
 // pixel value impl_from already exists earlier; avoid duplicate impl
 // impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelValue);
+#[cfg(feature = "parser")]
 impl_from!(AlignSelfParseError<'a>, CssParsingError::AlignSelf);
 
 // Layout wrapping
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutWritingModeParseError<'a>,
     CssParsingError::LayoutWritingMode
 );
+#[cfg(feature = "parser")]
 impl_from!(LayoutClearParseError<'a>, CssParsingError::LayoutClear);
 
 // Layout overflow
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutOverflowParseError<'a>,
     CssParsingError::LayoutOverflow
 );
 
 // Border radius individual corners
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderTopLeftRadiusParseError<'a>,
     CssParsingError::BorderTopLeftRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderTopRightRadiusParseError<'a>,
     CssParsingError::BorderTopRightRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderBottomLeftRadiusParseError<'a>,
     CssParsingError::BorderBottomLeftRadius
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleBorderBottomRightRadiusParseError<'a>,
     CssParsingError::BorderBottomRightRadius
 );
 
 // Border style
+#[cfg(feature = "parser")]
 impl_from!(CssBorderStyleParseError<'a>, CssParsingError::BorderStyle);
 
 // Effects
+#[cfg(feature = "parser")]
 impl_from!(
     CssBackfaceVisibilityParseError<'a>,
     CssParsingError::BackfaceVisibility
 );
+#[cfg(feature = "parser")]
 impl_from!(CssAppRegionParseError<'a>, CssParsingError::AppRegion);
+#[cfg(feature = "parser")]
 impl_from!(
     CssSpatialNavigationActionParseError<'a>,
     CssParsingError::SpatialNavigationAction
 );
+#[cfg(feature = "parser")]
 impl_from!(
     CssSpatialNavigationContainParseError<'a>,
     CssParsingError::SpatialNavigationContain
 );
+#[cfg(feature = "parser")]
 impl_from!(
     CssSpatialNavigationFunctionParseError<'a>,
     CssParsingError::SpatialNavigationFunction
 );
+#[cfg(feature = "parser")]
 impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
 
 // Text/Style properties
+#[cfg(feature = "parser")]
 impl_from!(StyleTextColorParseError<'a>, CssParsingError::TextColor);
+#[cfg(feature = "parser")]
 impl_from!(CssStyleFontSizeParseError<'a>, CssParsingError::FontSize);
+#[cfg(feature = "parser")]
 impl_from!(StyleTextAlignParseError<'a>, CssParsingError::TextAlign);
+#[cfg(feature = "parser")]
 impl_from!(TextJustifyParseError<'a>, CssParsingError::TextJustify);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleLetterSpacingParseError<'a>,
     CssParsingError::LetterSpacing
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleWordSpacingParseError<'a>, CssParsingError::WordSpacing);
+#[cfg(feature = "parser")]
 impl_from!(StyleTabSizeParseError<'a>, CssParsingError::TabSize);
+#[cfg(feature = "parser")]
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
+#[cfg(feature = "parser")]
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
+#[cfg(feature = "parser")]
 impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleOverflowWrapParseError<'a>,
     CssParsingError::OverflowWrap
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextOverflowParseError<'a>,
     CssParsingError::TextOverflow
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleObjectPositionParseError<'a>,
     CssParsingError::ObjectPosition
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleAspectRatioParseError<'a>, CssParsingError::AspectRatio);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextOrientationParseError<'a>,
     CssParsingError::TextOrientation
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextAlignLastParseError<'a>,
     CssParsingError::TextAlignLast
 );
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextTransformParseError<'a>,
     CssParsingError::TextTransform
 );
+#[cfg(feature = "parser")]
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
+#[cfg(feature = "parser")]
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
+#[cfg(feature = "parser")]
 impl_from!(
     StyleTextDecorationParseError<'a>,
     CssParsingError::TextDecoration
 );
+#[cfg(feature = "parser")]
 impl_from!(CursorParseError<'a>, CssParsingError::Cursor);
 
 // Layout basic properties
+#[cfg(feature = "parser")]
 impl_from!(LayoutDisplayParseError<'a>, CssParsingError::LayoutDisplay);
+#[cfg(feature = "parser")]
 impl_from!(LayoutFloatParseError<'a>, CssParsingError::LayoutFloat);
+#[cfg(feature = "parser")]
 impl_from!(
     LayoutBoxSizingParseError<'a>,
     CssParsingError::LayoutBoxSizing
 );
 
 // DTP properties
+#[cfg(feature = "parser")]
 impl_from!(PageBreakParseError<'a>, CssParsingError::PageBreak);
+#[cfg(feature = "parser")]
 impl_from!(BreakInsideParseError<'a>, CssParsingError::BreakInside);
+#[cfg(feature = "parser")]
 impl_from!(WidowsParseError<'a>, CssParsingError::Widows);
+#[cfg(feature = "parser")]
 impl_from!(OrphansParseError<'a>, CssParsingError::Orphans);
+#[cfg(feature = "parser")]
 impl_from!(
     BoxDecorationBreakParseError<'a>,
     CssParsingError::BoxDecorationBreak
 );
+#[cfg(feature = "parser")]
 impl_from!(ColumnCountParseError<'a>, CssParsingError::ColumnCount);
+#[cfg(feature = "parser")]
 impl_from!(ColumnWidthParseError<'a>, CssParsingError::ColumnWidth);
+#[cfg(feature = "parser")]
 impl_from!(ColumnSpanParseError<'a>, CssParsingError::ColumnSpan);
+#[cfg(feature = "parser")]
 impl_from!(ColumnFillParseError<'a>, CssParsingError::ColumnFill);
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleWidthParseError<'a>,
     CssParsingError::ColumnRuleWidth
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleStyleParseError<'a>,
     CssParsingError::ColumnRuleStyle
 );
+#[cfg(feature = "parser")]
 impl_from!(
     ColumnRuleColorParseError<'a>,
     CssParsingError::ColumnRuleColor
 );
+#[cfg(feature = "parser")]
 impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
+#[cfg(feature = "parser")]
 impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
 
+#[cfg(feature = "parser")]
 impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
     fn from(e: InvalidValueErr<'a>) -> Self {
         CssParsingError::InvalidValue(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<PercentageParseError> for CssParsingError<'_> {
     fn from(e: PercentageParseError) -> Self {
         CssParsingError::Percentage(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<StyleLineHeightParseError> for CssParsingError<'_> {
     fn from(e: StyleLineHeightParseError) -> Self {
         CssParsingError::LineHeight(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl<'a> From<StyleTextIndentParseError<'a>> for CssParsingError<'a> {
     fn from(e: StyleTextIndentParseError<'a>) -> Self {
         CssParsingError::TextIndent(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
     fn from(e: StyleVerticalAlignParseError<'a>) -> Self {
         CssParsingError::VerticalAlign(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl CssParsingError<'_> {
     #[allow(clippy::too_many_lines)]
     // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
@@ -3178,6 +3321,7 @@ impl CssParsingError<'_> {
     }
 }
 
+#[cfg(feature = "parser")]
 impl CssParsingErrorOwned {
     #[allow(clippy::too_many_lines)]
     // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per

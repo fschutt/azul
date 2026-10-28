@@ -4,24 +4,22 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt;
-use std::num::ParseFloatError;
+use core::{fmt, num::ParseFloatError};
 
-#[cfg(feature = "parser")]
 use crate::props::basic::{
     error::WrongComponentCountError,
-    length::parse_float_value,
-    parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
+    parse::{ParenthesisParseError, ParenthesisParseErrorOwned},
+};
+#[cfg(feature = "parser")]
+use crate::props::basic::{
+    angle::parse_angle_value, length::parse_float_value, parse::parse_parentheses,
 };
 use crate::{
     hash::GetHash,
     corety::AzString,
     props::{
         basic::{
-            angle::{
-                parse_angle_value, AngleValue, CssAngleValueParseError,
-                CssAngleValueParseErrorOwned,
-            },
+            angle::{AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned},
             length::{PercentageParseError, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
@@ -1227,7 +1225,7 @@ fn interpolate_transform(
     // Degrees, UNFOLDED: `rotate(720deg)` is two turns, not none.
     let angle = |from: &AngleValue, to: &AngleValue| {
         let (from, to) = (from.to_degrees_raw(), to.to_degrees_raw());
-        AngleValue::deg((to - from).mul_add(t, from))
+        AngleValue::deg(libm::fmaf(to - from, t, from))
     };
     Some(match (from, to) {
         (T::Rotate(from), T::Rotate(to)) => T::Rotate(angle(from, to)),

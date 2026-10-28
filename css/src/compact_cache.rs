@@ -1274,7 +1274,7 @@ pub const fn decode_pixel_value_u32(encoded: u32) -> Option<PixelValue> {
 #[inline]
 #[must_use]
 pub fn encode_resolved_px_i16(px: f32) -> i16 {
-    let scaled = crate::cast::f32_to_i32((px * 10.0).round());
+    let scaled = crate::cast::f32_to_i32(libm::roundf(px * 10.0));
     if scaled < -32768 || scaled > i32::from(I16_SENTINEL_THRESHOLD) - 1 {
         return I16_SENTINEL; // overflow or too large → tier 3
     }
@@ -1313,7 +1313,7 @@ pub enum CompactLineHeight {
 #[inline]
 #[must_use]
 pub fn encode_line_height_factor(factor: f32) -> i16 {
-    let scaled = crate::cast::f32_to_i32((factor * 1000.0).round());
+    let scaled = crate::cast::f32_to_i32(libm::roundf(factor * 1000.0));
     if scaled < 0 || scaled >= i32::from(I16_SENTINEL_THRESHOLD) {
         return I16_AUTO;
     }
@@ -1328,7 +1328,7 @@ pub fn encode_line_height_factor(factor: f32) -> i16 {
 #[inline]
 #[must_use]
 pub fn encode_line_height_px(px: f32) -> i16 {
-    let scaled = crate::cast::f32_to_i32((-px * 100.0).round());
+    let scaled = crate::cast::f32_to_i32(libm::roundf(-px * 100.0));
     if !(-32768..=0).contains(&scaled) {
         return I16_AUTO;
     }
@@ -1357,7 +1357,7 @@ pub fn decode_line_height(v: i16) -> CompactLineHeight {
 #[inline]
 #[must_use]
 pub fn encode_flex_u16(value: f32) -> u16 {
-    let scaled = crate::cast::f32_to_i32((value * 100.0).round());
+    let scaled = crate::cast::f32_to_i32(libm::roundf(value * 100.0));
     if scaled < 0 || scaled >= i32::from(U16_SENTINEL_THRESHOLD) {
         return U16_SENTINEL;
     }

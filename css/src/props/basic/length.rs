@@ -1,8 +1,8 @@
 //! Hash-able floating-point wrappers, percentage values, and CSS size
 //! metric types used by the CSS property system.
 
-use core::fmt;
-use std::num::ParseFloatError;
+use alloc::string::ToString;
+use core::{fmt, num::ParseFloatError};
 
 use crate::corety::AzString;
 

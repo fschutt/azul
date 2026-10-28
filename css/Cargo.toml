@@ -23,10 +23,17 @@ libm = { version = "0.2.2", default-features = false }
 azul-simplecss = { version = "0.2.3", default-features = false, optional = true }
 
 [features]
-default = ["parser"]
+default = ["std", "parser"]
 
-# CSS parser support (azul-simplecss)
-parser = ["dep:azul-simplecss"]
+# The standard library. Without it the crate is `no_std` + `alloc`: the CSS
+# data model, the property values and the cascade stay; what reads the
+# process environment (`AZ_RICING`, the desktop's variables) goes, and
+# `AZ_THEME` / `AZ_MODE` read as unset.
+std = []
+
+# CSS parser support (azul-simplecss). azul-simplecss has no `no_std` mode
+# (it links std), so the parser needs `std`.
+parser = ["dep:azul-simplecss", "std"]
 
 # CSS -> source code generation (`azul_css::codegen`): one language-neutral IR
 # lowered from the parsed model + one printer per binding language (Rust, C,

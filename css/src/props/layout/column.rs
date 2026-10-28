@@ -9,18 +9,18 @@ use core::num::ParseIntError;
 
 use crate::props::{
     basic::{
-        color::{
-            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
-            CssColorParseErrorOwned,
-        },
+        color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
         pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
     },
     formatter::PrintAsCssValue,
-    style::border::{
-        parse_border_style, BorderStyle, CssBorderStyleParseError, CssBorderStyleParseErrorOwned,
-    },
+    style::border::BorderStyle,
+};
+#[cfg(feature = "parser")]
+use crate::props::{
+    basic::color::{parse_color_or_system_token, parse_css_color},
+    style::border::{parse_border_style, CssBorderStyleParseError, CssBorderStyleParseErrorOwned},
 };
 
 // --- column-count ---

@@ -4,7 +4,10 @@
 //! (behind the `parser` feature) has a corresponding `parse_style_*` function
 //! with borrowed/owned error type pairs.
 
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::fmt;
 
 #[cfg(feature = "codegen")]

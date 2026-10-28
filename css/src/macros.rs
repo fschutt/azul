@@ -375,6 +375,9 @@ macro_rules! impl_vec {
 /// impl_from!(BarError<'a>, MyError::Bar);
 /// impl_from!(FooError<'a>, MyError::Foo);
 /// ```
+// Without the parser nothing converts between lifetime-free errors, so the
+// second arm goes unused there.
+#[cfg_attr(not(feature = "parser"), allow(unused_macro_rules))]
 macro_rules! impl_from {
     // From a type with a lifetime to a type which also has a lifetime
     ($a:ident < $c:lifetime > , $b:ident:: $enum_type:ident) => {

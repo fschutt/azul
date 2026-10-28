@@ -5,7 +5,10 @@
 //! [`CounterSet`] (each a list of [`CounterEntry`]) and [`StringSet`], which
 //! are registered as [`CssProperty`] variants.
 
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 

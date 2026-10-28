@@ -1,5 +1,10 @@
 //! Dynamic CSS selectors for runtime evaluation based on OS, media queries, container queries, etc.
 
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+
 use crate::{
     corety::{AzString, OptionString, StringVec},
     props::property::CssProperty,
@@ -1823,7 +1828,7 @@ impl DynamicSelectorContext {
     #[must_use]
     pub fn paint_defaults_fingerprint(&self) -> u64 {
         use core::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut h = crate::hash::SipHasher13::new();
         self.mode.hash(&mut h);
         self.system_colors.hash(&mut h);
         h.finish()

@@ -1,5 +1,10 @@
 //! SVG geometry primitives (points, curves, rects, vectors) and animation interpolation functions.
 
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+
 use crate::impl_option;
 
 /// Precision-reducing `usize` → `f64` for Bézier sample indices. The step count
@@ -86,7 +91,7 @@ impl SpringCurve {
     /// The damping ratio: < 1 under-damped (overshoots), 1 critical, > 1 over-damped.
     #[must_use]
     pub fn damping_ratio(&self) -> f32 {
-        let denom = 2.0 * (self.stiffness * self.mass).sqrt();
+        let denom = 2.0 * libm::sqrtf(self.stiffness * self.mass);
         if denom == 0.0 {
             0.0
         } else {
@@ -561,7 +566,7 @@ impl SvgVector {
     #[inline]
     #[must_use]
     pub fn angle_degrees(&self) -> f64 {
-        (-self.y).atan2(self.x).to_degrees()
+        libm::atan2(-self.y, self.x).to_degrees()
     }
 
     /// Returns a unit-length vector in the same direction, or zero if the length is zero.
@@ -795,28 +800,28 @@ fn spring_progress(spring: SpringCurve, t: f64) -> f64 {
     {
         return t;
     }
-    let w0 = (stiffness / mass).sqrt();
-    let zeta = damping / (2.0 * (stiffness * mass).sqrt());
+    let w0 = libm::sqrt(stiffness / mass);
+    let zeta = damping / (2.0 * libm::sqrt(stiffness * mass));
     if zeta < 1.0 - 1e-6 {
         // Under-damped: a decaying oscillation about the target.
-        let ratio = (1.0 - zeta * zeta).sqrt();
-        let settle = (1.0 / (SPRING_SETTLE * ratio)).ln() / (zeta * w0);
+        let ratio = libm::sqrt(1.0 - zeta * zeta);
+        let settle = libm::log(1.0 / (SPRING_SETTLE * ratio)) / (zeta * w0);
         let time = t * settle;
         let wd = w0 * ratio;
-        1.0 - (-zeta * w0 * time).exp()
-            * ((wd * time).cos() + (zeta * w0 / wd) * (wd * time).sin())
+        1.0 - libm::exp(-zeta * w0 * time)
+            * (libm::cos(wd * time) + (zeta * w0 / wd) * libm::sin(wd * time))
     } else if zeta <= 1.0 + 1e-6 {
         // Critical: (1 + x) e^-x falls to the settle band at x = 9.23.
         let time = t * 9.233 / w0;
-        1.0 - (-w0 * time).exp() * (1.0 + w0 * time)
+        1.0 - libm::exp(-w0 * time) * (1.0 + w0 * time)
     } else {
         // Over-damped: two real decays; the slow one decides the settle time.
-        let r = (zeta * zeta - 1.0).sqrt();
+        let r = libm::sqrt(zeta * zeta - 1.0);
         let s1 = -w0 * (zeta - r);
         let s2 = -w0 * (zeta + r);
-        let settle = ((1.0 / SPRING_SETTLE).ln() + 1.0) / -s1;
+        let settle = (libm::log(1.0 / SPRING_SETTLE) + 1.0) / -s1;
         let time = t * settle;
-        1.0 + (s2 * (s1 * time).exp() - s1 * (s2 * time).exp()) / (s1 - s2)
+        1.0 + (s2 * libm::exp(s1 * time) - s1 * libm::exp(s2 * time)) / (s1 - s2)
     }
 }
 
@@ -2746,10 +2751,10 @@ impl AnimationTiming {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             // bounded by the range checks above / i16 saturation below
             return Some(Self::CubicBezier(AnimationTimingBezier {
-                x1: (x1 * 1000.0).round() as u16,
-                y1: (y1 * 1000.0).round().clamp(-32767.0, 32767.0) as i16,
-                x2: (x2 * 1000.0).round() as u16,
-                y2: (y2 * 1000.0).round().clamp(-32767.0, 32767.0) as i16,
+                x1: libm::roundf(x1 * 1000.0) as u16,
+                y1: libm::roundf(y1 * 1000.0).clamp(-32767.0, 32767.0) as i16,
+                x2: libm::roundf(x2 * 1000.0) as u16,
+                y2: libm::roundf(y2 * 1000.0).clamp(-32767.0, 32767.0) as i16,
             }));
         }
         Some(match s {
@@ -2856,6 +2861,7 @@ impl crate::css::PrintAsCssValue for StyleAnimation {
     }
 }
 
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StyleAnimationParseError<'a> {
     /// The whole declaration was empty or had no recognisable name.
@@ -2864,6 +2870,7 @@ pub enum StyleAnimationParseError<'a> {
     Duration(crate::props::basic::time::DurationParseError<'a>),
 }
 
+#[cfg(feature = "parser")]
 impl core::fmt::Display for StyleAnimationParseError<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -2873,6 +2880,7 @@ impl core::fmt::Display for StyleAnimationParseError<'_> {
     }
 }
 
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleAnimationParseErrorOwned {
@@ -2883,6 +2891,7 @@ pub enum StyleAnimationParseErrorOwned {
     Duration(crate::props::basic::time::DurationParseErrorOwned),
 }
 
+#[cfg(feature = "parser")]
 impl StyleAnimationParseError<'_> {
     #[must_use]
     pub fn to_contained(&self) -> StyleAnimationParseErrorOwned {
@@ -2893,6 +2902,7 @@ impl StyleAnimationParseError<'_> {
     }
 }
 
+#[cfg(feature = "parser")]
 impl StyleAnimationParseErrorOwned {
     #[must_use]
     pub fn to_shared(&self) -> StyleAnimationParseError<'_> {
@@ -2903,6 +2913,7 @@ impl StyleAnimationParseErrorOwned {
     }
 }
 
+#[cfg(feature = "parser")]
 /// Parse `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`.
 ///
 /// The name is any non-keyword token; order is name-first (web `animation`
@@ -2972,6 +2983,7 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
     })
 }
 
+#[cfg(feature = "parser")]
 /// The full `animation` value: a COMMA-SEPARATED list, one entry per
 /// animation, so different properties can animate on different clocks
 /// (`animation: width 1s linear, color 2s ease-out`).

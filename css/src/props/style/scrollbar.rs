@@ -5,10 +5,7 @@ use alloc::string::{String, ToString};
 use crate::{
     corety::AzString,
     props::{
-        basic::color::{
-            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
-            CssColorParseErrorOwned,
-        },
+        basic::color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
         formatter::PrintAsCssValue,
         layout::{
             dimensions::LayoutWidth,
@@ -17,6 +14,8 @@ use crate::{
         style::background::StyleBackgroundContent,
     },
 };
+#[cfg(feature = "parser")]
+use crate::props::basic::color::{parse_color_or_system_token, parse_css_color};
 
 // ============================================================================
 // CSS Standard Scroll Behavior Properties

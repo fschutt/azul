@@ -18,8 +18,9 @@ use core::{
     sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering},
 };
 
+use crate::props::basic::parse::UnclosedQuotesError;
 #[cfg(feature = "parser")]
-use crate::props::basic::parse::{split_top_level, strip_quotes, UnclosedQuotesError};
+use crate::props::basic::parse::{split_top_level, strip_quotes};
 #[cfg(feature = "codegen")]
 use crate::codegen::format::FormatAsRustCode;
 use crate::{

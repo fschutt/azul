@@ -8,7 +8,10 @@
 //! - `caption-side`: Specifies the placement of a table caption
 //! - `empty-cells`: Specifies whether or not to display borders on empty cells in a table
 
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 #[cfg(feature = "codegen")]
 use crate::codegen::format::FormatAsRustCode;

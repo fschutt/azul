@@ -11,13 +11,13 @@ use crate::{
     corety::AzString,
     impl_option,
     props::basic::{
-        direction::{
-            parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
-        },
+        direction::{CssDirectionParseError, CssDirectionParseErrorOwned, Direction},
         error::{ParseFloatError, ParseIntError},
         length::{PercentageParseError, PercentageValue},
     },
 };
+#[cfg(feature = "parser")]
+use crate::props::basic::direction::parse_direction;
 
 /// Round-saturating `f32` → `u8` for colour channels. Rust's `as u8` already
 /// saturates a float (NaN→0, negatives→0, >255→255, otherwise truncates toward

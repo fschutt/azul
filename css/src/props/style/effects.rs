@@ -37,7 +37,6 @@ impl PrintAsCssValue for StyleOpacity {
     }
 }
 
-#[cfg(feature = "parser")]
 impl_percentage_value!(StyleOpacity);
 
 // -- Zoom --
@@ -83,7 +82,6 @@ impl PrintAsCssValue for StyleZoom {
     }
 }
 
-#[cfg(feature = "parser")]
 impl_percentage_value!(StyleZoom);
 
 // -- Visibility --
